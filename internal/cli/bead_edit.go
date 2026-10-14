@@ -100,9 +100,20 @@ func (a *app) newBeadUpdateCmd(rev *string) *cobra.Command {
 	update := &cobra.Command{
 		Use:   "update <id>",
 		Short: "Change a bead's fields (use advance to change stage)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Changes a bead's fields (use advance to change stage).
+
+When the body or the title of a bead with a live session changes, and the
+writer is not that session itself, the session is told of it with a note,
+as one written with yardr bead note is: what changed (body, title, or
+both), never the new text. Anything else a patch changes (labels,
+priority, metadata, type, depot) tells nothing.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			old, err := st.GetBead(c.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -134,11 +145,35 @@ func (a *app) newBeadUpdateCmd(rev *string) *cobra.Command {
 					return err
 				}
 			}
-			b, err := st.UpdateBead(c.Context(), args[0], p, store.Expect{Revision: *rev}, a.who())
+			b, err := st.UpdateBead(c.Context(), args[0], p, a.expect(*rev), a.who())
 			if err != nil {
 				return err
 			}
-			return a.printBead(b)
+			// The store leaves a note for the live session when the body
+			// or the title changed under anyone but it, so the session
+			// reads the bead again. A patch that names them but changes
+			// neither tells nothing.
+			told := ""
+			if b.Session != nil && *b.Session != a.identity().session {
+				bodyChanged := p.Body != nil && *p.Body != old.Body
+				titleChanged := p.Title != nil && *p.Title != old.Title
+				if bodyChanged || titleChanged {
+					told = *b.Session
+				}
+			}
+			if a.json {
+				return a.out(struct {
+					*store.Bead
+					Notify string `json:"notify,omitempty"`
+				}{b, told}, nil)
+			}
+			if err := a.printBead(b); err != nil {
+				return err
+			}
+			if told != "" {
+				fmt.Printf("(session %s will be told)\n", told)
+			}
+			return nil
 		},
 	}
 	uf := update.Flags()

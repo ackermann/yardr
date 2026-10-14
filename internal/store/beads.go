@@ -919,6 +919,15 @@ type BeadPatch struct {
 }
 
 // UpdateBead applies p. A stale exp refuses it (see Expect).
+//
+// When the patch changes the body or the title of a bead with a live
+// session, and the writer is not that session itself, the write also leaves
+// a note for the session, in the same transaction: what changed (body,
+// title, or both), never the new text, so the session reads the bead again.
+// The note is told and gated like one written with yardr bead note (Notify).
+// Anything else a patch changes (labels, priority, metadata, type, depot)
+// leaves no note, nor does a write by the session itself or one on a bead
+// with no live session.
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -948,72 +957,121 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			return nil, err
 		}
 	}
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := w.check(ctx, exp, b); err != nil {
-			return "", nil, err
-		}
-		// was holds what each field the patch names was before it: the
-		// log is the bead's history (History), and the only place an old
-		// title or body is kept. It is a map of its own, so nothing that
-		// reads an event's plain values (a mention, a feed entry, a span)
-		// takes an old body for something said now.
-		changed, was := map[string]any{}, map[string]any{}
-		if p.Title != nil {
-			was["title"] = b.Title
-			b.Title, changed["title"] = *p.Title, *p.Title
-		}
-		if p.Body != nil {
-			was["body"] = b.Body
-			b.Body, changed["body"] = *p.Body, true
-		}
-		if p.Type != nil {
-			was["type"] = b.Type
-			b.Type, changed["type"] = *p.Type, *p.Type
-		}
-		if p.Priority != nil {
-			was["priority"] = b.Priority
-			b.Priority, changed["priority"] = *p.Priority, *p.Priority
-		}
-		if p.Depot != nil {
-			if w.Bucket(bDepots).Get([]byte(*p.Depot)) == nil {
-				return "", nil, fmt.Errorf("depot %s: %w", *p.Depot, ErrNotFound)
+	var titleChanged, bodyChanged bool
+	var result *Bead
+	err := s.write(func(w *wtx) error {
+		var err error
+		result, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if err := w.check(ctx, exp, b); err != nil {
+				return "", nil, err
 			}
-			was["depot"] = ""
-			if b.Depot != nil {
-				was["depot"] = *b.Depot
+			// was holds what each field the patch names was before it: the
+			// log is the bead's history (History), and the only place an old
+			// title or body is kept. It is a map of its own, so nothing that
+			// reads an event's plain values (a mention, a feed entry, a span)
+			// takes an old body for something said now.
+			changed, was := map[string]any{}, map[string]any{}
+			if p.Title != nil {
+				if *p.Title != b.Title {
+					titleChanged = true
+				}
+				was["title"] = b.Title
+				b.Title, changed["title"] = *p.Title, *p.Title
 			}
-			b.Depot, changed["depot"] = p.Depot, *p.Depot
-		}
-		if len(p.AddLabels) > 0 || len(p.RemoveLabel) > 0 {
-			was["labels"] = slices.Clone(b.Labels)
-			labels := dedupe(append(slices.Clone(b.Labels), p.AddLabels...))
-			labels = slices.DeleteFunc(labels, func(l string) bool { return slices.Contains(p.RemoveLabel, l) })
-			b.Labels = labels
-			changed["labels_added"], changed["labels_removed"] = p.AddLabels, p.RemoveLabel
-		}
-		if len(p.Metadata) > 0 {
-			if b.Metadata == nil {
-				b.Metadata = map[string]any{}
+			if p.Body != nil {
+				if *p.Body != b.Body {
+					bodyChanged = true
+				}
+				was["body"] = b.Body
+				b.Body, changed["body"] = *p.Body, true
 			}
-			// The keys the patch sets, and nil for one the bead did not have.
-			before := map[string]any{}
-			for k, v := range p.Metadata {
-				before[k] = b.Metadata[k]
-				b.Metadata[k] = v
+			if p.Type != nil {
+				was["type"] = b.Type
+				b.Type, changed["type"] = *p.Type, *p.Type
 			}
-			was["metadata"] = before
-			changed["metadata"] = p.Metadata
-		}
-		if len(was) > 0 {
-			changed["was"] = was
-		}
-		if pin != "" {
-			if _, _, err := resolveFlow(w.Tx, b.Depot, b.Type, pin, repo); err != nil {
-				return "", nil, changedMeanwhile(err)
+			if p.Priority != nil {
+				was["priority"] = b.Priority
+				b.Priority, changed["priority"] = *p.Priority, *p.Priority
 			}
+			if p.Depot != nil {
+				if w.Bucket(bDepots).Get([]byte(*p.Depot)) == nil {
+					return "", nil, fmt.Errorf("depot %s: %w", *p.Depot, ErrNotFound)
+				}
+				was["depot"] = ""
+				if b.Depot != nil {
+					was["depot"] = *b.Depot
+				}
+				b.Depot, changed["depot"] = p.Depot, *p.Depot
+			}
+			if len(p.AddLabels) > 0 || len(p.RemoveLabel) > 0 {
+				was["labels"] = slices.Clone(b.Labels)
+				labels := dedupe(append(slices.Clone(b.Labels), p.AddLabels...))
+				labels = slices.DeleteFunc(labels, func(l string) bool { return slices.Contains(p.RemoveLabel, l) })
+				b.Labels = labels
+				changed["labels_added"], changed["labels_removed"] = p.AddLabels, p.RemoveLabel
+			}
+			if len(p.Metadata) > 0 {
+				if b.Metadata == nil {
+					b.Metadata = map[string]any{}
+				}
+				// The keys the patch sets, and nil for one the bead did not have.
+				before := map[string]any{}
+				for k, v := range p.Metadata {
+					before[k] = b.Metadata[k]
+					b.Metadata[k] = v
+				}
+				was["metadata"] = before
+				changed["metadata"] = p.Metadata
+			}
+			if len(was) > 0 {
+				changed["was"] = was
+			}
+			if pin != "" {
+				if _, _, err := resolveFlow(w.Tx, b.Depot, b.Type, pin, repo); err != nil {
+					return "", nil, changedMeanwhile(err)
+				}
+			}
+			return "updated", changed, nil
+		})
+		if err != nil {
+			return err
 		}
-		return "updated", changed, nil
+		if !titleChanged && !bodyChanged {
+			return nil
+		}
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		if row.Session == nil {
+			return nil
+		}
+		sess, err := w.callerSession(ctx, exp, row)
+		if err != nil {
+			return err
+		}
+		writer := ""
+		if sess != nil {
+			writer = sess.ID
+		}
+		if writer == *row.Session {
+			return nil
+		}
+		what := "body and title"
+		switch {
+		case bodyChanged && !titleChanged:
+			what = "body"
+		case titleChanged && !bodyChanged:
+			what = "title"
+		}
+		text := fmt.Sprintf("%s changed: read the bead again (yardr bead show %s)", what, row.ID)
+		if _, err := w.addNotedNotify(row, NoteNote, text, actor, *row.Session, nil); err != nil {
+			return err
+		}
+		result = &row.Bead
+		return nil
 	})
+	return result, err
 }
 
 // changeBead loads a bead, applies fn, and when the state really changed
