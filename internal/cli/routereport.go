@@ -87,13 +87,22 @@ type reportExit struct {
 	seq   uint64
 }
 
+// reportOriginator resolves a bead's stored originator as it is read in the
+// report. Older or incomplete records with none belong to the operator.
+func reportOriginator(b store.Bead, operator string) string {
+	if b.Originator != "" {
+		return b.Originator
+	}
+	return operator
+}
+
 // summarizeRouteEvents builds the report from the events read oldest first.
 // Beads come from the bead records, not the log: only closed beads count,
 // under the labels they have now and the user each is for, or under "-"
 // when they have none of the prefixes. A bead a group never claimed is in
 // no cell; one two groups worked in one stage is in each group's. BY
-// HARNESS counts every claim with a kind instead, open beads included:
-// sessions ran, not beads closed.
+// HARNESS counts every claim with a kind under the same stage, time and
+// originator filters, open beads included: sessions ran, not beads closed.
 func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts) *routeReport {
 	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}}
 	if len(evs) > 0 {
@@ -125,6 +134,12 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			visited[bead] = store.AppendVisited(visited[bead], stage)
 			if !o.stages[stage] || e.At.Before(o.since) {
 				continue
+			}
+			if o.originator != "" {
+				b, ok := beads[bead]
+				if !ok || reportOriginator(b, o.operator) != o.originator {
+					continue
+				}
 			}
 			c := reportClaim{bead: bead, group: group, stage: stage, session: session, kind: kind, at: e.At, seq: e.Seq}
 			claims = append(claims, c)
@@ -219,10 +234,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		if !ok || b.Status != "closed" {
 			continue
 		}
-		org := b.Originator
-		if org == "" {
-			org = o.operator
-		}
+		org := reportOriginator(b, o.operator)
 		if o.originator != "" && org != o.originator {
 			continue
 		}
@@ -436,8 +448,9 @@ that user, beside the group; --originator reads one person's beads.
 BY HARNESS prints one row per harness kind the groups ran: SESSIONS is
 its claims in the window, HOURS their claim-to-exit time summed and
 MEDIAN the middle of it, STAGES the stages they ran. It counts every
-claim, open beads included, with the same pairing as the first table, so
-the two agree; --since and --stage apply to it as to the first. The
+claim in the selected scope, open beads included, with the same pairing
+as the first table, so the two agree; --originator, --since and --stage
+apply to it as to the first. The
 first line says from when the log still holds events: the report reads
 only what retention kept. It changes nothing.`,
 		Args: cobra.NoArgs,

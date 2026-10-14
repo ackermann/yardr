@@ -357,7 +357,7 @@ func TestRouteReportOriginator(t *testing.T) {
 		t.Fatal(err)
 	}
 	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "jo"))
-	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4, Config: map[string]any{"kind": "claude"}}, "jo"))
 	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "jo")
 	must(err)
 	build := func(id, title, for_ string) {
@@ -409,6 +409,9 @@ func TestRouteReportOriginator(t *testing.T) {
 	}
 	if len(rep.Rows) != 1 || rep.Rows[0].Originator != "hal" || rep.Rows[0].Beads != 1 {
 		t.Errorf("--json rows = %+v, want hal's row alone", rep.Rows)
+	}
+	if len(rep.ByKind) != 1 || rep.ByKind[0].Kind != "claude" || rep.ByKind[0].Sessions != 1 {
+		t.Errorf("--json by_kind = %+v, want only hal's claude session", rep.ByKind)
 	}
 }
 
