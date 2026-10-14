@@ -13,13 +13,13 @@ What of the review reaches the contributor is the maintainer's to post, in
 their own words or the note's, approved text only: `yardr reply --crew
 yardmaster <seq> - < review.md`, where `<seq>` is the number the pull
 request's delivery starts with in the inbox and review.md holds the
-approved text. The command's environment carries the crew's credential,
-the GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE as the
-yardmaster's env_file sets them, so the comment goes out under the yard's
-bot, the App's `<slug>[bot]`; at a bare shell with neither them nor
-GITHUB_TOKEN set, it goes out as the shell's gh login instead. Nothing
-posts by itself: no reviewer, no stage and no hook puts the review on the
-pull request.
+approved text. Run the command in an environment that sets the credential
+variables in the yardmaster's `env_file`; for a GitHub App, the source's
+`mint_command` turns its two inputs into the token for the comment. It goes
+out under the yard's bot, the App's `<slug>[bot]`. A command without a
+credential set in its environment is refused; yardr does not use the shell's
+`gh` login. Nothing posts by itself:
+no reviewer, no stage and no hook puts the review on the pull request.
 
 A write through the yard's GitHub App is not proven everywhere:
 check the comment appeared on the pull request.
