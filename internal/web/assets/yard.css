@@ -230,6 +230,7 @@ ul, ol { list-style: none; }
 .needs li > a { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; white-space: nowrap; font-family: var(--sans); }
 .needs .dot, .needs .separator, .needs .label, .needs .faint { flex: 0 0 auto; }
 .needs .label, .needs .faint { font-family: var(--mono); }
+.needs .bead { font-family: var(--mono); }
 .needs .stage { font-family: var(--mono); }
 .needs .entry-title { display: block; flex: 1 1 0; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* An ask's bead, topic and age ride together after the question; the

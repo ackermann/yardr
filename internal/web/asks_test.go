@@ -116,7 +116,7 @@ func TestHomeNeedsAsk(t *testing.T) {
 	}
 	want := `<a href="/beads/` + b.ID + `" class="ask"><span class="entry-title ask-q">Move the links now?</span>` +
 		`<span class="separator" aria-hidden="true">·</span>` +
-		`<span class="ask-meta"><span class="label">` + b.ID + `</span>` +
+		`<span class="ask-meta"><span class="bead">` + b.ID + `</span>` +
 		`<span class="separator" aria-hidden="true">·</span><span class="faint">`
 	if !strings.Contains(s, want) {
 		t.Errorf("the row lacks %q", want)
@@ -281,7 +281,7 @@ func TestHomeNeedsAskTopic(t *testing.T) {
 	b := askBead(t, f, "a door", "new", "topic:linear-out", "area:web")
 	askOn(t, f, b.ID, pickAsk())
 	s := answerSection(t, f.get("/").body)
-	want := `<span class="ask-meta"><span class="label">` + b.ID + `</span><span class="label"> linear-out</span>`
+	want := `<span class="ask-meta"><span class="bead">` + b.ID + `</span><span class="label"> linear-out</span>`
 	if !strings.Contains(s, want) {
 		t.Errorf("the row lacks %q", want)
 	}
@@ -297,8 +297,11 @@ func TestHomeNeedsAskTopic(t *testing.T) {
 		if id != nolabel.ID {
 			continue
 		}
-		if n := strings.Count(row, `<span class="label">`); n != 1 {
-			t.Errorf("the labelless row has %d small spans, want the id alone", n)
+		if !strings.Contains(row, `<span class="bead">`+nolabel.ID+`</span>`) {
+			t.Errorf("the labelless row lacks its linked bead id")
+		}
+		if strings.Contains(row, `<span class="label">`) {
+			t.Errorf("the labelless row has a topic label: %q", row)
 		}
 	}
 }
