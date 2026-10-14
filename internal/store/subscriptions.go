@@ -315,6 +315,19 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	})
 }
 
+// AddSubscriptionKind is AddSubscription for the subscriber of one stated
+// kind ("crew", "user" or "group") called name, and no other.
+func (s *Store) AddSubscriptionKind(ctx context.Context, name, kind string, sub Subscription, actor string) error {
+	if err := sub.check(); err != nil {
+		return err
+	}
+	return s.write(func(w *wtx) error {
+		sub := sub
+		sub.Where = maps.Clone(sub.Where)
+		return w.addSubscriptionKind(name, kind, sub, actor)
+	})
+}
+
 // check refuses a subscription that no record of the yard is needed to
 // refuse: one without a source or a scope, an empty value, several beads,
 // and a yardr state that is not done.
@@ -346,8 +359,10 @@ func (sub Subscription) check() error {
 // bindSubscription holds the subscription sub of name, which check has
 // passed, to the yard's records, and writes into it what is stored: the keys
 // it filters on are the source's, and a bead and a train are kept as
-// handles. It writes nothing to the store.
-func (w *wtx) bindSubscription(name string, sub *Subscription) error {
+// handles. It writes nothing to the store. kind is the subscriber's, "" to
+// read it from the name: a user has no identity or thread participation in
+// a hook source, so only --scope all is kept for one.
+func (w *wtx) bindSubscription(name, kind string, sub *Subscription) error {
 	if len(sub.Where) == 0 {
 		sub.Where = nil
 	}
@@ -357,10 +372,16 @@ func (w *wtx) bindSubscription(name string, sub *Subscription) error {
 			return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
 		}
 	}
-	var user User
-	if ok, err := get(w.Tx, bUsers, name, &user); err != nil {
-		return err
-	} else if ok && sub.Source != SourceYardr && sub.Scope != ScopeAll {
+	user := false
+	if kind == "" || kind == "user" {
+		var u User
+		ok, err := get(w.Tx, bUsers, name, &u)
+		if err != nil {
+			return err
+		}
+		user = ok
+	}
+	if user && sub.Source != SourceYardr && sub.Scope != ScopeAll {
 		return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
 	}
 	// The peer source's bead is this yard's, kept by its handle as its
@@ -399,7 +420,7 @@ func (w *wtx) bindSubscription(name string, sub *Subscription) error {
 // subscription check has passed. by is the ask it was approved on, nil for
 // one typed at a terminal: the event then names it (ApproveAsk).
 func (w *wtx) addSubscription(name string, sub Subscription, actor string, by *approvedOn) error {
-	if err := w.bindSubscription(name, &sub); err != nil {
+	if err := w.bindSubscription(name, "", &sub); err != nil {
 		return err
 	}
 	return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
@@ -414,11 +435,32 @@ func (w *wtx) addSubscription(name string, sub Subscription, actor string, by *a
 	})
 }
 
+// addSubscriptionKind is addSubscription for one stated kind of subscriber.
+func (w *wtx) addSubscriptionKind(name, kind string, sub Subscription, actor string) error {
+	if err := w.bindSubscription(name, kind, &sub); err != nil {
+		return err
+	}
+	return w.changeSubscriptionsKind(name, kind, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+		if slices.ContainsFunc(subs, sub.same) {
+			return subs, "", nil, nil
+		}
+		return append(subs, sub), "subscribed", map[string]any{"subscription": sub.String()}, nil
+	})
+}
+
 // RemoveSubscriptions drops the subscriptions of the crew member (or manual
 // group) name to source, only those of scope and with exactly where when
 // given, and reports how many.
 func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
-	return s.dropSubscriptions(name, source, actor, func(sub Subscription) bool {
+	return s.dropSubscriptions(name, "", source, actor, func(sub Subscription) bool {
+		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
+	})
+}
+
+// RemoveSubscriptionsKind is RemoveSubscriptions for the subscriber of one
+// stated kind ("crew", "user" or "group") called name, and no other.
+func (s *Store) RemoveSubscriptionsKind(ctx context.Context, name, kind, source, scope string, where map[string]string, actor string) (int, error) {
+	return s.dropSubscriptions(name, kind, source, actor, func(sub Subscription) bool {
 		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
 	})
 }
@@ -430,13 +472,19 @@ func (s *Store) Unwatch(ctx context.Context, name, bead, actor string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	return s.dropSubscriptions(name, SourceYardr, actor, func(sub Subscription) bool { return sub.Where["bead"] == b.ID })
+	return s.dropSubscriptions(name, "", SourceYardr, actor, func(sub Subscription) bool { return sub.Where["bead"] == b.ID })
 }
 
-func (s *Store) dropSubscriptions(name, source, actor string, match func(Subscription) bool) (int, error) {
+func (s *Store) dropSubscriptions(name, kind, source, actor string, match func(Subscription) bool) (int, error) {
 	n := 0
 	err := s.write(func(w *wtx) error {
-		return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+		change := func(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+			if kind == "" {
+				return w.changeSubscriptions(name, actor, fn)
+			}
+			return w.changeSubscriptionsKind(name, kind, actor, fn)
+		}
+		return change(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
 			var keep []Subscription
 			var gone []string
 			for _, sub := range subs {
@@ -465,53 +513,161 @@ func (s *Store) dropSubscriptions(name, source, actor string, match func(Subscri
 // returns, and logs fn's event (none when kind is ""): on the crew member's
 // journal, or unattached for a user or a group. A user's are changed by
 // the user and the operator only.
+//
+// A crew member and a manual group may share a name. Then fn runs against
+// both lists: when only one has matching subscriptions it is changed there,
+// and when both do the change is refused naming both, to be repeated for
+// one of them with changeSubscriptionsKind. Adding under a shared name
+// still lands on the crew member: only a removal shortens the list it
+// matches, so only one is ever shared out.
 func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	var r CrewMember
-	if ok, err := get(w.Tx, bCrew, name, &r); err != nil {
+	crew, err := get(w.Tx, bCrew, name, &r)
+	if err != nil {
 		return err
-	} else if ok {
-		subs, kind, data, err := fn(r.Subscriptions)
-		if err != nil || kind == "" {
-			return err
-		}
-		r.Subscriptions = subs
-		if err := put(w.Tx, bCrew, name, r); err != nil {
-			return err
-		}
-		data["crew"] = name
-		return w.event(r.Journal, kind, actor, data)
+	}
+	var g Group
+	group, err := get(w.Tx, bGroups, name, &g)
+	if err != nil {
+		return err
+	}
+	if crew && group && g.Runner == "manual" {
+		return w.changeSharedSubscriptions(name, actor, r, g, fn)
+	}
+	if crew {
+		return w.applyCrew(name, r, actor, fn)
 	}
 	var u User
 	if ok, err := get(w.Tx, bUsers, name, &u); err != nil {
 		return err
 	} else if ok {
-		if err := w.maySubscribe(name, actor); err != nil {
-			return err
-		}
-		subs, kind, data, err := fn(u.Subscriptions)
-		if err != nil || kind == "" {
-			return err
-		}
-		u.Subscriptions = subs
-		if err := put(w.Tx, bUsers, name, u); err != nil {
-			return err
-		}
-		data["user"] = name
-		return w.event("", kind, actor, data)
+		return w.applyUser(name, u, actor, fn)
 	}
-	var g Group
-	if ok, err := get(w.Tx, bGroups, name, &g); err != nil {
-		return err
-	} else if !ok {
+	if !group {
 		return fmt.Errorf("no crew member, user or group %s: %w", name, ErrNotFound)
 	}
 	if g.Runner != "manual" {
 		return fmt.Errorf("group %s is %s: only manual groups subscribe, for their members", name, g.Runner)
 	}
+	return w.applyGroup(name, g, actor, fn)
+}
+
+// changeSharedSubscriptions is changeSubscriptions for a name a crew member
+// and a manual group share.
+func (w *wtx) changeSharedSubscriptions(name, actor string, r CrewMember, g Group, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+	crewSubs, crewKind, crewData, crewErr := fn(r.Subscriptions)
+	groupSubs, groupKind, groupData, groupErr := fn(g.Subscriptions)
+	switch {
+	case crewErr == nil && groupErr == nil:
+		if crewKind != "" && groupKind != "" &&
+			len(crewSubs) < len(r.Subscriptions) && len(groupSubs) < len(g.Subscriptions) {
+			return fmt.Errorf("%s is a crew member and a manual group, and both have matching subscriptions: use --crew or --group to say which", name)
+		}
+		if crewKind == "" {
+			return nil
+		}
+		return w.writeCrewSubs(name, r, crewSubs, crewKind, crewData, actor)
+	case crewErr == nil:
+		if crewKind == "" {
+			return nil
+		}
+		return w.writeCrewSubs(name, r, crewSubs, crewKind, crewData, actor)
+	case groupErr == nil:
+		if groupKind == "" {
+			return nil
+		}
+		return w.writeGroupSubs(name, g, groupSubs, groupKind, groupData, actor)
+	default:
+		return crewErr
+	}
+}
+
+// changeSubscriptionsKind is changeSubscriptions for one stated kind of
+// subscriber: "crew", "user" or "group". It looks at no other kind: a crew
+// naming only a group is not found.
+func (w *wtx) changeSubscriptionsKind(name, kind, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+	switch kind {
+	case "crew":
+		var r CrewMember
+		if ok, err := get(w.Tx, bCrew, name, &r); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+		}
+		return w.applyCrew(name, r, actor, fn)
+	case "user":
+		var u User
+		if ok, err := get(w.Tx, bUsers, name, &u); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("user %s: %w", name, ErrNotFound)
+		}
+		return w.applyUser(name, u, actor, fn)
+	case "group":
+		var g Group
+		if ok, err := get(w.Tx, bGroups, name, &g); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("group %s: %w", name, ErrNotFound)
+		}
+		if g.Runner != "manual" {
+			return fmt.Errorf("group %s is %s: only manual groups subscribe, for their members", name, g.Runner)
+		}
+		return w.applyGroup(name, g, actor, fn)
+	default:
+		return fmt.Errorf("subscriber kind %q: use crew, user or group", kind)
+	}
+}
+
+// applyCrew runs fn on the crew member's subscriptions and writes what it
+// returns back with fn's event, on the member's journal.
+func (w *wtx) applyCrew(name string, r CrewMember, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+	subs, kind, data, err := fn(r.Subscriptions)
+	if err != nil || kind == "" {
+		return err
+	}
+	return w.writeCrewSubs(name, r, subs, kind, data, actor)
+}
+
+// applyUser runs fn on the user's subscriptions and writes what it returns
+// back with fn's event, unattached. Only the user and the operator change
+// them.
+func (w *wtx) applyUser(name string, u User, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+	if err := w.maySubscribe(name, actor); err != nil {
+		return err
+	}
+	subs, kind, data, err := fn(u.Subscriptions)
+	if err != nil || kind == "" {
+		return err
+	}
+	u.Subscriptions = subs
+	if err := put(w.Tx, bUsers, name, u); err != nil {
+		return err
+	}
+	data["user"] = name
+	return w.event("", kind, actor, data)
+}
+
+// applyGroup runs fn on the manual group's subscriptions and writes what it
+// returns back with fn's event, unattached.
+func (w *wtx) applyGroup(name string, g Group, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	subs, kind, data, err := fn(g.Subscriptions)
 	if err != nil || kind == "" {
 		return err
 	}
+	return w.writeGroupSubs(name, g, subs, kind, data, actor)
+}
+
+func (w *wtx) writeCrewSubs(name string, r CrewMember, subs []Subscription, kind string, data map[string]any, actor string) error {
+	r.Subscriptions = subs
+	if err := put(w.Tx, bCrew, name, r); err != nil {
+		return err
+	}
+	data["crew"] = name
+	return w.event(r.Journal, kind, actor, data)
+}
+
+func (w *wtx) writeGroupSubs(name string, g Group, subs []Subscription, kind string, data map[string]any, actor string) error {
 	g.Subscriptions = subs
 	if err := put(w.Tx, bGroups, name, g); err != nil {
 		return err

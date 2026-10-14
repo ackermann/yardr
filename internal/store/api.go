@@ -187,8 +187,11 @@ type API interface {
 	ExpireMemories(ctx context.Context) (int, error)
 	SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error
 	AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error
+	AddSubscriptionKind(ctx context.Context, name, kind string, sub Subscription, actor string) error
 	RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error)
+	RemoveSubscriptionsKind(ctx context.Context, name, kind, source, scope string, where map[string]string, actor string) (int, error)
 	RemoveSubscription(ctx context.Context, name string, sub Subscription, actor string) error
+	RemoveSubscriptionKind(ctx context.Context, name, kind string, sub Subscription, actor string) error
 	Unwatch(ctx context.Context, name, bead, actor string) (int, error)
 	FollowThread(ctx context.Context, name, source, thread, actor string) error
 	UnfollowThread(ctx context.Context, name, source, thread, actor string) error

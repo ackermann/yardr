@@ -143,7 +143,7 @@ func TestSubscribeMatrixReachesNoOne(t *testing.T) {
 // the view as if it had been made.
 func TestSubscribeBareTakesNoFlags(t *testing.T) {
 	st := userYard(t)
-	for _, args := range [][]string{{"--done"}, {"--source", "yardr"}, {"--where", "kind=held"}, {"--scope", "all"}} {
+	for _, args := range [][]string{{"--done"}, {"--source", "yardr"}, {"--where", "kind=held"}, {"--scope", "all"}, {"--crew"}, {"--group"}} {
 		refusedAs(t, st, "jo", "name who subscribes", append([]string{"subscribe"}, args...)...)
 	}
 }

@@ -594,7 +594,7 @@ func (w *wtx) subscribeCard(argv []string, asking bool) (AskRun, error) {
 	} else if !ok {
 		return AskRun{}, fmt.Errorf("a run ask subscribes a user of the yard (yardr user list), and %s is none: what a crew member or a manual group hears is set with yardr subscribe, by anyone", name)
 	}
-	if err := w.bindSubscription(name, &sub); err != nil {
+	if err := w.bindSubscription(name, "user", &sub); err != nil {
 		return AskRun{}, err
 	}
 	has := slices.ContainsFunc(u.Subscriptions, sub.same)
@@ -667,7 +667,7 @@ func (w *wtx) staleTold(seq uint64, name string, was, now AskRun) error {
 // line yardr subscribe prints.
 func runSubscribe(_ context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 	name, sub := subscribeOf(argv)
-	if err := w.bindSubscription(name, &sub); err != nil {
+	if err := w.bindSubscription(name, "user", &sub); err != nil {
 		return "", err
 	}
 	if err := w.addSubscription(name, sub, actor, by); err != nil {

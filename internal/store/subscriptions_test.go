@@ -429,3 +429,84 @@ func TestUserIdentity(t *testing.T) {
 		t.Fatalf("a name that is no party: %v", err)
 	}
 }
+
+// A manual group and a crew member may share a name. Unsubscribing such a
+// name removes the matching subscriptions from whichever of the two has
+// them; when both do, it refuses naming both (yardr-f0ez).
+func TestUnsubscribeSameNameGroupAndCrew(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	sub := store.Subscription{Source: "acme", Scope: store.ScopeAll}
+	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// The group's subscription, made before the crew member exists.
+	if err := s.AddSubscription(ctx, "reviewers", sub, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "reviewers"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// Only the group has a matching subscription: it is removed there.
+	if n, err := s.RemoveSubscriptions(ctx, "reviewers", "acme", "", nil, "me"); err != nil || n != 1 {
+		t.Fatalf("unsubscribe the group's only: %d, %v", n, err)
+	}
+	if g, _ := s.GetGroup(ctx, "reviewers"); len(g.Subscriptions) != 0 {
+		t.Fatalf("group's subscriptions after unsubscribe = %v", g.Subscriptions)
+	}
+	// Subscribing the shared name still targets the crew member.
+	if err := s.AddSubscription(ctx, "reviewers", sub, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.GetCrew(ctx, "reviewers"); len(r.Subscriptions) != 1 {
+		t.Fatalf("crew's subscriptions after subscribe = %v", r.Subscriptions)
+	}
+	if g, _ := s.GetGroup(ctx, "reviewers"); len(g.Subscriptions) != 0 {
+		t.Fatalf("group's subscriptions after subscribe = %v", g.Subscriptions)
+	}
+	// Only the crew member has a matching subscription: it is removed there.
+	if n, err := s.RemoveSubscriptions(ctx, "reviewers", "acme", "", nil, "me"); err != nil || n != 1 {
+		t.Fatalf("unsubscribe the crew member's only: %d, %v", n, err)
+	}
+	// Both have a matching subscription: refused, naming both. The group's
+	// is made before the crew member exists, the crew member's after.
+	if err := s.PutGroup(ctx, store.Group{Name: "both", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSubscription(ctx, "both", sub, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "both"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSubscription(ctx, "both", sub, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.RemoveSubscriptions(ctx, "both", "acme", "", nil, "me"); err == nil ||
+		!strings.Contains(err.Error(), "both") || !strings.Contains(err.Error(), "--group") {
+		t.Fatalf("unsubscribe both = %d, %v; want a refusal naming both and --group", n, err)
+	}
+	// Stating the kind removes from that one alone.
+	if n, err := s.RemoveSubscriptionsKind(ctx, "both", "group", "acme", "", nil, "me"); err != nil || n != 1 {
+		t.Fatalf("unsubscribe both as group = %d, %v", n, err)
+	}
+	if g, _ := s.GetGroup(ctx, "both"); len(g.Subscriptions) != 0 {
+		t.Fatalf("group both after kind unsubscribe = %v", g.Subscriptions)
+	}
+	if r, _ := s.GetCrew(ctx, "both"); len(r.Subscriptions) != 1 {
+		t.Fatalf("crew both after group unsubscribe = %v", r.Subscriptions)
+	}
+	if n, err := s.RemoveSubscriptionsKind(ctx, "both", "crew", "acme", "", nil, "me"); err != nil || n != 1 {
+		t.Fatalf("unsubscribe both as crew = %d, %v", n, err)
+	}
+	// Subscribing the group under a shared name takes the kind.
+	if err := s.AddSubscriptionKind(ctx, "reviewers", "group", sub, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := s.GetGroup(ctx, "reviewers"); len(g.Subscriptions) != 1 {
+		t.Fatalf("group reviewers after kind subscribe = %v", g.Subscriptions)
+	}
+	if err := s.AddSubscriptionKind(ctx, "reviewers", "user", sub, "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("subscribe reviewers as user = %v, want not found", err)
+	}
+}

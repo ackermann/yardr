@@ -630,7 +630,7 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 	case "subscription":
 		s := obj.Subscription
 		if s.Remove != nil {
-			if err := st.RemoveSubscription(ctx, s.CrewMember, *s.Remove, o.Actor); err != nil && !errors.Is(err, store.ErrNotFound) {
+			if err := st.RemoveSubscriptionKind(ctx, s.CrewMember, "crew", *s.Remove, o.Actor); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
 		}
@@ -810,7 +810,7 @@ func remove(ctx context.Context, st store.API, p *Plan, obj Object, actor string
 			note = fmt.Sprintf(" (%d of its beads released)", released)
 		}
 	case "subscription":
-		err = st.RemoveSubscription(ctx, obj.Subscription.CrewMember, *obj.Subscription.Remove, actor)
+		err = st.RemoveSubscriptionKind(ctx, obj.Subscription.CrewMember, "crew", *obj.Subscription.Remove, actor)
 	case "map":
 		var h *store.Hook
 		if h, err = st.GetHook(ctx, obj.Map.Hook); err == nil {

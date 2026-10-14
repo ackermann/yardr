@@ -271,6 +271,13 @@ A group's subscriptions reach no person: a member who is a user
 are told in herdr when a bead reaches their manual group's stage (group
 config `notify=true`).
 
+A crew member and a manual group may share a name. Subscribing such a name
+subscribes the crew member; `--group` subscribes the group instead, and
+`--crew` states the crew member. Unsubscribing removes the matching
+subscriptions of whichever of the two has them; when both do, the command
+refuses naming both, and `--crew` or `--group` says which. `yardr source rm`
+prints those flagged commands where both still subscribe.
+
 ## Users as subscribers
 
 A user ([users.md](users.md)) subscribes as a crew member does, with the same

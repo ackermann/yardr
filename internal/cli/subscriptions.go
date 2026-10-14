@@ -277,7 +277,7 @@ func namedSource(args []string, flag string) (string, error) {
 func (a *app) subscribeCmd() *cobra.Command {
 	var sub store.Subscription
 	var where []string
-	var done bool
+	var done, crewFlag, groupFlag bool
 	cmd := &cobra.Command{
 		Use:   "subscribe [<crew|group|user> [source]]",
 		Short: "Deliver a source's events to a crew member's inbox, or a user's as notifications (no arguments: who is told what)",
@@ -360,6 +360,10 @@ yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
 The subscriber may be a manual group: its subscriptions deliver to each of
 its members that is a crew member (reason "<reason> via <group>").
 
+A crew member and a manual group may share a name. Subscribing such a name
+subscribes the crew member; --group subscribes the group instead, and --crew
+states the crew member.
+
 Each delivery records why it reached the crew member: all, mentioned,
 assigned (a delegation reads assigned too), participant or done. Events a crew member is the actor of never
 reach it. A crew member's --on kinds work as implicit "yardr all kind=<k>"
@@ -388,10 +392,14 @@ them.`,
 			if len(args) == 0 {
 				// The view takes none of them, and a subscription typed
 				// without its subscriber must not pass for one made.
-				if sub.Source != "" || c.Flags().Changed("scope") || len(where) > 0 || done {
+				if sub.Source != "" || c.Flags().Changed("scope") || len(where) > 0 || done || crewFlag || groupFlag {
 					return fmt.Errorf("name who subscribes: yardr subscribe <crew|group|user> [source] (without arguments and flags it prints who is told what)")
 				}
 				return a.showSubscriptionMatrix(c)
+			}
+			kind, err := subscriberKind(crewFlag, groupFlag)
+			if err != nil {
+				return err
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -420,10 +428,12 @@ them.`,
 			}
 			sub.Where = w
 			user := false
-			if _, err := st.GetUser(c.Context(), args[0]); err == nil {
-				user = true
-			} else if !errors.Is(err, store.ErrNotFound) {
-				return err
+			if kind == "" {
+				if _, err := st.GetUser(c.Context(), args[0]); err == nil {
+					user = true
+				} else if !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
 			}
 			if user && src != store.SourceYardr && !c.Flags().Changed("scope") {
 				// A person has no source identity or thread participation, so
@@ -433,11 +443,16 @@ them.`,
 			// How many there were: the store keeps an identical subscription
 			// once, so only a list that grew ends in the one added. An unknown
 			// subscriber is the store's to refuse, below.
-			before, _, _ := subscriptionsOf(c.Context(), st, args[0])
-			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
+			before, _, _ := subscriptionsOf(c.Context(), st, args[0], kind)
+			if kind == "" {
+				err = st.AddSubscription(c.Context(), args[0], sub, a.who())
+			} else {
+				err = st.AddSubscriptionKind(c.Context(), args[0], kind, sub, a.who())
+			}
+			if err != nil {
 				return err
 			}
-			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.CrewMember) {
+			return a.showSubscriptions(c, st, args[0], kind, func(subs []store.Subscription, r *store.CrewMember) {
 				if len(subs) > len(before) {
 					fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
 				} else {
@@ -461,7 +476,25 @@ them.`,
 	f.StringVar(&sub.Scope, "scope", store.ScopeInvolved, "all, mentions or involved (yardr: default all)")
 	f.StringArrayVar(&where, "where", nil, "key=value filter (repeatable: keys are ANDed, a key given again adds a value, any of which matches)")
 	f.BoolVar(&done, "done", false, "yardr: only beads becoming done (--where state=done)")
+	f.BoolVar(&crewFlag, "crew", false, "the subscriber is the crew member of this name")
+	f.BoolVar(&groupFlag, "group", false, "the subscriber is the manual group of this name")
 	return cmd
+}
+
+// subscriberKind is the kind --crew or --group states, "" for neither: a
+// crew member and a manual group may share a name, and the flags say which
+// subscribes.
+func subscriberKind(crew, group bool) (string, error) {
+	if crew && group {
+		return "", fmt.Errorf("use one of --crew or --group, not both")
+	}
+	if group {
+		return "group", nil
+	}
+	if crew {
+		return "crew", nil
+	}
+	return "", nil
 }
 
 // subMatrix is who is told what in the whole yard, as bare yardr subscribe
@@ -660,8 +693,22 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 
 // subscriptionsOf are the subscriptions of the crew member, user or group
 // called name, looked up in the order the store does; r is nil for a user
-// and a group.
-func subscriptionsOf(ctx context.Context, st store.API, name string) (subs []store.Subscription, r *store.CrewMember, err error) {
+// and a group. kind states one of them, "" to read them in that order.
+func subscriptionsOf(ctx context.Context, st store.API, name, kind string) (subs []store.Subscription, r *store.CrewMember, err error) {
+	switch kind {
+	case "crew":
+		r, err = st.GetCrew(ctx, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		return r.Subscriptions, r, nil
+	case "group":
+		g, err := st.GetGroup(ctx, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		return g.Subscriptions, nil, nil
+	}
 	r, err = st.GetCrew(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		u, uerr := st.GetUser(ctx, name)
@@ -684,8 +731,8 @@ func subscriptionsOf(ctx context.Context, st store.API, name string) (subs []sto
 
 // showSubscriptions prints (or outputs) the subscriptions of the
 // crew member, user or group called name.
-func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.CrewMember)) error {
-	subs, r, err := subscriptionsOf(c.Context(), st, name)
+func (a *app) showSubscriptions(c *cobra.Command, st store.API, name, kind string, text func([]store.Subscription, *store.CrewMember)) error {
+	subs, r, err := subscriptionsOf(c.Context(), st, name, kind)
 	if err != nil {
 		return err
 	}
@@ -695,15 +742,24 @@ func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, tex
 func (a *app) unsubscribeCmd() *cobra.Command {
 	var source, scope string
 	var where []string
+	var crewFlag, groupFlag bool
 	cmd := &cobra.Command{
 		Use:   "unsubscribe <crew|group|user> [source]",
 		Short: "Remove subscriptions to a source",
 		Long: `Removes every subscription of the crew member (or manual group, or user) to the
 source; --scope and --where narrow it to the subscriptions with that scope
 and exactly those filters. A user's are removed by the user and by the
-operator, as they are added.`,
+operator, as they are added.
+
+A crew member and a manual group may share a name. Then the subscriptions
+removed are the matching ones of whichever of the two has them; when both
+do, the command refuses naming both, and --crew or --group says which.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
+			kind, err := subscriberKind(crewFlag, groupFlag)
+			if err != nil {
+				return err
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -716,7 +772,12 @@ operator, as they are added.`,
 			if err != nil {
 				return err
 			}
-			n, err := st.RemoveSubscriptions(c.Context(), args[0], src, scope, w, a.who())
+			var n int
+			if kind == "" {
+				n, err = st.RemoveSubscriptions(c.Context(), args[0], src, scope, w, a.who())
+			} else {
+				n, err = st.RemoveSubscriptionsKind(c.Context(), args[0], kind, src, scope, w, a.who())
+			}
 			if err != nil {
 				return err
 			}
@@ -729,6 +790,8 @@ operator, as they are added.`,
 	f.StringVar(&source, "source", "", "source")
 	f.StringVar(&scope, "scope", "", "only subscriptions of this scope")
 	f.StringArrayVar(&where, "where", nil, "only subscriptions with exactly these filters")
+	f.BoolVar(&crewFlag, "crew", false, "remove the crew member's subscriptions")
+	f.BoolVar(&groupFlag, "group", false, "remove the manual group's subscriptions")
 	return cmd
 }
 

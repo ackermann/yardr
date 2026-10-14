@@ -513,11 +513,20 @@ func (c *Client) SetIdentity(ctx context.Context, name, source string, id store.
 func (c *Client) AddSubscription(ctx context.Context, name string, sub store.Subscription, actor string) error {
 	return c.call(ctx, "AddSubscription", nil, name, sub, actor)
 }
+func (c *Client) AddSubscriptionKind(ctx context.Context, name, kind string, sub store.Subscription, actor string) error {
+	return c.call(ctx, "AddSubscriptionKind", nil, name, kind, sub, actor)
+}
 func (c *Client) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
 	return callV[int](c, ctx, "RemoveSubscriptions", name, source, scope, where, actor)
 }
+func (c *Client) RemoveSubscriptionsKind(ctx context.Context, name, kind, source, scope string, where map[string]string, actor string) (int, error) {
+	return callV[int](c, ctx, "RemoveSubscriptionsKind", name, kind, source, scope, where, actor)
+}
 func (c *Client) RemoveSubscription(ctx context.Context, name string, sub store.Subscription, actor string) error {
 	return c.call(ctx, "RemoveSubscription", nil, name, sub, actor)
+}
+func (c *Client) RemoveSubscriptionKind(ctx context.Context, name, kind string, sub store.Subscription, actor string) error {
+	return c.call(ctx, "RemoveSubscriptionKind", nil, name, kind, sub, actor)
 }
 func (c *Client) Unwatch(ctx context.Context, name, bead, actor string) (int, error) {
 	return callV[int](c, ctx, "Unwatch", name, bead, actor)

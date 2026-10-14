@@ -228,8 +228,24 @@ func (s *Store) Packs(ctx context.Context) ([]PackImport, error) {
 // RemoveSubscriptions without filters takes every subscription of the
 // source and scope, filtered ones too.
 func (s *Store) RemoveSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
+	return s.removeOneSubscription(name, "", sub, actor)
+}
+
+// RemoveSubscriptionKind is RemoveSubscription for the subscriber of one
+// stated kind ("crew", "user" or "group") called name, and no other.
+func (s *Store) RemoveSubscriptionKind(ctx context.Context, name, kind string, sub Subscription, actor string) error {
+	return s.removeOneSubscription(name, kind, sub, actor)
+}
+
+func (s *Store) removeOneSubscription(name, kind string, sub Subscription, actor string) error {
 	return s.write(func(w *wtx) error {
-		return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+		change := func(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+			if kind == "" {
+				return w.changeSubscriptions(name, actor, fn)
+			}
+			return w.changeSubscriptionsKind(name, kind, actor, fn)
+		}
+		return change(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
 			i := slices.IndexFunc(subs, sub.same)
 			if i < 0 {
 				return nil, "", nil, fmt.Errorf("%s has no subscription %s: %w", name, sub, ErrNotFound)
