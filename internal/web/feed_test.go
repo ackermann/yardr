@@ -788,7 +788,13 @@ func TestSteadyClient(t *testing.T) {
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
-	srv.SetStreamWrite(300 * time.Millisecond)
+	// The deadline held generous for this test alone: a reader paced in
+	// tens of milliseconds must not meet the drop a client that takes
+	// nothing meets, however loaded the machine. The drop itself is
+	// TestSlowClient's, on the short deadline; the frame below still takes
+	// longer than one of these, so a stream that dropped a steady client
+	// would still fail this test.
+	srv.SetStreamWrite(3 * time.Second)
 	ts := httptest.NewServer(srv)
 	defer shut(ts)
 
@@ -820,12 +826,13 @@ func TestSteadyClient(t *testing.T) {
 	whole := func() bool {
 		return len(got) >= len(big) && strings.HasSuffix(string(got[max(0, len(got)-2):]), "\n\n")
 	}
-	// A steady 256 KB every 25 ms: seconds for the frame, which one
-	// 300 ms deadline could never cover.
+	// A steady 256 KB every 50 ms: nearly five seconds for the frame,
+	// which one 3 s deadline could never cover, so only a stream that
+	// renews its deadline as the bytes flow serves it whole.
 	pace := make([]byte, 256<<10)
 	for !whole() {
 		// One paced piece: 256 KB, however many reads it takes, then
-		// 25 ms. Pacing reads instead of bytes would let short reads
+		// 50 ms. Pacing reads instead of bytes would let short reads
 		// set the pace.
 		got0 := len(got)
 		for len(got)-got0 < len(pace) && !whole() {
@@ -833,7 +840,7 @@ func TestSteadyClient(t *testing.T) {
 			must(t, err)
 			got = append(got, pace[:n]...)
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	if len(got) < len(big) {
 		t.Fatalf("the steady client got %d bytes, want the whole %d-byte frame", len(got), len(big))
