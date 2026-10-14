@@ -82,6 +82,16 @@ func TestRouteMatchesOriginator(t *testing.T) {
 			t.Errorf("stage %s originator %q took %+v, want %s", tc.stage, tc.originator, got, tc.want)
 		}
 	}
+	// A named originator sorts ahead of any at the same priority, even if
+	// the any route would otherwise win by id.
+	anyFirst := []store.Route{
+		{ID: "a-any", Stage: "new", Group: "builders", Originator: &any},
+		{ID: "z-hal", Stage: "new", Group: "hal-builders", Originator: &hal},
+	}
+	store.SortRoutes(anyFirst)
+	if got := store.MatchRoute(anyFirst, store.Bead{Stage: "new", Originator: "hal"}, "jo"); got == nil || got.ID != "z-hal" {
+		t.Fatalf("hal's bead took %+v, want named route before any", got)
+	}
 	// A general route of higher priority and greater specificity still
 	// takes none of another person's beads.
 	general, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Priority: 10, Label: str("difficulty:3")}, "jo")
@@ -163,29 +173,73 @@ func TestLoginForAndOriginatorAreChecked(t *testing.T) {
 	}
 }
 
+// Any is a route keyword, not a user or an originator for a bead.
+func TestAnyCannotNameAnOriginator(t *testing.T) {
+	s, _ := originatorRoutesYard(t)
+	ctx := t.Context()
+	if _, err := s.AddUser(ctx, store.OriginatorAny, "jo"); err == nil || !strings.Contains(err.Error(), "route keyword") {
+		t.Errorf("a user named any: %v", err)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "bad", For: store.OriginatorAny}, "jo"); err == nil || !strings.Contains(err.Error(), "route keyword") {
+		t.Errorf("a bead for any: %v", err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "real"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	any := store.OriginatorAny
+	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Originator: &any}, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "route keyword") {
+		t.Errorf("a bead changed to any: %v", err)
+	}
+}
+
 // A route to a group that starts no agents takes every originator's beads:
 // by hand without the flag, as AddRoute defaults it to any.
 func TestNonHerdrRoutesTakeEveryOriginator(t *testing.T) {
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
-	saved, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "humans"}, "jo")
-	if err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Originator == nil || *saved.Originator != store.OriginatorAny {
-		t.Fatalf("a manual route without --originator = %+v, want any", saved)
+	if _, err := s.AddPeer(ctx, store.Peer{Name: "north", Key: otherKey(t)}, "jo"); err != nil {
+		t.Fatal(err)
 	}
-	routes, _ := s.Routes(ctx)
-	store.SortRoutes(routes)
-	for _, orig := range []string{"jo", "hal", ""} {
-		b := store.Bead{Stage: "new", Type: "task", Originator: orig}
-		if got := store.MatchRoute(routes, b, "jo"); got == nil || got.ID != saved.ID {
-			t.Errorf("originator %q took %+v, want the manual route", orig, got)
+	if _, err := s.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerBead}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ stage, group string }{
+		{"manual", "humans"}, {"exec", "scripts"}, {"peer", "north"},
+	} {
+		saved, err := s.AddRoute(ctx, store.Route{Stage: tc.stage, Group: tc.group}, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.Originator == nil || *saved.Originator != store.OriginatorAny {
+			t.Errorf("a %s route without --originator = %+v, want any", tc.group, saved.Originator)
+		}
+		routes, err := s.Routes(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.SortRoutes(routes)
+		for _, orig := range []string{"jo", "hal", ""} {
+			b := store.Bead{Stage: tc.stage, Type: "task", Originator: orig}
+			if got := store.MatchRoute(routes, b, "jo"); got == nil || got.ID != saved.ID {
+				t.Errorf("%s route, originator %q took %+v, want the route to %s", tc.group, orig, got, tc.group)
+			}
 		}
 	}
-	evs, err := s.EventsOfKind(ctx, "route_added", 1)
-	if err != nil || len(evs) != 1 || evs[0].Data["originator"] != store.OriginatorAny {
-		t.Fatalf("route_added of an any route = %+v, %v", evs, err)
+	evs, err := s.EventsOfKind(ctx, "route_added", 3)
+	if err != nil || len(evs) != 3 {
+		t.Fatalf("route_added events = %+v, %v", evs, err)
+	}
+	for _, e := range evs {
+		if e.Data["originator"] != store.OriginatorAny {
+			t.Errorf("route_added originator = %v, want any", e.Data["originator"])
+		}
 	}
 }
 
