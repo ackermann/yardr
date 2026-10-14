@@ -40,6 +40,11 @@ type Bead struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
 	CreatedBy   *string        `json:"created_by,omitempty"`
+	// Originator is the user the bead is for, whose subscription builds
+	// it: set at create (NewBead.For, or the rules in originatorFor) and
+	// changed only by the operator. Empty reads as the operator's, so a
+	// bead from a path that names none still routes as every bead does.
+	Originator string `json:"originator,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
 	// Train is the handle of the train the bead is a child of (see Family),
@@ -115,8 +120,15 @@ type NewBead struct {
 	// DiscoveredFrom names the bead this one was found while working on
 	// (a handle or UUID, open or closed, in any depot). The discovered-from
 	// edge is made with the bead, in the same write: an origin that does
-	// not exist creates no bead. Nothing of the origin is inherited.
+	// not exist creates no bead. Of the origin the bead inherits its
+	// originator alone, unless For names another user outright.
 	DiscoveredFrom string
+	// For names the user the bead is for outright: its originator, which
+	// must be a user that exists. It wins over DiscoveredFrom outside a
+	// bead agent's pane; from one it is refused, and the pane bead's
+	// originator (or the origin's) is the only way another person's name
+	// arrives.
+	For string
 	// BlockedBy names the beads that must close before this one is ready
 	// (handles or UUIDs). The blocks edges are made with the bead, in the
 	// same write: a blocker that does not exist, or one named twice,
@@ -237,14 +249,19 @@ func (w *wtx) mintTouched(id, actor string) error {
 	return w.mintBead(row, actor)
 }
 
-// createdData is the data of b's created event: its title, and where it
-// starts (the stage, the type, and the depot when it has one). An advanced
-// event names its stages; without the stage here, a reader that rebuilds a
-// bead from the log could only guess that it started where its flow starts.
+// createdData is the data of b's created event: its title, where it
+// starts (the stage, the type, and the depot when it has one), and whose
+// subscription it was born to (the originator, when it names one). An
+// advanced event names its stages; without the stage here, a reader that
+// rebuilds a bead from the log could only guess that it started where its
+// flow starts.
 func createdData(b *Bead) map[string]any {
 	data := map[string]any{"title": b.Title, "stage": b.Stage, "type": b.Type}
 	if b.Depot != nil {
 		data["depot"] = *b.Depot
+	}
+	if b.Originator != "" {
+		data["originator"] = b.Originator
 	}
 	return data
 }
@@ -266,6 +283,79 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		return nil
 	})
 	return created, err
+}
+
+// checkFor refuses user as a new bead's For: from the pane of a bead's
+// agent, whatever actor the command names, and for a user that does not
+// exist. The pane is told by the store's own records (paneSession), as
+// checkMembers and maySpeakAs tell it: an agent must not spend another
+// person's subscription by naming them. Everywhere else --for is the
+// yard's existing actor trust, a line against mistakes and not a wall.
+func checkFor(tx *bolt.Tx, pid int, user string) error {
+	if sess, err := paneSession(tx, pid); err != nil {
+		return err
+	} else if sess != nil && !sess.Manual() {
+		return fmt.Errorf("--for %s: a bead's agent files for its own bead's originator alone (this is the pane of session %s, whatever actor the command names); file without --for", user, sess.ID)
+	}
+	if _, err := getUser(tx, user); err != nil {
+		return fmt.Errorf("--for: %w", err)
+	}
+	return nil
+}
+
+// CheckFor reports why CreateBead would refuse user as NewBead.For: from
+// the pane of a bead's agent, or for a user that does not exist. The
+// command asks before it creates, so a server from before --for, which
+// does not know the question, creates nothing instead of a bead without
+// its originator.
+func (s *Store) CheckFor(ctx context.Context, user string) error {
+	return s.read(func(tx *bolt.Tx) error { return checkFor(tx, callerOf(ctx), user) })
+}
+
+// originatorFor is the originator of the bead nb makes for actor: the
+// user the bead is for, whose subscription builds it. An explicit For
+// wins over every default, outside a bead agent's pane; a follow-up
+// inherits the origin's originator, as stored; what is filed from a bead
+// agent's pane takes the pane bead's; a person creating a bead is its
+// originator; and a crew member's actor, a hook's, and any other actor
+// that is no user's leave the bead the operator's, as every bead is. A
+// default never spends another person's subscription: only an explicit
+// For, or arriving through a bead already theirs, puts another person's
+// name on a bead.
+func (w *wtx) originatorFor(ctx context.Context, nb NewBead, actor string) (string, error) {
+	if nb.For != "" {
+		if err := checkFor(w.Tx, callerOf(ctx), nb.For); err != nil {
+			return "", err
+		}
+		return nb.For, nil
+	}
+	if nb.DiscoveredFrom != "" {
+		origin, err := w.loadBead(nb.DiscoveredFrom)
+		if err != nil {
+			return "", fmt.Errorf("discovered from: %w", err)
+		}
+		return origin.Originator, nil
+	}
+	// A manual pane is a person at work, not an agent's: the actor's rule
+	// below reads it.
+	if sess, err := paneSession(w.Tx, callerOf(ctx)); err != nil {
+		return "", err
+	} else if sess != nil && !sess.Manual() {
+		if pane, err := loadBead(w.Tx, sess.Bead); err == nil {
+			return pane.Originator, nil
+		}
+		// A session whose bead is gone falls through to the actor: beads
+		// are never deleted, but what spends nobody else's is the safe
+		// side of a record the store cannot read.
+	}
+	if w.Bucket(bUsers).Get([]byte(actor)) != nil {
+		return actor, nil
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return "", err
+	}
+	return operator, nil
 }
 
 // newBead checks nb as far as it can be checked outside a write and answers
@@ -332,10 +422,14 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		if err := checkWagon(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
 			return nil, err
 		}
+		originator, err := w.originatorFor(ctx, nb, actor)
+		if err != nil {
+			return nil, err
+		}
 		row := &beadRow{Bead: Bead{
 			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
-			Metadata: nb.Metadata,
+			Metadata: nb.Metadata, Originator: originator,
 		}}
 		row.Depot = depot
 		row.StayStart, row.Visited = row.CreatedAt, []string{stage}
@@ -952,6 +1046,10 @@ type BeadPatch struct {
 	AddLabels   []string
 	RemoveLabel []string
 	Metadata    map[string]any // merged
+	// Originator names the user the bead is for: the operator's to
+	// change alone (operatorOnly), to a user that must exist, logged as
+	// originator_changed with from, to and by.
+	Originator *string
 }
 
 // UpdateBead applies p. A stale exp refuses it (see Expect).
@@ -997,6 +1095,24 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 	var result *Bead
 	err := s.write(func(w *wtx) error {
 		var err error
+		if p.Originator != nil {
+			if _, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+				if err := w.check(ctx, exp, b); err != nil {
+					return "", nil, err
+				}
+				if err := w.operatorOnly(ctx, actor, "change a bead's originator"); err != nil {
+					return "", nil, err
+				}
+				if _, err := getUser(w.Tx, *p.Originator); err != nil {
+					return "", nil, fmt.Errorf("--originator: %w", err)
+				}
+				from := b.Originator
+				b.Originator = *p.Originator
+				return "originator_changed", map[string]any{"from": from, "to": *p.Originator}, nil
+			}); err != nil {
+				return err
+			}
+		}
 		result, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			if err := w.check(ctx, exp, b); err != nil {
 				return "", nil, err

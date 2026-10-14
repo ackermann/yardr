@@ -67,6 +67,15 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 					return err
 				}
 			}
+			// --for is the bead's originator, whose subscription builds
+			// it: an older server would drop the field and bill the
+			// operator's instead, so ask first, and create nothing when
+			// it does not know the question.
+			if nb.For != "" {
+				if err := st.CheckFor(c.Context(), nb.For); err != nil {
+					return err
+				}
+			}
 			b, err := st.CreateBead(c.Context(), nb, a.who())
 			if err != nil {
 				return err
@@ -86,6 +95,7 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&nb.BlockedBy, "blocked-by", nil, "beads that must close first; made with the bead, so an unknown one creates nothing")
 	f.StringVar(&nb.DiscoveredFrom, "discovered-from", "", "the bead this one was found while working on (open or closed, any depot); recorded as an edge, never blocks")
+	f.StringVar(&nb.For, "for", "", "the user the bead is for, whose subscription builds it (must exist; refused from a bead agent's pane)")
 	f.StringArrayVar(&tracks, "tracks", nil, "outside issue the bead tracks: its URL, or the seq of a hook delivery from it (one per source; see yardr link)")
 	f.StringArrayVar(&relates, "relates", nil, "outside issue the bead relates to, never moves (repeatable)")
 	return create
@@ -93,9 +103,9 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 
 func (a *app) newBeadUpdateCmd(rev *string) *cobra.Command {
 	var up struct {
-		title, body, typ, depot string
-		pri                     int
-		add, rm, meta           []string
+		title, body, typ, depot, originator string
+		pri                                 int
+		add, rm, meta                       []string
 	}
 	update := &cobra.Command{
 		Use:   "update <id>",
@@ -106,7 +116,7 @@ When the body or the title of a bead with a live session changes, and the
 writer is not that session itself, the session is told of it with a note,
 as one written with yardr bead note is: what changed (body, title, or
 both), never the new text. Anything else a patch changes (labels,
-priority, metadata, type, depot) tells nothing.`,
+priority, metadata, type, depot, originator) tells nothing.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -134,6 +144,9 @@ priority, metadata, type, depot) tells nothing.`,
 			}
 			if fl.Changed("priority") {
 				p.Priority = &up.pri
+			}
+			if fl.Changed("originator") {
+				p.Originator = &up.originator
 			}
 			p.AddLabels, p.RemoveLabel = up.add, up.rm
 			if len(up.meta) > 0 {
@@ -163,5 +176,6 @@ priority, metadata, type, depot) tells nothing.`,
 	uf.StringSliceVar(&up.add, "add-label", nil, "labels to add")
 	uf.StringSliceVar(&up.rm, "remove-label", nil, "labels to remove")
 	uf.StringArrayVar(&up.meta, "meta", nil, "metadata key=value to merge")
+	uf.StringVar(&up.originator, "originator", "", "new originator, the user the bead is for (the operator's to change)")
 	return update
 }

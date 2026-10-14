@@ -569,10 +569,11 @@ func TestBeadDiscoveredFrom(t *testing.T) {
 	}
 }
 
-// oldServer is a store whose server is from before discovered-from and
-// NewBead.BlockedBy: it knows neither Discovery nor CheckBlockers, and its
-// CreateBead would drop the origin and the blockers and create the bead
-// without its edges.
+// oldServer is a store whose server is from before discovered-from,
+// NewBead.BlockedBy and NewBead.For: it knows neither Discovery,
+// CheckBlockers nor CheckFor, and its CreateBead would drop the origin,
+// the blockers and the user and create the bead without its edges and its
+// originator.
 type oldServer struct {
 	store.API
 	created int
@@ -586,9 +587,13 @@ func (o *oldServer) CheckBlockers(context.Context, []string) error {
 	return errors.New("no such method CheckBlockers")
 }
 
+func (o *oldServer) CheckFor(context.Context, string) error {
+	return errors.New("no such method CheckFor")
+}
+
 func (o *oldServer) CreateBead(ctx context.Context, nb store.NewBead, actor string) (*store.Bead, error) {
 	o.created++
-	nb.DiscoveredFrom, nb.BlockedBy = "", nil
+	nb.DiscoveredFrom, nb.BlockedBy, nb.For = "", nil, ""
 	return o.API.CreateBead(ctx, nb, actor)
 }
 
@@ -610,6 +615,116 @@ func TestDiscoveredFromRefusesAnOlderServer(t *testing.T) {
 	// Without the flag an older server is asked nothing new.
 	if _, err := run(t, a.beadCmd(), "create", "plain"); err != nil || st.created != 1 {
 		t.Fatalf("a plain create: %v, %d created", err, st.created)
+	}
+}
+
+// Against a server from before the flag, bead create --for creates
+// nothing rather than a bead billed to the operator's subscription.
+func TestCreateForRefusesAnOlderServer(t *testing.T) {
+	st := &oldServer{API: storetest.New(t)}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.beadCmd(), "create", "for hal", "--for", "hal"); err == nil || !strings.Contains(err.Error(), "no such method") {
+		t.Fatalf("create --for against an older server: %v, want its refusal", err)
+	}
+	if st.created != 0 {
+		t.Fatal("the bead was created without its originator")
+	}
+}
+
+// bead create --for names the user the bead is for, and bead show prints
+// it beside the owner; an unknown --for is refused and creates nothing.
+func TestBeadCreateFor(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if out, err := run(t, a.beadCmd(), "create", "hal's", "--id", "yd-1", "--for", "hal"); err != nil || strings.TrimSpace(out) != "yd-1" {
+		t.Fatalf("create --for hal: %v\n%s", err, out)
+	}
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil || !strings.Contains(out, "originator hal") {
+		t.Fatalf("bead show:\n%s\n%v", out, err)
+	}
+	if out, err := run(t, a.beadCmd(), "create", "x", "--for", "mallory"); err == nil || !strings.Contains(err.Error(), "--for: user mallory: not found") {
+		t.Fatalf("create --for mallory: %v\n%s", err, out)
+	}
+	if bs, _ := st.ListBeads(ctx, store.BeadFilter{All: true}); len(bs) != 1 {
+		t.Fatalf("a refused --for left %+v", bs)
+	}
+	// A bead with no originator to show (no operator in this yard, and
+	// an actor that is no user) shows no line for one.
+	if _, err := run(t, a.beadCmd(), "create", "plain", "--id", "yd-2"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, a.beadCmd(), "show", "yd-2"); err != nil || strings.Contains(out, "originator") {
+		t.Fatalf("bead show of a bead with none:\n%s\n%v", out, err)
+	}
+	// Without an operator, a user creating a bead is still its originator.
+	hal := &app{st: st, actor: "hal"}
+	if _, err := run(t, hal.beadCmd(), "create", "hal's own", "--id", "yd-3"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, hal.beadCmd(), "show", "yd-3"); err != nil || !strings.Contains(out, "originator hal") {
+		t.Fatalf("bead show:\n%s\n%v", out, err)
+	}
+}
+
+// bead show --json carries the originator.
+func TestBeadShowOriginatorJSON(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.beadCmd(), "create", "hal's", "--id", "yd-1", "--for", "hal"); err != nil {
+		t.Fatal(err)
+	}
+	a.json = true
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b struct {
+		ID         string
+		Originator string
+	}
+	if err := json.Unmarshal([]byte(out), &b); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if b.ID != "yd-1" || b.Originator != "hal" {
+		t.Fatalf("bead show --json:\n%s", out)
+	}
+}
+
+// bead update --originator is the operator's to change: anyone else is
+// refused, and the bead keeps its originator.
+func TestBeadUpdateOriginator(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
+		t.Fatal(err)
+	}
+	op := &app{st: st, actor: "me"}
+	if _, err := run(t, op.beadCmd(), "create", "x", "--id", "yd-1"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, op.beadCmd(), "update", "yd-1", "--originator", "hal")
+	if err != nil || !strings.Contains(out, "originator hal") {
+		t.Fatalf("update --originator hal: %v\n%s", err, out)
+	}
+	hal := &app{st: st, actor: "hal"}
+	out, err = run(t, hal.beadCmd(), "update", "yd-1", "--originator", "me")
+	if err == nil || !strings.Contains(err.Error(), "only the operator (me) may change a bead's originator; this is hal") {
+		t.Fatalf("hal's update: %v\n%s", err, out)
+	}
+	if b, _ := st.GetBead(ctx, "yd-1"); b.Originator != "hal" {
+		t.Fatalf("a refused update moved the bead: %+v", b)
 	}
 }
 

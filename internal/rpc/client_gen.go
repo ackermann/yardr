@@ -77,6 +77,9 @@ func (c *Client) BlockerCycles(ctx context.Context) ([][]string, error) {
 func (c *Client) CheckBlockers(ctx context.Context, refs []string) error {
 	return c.call(ctx, "CheckBlockers", nil, refs)
 }
+func (c *Client) CheckFor(ctx context.Context, user string) error {
+	return c.call(ctx, "CheckFor", nil, user)
+}
 func (c *Client) Family(ctx context.Context, id string) (*store.Family, error) {
 	return callV[*store.Family](c, ctx, "Family", id)
 }

@@ -1181,9 +1181,15 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own stri
 // the two (peerBead).
 func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	in, b, actor := p.Intake, a.msg, "peer:"+p.Name
+	// A bead that arrives over the peer link is the operator's: nothing
+	// of the other yard's person crosses.
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return err
+	}
 	row := &beadRow{Bead: Bead{Title: b.Title, Body: b.Body, Type: b.Type, Stage: a.stage, Status: "open", Priority: b.Priority,
 		Depot: &in.Depot, Labels: []string{"from-" + p.Name}, Metadata: map[string]any{"flow": in.Flow},
-		CreatedAt: now(), CreatedBy: &actor}}
+		CreatedAt: now(), CreatedBy: &actor, Originator: operator}}
 	if err := w.insertBead(row, in.Depot, "", actor); err != nil {
 		return err
 	}

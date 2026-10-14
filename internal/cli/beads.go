@@ -165,6 +165,9 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 		if b.Group != nil {
 			fmt.Printf("  owned by %s (session %s)\n", *b.Group, deref(b.Session))
 		}
+		if b.Originator != "" {
+			fmt.Printf("  originator %s\n", b.Originator)
+		}
 		if line := routed.line(time.Now()); line != "" {
 			fmt.Printf("  %s\n", line)
 		}

@@ -1182,7 +1182,7 @@ POST /call/UserNotifications
         "at": "2026-10-08T09:30:00Z",
         "kind": "created",
         "bead": "yd-shed",
-        "text": "yd-shed created (all) by yardmaster stage=new title=Paint the shed type=task",
+        "text": "yd-shed created (all) by yardmaster originator=jo stage=new title=Paint the shed type=task",
         "read": false
       },
       {

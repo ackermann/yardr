@@ -32,6 +32,10 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 23 has beads that name the person they are for: the
+// originator (migrateOriginator), which a build before it would drop from
+// a record it rewrites, as it does when the bead is updated. The bead
+// would then read as the operator's and build on their subscription.
 // schemaVersion 22 has the stays' clocks and the builds per group, label
 // and stage (eta.go): the stay fields on the bead row, eta_cells seeded
 // from the retained log (migrateETA), and failed session markers. A build
@@ -153,7 +157,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 22
+const schemaVersion = 23
 
 var kSchema = []byte("schema")
 
@@ -299,6 +303,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 20, run: atVersion(migrateUpgradeTell)},
 		{version: 21, run: atVersion(migrateETA)},
 		{version: 22, run: atVersion(migrateETAFailed)},
+		{version: 23, run: atVersion(migrateOriginator)},
 	}
 }
 

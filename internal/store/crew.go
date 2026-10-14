@@ -196,9 +196,15 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 			r = CrewMember{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
 				Journal: journalID(def.Name)}
 			if w.Bucket(bHandles).Get([]byte(r.Journal)) == nil {
+				// The crew's journal is the yard's own work, the
+				// operator's as a crew-created bead is.
+				operator, err := operatorIn(w.Tx)
+				if err != nil {
+					return err
+				}
 				jr := &beadRow{Bead: Bead{Title: "Journal of " + def.Name, Type: TypeJournal,
 					Stage: "journal", Status: "open", Labels: []string{"crew:" + def.Name},
-					CreatedAt: now(), CreatedBy: &actor}}
+					CreatedAt: now(), CreatedBy: &actor, Originator: operator}}
 				if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
 					return err
 				}
