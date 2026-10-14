@@ -560,6 +560,11 @@ type BeadPage struct {
 	// broken icon or link. HTML-only: the JSON names the files as the
 	// notes have them.
 	Missing map[string]bool `json:"-"`
+	// Board is the bead's note pages in note order, each with the note
+	// that carries it: the board above the notes. Mail pages stand on no
+	// board. HTML-only like Missing: the JSON names the files as the
+	// notes have them.
+	Board []BoardEntry `json:"-"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
 	// History is every event of the bead the log still has, the oldest
@@ -569,6 +574,14 @@ type BeadPage struct {
 	// that is ambiguous. The rest of the page still stands.
 	Warnings []string `json:"warnings,omitempty"`
 	Head     uint64   `json:"head"`
+}
+
+// BoardEntry is one of the bead's note pages with the note that carries
+// it: the board is an arrangement over existing items, in note order,
+// with each page's note beside it.
+type BoardEntry struct {
+	File store.BlobRef `json:"file"`
+	Note store.Note    `json:"note"`
 }
 
 // Self is the page's own path, which it asks for again at every event of
@@ -724,9 +737,14 @@ func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
 	d.Notes = append(d.Notes, notes...)
 	// The page draws each note's images and pages below its words; one
 	// the yard no longer holds is a line saying so, never a broken icon
-	// or link.
+	// or link. The board above the notes is the note pages alone, in the
+	// same note order, each with its note beside it; mail is read
+	// nowhere here, so mail pages stand on no board.
 	for _, n := range d.Notes {
 		for _, f := range n.Files {
+			if f.IsPage() {
+				d.Board = append(d.Board, BoardEntry{File: f, Note: n})
+			}
 			if _, err := s.st.NoteBlob(ctx, f.Hash); err != nil {
 				if !errors.Is(err, store.ErrNotFound) {
 					return nil, err

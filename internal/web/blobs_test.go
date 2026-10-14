@@ -247,3 +247,158 @@ func TestBeadPageNotePages(t *testing.T) {
 		t.Error("the page links what the yard no longer holds")
 	}
 }
+
+// The board above the notes lays the bead's note pages out in note order,
+// each with its note beside it: one entry per page, the link first and the
+// note's words under it. Images stand on no board, and the JSON names the
+// files as the notes have them, with no board of its own.
+func TestBeadBoardLaysPagesInNoteOrder(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")
+	must(t, err)
+	first, err := f.st.PutBlob(ctx, pageHTML)
+	must(t, err)
+	second, err := f.st.PutBlob(ctx, pageFence)
+	must(t, err)
+	third, err := f.st.PutBlob(ctx, []byte("<!DOCTYPE html><html><body>an arch</body></html>"))
+	must(t, err)
+	shot, err := f.st.PutBlob(ctx, shotPNG)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, `the door, first pass <b>bold</b>`, "me", "", first.Hash)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", shot.Hash)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, second pass", "me", "", second.Hash, third.Hash)
+	must(t, err)
+
+	var got web.BeadPage
+	r := f.getJSON("/beads/"+b.ID, &got)
+	if strings.Contains(r.body, `"board":`) {
+		t.Error("the JSON carries a board; the notes name the files")
+	}
+
+	body := f.get("/beads/" + b.ID).body
+	boardAt := strings.Index(body, `id="board"`)
+	notesAt := strings.Index(body, `id="notes"`)
+	if boardAt < 0 {
+		t.Fatalf("the page shows no board: %s", body)
+	}
+	if notesAt < boardAt {
+		t.Fatalf("the board stands below the notes")
+	}
+	board := body[boardAt:notesAt]
+	at := func(hash string) int { return strings.Index(board, "/blobs/"+hash) }
+	firstAt, secondAt, thirdAt := at(first.Hash), at(second.Hash), at(third.Hash)
+	if firstAt < 0 || secondAt < 0 || thirdAt < 0 {
+		t.Fatalf("the board lacks a page: %d %d %d", firstAt, secondAt, thirdAt)
+	}
+	if !(firstAt < secondAt && secondAt < thirdAt) {
+		t.Errorf("the board is not in note order: %d %d %d", firstAt, secondAt, thirdAt)
+	}
+	// Each page's note stands beside it, as text, never as markup; the
+	// image's note stands on no board.
+	if firstWords := strings.Index(board, "the door, first pass"); firstWords < 0 {
+		t.Error("the board lacks the first page's note")
+	} else if !(firstAt < firstWords && firstWords < secondAt) {
+		t.Error("the first page's note stands beside no page")
+	}
+	if !strings.Contains(board, "&lt;b&gt;bold&lt;/b&gt;") || strings.Contains(board, "<b>bold</b>") {
+		t.Error("the board does not show the note's words as text")
+	}
+	if n := strings.Count(board, "the door, second pass"); n != 2 {
+		t.Errorf("the second note stands beside %d pages, want 2", n)
+	}
+	if strings.Contains(board, "a photo of the door") || strings.Contains(board, shot.Hash) {
+		t.Error("the board holds the image's note")
+	}
+	if strings.Contains(board, "<img") {
+		t.Error("the board draws an image")
+	}
+}
+
+// A bead with no note page shows no board: no note, a plain note, or an
+// image's note only.
+func TestBeadBoardAbsentWithoutPages(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "no board"}, "me")
+	must(t, err)
+	if body := f.get("/beads/" + b.ID).body; strings.Contains(body, `id="board"`) {
+		t.Fatal("a bead with no note shows a board")
+	}
+	must(t, f.st.AddNote(ctx, b.ID, "plain words", "me"))
+	if body := f.get("/beads/" + b.ID).body; strings.Contains(body, `id="board"`) {
+		t.Fatal("a bead with a plain note shows a board")
+	}
+	shot, err := f.st.PutBlob(ctx, shotPNG)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", shot.Hash)
+	must(t, err)
+	if body := f.get("/beads/" + b.ID).body; strings.Contains(body, `id="board"`) {
+		t.Fatal("a bead with an image only shows a board")
+	}
+}
+
+// Mail pages stand on no board: the board is the bead's note pages, and
+// the bead's page shows no mail at all.
+func TestBeadBoardHoldsNoMailPage(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")
+	must(t, err)
+	noted, err := f.st.PutBlob(ctx, pageHTML)
+	must(t, err)
+	mailed, err := f.st.PutBlob(ctx, pageFence)
+	must(t, err)
+	if _, err := f.st.AddUser(ctx, "sam", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", mailed.Hash))
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", noted.Hash)
+	must(t, err)
+
+	body := f.get("/beads/" + b.ID).body
+	boardAt := strings.Index(body, `id="board"`)
+	if boardAt < 0 {
+		t.Fatalf("the page shows no board: %s", body)
+	}
+	board := body[boardAt:]
+	if !strings.Contains(board, "/blobs/"+noted.Hash) {
+		t.Error("the board lacks the note's page")
+	}
+	if strings.Contains(board, mailed.Hash) {
+		t.Error("the board holds the mail's page")
+	}
+	if strings.Contains(body, mailed.Hash) {
+		t.Error("the bead's page shows the mail's page")
+	}
+}
+
+// A board page the yard no longer holds is the Missing line, never a
+// broken link.
+func TestBeadBoardMissingPage(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")
+	must(t, err)
+	ref, err := f.st.PutBlob(ctx, pageHTML)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", ref.Hash)
+	must(t, err)
+	must(t, os.Remove(store.BlobPath(f.home, ref.Hash)))
+
+	body := f.get("/beads/" + b.ID).body
+	boardAt := strings.Index(body, `id="board"`)
+	notesAt := strings.Index(body, `id="notes"`)
+	if boardAt < 0 || notesAt < boardAt {
+		t.Fatalf("the page shows no board above the notes: %s", body)
+	}
+	board := body[boardAt:notesAt]
+	if want := `page ` + ref.Hash[:8] + `: the yard no longer has it`; !strings.Contains(board, want) {
+		t.Errorf("the board lacks %q", want)
+	}
+	if strings.Contains(board, "/blobs/"+ref.Hash) {
+		t.Error("the board links what the yard no longer holds")
+	}
+}

@@ -1077,7 +1077,8 @@ the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
-stage with no outcome); its edges; its notes, the oldest first, each with
+stage with no outcome); its edges; its board, the note pages in note order
+where there are any; its notes, the oldest first, each with
 its images and pages below its words; the sessions that worked it; its
 history. A closed bead has a page too. An unknown id is a 404.
 
@@ -1097,6 +1098,10 @@ it. Each image shows below the note's words, with those words as its alt
 text; each page stands as a link, `page <hash8>`, opening the bytes
 top-level and inert. One the yard no longer holds is a line saying so,
 never a broken icon or link. The JSON names them as the notes have them.
+Above the notes, the board lays the bead's note pages out in note order,
+each with its note beside it: one entry per page, the link first and the
+note's words under it. A bead with no note page shows no board. Mail
+pages stand on no board: only a note's page opens.
 The bytes come from `/blobs/<hash>`, which serves only blobs a note on
 some bead names: any other hash, a mail's file included, answers as a
 missing blob, since the view has no login.
