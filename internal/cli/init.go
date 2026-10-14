@@ -1276,6 +1276,15 @@ the setting. web_addr takes a loopback address, as --addr does without
 again, and a login service the one in its file until it is installed again;
 settings set says so.
 
+web_as is the user the web view acts as when yardr web serve, start or
+install is given no --as and the command's YARDR_WEB_AS is unset: its talk
+page and its beads' asks then act as that user, as with the flag
+(docs/web.md, "Acting as a user"). The flag wins over the environment,
+which wins over the setting, and with none of them the view reads only.
+The view refuses to start when no user of the yard has the name. One that
+runs keeps its user until it is stopped and started again, and a login
+service's view reads the setting at every start.
+
 herdr_session is the herdr session the yard's agents run in (herdr session
 list). Set, every call the yard makes to herdr goes to it, from the daemon,
 a command or a login service, whatever shell each was started from. Unset,

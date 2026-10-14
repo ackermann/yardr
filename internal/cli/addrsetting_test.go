@@ -170,6 +170,7 @@ func freeAddr(t *testing.T) string {
 // order, listen on it, and report the address in status.
 func TestServeTakesTheAddrSetting(t *testing.T) {
 	home, st, _ := statusYard(t, "abcdef123456")
+	t.Setenv("YARDR_WEB_AS", "")
 	cfg := &config.Config{Home: home}
 	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
 	for _, c := range []struct{ kind, key string }{{svcWeb, store.WebAddrSetting}, {svcBDP, store.BDPAddrSetting}} {

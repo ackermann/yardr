@@ -49,6 +49,9 @@ const (
 	// the BDP server listen on when their --addr is not given.
 	WebAddrSetting = "web_addr"
 	BDPAddrSetting = "bdp_addr"
+	// WebAsSetting is the user the web view acts as when its --as is not
+	// given.
+	WebAsSetting = "web_as"
 	// NameSetting is the yard's name.
 	NameSetting = "name"
 	// MaxSessionsSetting caps the sessions that run on this machine at
@@ -153,6 +156,15 @@ var KnownSettings = []Setting{
 		Default: DefaultWebAddr, Env: "WEB_ADDR", Check: func(v string) error {
 			if err := CheckWebAddr(v, false); err != nil {
 				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr web serve --unsafe with --addr", WebAddrSetting, err)
+			}
+			return nil
+		}},
+	{Key: WebAsSetting, Help: "the user the web view acts as when YARDR_WEB_AS is not set and yardr web serve, start or install is given no --as; " +
+		"the view refuses to start when no user of the yard has the name, as --as does; " +
+		"a view that runs keeps its user until it is stopped and started again, and a login service's view reads it at every start",
+		Env: "WEB_AS", Check: func(v string) error {
+			if err := checkUserName(v); err != nil {
+				return fmt.Errorf("%s: %w", WebAsSetting, err)
 			}
 			return nil
 		}},

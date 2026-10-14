@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -29,10 +30,10 @@ func (a *app) webCmd() *cobra.Command {
 		Short: "Serve a view of the yard over HTTP",
 		Long: `Serve the yard as web pages: a feed of what happens, the flows of its
 depots with the beads in each stage, every bead, what waits for a person, the
-running sessions and the crew, live. Without --as the view reads the yard and
-changes nothing. Every page answers a request with "Accept:
-application/json" with the data it shows, and /events streams the yard's
-events as server-sent events.
+running sessions and the crew, live. Without --as, YARDR_WEB_AS or the
+web_as setting the view reads the yard and changes nothing. Every page
+answers a request with "Accept: application/json" with the data it shows,
+and /events streams the yard's events as server-sent events.
 
 It listens on --addr, else on YARDR_WEB_ADDR when set in the command's
 environment, else on the yard's web_addr setting (yardr settings set
@@ -64,13 +65,16 @@ loopback. Name only names whose resolution you control: a page under a
 name someone else controls could read the yard through a visitor's browser
 (docs/web.md, "Behind a proxy").
 
---as <user> makes the view act as that user, who must be a user of the
-yard (yardr user list): the talk page then holds the user's conversation
-with a crew member, live, with the form that sends it mail as them, and a
-bead's page answers its asks to the user and sends the bead on where it
-waits for them, as yardr review offers it. A form's POST is taken only
-from the view's own pages, and every other route stays GET. Without --as
-the talk page says the view does not act, and the view changes nothing.
+The view acts as --as when it is given, else as YARDR_WEB_AS when set in
+the command's environment, else as the yard's web_as setting (yardr
+settings set web_as <user>), and reads only with none of them. Whoever it
+acts as must be a user of the yard (yardr user list): with any other name
+it refuses to start. The talk page then holds the user's conversation with
+a crew member, live, with the form that sends it mail as them, and a bead's
+page answers its asks to the user and sends the bead on where it waits for
+them, as yardr review offers it. A form's POST is taken only from the
+view's own pages, and every other route stays GET. Without a user the talk
+page says the view does not act, and the view changes nothing.
 
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
@@ -102,9 +106,23 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			// Who the view acts as: --as, else YARDR_WEB_AS, else the
+			// yard's web_as setting, else no one, and the view reads the
+			// yard and changes nothing. A start and an install hand on
+			// --as only when it is given, so a view of theirs reads the
+			// setting itself.
+			asFrom := ""
+			if as == "" {
+				set, _ := store.SettingOf(store.WebAsSetting)
+				var all map[string]string
+				if all, err = st.Settings(ctx); err != nil {
+					return err
+				}
+				as, asFrom = set.Effective(all)
+			}
 			if as != "" {
 				if _, err := st.GetUser(ctx, as); err != nil {
-					return webAsRefused(as)
+					return webAsRefused(as, asFrom)
 				}
 			}
 			// The yard's web_addr, where no --addr was given: checked when
@@ -175,13 +193,13 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
-	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves")
+	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
-		c.Flags().Lookup("as").Usage = "act as this user of the yard: talk, asks, moves"
+		c.Flags().Lookup("as").Usage = "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
 	v.start.Long = `Start yardr web serve detached from this terminal, logging to
@@ -193,7 +211,8 @@ It listens on loopback only: there is no --unsafe here. --host is handed on
 to yardr web serve, and names what the view answers to on loopback besides
 the loopback names (docs/web.md, "Behind a proxy"). --as is handed on too:
 the view acts as that user, and refuses to start when no user of the yard
-has the name (docs/web.md, "Acting as a user").`
+has the name; without --as it acts as YARDR_WEB_AS, else the yard's web_as
+setting, and reads only with neither (docs/web.md, "Acting as a user").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
   yardr web start --host yard.example.net  # the same, for a proxy that forwards that name
   yardr web start --as mckean              # acts as mckean: talk, asks, moves`
@@ -215,7 +234,9 @@ A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
 with a port, and there is no --unsafe here. --host is written into the
 service and handed on to yardr web serve: the view answers to the names
 given besides the loopback names, and still listens on loopback only. --as
-is written into the service too: the view acts as that user. To
+is written into the service too: the view acts as that user. Without --as
+the view the service starts acts as YARDR_WEB_AS, else the yard's web_as
+setting, which it reads at every start, and reads only with neither. To
 reach the view from another machine, forward the port over ssh or put a
 proxy of yours in front of it (docs/web.md, "Behind a proxy").
 
@@ -228,9 +249,18 @@ proxy of yours in front of it (docs/web.md, "Behind a proxy").
 	return cmd
 }
 
-// webAsRefused is the refusal of --as with a name no user of the yard has.
-func webAsRefused(as string) error {
-	return fmt.Errorf("--as %s refused: the yard has no user of that name (yardr user list)", as)
+// webAsRefused is the refusal of the user the view would act as, from
+// --as, YARDR_WEB_AS or the yard's web_as setting (from), when no user of
+// the yard has the name.
+func webAsRefused(as, from string) error {
+	whose := "--as " + as
+	switch from {
+	case store.FromEnvironment:
+		whose = "YARDR_WEB_AS " + as
+	case store.FromSet:
+		whose = "web_as " + as
+	}
+	return fmt.Errorf("%s refused: the yard has no user of that name (yardr user list)", whose)
 }
 
 // webAddr is the address web serve listens on: addr, which is --addr when

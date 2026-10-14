@@ -1,10 +1,11 @@
 # The web view
 
 `yardr web serve` shows the yard in a browser. It is a client of the yardr
-server, as `yardr bdp serve` is. Without `--as` it reads only: no page
-takes a write, and every route refuses any method but GET and HEAD. With
-`--as <user>` it acts as that user too: the talk page sends its mail as
-them, and a bead's page answers its asks and sends the bead on
+server, as `yardr bdp serve` is. Without `--as`, `YARDR_WEB_AS` or the
+`web_as` setting it reads only: no page takes a write, and every route
+refuses any method but GET and HEAD. With one of them it acts as that
+user too: the talk page sends its mail as them, and a bead's page
+answers its asks and sends the bead on
 ([Acting as a user](#acting-as-a-user)), and nothing else takes a
 write.
 
@@ -38,6 +39,20 @@ the one in its file until `yardr web install` is run again. `yardr settings
 set web_addr` says so, and `yardr web status` prints the address of each
 view that runs. `yardr bdp serve` has `bdp_addr` the same way
 ([configuration.md](configuration.md#settings)).
+
+The user the view acts as resolves the same way: `--as` when it is
+given, else `YARDR_WEB_AS` when set in the command's environment, else
+the yard's `web_as` setting, else read-only
+([Acting as a user](#acting-as-a-user)). `yardr web serve`,
+`yardr web start` and `yardr web install` all go by that order, so a
+yard that sets the user needs no flag at any of them:
+
+```sh
+yardr settings set web_as mckean   # the view acts as mckean
+yardr web start                    # acts as mckean: talk, asks, moves
+YARDR_WEB_AS=jo yardr web start    # the environment overrides the setting
+yardr web start --as jo            # --as still wins
+```
 
 ## Loopback only
 
@@ -135,8 +150,9 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 There is still no authentication: anyone who can reach this machine on that
-port can read the whole yard, and with `--as` act as its user. The
-view stays read-only without `--as`.
+port can read the whole yard, and act as the user of a view that acts.
+With none of `--as`, `YARDR_WEB_AS` and `web_as` the view stays
+read-only.
 
 - With `--unsafe`, `--addr` takes any address: `:9000`, `0.0.0.0:9000`, or
   one LAN address (`192.168.178.90:9000`) to listen on that interface only.
@@ -166,25 +182,33 @@ view stays read-only without `--as`.
   are counted apart.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
-  With `--as` it says `can read the yard and act as <user>` instead.
+  On a view that acts it says `can read the yard and act as <user>` instead.
   The line after it says what the view answers to:
   `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
 ## Acting as a user
 
-`yardr web serve --as <user>` acts as that user, who must be a user of the
-yard (`yardr user list`): with any other name it refuses to start. The talk
+The view acts as `--as` when it is given, else as `YARDR_WEB_AS` when
+set in the command's environment, else as the yard's `web_as` setting
+(`yardr settings set web_as <user>`), and reads only with none of them.
+`yardr web serve`, `yardr web start` and `yardr web install` all go by
+that order: a start and an install hand on `--as` only when it is
+given, so a view of theirs without it reads the setting itself, at
+every start. Whoever the view acts as must be a user of the yard
+(`yardr user list`): with any other name it refuses to start, naming
+the flag, the variable or the setting the name came from. The talk
 page ([Talk](#talk)) then holds the user's conversation with a crew member,
 live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
 `AnswerAsk`, `DeferAsk` and `DeclineAsk`; a bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
-([One bead](#one-bead)). Every other route stays GET, and without `--as`
-every route is GET as before: the talk page then says the view does not
-act, and a test holds the view to it.
+([One bead](#one-bead)). Every other route stays GET, and with none of
+them every route is GET as before: the talk page then says the view does
+not act, and a test holds the view to it.
 
 ```sh
+yardr settings set web_as mckean   # the view acts as mckean, with no flag
 yardr web serve --as mckean
 yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # behind tailscale serve, for a phone
 ```
@@ -221,7 +245,8 @@ reaches it is the edge's to say — the private network's membership, a login
 of its own — as who reads the yard is ([Behind a proxy](#behind-a-proxy)).
 The edge is what stands in front. `yardr status` says whom a view acts as
 (`this machine only, acts as mckean`), and the start line carries it too
-(`serving the yard url=http://127.0.0.1:8791/ acts_as=mckean`).
+(`serving the yard url=http://127.0.0.1:8791/ acts_as=mckean`), whether
+the flag, the variable or the setting named the user.
 
 ## Keeping it running
 
@@ -255,8 +280,11 @@ service starts at every login answers to them; to change the names, run
 
 Both take `--as` as `yardr web serve` does
 ([Acting as a user](#acting-as-a-user)): the view acts as that user.
-`yardr web install` writes it into the service's file beside the names. The
-view refuses to start when no user of the yard has the name; `yardr web
+`yardr web install` writes it into the service's file beside the names.
+Without `--as` the view acts as `YARDR_WEB_AS`, else the yard's `web_as`
+setting: a service's view reads the setting at every start, so unlike
+the address, no install is needed to move it. The view refuses to start
+when no user of the yard has the name, whatever named it; `yardr web
 start` then ends at once and names the log the reason is in, and the
 service's view logs it at every login.
 
@@ -356,7 +384,7 @@ pages post to the view itself (`form-action 'self'`).
 |---|---|---|
 | `/` | Home: the overview — the answer line with one row per wait, then the Running, Yard and Closed rows — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
-| `/talk` | with `--as`: the user's conversation with a crew member, live, and the form that sends it mail as them; without, that the view does not act ([Talk](#talk)) | `Talk` |
+| `/talk` | on a view that acts: the user's conversation with a crew member, live, and the form that sends it mail as them; without a user, that the view does not act ([Talk](#talk)) | `Talk` |
 | `/talk?with=<member>` | the conversation with that member; without `?with=` the yardmaster's, else the first member's | `Talk` |
 | `/talk?with=<member>&before=<seq>` | an older page of the conversation: the 50 letters under that seq, a snapshot | `Talk` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
@@ -455,8 +483,8 @@ Home as JSON:
 
 - `attention` are the open beads that wait for a person: everything
   something stops (held, blocked on a prompt, stranded), the beads with
-  an open ask to the operator — to the view's user, on a view started
-  with `--as` — and the parked beads past their flow's first, in the
+  an open ask to the operator — to the view's user, on a view that
+  acts — and the parked beads past their flow's first, in the
   line's order, faults first. A bead parked where it starts (a backlog)
   is on `/line` only, unless an ask names the reader in particular.
 - On the page they stand under the answer line: `Nothing needs you.`
@@ -1052,8 +1080,8 @@ stage with no outcome); its edges; its notes, the oldest first, each with
 its images and pages below its words; the sessions that worked it; its
 history. A closed bead has a page too. An unknown id is a 404.
 
-On a view started with `--as <user>`, the page answers the bead's open
-asks to that user, oldest first: the question, who asked, the context, the
+On a view that acts, the page answers the bead's open asks to its user,
+oldest first: the question, who asked, the context, the
 options numbered with what each does, the recommendation, and for a secret
 what it asks for, for a run the command with what it changes and the way
 back. Each answers under itself, with its options as buttons, with Later
@@ -1142,7 +1170,7 @@ note's author and a stage file, on every page and in the card stream.
 
 ## Talk
 
-On a view started with `--as <user>`, `/talk` is that user's conversation
+On a view that acts, `/talk` is its user's conversation
 with a crew member — the web's `yardr chat` for one member at a time — with
 the form that sends it mail as them. `?with=` names the member; without it
 the page opens on the yardmaster, else on the first member. The crew stand
@@ -1151,7 +1179,7 @@ user has unread mail from it. Each letter reads as a note does: the sender
 with its device, the time, the words with their lines kept, the images it
 carries, and `read` under the user's own where the member acknowledged it.
 A page the mail carries is named without a link, never drawn as an image:
-only a note's page opens. Without `--as` the page says the view does not
+only a note's page opens. With no user the page says the view does not
 act.
 
 The form posts to `/talk?with=<member>` ([Acting as a user](#acting-as-a-user)):

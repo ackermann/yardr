@@ -6,6 +6,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // web serve refuses an address off loopback before it touches the yard: no
@@ -144,6 +148,143 @@ func TestWebServeAsRefused(t *testing.T) {
 	}
 	if _, err := st.GetUser(context.Background(), "Jo"); err != nil {
 		t.Fatalf("the yard's user: %v", err)
+	}
+}
+
+// Who a view acts as is --as, else YARDR_WEB_AS, else the yard's web_as
+// setting, else no one: serve resolves them in that order and records the
+// resolved user, and refuses an unknown name from each source, naming it.
+func TestWebServeAsTakesFlagEnvAndSetting(t *testing.T) {
+	home, st, a := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ann", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YARDR_WEB_AS", "")
+	cfg := &config.Config{Home: home}
+	servesAs := func(args []string, want string) {
+		t.Helper()
+		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0"}, args...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		sctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- cmd.ExecuteContext(sctx) }()
+		var views []webView
+		for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+			select {
+			case err := <-done:
+				t.Fatalf("web serve %v ended: %v", args, err)
+			default:
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("web serve %v recorded nothing", args)
+			}
+			views = webViews(cfg)
+		}
+		if views[0].As != want {
+			t.Errorf("web serve %v acts as %q, want %q", args, views[0].As, want)
+		}
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("web serve did not stop")
+		}
+	}
+	servesAs(nil, "")
+	if err := st.SetSetting(ctx, store.WebAsSetting, "Jo", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	servesAs(nil, "Jo")
+	t.Setenv("YARDR_WEB_AS", "ann")
+	servesAs(nil, "ann")
+	servesAs([]string{"--as", "Jo"}, "Jo")
+	t.Setenv("YARDR_WEB_AS", "")
+
+	for _, c := range []struct {
+		env, setting string
+		args         []string
+		want         string
+	}{
+		{"", "nosuch", nil, "web_as nosuch refused"},
+		{"nosuch", "Jo", nil, "YARDR_WEB_AS nosuch refused"},
+		{"ann", "Jo", []string{"--as", "nosuch"}, "--as nosuch refused"},
+	} {
+		t.Setenv("YARDR_WEB_AS", c.env)
+		if err := st.SetSetting(ctx, store.WebAsSetting, c.setting, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := run(t, a().webCmd(), append([]string{"serve", "--addr", "127.0.0.1:0"}, c.args...)...)
+		if err == nil || !strings.Contains(err.Error(), c.want) ||
+			!strings.Contains(err.Error(), "no user") || !strings.Contains(err.Error(), "yardr user list") {
+			t.Errorf("web_as=%s under YARDR_WEB_AS=%q, %v: %v, want a refusal with %q", c.setting, c.env, c.args, err, c.want)
+		}
+	}
+}
+
+// A view whose user came from web_as is said to act as them: the resolved
+// user is in the web record, so yardr status and doctor say "acts as".
+func TestStatusAndDoctorSayActsAsFromSetting(t *testing.T) {
+	home, st, a := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	t.Setenv("YARDR_WEB_AS", "")
+	if err := st.SetSetting(ctx, store.WebAsSetting, "Jo", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Home: home}
+	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- cmd.ExecuteContext(sctx) }()
+	var views []webView
+	for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+		select {
+		case err := <-done:
+			t.Fatalf("web serve ended: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("web serve recorded nothing")
+		}
+		views = webViews(cfg)
+	}
+	if views[0].As != "Jo" {
+		t.Fatalf("view: %+v", views[0])
+	}
+	out, err := run(t, a().rootCmd(), "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "acts as Jo")
+	rep, _ := doctorJSON(t, st)
+	var web *optionalPart
+	for i := range rep.Optional {
+		if rep.Optional[i].Key == "web" {
+			web = &rep.Optional[i]
+		}
+	}
+	if web == nil {
+		t.Fatalf("doctor has no web part: %+v", rep.Optional)
+	}
+	if len(web.Views) != 1 || web.Views[0].As != "Jo" || !strings.Contains(web.Detail, "acts as Jo") {
+		t.Errorf("doctor's web part: %+v", web)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("web serve did not stop")
 	}
 }
 

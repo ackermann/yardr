@@ -26,7 +26,8 @@ type webView struct {
 	PID  int    `json:"pid"`
 	// Unsafe is whether it was started with --unsafe.
 	Unsafe bool `json:"unsafe"`
-	// As is the user it acts as (--as), "" when it acts as none.
+	// As is the user it acts as (--as, YARDR_WEB_AS or web_as), "" when it
+	// acts as none.
 	As      string    `json:"as,omitempty"`
 	Started time.Time `json:"started"`
 	// Revision is the build it runs, as it recorded it: a view does not
@@ -48,7 +49,7 @@ type webView struct {
 func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr, acting as the user as (--as, "" for none), until clear is called.
+// addr, acting as the user as ("" for none), until clear is called.
 func announceWeb(cfg *config.Config, addr string, unsafe bool, as string) (clear func(), err error) {
 	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe, "as": as})
 }

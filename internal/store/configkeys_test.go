@@ -225,7 +225,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
@@ -234,6 +234,7 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_addr: --addr 0.0.0.0:8791 refused: 0.0.0.0 is not a loopback address, and yardr web has no authentication yet`: {"web_addr", "0.0.0.0:8791"},
 		`web_addr: --addr :8791 refused: an address with no host listens on every interface`:                                {"web_addr", ":8791"},
 		`web_addr: --addr 8791: address 8791: missing port in address`:                                                      {"web_addr", "8791"},
+		`web_as: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                                     {"web_as", "a b"},
 		`timer_limit "0": a whole number, 1 or more`:                                                                        {"timer_limit", "0"},
 		`default_pack "packs/x": a directory is given as an absolute path`:                                                  {"default_pack", "packs/x"},
 		`yard name "a b"`: {"name", "a b"},
@@ -246,7 +247,8 @@ func TestStoreChecksSettings(t *testing.T) {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
 	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
-		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go"} {
+		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
+		"web_as": "jo"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}
@@ -276,6 +278,7 @@ func TestStoreChecksSettings(t *testing.T) {
 	for _, tc := range []struct{ key, env, setting, value string }{
 		{"web_addr", "YARDR_WEB_ADDR", "127.0.0.1:9100", "127.0.0.1:9200"},
 		{"bdp_addr", "YARDR_BDP_ADDR", "127.0.0.1:9200", "127.0.0.1:9300"},
+		{"web_as", "YARDR_WEB_AS", "jo", "ann"},
 	} {
 		t.Setenv(tc.env, "")
 		setting, ok := store.SettingOf(tc.key)
