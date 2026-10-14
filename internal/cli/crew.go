@@ -1356,6 +1356,19 @@ func parseDays(s string) (time.Duration, error) {
 	return d, nil
 }
 
+// parseSince is --since as the earliest time counted: a duration back from
+// now (7d, 40h, 30m, via parseDays) or an RFC3339 time. Events and the route
+// report share it so --since reads the same in both.
+func parseSince(s string) (time.Time, error) {
+	if d, err := parseDays(s); err == nil {
+		return time.Now().Add(-d), nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("bad duration or time %q (use e.g. 7d, 40h, 30m or 2026-10-14T09:02:11Z)", s)
+}
+
 // primeCrew prints what a fresh crew member session starts from.
 func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 	p, err := st.CrewPrime(ctx, name)

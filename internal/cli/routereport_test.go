@@ -108,6 +108,9 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
+		if l == "BY HARNESS" {
+			break
+		}
 		f := strings.Fields(l)
 		if len(f) < 6 {
 			t.Fatalf("route report %v row %q, want 6 fields", args, l)
@@ -118,6 +121,25 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 		rows[f[0]+"\x00"+f[1]] = f[:6]
 	}
 	return lines[0], rows
+}
+
+// reportKinds runs route report --json and returns its BY HARNESS rows by kind.
+func reportKinds(t *testing.T, st store.API, args ...string) map[string]routeKindRow {
+	t.Helper()
+	a := &app{st: st, actor: "me", json: true}
+	out, err := run(t, a.routeReportCmd(), args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json %v = %q: %v", args, out, err)
+	}
+	rows := map[string]routeKindRow{}
+	for _, r := range rep.ByKind {
+		rows[r.Kind] = r
+	}
+	return rows
 }
 
 func TestRouteReport(t *testing.T) {
@@ -499,5 +521,235 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	}
 	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}); rep.From != nil || len(rep.Rows) != 0 {
 		t.Errorf("empty log = %+v, want no from and no rows", rep)
+	}
+}
+
+// BY HARNESS counts every claim with a kind, open beads included, with the
+// same pairing as the first table: sessions ran, hours summed, median,
+// stages sorted. A failed claim counts as a session but has no build;
+// one without a kind counts nowhere.
+func TestSummarizeRouteEventsByKind(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
+		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
+	}
+	claimedKind := func(seq uint64, at time.Time, bead, group, stage, session, kind string) store.Event {
+		data := map[string]any{"group": group, "stage": stage, "session": session}
+		if kind != "" {
+			data["kind"] = kind
+		}
+		return ev(seq, at, bead, "claimed", data)
+	}
+	advancedGroup := func(seq uint64, at time.Time, bead, from, to, group string) store.Event {
+		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to, "group": group})
+	}
+	beads := map[string]store.Bead{
+		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-b": {ID: "yard-b", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-c": {ID: "yard-c", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-d": {ID: "yard-d", Status: "open", Labels: []string{"difficulty:3"}},
+		"yard-e": {ID: "yard-e", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-f": {ID: "yard-f", Status: "open", Labels: []string{"difficulty:3"}},
+	}
+	stages := map[string]bool{"new": true, "review": true}
+	rep := summarizeRouteEvents([]store.Event{
+		claimedKind(1, t0, "yard-a", "g1", "new", "s1", "muse"),
+		advancedGroup(2, t0.Add(10*time.Minute), "yard-a", "new", "review", "g1"),
+		claimedKind(3, t0, "yard-b", "g2", "new", "s2", "muse"),
+		advancedGroup(4, t0.Add(30*time.Minute), "yard-b", "new", "review", "g2"),
+		claimedKind(5, t0, "yard-c", "g2", "review", "s3", "claude"),
+		advancedGroup(6, t0.Add(20*time.Minute), "yard-c", "review", "new", "g2"),
+		claimedKind(7, t0, "yard-d", "g1", "new", "s4", "claude"),
+		claimedKind(8, t0, "yard-e", "g1", "new", "s5", "muse"),
+		ev(9, t0.Add(time.Minute), "yard-e", "session_failed", map[string]any{"session": "s5"}),
+		claimedKind(10, t0.Add(2*time.Minute), "yard-e", "g1", "new", "s6", "muse"),
+		advancedGroup(11, t0.Add(42*time.Minute), "yard-e", "new", "review", "g1"),
+		claimedKind(12, t0, "yard-f", "people", "new", "s7", ""),
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages})
+	if len(rep.ByKind) != 2 {
+		t.Fatalf("by_kind = %+v, want muse and claude", rep.ByKind)
+	}
+	muse, claude := rep.ByKind[1], rep.ByKind[0]
+	if claude.Kind != "claude" || muse.Kind != "muse" {
+		t.Fatalf("by_kind = %+v, want claude then muse", rep.ByKind)
+	}
+	// Muse ran four sessions in new (one failed) with builds of 10m,
+	// 30m and 40m; claude ran two, one open without an exit.
+	if muse.Sessions != 4 || len(muse.Stages) != 1 || muse.Stages[0] != "new" {
+		t.Errorf("muse = %+v, want 4 sessions in new", muse)
+	}
+	if muse.Hours == nil || *muse.Hours != "1h 20m" {
+		t.Errorf("muse hours = %v, want 1h 20m", muse.Hours)
+	}
+	if muse.Median == nil || *muse.Median != "30m" {
+		t.Errorf("muse median = %v, want 30m", muse.Median)
+	}
+	if claude.Sessions != 2 || len(claude.Stages) != 2 || claude.Stages[0] != "new" || claude.Stages[1] != "review" {
+		t.Errorf("claude = %+v, want 2 sessions in new and review", claude)
+	}
+	if claude.Hours == nil || *claude.Hours != "20m" || claude.Median == nil || *claude.Median != "20m" {
+		t.Errorf("claude = %+v, want 20m and 20m", claude)
+	}
+	// The first table still counts closed beads per group: g1 built a
+	// and e, g2 b and c; the open and kindless claims count nowhere.
+	if len(rep.Rows) != 2 {
+		t.Fatalf("rows = %+v, want g1 and g2", rep.Rows)
+	}
+
+	// --since keeps the recent claim alone in both tables; From still
+	// says when the log starts.
+	rep = summarizeRouteEvents([]store.Event{
+		claimedKind(1, t0, "yard-a", "g1", "new", "s1", "muse"),
+		advancedGroup(2, t0.Add(10*time.Minute), "yard-a", "new", "review", "g1"),
+		claimedKind(3, t0.Add(48*time.Hour), "yard-b", "g2", "new", "s2", "muse"),
+		advancedGroup(4, t0.Add(48*time.Hour+20*time.Minute), "yard-b", "new", "review", "g2"),
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages, since: t0.Add(24 * time.Hour)})
+	if rep.From == nil || !rep.From.Equal(t0) {
+		t.Errorf("from with --since = %v, want %v", rep.From, t0)
+	}
+	if len(rep.ByKind) != 1 || rep.ByKind[0].Sessions != 1 {
+		t.Fatalf("by_kind with --since = %+v, want the one recent session", rep.ByKind)
+	}
+	if got := rep.ByKind[0]; got.Hours == nil || *got.Hours != "20m" || got.Median == nil || *got.Median != "20m" {
+		t.Errorf("recent kind row = %+v, want 20m and 20m", got)
+	}
+	if len(rep.Rows) != 1 || rep.Rows[0].Beads != 1 {
+		t.Errorf("rows with --since = %+v, want the one recent bead", rep.Rows)
+	}
+
+	// No exit: sessions count, hours and median stay nil.
+	rep = summarizeRouteEvents([]store.Event{
+		claimedKind(1, t0, "yard-d", "g1", "new", "s4", "claude"),
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages})
+	if len(rep.ByKind) != 1 || rep.ByKind[0].Sessions != 1 || rep.ByKind[0].Hours != nil || rep.ByKind[0].Median != nil {
+		t.Errorf("kind row without an exit = %+v, want one session and no times", rep.ByKind)
+	}
+	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages}); rep.ByKind == nil || len(rep.ByKind) != 0 {
+		t.Errorf("empty log by_kind = %+v, want an empty list", rep.ByKind)
+	}
+}
+
+// `yardr route report --since 40h` prints BY HARNESS with the kinds the
+// yard runs, and its sessions match a hand count over `events --since 40h
+// --kind claimed --json`.
+func TestRouteReportByKind(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "muse-builders", Runner: "herdr", Limit: 4, Config: map[string]any{"kind": "muse"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "claude-builders", Runner: "herdr", Limit: 4, Config: map[string]any{"kind": "claude"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}, "me"))
+	for _, r := range []store.Route{
+		{Stage: "new", Group: "muse-builders"},
+		{Stage: "review", Group: "claude-builders"},
+		{Stage: "decide", Group: "people"},
+	} {
+		_, err := st.AddRoute(ctx, r, "me")
+		must(err)
+	}
+	bead := func(id string, labels ...string) {
+		t.Helper()
+		_, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: "yard", Labels: labels}, "me")
+		must(err)
+	}
+	claim := func(id, group, stage string) {
+		t.Helper()
+		_, err := st.Claim(ctx, id, group, stage, "yard")
+		must(err)
+	}
+	move := func(id, stage string) {
+		t.Helper()
+		_, err := st.Advance(ctx, id, stage, store.Expect{}, "me")
+		must(err)
+	}
+	close := func(id string) {
+		t.Helper()
+		_, err := st.CloseBead(ctx, id, "done", store.Expect{}, "me")
+		must(err)
+	}
+
+	bead("yard-b1", "difficulty:1")
+	claim("yard-b1", "muse-builders", "new")
+	move("yard-b1", "review")
+	close("yard-b1")
+	bead("yard-b2", "difficulty:1")
+	claim("yard-b2", "muse-builders", "new")
+	move("yard-b2", "review")
+	close("yard-b2")
+	// Open in new after a claude review: counts for BY HARNESS, not
+	// for the closed-beads table.
+	bead("yard-b3", "difficulty:1")
+	move("yard-b3", "review")
+	claim("yard-b3", "claude-builders", "review")
+	move("yard-b3", "new")
+	bead("yard-b4", "difficulty:1")
+	claim("yard-b4", "claude-builders", "new")
+	move("yard-b4", "review")
+	close("yard-b4")
+	// Manual work in new: closed beads count for its group, but with
+	// no kind it is in no harness row.
+	bead("yard-b5", "difficulty:1")
+	claim("yard-b5", "people", "new")
+	move("yard-b5", "review")
+	close("yard-b5")
+
+	// The text prints the second table with the kinds this yard runs.
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.routeReportCmd(), "--since", "40h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"BY HARNESS", "KIND", "muse", "claude", "new, review"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("route report --since 40h lacks %q:\n%s", want, out)
+		}
+	}
+
+	kinds := reportKinds(t, st, "--since", "40h")
+	if len(kinds) != 2 {
+		t.Fatalf("by_kind = %v, want muse and claude", kinds)
+	}
+	muse, claude := kinds["muse"], kinds["claude"]
+	if muse.Sessions != 2 || len(muse.Stages) != 1 || muse.Stages[0] != "new" {
+		t.Errorf("muse = %+v, want 2 sessions in new", muse)
+	}
+	if claude.Sessions != 2 || len(claude.Stages) != 2 {
+		t.Errorf("claude = %+v, want 2 sessions in new and review", claude)
+	}
+	if muse.Hours == nil || muse.Median == nil || claude.Hours == nil || claude.Median == nil {
+		t.Errorf("by_kind times = %+v %+v, want measured hours and medians", muse, claude)
+	}
+
+	// The sessions match a hand count over the claimed events.
+	aj := &app{st: st, actor: "me", json: true}
+	out, err = run(t, aj.eventsCmd(), "--since", "40h", "--kind", "claimed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claimed []store.Event
+	if err := json.Unmarshal([]byte(out), &claimed); err != nil {
+		t.Fatalf("events --since 40h --kind claimed = %q: %v", out, err)
+	}
+	counted := map[string]int{}
+	for _, e := range claimed {
+		kind, _ := e.Data["kind"].(string)
+		if kind == "" {
+			continue
+		}
+		counted[kind]++
+	}
+	for kind, row := range kinds {
+		if counted[kind] != row.Sessions {
+			t.Errorf("%s sessions = %d, hand count = %d", kind, row.Sessions, counted[kind])
+		}
+	}
+	if len(counted) != len(kinds) {
+		t.Errorf("hand count kinds = %v, by_kind = %v", counted, kinds)
 	}
 }

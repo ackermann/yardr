@@ -261,11 +261,12 @@ condition holds for waits with one `quota_wait` event until it starts,
 and `yardr bead show` prints either as one line. And `yardr route
 report` reads the events back: for each group and estimate label, how
 many beads it built, how often review sent them back, how many sessions
-failed, and the median build. A wrong estimate goes to a weak group and
-comes back from review, as a wrong label does today; someone changes the
-label and the bead is routed again, and the report shows the pattern.
-Nothing changes a route from those numbers: a person reads them and edits
-the routes or the rubric.
+failed, and the median build; and BY HARNESS, one row per harness kind
+with its sessions, hours, median and stages. A wrong estimate goes to a
+weak group and comes back from review, as a wrong label does today;
+someone changes the label and the bead is routed again, and the report
+shows the pattern. Nothing changes a route from those numbers: a person
+reads them and edits the routes or the rubric.
 
 ## Models
 

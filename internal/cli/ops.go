@@ -1071,18 +1071,95 @@ func printEvent(e store.Event) {
 }
 
 func (a *app) eventsCmd() *cobra.Command {
-	var bead string
+	var bead, since string
+	var kinds []string
 	var limit int
 	cmd := &cobra.Command{
 		Use: "events", Short: "Show the event log", Args: cobra.NoArgs,
+		Long: `Show the event log, oldest first.
+
+--bead keeps one bead's events, --kind one kind's (repeatable: --kind
+claimed --kind advanced), --since those at or after a time: a duration
+back from now (7d, 40h, 30m) or an RFC3339 time. Without -n the newest
+50 are shown, or with --since every one in the window.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			evs, err := st.Events(c.Context(), bead, limit)
-			if err != nil {
-				return err
+			var cutoff time.Time
+			if since != "" {
+				if cutoff, err = parseSince(since); err != nil {
+					return fmt.Errorf("--since: %w", err)
+				}
+			}
+			wantKind := map[string]bool{}
+			for _, k := range kinds {
+				if k = strings.TrimSpace(k); k != "" {
+					wantKind[k] = true
+				}
+			}
+			// --since without -n returns everything in the window;
+			// otherwise the newest limit, 50 unless told.
+			n := limit
+			if since != "" && !c.Flags().Changed("limit") {
+				n = 0
+			} else if n <= 0 {
+				n = 50
+			}
+			if since == "" && len(wantKind) == 0 {
+				evs, err := st.Events(c.Context(), bead, n)
+				if err != nil {
+					return err
+				}
+				return a.out(evs, func() {
+					for _, e := range evs {
+						printEvent(e)
+					}
+				})
+			}
+			// Filtered: read the retained log oldest first and keep
+			// what matches, so -n is the newest of those, not of all.
+			if bead != "" {
+				// Unknown beads fail as the unfiltered listing
+				// does, and a UUID reads as its handle below.
+				b, err := st.GetBead(c.Context(), bead)
+				if err != nil {
+					return err
+				}
+				bead = b.ID
+			}
+			var all []store.Event
+			var after uint64
+			for {
+				page, err := st.EventsSince(c.Context(), after, 1000)
+				if err != nil {
+					return err
+				}
+				if len(page) == 0 {
+					break
+				}
+				all = append(all, page...)
+				after = page[len(page)-1].Seq
+				if len(page) < 1000 {
+					break
+				}
+			}
+			var evs []store.Event
+			for _, e := range all {
+				if bead != "" && (e.Bead == nil || *e.Bead != bead) {
+					continue
+				}
+				if len(wantKind) > 0 && !wantKind[e.Kind] {
+					continue
+				}
+				if since != "" && e.At.Before(cutoff) {
+					continue
+				}
+				evs = append(evs, e)
+			}
+			if n > 0 && len(evs) > n {
+				evs = evs[len(evs)-n:]
 			}
 			return a.out(evs, func() {
 				for _, e := range evs {
@@ -1092,6 +1169,8 @@ func (a *app) eventsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&bead, "bead", "", "only this bead")
+	cmd.Flags().StringArrayVar(&kinds, "kind", nil, "only this event kind; repeatable")
+	cmd.Flags().StringVar(&since, "since", "", "only events at or after this time: 7d, 40h, 30m or RFC3339")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 50, "how many")
 	return cmd
 }

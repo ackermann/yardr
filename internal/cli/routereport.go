@@ -38,20 +38,35 @@ type routeReportRow struct {
 	MedianBuild *string `json:"median_build"`
 }
 
+// routeKindRow is one BY HARNESS row: the sessions one harness kind ran in
+// the window. Sessions counts its claims, Hours their claim-to-exit time
+// summed and Median the middle of it, nil when no counted claim exited;
+// Stages is the stages they ran, sorted.
+type routeKindRow struct {
+	Kind     string   `json:"kind"`
+	Sessions int      `json:"sessions"`
+	Hours    *string  `json:"hours"`
+	Median   *string  `json:"median"`
+	Stages   []string `json:"stages"`
+}
+
 // routeReport is the report: From is when the oldest retained event was
-// logged (nil when the log holds none), Rows one row per group and label.
+// logged (nil when the log holds none), Rows one row per group and label,
+// ByKind one row per harness kind.
 type routeReport struct {
-	From *time.Time       `json:"from"`
-	Rows []routeReportRow `json:"rows"`
+	From   *time.Time       `json:"from"`
+	Rows   []routeReportRow `json:"rows"`
+	ByKind []routeKindRow   `json:"by_kind"`
 }
 
 // reportClaim is one claimed event the report counts: who held which bead in
-// which stage, and the session it held it with.
+// which stage, the session it held it with, and the harness kind it ran.
 type reportClaim struct {
 	bead    string
 	group   string
 	stage   string
 	session string
+	kind    string
 	at      time.Time
 	seq     uint64
 }
@@ -70,9 +85,10 @@ type reportExit struct {
 // Beads come from the bead records, not the log: only closed beads count,
 // under the labels they have now, or under "-" when they have none of the
 // prefixes. A bead a group never claimed is in no cell; one two groups
-// worked in one stage is in each group's.
+// worked in one stage is in each group's. BY HARNESS counts every claim
+// with a kind instead, open beads included: sessions ran, not beads closed.
 func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts) *routeReport {
-	rep := &routeReport{Rows: []routeReportRow{}}
+	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}}
 	if len(evs) > 0 {
 		from := evs[0].At
 		rep.From = &from
@@ -95,6 +111,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			group, _ := e.Data["group"].(string)
 			stage, _ := e.Data["stage"].(string)
 			session, _ := e.Data["session"].(string)
+			kind, _ := e.Data["kind"].(string)
 			if group == "" || stage == "" {
 				continue
 			}
@@ -102,7 +119,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			if !o.stages[stage] || e.At.Before(o.since) {
 				continue
 			}
-			c := reportClaim{bead: bead, group: group, stage: stage, session: session, at: e.At, seq: e.Seq}
+			c := reportClaim{bead: bead, group: group, stage: stage, session: session, kind: kind, at: e.At, seq: e.Seq}
 			claims = append(claims, c)
 			if session != "" {
 				sessionOf[session] = c
@@ -162,7 +179,9 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	for i, x := range exits {
 		pairExits[i] = store.ETABuildExit{Bead: x.bead, Group: x.group, Stage: x.from, At: x.at, Seq: x.seq}
 	}
-	for xi, pair := range store.PairETABuilds(pairClaims, pairExits, failedAt) {
+	pairs := store.PairETABuilds(pairClaims, pairExits, failedAt)
+	kindBuilds := map[string][]time.Duration{}
+	for xi, pair := range pairs {
 		x := exits[xi]
 		if !o.stages[x.from] {
 			continue
@@ -171,8 +190,14 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			continue
 		}
 		c := claims[pair.Claim]
+		d := x.at.Sub(c.at)
 		k := c.group + "\x00" + c.bead
-		builds[k] = append(builds[k], x.at.Sub(c.at))
+		builds[k] = append(builds[k], d)
+		// The same pairing feeds BY HARNESS, so the two tables agree
+		// on what a claim cost.
+		if c.kind != "" {
+			kindBuilds[c.kind] = append(kindBuilds[c.kind], d)
+		}
 	}
 	type cell struct {
 		beads     map[string]bool
@@ -244,6 +269,42 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			row.MedianBuild = &s
 		}
 		rep.Rows = append(rep.Rows, row)
+	}
+	kindSessions := map[string]int{}
+	kindStages := map[string]map[string]bool{}
+	for _, c := range claims {
+		if c.kind == "" {
+			continue
+		}
+		kindSessions[c.kind]++
+		if kindStages[c.kind] == nil {
+			kindStages[c.kind] = map[string]bool{}
+		}
+		kindStages[c.kind][c.stage] = true
+	}
+	kindKeys := make([]string, 0, len(kindSessions))
+	for k := range kindSessions {
+		kindKeys = append(kindKeys, k)
+	}
+	slices.Sort(kindKeys)
+	for _, k := range kindKeys {
+		stages := make([]string, 0, len(kindStages[k]))
+		for s := range kindStages[k] {
+			stages = append(stages, s)
+		}
+		slices.Sort(stages)
+		row := routeKindRow{Kind: k, Sessions: kindSessions[k], Stages: stages}
+		if ds := kindBuilds[k]; len(ds) > 0 {
+			var total time.Duration
+			for _, d := range ds {
+				total += d
+			}
+			h := limits.Span(total)
+			row.Hours = &h
+			m := limits.Span(store.MedianDuration(ds))
+			row.Median = &m
+		}
+		rep.ByKind = append(rep.ByKind, row)
 	}
 	return rep
 }
@@ -348,9 +409,15 @@ prompt, stalled on its first prompt, gave up on it, or stopped on a
 harness error; each session counts once. MEDIAN BUILD is from the claim
 to the move that left the stage. A bead two groups worked in one stage
 counts for each; a bead with no estimate label counts under "-"; a bead
-that never closed counts nowhere. The first line says from when the log
-still holds events: the report reads only what retention kept. It changes
-nothing.`,
+that never closed counts nowhere.
+
+BY HARNESS prints one row per harness kind the groups ran: SESSIONS is
+its claims in the window, HOURS their claim-to-exit time summed and
+MEDIAN the middle of it, STAGES the stages they ran. It counts every
+claim, open beads included, with the same pairing as the first table, so
+the two agree; --since and --stage apply to it as to the first. The
+first line says from when the log still holds events: the report reads
+only what retention kept. It changes nothing.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
@@ -362,11 +429,11 @@ nothing.`,
 				return fmt.Errorf("--prefix: give at least one label prefix")
 			}
 			if since != "" {
-				d, err := parseDays(since)
+				cutoff, err := parseSince(since)
 				if err != nil {
 					return fmt.Errorf("--since: %w", err)
 				}
-				o.since = time.Now().Add(-d)
+				o.since = cutoff
 			}
 			if o.stages, err = reportStages(c.Context(), st, stage); err != nil {
 				return err
@@ -391,11 +458,28 @@ nothing.`,
 						strconv.FormatFloat(r.SentBack, 'f', 1, 64), strconv.Itoa(r.Failed), median}
 				}
 				table("GROUP\tLABEL\tBEADS\tSENT BACK\tFAILED\tMEDIAN BUILD", rows)
+				fmt.Println("BY HARNESS")
+				kinds := make([][]string, len(rep.ByKind))
+				for i, r := range rep.ByKind {
+					hours, median := "-", "-"
+					if r.Hours != nil {
+						hours = *r.Hours
+					}
+					if r.Median != nil {
+						median = *r.Median
+					}
+					stages := strings.Join(r.Stages, ", ")
+					if stages == "" {
+						stages = "-"
+					}
+					kinds[i] = []string{r.Kind, strconv.Itoa(r.Sessions), hours, median, stages}
+				}
+				table("KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
 			})
 		},
 	}
 	cmd.Flags().StringSliceVar(&prefixes, "prefix", []string{"difficulty:", "size:"}, "label prefixes to report, e.g. difficulty,size")
 	cmd.Flags().StringVar(&stage, "stage", "", "only this stage (default: every stage a herdr group works)")
-	cmd.Flags().StringVar(&since, "since", "", "only what is that new: 7d, 12h, 30m")
+	cmd.Flags().StringVar(&since, "since", "", "only what is that new: 7d, 12h, 30m or RFC3339")
 	return cmd
 }
