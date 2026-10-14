@@ -93,7 +93,9 @@ bead does, with the one `unrouted` event naming whose beads have no route.
 Cross-originator use is opted into per route, visibly in the table:
 `--originator mckean2 --group builders` spends the operator's subscription
 for mckean2 on purpose (a subsidy route), and `--originator any` spends it
-for everyone. A route whose first group starts no agents (a script,
+for everyone. A subsidy route is how a new user with no login of their
+own is carried on the operator's accounts until they have one. A route
+whose first group starts no agents (a script,
 people, another yard) takes every originator's beads: `route add` defaults
 it to `any`, as packs and the migration do, since none burns a local
 subscription.

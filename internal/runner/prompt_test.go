@@ -236,6 +236,26 @@ func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 	}
 }
 
+// A conversation session's first prompt names its person and its slice,
+// and primes with --for: its prime shows that slice alone. It never
+// greets, even where the line session would.
+func TestFirstPromptNamesConversationPersonAndSlice(t *testing.T) {
+	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
+	got := crewPrompt("yardr", r, "hal")
+	want := "You are the yardr crew member \"yardmaster\", talking with \"hal\". " +
+		"Your inbox is hal's slice alone. Run `yardr prime --crew yardmaster --for hal` and follow it."
+	if got != want {
+		t.Errorf("conversation prompt =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(got, "set this yard up") {
+		t.Errorf("conversation session greets:\n%s", got)
+	}
+	if !strings.HasPrefix(got, CrewPromptLead) || !strings.HasSuffix(got, CrewPromptEnd) ||
+		!showsPrompt("❯ "+got, got) {
+		t.Errorf("the conversation's prompt does not begin and end as a crew member's:\n%s", got)
+	}
+}
+
 // Found live (yardr-85jy): a Codex left at its folder-trust dialog got its
 // first prompt from the dispatcher in the second a person answered the
 // dialog, and dropped the keys; the prompt was cleared as delivered and the

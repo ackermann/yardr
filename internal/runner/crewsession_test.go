@@ -51,8 +51,10 @@ func TestStartCrewConversation(t *testing.T) {
 		t.Errorf("handle lacks for=hal: %v", handle)
 	}
 	prompt, _ := handle[firstPrompt].(string)
-	if !strings.Contains(prompt, "prime --crew yardmaster") {
-		t.Errorf("first prompt points nowhere at the prime: %q", prompt)
+	for _, want := range []string{`talking with "hal"`, "hal's slice", "prime --crew yardmaster --for hal"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("first prompt lacks %q: %q", want, prompt)
+		}
 	}
 	if strings.Contains(prompt, "set this yard up") {
 		t.Errorf("conversation session greets: %q", prompt)

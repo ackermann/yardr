@@ -171,6 +171,25 @@ from `<yard>-<name>-<user>` with a short unique suffix (herdr names are
 bounded to 32 characters), and its workspace is labelled
 `<yard> <name> for <user>`.
 
+The two sessions divide the work: the line session keeps the yard, and
+a conversation session talks with its person and files and shapes their
+beads, with `--for <them>` on every create so their work bills their
+subscription. It never runs the line: no triage of faults, no releasing
+or un-holding builders, no moving a bead past `new`, no landings. The
+yardmaster's role says the split for both sessions (Which session you
+are, in the starter pack's
+[yardmaster.md](../packs/starter/roles/yardmaster.md)).
+
+A person with no login of their own has no conversation session: they
+talk to the line session, whose slice holds their mail, and on the
+build side a subsidy route carries them on the operator's accounts
+until they have a login
+([groups.md](groups.md#which-beads-a-route-takes)). The yardmaster
+keeps the default serving list: a `for=` that leaves the operator
+unnamed runs no line session. One identity throughout: memories are
+shared like the journal, and a conversation session's first prompt
+names its person and its slice.
+
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts. A mail counts as read, where
