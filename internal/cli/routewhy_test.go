@@ -167,6 +167,9 @@ func TestBeadShowSaysWhatAWaitingBeadWaitsFor(t *testing.T) {
 func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "machine.yaml", "name: machine\nlimits:\n  command: [/bin/true]\n", "me"); err != nil {
+		t.Fatal(err)
+	}
 	for _, g := range []store.Group{
 		{Name: "c", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
 		// Another kind, set to burn a's provider.
@@ -182,6 +185,8 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 		warn string // the group warned of, "" for none
 	}{
 		{[]string{"--group", "a@Weekly<80", "--else", "c"}, "c"},
+		{[]string{"--group", "a@machine.load<80", "--else", "c"}, ""},
+		{[]string{"--group", "a@machine.load<80,Weekly<80", "--else", "c"}, "c"},
 		{[]string{"--group", "a@Weekly<80", "--else", "d"}, "d"},
 		{[]string{"--group", "a@Weekly<80", "--else", "b@<90", "--else", "c"}, "c"},
 		{[]string{"--group", "a@Weekly<80", "--else", "b"}, ""},

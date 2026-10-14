@@ -140,8 +140,19 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 		}
 		name, _, _ := groupProvider(as, groups[rg.Name], def)
 		if rg.When != "" {
-			if _, seen := gated[name]; !seen && name != "" {
-				gated[name] = rg.Name
+			comparesProvider := false
+			if limits, err := store.ParseQuota(rg.When); err == nil {
+				for _, l := range limits {
+					if l.Source == "" {
+						comparesProvider = true
+						break
+					}
+				}
+			}
+			if comparesProvider {
+				if _, seen := gated[name]; !seen && name != "" {
+					gated[name] = rg.Name
+				}
 			}
 			continue
 		}
