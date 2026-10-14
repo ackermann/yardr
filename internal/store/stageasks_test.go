@@ -136,11 +136,11 @@ func TestStageAskEntry(t *testing.T) {
 	if advanced == 0 || got[0].Ask.Entry != advanced {
 		t.Fatalf("entry %d, advanced %d", got[0].Ask.Entry, advanced)
 	}
-	// A caller-sent Stage, Move and Entry are cleared: asking by hand puts
-	// no stage ask.
+	// Caller-sent stage-ask metadata is cleared: asking by hand puts no
+	// stage ask and cannot claim fallback authorization.
 	seq, err := s.AddAsk(ctx, b.ID, store.Ask{
 		Question: "Plain?", To: "ada", Context: []string{"why"},
-		Stage: "review", Move: []string{"done"}, Entry: 99,
+		Stage: "review", Move: []string{"done"}, Entry: 99, Fallback: true,
 	}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestStageAskEntry(t *testing.T) {
 	for _, n := range notes {
 		if n.Seq == seq {
 			a, _ := store.ParseAsk(n)
-			if a.Stage != "" || len(a.Move) != 0 || a.Entry != 0 {
+			if a.Stage != "" || len(a.Move) != 0 || a.Entry != 0 || a.Fallback {
 				t.Fatalf("caller-sent stage ask kept: %+v", a)
 			}
 		}

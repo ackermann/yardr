@@ -89,11 +89,14 @@ type Ask struct {
 	// move. Entry is the seq of the event that entered the bead into the
 	// stage, the advanced event of the move that put it there, the created
 	// event for a bead created in the stage, or the reopened event for a
-	// bead reopened in it. All three are the yard's own values: newAsk
-	// clears whatever a caller sends for them.
-	Stage string   `json:"stage,omitempty"`
-	Move  []string `json:"move,omitempty"`
-	Entry uint64   `json:"entry,omitempty"`
+	// bead reopened in it. Fallback marks an ask addressed to the operator
+	// because no stage member could receive one; its recipient remains an
+	// authorized answerer if the operator setting later changes. All four
+	// are the yard's own values: newAsk clears whatever a caller sends.
+	Stage    string   `json:"stage,omitempty"`
+	Move     []string `json:"move,omitempty"`
+	Entry    uint64   `json:"entry,omitempty"`
+	Fallback bool     `json:"fallback,omitempty"`
 	// Secret makes the ask a secret ask: where its answer goes. Such an ask
 	// has no options, no recommendation and no about-beads, is for the
 	// operator (or, for a user's own address in a source, for that user),
@@ -216,7 +219,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 	// The yard's own values for a stage ask, whatever the writer sent, as
 	// secret and run asks are stored with the yard's own values: a person
 	// asking by hand puts no stage ask.
-	ask.Stage, ask.Move, ask.Entry = "", nil, 0
+	ask.Stage, ask.Move, ask.Entry, ask.Fallback = "", nil, 0, false
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
 		return nil, fmt.Errorf("an ask needs a question")

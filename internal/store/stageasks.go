@@ -214,7 +214,9 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTe
 	if err != nil || operator == "" {
 		return err
 	}
-	return w.putLocalStageAsk(row, tmpl.stageAsk(operator, stage, entry))
+	ask := tmpl.stageAsk(operator, stage, entry)
+	ask.Fallback = true
+	return w.putLocalStageAsk(row, ask)
 }
 
 // putLocalStageAsk puts ask in the local user's queue and, as any ask for a
@@ -434,15 +436,13 @@ func (w *wtx) stageAnswerAuth(ctx context.Context, row *beadRow, ask Ask, actor 
 			return err
 		}
 		// An answer arriving over reach counts as the member's word.
-		if as, ok := TrustedAs(peers)[actor]; ok && slices.Contains(g.Members, as) {
-			return nil
-		}
-		if actor == ask.To {
-			if operator, err := operatorIn(w.Tx); err != nil {
-				return err
-			} else if operator != "" && ask.To == operator {
+		if as, ok := TrustedAs(peers)[actor]; ok {
+			if slices.Contains(g.Members, as) || ask.Fallback && as == ask.To {
 				return nil
 			}
+		}
+		if ask.Fallback && actor == ask.To {
+			return nil
 		}
 		return err
 	}

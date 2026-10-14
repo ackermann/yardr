@@ -321,6 +321,35 @@ func TestStageAnswerFallback(t *testing.T) {
 	}
 }
 
+// The operator addressed as fallback remains the recipient's authorized
+// answerer if the operator setting changes while the ask is open.
+func TestStageAnswerFallbackAfterOperatorChange(t *testing.T) {
+	s, ctx := stageAskYard(t, stageAskChoice)
+	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"x@nobody"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	got := stageAsks(t, s, b.ID)
+	if len(got) != 1 || got[0].Ask.To != "jo" || !got[0].Ask.Fallback {
+		t.Fatalf("fallback asks = %+v", got)
+	}
+	if err := s.SetSetting(ctx, store.OperatorSetting, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 2}, "jo"); err != nil {
+		t.Fatalf("the fallback recipient's pick after the operator changed: %v", err)
+	}
+	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "new" {
+		t.Fatalf("bead = %+v, %v", cur, err)
+	}
+}
+
 // Two members answering in turn leave one move and one take-back: the
 // loser's pick is refused as asked no more, naming the move.
 func TestStageAnswerFirstWins(t *testing.T) {
