@@ -36,16 +36,20 @@ const (
 // rarely by its own long rhythm; with fewer than two ever, the floor.
 func QuietGap(deliveries []time.Time, now time.Time) time.Duration {
 	week := make([]time.Time, 0, len(deliveries))
+	recent := make([]time.Time, 0, len(deliveries))
 	for _, t := range deliveries {
-		if !t.After(now) && !t.Before(now.Add(-QuietWindow)) {
+		if t.After(now) {
+			continue
+		}
+		recent = append(recent, t)
+		if !t.Before(now.Add(-QuietWindow)) {
 			week = append(week, t)
 		}
 	}
 	if len(week) >= 2 {
 		return gapOf(week)
 	}
-	if len(deliveries) >= 2 {
-		recent := slices.Clone(deliveries)
+	if len(recent) >= 2 {
 		slices.SortFunc(recent, time.Time.Compare)
 		if len(recent) > QuietLookback {
 			recent = recent[len(recent)-QuietLookback:]
@@ -89,5 +93,15 @@ func Quiet(last *time.Time, deliveries []time.Time, now time.Time) (quiet bool, 
 	if last == nil {
 		return false, gap
 	}
-	return now.Sub(*last) > gap, gap
+	// Hooks() and EventsOfKind() are separate reads. A delivery may commit
+	// between them, so the event log can know of a newer acceptance than
+	// the hook snapshot. Use it as the cutoff too, or that race can report a
+	// hook quiet just after it delivered.
+	accepted := *last
+	for _, at := range deliveries {
+		if !at.After(now) && at.After(accepted) {
+			accepted = at
+		}
+	}
+	return now.Sub(accepted) > gap, gap
 }

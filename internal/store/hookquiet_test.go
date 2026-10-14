@@ -40,6 +40,7 @@ func TestQuietGap(t *testing.T) {
 		{"fewer than two in the week falls back to the rhythm", ago(10*d, 9*d, 8*d), 3 * d},
 		{"one in the week falls back too", append(ago(10*d, 9*d, 8*d), ago(h)...), 3 * d},
 		{"a monthly rhythm is its own long gap", ago(90*d, 60*d, 30*d), 90 * d},
+		{"future times are ignored", append(ago(30*d, 20*d), now.Add(20*d)), 30 * d},
 	} {
 		if got := store.QuietGap(c.at, now); got != c.want {
 			t.Errorf("%s: gap = %s, want %s", c.name, got, c.want)
@@ -64,6 +65,7 @@ func TestQuiet(t *testing.T) {
 		{"delivered half an hour ago", last(30 * time.Minute), []time.Time{now.Add(-30 * time.Minute)}, false, h},
 		{"silent for exactly the gap", last(h), []time.Time{now.Add(-h)}, false, h},
 		{"silent past the gap", last(h + time.Minute), []time.Time{now.Add(-h - time.Minute)}, true, h},
+		{"a delivery after the hook snapshot ends the silence", last(2 * h), []time.Time{now.Add(-30 * time.Minute)}, false, h},
 		{"a monthly hook ten days out", last(10 * d), []time.Time{now.Add(-70 * d), now.Add(-40 * d), now.Add(-10 * d)}, false, 90 * d},
 		{"a monthly hook a season out", last(100 * d), []time.Time{now.Add(-160 * d), now.Add(-130 * d), now.Add(-100 * d)}, true, 90 * d},
 	} {

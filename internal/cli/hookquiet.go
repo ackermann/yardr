@@ -89,6 +89,9 @@ func quietNote(h store.Hook, gap time.Duration, now time.Time, l hooks.Listener)
 	if l.Addr == "" {
 		return note
 	}
+	if l.Error != "" {
+		return note + fmt.Sprintf("; the server could not listen on %s: %s", l.Addr, l.Error)
+	}
 	if answers(loopback(l.Addr)) {
 		return note + fmt.Sprintf("; the yard's listener on %s answers, so deliveries stop between the source and the yard: "+
 			"the webhook is off there, or the proxy in front of the yard is down", l.Addr)

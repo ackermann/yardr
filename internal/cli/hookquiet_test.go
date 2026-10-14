@@ -112,6 +112,15 @@ func TestDoctorNotesQuietHook(t *testing.T) {
 	if got := quietNote(*h, time.Hour, now, l); !strings.HasPrefix(got, want+"; nothing answers on 127.0.0.1:8790: the yard's own listener is down") {
 		t.Errorf("a silent listener:\n%s", got)
 	}
+	called := false
+	stub(t, &answers, func(string) bool {
+		called = true
+		return true // another process may own this address after bind failed
+	})
+	l.Error = "address already in use"
+	if got := quietNote(*h, time.Hour, now, l); got != want+"; the server could not listen on 127.0.0.1:8790: address already in use" || called {
+		t.Errorf("a failed listener was probed or misreported: %q (probed = %v)", got, called)
+	}
 }
 
 // Hook list reads quiet in STATE for a hook that delivered nothing for
