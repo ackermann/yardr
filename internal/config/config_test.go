@@ -87,6 +87,34 @@ func TestLoadHome(t *testing.T) {
 	}
 }
 
+// LoadReadOnly resolves the home as Load does but creates nothing, neither
+// a named home nor the default one: for commands that must leave a home
+// with no yard as they found it.
+func TestLoadReadOnlyCreatesNothing(t *testing.T) {
+	// A short directory: the socket path must fit MaxSocket.
+	u, err := os.MkdirTemp("", "ycr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(u) })
+	t.Setenv("HOME", u)
+	t.Setenv("YARDR_HOME", filepath.Join(u, "new"))
+	c, err := LoadReadOnly()
+	if err != nil || c.Home != filepath.Join(u, "new") {
+		t.Fatalf("YARDR_HOME: %+v %v", c, err)
+	}
+	if _, err := os.Stat(filepath.Join(u, "new")); err == nil {
+		t.Fatal("the named home was created")
+	}
+	t.Setenv("YARDR_HOME", "")
+	if c, err = LoadReadOnly(); err != nil || c.Home != filepath.Join(u, ".yardr") {
+		t.Fatalf("default home: %+v %v", c, err)
+	}
+	if _, err := os.Stat(filepath.Join(u, ".yardr")); err == nil {
+		t.Fatal("the default home was created")
+	}
+}
+
 func TestLoadServiceAddressOverrides(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "yardr-config-")
 	if err != nil {

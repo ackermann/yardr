@@ -229,7 +229,7 @@ every line.`,
   yardr doctor --json | jq -r '.next.next'     # the command for the next setup step`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := config.LoadReadOnly()
 			if err != nil {
 				return err
 			}

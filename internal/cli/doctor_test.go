@@ -88,8 +88,8 @@ func wantText(t *testing.T, out string, lines ...string) {
 }
 
 // On a home with no yard doctor says so, checks the machine, shows every
-// step as todo and creates nothing: no store, no server. Without a terminal
-// too, where any other command is refused.
+// step as todo and creates nothing: not even the home directory, no store,
+// no server. Without a terminal too, where any other command is refused.
 func TestDoctorEmptyHome(t *testing.T) {
 	home := newHome(t)
 	setInteractive(t, false)
@@ -113,6 +113,9 @@ func TestDoctorEmptyHome(t *testing.T) {
 			t.Errorf("doctor created %s", f)
 		}
 	}
+	if _, err := os.Stat(home); err == nil {
+		t.Error("doctor created the home directory")
+	}
 
 	// What the onboarding needs and the machine lacks is a fault here too.
 	fakeTools(t, map[string]string{"git": toolAnswers})
@@ -127,6 +130,9 @@ func TestDoctorEmptyHome(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
 		t.Fatal("doctor --json created a store")
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("doctor --json created the home directory")
 	}
 }
 

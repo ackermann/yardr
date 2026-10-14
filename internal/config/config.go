@@ -120,6 +120,21 @@ const MaxSocket = 100
 // would name a different directory, or none, and exit 2 on the first
 // command.
 func Load() (*Config, error) {
+	c, err := LoadReadOnly()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(c.Home, 0o700); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// LoadReadOnly resolves the home as Load does but creates nothing: for
+// commands that must leave a home with no yard as they found it (doctor,
+// which says that it creates nothing). A home whose socket path would not
+// fit a unix socket is refused, as by Load.
+func LoadReadOnly() (*Config, error) {
 	home := Getenv("HOME")
 	if home == "" {
 		h, err := os.UserHomeDir()
@@ -136,9 +151,6 @@ func Load() (*Config, error) {
 	if n := len(c.Socket()); n > MaxSocket {
 		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
 			"allows %d; give --home (or YARDR_HOME) a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
-	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return nil, err
 	}
 	return c, nil
 }
