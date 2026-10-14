@@ -428,12 +428,28 @@ func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) erro
 	if err != nil {
 		return err
 	}
+	var broken []string
+	for _, s := range f.Stages {
+		if have[s] == "" {
+			continue
+		}
+		sf, err := store.HomeStageFile(a.home(), f.Name, s)
+		if err != nil {
+			return err
+		}
+		if b := sf.BrokenAsk(f, s); b != "" {
+			broken = append(broken, b)
+		}
+	}
 	v := map[string]any{"flow": f, "pointed_at_by": users}
 	if len(have) > 0 {
 		v["stage_files"] = have
 	}
 	if len(stray) > 0 {
 		v["stray_stage_files"] = stray
+	}
+	if len(broken) > 0 {
+		v["broken_stage_files"] = broken
 	}
 	return a.out(v, func() {
 		var with []string
@@ -445,6 +461,9 @@ func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) erro
 		fmt.Printf("flow %s: %d stages, pointed at by %s\n", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"))
 		fmt.Printf("stage files: %s (%s)\n\n%s", or(strings.Join(with, ", "), "none"), filepath.Join(store.HomeStageDir(a.home(), f.Name), "<stage>.md"), f)
 		for _, s := range stray {
+			fmt.Printf("warning: stage file %s\n", s)
+		}
+		for _, s := range broken {
 			fmt.Printf("warning: stage file %s\n", s)
 		}
 	})
@@ -570,6 +589,12 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 	for _, rf := range all {
 		typed[rf.Type] = rf.Type != ""
 	}
+	// The depot's base, for what its stage files say: a broken ## Ask
+	// section warns under its stage, beside the stray files below.
+	repo, err := st.RepoFlows(ctx, depot)
+	if err != nil {
+		return nil, err
+	}
 	views := []flowView{}
 	for _, rf := range all {
 		f := rf.Flow
@@ -608,16 +633,27 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 					sv.Open++
 				}
 			}
+			// A broken ## Ask section in the stage's file warns beside
+			// it: the repository's, or the yard's home for a store flow.
+			var sf *store.StageFile
+			if rf.Source.InStore() {
+				if files[s] != "" {
+					if sf, err = store.HomeStageFile(home, f.Name, s); err != nil {
+						return nil, err
+					}
+				}
+			} else {
+				sf = repo.StageFile(rf.Flow.Name, s)
+			}
+			if broken := sf.BrokenAsk(f, s); broken != "" {
+				v.Warnings = append(v.Warnings, "stage file "+broken)
+			}
 			v.Stages = append(v.Stages, sv)
 		}
 		views = append(views, v)
 	}
 	// A stage file on the base that belongs to no stage, under the flow whose
 	// directory it is in, else under the depot's own: nobody is shown it.
-	repo, err := st.RepoFlows(ctx, depot)
-	if err != nil {
-		return nil, err
-	}
 	for _, s := range repo.StrayStageFiles() {
 		// The longest directory wins: type/train/x.md is type/train.flow's.
 		at, most := 0, 0

@@ -79,21 +79,25 @@ const SummaryMax = 100
 const summaryPrefix = "summary:"
 
 // split parts a stage file's text into what its `summary:` line says and
-// the rest. Only the first line that is not blank can be that line.
+// the rest. Only the first line that is not blank can be that line. The
+// file's `## Ask` section is no part of either: it is the stage's ask
+// template, shown nowhere the file is shown.
 func (sf *StageFile) split() (summary, body string) {
 	if sf == nil {
 		return "", ""
 	}
-	body = strings.TrimLeft(sf.Text, "\r\n")
+	text := cutAskSection(sf.Text)
+	body = strings.TrimLeft(text, "\r\n")
 	first, rest, _ := strings.Cut(body, "\n")
 	if s, ok := strings.CutPrefix(first, summaryPrefix); ok {
 		return strings.TrimSpace(s), strings.TrimLeft(rest, "\r\n")
 	}
-	return "", sf.Text
+	return "", text
 }
 
 // Body is the stage file as whoever works the stage reads it: the text
-// without its `summary:` line, which is for the map alone.
+// without its `summary:` line, which is for the map alone, and without its
+// `## Ask` section, which is the stage's ask template.
 func (sf *StageFile) Body() string {
 	_, body := sf.split()
 	return body

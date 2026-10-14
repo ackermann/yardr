@@ -160,6 +160,47 @@ func TestPrimeShowsTheStageFile(t *testing.T) {
 	}
 }
 
+// prime shows the stage file without its ## Ask section; --json keeps the
+// whole file.
+func TestPrimeLeavesOutTheAskSection(t *testing.T) {
+	a, repo, _, git, write := stageYard(t)
+	ctx := context.Background()
+	text := "Read the whole diff.\n\n## Ask\nkind: choice\nquestion: Where next?\ncontext:\n- The diff is green.\ndone: Merge it.\nchanges: Send it back.\n"
+	write(repo, map[string]string{".yardr/flows/default/review.md": text})
+	git("add", "-A")
+	git("commit", "-q", "-m", "ask template")
+	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Depot: "web", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "\nSTAGE review (.yardr/flows/default/review.md):\n  Read the whole diff.\n") {
+		t.Errorf("prime lacks the stage's prose:\n%s", out)
+	}
+	for _, want := range []string{"## Ask", "kind: choice", "Where next?", "Send it back."} {
+		if strings.Contains(out, want) {
+			t.Errorf("prime shows the ask template %q:\n%s", want, out)
+		}
+	}
+	a.json = true
+	defer func() { a.json = false }()
+	out, err = run(t, a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Next struct {
+			StageFile store.StageFile `json:"stage_file"`
+		} `json:"next"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil || v.Next.StageFile.Text != text {
+		t.Errorf("prime --json: next.stage_file.text = %q, %v", v.Next.StageFile.Text, err)
+	}
+}
+
 // flow show says, per stage, whether it has a stage file: for a depot's
 // flows in the FILE column, for a named flow with where its files live.
 func TestFlowShowNamesStageFiles(t *testing.T) {
@@ -210,6 +251,77 @@ func TestFlowShowNamesStageFiles(t *testing.T) {
 	out, err = run(t, a.flowCmd(), "show", "code")
 	if err != nil || !strings.Contains(out, "stage files: new ("+filepath.Join(home, "flows/code/<stage>.md")+")") || !strings.Contains(out, "warning: stage file "+stray) {
 		t.Fatalf("flow show code: %q, %v", out, err)
+	}
+}
+
+// flow show warns of a stage file whose ## Ask section is broken beside the
+// file: one that does not parse, or whose outcomes do not resolve under the
+// flow. A valid template warns of nothing.
+func TestFlowShowWarnsOfBrokenAskTemplate(t *testing.T) {
+	a, repo, home, git, write := stageYard(t)
+	write(repo, map[string]string{
+		".yardr/flows/default/review.md":    "Read the diff.\n\n## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n",
+		".yardr/flows/type/decision/ask.md": "Answer it.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The bead waits.\n",
+	})
+	git("add", "-A")
+	git("commit", "-q", "-m", "ask templates")
+	write(home, map[string]string{
+		"flows/code/review.md": "Review for every depot.\n\n## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nship: Away.\n",
+		"flows/code/new.md":    "Build.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The bead waits.\n",
+	})
+
+	// The yard has no routes, so every stage warns of that too; only the
+	// stage file warnings are this test's.
+	fileWarns := func(v flowView) []string {
+		var out []string
+		for _, w := range v.Warnings {
+			if strings.HasPrefix(w, "stage file ") {
+				out = append(out, w)
+			}
+		}
+		return out
+	}
+	views, err := flowViews(context.Background(), a.st, "web", home)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("views = %+v, %v", views, err)
+	}
+	broken := "stage file .yardr/flows/default/review.md: ask line 4: kind \"choce\": want choice, input or check"
+	if got := fileWarns(views[0]); !slices.Equal(got, []string{broken}) {
+		t.Errorf("default stage file warnings = %q, want %q", got, broken)
+	}
+	// The type flow's valid template warns of nothing.
+	if got := fileWarns(views[1]); len(got) != 0 {
+		t.Errorf("decision stage file warnings = %q, want none", got)
+	}
+	if out, err := run(t, a.flowCmd(), "show", "web"); err != nil || !strings.Contains(out, "warning: "+broken) {
+		t.Fatalf("flow show web: %q, %v", out, err)
+	}
+
+	// A store flow's broken template warns under the depot and the flow:
+	// review's option names no outcome of the flow.
+	want := "flow code has no outcome ship for stage review"
+	views, err = flowViews(context.Background(), a.st, "api", home)
+	if err != nil || len(views) != 1 {
+		t.Fatalf("api views = %+v, %v", views, err)
+	}
+	if got := fileWarns(views[0]); len(got) != 1 || !strings.Contains(got[0], filepath.Join(home, "flows/code/review.md")+": ask line 8: "+want) {
+		t.Errorf("api stage file warnings = %q", got)
+	}
+	if out, err := run(t, a.flowCmd(), "show", "api"); err != nil || !strings.Contains(out, "warning: stage file ") || !strings.Contains(out, want) {
+		t.Fatalf("flow show api: %q, %v", out, err)
+	}
+	out, err := run(t, a.flowCmd(), "show", "code")
+	if err != nil || !strings.Contains(out, "warning: stage file ") || !strings.Contains(out, want) {
+		t.Fatalf("flow show code: %q, %v", out, err)
+	}
+	a.json = true
+	defer func() { a.json = false }()
+	out, err = run(t, a.flowCmd(), "show", "code")
+	var v struct {
+		Broken []string `json:"broken_stage_files"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &v) != nil || len(v.Broken) != 1 || !strings.Contains(v.Broken[0], want) {
+		t.Fatalf("flow show code --json: %q, %+v, %v", out, v, err)
 	}
 }
 

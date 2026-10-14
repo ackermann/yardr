@@ -2048,6 +2048,30 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 	}
 }
 
+// The brief shows the stage file without its ## Ask section: the template
+// is the yard's, not the worker's reading.
+func TestBriefLeavesOutTheAskSection(t *testing.T) {
+	job := dispatch.Job{
+		Bead:      store.Bead{ID: "web-3", Title: "Add login", Type: "task", Stage: "review"},
+		Group:     store.Group{Name: "reviewers"},
+		Session:   store.Session{ID: "s1"},
+		Outcomes:  []dispatch.NextOutcome{{Outcome: "done", NextStage: dispatch.NextStage{Stage: "merged", Terminal: true}}},
+		StageFile: &store.StageFile{Path: ".yardr/flows/default/review.md", Text: "Read the whole diff.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The diff is green.\n"},
+	}
+	b, err := Brief(job, "a", "", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b, "\n## Stage `review`\n\nRead the whole diff.\n") {
+		t.Errorf("brief lacks the stage's prose:\n%s", b)
+	}
+	for _, want := range []string{"## Ask", "kind: input", "What was decided?"} {
+		if strings.Contains(b, want) {
+			t.Errorf("brief shows the ask template %q:\n%s", want, b)
+		}
+	}
+}
+
 // The map of the flow goes directly before the stage section, fenced under
 // a heading of its own, and its heading line says whether a stage file
 // follows. A store flow's lines are read from the home, and the job's map

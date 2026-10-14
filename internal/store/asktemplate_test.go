@@ -1,0 +1,201 @@
+package store_test
+
+import (
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/store"
+)
+
+// A stage file may end in an ## Ask section: the stage's ask template. A
+// choice, input or check section parses to the template's fields.
+func TestAskTemplateParse(t *testing.T) {
+	choice := &store.StageFile{Text: `Build the thing.
+
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The builder asked for a decision; the question is in their note.
+- The branch is ready to review either way.
+recommend: 1
+why: The question is small and the branch is green.
+done: The bead moves to new with your words as the note.
+backlog: The bead goes back to be reshaped by the yardmaster.
+`}
+	tmpl, err := choice.Ask()
+	if err != nil {
+		t.Fatalf("choice: %v", err)
+	}
+	if tmpl.Kind != store.AskChoice || tmpl.Question != "Where should this bead go next?" {
+		t.Errorf("choice: kind %q question %q", tmpl.Kind, tmpl.Question)
+	}
+	if len(tmpl.Context) != 2 || tmpl.Context[0] != "The builder asked for a decision; the question is in their note." {
+		t.Errorf("choice: context %q", tmpl.Context)
+	}
+	if len(tmpl.Options) != 2 || tmpl.Options[0].Outcome != "done" || tmpl.Options[1].Outcome != "backlog" ||
+		tmpl.Options[0].Consequence != "The bead moves to new with your words as the note." {
+		t.Errorf("choice: options %+v", tmpl.Options)
+	}
+	if tmpl.Recommend != 1 || tmpl.Why != "The question is small and the branch is green." {
+		t.Errorf("choice: recommend %d why %q", tmpl.Recommend, tmpl.Why)
+	}
+	if tmpl.Move != "" {
+		t.Errorf("choice: move %q, want none", tmpl.Move)
+	}
+
+	input := &store.StageFile{Text: "Decide.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The bead waits in decide.\n"}
+	tmpl, err = input.Ask()
+	if err != nil {
+		t.Fatalf("input: %v", err)
+	}
+	if tmpl.Kind != store.AskInput || tmpl.Question != "What was decided?" || len(tmpl.Context) != 1 ||
+		len(tmpl.Options) != 0 || tmpl.Recommend != 0 || tmpl.Why != "" {
+		t.Errorf("input: %+v", tmpl)
+	}
+	if tmpl.Move != "done" {
+		t.Errorf("input: move %q, want the default done", tmpl.Move)
+	}
+
+	none := &store.StageFile{Text: "Decide.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The bead waits in decide.\nmove: none\n"}
+	if tmpl, err = none.Ask(); err != nil || tmpl.Move != "none" {
+		t.Fatalf("input with move none: %+v, %v", tmpl, err)
+	}
+
+	check := &store.StageFile{Text: "Check it.\n\n## Ask\nkind: check\nquestion: Is it done?\ncontext:\n- The release waits on this.\n"}
+	if tmpl, err = check.Ask(); err != nil || tmpl.Kind != store.AskCheck || tmpl.Move != "done" {
+		t.Fatalf("check: %+v, %v", tmpl, err)
+	}
+	ship := &store.StageFile{Text: "Check it.\n\n## Ask\nkind: check\nquestion: Is it done?\ncontext:\n- The release waits on this.\nmove: ship\n"}
+	if tmpl, err = ship.Ask(); err != nil || tmpl.Move != "ship" {
+		t.Fatalf("check with move ship: %+v, %v", tmpl, err)
+	}
+
+	// No section is no template, not an error.
+	for _, text := range []string{"", "Build it.\n", "Build it.\n\n### Ask\nNot the section.\n"} {
+		if tmpl, err := (&store.StageFile{Text: text}).Ask(); err != nil || tmpl != nil {
+			t.Errorf("text %q: template %+v, %v", text, tmpl, err)
+		}
+	}
+	var noneFile *store.StageFile
+	if tmpl, err := noneFile.Ask(); err != nil || tmpl != nil {
+		t.Errorf("no stage file: template %+v, %v", tmpl, err)
+	}
+}
+
+// A section that is present must parse fully: every malformed section is
+// refused naming its line.
+func TestAskTemplateMalformed(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"bad kind", "## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n", "ask line 2: kind \"choce\": want choice, input or check"},
+		{"missing kind", "Prose.\n\n## Ask\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind is required: choice, input or check"},
+		{"kind twice", "## Ask\nkind: input\nkind: check\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind twice; write it once"},
+		{"missing question", "## Ask\nkind: input\ncontext:\n- Why.\n", "ask line 1: question is required: the question in one line"},
+		{"empty question", "## Ask\nkind: input\nquestion:\ncontext:\n- Why.\n", "ask line 3: question is empty: the question in one line"},
+		{"missing context", "## Ask\nkind: input\nquestion: Q?\n", "ask line 1: context is required, with at least one '- ' line"},
+		{"context with a value", "## Ask\nkind: input\nquestion: Q?\ncontext: Why.\n", "ask line 4: context takes '- ' lines beneath it, not a value"},
+		{"context without lines", "## Ask\nkind: input\nquestion: Q?\ncontext:\n", "ask line 4: context needs at least one '- ' line"},
+		{"context line before context", "## Ask\nkind: input\nquestion: Q?\n- Why.\ncontext:\n- Why.\n", "ask line 4: a '- ' line before any 'context:' line: context lines go under 'context:'"},
+		{"choice without options", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\n", "ask line 1: a choice ask needs at least one '<outcome>: <consequence>' line"},
+		{"choice with a move", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nmove: done\ndone: Go.\n", "ask line 6: a choice ask takes no 'move:': each option names its outcome"},
+		{"option without consequence", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone:\n", "ask line 6: outcome done needs a consequence: 'done: <what picking it does>'"},
+		{"option with a bad name", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nnot an outcome: Go.\n", "ask line 6: outcome \"not an outcome\": use letters, digits, '.', '_' or '-'"},
+		{"option twice", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\ndone: Go again.\n", "ask line 7: outcome done twice; write it once"},
+		{"recommend not a number", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nrecommend: one\ndone: Go.\n", "ask line 6: recommend \"one\": the recommended option's number, 1-based into the options"},
+		{"recommend out of range", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nrecommend: 2\nwhy: Because.\ndone: Go.\n", "ask line 6: recommend 2: the ask has options 1..1"},
+		{"recommend without why", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nrecommend: 1\ndone: Go.\n", "ask line 6: recommend 1 needs 'why:': why this option, in a line"},
+		{"recommend with empty why", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nrecommend: 1\nwhy:\ndone: Go.\n", "ask line 7: why is empty: why the recommended option, in a line"},
+		{"why without recommend", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\nwhy: Because.\ndone: Go.\n", "ask line 6: 'why:' needs 'recommend:': which option it is for"},
+		{"input with an option", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: an input ask takes no options: its answer is words, and 'move:' says what they do"},
+		{"input with recommend", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nrecommend: 1\n", "ask line 6: an input ask takes no 'recommend:': its answer is words"},
+		{"input with why", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nwhy: Because.\n", "ask line 6: an input ask takes no 'why:': its answer is words"},
+		{"input with a bad move", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nmove: no way\n", "ask line 6: move \"no way\": an outcome name uses letters, digits, '.', '_' or '-', or 'none'"},
+		{"check with an option", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a check ask takes no options: Done fires 'move:'"},
+		{"check with recommend", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nrecommend: 1\n", "ask line 6: a check ask takes no 'recommend:': Done is its only option"},
+		{"check with none", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nmove: none\n", "ask line 6: 'move: none' is for an input ask: a check ask moves on Done"},
+		{"stray prose", "Prose.\n\n## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nSome more prose.\n", "ask line 8: want 'field: value', a '- ' context line or a blank line, got \"Some more prose.\""},
+		{"another section after", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n\n## Outcomes\n", "ask line 7: want 'field: value', a '- ' context line or a blank line, got \"## Outcomes\""},
+	} {
+		tmpl, err := (&store.StageFile{Text: c.text}).Ask()
+		if tmpl != nil || err == nil || err.Error() != c.want {
+			t.Errorf("%s: template %+v, error %q, want %q", c.name, tmpl, err, c.want)
+		}
+	}
+}
+
+// A template's outcomes must resolve under the flow the stage file belongs
+// to, or the template is broken.
+func TestAskTemplateCheck(t *testing.T) {
+	flow, err := store.ParseFlow("new -> review\nreview -> merged on done | new on changes\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow.Name = "code"
+	ask := func(text string) *store.AskTemplate {
+		t.Helper()
+		tmpl, err := (&store.StageFile{Text: text}).Ask()
+		if err != nil {
+			t.Fatalf("parse %q: %v", text, err)
+		}
+		return tmpl
+	}
+	choice := ask("## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\nchanges: Back.\n")
+	if err := choice.Check(flow, "review"); err != nil {
+		t.Errorf("choice with the stage's outcomes: %v", err)
+	}
+	bad := ask("## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\nship: Away.\n")
+	if err := bad.Check(flow, "review"); err == nil || !strings.HasPrefix(err.Error(), "ask line 7: flow code has no outcome ship for stage review; outcomes: done, changes") {
+		t.Errorf("choice with a bad outcome: %v", err)
+	}
+	// The implicit done of a stage with one way out resolves.
+	if err := choice.Check(flow, "new"); err == nil || !strings.HasPrefix(err.Error(), "ask line 7: ") {
+		t.Errorf("choice in a stage with fewer outcomes: %v", err)
+	} else if !strings.Contains(err.Error(), "flow code has no outcome changes for stage new") {
+		t.Errorf("choice in a stage with fewer outcomes: %v", err)
+	}
+	input := ask("## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n")
+	if err := input.Check(flow, "review"); err != nil {
+		t.Errorf("input with the default move: %v", err)
+	}
+	// The default move on a stage with no outcomes is broken where the
+	// section stands; move none moves nothing anywhere.
+	if err := input.Check(flow, "merged"); err == nil || !strings.HasPrefix(err.Error(), "ask line 1: ") {
+		t.Errorf("input with the default move in a terminal stage: %v", err)
+	}
+	none := ask("## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nmove: none\n")
+	if err := none.Check(flow, "merged"); err != nil {
+		t.Errorf("input with move none: %v", err)
+	}
+	check := ask("## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nmove: changes\n")
+	if err := check.Check(flow, "review"); err != nil {
+		t.Errorf("check with move changes: %v", err)
+	}
+	if err := check.Check(flow, "new"); err == nil || !strings.HasPrefix(err.Error(), "ask line 6: flow code has no outcome changes for stage new") {
+		t.Errorf("check with a move the stage lacks: %v", err)
+	}
+	var noTemplate *store.AskTemplate
+	if err := noTemplate.Check(flow, "review"); err != nil {
+		t.Errorf("no template: %v", err)
+	}
+}
+
+// The brief, prime and the web view show the stage file without its ## Ask
+// section, as they show it without its summary: line; the map's one line
+// never reads the template.
+func TestStageFileAskStripped(t *testing.T) {
+	for _, c := range []struct{ name, text, summary, body string }{
+		{"no section", "Build it.\n", "Build it.", "Build it.\n"},
+		{"section stripped", "Build it.\n\n## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n", "Build it.", "Build it."},
+		{"broken section stripped too", "Build it.\n\n## Ask\nkind: choce\n", "Build it.", "Build it."},
+		{"section alone", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n", "", ""},
+		{"summary and section", "summary: Built here.\n\nBuild it.\n\n## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n", "Built here.", "Build it."},
+	} {
+		sf := &store.StageFile{Text: c.text}
+		if got := sf.Summary(); got != c.summary {
+			t.Errorf("%s: summary = %q, want %q", c.name, got, c.summary)
+		}
+		if got := sf.Body(); got != c.body {
+			t.Errorf("%s: body = %q, want %q", c.name, got, c.body)
+		}
+	}
+}

@@ -354,7 +354,8 @@ Where it shows:
   it (`reveiw.md`) is a warning there, since nobody would ever be shown it.
   So is such a file on the depot's base: one in a repository flow's
   directory named after no stage of that flow, or in a directory with no
-  flow file beside it. A file on a bead's branch is not read.
+  flow file beside it. A file on a bead's branch is not read. A file whose
+  `## Ask` section is broken is a warning there too, beside the file.
 - **`yardr depot sources <depot>`.** One line per non-terminal stage of the
   flows governing the depot: where its stage file comes from, or `none`, and
   the repository's stage file it shadows when a store flow governs
@@ -368,6 +369,47 @@ in the yard's home
 yardr has one for every stage of both its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),
 [`.yardr/flows/yardr.train/`](../.yardr/flows/yardr.train)).
+
+### The ask template: `## Ask`
+
+A stage file may end in an `## Ask` section: the stage's ask template. When a
+bead enters the stage, the yard puts an ask on it built from the template, to
+the stage's people, and the person's answer moves the bead. A stage file
+without the section has no template, and its beads behave as they always did.
+Three kinds answer three wants: `choice` offers the stage's outcomes, `input`
+asks for words, `check` asks whether something has been done.
+
+```
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The builder asked for a decision; the question is in their note.
+- The branch is ready to review either way.
+recommend: 1
+why: The question is small and the branch is green.
+done: The bead moves to new with your words as the note.
+backlog: The bead goes back to be reshaped by the yardmaster.
+```
+
+- `kind` is required: `choice`, `input`, or `check`.
+- `question` is required, one line; `context` is required, at least one `- `
+  line.
+- `choice` offers one option per line of the form `<outcome>: <consequence>`,
+  at least one line. The option's label is the outcome's name; each outcome
+  must resolve under the flow. `recommend` and `why` follow the ask's rules.
+- `input` asks for words: no options and no recommendation. `move:` names the
+  outcome the words fire, default `done`; `move: none` records the words and
+  moves nothing, for a stage with no outcomes.
+- `check` asks "has X been done?": `move:` names the outcome Done fires
+  (default `done`). There is no explicit Not-yet option: Later, the existing
+  action, is the not-yet.
+
+The question and context are literal text; nothing is interpolated. The
+section is stripped wherever the stage file is shown (the brief, prime, the
+web view), as the `summary:` line already is. A section that is present must
+parse fully; `yardr flow show` reports a broken one beside its file, as it
+warns of stray files.
 
 ### The map of the flow
 
