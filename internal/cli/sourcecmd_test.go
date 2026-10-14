@@ -45,7 +45,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 	for _, want := range []string{
 		"pushover  https://api.pushover.net/1",
 		"A push to a person's phone through Pushover.",
-		"credential: PUSHOVER_TOKEN is not set up: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret pushover",
+		"credential: PUSHOVER_TOKEN is not set up: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret pushover --context \"<where to get it>\"",
 		"check: the file names no call for it",
 		"call message  update  POST /messages.json  One push to one person",
 		"user  string  matching ^[A-Za-z0-9]{30}$",

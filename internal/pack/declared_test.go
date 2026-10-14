@@ -308,7 +308,7 @@ func TestApplyAddsADeclaredSource(t *testing.T) {
 	if d.Action != pack.Create || d.Base != "https://api.pushover.net/1" || !slices.Equal(d.Calls, []string{"message (update)"}) {
 		t.Fatalf("declared = %+v", d)
 	}
-	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret pushover") {
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret pushover --context \"<where to get it>\"") {
 		t.Fatalf("env_file = %+v", n)
 	}
 	if n := declaredNeed(t, d, store.UserNotify); n.Status != "missing" || !strings.Contains(n.Detail, "yardr user key <user> pushover gives their PUSHOVER_USER, then yardr user set <user> notify=pushover") {

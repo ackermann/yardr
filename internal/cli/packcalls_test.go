@@ -137,7 +137,7 @@ func TestPackApplyAsksNothingAboutCallsOfASourceWithoutItsCredential(t *testing.
 	}
 	for _, want := range []string{
 		"\ncalls of source crm, for group web-builders\n  the pack asks for read\n  lacks     read: nothing is asked or granted\n" +
-			"    missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret crm, then apply the pack again\n",
+			"    missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret crm --context \"<where to get it>\", then apply the pack again\n",
 		"\ncalls of source crm, for group web-support\n  the pack asks for note (update)\n  lacks     note (update): nothing is asked or granted\n",
 		"\ncalls of source crm, for crew member boss\n  the pack asks for customer, note (update)\n",
 	} {
@@ -453,7 +453,7 @@ func TestDoctorSources(t *testing.T) {
 	}
 	p := part(false)
 	if !p.Configured || p.Detail != "crm (5 calls)" || len(p.Notes) != 2 ||
-		!has(p, "source crm: no call of it can be made: CRM_TOKEN is not set up: "+yardr+" source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or "+yardr+" source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: "+yardr+" bead ask --secret crm") ||
+		!has(p, "source crm: no call of it can be made: CRM_TOKEN is not set up: "+yardr+" source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or "+yardr+" source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: "+yardr+" bead ask <bead> \"<question>\" --secret crm --context \"<where to get it>\"") ||
 		!has(p, "source crm: nobody is granted a call of it, so only the operator makes one ("+yardr+" source grant crm read --group <group>)") {
 		t.Fatalf("a source without its credential: %+v", p)
 	}

@@ -105,7 +105,7 @@ func (d *Declaration) SelectCredential(envFile, kind string) (*Selected, error) 
 		// hand; the file the operator keeps themselves is named instead.
 		// An agent reads this from yardr call, where source key is refused
 		// from a pane, so its way on is named too: this names no caller.
-		return nil, fmt.Errorf("%s is not set up: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret %s", need, d.Name, sets, d.Name, d.Name)
+		return nil, fmt.Errorf("%s is not set up: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret %s --context \"<where to get it>\"", need, d.Name, sets, d.Name, d.Name)
 	}
 	f, err := config.ReadEnvFile(envFile)
 	if err != nil {

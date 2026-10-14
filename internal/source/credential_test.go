@@ -71,7 +71,7 @@ func TestReadCredentialMint(t *testing.T) {
 	// agent's way on from a pane.
 	if _, _, err := d.ReadCredential(ctx, "", script, Read); err == nil ||
 		!strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN is not set up: yardr source key crm gives CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") ||
-		!strings.Contains(err.Error(), "an agent asks from its pane: yardr bead ask --secret crm") {
+		!strings.Contains(err.Error(), "an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret crm --context \"<where to get it>\"") {
 		t.Fatalf("no env_file: %v", err)
 	}
 	// A file that names no credential reads nothing.
