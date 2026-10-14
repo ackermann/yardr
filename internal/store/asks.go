@@ -210,12 +210,13 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 	}
 	var context []string
 	for i, line := range ask.Context {
+		// A context line is one line: a break in it would continue at
+		// the column of the yard's own lines on the card. Check before
+		// trimming so a leading or trailing break is refused too.
+		if strings.Contains(line, "\n") {
+			return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line", i+1)
+		}
 		if line = strings.TrimSpace(line); line != "" {
-			// A context line is one line: a break in it would continue
-			// at the column of the yard's own lines on the card.
-			if strings.Contains(line, "\n") {
-				return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line", i+1)
-			}
 			context = append(context, line)
 		}
 	}

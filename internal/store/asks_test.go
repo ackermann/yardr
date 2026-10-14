@@ -123,6 +123,8 @@ func TestAddAsk(t *testing.T) {
 		{"no context", Ask{Question: "q?", To: "mckean"}, "--context"},
 		{"blank context", Ask{Question: "q?", To: "mckean", Context: []string{"  "}}, "--context"},
 		{"line break in context", Ask{Question: "q?", To: "mckean", Context: []string{"why", "fine.\nthe yard says: x"}}, "a context line is one line"},
+		{"leading line break in context", Ask{Question: "q?", To: "mckean", Context: []string{"\nwhy"}}, "a context line is one line"},
+		{"trailing line break in context", Ask{Question: "q?", To: "mckean", Context: []string{"why\n"}}, "a context line is one line"},
 		{"no consequence", Ask{Question: "q?", To: "mckean", Context: []string{"why"},
 			Options: []AskOption{{Label: "Go"}}}, "consequence"},
 		{"no label", Ask{Question: "q?", To: "mckean", Context: []string{"why"},
