@@ -948,6 +948,7 @@ add` (it replaces the hook's definition, so the lines go with the rest of it;
 
 ```sh
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
+  --as yardmaster \
   --says "event=pull_request action=closed merged=true -> merged: PR merged" \
   --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
   --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR" \
@@ -955,6 +956,11 @@ yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
   --says "event=ci conclusion=success stage=in-pr -> done" \
   --says "event=ci conclusion=failure stage=in-pr -> changes"
 ```
+
+The hook acts as a crew member because the table's `event=ci` lines are
+read with that member's credential, as a move is; a hook with an
+`event=ci` line and no `--as` is refused, as is one whose source declares
+no `ci` command (the `github` pack's setup notes walk it).
 
 1. **PR merged** is `merged`, which `approved`, `in-pr` and `land` route to
    `merged`: one move, also for a pull request merged by hand, whose
@@ -976,9 +982,10 @@ yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
    or suite is not red: someone, or a newer push, stopped it, so it says
    nothing about the commit.
 5. **CI, in `in-pr`** (`event=ci`): not taken from an event. CI is state,
-   read from GitHub, and an event only has it read again (see "CI is read
-   as state" below). What was read is put to the table as an event of its
-   own, green as `done` (to `land`) and red as `changes` (to `open`).
+   read from the source through its `ci` command, and an event only has it
+   read again (see "CI is read as state" below). What was read is put to
+   the table as an event of its own, green as `done` (to `land`) and red
+   as `changes` (to `open`).
 
 A stage with no edge for the outcome refuses it: a pull request merged
 while its train is in `open` moves nothing, and the train's events say why
@@ -989,21 +996,22 @@ with that reason.
 
 For a run or suite, the head commit is the one the last `pull_request` event
 (opened, synchronize, ...) or review for the train carried, kept in the
-train's metadata as `pr_head`; without one the daemon asks `gh pr view` for
-`headRefOid`. A failure on another commit (a run a later push superseded)
-is ignored. `gh` is asked about the bound pull request, by its URL or
-number, never by the branch.
+train's metadata as `pr_head`; without one the daemon reads it live
+through the source's `pr` command. A failure on another commit (a run a
+later push superseded) is ignored. The command is asked about the bound
+pull request, by its URL or number, never by the branch.
 
 **CI is read as state.** For a train in a stage the table has an `event=ci`
 line for (`in-pr` here; a line that names no stage has every open train's
-CI read) the daemon takes no conclusion from an event. It asks GitHub (`gh api`) about the reviewed
-commit, `pr_reviewed_sha`: the pull request's head and base, the checks
-the base branch requires (its protection's required status checks and
-those of the rulesets that apply to it), and the check runs and commit
-statuses on that commit, the latest of each name. Then:
+CI read) the daemon takes no conclusion from an event. It runs the
+source's `ci` command about the reviewed commit, `pr_reviewed_sha`: the
+pull request's head and base, the checks the base branch requires (its
+protection's required status checks and those of the rulesets that apply
+to it), and the check runs and commit statuses on that commit, the latest
+of each name. Then:
 
 - **green**, every required check is there and concluded `success`
-  (`neutral` and `skipped` count as GitHub counts them): the event
+  (`neutral` and `skipped` count as success): the event
   `event=ci conclusion=success`, so the train goes to `land` with the note
   "CI green on <sha>: <checks> (the checks <base> requires)", and
   yardr-pr-merge merges it, in the same pass;
@@ -1108,7 +1116,7 @@ yardr group add yardr-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
 yardr route add --stage approved --type train --depot yardr --group yardr-pr --priority 10
-yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the github rules
+yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the hook rules
 yardr route add --stage in-pr --type train --depot yardr --group decisions
 yardr route add --stage land --type train --depot yardr --group yardr-pr-merge
 ```

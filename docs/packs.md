@@ -149,11 +149,11 @@ sources:
 | `crew.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `crew.<name>.hears.done` | `true`: a bead becoming done |
 | `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says the source once, as optional, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)). yardr's own two are always there: `yardr`, the yard's bead events, and `peer`, what the yards it is linked with say of its beads there ([subscriptions.md](subscriptions.md#the-peer-source)). The subscription is set with no filter and needs nothing of the yard |
-| `crew.<name>.open_threads` | optional: the sources the crew member should be able to open a thread in unasked (`yardr thread open`). Any name, beside `github` and `linear`: a source yardr has built in but cannot open threads in (`token`) is refused, and one the yard has nothing to open with is not asked about until it has it. The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `crew.<name>.open_threads` | optional: the sources the crew member should be able to open a thread in unasked (`yardr thread open`). Any name: a source yardr has built in but cannot open threads in (`token`) is refused, and one the yard has nothing to open with is not asked about until it has it. The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source: a key of `crew` |
-| `sources.<source>.hears.<type>.<stage>` | the stage map, for any name: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for `github`, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source once the yard has the source, in Go or declared; until then it skips the lines and says so ([Stage maps](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.hears.<type>.<stage>` | the stage map, for any name: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for a source whose threads take labels, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source once the yard has the source; until then it skips the lines and says so ([Stage maps](#how-a-pack-maps-to-the-yard)) |
 | `sources.<source>.says` | what the source's events say of the bead the event is about, for any name: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not (for any other name the yard's source is asked when the plan is made), and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): the bead may be of any type, so every flow is asked, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
 | `sources.<source>.makes` | what the source's events make, for any name: a bead for a thread no open bead tracks. A list of lines, the first an event matches counting. `where` is as in `says`, over the source's keys (for github `association` among them: whom the repository knows) and without `stage`; `bead` is the bead such an event makes, its `type`, its `stage` and, optionally, the `depot` of the yard it is made in. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not, and when the flow of the pack that beads of the type follow has no such stage a bead can be made in. A source may have `makes` without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events make](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name yardr has not built in: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other; in a pack of kind `source` its declaration may also name the commands the yard runs (`hook`, `thread`, `link`) |
@@ -224,7 +224,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a `subscribe` scope that is none of `involved`, `mentions`, `all`;
 - an `open_threads` source yardr has built in but cannot open threads in
   (`token`), with the ones it can;
-- under `calls`: a source yardr has built in (`github`, `linear`, `token`,
+- under `calls`: a source yardr has built in (`peer`, `token`,
   `yardr`), whose calls are not declared; a call the pack's own declaration
   of the source lacks, with the ones it has; a source with an empty list; a
   people group, since a person calls as who they are and never as a group;
@@ -232,14 +232,13 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   none of; no `sources`, or an empty one; a source with any key beside
   `declaration`;
 - under `sources`: a source yardr has built in that it cannot set a status
-  in (`token`); a source without `as` or without `hears`, or with neither a
-  map nor a table; `as` naming no crew member of the pack; a bead type no
-  flow of the pack is for; a stage that flow lacks; a word that is not
-  `started`, `review`, `done` or `label:<name>`, or, for a source yardr has
-  built in, one the source has no status for (GitHub knows open and closed,
-  so `review` is refused there as `yardr hook add --map` refuses it, and a
-  label is GitHub's alone). Any other name is read, and held to the yard's
-  source when the plan is made ([Stage maps](#how-a-pack-maps-to-the-yard)).
+  in (`token`); `hears` without `as`; `as` with neither `hears` nor a
+  table; neither a map nor a table; `as` naming no crew member of the pack;
+  a bead type no flow of the pack is for; a stage that flow lacks; a word
+  that is not `started`, `review`, `done` or `label:<name>`. Every name is
+  read, and held to the yard's source when the plan is made: a word the
+  source has no status for is refused there, as `yardr hook add --map`
+  refuses it ([Stage maps](#how-a-pack-maps-to-the-yard)).
 
 Which flow a type's stages are held to: the flow with that `type:`, else a
 flow a depot could follow, since a depot's flow governs every type that has
@@ -610,7 +609,7 @@ stage map of source linear, as crew member boss
 A pack names a source it does not carry: `hears`, `says` and `makes` are
 read for any name, and the source itself is the yard's to have, from an
 integration pack ([An integration pack](#an-integration-pack-kind-source)).
-With a source of the name in the yard, in Go or declared, the lines are set
+With a source of the name in the yard, the lines are set
 as above, `hears` held to the statuses it has and `where` to the keys its
 events carry; without one the source is said once, as optional, with the
 command that sets it up, and the next apply sets the lines once it is
@@ -757,7 +756,7 @@ sources, which no hook receives and nobody answers in:
 | `hook` | a hook with that source (`yardr hook add`) |
 | `secret file` | the hook's secret file exists |
 | `identity` | the crew member's identity in the source (`yardr crew identity`) |
-| `credential` | the name of the reply credential is set in the crew member's `env_file`: `LINEAR_API_KEY`; for GitHub a GitHub App's pair (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_FILE`) or `GITHUB_TOKEN`. Only names are read, and for an App its key file, which must be a private key only its owner can read ([crew.md](crew.md#as-a-github-app)) |
+| `credential` | the names of the reply credential are set in the crew member's `env_file`: `LINEAR_API_KEY`; for GitHub a GitHub App's pair (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_FILE`) or `GITHUB_TOKEN`. Only the names are read ([crew.md](crew.md#as-a-github-app)) |
 | `listener` | what the yard's running server takes webhooks on, as it wrote it when it started: `ok` with the address and whether it is the `hook_addr` setting's or `YARDR_HOOK_ADDR`'s, `missing` when the server has no address or could not listen on its own (with the setting to change). `unknown` only when no server has said: a build from before `hook_addr` |
 
 ## yardr pack apply

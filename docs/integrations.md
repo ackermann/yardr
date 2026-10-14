@@ -1,8 +1,8 @@
 # Integrations
 
 An integration is a service outside the yard that the yard hears and, where
-the service allows it, speaks in: Linear, GitHub, and a service a file
-declares, such as Pushover. This page says what one is
+the service allows it, speaks in: Linear and GitHub, each a pack of kind
+source, and a service a file declares, such as Pushover. This page says what one is
 made of today, how one becomes part of a yard, with Linear as the example
 from nothing to a merged bead closing its issue, and what someone would
 write to add a service. It ends with what is missing.
@@ -16,13 +16,14 @@ they do: [subscriptions.md](subscriptions.md), [links.md](links.md),
 
 Two things, kept in two places:
 
-- **An adapter**: Go code in `internal/hooks`, compiled into yardr. One per
-  service, registered by name in the map `hooks.Adapters`. The name is the
-  **source**: `github`, `token`. One adapter in Go serves every
-  **declared source** too: a service added by one YAML file and no Go
-  ([below](#a-declared-source)), which today can do all eleven things of
-  this list, each with the keys its row names. Linear is one: the `linear`
-  pack brings its declaration ([packs.md](packs.md)).
+- **An adapter**: Go code in `internal/hooks`, compiled into yardr. One
+  adapter serves every **declared source**: a service added by one YAML
+  file and no Go ([below](#a-declared-source)), which today can do all
+  eleven things of this list, each with the keys its row names. Linear
+  and GitHub are two: the `linear` and `github` packs each bring a
+  declaration ([packs.md](packs.md)). The name is the **source**. What is
+  still an adapter of its own is `token`, yardr's own, which receives and
+  nothing else.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -35,19 +36,19 @@ code asks with a type assertion (`hooks.ReplierFor`, `OpenerFor`,
 source that lacks it, naming those that have it (`yardr cannot open threads
 in token (it can in github, linear)`). Only the first is required.
 
-| capability | interface (file) | `github` | `token` | a declared source |
-|---|---|---|---|---|
-| receive | `Adapter` (`hooks.go`) | yes | yes | yes, with a `hook` key in its file |
-| identify | none: read from the envelope by the store | mentions, assignee | never | as its envelope says |
-| link | `Linker` (`issue.go`) | yes, issues and pull requests | no | yes, with a `link` key in its file |
-| reply, read a thread | `Replier` (`reply.go`) | yes | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
-| open a thread | `Opener` (`open.go`) | yes | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
-| set a thread's status | `Stater` (`state.go`) | `started`, `done`, `label:<name>` | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
-| move with a bead's stage | `Forwarder` (`forward.go`) | yes | no | yes, with the status keys and a `link` key in its file |
-| tell a user outside the yard | `Notifier` (`notify.go`) | no | no | yes, with a `notify` key in its file |
-| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | yes, with a `limits` key in its file |
-| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
-| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
+| capability | interface (file) | `token` | a declared source (Linear, GitHub) |
+|---|---|---|---|
+| receive | `Adapter` (`hooks.go`) | yes | yes, with a `hook` key in its file |
+| identify | none: read from the envelope by the store | never | as its envelope says |
+| link | `Linker` (`issue.go`) | no | yes, with a `link` key in its file |
+| reply, read a thread | `Replier` (`reply.go`) | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
+| open a thread | `Opener` (`open.go`) | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
+| set a thread's status | `Stater` (`state.go`) | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
+| move with a bead's stage | `Forwarder` (`forward.go`) | no | yes, with the status keys and a `link` key in its file |
+| tell a user outside the yard | `Notifier` (`notify.go`) | no | yes, with a `notify` key in its file |
+| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | yes, with a `limits` key in its file |
+| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
+| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -85,13 +86,12 @@ type Adapter interface {
 
 - `Verify` proves the delivery came from the service, from the request's
   headers, the raw body and the hook's secret, and returns the service's id
-  of the delivery (`""` when it has none). Linear and GitHub sign the body
-  with HMAC-SHA256 (`Linear-Signature`, `X-Hub-Signature-256`); Linear's
-  signed `webhookTimestamp` must also be within a minute of the yard's
-  clock. `token` compares a bearer token. A declared source is verified
-  from what its file says under `hook.verify`: the same HMAC-SHA256 of the
-  body, in the header it names, and after it the timestamp where it says
-  one is ([below](#what-the-service-sends-in)).
+  of the delivery (`""` when it has none). A declared source is verified
+  from what its file says under `hook.verify`: HMAC-SHA256 of the body, in
+  the header it names (`Linear-Signature`, `X-Hub-Signature-256`), and
+  after it the timestamp where it says one is; Linear's signed
+  `webhookTimestamp` must also be within a minute of the yard's clock.
+  `token` compares a bearer token. ([below](#what-the-service-sends-in)).
 - `Normalize` turns the verified body into the envelope. A declared
   source's is a command of its file, run with the verified body and no
   credential.
@@ -102,7 +102,7 @@ type Adapter interface {
 
 | field | what it is |
 |---|---|
-| `source` | the adapter's name |
+| `source` | the source's name |
 | `type`, `action` | what happened to what: `issue` `create`, `comment` `update` in Linear; the event and its action in GitHub (`issue_comment` `created`) |
 | `actor` | who did it: `id` and `name`. The id is what an identity is matched against |
 | `thread` | what the delivery belongs to, as `id`, `title`, `url`: the issue a comment is on, or the issue itself. Empty for what belongs to nothing (a CI run on no pull request, a `token` message) |
@@ -137,15 +137,16 @@ refused with 413
 *Dedupe.* A delivery is recorded at most once. Its keys are checked after
 `Verify`, in the write that records it:
 
-| `Bodies()` | source | keys |
+| `bodies` | who says it | keys |
 |---|---|---|
-| `BodiesUniquePerSource` | `linear` | the body's sha256, per source; the delivery id, per hook |
-| `BodiesUniquePerHook` | `github` | the body's sha256, per hook; the delivery id, per hook |
-| `BodiesRepeat` | `token` | the delivery id (`Yard-Delivery`), per hook, when the sender sets one |
+| `unique` | `linear` | the body's sha256, per source; the delivery id, per hook |
+| `unique-per-hook` | `github` | the body's sha256, per hook; the delivery id, per hook |
+| `repeat` | `token` | the delivery id (`Yard-Delivery`), per hook, when the sender sets one |
 
-A declared source with `bodies: unique` dedupes as `linear` does, and one
-with `bodies: repeat` as `token` does, on the delivery id in the header
-its file names.
+A declared source says one of the three under `hook.bodies`: `unique`
+dedupes a body once per source, `unique-per-hook` once per hook (one
+event's body goes to every webhook on a GitHub repository), `repeat` on
+the delivery id in the header its file names alone.
 
 A duplicate is answered 200 and leaves no event
 ([subscriptions.md](subscriptions.md#redeliveries)).
@@ -165,9 +166,9 @@ lines.
 *What for.* To know which crew member a delivery is about, and which
 deliveries are the crew member's own.
 
-*No interface.* The adapter only fills `actor.id`, `mentions`, `assignee`
-and `delegate`. The store compares them with the identity each crew member has
-in the source:
+*No interface.* Only four fields of the envelope matter for it:
+`actor.id`, `mentions`, `assignee` and `delegate`. The store compares them
+with the identity each crew member has in the source:
 
 ```sh
 yardr crew identity yardmaster --source linear --id <user id> --key <profile key>
@@ -271,9 +272,12 @@ type Stater interface {
 ```
 
 - `Credential` reads the caller's credential for the source from the
-  environment of the calling process: `LINEAR_API_KEY`; for GitHub a GitHub
-  App's `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_FILE`, else
-  `GITHUB_TOKEN`.
+  environment of the calling process, under the variable its file names:
+  `LINEAR_API_KEY`; for GitHub a GitHub App's `GITHUB_APP_ID` and
+  `GITHUB_APP_PRIVATE_KEY_FILE`, else `GITHUB_TOKEN`. Where the mint's
+  names are set the call runs with a token the operator's mint command
+  made from them; one of them alone is refused
+  ([below](#a-declared-source)).
 - `Reply` posts in the thread of a delivery; `Thread` lists the thread's
   messages. `Open` starts a thread in a place (`Place` names it: a Linear
   team, a GitHub repository), assigned to a person where the caller names
@@ -405,9 +409,8 @@ It is a capability of a source like the others, and a user names the
 **source**: there is no separate thing called a notifier. A declared source
 has it when its file has a `notify` key, which says which of its calls
 tells a person and which of the call's parameters take the four values the
-yard has for it: where the person is reached, a title, a text and a link. A
-compiled adapter would have it by implementing `hooks.Notifier`; none does,
-so no user can name `linear` or `github`, and the refusal lists the sources
+yard has for it: where the person is reached, a title, a text and a link.
+`token` cannot tell, so no user names it, and the refusal lists the sources
 that can.
 
 Everything that decides whether and when a person is told ends at those
@@ -682,9 +685,9 @@ yardr source rm pushover
   (a key is asked for with a secret ask) and `source rm`. Their words are
   a file, a path or a program, and a command that is approved from a card
   has only names the yard holds, numbers and flags.
-- **Its name is none of `github`, `linear`, `peer`, `token`, `yardr`**. With a
-  `hook` key it is a hook source like the built ones: a hook receives it
-  (`yardr hook add acme --source acme --secret-file …`), and
+- **Its name is none of `peer`, `token`, `yardr`**, the sources yardr
+  has of its own. With a `hook` key it is a hook source: a hook receives
+  it (`yardr hook add acme --source acme --secret-file …`), and
   subscriptions hear it. Without, nothing subscribes to it.
 
 #### Commands a file names
@@ -694,7 +697,7 @@ a file names a **command** for: one per thing the yard does in the
 source's threads, under `thread`, and the source's issues as a bead's link,
 as data, under `link`. `yardr reply`, `yardr thread show`, `yardr thread
 open`, `yardr thread state`, `yardr link` and a hook's stage map run them
-for a source that has the keys, as the built-in adapters do in Go.
+for a source that has the keys.
 
 ```yaml
 thread:
@@ -1122,8 +1125,8 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
 
 ### What is not there
 
-- Telling a user through Linear or GitHub (a DM, a mention): no adapter
-  implements `Notifier`.
+- Telling a user through Linear or GitHub (a DM, a mention): neither pack
+  has a `notify` key (GitHub gives an App no direct message to send).
 - A way to be told that is no HTTPS request with a JSON body: a desktop
   notification, mail by SMTP, a program of the operator's. The place for
   one is behind the same four values; none is built.
@@ -1391,7 +1394,24 @@ lists it (`to do: work-h6ef (task in new) -> https://linear.app/acme/issue/YRD-1
 
 ### GitHub, where it differs
 
-The same steps, with these differences:
+GitHub comes as the `github` pack: applying it declares the `github`
+source — how its webhooks are verified and read, the credential it takes,
+and the commands the yard replies, opens issues, sets their status and
+reads pull requests and CI with. The pack's setup notes
+(`yardr pack show github`) walk the steps; the session is:
+
+```sh
+yardr pack apply github
+# applied pack github to the yard: 1 created, 0 changed, 0 unchanged
+# source github is declared: 1 call under https://api.github.com (yardr source show github)
+yardr source set github env_file=~/.yardr/sources/github.env
+yardr source check github
+# github: credential: GITHUB_TOKEN is set in ~/.yardr/sources/github.env
+# github: its file names no check call (check: <a read call without parameters>), so nothing was sent
+# …
+```
+
+The same steps as Linear, with these differences:
 
 - **The hook.** `yardr hook add gh --source github --secret-file
   ~/.yardr/github.secret`. A repository webhook is set per repository, with
@@ -1402,20 +1422,25 @@ The same steps, with these differences:
 - **A GitHub App** does both sides at once: its one webhook delivers every
   repository it is installed on, and the crew member answers as the App's bot.
   Its credential is two lines in the `env_file`, `GITHUB_APP_ID` and
-  `GITHUB_APP_PRIVATE_KEY_FILE`, in place of `GITHUB_TOKEN`. yardr signs a
-  short-lived token with the key for each repository it calls
+  `GITHUB_APP_PRIVATE_KEY_FILE`, in place of `GITHUB_TOKEN`, and the
+  operator's mint command, which turns their values into a short-lived
+  token for each repository called (`yardr source set github
+  mint_command=<program> [args...]`; [`contrib/github-mint`](../contrib/github-mint/README.md)
+  is one). `yardr source check github` reports the mint way and runs the
+  mint and then the check call with the token
   ([subscriptions.md](subscriptions.md#as-a-github-app),
   [crew.md](crew.md#as-a-github-app)).
 - **The identity** is a key only: the login in lowercase, `yardr crew
   identity yardmaster --source github --key <login>`; for an App `--key
   '<slug>[bot]'`.
 - **The states.** An issue is open or closed, so a map may say `started`
-  and `done`; `review` is refused (`github: an issue has no review status:
-  the states it has are started and done`). A closed issue is never
+  and `done`; `review` is refused (`"review" is no state of github: want
+  started, done`). A closed issue is never
   reopened by a map, and a pull request is never touched.
 - **Links** are to issues and to pull requests. A map sets the status of
   an issue only: for a tracked pull request the move is skipped (`failed`).
-- **Where keys.** Besides the common ones: `event`, `number`, `state`,
+- **Where keys** are the pack's `hook.keys`: besides the common ones,
+  `event`, `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
   `base`, `train`, `sender`, `association`. `association` is GitHub's
   `author_association` in lowercase: what the author of the issue or pull
@@ -1532,73 +1557,61 @@ A line from the phone, sent to the isolated yard, was recorded as
 
 ## Adding a service
 
-What someone writes today to make yardr carry a new service. A file and
-no Go now carries the whole list: [a declared
-source](#a-declared-source) with `notify`, `hook`, `thread` and `link`
-keys receives, replies, opens, sets, moves and links, as
-`packs/linear/linear.yaml` does for Linear. What is still Go,
-in yardr's own repository, is a built-in adapter: `github`,
-`token`.
+What someone writes today to make yardr carry a new service: a pack of
+kind source — a declaration, the scripts it names, and setup notes — and
+no Go. [A declared source](#a-declared-source) with `notify`, `hook`,
+`thread` and `link` keys receives, replies, opens, sets, moves and links,
+as `packs/github/github.yaml` does for GitHub and
+`packs/linear/linear.yaml` does for Linear. What is still Go, in yardr's
+own repository, is `token`, yardr's own source, which receives and nothing
+else.
 
-**The least: receive.** A new file `internal/hooks/<source>.go` with a type
-that has `Verify`, `Normalize` and `Bodies`, and one line in the `Adapters`
-map in `hooks.go`. From that line on `yardr hook add --source <source>` and
-`yardr subscribe <name> <source>` take the name, deliveries become events,
-and subscriptions with `type` and `action` filters work. What `Normalize`
-must get right for the rest to work: `actor.id`, `mentions`, `assignee` in
-the form an identity will be given in; `thread.id` the same for every
-delivery of one issue; `entity` wherever the service re-sends a text.
+**The least: receive.** A file that declares the source: its `hook`
+(`verify`, `bodies`, `normalize`, `keys`). From `yardr source add` on
+`yardr hook add --source <source>` and `yardr subscribe <name> <source>`
+take the name, deliveries become events, and subscriptions with `type` and
+`action` filters work. What the normalize command must get right for the
+rest to work: `actor.id`, `mentions`, `assignee` in the form an identity
+will be given in; `thread.id` the same for every delivery of one issue;
+`entity` wherever the service re-sends a text.
 
 **Then, each as wanted:**
 
-| to have | write | and also |
+| to have | give the file | and also |
 |---|---|---|
-| `--where` on the source's own fields | `fields` in `Normalize` | the key in `WhereKeys` or a list of the source's own in `internal/store/subscriptions.go` (`whereKeys`), which is what `subscribe` accepts; the help of `yardr subscribe` names the keys by hand |
-| `yardr link` | `IssueHost` and `Issue` (`issue.go` has both sources'), or the `link` key of a file | nothing: `LinkSources` finds it |
-| `yardr reply`, `thread show` | `Credential`, `Reply`, `Posted`, `Thread` (`reply.go`), or the `thread.reply`, `thread.posted` and `thread.read` commands of a file | the names of its credential in `credentialWays` (`reply.go`), which `crew show`, the pack plan and the daemon read; a file's is the one variable `credential.env` names |
-| `yardr thread open` | `Place`, `Open`, `Opened` (`open.go`), or the `thread.open`, `thread.opened` and `thread.place` keys of a file | nothing |
-| `yardr thread state` | `SetState` (`state.go`): what `started`, `review` and `done` mean there, or the `thread.state` command and `thread.states` of a file | nothing |
-| a stage map | `IssueThread`, `CredentialFrom`, `Places`, `Forward` (`forward.go`), or the status keys and the `link` key of a file | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
+| `--where` on the source's own fields | the keys under `hook.keys` | nothing: `subscribe` reads the declaration; the help of `yardr subscribe` names the common keys by hand |
+| `yardr link` | the `link` key: the host, an expression that reads an issue from a URL's path, and the fixed and thread templates over its groups | nothing: `LinkSources` finds it |
+| `yardr reply`, `thread show` | the `thread.reply`, `thread.posted` and `thread.read` commands | the credential's variable under `credential.env`, which `crew show`, the pack plan and the daemon read |
+| `yardr thread open` | the `thread.open`, `thread.opened` and `thread.place` keys | nothing |
+| `yardr thread state` | the `thread.state` command and `thread.states`: what `started`, `review` and `done` mean there | nothing |
+| a stage map | the status keys and the `link` key | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
 
 Two more places know sources by name: `internal/standin`, the stand-in for
 the services' APIs that the tests and an isolated yard use, and the docs.
 
-**The tests the two adapters have**, in `internal/hooks` unless said:
+**The tests a source pack has**, in `internal/hooks` unless said: the
+goldens over recorded payloads in `testdata/` and `testdata/golden/`
+(`TestGitHubPackNormalize`, `TestGitHubPackThread`, `TestGitHubPackForward`,
+`TestGitHubPackPR`, `TestGitHubPackCI`), which fail when the pack's
+envelopes or the requests its scripts make drift; the lookups
+(`TestGitHubPackLookups`, `TestGitHubPackLinkFixedForm`); the fields
+against the where keys (`TestGitHubPackFieldsAreWhereKeys`); and in
+`internal/dispatch` the moves (`TestIssueFollowsItsBead`,
+`TestIssueOnlyMovesForward`, `TestIssueNeedsSetState`). The yard's own
+(`token`) has `TestTokenSource` and
+`TestTokenDedupesOnDeliveryIDOnly`.
 
-- receive: `TestGitHubSignature`,
-  `TestGitHubDuplicateDelivery`, `TestGitHubReplayUnderNewDeliveryID`,
-  `TestGitHubNormalize`, `TestGitHubMentions`, `TestTokenSource`,
-  `TestTokenDedupesOnDeliveryIDOnly`, over recorded payloads in
-  `testdata/`;
-- identify, through the store: `TestGitHubMentionReachesInbox`,
-  `TestGitHubCommentEditDeliversOnlyNewMentions`;
-- link: `TestIssueFixedForm`, `TestIssueInItsSource`,
-  `TestDeliveryThreadIsItsIssue`, `TestStoreLinksOneIssueUnderAnySpelling`;
-- reply: `TestGitHubReplyAndThread`, `TestGitHubReplyKey`,
-  `TestCredentials`, and the GitHub App's in `githubapp_test.go`;
-- open and state: `TestGitHubOpen`,
-  `TestGitHubSetState` and their refusals;
-- move: `TestGitHubForward`, `TestForwardRefusals`, `TestIssueThread`, and in
-  `internal/dispatch` `TestIssueFollowsItsBead`,
-  `TestIssueOnlyMovesForward`, `TestIssueNeedsSetState`;
-- the commands, in `internal/cli`: `TestHookAddGitHub`, `TestHookAddMap`,
-  `TestReply`, `TestThreadOpen`,
-  `TestThreadStateGitHub`, `TestLinkCommands`.
+The outbound tests run against the stand-in the test starts, reached
+through `YARDR_SOURCE_BASE`.
 
-The outbound tests run against fake servers the test starts, reached
-through `YARDR_GITHUB_API`.
-
-**What checks that an adapter conforms.** The compiler, for `Adapter`: a
-type in the `Adapters` map that lacks one of the three methods does not
-build. For the rest nothing does. A capability is found by a type
-assertion at run time, so a method with a wrong signature is a source
-without the capability, silently. What says which source has what are four
-tests that name the sources: `TestRepliable`, `TestOpenable`,
-`TestStateable` and the `Forwardable` check in `TestIssueThread` (each
-expects `github`), and `LinkSources` in `TestIssueInItsSource`. A new
-source changes those lists by hand. There is no suite that takes any
-adapter and checks its behaviour: each adapter has tests of its own, over
-its own payloads.
+**What checks that a file conforms.** The reader, when the file is added:
+a key it does not know, a command that is no list of words, and
+a name of yardr's own are refused with the path. For the scripts nothing
+does: a command with a wrong shape fails at the call, against the real
+service or the stand-in. A capability is found by its keys at run time,
+so a source without them lacks it, and stays silent about the rest. There
+is no suite that takes any pack and checks its behaviour: each pack has
+tests of its own, over its own payloads.
 
 ## Gaps
 
@@ -1625,11 +1638,12 @@ a design.
    credential's file, not which user is told through it. Its plan is
    the nearest thing to a check of a whole integration, and it exists only
    for a source a pack names.
-3. **An adapter is Go code inside yardr.** A new service is a change to
-   `internal/hooks`, the store's where keys and the tests, and a release.
-   A declared source is the first thing outside the core, and it can now
-   receive, reply, open, set and move an issue too. The direction is
-   adapters outside the core, and that Linear leaves the binary too.
+3. **A signature that is no HMAC-SHA256 over the body is Go code inside
+   yardr.** A new service is a pack outside the core: a declaration,
+   scripts and setup notes, and no release. What is still an adapter of
+   its own is `token`, yardr's own source. But a service that signs
+   another way, or not at all, wants a new `hook.verify` scheme, which is
+   a change to `internal/hooks` and a release.
 4. **A user is told through a declared source only, and only by one HTTPS
    request.** No compiled adapter tells a user, and nothing that is not a
    JSON request does (a desktop notification, SMTP). What is told is fixed:
@@ -1644,9 +1658,9 @@ a design.
    and the pack plan read the names in the `env_file`. A wrong or expired
    token shows at the first reply, and for a stage map as a move that
    fails and is retried (`yardr hook show <name>` has the last error).
-   A declared source's is checked: `yardr source check`, `yardr doctor
-   --try`, and doctor's note on a last call answered 401 or 403. That is
-   not there for `github`.
+   A declared source's own credential is checked: `yardr source check`,
+   `yardr doctor --try`, and doctor's note on a last call answered 401 or
+   403. A crew member's is not, in any source.
 7. **The identity is looked up by hand.** yardr holds the token and could
    ask the service who it is; no command does, and a wrong id fails
    silently: the crew member is never mentioned and hears its own actions.
@@ -1655,11 +1669,12 @@ a design.
 9. **yardr does not know its public address** and makes no webhook in the
    service. The URL to paste is assembled by the person, and a webhook
    pointing at a yard that is gone stays in the service.
-10. **Where keys are a list in the store, not the adapter's.** A field an
-    adapter sets is filterable only when `internal/store/subscriptions.go`
-    names it: `--where` on a field the list leaves out is refused. A test
-    holds the two together for what the fixtures cover
-    (`TestAdapterFieldsAreWhereKeys` in `internal/hooks`): it normalizes
+10. **Where keys are a list beside the script that sets them.** A field a
+    normalize command sets is filterable only when the declaration names
+    it under `hook.keys`: `--where` on a field the list leaves out is
+    refused. A test holds the two together for what the fixtures cover
+    (`TestGitHubPackFieldsAreWhereKeys` in `internal/hooks`,
+    `TestAdapterFieldsAreWhereKeys` for the yard's own): it normalizes
     every payload under `internal/hooks/testdata` and fails on a field the
     source's where keys leave out. A field no fixture's event sets is not
     checked, so a new event wants a fixture.
