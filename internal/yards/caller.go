@@ -186,7 +186,7 @@ func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64, wait time
 		no := p.Refused[seq]
 		refused := url.QueryEscape(no.Reason)
 		if no.Limit > 0 && no.Until != nil {
-			refused += fmt.Sprintf(":%d:%d", no.Limit, no.Until.Unix())
+			refused += fmt.Sprintf(":%d:%d", no.Limit, no.Until.UnixNano())
 		}
 		path += map[bool]string{true: "&refused=", false: ","}[i == 0] + strconv.FormatUint(seq, 10) + ":" + refused
 	}

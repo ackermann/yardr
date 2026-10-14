@@ -31,9 +31,9 @@ import (
 // Path is where a yard takes its peers' requests: POST for a message, GET
 // with ?after=<seq> for what waits for the asker. A GET may add
 // &refused=<seq>:<reason>,... for what the asker got and did not take (a
-// refusal over the hour adds its limit and when it ends, as unix seconds:
-// <seq>:rate_limited:<limit>:<until>), and &wait=<seconds> to have the
-// answer held until there is something to hand over (see hold).
+// refusal over the hour adds its limit and when it ends, as unix nanoseconds:
+// <seq>:rate_limited:<limit>:<until>), and &wait=<seconds> to have the answer
+// held until there is something to hand over (see hold).
 //
 // Each request, and each signed answer, also says what the build of the
 // yard it is from understands (store.PeerSays): "says" beside a posted
@@ -487,26 +487,26 @@ func refusals(q string) map[uint64]store.Refusal {
 }
 
 // parseRefusal reads one refusal: the reason, with the hour's limit and end
-// after it for one over the hour (`rate_limited:30:1790000000`, the end as
-// unix seconds). One a limit and an end do not follow reads as the whole of
-// it, as before.
+// after it for one over the hour (`rate_limited:30:1790000000000000000`, the
+// end as unix nanoseconds). If a valid limit and end do not follow the rate
+// refusal, the whole rest is the reason, as before.
 func parseRefusal(rest string) store.Refusal {
 	no := store.Refusal{Reason: rest}
-	end := strings.LastIndex(rest, ":")
-	if end < 0 {
+	reason, fields, ok := strings.Cut(rest, ":")
+	if !ok || reason != store.RefusedRate {
 		return no
 	}
-	hour := strings.LastIndex(rest[:end], ":")
-	if hour < 0 {
+	limitText, untilText, ok := strings.Cut(fields, ":")
+	if !ok || strings.Contains(untilText, ":") {
 		return no
 	}
-	limit, err := strconv.Atoi(rest[hour+1 : end])
-	until, err2 := strconv.ParseInt(rest[end+1:], 10, 64)
+	limit, err := strconv.Atoi(limitText)
+	until, err2 := strconv.ParseInt(untilText, 10, 64)
 	if err != nil || err2 != nil || limit <= 0 || until <= 0 {
 		return no
 	}
-	no.Reason, no.Limit = rest[:hour], limit
-	at := time.Unix(until, 0)
+	no.Reason, no.Limit = reason, limit
+	at := time.Unix(0, until)
 	no.Until = &at
 	return no
 }

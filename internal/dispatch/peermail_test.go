@@ -115,6 +115,7 @@ func TestPeerMailLimitTellsTheHour(t *testing.T) {
 	for name, bReachable := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
+			clock.now = clock.now.Add(123456789 * time.Nanosecond)
 			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 			link(t, a, b, bReachable, true)
 			a.yardmaster(t, "b")
@@ -150,9 +151,9 @@ func TestPeerMailLimitTellsTheHour(t *testing.T) {
 			if !strings.HasSuffix(text, " was not delivered: refused by the peer: "+want) {
 				t.Fatalf("the writer is told %q", text)
 			}
-			// Asked for, the hour's end crossed as unix seconds.
+			// Asked for, the hour's end crosses with full precision.
 			kept, err := time.Parse(time.RFC3339Nano, back[0].Data["until"].(string))
-			if err != nil || kept.Unix() != end.Unix() {
+			if err != nil || !kept.Equal(end) {
 				t.Fatalf("the mail event keeps until = %v, %v; want %s", back[0].Data["until"], err, end)
 			}
 		})
