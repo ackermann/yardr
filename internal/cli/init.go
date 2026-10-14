@@ -1282,8 +1282,9 @@ page and its beads' asks then act as that user, as with the flag
 (docs/web.md, "Acting as a user"). The flag wins over the environment,
 which wins over the setting, and with none of them the view reads only.
 The view refuses to start when no user of the yard has the name. One that
-runs keeps its user until it is stopped and started again, and a login
-service's view reads the setting at every start.
+runs keeps its user until it is stopped and started again. A login service
+keeps YARDR_WEB_AS from its install environment when set; otherwise its
+view reads the setting at every start.
 
 herdr_session is the herdr session the yard's agents run in (herdr session
 list). Set, every call the yard makes to herdr goes to it, from the daemon,

@@ -282,9 +282,10 @@ Both take `--as` as `yardr web serve` does
 ([Acting as a user](#acting-as-a-user)): the view acts as that user.
 `yardr web install` writes it into the service's file beside the names.
 Without `--as` the view acts as `YARDR_WEB_AS`, else the yard's `web_as`
-setting: a service's view reads the setting at every start, so unlike
-the address, no install is needed to move it. The view refuses to start
-when no user of the yard has the name, whatever named it; `yardr web
+setting. A login service keeps the `YARDR_WEB_AS` value from when it was
+installed; when that variable is unset in the service, its view reads
+`web_as` at every start, so changing the setting needs no reinstall. The
+view refuses to start when no user of the yard has the name, whatever named it; `yardr web
 start` then ends at once and names the log the reason is in, and the
 service's view logs it at every login.
 

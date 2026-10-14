@@ -161,7 +161,7 @@ var KnownSettings = []Setting{
 		}},
 	{Key: WebAsSetting, Help: "the user the web view acts as when YARDR_WEB_AS is not set and yardr web serve, start or install is given no --as; " +
 		"the view refuses to start when no user of the yard has the name, as --as does; " +
-		"a view that runs keeps its user until it is stopped and started again, and a login service's view reads it at every start",
+		"a view that runs keeps its user until it is stopped and started again; when YARDR_WEB_AS is unset in a login service's saved environment, its view reads the setting at every start",
 		Env: "WEB_AS", Check: func(v string) error {
 			if err := checkUserName(v); err != nil {
 				return fmt.Errorf("%s: %w", WebAsSetting, err)

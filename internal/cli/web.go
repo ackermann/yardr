@@ -235,10 +235,10 @@ with a port, and there is no --unsafe here. --host is written into the
 service and handed on to yardr web serve: the view answers to the names
 given besides the loopback names, and still listens on loopback only. --as
 is written into the service too: the view acts as that user. Without --as
-the view the service starts acts as YARDR_WEB_AS, else the yard's web_as
-setting, which it reads at every start, and reads only with neither. To
-reach the view from another machine, forward the port over ssh or put a
-proxy of yours in front of it (docs/web.md, "Behind a proxy").
+the view acts as YARDR_WEB_AS from the install environment when set, else
+the yard's web_as setting, which it reads at every start. To reach the
+view from another machine, forward the port over ssh or put a proxy of
+yours in front of it (docs/web.md, "Behind a proxy").
 
 --file-only writes the file and loads nothing.`
 	v.install.Example = `  yardr web install                       # http://127.0.0.1:8791/
