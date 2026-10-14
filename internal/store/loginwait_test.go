@@ -20,6 +20,33 @@ func loginAsk(ref string) Ask {
 		Secret:  &AskSecret{Login: ref}}
 }
 
+func TestLoginWaitReadyWaitsForRegistration(t *testing.T) {
+	y, _ := secretYard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan error, 1)
+	go func() { ready <- y.LoginWaitReady(ctx, "claude-ready") }()
+	waiting := make(chan error, 1)
+	go func() { _, err := y.LoginWait(ctx, "claude-ready"); waiting <- err }()
+	if err := <-ready; err != nil {
+		t.Fatalf("the registration: %v", err)
+	}
+	cancel()
+	if err := <-waiting; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the wait after cancel: %v", err)
+	}
+}
+
+func TestOldLoginWaitCleanupKeepsAReplacement(t *testing.T) {
+	s := &Store{}
+	old, replacement := &loginWait{}, &loginWait{}
+	s.logins.waits = map[string]*loginWait{"claude-reused": replacement}
+	s.forgetLoginWait("claude-reused", old)
+	if s.logins.waits["claude-reused"] != replacement {
+		t.Fatal("finishing an earlier wait removed its replacement")
+	}
+}
+
 // A login-input ask is stored with the wait it names and the one name the
 // input is asked for, whatever the asker sent for the names.
 func TestLoginAskIsStoredWithTheWait(t *testing.T) {

@@ -31,8 +31,9 @@ const loginIDMax = 128
 // file. Its lock is taken before any of the store's, never after: GiveSecret
 // hands a value over while it holds the write.
 type loginWaits struct {
-	mu    sync.Mutex
-	waits map[string]*loginWait
+	mu      sync.Mutex
+	waits   map[string]*loginWait
+	changed chan struct{}
 }
 
 // loginWait is one login's wait for one input: the channel carries the
@@ -74,17 +75,14 @@ func (s *Store) LoginWait(ctx context.Context, id string) (string, error) {
 	}
 	w := &loginWait{ch: make(chan string, 1)}
 	s.logins.waits[id] = w
+	s.logins.signalLocked()
 	s.logins.mu.Unlock()
 	select {
 	case value := <-w.ch:
-		s.logins.mu.Lock()
-		delete(s.logins.waits, id)
-		s.logins.mu.Unlock()
+		s.forgetLoginWait(id, w)
 		return value, nil
 	case <-ctx.Done():
-		s.logins.mu.Lock()
-		delete(s.logins.waits, id)
-		s.logins.mu.Unlock()
+		s.forgetLoginWait(id, w)
 		// A giving that claimed the wait holds the lock across the claim
 		// and the handing (handLogin), so what it handed is in the
 		// channel once the claim is seen here: a value that arrived with
@@ -95,6 +93,58 @@ func (s *Store) LoginWait(ctx context.Context, id string) (string, error) {
 		default:
 		}
 		return "", ctx.Err()
+	}
+}
+
+// LoginWaitReady waits until LoginWait has registered id. A leader starts
+// LoginWait in one call and waits here before it prints the reference for an
+// operator to answer, so a quick giving cannot arrive before the wait.
+func (s *Store) LoginWaitReady(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	switch {
+	case id == "":
+		return fmt.Errorf("a login waits under the reference its leader printed, which is never empty")
+	case len(id) > loginIDMax:
+		return fmt.Errorf("a login waits under at most %d characters", loginIDMax)
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		s.logins.mu.Lock()
+		if _, ok := s.logins.waits[id]; ok {
+			s.logins.mu.Unlock()
+			return nil
+		}
+		if s.logins.changed == nil {
+			s.logins.changed = make(chan struct{})
+		}
+		changed := s.logins.changed
+		s.logins.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (l *loginWaits) signalLocked() {
+	if l.changed != nil {
+		close(l.changed)
+	}
+	l.changed = make(chan struct{})
+}
+
+// forgetLoginWait removes only the wait that is finishing. A reference may
+// be registered again after it was handed or its earlier wait ended; the
+// earlier call must not remove that newer wait.
+func (s *Store) forgetLoginWait(id string, w *loginWait) {
+	s.logins.mu.Lock()
+	defer s.logins.mu.Unlock()
+	if s.logins.waits[id] == w {
+		delete(s.logins.waits, id)
+		s.logins.signalLocked()
 	}
 }
 
@@ -110,6 +160,7 @@ func (s *Store) handLogin(id, value string) bool {
 		return false
 	}
 	delete(s.logins.waits, id)
+	s.logins.signalLocked()
 	w.ch <- value
 	return true
 }

@@ -70,6 +70,7 @@ type API interface {
 	TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error
 	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error)
 	LoginWait(ctx context.Context, id string) (string, error)
+	LoginWaitReady(ctx context.Context, id string) error
 	ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error)
 
 	PutDepot(ctx context.Context, r Depot, actor string) error

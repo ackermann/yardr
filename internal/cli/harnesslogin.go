@@ -236,7 +236,7 @@ type loginSecretResult struct {
 // newLoginID is the reference one input waits under: the kind, and enough
 // of the random to never meet another wait's.
 func newLoginID(kind string) string {
-	var b [4]byte
+	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(err)
 	}
@@ -395,14 +395,35 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 			leave()
 			id := newLoginID(h.Kind)
 			waitCtx, stopWait := context.WithTimeout(loginCtx, loginInputTimeout)
-			waiting, leave = id, stopWait
+			readyCtx, stopReady := context.WithCancel(waitCtx)
+			waiting, leave = id, func() { stopReady(); stopWait() }
 			go func() {
 				value, err := st.LoginWait(waitCtx, id)
 				select {
 				case given <- loginSecretResult{id: id, value: value, err: err}:
 				case <-over:
 				}
+				if err != nil {
+					stopReady()
+				}
 			}()
+			if err := st.LoginWaitReady(readyCtx, id); err != nil {
+				stopWait()
+				stopReady()
+				waiting, leave = "", func() {}
+				_ = halt()
+				select {
+				case res := <-given:
+					if res.id == id && res.err != nil && !errors.Is(res.err, context.Canceled) {
+						err = res.err
+					}
+				default:
+				}
+				if errors.Is(err, context.DeadlineExceeded) {
+					return fmt.Errorf("no input was given within %s: the login was stopped", loginInputTimeout)
+				}
+				return fmt.Errorf("registering the login's input wait: %v: the login was stopped", err)
+			}
 			say(loginNeed{Need: needInput, Text: text, Secret: true, Login: id})
 		case res := <-given:
 			if res.id != waiting {

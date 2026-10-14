@@ -70,6 +70,22 @@ type ledLogin struct {
 	exit    chan int
 }
 
+type loginWaitReadyGate struct {
+	store.API
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *loginWaitReadyGate) LoginWaitReady(ctx context.Context, id string) error {
+	close(s.entered)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return s.API.LoginWaitReady(ctx, id)
+}
+
 // leadStandIn starts the run on a home with no yard and no terminal. The
 // one real call is the stand-in's own.
 func leadStandIn(t *testing.T) *ledLogin {
@@ -601,10 +617,29 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	gate := &loginWaitReadyGate{API: heldStore{st}, entered: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(gate.release)
+		}
+	})
+	l := leadStandInAs(t, &app{st: gate, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
 	l.need("choose")
 	l.answer(`{"choose":"Claude subscription"}`)
 	l.need("open_url")
+	select {
+	case <-gate.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the leader did not wait for the login registration")
+	}
+	select {
+	case line := <-l.lines:
+		t.Fatalf("the input need printed before the wait was ready: %s", line)
+	default:
+	}
+	close(gate.release)
+	released = true
 	input := l.need("input")
 	login, _ := input["login"].(string)
 	if login == "" {
@@ -616,17 +651,8 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The wait registers in the run: the giving lands once it has.
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		_, err = st.GiveSecret(ctx, b.ID, seq, map[string]string{"INPUT": "good#s1"}, "op")
-		if err == nil {
-			break
-		}
-		if !strings.Contains(err.Error(), "no login waits") || time.Now().After(deadline) {
-			t.Fatalf("GiveSecret: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if _, err = st.GiveSecret(ctx, b.ID, seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+		t.Fatalf("GiveSecret immediately after the need: %v", err)
 	}
 	l.need("confirm")
 	l.answer(`{"confirm":true}`)

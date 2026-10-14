@@ -178,6 +178,9 @@ func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values m
 func (c *Client) LoginWait(ctx context.Context, id string) (string, error) {
 	return callV[string](c, ctx, "LoginWait", id)
 }
+func (c *Client) LoginWaitReady(ctx context.Context, id string) error {
+	return c.call(ctx, "LoginWaitReady", nil, id)
+}
 func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*store.AskApproved, error) {
 	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor)
 }
