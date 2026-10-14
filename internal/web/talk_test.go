@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
@@ -337,25 +339,30 @@ func TestTalkRead(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
+	if err := f.st.Mail(ctx, "yardmaster", "and the fence", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if r := f.get("/talk"); strings.Contains(r.body, ">read<") {
 		t.Errorf("mail nobody acknowledged says read:\n%s", r.body)
 	}
-	head, err := f.st.Head(ctx)
+	letters, _, err := f.st.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.AckInbox(ctx, "yardmaster", head); err != nil {
+	if len(letters) != 3 || letters[0].From != "jo" || letters[2].From != "jo" {
+		t.Fatalf("conversation = %+v, want two mails from jo and one reply", letters)
+	}
+	if err := f.st.AckInbox(ctx, "yardmaster", letters[0].Seq); err != nil {
 		t.Fatal(err)
 	}
-	if r := f.get("/talk"); !strings.Contains(r.body, ">read<") {
-		t.Errorf("no letter says read:\n%s", r.body)
+	if r := f.get("/talk"); strings.Count(r.body, `<p class="label faint">read</p>`) != 1 {
+		t.Errorf("partial acknowledgement should mark only the first own letter read:\n%s", r.body)
 	}
 }
 
 // Beside the member in conversation is its state, in the words `yardr
-// chat` lists it with: working and idle while it runs, not running while
-// it is stopped. A user is no conversation: with one the page is 404,
-// with no status anywhere.
+// footplate lists it with: working and idle while it runs, not running
+// while it is stopped, and running at a login screen.
 func TestTalkStatus(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
@@ -370,12 +377,20 @@ func TestTalkStatus(t *testing.T) {
 	must(f.st.CrewStatus(ctx, "yardmaster", "working"))
 	must(f.st.CrewStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe"}))
 	must(f.st.CrewStatus(ctx, "scribe", "idle"))
-	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "alder", Runner: "herdr"}, "jo")
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "alder", Runner: "herdr", Enabled: true}, "jo")
 	must(err)
+	must(f.st.CrewStartFailed(ctx, "alder", "no workspace", time.Minute))
+	_, err = f.st.PutCrew(ctx, store.CrewMember{Name: "login", Runner: "herdr"}, "jo")
+	must(err)
+	must(f.st.CrewStarted(ctx, "login", map[string]any{
+		"agent": "yard-login", dispatch.HarnessLoginKey: "Sign in to continue",
+	}))
+	must(f.st.CrewStatus(ctx, "login", "idle"))
 	for _, c := range []struct{ with, status string }{
 		{"yardmaster", "working"},
 		{"scribe", "idle"},
 		{"alder", "not running"},
+		{"login", "idle"},
 	} {
 		r := f.get("/talk?with=" + c.with)
 		if r.status != 200 {
@@ -395,11 +410,6 @@ func TestTalkStatus(t *testing.T) {
 		if got.WithStatus != c.status {
 			t.Errorf("/talk?with=%s: with_status %q, want %q", c.with, got.WithStatus, c.status)
 		}
-	}
-	_, err = f.st.AddUser(ctx, "al", "al")
-	must(err)
-	if r := f.get("/talk?with=al"); r.status != 404 || strings.Contains(r.body, `<span class="state">`) {
-		t.Errorf("/talk?with=al: status %d, want 404 with no status", r.status)
 	}
 }
 

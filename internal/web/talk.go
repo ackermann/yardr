@@ -23,10 +23,8 @@ type Talk struct {
 	// With is the crew member in conversation, "" when the view does not
 	// act or the yard has no crew.
 	With string `json:"with"`
-	// WithStatus is its state, in the words `yardr chat` lists it with
-	// (and footplate after it): working, idle, not running, and the rest.
-	// "" when with names no crew member: a conversation with a person
-	// shows no status.
+	// WithStatus is its state, in the words footplate lists it with; ""
+	// when with names no crew member.
 	WithStatus string `json:"with_status,omitempty"`
 	// Crew are the members to talk to, in the yard's order.
 	Crew []TalkPeer `json:"crew"`
@@ -150,13 +148,30 @@ func defaultPeer(crew []store.CrewMember) string {
 	return ""
 }
 
-// withStatus is the state of the member in conversation, in the words
-// `yardr chat` lists it with (and footplate after it). "" when with names
-// no crew member: a conversation with a person shows no status.
+// withStatus is the state of the member in conversation, in footplate's
+// words. It uses the crew state and status directly: yardr chat adds
+// refinements for a login screen and failed retries. "" when with names
+// no crew member.
 func withStatus(crew []store.CrewMember, with string) string {
 	for _, r := range crew {
 		if r.Name == with {
-			return chat.StateOf(r)
+			switch r.State {
+			case "failed":
+				return chat.Failed
+			case "running":
+				switch r.Status {
+				case "working":
+					return chat.Working
+				case "idle":
+					return chat.Idle
+				case "blocked":
+					return chat.Blocked
+				default:
+					return chat.Running
+				}
+			default:
+				return chat.NotRunning
+			}
 		}
 	}
 	return ""

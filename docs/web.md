@@ -1440,7 +1440,7 @@ the form that sends it mail as them. `?with=` names the member; without it
 the page opens on the yardmaster, else on the first member. The crew stand
 above the letters, each linking to its conversation, with a dot where the
 user has unread mail from it. Beside the member in conversation is its
-state, in the words `yardr chat` lists it with. Each letter reads as a
+state, in the words footplate lists crew members with. Each letter reads as a
 note does: the sender
 with its device, the time, the words with their lines kept, the images it
 carries, and `read` under the user's own where the member acknowledged it.
