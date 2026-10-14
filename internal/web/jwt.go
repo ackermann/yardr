@@ -308,7 +308,10 @@ func (v *jwtVerifier) refreshIfDue(ctx context.Context, maxAge, cooldown time.Du
 	v.attempted = time.Now()
 	v.fetching = make(chan struct{})
 	v.mu.Unlock()
-	keys, err := v.fetchKeys(ctx)
+	// The fetch is every waiter's, not the request's that started it: a
+	// caller who hangs up does not abort it (the client's timeout bounds
+	// it), or one cancelled miss a minute would keep a rotation out.
+	keys, err := v.fetchKeys(context.WithoutCancel(ctx))
 	v.mu.Lock()
 	if v.fetchErr = err; err != nil {
 		v.log.Warn("the gateway's keys could not be refreshed; the cached keys keep serving", "err", err)

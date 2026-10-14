@@ -558,3 +558,39 @@ func TestJWTHeaderDefaultMatchesSetting(t *testing.T) {
 		t.Fatalf("web_jwt_header defaults to %q, the view reads %q unset", set.Default, web.DefaultJWTHeader)
 	}
 }
+
+// The shared refresh is every handler's, not the request's that started
+// it: a caller who hangs up mid-fetch does not abort it, so no one with a
+// token-shaped header can keep a rotation from landing by cancelling one
+// unknown-key request a minute.
+func TestJWTRefreshOutlivesItsRequest(t *testing.T) {
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
+	jwks.setDoc(jwksDoc(t, rsaJWK("a", &keys.a.PublicKey), rsaJWK("b", &keys.b.PublicKey)))
+	jwks.mu.Lock()
+	jwks.delay = 300 * time.Millisecond
+	jwks.mu.Unlock()
+	token := signRSA(t, keys.b, "b", jwtClaims(jwtTestEmail))
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(web.DefaultJWTHeader, signRSA(t, keys.c, "b", jwtClaims(jwtTestEmail)))
+	hangUp := &http.Client{Timeout: 50 * time.Millisecond}
+	if r, err := hangUp.Do(req); err == nil {
+		r.Body.Close()
+		t.Fatal("the hung-up request was answered before the slow fetch")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for jwks.fetches.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+	jwks.mu.Lock()
+	jwks.delay = 0
+	jwks.mu.Unlock()
+	if got := jwtGet(t, ts, "/", web.DefaultJWTHeader, token); got.status != 200 {
+		t.Fatalf("after the hang-up, the rotated key: status %d, want 200: %s", got.status, got.body)
+	}
+}
