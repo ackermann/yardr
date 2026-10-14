@@ -19,7 +19,7 @@ import (
 func run(t *testing.T, dir string, args ...string) (string, string, error) {
 	t.Helper()
 	cmd := exec.Command("./machine/limits", args...)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "LC_ALL=de_CH.UTF-8"}
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -85,6 +85,16 @@ func TestMachineLimitsTargets(t *testing.T) {
 	}
 	if got := []float64{*r.Windows[0].TargetPercent, *r.Windows[1].TargetPercent, *r.Windows[2].TargetPercent}; got[0] != 50 || got[1] != 87.5 || got[2] != 90 {
 		t.Fatalf("targets = %v, want [50 87.5 90]", got)
+	}
+	stdout, stderr, err = run(t, ".", "--target", "load=080", "--target", "swap=085.0", "--target", "disk=090")
+	if err != nil {
+		t.Fatalf("./machine/limits with padded targets: %v\n%s", err, stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("padded targets made invalid JSON: %v\n%s", err, stdout)
+	}
+	if got := []float64{*r.Windows[0].TargetPercent, *r.Windows[1].TargetPercent, *r.Windows[2].TargetPercent}; got[0] != 80 || got[1] != 85 || got[2] != 90 {
+		t.Fatalf("padded targets = %v, want [80 85 90]", got)
 	}
 	for _, bad := range [][]string{
 		{"--target", "load=101"},

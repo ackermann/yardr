@@ -14,6 +14,10 @@
 # windows never reset, so none carries resets_at.
 set -u
 
+# JSON numbers use a dot regardless of the yard's locale.
+LC_ALL=C
+export LC_ALL
+
 load_target=80 swap_target=85 disk_target=90
 say() { echo "machine/limits: $*" >&2; }
 
@@ -98,7 +102,7 @@ awk -v load="$loadavg" -v cores="$cores" \
   BEGIN {
     swap = (stotal > 0) ? sused * 100 / stotal : 0
     printf "{\"provider\":\"machine\",\"windows\":["
-    printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%s},", load * 100 / cores, tload
-    printf "{\"label\":\"swap\",\"used_percent\":%.1f,\"target_percent\":%s},", swap, tswap
-    printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%s}]}", disk, tdisk
+    printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%.15g},", load * 100 / cores, tload
+    printf "{\"label\":\"swap\",\"used_percent\":%.1f,\"target_percent\":%.15g},", swap, tswap
+    printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%.15g}]}", disk, tdisk
   }'
