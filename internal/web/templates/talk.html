@@ -21,16 +21,20 @@
 <div id="talk">
   {{- if not .Data.As}}
   {{- /* The view does not act: no user to show a conversation of. */}}
-  <p class="item">This view does not act. Start it with <code>--as &lt;user&gt;</code>, a user of the yard, and this page holds that user's conversation with a crew member, with the form that writes to it.</p>
+  <p class="item">This view does not act. Start it with <code>--as &lt;user&gt;</code>, a user of the yard, and this page holds that user's conversation with a crew member or another user, with the form that writes to it.</p>
   {{- else if not .Data.With}}
   <p class="item">The yard has no crew: <code>yardr crew add</code> makes its first member.</p>
   {{- else}}
-  {{- /* The crew to talk to, the one in conversation marked. It stays above
-         the letters while they scroll, with the way back on an older page. */}}
-  <nav class="peers" aria-label="Crew">
+  {{- /* The crew and the people to talk to, the one in conversation marked.
+         It stays above the letters while they scroll, with the way back on
+         an older page. */}}
+  <nav class="peers" aria-label="Crew and people">
     <ul>
       {{- range .Data.Crew}}
       <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a>{{if and (eq .Name $.Data.With) $.Data.WithStatus}}<span class="state">{{$.Data.WithStatus}}</span>{{end}}</li>
+      {{- end}}
+      {{- range .Data.People}}
+      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
       {{- end}}
     </ul>
     {{- if ne .Data.Before 0}}

@@ -14,20 +14,24 @@ import (
 )
 
 // Talk is the talk page: the conversation of the user the view acts as
-// (--as) with one crew member, live, and the form that sends it mail. It
-// is the web's `yardr chat` for one member at a time.
+// (--as) with one crew member or user, live, and the form that sends it
+// mail. It is the web's `yardr chat` for one party at a time.
 type Talk struct {
 	// As is the user the view acts as, "" when it does not act: the page
 	// then says so instead of any conversation.
 	As string `json:"as"`
-	// With is the crew member in conversation, "" when the view does not
-	// act or the yard has no crew.
+	// With is the crew member or user in conversation, "" when the view
+	// does not act or the yard has no crew.
 	With string `json:"with"`
 	// WithStatus is its state, in the words footplate lists it with; ""
-	// when with names no crew member.
+	// when with names no crew member: a conversation with a person shows
+	// no status.
 	WithStatus string `json:"with_status,omitempty"`
 	// Crew are the members to talk to, in the yard's order.
 	Crew []TalkPeer `json:"crew"`
+	// People are the users to talk to, in the yard's order, without the
+	// user the view acts as.
+	People []TalkPeer `json:"people"`
 	// Letters are the conversation's newest page, oldest first, or the
 	// page under Before.
 	Letters []TalkLetter `json:"letters"`
@@ -48,7 +52,7 @@ type Talk struct {
 	Draft string `json:"draft,omitempty"`
 }
 
-// TalkPeer is one crew member to talk to.
+// TalkPeer is one party to talk to: a crew member or a user.
 type TalkPeer struct {
 	Name string `json:"name"`
 	// Unread is whether the user has unread mail from it.
@@ -88,13 +92,18 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	users, err := s.st.Users(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	with := r.URL.Query().Get("with")
 	switch {
 	case with == "":
 		with = defaultPeer(crew)
-	case slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == with }):
+	case isPeer(crew, users, with):
 	default:
-		s.fail(w, r, fmt.Errorf("crew member %s: %w", with, store.ErrNotFound))
+		s.fail(w, r, fmt.Errorf("crew member %s: %w (nor is there a user of that name)", with, store.ErrNotFound))
 		return
 	}
 	var before uint64
@@ -105,7 +114,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out := Talk{As: as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
+	out := Talk{As: as, With: with, Crew: []TalkPeer{}, People: []TalkPeer{}, Letters: []TalkLetter{},
 		Before: before, Head: head, MaxMail: store.MaxMailBytes}
 	if with == "" {
 		// The yard has no crew: the page says whose command that is.
@@ -119,9 +128,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	for _, r := range crew {
-		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
-	}
+	out.Crew, out.People = talkPeers(crew, users, as, box.From)
 	out.WithStatus = withStatus(crew, with)
 	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, before)
 	if err != nil {
@@ -146,6 +153,30 @@ func defaultPeer(crew []store.CrewMember) string {
 		return crew[0].Name
 	}
 	return ""
+}
+
+// isPeer reports whether name is a crew member or a user of the yard: the
+// talk page holds a conversation with either.
+func isPeer(crew []store.CrewMember, users []store.User, name string) bool {
+	return slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == name }) ||
+		slices.ContainsFunc(users, func(u store.User) bool { return u.Name == name })
+}
+
+// talkPeers is the talk picker's two lists: the crew in the yard's order,
+// then the users but the one the view acts as, each saying whether the
+// user has unread mail from it.
+func talkPeers(crew []store.CrewMember, users []store.User, as string, unread []string) (peers, people []TalkPeer) {
+	peers, people = []TalkPeer{}, []TalkPeer{}
+	for _, r := range crew {
+		peers = append(peers, TalkPeer{Name: r.Name, Unread: slices.Contains(unread, r.Name)})
+	}
+	for _, u := range users {
+		if u.Name == as {
+			continue
+		}
+		people = append(people, TalkPeer{Name: u.Name, Unread: slices.Contains(unread, u.Name)})
+	}
+	return peers, people
 }
 
 // withStatus is the state of the member in conversation, in footplate's
@@ -191,7 +222,7 @@ func sender(l store.Letter, me, with string) string {
 	return from
 }
 
-// handleTalkPost takes the talk page's form: mail to the member in
+// handleTalkPost takes the talk page's form: mail to the member or user in
 // conversation, sent as the user the request acts as. It is registered only
 // on a view that acts (ActAs, or UseJWT for JWT mode): without either the
 // mux answers 405 itself, as on every other route. Mail sent, it redirects
@@ -209,12 +240,17 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	users, err := s.st.Users(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	with := r.URL.Query().Get("with")
 	if with == "" {
 		with = defaultPeer(crew)
 	}
-	if with == "" || !slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == with }) {
-		s.fail(w, r, fmt.Errorf("crew member %s: %w", with, store.ErrNotFound))
+	if with == "" || !isPeer(crew, users, with) {
+		s.fail(w, r, fmt.Errorf("crew member %s: %w (nor is there a user of that name)", with, store.ErrNotFound))
 		return
 	}
 	text := r.PostFormValue("text")
@@ -235,9 +271,14 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		s.fail(w, r, err)
 		return
 	}
-	out := Talk{As: as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
+	out := Talk{As: as, With: with, Crew: []TalkPeer{}, People: []TalkPeer{}, Letters: []TalkLetter{},
 		Head: head, MaxMail: store.MaxMailBytes, Error: why, Draft: text}
 	crew, err := s.st.Crew(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	users, err := s.st.Users(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -247,9 +288,7 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		s.fail(w, r, err)
 		return
 	}
-	for _, r := range crew {
-		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
-	}
+	out.Crew, out.People = talkPeers(crew, users, as, box.From)
 	out.WithStatus = withStatus(crew, with)
 	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, 0)
 	if err != nil {

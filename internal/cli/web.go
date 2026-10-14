@@ -91,7 +91,8 @@ the command's environment, else as the yard's web_as setting (yardr
 settings set web_as <user>), and reads only with none of them. Whoever it
 acts as must be a user of the yard (yardr user list): with any other name
 it refuses to start. The talk page then holds the user's conversation with
-a crew member, live, with the form that sends it mail as them, and a bead's
+a crew member or another user, live, with the form that sends it mail as
+them, and a bead's
 page answers its asks to the user and sends the bead on where it waits for
 them, as yardr review offers it. A form's POST is taken only from the
 view's own pages, and every other route stays GET. Without a user the talk

@@ -413,6 +413,84 @@ func TestTalkStatus(t *testing.T) {
 	}
 }
 
+// A conversation with a person renders without a status: people are no
+// crew, so the page shows no state beside their name, while the picker's
+// unread dot and the read marks under the user's own mail work as with
+// crew. The picker lists the yard's other users after its crew, never the
+// user the view acts as.
+func TestTalkPerson(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	if _, err := f.st.AddUser(ctx, "amy", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(f.st.Mail(ctx, "amy", "lend me the ladder", "jo"))
+	must(f.st.Mail(ctx, "jo", "it is by the shed", "amy"))
+	must(f.st.Mail(ctx, "amy", "and the paint", "jo"))
+	letters, _, err := f.st.Conversation(ctx, "jo", "amy", 0, 0, 0)
+	must(err)
+	if len(letters) != 3 {
+		t.Fatalf("conversation = %+v, want three letters", letters)
+	}
+	must(f.st.AckUserInbox(ctx, "amy", letters[0].Seq))
+
+	r := f.get("/talk?with=amy")
+	if r.status != 200 {
+		t.Fatalf("/talk?with=amy: status %d, want the conversation", r.status)
+	}
+	for _, want := range []string{
+		"lend me the ladder", "it is by the shed", "and the paint",
+		`<a href="/talk?with=amy" aria-current="page">`,
+		`<form id="send" method="post" action="/talk?with=amy"`,
+		`<a href="/talk?with=yardmaster">`, // the crew stays listed
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	if strings.Contains(r.body, `<span class="state">`) {
+		t.Errorf("a person shows a state:\n%s", r.body)
+	}
+	if strings.Contains(r.body, "/talk?with=jo") {
+		t.Errorf("the picker lists the view's own user:\n%s", r.body)
+	}
+	if n := strings.Count(r.body, `<p class="label faint">read</p>`); n != 1 {
+		t.Errorf("%d read marks, want one: only the acknowledged own mail", n)
+	}
+
+	r = f.get("/talk?with=amy", "Accept", "application/json")
+	var got web.Talk
+	if err := json.Unmarshal([]byte(r.body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.With != "amy" || got.WithStatus != "" {
+		t.Errorf("with %q status %q, want amy with none", got.With, got.WithStatus)
+	}
+	if len(got.People) != 1 || got.People[0].Name != "amy" || !got.People[0].Unread {
+		t.Errorf("the people: %+v, want amy with unread mail", got.People)
+	}
+	if len(got.Crew) != 2 {
+		t.Errorf("the crew: %+v, want both members still", got.Crew)
+	}
+
+	form := url.Values{"text": {"thanks"}}
+	if r := f.postForm("/talk?with=amy", form, "Origin", f.ts.URL); r.status != http.StatusSeeOther {
+		t.Errorf("POST to amy: status %d, want 303", r.status)
+	}
+	conv, _, err := f.st.Conversation(ctx, "jo", "amy", 0, 0, 0)
+	must(err)
+	if last := conv[len(conv)-1]; last.Text != "thanks" || last.From != "jo" {
+		t.Errorf("the conversation ends with %+v", last)
+	}
+}
+
 // A POST from the view's own origin sends mail as the view's user, and
 // lands on the conversation; anything else is refused.
 func TestTalkPost(t *testing.T) {

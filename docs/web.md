@@ -303,7 +303,8 @@ given, so a view of theirs without it reads the setting itself, at
 every start. Whoever the view acts as must be a user of the yard
 (`yardr user list`): with any other name it refuses to start, naming
 the flag, the variable or the setting the name came from. The talk
-page ([Talk](#talk)) then holds the user's conversation with a crew member,
+page ([Talk](#talk)) then holds the user's conversation with a crew member
+or another user,
 live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
@@ -508,8 +509,8 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 |---|---|---|
 | `/` | Home: the overview — the answer line with one row per wait, then the Running, Yard and Closed rows — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
-| `/talk` | on a view that acts: the user's conversation with a crew member, live, and the form that sends it mail as them; without a user, that the view does not act ([Talk](#talk)) | `Talk` |
-| `/talk?with=<member>` | the conversation with that member; without `?with=` the yardmaster's, else the first member's | `Talk` |
+| `/talk` | on a view that acts: the user's conversation with a crew member or another user, live, and the form that sends it mail as them; without a user, that the view does not act ([Talk](#talk)) | `Talk` |
+| `/talk?with=<member>` | the conversation with that member or user; without `?with=` the yardmaster's, else the first member's | `Talk` |
 | `/talk?with=<member>&before=<seq>` | an older page of the conversation: the 50 letters under that seq, a snapshot | `Talk` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
@@ -1435,20 +1436,25 @@ always set there, `eta` beside it when there is more to say):
 ## Talk
 
 On a view that acts, `/talk` is its user's conversation
-with a crew member — the web's `yardr chat` for one member at a time — with
-the form that sends it mail as them. `?with=` names the member; without it
-the page opens on the yardmaster, else on the first member. The crew stand
+with a crew member or another user — the web's `yardr chat` for one party
+at a time — with
+the form that sends it mail as them. `?with=` names either; without it
+the page opens on the yardmaster, else on the first member. The crew and
+the other users stand
 above the letters, each linking to its conversation, with a dot where the
 user has unread mail from it. Beside the member in conversation is its
-state, in the words footplate lists crew members with. Each letter reads as a
+state, in the words footplate lists crew members with; a person shows
+none. Each letter reads as a
 note does: the sender
 with its device, the time, the words with their lines kept, the images it
-carries, and `read` under the user's own where the member acknowledged it.
+carries, and `read` under the user's own where the other party
+acknowledged it.
 A page the mail carries is named without a link, never drawn as an image:
 only a note's page opens. With no user the page says the view does not
 act.
 
-The page reads as a messaging app: the crew stays above the letters and
+The page reads as a messaging app: the crew and the people stay above the
+letters and
 the form below while the letters scroll between them, the newest in view
 on open with the form under it. The form posts to `/talk?with=<member>`
 ([Acting as a user](#acting-as-a-user)): mail sent, the page lands back on
@@ -1470,6 +1476,9 @@ As JSON:
   "crew": [
     {"name": "yardmaster", "unread": true},
     {"name": "scribe", "unread": false}
+  ],
+  "people": [
+    {"name": "jo", "unread": false}
   ],
   "letters": [
     {"seq": 13, "at": "2026-10-08T09:30:00Z", "from": "mckean", "to": "yardmaster",
