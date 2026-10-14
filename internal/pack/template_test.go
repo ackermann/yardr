@@ -114,7 +114,7 @@ func TestTemplateAppliesAsANewSourcePack(t *testing.T) {
 		t.Fatalf("declared = %+v", d)
 	}
 	decl := d.Declaration
-	if decl.Name != "demo" || decl.Base == "" || decl.Credential == nil || decl.Check == "" ||
+	if decl.Name != "demo" || decl.About == "" || decl.Base == "" || decl.Credential == nil || decl.Check == "" ||
 		decl.Idempotency == "" || len(decl.Calls) == 0 || decl.Notify == nil || decl.Hear == nil ||
 		decl.Hook == nil || decl.Thread == nil || decl.Link == nil || decl.Identity == nil ||
 		decl.Events == nil {
@@ -199,37 +199,74 @@ func TestTemplateStubsAnswerInShape(t *testing.T) {
 		}
 		return v
 	}
-	if got := run("demo/normalize", nil, `{"headers":{},"body":{"action":"create"}}`); got["type"] == "" {
-		t.Fatalf("normalize: %v", got)
+	hasStrings := func(object map[string]any, keys ...string) bool {
+		for _, key := range keys {
+			value, ok := object[key].(string)
+			if !ok || value == "" {
+				return false
+			}
+		}
+		return true
 	}
-	if got := run("demo/thread", []string{"reply"}, `{"thread":"DEMO-1","parent":"","body":"hi","key":"k-1"}`); got["id"] == "" || got["url"] == "" {
+	got := run("demo/normalize", nil, `{"headers":{},"body":{"action":"create"}}`)
+	action, actionOK := got["action"].(string)
+	actor, actorOK := got["actor"].(map[string]any)
+	thread, threadOK := got["thread"].(map[string]any)
+	_, mentionsOK := got["mentions"].([]any)
+	_, fieldsOK := got["fields"].(map[string]any)
+	if !hasStrings(got, "type", "action", "text") || !actionOK || action != "create" ||
+		!actorOK || !hasStrings(actor, "id", "name") || !threadOK || !hasStrings(thread, "id", "title", "url") ||
+		!mentionsOK || !fieldsOK {
+		t.Fatalf("normalize envelope: %v", got)
+	}
+	if got := run("demo/thread", []string{"reply"}, `{"thread":"DEMO-1","parent":"","body":"hi","key":"k-1"}`); !hasStrings(got, "id", "url") {
 		t.Fatalf("thread reply: %v", got)
 	}
-	if got := run("demo/thread", []string{"posted"}, `{"thread":"DEMO-1","key":"k-1"}`); len(got) != 0 && got["id"] == "" {
+	if got := run("demo/thread", []string{"posted"}, `{"thread":"DEMO-1","key":"k-1"}`); len(got) != 0 && !hasStrings(got, "id", "url") {
 		t.Fatalf("thread posted: %v", got)
 	}
 	if got := run("demo/thread", []string{"read"}, `{"thread":"DEMO-1"}`); got["messages"] == nil {
 		t.Fatalf("thread read: %v", got)
+	} else {
+		messages, ok := got["messages"].([]any)
+		if !ok || len(messages) == 0 {
+			t.Fatalf("thread read messages: %v", got["messages"])
+		}
+		message, ok := messages[0].(map[string]any)
+		author, authorOK := message["author"].(map[string]any)
+		if !ok || !hasStrings(message, "id", "at", "body") || !authorOK || !hasStrings(author, "id", "name") {
+			t.Fatalf("thread read message: %v", messages[0])
+		}
 	}
-	if got := run("demo/thread", []string{"open"}, `{"in":"demo","title":"T","body":"B","key":"k-2"}`); got["id"] == "" || got["title"] == "" || got["url"] == "" {
+	if got := run("demo/thread", []string{"open"}, `{"in":"demo","title":"T","body":"B","key":"k-2"}`); !hasStrings(got, "id", "title", "url") {
 		t.Fatalf("thread open: %v", got)
 	}
-	if got := run("demo/thread", []string{"opened"}, `{"in":"demo","key":"k-2"}`); len(got) != 0 && got["id"] == "" {
+	if got := run("demo/thread", []string{"opened"}, `{"in":"demo","key":"k-2"}`); len(got) != 0 &&
+		!hasStrings(got, "id", "title", "url") {
 		t.Fatalf("thread opened: %v", got)
 	}
-	if got := run("demo/thread", []string{"state"}, `{"thread":"DEMO-1","state":"started"}`); got["status"] == "" || got["moved"] == nil {
+	if got := run("demo/thread", []string{"state"}, `{"thread":"DEMO-1","state":"started"}`); !hasStrings(got, "status") {
 		t.Fatalf("thread state: %v", got)
+	} else if _, ok := got["moved"].(bool); !ok {
+		t.Fatalf("thread state moved is not a boolean: %v", got)
 	}
-	if got := run("demo/pr", nil, `{"repo":"demo/web","number":"7","url":""}`); got["head"] == "" || got["base"] == "" {
+	if got := run("demo/pr", nil, `{"repo":"demo/web","number":"7","url":""}`); !hasStrings(got, "head", "base", "state") {
 		t.Fatalf("pr: %v", got)
 	}
-	got := run("demo/ci", nil, `{"repo":"demo/web","number":"7","sha":"abc123"}`)
-	if got["head"] == "" || got["base"] == "" || got["required"] == nil || got["checks"] == nil {
+	got = run("demo/ci", nil, `{"repo":"demo/web","number":"7","sha":"abc123"}`)
+	if !hasStrings(got, "head", "base", "state") {
 		t.Fatalf("ci: %v", got)
 	}
-	for _, c := range got["checks"].([]any) {
-		check := c.(map[string]any)
-		if check["name"] == "" || check["status"] == "" || check["conclusion"] == "" {
+	if required, ok := got["required"].([]any); !ok || len(required) == 0 {
+		t.Fatalf("ci required checks: %v", got["required"])
+	}
+	checks, ok := got["checks"].([]any)
+	if !ok || len(checks) == 0 {
+		t.Fatalf("ci checks: %v", got["checks"])
+	}
+	for _, c := range checks {
+		check, ok := c.(map[string]any)
+		if !ok || !hasStrings(check, "name", "status", "conclusion") {
 			t.Fatalf("ci check: %v", check)
 		}
 	}

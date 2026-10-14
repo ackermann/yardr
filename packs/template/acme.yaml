@@ -12,8 +12,12 @@
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
 name: acme
+# What this source does, printed by `yardr source show`; rewrite for the
+# service this pack is for.
 about: Issues and comments of the service. Hears its webhooks and speaks in its threads.
 
+# Drop this whole key when the source's calls and thread commands need no
+# authenticated credential. It names a variable, never a value.
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.
 # hook.normalize is handed no credential at all.
@@ -140,9 +144,15 @@ link:
 # nothing. Drop idempotency where the service takes no key for it, or no
 # call updates.
 
+# Keep base with calls: every call's path is under it, and commands also
+# receive it as YARDR_SOURCE_BASE. Drop both where the source declares no
+# calls.
 base: https://acme.example.com
 check: ping
 idempotency: Idempotency-Key
+# Each call is a separately grantable request. Keep the calls the service
+# can answer; drop this whole key where it has none (a source with no calls
+# may still send hooks or declare limits).
 calls:
   ping:
     kind: read
