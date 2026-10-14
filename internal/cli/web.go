@@ -69,8 +69,8 @@ name someone else controls could read the yard through a visitor's browser
 (docs/web.md, "Behind a proxy").
 
 Beside the view it serves the sandbox origin, where a note's pages run:
-a second listener on loopback answering a note's run wrappers, under a
-policy that runs a page's inline scripts and nothing else. It listens on
+a second listener on loopback answering blob bytes only, under a policy
+that runs a page's inline scripts and nothing else. It listens on
 --pages-addr, else on YARDR_WEB_PAGES_ADDR when set in the command's
 environment, else on the yard's web_pages_addr setting (yardr settings
 set web_pages_addr <host:port>), else on 127.0.0.1:8789, on loopback

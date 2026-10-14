@@ -5,10 +5,8 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"html/template"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"time"
 
@@ -785,6 +783,19 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 // section 3.3.)
 const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+// scriptedPolicy is the policy a note's page runs under on the sandbox
+// origin: its inline scripts run, and nothing else. The sandbox's opaque
+// origin (no allow-same-origin) withholds the yard's API and cookies from
+// the page; fetch, frames and workers are dead, and WebRTC peer
+// connections are blocked where the browser enforces the webrtc
+// directive. Top-level navigation is denied entirely — no
+// allow-top-navigation token, no allow-popups — so a script cannot carry
+// data out by redirecting on a click: a page's links do not leave the
+// sandbox, and a reader copies a URL if they want it.
+// (docs/design/2026-10-14-yardr-x4t5-board.md, section 3.5, as the
+// approval on yardr-x4t5 decided it.)
+const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
 // handleBlob serves a note's image or page: the bytes of a blob a note on
 // some bead names, with their type. Anything else — a mail's file, one the
 // yard never held, a name that is no hash — answers as a missing blob:
@@ -806,53 +817,14 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	serveBlob(w, r, s.home, hash, ref)
 }
 
-// runPolicy is the policy of the sandbox origin: every answer carries
-// it, the run wrapper and the plain 404s alike. It runs a page's
-// inline scripts and nothing else: no fetch, frames, workers or peer
-// connections, and no way out anywhere — the wrapper's frame-src
-// stops every navigation away, and every same-origin answer refuses
-// framing. It carries no sandbox directive, so the wrapper keeps its
-// origin for frame-src to name; the page inside is confined by the
-// frame's own sandbox attribute and inherits this policy.
-// (docs/design/2026-10-14-yardr-x4t5-board.md, section 3.5, as the
-// approval on yardr-x4t5 decided it.)
-const runPolicy = "default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'self'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-
-// runShim is the first script of every run page: it takes the WebRTC
-// constructor, the one network API the policy cannot take from a page
-// in a browser that does not enforce the webrtc directive (as of
-// October 2026 none does). It stands before the page's own bytes, so
-// it runs before any of their scripts, and nothing later can bring
-// the constructor back: the page loads no frame, worker or popup of
-// its own. It carries no "</script" but its own end, so the page's
-// bytes cannot break out of it; parsing only moves forward.
-const runShim = `<script>try{delete window.RTCPeerConnection;delete window.webkitRTCPeerConnection;}catch(e){}window.RTCPeerConnection=undefined;window.webkitRTCPeerConnection=undefined;</script>`
-
-// runPage wraps one blob for running: the blob's bytes in a sandboxed
-// srcdoc frame, under the shim, filling the window. The wrapper
-// itself has no script and no link: there is nothing in it to run or
-// to follow. Srcdoc is the page's bytes with the shim before them,
-// escaped for the attribute by the template.
-var runPage = template.Must(template.New("run").Parse(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>run {{.Short}}</title>
-<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
-</head>
-<body>
-<iframe srcdoc="{{.Srcdoc}}" sandbox="allow-scripts"></iframe>
-</body>
-</html>
-`))
-
-// handleRun serves a note's page for running, on the sandbox origin:
-// the run wrapper around the same bytes the view serves. The hash is
-// checked as the view's blob route checks it, and anything else answers
-// plainly, as the origin answers no yard route.
-func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
+// handlePagesBlob serves a note's blob on the sandbox origin: the same
+// bytes the view serves, under the scripted policy PagesHandler set
+// before the mux served. Anything else answers plainly: the origin
+// answers no yard route, not even the yard's error page.
+func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
-	if _, err := s.st.NoteBlob(r.Context(), hash); err != nil {
+	ref, err := s.st.NoteBlob(r.Context(), hash)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.Error(w, "no such blob", http.StatusNotFound)
 			return
@@ -863,28 +835,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not read the blob", http.StatusInternalServerError)
 		return
 	}
-	body, err := os.ReadFile(store.BlobPath(s.home, hash))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			http.Error(w, "no such blob", http.StatusNotFound)
-			return
-		}
-		if r.Context().Err() == nil {
-			s.log.Error("pages: "+r.URL.Path, "err", err)
-		}
-		http.Error(w, "could not read the blob", http.StatusInternalServerError)
-		return
-	}
-	// The shim runs first, before the page's own bytes; the doctype
-	// before it keeps the page in standards mode, and a second doctype
-	// of the page's own is ignored.
-	srcdoc := "<!DOCTYPE html>" + runShim + string(body)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// The wrapper is the binary's, not the blob's: a stored copy would
-	// outlive the shim that fenced it.
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	_ = runPage.Execute(w, map[string]string{"Short": hash[:8], "Srcdoc": srcdoc})
+	serveBlob(w, r, s.home, hash, ref)
 }
 
 // serveBlob serves a note's blob ref, held under hash: its bytes with
