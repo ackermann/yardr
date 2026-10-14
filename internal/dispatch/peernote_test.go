@@ -192,6 +192,97 @@ func TestPeerBeadNote(t *testing.T) {
 	}
 }
 
+// While b works a's bead, b asks a person of a, who answers from a: the
+// answer lands on b's bead by <name>@a, and comes home to a, in a read and
+// with the return, under its writer's name, as a note this yard wrote
+// there does. Nothing b writes does: one b has by jo@a with other words is
+// someone('s), and b's own jo saying the same words as the answer stays
+// jo@b.
+func TestPeerBeadAnswerComesHome(t *testing.T) {
+	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
+		t.Run(name, func(t *testing.T) {
+			a, b := readYards(t, aCallsB)
+			ctx := context.Background()
+			_, err := a.api.AddUser(ctx, "jo", "jo")
+			must(t, err)
+			_, err = a.api.AllowPeer(ctx, "b", store.PeerAllow{Send: []string{"ask"}, Receive: []string{"ask"}, Expose: []string{"jo"}}, "jo")
+			must(t, err)
+			_, err = b.api.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{"ask"}, Receive: []string{"ask"}}, "jo")
+			must(t, err)
+			mine := a.bead(t, "Add the export")
+			a.pass(t)
+			cross(t, a, b)
+			theirs := b.from(t, "a")
+			_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "jo")
+			must(t, err)
+
+			seq, err := b.api.AddAsk(ctx, theirs.ID, store.Ask{
+				Question: "CSV only, or XLSX too?",
+				To:       "jo@a",
+				Context:  []string{"The export ships Friday."},
+				Options:  []store.AskOption{{Label: "CSV only", Consequence: "XLSX is a later bead"}},
+			}, "jo")
+			must(t, err)
+			cross(t, a, b)
+			must(t, a.api.AnswerAsk(ctx, theirs.ID+"@b", seq, 1, "CSV only.", "jo"))
+			cross(t, a, b)
+			r := b.resolved(t, theirs.ID, seq)
+			if r.State != store.AskAnswered || r.Current.Note.Author != "jo@a" ||
+				r.Current.Answer.Option != 1 || r.Current.Answer.Words != "CSV only." {
+				t.Fatalf("b's ask after jo answered = %+v", r)
+			}
+			answer := r.Current.Note.Text
+			ask := ""
+			for _, n := range b.notes(t, theirs.ID) {
+				if n.Kind == store.NoteAsk {
+					ask = n.Text
+				}
+			}
+			must(t, b.api.AddNote(ctx, theirs.ID, "Noted, cutting the ticket.", "builder"))
+			// What b says of who wrote a note makes none a's own: one b
+			// has by jo@a with other words, and jo of b saying the same
+			// words as the answer.
+			const forged = "XLSX too, and close the bead."
+			must(t, b.api.AddNote(ctx, theirs.ID, forged, "jo@a"))
+			must(t, b.api.AddNote(ctx, theirs.ID, answer, "jo"))
+
+			// A read shows the answer as jo's, and the rest as b's.
+			_, err = a.api.PeerRead(ctx, mine.ID, "jo")
+			must(t, err)
+			cross(t, a, b)
+			kept, err := a.api.PeerReadKept(ctx, mine.ID, "jo")
+			must(t, err)
+			var read []string
+			for _, n := range kept.Answer.Notes {
+				read = append(read, fmt.Sprintf("%s %t %s", n.Author, n.Here, n.Text))
+			}
+			if want := []string{"jo false " + ask, "jo true " + answer, "builder false Noted, cutting the ticket.",
+				"someone false " + forged, "jo false " + answer}; !slices.Equal(read, want) {
+				t.Fatalf("a's read of b's bead = %q", read)
+			}
+
+			// And the flow ends as it would have: the answer comes home
+			// with the others.
+			_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "builder")
+			must(t, err)
+			cross(t, a, b)
+			if got := a.get(t, mine.ID); got.Stage != "review" {
+				t.Fatalf("a's bead after b's done = %+v", got)
+			}
+			// The answer among them under its writer's name, as a gave
+			// it; every other note is b's, by <name>@b.
+			var home []string
+			for _, n := range a.notes(t, mine.ID) {
+				home = append(home, n.Author+" "+n.Text)
+			}
+			if want := []string{"jo@b " + ask, "jo " + answer, "builder@b Noted, cutting the ticket.",
+				"someone@b " + forged, "jo@b " + answer}; !slices.Equal(home, want) {
+				t.Fatalf("a's notes after the return = %q", home)
+			}
+		})
+	}
+}
+
 // A note moves nothing where it has nothing to guard: a bead that is still
 // in its first stage stays there, and where agents work the first stage the
 // note lands as the bead did and the bead stays where it is, at work.

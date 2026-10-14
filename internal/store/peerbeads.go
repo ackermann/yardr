@@ -109,9 +109,10 @@ type PeerNote struct {
 	Text   string    `json:"text"`
 	// Here says of a note in the answer to a read, as this yard keeps it
 	// (PeerReadAnswer), that someone of this yard wrote it on the peer's
-	// bead, and Author is their name here (wroteHere). The yard that takes
-	// the answer sets it for every note: what a peer sends in it is not
-	// read, and no yard sends it.
+	// bead, or answered an ask of that peer's with it, and Author is their
+	// name here (wroteHere, answeredHere). The yard that takes the answer
+	// sets it for every note: what a peer sends in it is not read, and no
+	// yard sends it.
 	Here bool `json:"here,omitempty"`
 }
 
@@ -1254,7 +1255,8 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 // sent is the stay the notes come back from with a return, nil for notes
 // that come with a bead or as a note for one: a note someone of this yard
 // wrote on the peer's bead in that stay is written under their own name
-// (wroteHere).
+// (wroteHere), as is an answer they gave to an ask of that peer's
+// (answeredHere).
 //
 // They are written as records, not through addNote: a noted event is
 // matched against what crew members and users subscribe to, and a peer's note
@@ -1263,6 +1265,13 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSent) (uint64, error) {
 	notes := slices.Clone(from)
 	sort.SliceStable(notes, func(i, j int) bool { return notes[i].At.Before(notes[j].At) })
+	var asks []foreignAsk
+	if sent != nil {
+		var err error
+		if asks, err = foreignAsksOf(w.Tx, sent.Key); err != nil {
+			return 0, err
+		}
+	}
 	last := uint64(0)
 	for _, n := range notes {
 		if strings.TrimSpace(n.Text) == "" {
@@ -1278,6 +1287,8 @@ func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSe
 		}
 		author += "@" + peer
 		if by, ok := sent.wroteHere(n); ok {
+			author = by
+		} else if by, ok := answeredHere(asks, n); ok {
 			author = by
 		}
 		at := n.At.UTC()

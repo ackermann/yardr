@@ -830,7 +830,8 @@ func (s *Store) SettlePeerBeads(ctx context.Context) error {
 }
 
 // settleSent applies the outcome of the bead's stay at a peer to the bead:
-// the peer's notes are added, each under its author's name with @<peer>,
+// the peer's notes are added, each under its author's name with @<peer>
+// but for one someone of this yard wrote there or answered (peerNotes),
 // and the outcome is reported as Done reports one, by peer:<name> for the
 // peer's own and by the yard for refused and undelivered, with a note that
 // says why. A stage that does not name the outcome keeps the bead, held,

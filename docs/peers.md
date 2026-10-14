@@ -1335,6 +1335,21 @@ clock: the note is stamped when it arrives. An ask picked in both yards,
 in the person's queue there and by hand here, has both picks as notes, and
 the newest stands. The same id twice is taken once.
 
+**An answer to such a question comes home under its writer's name.** Where
+the bead the ask stands on is the counterpart of a bead of this yard's (the
+one the other yard made of a bead this yard sent it), the answer lands
+there by `<name>@<peer>`, and the read and the return carry it back among
+the notes written there. Its author there names what the working yard calls
+this yard, which this yard does not know and could not check alone: so it
+knows its own answer by the ask that named the person, and what it kept
+when it answered, the same writer and the same answer, to the byte. Such a
+note is shown by `thread show` as `<name>, of this yard` (`"here": true` in
+`--json`), and the return writes it on this yard's bead by `<name>`, with
+no `@<peer>`. Every other note is the peer's, by `<name>@<peer>`: one the
+peer has by `jo@<this yard>` with other words is `someone@<peer>`, as any
+author that is no name. The peer can make no note this yard's own, only
+send back an answer given to it.
+
 | reason | when |
 |---|---|
 | `no_such_ask` | no such bead, no ask of that seq on it, an ask addressed to someone who is no person of the answering yard, or an ask for a user of this yard from a name the link gives no reach for them (never given, or taken back since). An unsolicited answer, whoever is trusted |

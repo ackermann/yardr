@@ -807,6 +807,33 @@ func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64, actor string) (
 	return nil, "", fmt.Errorf("bead %s@%s: no question from %s stands on it: %w", bead, p.Name, p.Name, ErrNotFound)
 }
 
+// answeredHere says whether n, a note the peer of a stay sent among those
+// written on its bead, is an answer someone of this yard gave to one of
+// asks, the foreign asks taken from that peer, and who. The peer has it by
+// <name>@<what it calls this yard>, as the ask named the person (Ask.To),
+// with the answer as the peer wrote it; it is known by both, from what
+// this yard kept when it answered. A peer can make no other note this
+// yard's own by it, only send back an answer given to it.
+func answeredHere(asks []foreignAsk, n PeerNote) (string, bool) {
+	name, _, at := strings.Cut(n.Author, "@")
+	if !at {
+		return "", false
+	}
+	for _, f := range asks {
+		if f.Ask.To != n.Author {
+			continue
+		}
+		for _, a := range f.Answers {
+			text, err := json.Marshal(a.Answer)
+			if a.By != name || err != nil || string(text) != n.Text {
+				continue
+			}
+			return a.By, true
+		}
+	}
+	return "", false
+}
+
 // answerForeign answers the question the yard peer asked as ask ans.Ask on
 // its bead: the answer is queued home as a message of kind ask whose Re is
 // the ask message's id, and stands on the foreign ask from now on, so the
