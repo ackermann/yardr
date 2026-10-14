@@ -141,6 +141,33 @@ func TestSourceShowKeepsEnvFileNeedForNotifiedUser(t *testing.T) {
 	}
 }
 
+// source show of a source that hears every told user says so: the hear
+// line names the envelope field and the address, and that anything else is
+// dropped after verification.
+func TestSourceShowHearEveryToldUser(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	text, _ := os.ReadFile("testdata/pushover.yaml")
+	file := filepath.Join(t.TempDir(), "pushover.yaml")
+	heard := string(text) + "hook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
+		"  bodies: unique\n  normalize: [/bin/true]\n  keys: [chat]\n" +
+		"hear:\n  field: chat\n  address: { env: PUSHOVER_USER }\n"
+	if err := os.WriteFile(file, []byte(heard), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "pushover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "  hear: keeps a delivery whose chat is the PUSHOVER_USER of a told user's env_file; anything else is dropped after verification\n"; !strings.Contains(out, want) {
+		t.Fatalf("show lacks %q:\n%s", want, out)
+	}
+}
+
 func envFile(t *testing.T, text string, mode os.FileMode) string {
 	t.Helper()
 	f := filepath.Join(t.TempDir(), "source.env")

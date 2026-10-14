@@ -704,6 +704,9 @@ the variable and whether the env_file sets it. The value is never printed.
 						fmt.Printf("  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
 					}
 				}
+				if d.Hear != nil {
+					fmt.Println("  " + hearLine(d))
+				}
 				if d.Events != nil {
 					for _, cmd := range d.Commands() {
 						if !strings.HasPrefix(cmd.Key, "events.") {
@@ -1237,6 +1240,18 @@ func (a *app) checkTells(ctx context.Context, st store.API, name, user string) e
 func notifyLine(d *source.Declaration) string {
 	n := d.Notify
 	return fmt.Sprintf("notify: the call %s tells a user, at the %s of their env_file (yardr user set <name> %s=%s)", n.Call, n.AddressEnv, store.UserNotify, d.Name)
+}
+
+// hearLine says in a line which deliveries of a source are kept: one whose
+// envelope field holds a told address, read as telling reads it; anything
+// else is dropped after verification.
+func hearLine(d *source.Declaration) string {
+	h := d.Hear
+	who := "a told user's env_file"
+	if h.From == source.HearFromOperator {
+		who = "the operator's env_file"
+	}
+	return fmt.Sprintf("hear: keeps a delivery whose %s is the %s of %s; anything else is dropped after verification", h.Field, h.Address.Env, who)
 }
 
 // limitsLine says in a line that a source says limits, and of which kinds.
