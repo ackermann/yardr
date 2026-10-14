@@ -533,8 +533,16 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		_ = json.NewEncoder(w).Encode(p.Data)
 		return
 	}
+	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu)}
+	// An error page still carries the header's count when the yard can
+	// answer it; keep the error itself renderable when those reads failed.
+	if ov, overviewErr := s.overview(r.Context(), nil); overviewErr == nil {
+		if l, lineErr := s.line(r.Context(), ov); lineErr == nil {
+			v.Needs = len(attention(ov, l))
+		}
+	}
 	var buf bytes.Buffer
-	if terr := s.pages[p.Template].ExecuteTemplate(&buf, "shell.html", view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu)}); terr != nil {
+	if terr := s.pages[p.Template].ExecuteTemplate(&buf, "shell.html", v); terr != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}

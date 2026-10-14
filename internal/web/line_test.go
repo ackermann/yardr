@@ -677,6 +677,12 @@ func TestHeaderNeedsCount(t *testing.T) {
 			t.Errorf("%s keeps the aside home and the line alone keep", path)
 		}
 	}
+	missing := f.get("/beads/no-such-bead")
+	if missing.status != http.StatusNotFound {
+		t.Errorf("missing bead: status %d, want 404", missing.status)
+	} else if text := squash(missing.body); strings.Contains(text, "needs-count") || strings.Contains(text, "<aside") {
+		t.Errorf("empty missing-bead page shows a count or aside: %s", text)
+	}
 
 	// A bead parked where its flow starts waits on no one in particular:
 	// it is on /line, not in the header, as home needs no one.
@@ -711,6 +717,14 @@ func TestHeaderNeedsCount(t *testing.T) {
 		if strings.Contains(text, "<aside") {
 			t.Errorf("%s keeps the aside home and the line alone keep", path)
 		}
+	}
+	missing = f.get("/beads/no-such-bead")
+	if missing.status != http.StatusNotFound {
+		t.Errorf("missing bead: status %d, want 404", missing.status)
+	} else if text := squash(missing.body); !strings.Contains(text, `<a class="needs-count" href="/">1 waits for you</a>`) {
+		t.Errorf("missing bead page omits the waiting bead count: %s", text)
+	} else if strings.Contains(text, "<aside") {
+		t.Errorf("missing-bead page has an aside: %s", text)
 	}
 
 	// Two wait: the header counts them, plural.
