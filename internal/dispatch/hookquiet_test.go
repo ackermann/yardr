@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,19 @@ import (
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
+
+type failHookEventsOnce struct {
+	store.API
+	failed bool
+}
+
+func (s *failHookEventsOnce) EventsOfKind(ctx context.Context, kind string, limit int) ([]store.Event, error) {
+	if kind == "hook" && !s.failed {
+		s.failed = true
+		return nil, errors.New("temporary event read failure")
+	}
+	return s.API.EventsOfKind(ctx, kind, limit)
+}
 
 // A hook that delivered and then nothing for longer than its usual gap logs
 // hook_quiet once, by the daemon's clock, and the yardmaster has it in its
@@ -119,5 +133,34 @@ func TestQuietHookLogsHookQuietOnce(t *testing.T) {
 		if e.Data["hook"] != "linear" {
 			t.Fatalf("hook_quiet for %v, want linear's alone", e.Data["hook"])
 		}
+	}
+}
+
+// A store read failure does not count as the hourly check: the next pass
+// retries and tells the yardmaster if the hook is still quiet.
+func TestQuietHookReadFailureRetriesNextPass(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := s.PutHook(ctx, store.Hook{Name: "linear", Source: "token", SecretFile: "/x"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, _, err := own.RecordHook(ctx, "linear", map[string]any{"source": "token"}, []byte("{}"), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Now()
+	now := start.Add(7 * time.Hour)
+	wrapped := &failHookEventsOnce{API: s}
+	d := &dispatch.Dispatcher{Store: wrapped, Runners: map[string]dispatch.Runner{}}
+	dispatch.SetClock(d, func() time.Time { return now })
+
+	must(t, d.Reconcile(ctx))
+	now = now.Add(time.Minute)
+	must(t, d.Reconcile(ctx))
+	evs, err := s.EventsOfKind(ctx, store.HookQuiet, 10)
+	must(t, err)
+	if len(evs) != 1 || evs[0].Data["hook"] != "linear" {
+		t.Fatalf("hook_quiet after the retry = %+v, want linear's event", evs)
 	}
 }

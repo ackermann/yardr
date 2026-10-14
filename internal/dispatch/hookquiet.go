@@ -28,7 +28,6 @@ func (d *Dispatcher) quietHooks(ctx context.Context) {
 	if !d.quietChecked.IsZero() && now.Sub(d.quietChecked) < HookQuietEvery {
 		return
 	}
-	d.quietChecked = now
 	hooks, err := d.Store.Hooks(ctx)
 	if err != nil {
 		d.Log.Warn("quiet hooks", "err", err)
@@ -41,6 +40,7 @@ func (d *Dispatcher) quietHooks(ctx context.Context) {
 		}
 	}
 	if len(journal) == 0 {
+		d.quietChecked = now
 		return
 	}
 	delivered, err := d.Store.EventsOfKind(ctx, "hook", store.QuietRead)
@@ -67,6 +67,7 @@ func (d *Dispatcher) quietHooks(ctx context.Context) {
 			}
 		}
 	}
+	failed := false
 	for _, h := range journal {
 		is, gap := store.Quiet(h.Accepted, at[h.Name], now)
 		if !is {
@@ -81,6 +82,12 @@ func (d *Dispatcher) quietHooks(ctx context.Context) {
 			"hook": h.Name, "source": h.Source,
 			"last": h.Accepted.UTC().Format(time.RFC3339), "gap": round(gap).String()}); err != nil {
 			d.Log.Warn(store.HookQuiet+" event", "hook", h.Name, "err", err)
+			failed = true
 		}
+	}
+	// A transient read or write failure must be retried on the next pass,
+	// rather than waiting another hour for the next quiet-hook check.
+	if !failed {
+		d.quietChecked = now
 	}
 }
