@@ -68,8 +68,8 @@ type Ask struct {
 	// To is who must answer, a user; empty is never stored (the command
 	// defaults it to the yard's operator).
 	To string `json:"to"`
-	// Context is what the question is about, two to five lines; at least
-	// one is stored.
+	// Context is what the question is about, two to five lines, each one
+	// line; at least one is stored.
 	Context []string `json:"context"`
 	// Options are the options in the order written, with YouDecide last
 	// when the writer gave any. None wants words.
@@ -139,10 +139,11 @@ func ParseAnswer(n Note) (Answer, error) {
 }
 
 // AddAsk stores ask on the bead id as a note of kind ask, written by
-// actor, and answers the note's seq. It refuses an ask with no context, an
-// option with no consequence, an option the writer called YouDecide, a
-// recommendation that names no option or says no why, and an about-bead
-// that does not exist. To must name who answers; the command defaults it.
+// actor, and answers the note's seq. It refuses an ask with no context, a
+// context line holding a break, an option with no consequence, an option
+// the writer called YouDecide, a recommendation that names no option or
+// says no why, and an about-bead that does not exist. To must name who
+// answers; the command defaults it.
 //
 // An ask with Secret asks the operator for a declared source's credential,
 // or a user (or the operator for them) for that user's own address in a
@@ -208,8 +209,13 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		return nil, fmt.Errorf("an ask needs --to: who must answer")
 	}
 	var context []string
-	for _, line := range ask.Context {
+	for i, line := range ask.Context {
 		if line = strings.TrimSpace(line); line != "" {
+			// A context line is one line: a break in it would continue
+			// at the column of the yard's own lines on the card.
+			if strings.Contains(line, "\n") {
+				return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line", i+1)
+			}
 			context = append(context, line)
 		}
 	}
@@ -272,8 +278,8 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return nil, fmt.Errorf("a run ask takes no --option and no --recommend: its answer is the operator's approval of the command, or a decline")
 		case len(about) > 0:
 			return nil, fmt.Errorf("a run ask takes no --about: it is about what its command names")
-		case len(ask.Context) > MaxRunContext:
-			return nil, fmt.Errorf("a run ask takes at most %d lines of --context, and this has %d: the command and what the yard says of it must stay in sight", MaxRunContext, len(ask.Context))
+		case runContextLines(ask.Context) > MaxRunContext:
+			return nil, fmt.Errorf("a run ask takes at most %d lines of --context, and this has %d: the command and what the yard says of it must stay in sight", MaxRunContext, runContextLines(ask.Context))
 		case outside:
 			return nil, fmt.Errorf("a command is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
 		}
@@ -968,9 +974,11 @@ func (r ResolvedAsk) LinesMarked(as map[string]string) []string {
 // is.
 //
 // A run ask is drawn so that the asker's words cannot stand for the yard's:
-// each context line begins with who says it, and the yard's part comes
-// last and together, the command whole, what the yard says it changes and
-// the command that takes it back. The command is never cut or shortened.
+// each context line begins with who says it, a question's and an answer's
+// later lines stand further in than any line the yard prints, and the
+// yard's part comes last and together, the command whole, what the yard
+// says it changes and the command that takes it back. The command is never
+// cut or shortened.
 func (r ResolvedAsk) lines(mark func(string) string) []string {
 	if r.AskErr != nil {
 		return []string{fmt.Sprintf("ask %d: not a question any more (%v)", r.Note.Seq, r.AskErr)}
@@ -988,14 +996,17 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	// The question is the asker's words, and stands in the list its
 	// answers stand in: further in than the card's head, as a note's
 	// text stands further in than its author line, so no line of it
-	// reads as another note.
-	out := []string{head, "  " + strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n  ")}
+	// reads as another note. Its later lines stand further in than any
+	// line the yard prints, so none reads as one of the yard's.
+	out := []string{head, "  " + strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n        ")}
 	for _, line := range r.Ask.Context {
-		line = NoteLetters(line)
+		// A context line is one line, refused with a break at the
+		// write; one stored before that folds to the line it is.
+		line = OneLine(line)
 		if r.Ask.Run != nil {
 			line = OneLine(r.Note.Author) + " says: " + line
 		}
-		out = append(out, "  "+strings.ReplaceAll(line, "\n", "\n  "))
+		out = append(out, "  "+line)
 	}
 	switch {
 	case r.Ask.Run != nil && r.State == AskAnswered:
@@ -1044,7 +1055,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", by, OneLine(strings.Join(c.Answer.Given, " and "))))
 		case len(r.Ask.Options) == 0:
-			out = append(out, fmt.Sprintf("  %s answered: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n  ")))
+			out = append(out, fmt.Sprintf("  %s answered: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n        ")))
 		default:
 			prev := 0
 			for _, a := range r.Answers {
@@ -1066,7 +1077,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 			line := fmt.Sprintf("  %s picked %d%s%s", by, c.Answer.Option, was, label)
 			if c.Answer.Words != "" {
-				line += ": " + strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n  ")
+				line += ": " + strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n        ")
 			}
 			out = append(out, line)
 		}

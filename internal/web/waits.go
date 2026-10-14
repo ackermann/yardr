@@ -385,14 +385,20 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, er
 	return out, nil
 }
 
-// askReason is one open ask as a wait: the question in the yard's words,
-// its context lines as the note, and its recommendation in one line for
-// the home row: the recommended option's number with its label, so the
-// row names what to pick where writing lives. An ask with no options
-// wants words, a secret ask says what it asks for, and a run ask shows
-// the command its approval runs, whole.
+// askReason is one open ask as a wait: the question in one line, its
+// context lines as the note, and its recommendation in one line for the
+// home row: the recommended option's number with its label, so the row
+// names what to pick where writing lives. The row keeps one line, so the
+// question folds to it, as letters only, and a context line folds to the
+// line it is; the note's breaks are then only between genuine lines. An
+// ask with no options wants words, a secret ask says what it asks for,
+// and a run ask shows the command its approval runs, whole.
 func askReason(r store.ResolvedAsk) Reason {
-	out := Reason{Kind: "ask", Text: r.Ask.Question, Note: short(strings.Join(r.Ask.Context, "\n"))}
+	context := make([]string, len(r.Ask.Context))
+	for i, line := range r.Ask.Context {
+		context[i] = store.OneLine(line)
+	}
+	out := Reason{Kind: "ask", Text: store.OneLine(r.Ask.Question), Note: short(strings.Join(context, "\n"))}
 	switch {
 	case r.Ask.Run != nil:
 		// The yard's own, and never shortened: the command as it would run.
@@ -403,7 +409,7 @@ func askReason(r store.ResolvedAsk) Reason {
 	case len(r.Ask.Options) == 0:
 		out.Recommend = "words wanted"
 	case r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options):
-		out.Recommend = fmt.Sprintf("%d. %s", r.Ask.Recommend, r.Ask.Options[r.Ask.Recommend-1].Label)
+		out.Recommend = fmt.Sprintf("%d. %s", r.Ask.Recommend, store.OneLine(r.Ask.Options[r.Ask.Recommend-1].Label))
 	}
 	return out
 }

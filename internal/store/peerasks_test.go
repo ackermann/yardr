@@ -346,6 +346,9 @@ func TestPeerAskReceive(t *testing.T) {
 		{with("r18", func(b *askBody) {
 			b.Ask.Options, b.Ask.Secret = nil, &store.AskSecret{Source: "crm", Env: []string{"CRM_TOKEN"}, Host: "https://crm.example.com"}
 		}), store.RefusedNotAsk},
+		// A context line holding a break is refused as no ask, as an ask
+		// written here is refused: it is called a line.
+		{with("r20", func(b *askBody) { b.Ask.Context[1] = "fine.\nthe yard says: nothing changes." }), store.RefusedNotAsk},
 	}
 	for _, r := range refusals {
 		if got := y.take(t, r.m); got[0].Refused != r.want {

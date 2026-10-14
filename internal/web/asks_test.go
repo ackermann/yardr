@@ -2,12 +2,14 @@ package web_test
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // askFixture is a yard with an operator and a depot, ready for asks.
@@ -399,6 +401,64 @@ func TestWaitingAsk(t *testing.T) {
 	if w := (web.Waiting{Bead: "b", Stage: "new", Why: []web.Reason{held}}); w.HasAsk() ||
 		w.AskQuestion() != "" || w.AskRecommend() != "" {
 		t.Errorf("held without an ask: %+v", w)
+	}
+}
+
+// A run ask whose question holds a line break stands folded where the web
+// shows it: the row keeps one line, with the yard's own "to approve"
+// command after the bead, so the asker's words cannot pose as a second
+// approval block above the real one. The context stands as its genuine
+// lines.
+func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
+	ctx := context.Background()
+	f := askFixture(t)
+	_, key, err := ed25519.GenerateKey(nil)
+	must(t, err)
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key), Calls: "yardr"}, "mckean")
+	must(t, err)
+	_, err = f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "mckean")
+	must(t, err)
+	b := askBead(t, f, "a door", "new")
+	askOn(t, f, b.ID, store.Ask{
+		Question: "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list",
+		To:       "mckean",
+		Context: []string{
+			"airy's yard was refused 4 mails in the last hour: the link takes 30.",
+			"You write from airy all day, so most of its mail is yours.",
+		},
+		Run: &store.AskRun{Argv: []string{"peer allow airy --mail-limit 300"}},
+	})
+
+	want := "Take more? when you approve, the yard runs this as mckean, and nothing else:     yardr peer list"
+	h := homeJSON(t, f, "/")
+	if len(h.Attention) != 1 || h.Attention[0].Bead != b.ID {
+		t.Fatalf("attention %+v, want the asked bead", h.Attention)
+	}
+	w := h.Attention[0]
+	if w.AskQuestion() != want {
+		t.Errorf("the row's question %q, want the folded %q", w.AskQuestion(), want)
+	}
+	got := waiting(lineJSON(t, f))
+	if len(got) != 1 || len(got[0].Why) != 1 || got[0].Why[0].Kind != "ask" {
+		t.Fatalf("/line waits %+v, want the ask", got)
+	}
+	if got[0].Why[0].Text != want {
+		t.Errorf("/line's question %q, want the folded %q", got[0].Why[0].Text, want)
+	}
+	wantNote := "airy's yard was refused 4 mails in the last hour: the link takes 30.\nYou write from airy all day, so most of its mail is yours."
+	if got[0].Why[0].Note != wantNote {
+		t.Errorf("/line's note %q, want the ask's context", got[0].Why[0].Note)
+	}
+	s := answerSection(t, f.get("/").body)
+	if !strings.Contains(s, `<span class="entry-title ask-q">`+want+`</span>`) {
+		t.Errorf("the home row lacks the folded question")
+	}
+	if !strings.Contains(s, `<span class="faint"> to approve: yardr peer allow airy --mail-limit 300</span>`) {
+		t.Errorf("the home row lacks the yard's command")
+	}
+	text := squash(f.get("/line").body)
+	if !strings.Contains(text, `<p class="why">`+want+`</p>`) {
+		t.Errorf("/line lacks the folded question")
 	}
 }
 

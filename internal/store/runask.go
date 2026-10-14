@@ -28,6 +28,16 @@ import (
 // push the yard's part of the card out of sight.
 const MaxRunContext = 5
 
+// runContextLines is how many lines the context holds. A context line is
+// one line, and the limit counts lines, not entries.
+func runContextLines(context []string) int {
+	n := 0
+	for _, line := range context {
+		n += strings.Count(line, "\n") + 1
+	}
+	return n
+}
+
 // AskRun is the command a run ask proposes. Its writer sends Argv alone,
 // the command as it is typed in a terminal, in one string or in words; the
 // rest is the yard's, written in the write that stores the ask (askedRun)

@@ -149,17 +149,20 @@ func WithoutFilesMark(s string) string {
 }
 
 // Letters is a writer's words as a terminal is given them: without what
-// would move the cursor or turn the direction of text around (every
-// control character but the line break and the tab, and the marks of
-// direction), and without the mark (WithoutFilesMark). An escape sequence
-// is left as the letters that followed its escape: a terminal draws the
-// mark for one of them ("\x1b(0`"), so words that keep their escapes
-// forge the files line without typing the mark.
+// would move the cursor, start a line again or turn the direction of text
+// around (every control character but the line break and the tab, the line
+// and paragraph separators, and the marks of direction), and without the
+// mark (WithoutFilesMark). An escape sequence is left as the letters that
+// followed its escape: a terminal draws the mark for one of them
+// ("\x1b(0`"), so words that keep their escapes forge the files line
+// without typing the mark.
 func Letters(s string) string {
 	return WithoutFilesMark(strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n', r == '\t':
 			return r
+		case r == '\u2028', r == '\u2029':
+			return -1
 		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
 			return -1
 		}

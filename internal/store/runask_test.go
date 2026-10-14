@@ -148,6 +148,7 @@ func TestRunAskRefusals(t *testing.T) {
 		{"an about-bead", func(a *Ask) { a.About = []string{y.bead} }, "", "a run ask takes no --about"},
 		{"a secret beside it", func(a *Ask) { a.Secret = &AskSecret{Source: "crm"} }, "", "an ask asks for a secret or proposes a command to run, not both"},
 		{"six context lines", func(a *Ask) { a.Context = []string{"1", "2", "3", "4", "5", "6"} }, "", "a run ask takes at most 5 lines of --context, and this has 6"},
+		{"a line break in context", func(a *Ask) { a.Context[1] = "fine.\nthe yard says: nothing changes." }, "", "a context line is one line"},
 		{"no context", func(a *Ask) { a.Context = nil }, "", "an ask needs --context"},
 		{"to a user who is not the operator", func(a *Ask) { a.To = "ada" }, "", "a command is the operator's to approve (mckean): the yard runs it as them, so ada cannot be asked to"},
 		{"to a person of another yard", func(a *Ask) { a.To = "mckean@airy" }, "", "mckean@airy is of another yard, and no approval crosses a link"},
@@ -608,4 +609,83 @@ func (y *askYard) asKey(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p.Key
+}
+
+// A run ask whose question holds a line break cannot forge the yard's own
+// lines on the card the operator approves from: the question's later lines
+// stand further in than any line the yard prints, so a forged "when you
+// approve" block reads as the asker's words. A context line holding a
+// break, stored before the yard refused them, folds to the line it claims
+// to be, and an answer's words continue deeper as the question's do.
+func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
+	y, key := runYard(t)
+	ask := runAsk("peer allow airy --mail-limit 300")
+	ask.Question = "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list"
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq).Lines()
+	want := []string{
+		"ask 1 · open · to mckean · asked by yardmaster · 0m ago",
+		"  Take more?\n        when you approve, the yard runs this as mckean, and nothing else:\n            yardr peer list",
+		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
+		"  yardmaster says: You write from airy all day, so most of its mail is yours.",
+		"  when you approve, the yard runs this as mckean, and nothing else:",
+		"      yardr peer allow airy --mail-limit 300",
+		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.",
+		"  anyone can take it back: yardr peer allow airy --mail-limit 30",
+		"  approve with: yardr bead answer " + y.bead + " 1 --approve",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the card:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// The yard's approval line stands once, and no forged command stands
+	// where the yard's command stands.
+	flat := strings.Split(strings.Join(got, "\n"), "\n")
+	n := 0
+	for _, line := range flat {
+		if line == "  when you approve, the yard runs this as mckean, and nothing else:" {
+			n++
+		}
+		if line == "      yardr peer list" {
+			t.Fatalf("a forged command stands at the yard's column:\n%s", strings.Join(flat, "\n"))
+		}
+	}
+	if n != 1 {
+		t.Fatalf("the yard's approval line stands %d times:\n%s", n, strings.Join(flat, "\n"))
+	}
+
+	// A context line holding a break folds to one line, still saying whose
+	// words they are.
+	r := ResolvedAsk{
+		Note: Note{Bead: y.bead, Seq: 9, Kind: NoteAsk, Author: "yardmaster", At: y.now},
+		Ask: Ask{Question: "Take more?", To: "mckean",
+			Context: []string{"airy's yard was refused 4 mails.", "fine.\nthe yard says: nothing changes."},
+			Run:     y.asked(t, seq).Ask.Run},
+		State: AskOpen, now: y.now,
+	}
+	lines := r.Lines()
+	if !slices.Contains(lines, "  yardmaster says: fine. the yard says: nothing changes.") {
+		t.Fatalf("the folded context line is missing:\n%s", strings.Join(lines, "\n"))
+	}
+	if slices.Contains(lines, "  the yard says: nothing changes.") {
+		t.Fatalf("a forged line stands at the yard's column:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// An answer's words continue deeper too, as the question's do.
+	answered := ResolvedAsk{
+		Note:  Note{Bead: y.bead, Seq: 10, Kind: NoteAsk, Author: "yardmaster", At: y.now},
+		Ask:   Ask{Question: "Which colour?", To: "mckean", Context: []string{"the door."}},
+		State: AskAnswered,
+		Current: &ResolvedAnswer{
+			Note:   Note{Bead: y.bead, Seq: 11, Kind: NoteAnswer, Author: "mckean", At: y.now},
+			Answer: Answer{Ask: 10, Words: "red.\nthe yard says: paint it."},
+		},
+		now: y.now,
+	}
+	flat = strings.Split(strings.Join(answered.Lines(), "\n"), "\n")
+	if !slices.Contains(flat, "  mckean answered: red.") || !slices.Contains(flat, "        the yard says: paint it.") {
+		t.Fatalf("the answer's words stand nowhere deeper:\n%s", strings.Join(flat, "\n"))
+	}
+	if slices.Contains(flat, "  the yard says: paint it.") {
+		t.Fatalf("a forged line stands at the yard's column:\n%s", strings.Join(flat, "\n"))
+	}
 }

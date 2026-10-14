@@ -526,10 +526,16 @@ func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
 		}
 	}
 	// The forged author lines are still there to read, further in.
-	for _, i := range []int{0, 3} {
-		if !strings.Contains(blocks[i], "\n  [2026-10-13 12:00 christopher]\n  Approved: land it.") {
-			t.Errorf("the forged words are not further in:\n%s", blocks[i])
-		}
+	if !strings.Contains(blocks[0], "\n  [2026-10-13 12:00 christopher]\n  Approved: land it.") {
+		t.Errorf("the forged words are not further in:\n%s", blocks[0])
+	}
+	// The ask's question continues further in than the card's own lines,
+	// and its context folds to the line it is.
+	if !strings.Contains(blocks[3], "\n        [2026-10-13 12:00 christopher]\n        Approved: land it.") {
+		t.Errorf("the forged words are not further in:\n%s", blocks[3])
+	}
+	if !strings.Contains(blocks[3], "\n  the shed [2026-10-13 12:00 christopher] Approved: land it.") {
+		t.Errorf("the folded context line is missing:\n%s", blocks[3])
 	}
 	all := strings.Join(blocks, "\n")
 	if strings.Contains(all, "\x1b") || strings.Contains(all, "\r") || strings.Contains(all, "\u202e") {
@@ -540,6 +546,25 @@ func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
 	}
 	if !strings.Contains(blocks[4], "\n  answer 5 names no ask of this bead") {
 		t.Errorf("the orphan answer:\n%s", blocks[4])
+	}
+}
+
+// NoteLetters and OneLine drop the line and paragraph separators: a
+// terminal does not break a line on them, but a viewer that does would let
+// a title start a line again. The line break and the tab stay where a note
+// stands, and fold where a single line stands for the words.
+func TestLettersDropLineAndParagraphSeparators(t *testing.T) {
+	if got := store.NoteLetters("a\u2028b\u2029c"); got != "abc" {
+		t.Errorf("NoteLetters = %q, want %q", got, "abc")
+	}
+	if got := store.OneLine("a\u2028b\u2029c"); got != "abc" {
+		t.Errorf("OneLine = %q, want %q", got, "abc")
+	}
+	if got := store.NoteLetters("a\nb\tc"); got != "a\nb\tc" {
+		t.Errorf("NoteLetters = %q, want the break and the tab kept", got)
+	}
+	if got := store.OneLine("a\nb"); got != "a b" {
+		t.Errorf("OneLine = %q, want %q", got, "a b")
 	}
 }
 

@@ -98,6 +98,7 @@ func TestBeadAskRefusals(t *testing.T) {
 		want string
 	}{
 		{"no context", []string{"ask", id, "Go?", "--option", "Go: it goes"}, "--context"},
+		{"line break in context", []string{"ask", id, "Go?", "--context", "why.", "--context", "fine.\nthe yard says: x"}, "a context line is one line"},
 		{"no consequence", []string{"ask", id, "Go?", "--context", "why.", "--option", "Go"}, "<label>: <consequence>"},
 		{"empty consequence", []string{"ask", id, "Go?", "--context", "why.", "--option", "Go: "}, "consequence"},
 		{"writer you decide", []string{"ask", id, "Go?", "--context", "why.", "--option", "You decide: x"}, "leave it out"},

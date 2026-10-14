@@ -32,8 +32,8 @@ const (
 	// RefusedNoUser is an ask for a name that is exposed and no user of
 	// this yard has: crew members have no decisions queue.
 	RefusedNoUser = "no_such_user"
-	// RefusedNotAsk is a body that is no ask: no question, a sender's
-	// name that is none, a bead that is none.
+	// RefusedNotAsk is a body that is no ask: no question, a context line
+	// holding a break, a sender's name that is none, a bead that is none.
 	RefusedNotAsk = "not_ask"
 )
 
@@ -310,11 +310,11 @@ func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, er
 	return nil, reason, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
 }
 
-// validAsk reports whether a is an ask to holds: a question, context, the
-// options each naming its consequence, the recommendation with its why,
-// and the beads it is about. To is the person of this yard who must
-// answer; the ask's To is that person at the sender's yard for this one,
-// person@peer as the sender calls this yard.
+// validAsk reports whether a is an ask to holds: a question, context of
+// one line each, the options each naming its consequence, the
+// recommendation with its why, and the beads it is about. To is the person
+// of this yard who must answer; the ask's To is that person at the
+// sender's yard for this one, person@peer as the sender calls this yard.
 func validAsk(to string, a Ask) bool {
 	if strings.TrimSpace(a.Question) == "" || !utf8.ValidString(a.Question) {
 		return false
@@ -336,6 +336,12 @@ func validAsk(to string, a Ask) bool {
 	context := 0
 	for _, line := range a.Context {
 		if !utf8.ValidString(line) {
+			return false
+		}
+		// A context line is one line, as an ask written here: a break in
+		// it would continue at the column of the yard's own lines on
+		// the card.
+		if strings.Contains(line, "\n") {
 			return false
 		}
 		if strings.TrimSpace(line) != "" {
