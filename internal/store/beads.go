@@ -1283,7 +1283,10 @@ func (w *wtx) checkUnread(ctx context.Context, exp Expect, b *beadRow) error {
 	}
 	lines := make([]string, len(unread))
 	for i, n := range unread {
-		lines[i] = fmt.Sprintf("note %d by %s: %s", n.Seq, OneLine(n.Author), n.Text)
+		// Letters only and indented, as the bead's renderers show a note:
+		// no escape reaches the terminal, no line passes for a header.
+		text := strings.ReplaceAll(strings.TrimSpace(NoteLetters(n.Text)), "\n", "\n  ")
+		lines[i] = fmt.Sprintf("note %d by %s:\n  %s", n.Seq, OneLine(n.Author), text)
 	}
 	notes := "note"
 	if len(unread) > 1 {
