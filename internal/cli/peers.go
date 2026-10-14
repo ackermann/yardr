@@ -434,7 +434,7 @@ the peer has already.`,
 	var ch store.PeerAllow
 	var trust, noTrust, reach, noReach []string
 	allow := &cobra.Command{
-		Use: "allow <name>", Short: "Say which kinds of messages the link with a peer carries", Args: cobra.ExactArgs(1),
+		Use: "allow <name>", Short: "Set which messages a peer link carries and its mail limit", Args: cobra.ExactArgs(1),
 		Long: `A link carries only the kinds of messages allowed, each direction on its own:
 --send for what this yard may send the peer, --receive for what it takes from
 it. Nothing is allowed until this says so, and only the operator may allow.

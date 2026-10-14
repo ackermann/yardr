@@ -510,6 +510,10 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	if !strings.Contains(s, `<p class="entry-note">`+command+`</p>`) {
 		t.Errorf("the home ask detail lacks the yard's command")
 	}
+	description := "what the command does: Say which kinds of messages the link with a peer carries"
+	if !strings.Contains(s, `<p class="entry-note">`+description+`</p>`) {
+		t.Errorf("the home ask detail lacks the command's help description")
+	}
 	row, _, _ := strings.Cut(s, `<div class="need-ask">`)
 	if strings.Contains(row, command) {
 		t.Error("the home ask row repeats the command shown in its detail")

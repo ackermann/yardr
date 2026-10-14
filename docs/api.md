@@ -484,7 +484,7 @@ nothing else. What is not the same:
   there too for a device of a user who is asked for their own address in
   a source. `ApproveAsk` is the one call on the listener that has a
   command of the operator's run: the command of a run ask, which is one
-  of a fixed few ([users.md](users.md#devices) has them, row by row).
+  of a fixed list ([users.md](users.md#devices) has them, row by row).
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
@@ -2230,8 +2230,9 @@ do: the `noted` event of the answer, and `source_set` (for a user's own
 address `user_set`) where the file is new, carry `data.via`. So does what
 an approval through a device writes: the `noted` event of the answer, and
 the event of the change the command made (`peer_allowed`, `source_set`,
-`source_granted`, `subscribed`), which also carries `approved` with the
-bead and the ask.
+`source_granted`, `subscribed`, `user_set`, `user_added`, `user_removed`,
+`crew_defined`, `setting_changed`, `peer_renamed`, `originator_changed`,
+`timer_removed`), which also carries `approved` with the bead and the ask.
 
 An approval never crosses a link to another yard either: a run ask is
 approved in the yard that asked, and `ApproveAsk` refuses a `bead@peer`.

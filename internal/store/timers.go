@@ -309,22 +309,61 @@ func (s *Store) Timers(ctx context.Context, name string) ([]Timer, error) {
 func (s *Store) RemoveTimer(ctx context.Context, id, actor string) (*Timer, error) {
 	t := new(Timer)
 	err := s.write(func(w *wtx) error {
-		if ok, err := get(w.Tx, bTimers, id, t); err != nil {
-			return err
-		} else if !ok {
-			return fmt.Errorf("timer %s: %w", id, ErrNotFound)
-		}
-		if t.By != actor && t.To != actor {
-			if err := w.operatorOnly(ctx, actor, fmt.Sprintf("remove the timer %s, which %s set for %s", id, t.By, t.To)); err != nil {
-				return err
-			}
-		}
-		if err := w.Bucket(bTimers).Delete([]byte(id)); err != nil {
-			return err
-		}
-		return w.event("", "timer_removed", actor, map[string]any{"timer": id, "by": t.By, "to": t.To, "reason": t.Reason})
+		var err error
+		t, err = w.removeTimer(ctx, id, actor, nil)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// timerRemoveDoes is what removing the timer id set by By for To is
+// refused as: the operator's, unless By or To removes it.
+func timerRemoveDoes(id string, t *Timer) string {
+	return fmt.Sprintf("remove the timer %s, which %s set for %s", id, t.By, t.To)
+}
+
+// checkTimerRemove refuses removing the timer id as actor when it is
+// neither theirs nor told to them: anyone's own is anyone's to remove,
+// and anyone else's is the operator's.
+func (w *wtx) checkTimerRemove(ctx context.Context, id, actor string) error {
+	t := new(Timer)
+	if ok, err := get(w.Tx, bTimers, id, t); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("timer %s: %w", id, ErrNotFound)
+	}
+	if t.By != actor && t.To != actor {
+		return w.operatorOnly(ctx, actor, timerRemoveDoes(id, t), Askable)
+	}
+	return nil
+}
+
+// removeTimer is RemoveTimer inside the transaction, so that an approved
+// run ask removes the timer in the write that records its approval: by is
+// then the ask it was approved on, which the event carries.
+func (w *wtx) removeTimer(ctx context.Context, id, actor string, by *approvedOn) (*Timer, error) {
+	t := new(Timer)
+	if ok, err := get(w.Tx, bTimers, id, t); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("timer %s: %w", id, ErrNotFound)
+	}
+	if t.By != actor && t.To != actor {
+		if err := w.operatorOnly(ctx, actor, timerRemoveDoes(id, t), Askable); err != nil {
+			return nil, err
+		}
+	}
+	if err := w.Bucket(bTimers).Delete([]byte(id)); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"timer": id, "by": t.By, "to": t.To, "reason": t.Reason}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "timer_removed", actor, data); err != nil {
 		return nil, err
 	}
 	return t, nil

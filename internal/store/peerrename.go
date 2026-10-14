@@ -106,99 +106,113 @@ func renamedTo(tx *bolt.Tx, name string) string {
 func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, error) {
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
-		if err := w.operatorOnly(ctx, actor, "rename a peer"); err != nil {
-			return err
-		}
-		if p, err = loadPeer(w.Tx, name); err != nil {
-			return err
-		}
-		if err := checkName("peer", to); err != nil {
-			return err
-		}
-		switch {
-		case to == name:
-			return fmt.Errorf("peer %s has that name already", name)
-		case w.Bucket(bPeers).Get([]byte(to)) != nil:
-			return fmt.Errorf("peer %s is added already: two links cannot share a name. Rename or remove that one first", to)
-		}
-		data := map[string]any{"peer": to, "from": name, "to": to}
-		out := w.Bucket(bPeerOut)
-		waiting := keys(w.Tx, bPeerOut, join(name, ""))
-		for _, k := range waiting {
-			var m PeerOut
-			if _, err := get(w.Tx, bPeerOut, k, &m); err != nil {
-				return err
-			}
-			if err := out.Delete([]byte(k)); err != nil {
-				return err
-			}
-			// Under the number it has: the peer's questions count by it.
-			m.Peer = to
-			if err := put(w.Tx, bPeerOut, join(to, seqKey(m.Seq)), m); err != nil {
-				return err
-			}
-		}
-		if len(waiting) > 0 {
-			data["messages"] = len(waiting)
-		}
-		// Kept, or a message handed over again would be taken twice.
-		seen := w.Bucket(bPeerSeen)
-		for _, k := range keys(w.Tx, bPeerSeen, join(name, "")) {
-			at := bytes.Clone(seen.Get([]byte(k)))
-			if err := seen.Delete([]byte(k)); err != nil {
-				return err
-			}
-			if err := seen.Put([]byte(join(to, k[len(name)+1:])), at); err != nil {
-				return err
-			}
-		}
-		had, err := renamePeerSettings(w.Tx, name, to)
-		if err != nil {
-			return err
-		}
-		crew := had[MailPeers]
-		if len(crew) > 0 {
-			data["crew"] = crew
-		}
-		// A subscription to the source peer that filters on the yard names
-		// it, and is given the new name too.
-		if subs, err := renamePeerFilters(w.Tx, name, to); err != nil {
-			return err
-		} else if len(subs) > 0 {
-			data["subscriptions"] = subs
-		}
-		// The beads it sent say where they came from by its key, so their
-		// line follows unasked; their label is a name, and is changed.
-		if err := w.relabelPeerBeads(p, name, to, actor); err != nil {
-			return err
-		}
-		// A group that sends its beads there names it, and is given the new
-		// name: the beads that are away say whose they are by its key.
-		if groups, err := renamePeerGroups(w.Tx, name, to); err != nil {
-			return err
-		} else if len(groups) > 0 {
-			data["groups"] = groups
-		}
-		if err := w.event("", "peer_renamed", actor, data); err != nil {
-			return err
-		}
-		if err := w.Bucket(bPeers).Delete([]byte(name)); err != nil {
-			return err
-		}
-		p.Was = append(p.Was, PeerWas{Name: name, Until: w.Bucket(bEvents).Sequence(), At: now()})
-		p.Name = to
-		if err := put(w.Tx, bPeers, to, p); err != nil {
-			return err
-		}
-		for _, r := range crew {
-			text := fmt.Sprintf("the linked yard %s is called %s here now: write to its crew as <name>@%s. Nothing is reached as <name>@%s any more.", name, to, to, name)
-			if err := w.event("", "mail", "yard", map[string]any{"to": r, "text": text}); err != nil {
-				return err
-			}
-		}
-		return outboxOf(w.Tx, p)
+		p, err = w.renamePeer(ctx, name, to, actor, nil)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// renamePeer is RenamePeer inside the transaction, so that an approved run
+// ask renames the peer in the write that records its approval: by is then
+// the ask it was approved on, which the event carries.
+func (w *wtx) renamePeer(ctx context.Context, name, to, actor string, by *approvedOn) (p *Peer, err error) {
+	if err := w.operatorOnly(ctx, actor, "rename a peer", Askable); err != nil {
+		return nil, err
+	}
+	if p, err = loadPeer(w.Tx, name); err != nil {
+		return nil, err
+	}
+	if err := checkName("peer", to); err != nil {
+		return nil, err
+	}
+	switch {
+	case to == name:
+		return nil, fmt.Errorf("peer %s has that name already", name)
+	case w.Bucket(bPeers).Get([]byte(to)) != nil:
+		return nil, fmt.Errorf("peer %s is added already: two links cannot share a name. Rename or remove that one first", to)
+	}
+	data := map[string]any{"peer": to, "from": name, "to": to}
+	out := w.Bucket(bPeerOut)
+	waiting := keys(w.Tx, bPeerOut, join(name, ""))
+	for _, k := range waiting {
+		var m PeerOut
+		if _, err := get(w.Tx, bPeerOut, k, &m); err != nil {
+			return nil, err
+		}
+		if err := out.Delete([]byte(k)); err != nil {
+			return nil, err
+		}
+		// Under the number it has: the peer's questions count by it.
+		m.Peer = to
+		if err := put(w.Tx, bPeerOut, join(to, seqKey(m.Seq)), m); err != nil {
+			return nil, err
+		}
+	}
+	if len(waiting) > 0 {
+		data["messages"] = len(waiting)
+	}
+	// Kept, or a message handed over again would be taken twice.
+	seen := w.Bucket(bPeerSeen)
+	for _, k := range keys(w.Tx, bPeerSeen, join(name, "")) {
+		at := bytes.Clone(seen.Get([]byte(k)))
+		if err := seen.Delete([]byte(k)); err != nil {
+			return nil, err
+		}
+		if err := seen.Put([]byte(join(to, k[len(name)+1:])), at); err != nil {
+			return nil, err
+		}
+	}
+	had, err := renamePeerSettings(w.Tx, name, to)
+	if err != nil {
+		return nil, err
+	}
+	crew := had[MailPeers]
+	if len(crew) > 0 {
+		data["crew"] = crew
+	}
+	// A subscription to the source peer that filters on the yard names
+	// it, and is given the new name too.
+	if subs, err := renamePeerFilters(w.Tx, name, to); err != nil {
+		return nil, err
+	} else if len(subs) > 0 {
+		data["subscriptions"] = subs
+	}
+	// The beads it sent say where they came from by its key, so their
+	// line follows unasked; their label is a name, and is changed.
+	if err := w.relabelPeerBeads(p, name, to, actor); err != nil {
+		return nil, err
+	}
+	// A group that sends its beads there names it, and is given the new
+	// name: the beads that are away say whose they are by its key.
+	if groups, err := renamePeerGroups(w.Tx, name, to); err != nil {
+		return nil, err
+	} else if len(groups) > 0 {
+		data["groups"] = groups
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "peer_renamed", actor, data); err != nil {
+		return nil, err
+	}
+	if err := w.Bucket(bPeers).Delete([]byte(name)); err != nil {
+		return nil, err
+	}
+	p.Was = append(p.Was, PeerWas{Name: name, Until: w.Bucket(bEvents).Sequence(), At: now()})
+	p.Name = to
+	if err := put(w.Tx, bPeers, to, p); err != nil {
+		return nil, err
+	}
+	for _, r := range crew {
+		text := fmt.Sprintf("the linked yard %s is called %s here now: write to its crew as <name>@%s. Nothing is reached as <name>@%s any more.", name, to, to, name)
+		if err := w.event("", "mail", "yard", map[string]any{"to": r, "text": text}); err != nil {
+			return nil, err
+		}
+	}
+	if err := outboxOf(w.Tx, p); err != nil {
 		return nil, err
 	}
 	return p, nil

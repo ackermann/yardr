@@ -855,7 +855,9 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 		// Taking a peer's beads starts this yard's agents on another
 		// yard's text: the operator's to say. Taking none is anyone's.
 		if in != nil {
-			if err := w.operatorOnly(ctx, actor, "say where a peer's beads go"); err != nil {
+			// Alone: taking a peer's beads starts this yard's agents on
+			// another yard's text, so the operator types it.
+			if err := w.operatorOnly(ctx, actor, "say where a peer's beads go", Alone); err != nil {
 				return err
 			}
 		}

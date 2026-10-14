@@ -228,6 +228,27 @@ func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor st
 	return ch, nil
 }
 
+// ParseSets reads key=value words into a config: a value that is valid
+// JSON is kept as what it is, anything else as the word. The commands
+// that take --set read their values through it, and crew set reads its
+// words through it after checking their shape itself.
+func ParseSets(sets []string) (map[string]any, error) {
+	m := map[string]any{}
+	for _, kv := range sets {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("--set %q: want key=value", kv)
+		}
+		var js any
+		if err := json.Unmarshal([]byte(v), &js); err == nil {
+			m[k] = js
+		} else {
+			m[k] = v
+		}
+	}
+	return m, nil
+}
+
 // MergeConfig is a runner config with the keys of sets written over it and
 // those of unset removed; config itself is left as it was. A key to unset
 // that is not there is refused, naming whose config it is: a misspelt key

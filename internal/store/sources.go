@@ -108,8 +108,9 @@ func (s Source) UpdateLimit() int {
 // group has members (checkMembers): a call from the pane of a bead's session or of a crew
 // member is that session's or that crew member's, whatever actor it
 // names. A yard without an operator has nobody to hold it to, and takes
-// the change from anyone who is no agent of its own.
-func (w *wtx) maySource(ctx context.Context, actor, does string) error {
+// the change from anyone who is no agent of its own. ask marks whether a
+// run ask may propose it, beside the refusal it marks.
+func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) error {
 	operator, err := operatorIn(w.Tx)
 	if err != nil {
 		return err
@@ -119,25 +120,28 @@ func (w *wtx) maySource(ctx context.Context, actor, does string) error {
 		why += " (" + operator + ")"
 	}
 	why += ": a source is where a credential of the yard is sent, and its file may name a command the yard runs"
+	refuse := func(format, a string) error {
+		return &OperatorOnlyError{msg: fmt.Sprintf(format, why, a), ask: ask}
+	}
 	sess, err := paneSession(w.Tx, callerOf(ctx))
 	if err != nil {
 		return err
 	}
 	if sess != nil && !sess.Manual() {
-		return fmt.Errorf("%s; this is the session %s of a bead's agent", why, sess.ID)
+		return refuse("%s; this is the session %s of a bead's agent", sess.ID)
 	}
 	r, err := paneCrew(w.Tx, callerOf(ctx))
 	if err != nil {
 		return err
 	}
 	if r != nil {
-		return fmt.Errorf("%s; this is the crew member %s", why, r.Name)
+		return refuse("%s; this is the crew member %s", r.Name)
 	}
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
+		return &OperatorOnlyError{msg: fmt.Sprintf("%s; %s is a crew member", why, actor), ask: ask}
 	}
 	if operator != "" && actor != operator {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
+		return refuse("%s; this is %s", or(actor, "nobody"))
 	}
 	return nil
 }
@@ -153,7 +157,9 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 	}
 	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}
 	err = s.write(func(w *wtx) error {
-		if err := w.maySource(ctx, actor, "adding a source"); err != nil {
+		// Alone: it reads a file that says where a credential is sent and
+		// may name a command the yard runs.
+		if err := w.maySource(ctx, actor, "adding a source", Alone); err != nil {
 			return err
 		}
 		var was Source
@@ -299,15 +305,20 @@ func sourceSetting(name, key, value string) (perHour int, err error) {
 // setSource is SetSource inside the transaction, for a setting that
 // sourceSetting has checked. by is the ask the change was approved on, nil
 // for one typed at a terminal: the event then names it (ApproveAsk).
-func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour int, actor string, by *approvedOn) (*Source, error) {
-	if err := w.maySource(ctx, actor, "setting a source's credential"); err != nil {
-		return nil, err
+// sourceSetAsk is whether setting key of a source may be proposed as a
+// run ask: the two limits may, and where a credential comes from is the
+// operator's alone.
+func sourceSetAsk(key string) AskClass {
+	if key == SourceCallsPerHour || key == SourceUpdatesPerHour {
+		return Askable
 	}
-	src := new(Source)
-	if ok, err := get(w.Tx, bSources, name, src); err != nil {
+	return Alone
+}
+
+func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour int, actor string, by *approvedOn) (*Source, error) {
+	src, err := w.sourceSetCheck(ctx, name, key, actor)
+	if err != nil {
 		return nil, err
-	} else if !ok {
-		return nil, fmt.Errorf("source %s: %w", name, ErrNotFound)
 	}
 	switch key {
 	case SourceEnvFile:
@@ -327,6 +338,22 @@ func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour in
 		data["approved"] = by
 	}
 	return src, w.event("", "source_set", actor, data)
+}
+
+// sourceSetCheck is the check SetSource makes inside the write. A run
+// ask uses the same permission and existence check for both its asker
+// and the operator it would run as.
+func (w *wtx) sourceSetCheck(ctx context.Context, name, key, actor string) (*Source, error) {
+	if err := w.maySource(ctx, actor, "setting a source's credential", sourceSetAsk(key)); err != nil {
+		return nil, err
+	}
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, name, src); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("source %s: %w", name, ErrNotFound)
+	}
+	return src, nil
 }
 
 // LimitsLine is how many calls of the source one caller makes in an hour,
@@ -472,7 +499,7 @@ var afterKeyRename func() error
 // Whoever has more to record of the giving puts it before calling this:
 // nothing may follow the rename but the commit.
 func (w *wtx) keySource(ctx context.Context, home, name string, values map[string]string, actor string, k *sourceKey) error {
-	if err := w.maySource(ctx, actor, "setting a source's credential"); err != nil {
+	if err := w.maySource(ctx, actor, "setting a source's credential", Alone); err != nil {
 		return err
 	}
 	src := new(Source)
@@ -529,18 +556,32 @@ func (w *wtx) keySource(ctx context.Context, home, name string, values map[strin
 // The file its credential is in is the operator's and stays.
 func (s *Store) DeleteSource(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
-		if err := w.maySource(ctx, actor, "removing a source"); err != nil {
-			return err
-		}
-		if w.Bucket(bSources).Get([]byte(name)) == nil {
-			return fmt.Errorf("source %s: %w", name, ErrNotFound)
-		}
-		if err := w.Bucket(bSources).Delete([]byte(name)); err != nil {
-			return err
-		}
-		if err := dropSourceRecords(w.Tx, name); err != nil {
-			return err
-		}
-		return w.event("", "source_removed", actor, map[string]any{"source": name})
+		return w.deleteSource(ctx, name, actor, nil)
 	})
+}
+
+// deleteSource is DeleteSource inside the transaction, so that an
+// approved run ask removes the source in the write that records its
+// approval: by is then the ask it was approved on, which the event
+// carries.
+func (w *wtx) deleteSource(ctx context.Context, name, actor string, by *approvedOn) error {
+	// Alone: removing a source also removes the files of its commands
+	// from disk, which no write of the store takes back.
+	if err := w.maySource(ctx, actor, "removing a source", Alone); err != nil {
+		return err
+	}
+	if w.Bucket(bSources).Get([]byte(name)) == nil {
+		return fmt.Errorf("source %s: %w", name, ErrNotFound)
+	}
+	if err := w.Bucket(bSources).Delete([]byte(name)); err != nil {
+		return err
+	}
+	if err := dropSourceRecords(w.Tx, name); err != nil {
+		return err
+	}
+	data := map[string]any{"source": name}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "source_removed", actor, data)
 }

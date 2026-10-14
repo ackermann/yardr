@@ -515,7 +515,7 @@ yardmaster):
 			if err != nil {
 				return err
 			}
-			if g.Config, err = parseSets(sets); err != nil {
+			if g.Config, err = store.ParseSets(sets); err != nil {
 				return err
 			}
 			g.Name = args[0]
@@ -720,7 +720,7 @@ named like a secret (token, secret, password, key) is not printed.`,
 				}
 			}
 			e := store.GroupEdit{Unset: unset}
-			if e.Set, err = parseSets(args[1:]); err != nil {
+			if e.Set, err = store.ParseSets(args[1:]); err != nil {
 				return err
 			}
 			fl := c.Flags()

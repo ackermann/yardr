@@ -154,7 +154,7 @@ for its links (yardr peer list).`,
 				}
 			}
 			def.Name = args[0]
-			if def.Config, err = parseSets(sets); err != nil {
+			if def.Config, err = store.ParseSets(sets); err != nil {
 				return err
 			}
 			withDefaultKind(c.Context(), st, def.Runner, def.Config)
@@ -511,7 +511,7 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 					return fmt.Errorf("%q: want key=value (--unset <key> removes a setting)", kv)
 				}
 			}
-			sets, err := parseSets(args[1:])
+			sets, err := store.ParseSets(args[1:])
 			if err != nil {
 				return err
 			}

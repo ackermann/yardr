@@ -319,7 +319,7 @@ func (s *Store) AllowOpening(ctx context.Context, name string, sources []string,
 			return nil
 		}
 		slices.Sort(added)
-		if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s open threads in %s", name, strings.Join(added, ", "))); err != nil {
+		if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s open threads in %s", name, strings.Join(added, ", ")), Askable); err != nil {
 			return err
 		}
 		may = append(may, added...)

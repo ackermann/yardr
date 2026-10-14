@@ -802,7 +802,7 @@ the variable and whether the env_file sets it. The value is never printed.
 
 	set := &cobra.Command{
 		Use:   "set <name> env_file=<file> | mint_command=<program> [args...] | calls_per_hour=<n> | updates_per_hour=<n>",
-		Short: "Say which file a source's credential is read from, the command that mints it, or how many calls a caller makes in an hour",
+		Short: "Change a source's credential or per-hour call limits",
 		Long: `env_file is a file of KEY=VALUE lines that sets the variable the source's
 declaration names (credential.env, and credential.update_env where it names
 one). It is held to the rule of every env_file:

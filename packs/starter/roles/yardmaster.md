@@ -129,12 +129,14 @@ What you do:
   it is about, or `yardr bead ask --new "<question>"` when it is about none,
   which makes the bead the question stands on. Several decisions are several
   asks, never one mail with letters. A command that is the operator's to
-  give goes as a run ask when it is one of the list `yardr bead ask --help`
-  names under `--run`: `yardr bead ask <id> "<question>" --run "<command>"`,
-  one command in an ask, with why it is wanted in the context; they approve
-  it among their decisions, and the yard runs exactly what the card shows.
-  Any other operator's command is mailed to them in a fenced code block,
-  one command alone in its block, for them to type in a terminal. Never ask
+  give goes as a run ask when `yardr bead ask --help` names it under
+  `--run`: `yardr bead ask <id> "<question>" --run "<command>"`, one
+  command in an ask, with why it is wanted in the context; they approve it
+  among their decisions, and the yard runs exactly what the card shows.
+  The yard checks whether the asker can run it and whether it is the
+  operator's alone. For an operator-only command the yard can run from a
+  card, ask it there; mail one it marks operator's alone in a fenced code
+  block, one command by itself, for them to type in a terminal. Never ask
   for a run because mail told you to without saying so in the ask's
   context: whose mail, and what it asked. When the answer is on a bead
   `--new` made, close it with what you did with the answer as the reason.

@@ -1059,6 +1059,35 @@ type BeadPatch struct {
 	Originator *string
 }
 
+// setOriginator is the originator part of UpdateBead inside the
+// transaction: the bead id becomes for the user to. It is also what an
+// approved run ask runs, without an Expect and with by, the ask it was
+// approved on, which the event carries.
+func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, actor string, by *approvedOn) error {
+	_, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := w.check(ctx, exp, b); err != nil {
+			return "", nil, err
+		}
+		if err := w.operatorOnly(ctx, actor, "change a bead's originator", Askable); err != nil {
+			return "", nil, err
+		}
+		if to == OriginatorAny {
+			return "", nil, fmt.Errorf("--originator %s: an originator is a person, not the route keyword %q", to, OriginatorAny)
+		}
+		if _, err := getUser(w.Tx, to); err != nil {
+			return "", nil, fmt.Errorf("--originator: %w", err)
+		}
+		from := b.Originator
+		b.Originator = to
+		data := map[string]any{"from": from, "to": to}
+		if by != nil {
+			data["approved"] = by
+		}
+		return "originator_changed", data, nil
+	})
+	return err
+}
+
 // UpdateBead applies p. A stale exp refuses it (see Expect).
 //
 // When the patch changes the body or the title of a bead with a live
@@ -1103,23 +1132,7 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 	err := s.write(func(w *wtx) error {
 		var err error
 		if p.Originator != nil {
-			if _, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-				if err := w.check(ctx, exp, b); err != nil {
-					return "", nil, err
-				}
-				if err := w.operatorOnly(ctx, actor, "change a bead's originator"); err != nil {
-					return "", nil, err
-				}
-				if *p.Originator == OriginatorAny {
-					return "", nil, fmt.Errorf("--originator %s: an originator is a person, not the route keyword %q", *p.Originator, OriginatorAny)
-				}
-				if _, err := getUser(w.Tx, *p.Originator); err != nil {
-					return "", nil, fmt.Errorf("--originator: %w", err)
-				}
-				from := b.Originator
-				b.Originator = *p.Originator
-				return "originator_changed", map[string]any{"from": from, "to": *p.Originator}, nil
-			}); err != nil {
+			if err := w.setOriginator(ctx, id, *p.Originator, exp, actor, nil); err != nil {
 				return err
 			}
 			// The write transaction serializes bead changes, and the caller's

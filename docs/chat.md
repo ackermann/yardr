@@ -301,20 +301,32 @@ or decline it. The command is one of a fixed list:
 | the command | what it is for | who takes it back |
 |---|---|---|
 | `peer allow <peer> --mail-limit <n>` | a link that should take more mail in an hour | anyone, with a lower number |
+| `peer allow <peer> --send <kinds>`, `--receive <kinds>` | what a link may carry each way | anyone where kinds were given, only the operator where they were taken, with the kinds that stood, which the card names |
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call> --group <group>\|--crew <crew member>` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change | anyone, with `yardr source revoke` |
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
 | `user set <user> tell=<parts>` | which parts a source tells a user of outside the yard, on their phone: a list of `notifications`, `mail` and `asks`, or nothing after `tell=` for all three | that user or the operator, with the `tell=` that stood, which the card names |
+| `user add <name>` | a user added: they read mail from now on, and are told nothing from before | only the operator, with `user rm` |
+| `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the mail stays in the log | only the operator, with `user add`, which starts them fresh |
+| `crew set <name> open_threads=<sources> \| set_state=<sources> \| peers=<peers>` | what a crew member may newly do outside the yard | anyone where grants were given, only the operator where they were taken, with the grants that stood, which the card names |
+| `settings set <key> <value>` | a setting changed | only the operator, with the value that stood, which the card names |
+| `peer rename <old> <new>` | a link renamed: its key, address and what it carries stay the same | only the operator, with the name that stood |
+| `bead update <bead> --originator <user>` | whose a bead is for | only the operator, with the originator that stood; a bead that was for no one can only be for another after |
+| `timer rm <id>` | another's timer removed, and what it would have told | whoever can add it back; the card says who, or that no one can |
 
 Anything else that is the operator's is still typed by you: `source add`,
 a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
-`--reach`, `--send`, `--receive` or `--expose`, a user's `notify` and
-`env_file`, and every other command.
+`--reach`, `--expose`, or `--send`/`--receive` of a kind other than mail
+or ping, a user's `notify` and `env_file`, `group add` with `--runner exec`
+or `cmd=`, `group set` with `cmd=`, the `operator` setting and the settings
+of where the yard reads and serves from, and every other command.
 A command that mixes a flag of the list with one that is not is refused
-whole. The last two rows are not the operator's alone: a subscription and
-what a user's phone is told of ([users.md](users.md#told-outside-the-yard))
-are the user's own, or the operator's for them, so such an ask is put to
-one of the two and the one asked approves it.
+whole, and the limit and the kinds of `peer allow` are two asks: one
+command carries one or the other. The subscription and the `tell` rows
+are not the operator's alone: a subscription and what a user's phone is
+told of ([users.md](users.md#told-outside-the-yard)) are the user's own,
+or the operator's for them, so such an ask is put to one of the two and
+the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago
@@ -323,16 +335,17 @@ ask 2710 · open · to mckean · asked by yardmaster · 1m ago
   yardmaster says: You write from airy all day, so most of its mail is yours.
   when you approve, the yard runs this as mckean, and nothing else:
       yardr peer allow airy --mail-limit 300
+  what the command does: Set which messages a peer link carries and its mail limit
   the yard says: the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
   anyone can take it back: yardr peer allow airy --mail-limit 30
   approve with: yardr bead answer yardr-k3vd 2710 --approve
 ```
 
 The card says whose each line is. The question and the lines that begin
-`<asker> says:` are the asker's words. The command, the line `the yard
-says:` and the command that takes the change back are the yard's: it
-parsed the command when the ask was written, and wrote the sentence from
-its own records, with what the command names as the yard knows it: a peer
+`<asker> says:` are the asker's words. The command and its one-line help
+description, the line `the yard says:` and the command that takes the
+change back are the yard's: it parsed the command when the ask was written,
+and wrote the sentence from its own records, with what the command names as the yard knows it: a peer
 by its name, what it calls itself and the start of its key; a source by
 its name and the host its calls go to; a call by its name, method and
 path; a group or a crew member by its name and runner. The last line says
@@ -374,7 +387,12 @@ where its credential comes from (`env_file`, `mint_command`), and for a
 grant to each group by its runner and config and to each crew member by
 its runner, config and directory: `ask 2714 was written from another
 declaration of the source crm: it was replaced since (source_added, 12 Oct
-23:10, by mckean). Nothing ran.` The yard does not judge which change
+23:10, by mckean). Nothing ran.` A user asked removed is held to when
+they were added and by whom, a crew member's grants to its definition, a
+setting to the value that stood, a renamed link to its key whole, and a
+bead's originator to whose the bead was for. What is gone since is refused
+by the card itself: a user added for one asked added, a timer gone for one
+asked removed. The yard does not judge which change
 matters, so a replaced file whose calls read the same, and a group given
 another prompt, make the ask stale. What the card does not cover leaves
 the approval good: the source's other limit, another grantee's grant, a

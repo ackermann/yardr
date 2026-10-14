@@ -257,19 +257,3 @@ func deref(p *string) string {
 
 // parseSets turns key=value flags into a config map; values that parse as
 // JSON (true, 3, ["a"]) keep their type, anything else is a string.
-func parseSets(sets []string) (map[string]any, error) {
-	m := map[string]any{}
-	for _, kv := range sets {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok || k == "" {
-			return nil, fmt.Errorf("--set %q: want key=value", kv)
-		}
-		var js any
-		if err := json.Unmarshal([]byte(v), &js); err == nil {
-			m[k] = js
-		} else {
-			m[k] = v
-		}
-	}
-	return m, nil
-}

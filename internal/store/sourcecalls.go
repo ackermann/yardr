@@ -137,7 +137,7 @@ func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, a
 // grant was approved on, nil for one typed at a terminal: the event then
 // names it (ApproveAsk).
 func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, actor string, by *approvedOn) (*SourceGrant, error) {
-	if err := w.maySource(ctx, actor, "granting a call of a source"); err != nil {
+	if err := w.checkGrantSource(ctx, actor); err != nil {
 		return nil, err
 	}
 	d, err := declared(w.Tx, src)
@@ -168,6 +168,12 @@ func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, act
 		data["approved"] = by
 	}
 	return g, w.event("", "source_granted", actor, data)
+}
+
+// checkGrantSource is the permission check for giving a source grant. A
+// run ask uses the same check for the asker's and operator's legs.
+func (w *wtx) checkGrantSource(ctx context.Context, actor string) error {
+	return w.maySource(ctx, actor, "granting a call of a source", Askable)
 }
 
 // grantable refuses what as a grant of the source d declares: it is

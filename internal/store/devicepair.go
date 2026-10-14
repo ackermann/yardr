@@ -160,7 +160,7 @@ func (s *Store) DevicePairOpen(ctx context.Context, user, name, actor string) (*
 // as it ended: nothing is added, and the code is good for nothing. The
 // operator ends one, as the operator opens one.
 func (s *Store) DevicePairClose(ctx context.Context, actor string) (*DevicePairing, error) {
-	if err := s.operatorOnly(ctx, actor, "end a device's pairing"); err != nil {
+	if err := s.operatorOnly(ctx, actor, "end a device's pairing", Alone); err != nil {
 		return nil, err
 	}
 	s.devPair.mu.Lock()

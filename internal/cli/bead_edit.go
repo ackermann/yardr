@@ -22,7 +22,7 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 			}
 			nb.Title = args[0]
 			if len(createMeta) > 0 {
-				if nb.Metadata, err = parseSets(createMeta); err != nil {
+				if nb.Metadata, err = store.ParseSets(createMeta); err != nil {
 					return err
 				}
 			}
@@ -150,7 +150,7 @@ priority, metadata, type, depot, originator) tells nothing.`,
 			}
 			p.AddLabels, p.RemoveLabel = up.add, up.rm
 			if len(up.meta) > 0 {
-				if p.Metadata, err = parseSets(up.meta); err != nil {
+				if p.Metadata, err = store.ParseSets(up.meta); err != nil {
 					return err
 				}
 			}

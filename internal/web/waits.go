@@ -123,12 +123,14 @@ type Reason struct {
 	// an ask that wants words, a secret or a command's approval.
 	// SecretLine is what a secret ask asks for, in the yard's words, ""
 	// otherwise; RunCommand the command a run ask proposes, whole, ""
+	// otherwise; RunDescription is that command's one-line help, ""
 	// otherwise. HTML-only, as the recommendation is: the row's buttons
 	// answer from them.
-	Ask        uint64            `json:"-"`
-	Options    []store.AskOption `json:"-"`
-	SecretLine string            `json:"-"`
-	RunCommand string            `json:"-"`
+	Ask            uint64            `json:"-"`
+	Options        []store.AskOption `json:"-"`
+	SecretLine     string            `json:"-"`
+	RunCommand     string            `json:"-"`
+	RunDescription string            `json:"-"`
 }
 
 // Reasons are why the bead waits, in one line.
@@ -481,6 +483,7 @@ func askReason(r store.ResolvedAsk) Reason {
 		// The yard's own, and never shortened: the command as it would run.
 		out.Recommend = "to approve: " + r.Ask.Run.Command()
 		out.RunCommand = r.Ask.Run.Command()
+		out.RunDescription = r.Ask.Run.Description
 	case r.Ask.Secret != nil:
 		// The yard's line, never the asker's words: what is asked for.
 		out.Recommend = r.Ask.Secret.Line()

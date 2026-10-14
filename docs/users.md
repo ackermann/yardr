@@ -66,7 +66,9 @@ user when its server next starts (event `user_added` by `yardr`).
 crew add` uses for what a crew member may do: the command's actor is the
 `operator` setting. The operator's own user is not removed: name another
 operator first. Removing a user removes their devices, and the event
-`user_removed` names them (`devices`).
+`user_removed` names them (`devices`). A crew member that wants a user
+added or removed proposes it with a run ask
+([chat.md](chat.md#questions-for-you)).
 
 **One name, one party.** Crew members and users share their names, because
 mail to a name reaches one inbox: `user add` refuses a crew member's name,
@@ -498,7 +500,7 @@ sits and written by the yard into the source's file. The other approves a
 [run ask](chat.md#questions-for-you), and the yard then runs the one
 command that ask holds, as the operator. That is the only way a command of
 the operator's is run through the listener, and the commands it can be are
-a fixed few, which the table below has whole. The giving is there too for a
+a fixed list, which the table below has whole. The giving is there too for a
 device of any user for one kind of ask: the one for that user's [own
 address in a source](#told-outside-the-yard), which goes to a file of
 theirs and to no credential of the yard. No approval is there for a device
@@ -551,21 +553,30 @@ agent's help, until `yardr user device rm`. Row by row:
 | the command | what a holder of the token gains |
 |---|---|
 | `peer allow <peer> --mail-limit <n>`: a link's mail limit raised | A yard that is linked already may write here more often. Nothing of the holder's own |
+| `peer allow <peer> --send <kinds>` or `--receive <kinds>`: what a link carries widened | Mail may flow where it did not: out to a linked yard's crew through a crew member the holder directs by mail, or in from the linked yard. Nothing of the holder's own |
 | `source set <source> calls_per_hour=<n>` or `updates_per_hour=<n>`: a source's calls an hour raised | Calls that are granted already may be made more often. Only the operator lowers it again |
 | `source grant <source> read\|<call> --crew <name>` or `--group <name>`: a grant of a source's calls | The yard's credential for that source now works for a crew member or a group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
 | `subscribe <user> yardr …`, asked of the operator: a subscription to the yard's own events, the operator's or another user's | That user is told of more of what happens in the yard, as notifications in their inbox and, where a source tells them, outside the yard. The holder reads those events in the stream already |
 | `user set <user> tell=<parts>`, asked of the operator: which parts a source tells the operator or another user of outside the yard | That user's phone is told of more or of less, and what still waited to be told of a part that is dropped is not told. Where it is told and with which address stay as they are, and the inbox and the queue of decisions are filled as before. The holder gains nothing to read |
+| `user add <name>`: a user added | A user the holder names reads mail from now on, and may be subscribed to the yard's events. The holder reads the yard's mail already; the user is told nothing outside the yard until `notify` is set, which no run ask holds |
+| `user rm <name>`: a user removed | That user is no more: their subscriptions, devices and telling outside the yard go, and what waited to be told them. The mail stays in the log. The operator is not removed this way |
+| `crew set <name> open_threads=<sources>`, `set_state=<sources>` or `peers=<peers>`: a crew member's grants widened | A crew member the holder directs by mail may do more outside the yard: open threads in a source, set the state of threads, or mail a linked yard's crew. Its runner, directory and the rest of its definition stay as they are |
+| `settings set <key> <value>`: a setting changed | The yard runs under another number or name. The `operator` setting and the settings of where the yard reads and serves from are no run ask's |
+| `peer rename <old> <new>`: a link renamed | A linked yard's name here changed: its key, address and what it carries stay, and what waited for it moves with it. Mail to the old name reaches nothing |
+| `bead update <bead> --originator <user>`: a bead's originator changed | A bead is for another user. Whose work it counts as changes; the work stands |
+| `timer rm <id>`: a timer removed | What the timer would have told is not told |
 
 What it still cannot have run, because no run ask may hold it: adding a
-device, a user or a name a link trusts, giving a name of another yard
-reach, changing the operator or any other setting, changing through which
-source a user is told or where their address is read from, changing what a crew
-member may do or what is in its environment, adding or replacing a source,
-and setting where a credential is read from or the command that mints
-one. So it cannot make itself a second way in, and removing the device
-ends what it could do. What a grant let happen in between has happened,
-and what an approval changed stays until it is taken back: the card and
-`yardr prime --bead` name the command that does.
+device or pairing one, adding a link or trusting a name of another yard,
+giving one reach or exposing one, changing the operator, changing through
+which source a user is told or where their address is read from, adding,
+replacing or removing a source, reading a source's credential or setting
+where it is read from or the command that mints one, defining what a group
+runs or a crew member is, and applying a pack. So it cannot make itself a
+second way in — no new device, no new credential, and the operator stands
+— and removing the device ends what it could do. What a grant let happen
+in between has happened, and what an approval changed stays until it is
+taken back: the card and `yardr prime --bead` name the command that does.
 
 What stands against it besides: the yard runs the command stored on the
 ask and takes no word of it from the call; an approval is refused when

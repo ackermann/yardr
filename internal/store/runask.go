@@ -18,6 +18,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -47,6 +48,9 @@ type AskRun struct {
 	// and in an order of the yard's own, so that two ways of typing one
 	// command are stored as one.
 	Argv []string `json:"argv"`
+	// Description is the command's one-line Short from its help, shown
+	// beneath the command so the person asked need not parse its flags.
+	Description string `json:"description,omitempty"`
 	// Does are the yard's sentences for what the command changes and what
 	// is there now, and Back the command that takes the change back. They
 	// are kept on the ask because the views render an ask from its note
@@ -89,10 +93,11 @@ func runCommandLine(argv []string) string { return "yardr " + strings.Join(argv,
 // command whole, the yard's sentences for what it changes, and the command
 // that takes it back. All of it is the yard's, and none of it the asker's.
 type RunAsked struct {
-	Argv    []string `json:"argv"`
-	Command string   `json:"command"`
-	Does    []string `json:"does"`
-	Back    string   `json:"back"`
+	Argv        []string `json:"argv"`
+	Command     string   `json:"command"`
+	Description string   `json:"description,omitempty"`
+	Does        []string `json:"does"`
+	Back        string   `json:"back"`
 	// BackBy is who may run Back, in words that stand before "can take it
 	// back"; absent where that is anyone.
 	BackBy string `json:"back_by,omitempty"`
@@ -104,7 +109,8 @@ func (a Ask) proposed() *RunAsked {
 	if a.Run == nil {
 		return nil
 	}
-	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy}
+	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
@@ -130,9 +136,20 @@ type runCommand struct {
 	// words begin the command, and use is how a refusal names it.
 	words []string
 	use   string
+	// description is the command's Short in internal/cli, checked there
+	// so the card keeps the help the person would see at a terminal.
+	description string
 	// parse reads the words after words, in whatever order they were typed,
 	// into the command's one stored form. It reads no record of the yard.
 	parse func(rest []string) ([]string, error)
+	// check is the command's own permission check, the same the store
+	// function refuses with, run as the asker: nil says the asker may run
+	// the command themselves, an operator-only error says whose it is and
+	// whether a run ask may propose it (AskClass), and anything else is
+	// refused as the reason the command would not run. nil for the rows
+	// from before checks, whose cards refuse what needs no approval in
+	// their own words.
+	check func(ctx context.Context, w *wtx, argv []string, actor string) error
 	// card writes what the yard says of the parsed command from its records
 	// as they are now: the sentences, the command that takes it back, and
 	// what it saw of each thing the command names. asking is the write that
@@ -156,33 +173,32 @@ type runCommand struct {
 	commas bool
 }
 
-// runList are the commands a run ask may name. A command is here only when
-// it is one write of the store through a function that exists, every word
-// of it is a name the yard holds, a number or a flag, it starts no process
-// and sends nothing, it adds nobody who may speak, answer or act as a
-// person of the yard, and anyone can take it back with one command (design
-// yardr-x3g8, section 3.4). A test holds each row to the command of
-// internal/cli it names.
+// runList are the commands a run ask may name: every operator-only,
+// file-free command that is one write of the store. Whether each is the
+// operator's, and whether a run ask may propose it, is the command's own
+// check (runCommand.check), which refuses with the same words and the
+// same mark the store function refuses with: the list never says whose
+// a command is twice. What is the operator's alone is refused past the
+// list (aloneList). A test holds each row to the command of internal/cli
+// it names.
 var runList = []runCommand{{
-	words: []string{"peer", "allow"},
-	use:   "yardr peer allow <peer> --mail-limit <n>",
-	parse: parseMailLimit,
-	card:  (*wtx).mailLimitCard,
-	stale: (*wtx).mailLimitStale,
-	run: func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
-		name, n := mailLimitOf(argv)
-		p, err := w.allowPeer(ctx, name, PeerAllow{MailLimit: n}, actor, by)
-		if err != nil {
-			return "", err
-		}
-		return "peer " + p.Name + ": " + p.MailTakes(), nil
-	},
+	words:       []string{"peer", "allow"},
+	use:         "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>",
+	description: "Say which kinds of messages the link with a peer carries",
+	parse:       parsePeerAllow,
+	check:       checkPeerAllow,
+	card:        (*wtx).peerAllowCard,
+	stale:       (*wtx).peerAllowStale,
+	run:         runPeerAllow,
+	commas:      true,
 }, {
-	words: []string{"source", "set"},
-	use:   "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",
-	parse: parseSourceLimit,
-	card:  (*wtx).sourceLimitCard,
-	stale: (*wtx).sourceLimitStale,
+	words:       []string{"source", "set"},
+	use:         "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",
+	description: "Change a source's credential or per-hour call limits",
+	parse:       parseSourceLimit,
+	check:       checkSourceLimit,
+	card:        (*wtx).sourceLimitCard,
+	stale:       (*wtx).sourceLimitStale,
 	run: func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 		name, key, n := sourceLimitOf(argv)
 		src, err := w.setSource(ctx, name, key, strconv.Itoa(n), n, actor, by)
@@ -192,29 +208,102 @@ var runList = []runCommand{{
 		return "source " + src.Name + ": " + src.LimitsLine(), nil
 	},
 }, {
-	words: []string{"source", "grant"},
-	use:   "yardr source grant <source> read|<call> --group <group>|--crew <crew member>",
-	parse: parseGrant,
-	card:  (*wtx).grantCard,
-	stale: (*wtx).grantStale,
-	run:   runGrant,
+	words:       []string{"source", "grant"},
+	use:         "yardr source grant <source> read|<call> --group <group>|--crew <crew member>",
+	description: "Let a group's sessions or a crew member make calls of a source",
+	parse:       parseGrant,
+	check:       checkGrant,
+	card:        (*wtx).grantCard,
+	stale:       (*wtx).grantStale,
+	run:         runGrant,
 }, {
-	words: []string{"subscribe"},
-	use:   "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
-	parse: parseSubscribe,
-	card:  (*wtx).subscribeCard,
-	stale: (*wtx).subscribeStale,
-	run:   runSubscribe,
-	whose: func(argv []string) string { return argv[1] },
+	words:       []string{"subscribe"},
+	use:         "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
+	description: "Deliver a source's events to a crew member's inbox, or a user's as notifications (no arguments: who is told what)",
+	parse:       parseSubscribe,
+	card:        (*wtx).subscribeCard,
+	stale:       (*wtx).subscribeStale,
+	run:         runSubscribe,
+	whose:       func(argv []string) string { return argv[1] },
 }, {
-	words:  []string{"user", "set"},
-	use:    "yardr user set <user> tell=<parts>",
-	parse:  parseUserTell,
-	card:   (*wtx).userTellCard,
-	stale:  (*wtx).userTellStale,
-	run:    runUserTell,
-	whose:  func(argv []string) string { return argv[2] },
-	commas: true,
+	words:       []string{"user", "set"},
+	use:         "yardr user set <user> tell=<parts>",
+	description: "Set where, how and what a source tells a user",
+	parse:       parseUserTell,
+	card:        (*wtx).userTellCard,
+	stale:       (*wtx).userTellStale,
+	run:         runUserTell,
+	whose:       func(argv []string) string { return argv[2] },
+	commas:      true,
+}, {
+	words:       []string{"user", "add"},
+	use:         "yardr user add <name>",
+	description: "Add a user",
+	parse:       parseUserAdd,
+	check:       checkUserAdd,
+	card:        (*wtx).userAddCard,
+	stale:       (*wtx).userAddStale,
+	run:         runUserAdd,
+}, {
+	words:       []string{"user", "rm"},
+	use:         "yardr user rm <name>",
+	description: "Remove a user (the mail stays in the log)",
+	parse:       parseUserRm,
+	check:       checkUserRm,
+	card:        (*wtx).userRmCard,
+	stale:       (*wtx).userRmStale,
+	run:         runUserRm,
+}, {
+	words:       []string{"crew", "set"},
+	use:         "yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>",
+	description: "Change some settings of a crew member and keep the rest",
+	parse:       parseCrewGrant,
+	check:       checkCrewGrant,
+	card:        (*wtx).crewGrantCard,
+	stale:       (*wtx).crewGrantStale,
+	run:         runCrewGrant,
+	commas:      true,
+}, {
+	words:       []string{"settings", "set"},
+	use:         "yardr settings set <key> <value>",
+	description: "Change a setting, as the operator; an empty value unsets it",
+	parse:       parseSettingSet,
+	check:       checkSettingSet,
+	card:        (*wtx).settingSetCard,
+	stale:       (*wtx).settingSetStale,
+	run:         runSettingSet,
+}, {
+	words:       []string{"peer", "rename"},
+	use:         "yardr peer rename <old> <new>",
+	description: "Change the name this yard has for a peer",
+	parse:       parsePeerRename,
+	check:       checkPeerRename,
+	card:        (*wtx).peerRenameCard,
+	stale:       (*wtx).peerRenameStale,
+	run:         runPeerRename,
+}, {
+	words:       []string{"bead", "update"},
+	use:         "yardr bead update <bead> --originator <user>",
+	description: "Change a bead's fields (use advance to change stage)",
+	parse:       parseOriginator,
+	check:       checkOriginator,
+	card:        (*wtx).originatorCard,
+	stale:       (*wtx).originatorStale,
+	run: func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+		if err := w.setOriginator(ctx, argv[2], argv[4], Expect{}, actor, by); err != nil {
+			return "", err
+		}
+		return "originator: " + argv[4], nil
+	},
+}, {
+	words:       []string{"timer", "rm"},
+	use:         "yardr timer rm <id>",
+	description: "Remove a timer: one you set or that tells you, or as the operator any",
+	parse:       parseTimerRm,
+	check:       checkTimerRm,
+	card:        (*wtx).timerRmCard,
+	stale:       (*wtx).timerRmStale,
+	run:         runTimerRm,
 }}
 
 // RunCommands are the commands of the list, each as a refusal and the help
@@ -227,12 +316,40 @@ func RunCommands() []string {
 	return uses
 }
 
+// errNotRow is when the words name no row of the list: askedRun then
+// tries what is the operator's alone, and approveAsk refuses what the
+// yard did not write.
+var errNotRow = errors.New("is no command the yard runs from a card")
+
+// runNoneChar refuses a character no run command takes.
+func runNoneChar(c rune) error {
+	return fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
+}
+
+// unknownRun refuses words that are no row of the list and nothing the
+// yard names as alone or the asker's own to run.
+func unknownRun() error {
+	return fmt.Errorf("--run takes a command of the list (%s): anything else is run directly, or typed by the operator in a terminal", strings.Join(RunCommands(), ", "))
+}
+
 // parseRun reads the command a run ask names, as its writer sent it, and
 // answers its row of the list with the command in its stored form. The
 // line is split at white space and nowhere else, and is read by nothing
 // after this: a character that no name, number or flag of the list has is
 // refused, so there is no quoting, and no second reading of the line.
 func parseRun(sent []string) (*runCommand, []string, error) {
+	c, argv, err := parseRow(sent)
+	if err == errNotRow {
+		return nil, nil, unknownRun()
+	}
+	return c, argv, err
+}
+
+// parseRow is parseRun for a row of the list, and errNotRow for anything
+// else: a command the asker may run themselves, one that is the
+// operator's alone, or none the yard runs from a card. askedRun tells
+// those apart; approveAsk only ever sees what askedRun stored.
+func parseRow(sent []string) (*runCommand, []string, error) {
 	line := strings.Join(sent, " ")
 	none := func(c rune) error {
 		return fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
@@ -241,6 +358,9 @@ func parseRun(sent []string) (*runCommand, []string, error) {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		case strings.ContainsRune(" \t._/=-", c):
+		case c == '@' || c == ':':
+			// A trust is a name at a peer, and an address is a host and a
+			// port: the row that reads them says which.
 		case c == ',':
 			// Held to the command that takes a list, below.
 		default:
@@ -266,93 +386,257 @@ func parseRun(sent []string) (*runCommand, []string, error) {
 		}
 		return c, append(slices.Clone(c.words), rest...), nil
 	}
-	if comma {
-		return nil, nil, none(',')
-	}
-	return nil, nil, fmt.Errorf("--run takes a command of the list (%s): anything else is the operator's to type in a terminal", strings.Join(RunCommands(), ", "))
+	return nil, nil, errNotRow
 }
 
-// parseMailLimit reads the words of peer allow <peer> --mail-limit <n>. A
-// flag that is not --mail-limit refuses the command whole: what else peer
-// allow does is not on the list.
-func parseMailLimit(rest []string) ([]string, error) {
-	const use = "--run takes yardr peer allow <peer> --mail-limit <n>"
-	var peer, limit string
-	for i := 0; i < len(rest); i++ {
-		word := rest[i]
-		value, set := strings.CutPrefix(word, "--mail-limit=")
-		switch {
-		case word == "--mail-limit" && i+1 < len(rest):
-			i++
-			value, set = rest[i], true
-		case word == "--mail-limit":
-			return nil, fmt.Errorf("%s: --mail-limit needs its number", use)
-		case set:
-		case strings.HasPrefix(word, "-"):
-			return nil, fmt.Errorf("%s, and peer allow with %s is the operator's to type in a terminal", use, word)
-		case peer != "":
-			return nil, fmt.Errorf("%s: one peer, not %s and %s", use, peer, word)
-		default:
-			peer = word
-			continue
+// peerAllowChange is a parsed peer allow: the kinds it carries each way
+// and stops, who it shows and stops showing, and the limit it sets.
+type peerAllowChange struct {
+	name                              string
+	send, receive, nosend, noreceive  []string
+	expose, noexpose, trust, notreach []string
+	notrust, reach                    []string
+	limit                             int
+	hasLimit                          bool
+}
+
+// peerAllowOf reads a peer allow in its stored form: the peer, then each
+// flag with its value.
+func peerAllowOf(argv []string) peerAllowChange {
+	al := peerAllowChange{name: argv[2]}
+	for i := 3; i+1 < len(argv); i += 2 {
+		switch value := argv[i+1]; argv[i] {
+		case "--send":
+			al.send = append(al.send, value)
+		case "--receive":
+			al.receive = append(al.receive, value)
+		case "--no-send":
+			al.nosend = append(al.nosend, value)
+		case "--no-receive":
+			al.noreceive = append(al.noreceive, value)
+		case "--expose":
+			al.expose = append(al.expose, value)
+		case "--no-expose":
+			al.noexpose = append(al.noexpose, value)
+		case "--trust":
+			al.trust = append(al.trust, value)
+		case "--no-trust":
+			al.notrust = append(al.notrust, value)
+		case "--reach":
+			al.reach = append(al.reach, value)
+		case "--no-reach":
+			al.notreach = append(al.notreach, value)
+		case "--mail-limit":
+			al.limit, _ = strconv.Atoi(value)
+			al.hasLimit = true
 		}
-		if limit != "" {
-			return nil, fmt.Errorf("%s: --mail-limit once", use)
+	}
+	return al
+}
+
+// peerAllowUse is how a refusal names the peer allow a run ask takes.
+const peerAllowUse = "--run takes yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>"
+
+// parsePeerAllow reads the words of peer allow <peer> with the flags a
+// run ask takes: the kinds it carries each way and stops, and the limit.
+// Who the peer sees and is trusted and reached as is read too, and
+// refused as the operator's alone by the check, not here. Narrowing one
+// of those is anyone's, and is run directly. The limit and the kinds are
+// two asks: what each changes is carded apart.
+func parsePeerAllow(rest []string) ([]string, error) {
+	args, values, err := runWords(peerAllowUse, "peer allow", "the operator's", rest, map[string]bool{
+		"--send": true, "--receive": true, "--no-send": true, "--no-receive": true,
+		"--expose": true, "--no-expose": true, "--trust": true, "--no-trust": true,
+		"--reach": true, "--no-reach": true, "--mail-limit": true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(args) != 1 {
+		if len(args) == 0 {
+			return nil, fmt.Errorf("%s: it names no peer", peerAllowUse)
 		}
-		limit = value
+		return nil, fmt.Errorf("%s: one peer, not %s", peerAllowUse, strings.Join(args, " and "))
 	}
-	switch {
-	case peer == "":
-		return nil, fmt.Errorf("%s: it names no peer", use)
-	case limit == "":
-		return nil, fmt.Errorf("%s: it names no --mail-limit", use)
+	for _, flag := range []string{"--no-expose", "--no-trust", "--no-reach"} {
+		if len(values[flag]) > 0 {
+			return nil, fmt.Errorf("%s: %s narrows one, and is run directly", peerAllowUse, flag)
+		}
 	}
-	n, err := strconv.Atoi(limit)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %q is no number", use, limit)
+	limit := ""
+	if len(values["--mail-limit"]) > 1 {
+		return nil, fmt.Errorf("%s: --mail-limit once", peerAllowUse)
+	} else if len(values["--mail-limit"]) == 1 {
+		limit = values["--mail-limit"][0]
 	}
-	if n < 1 || n > MaxPeerMailLimit {
-		return nil, fmt.Errorf("peer %s: a link takes 1 to %d mails an hour, not %d", peer, MaxPeerMailLimit, n)
+	for _, flag := range []string{"--send", "--receive", "--no-send", "--no-receive", "--expose", "--trust", "--reach"} {
+		if limit != "" && len(values[flag]) > 0 {
+			return nil, fmt.Errorf("%s, and peer allow with --mail-limit and %s is two asks: propose the limit and the rest apart", peerAllowUse, flag)
+		}
 	}
-	return []string{peer, "--mail-limit", strconv.Itoa(n)}, nil
+	changed := limit != ""
+	for flag, vs := range values {
+		if flag != "--mail-limit" && len(vs) > 0 {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil, fmt.Errorf("%s: it says nothing to change", peerAllowUse)
+	}
+	n := 0
+	if limit != "" {
+		var err error
+		if n, err = strconv.Atoi(limit); err != nil {
+			return nil, fmt.Errorf("%s: %q is no number", peerAllowUse, limit)
+		}
+		if n < 1 || n > MaxPeerMailLimit {
+			return nil, fmt.Errorf("peer %s: a link takes 1 to %d mails an hour, not %d", args[0], MaxPeerMailLimit, n)
+		}
+	}
+	split := func(vs []string) []string {
+		var out []string
+		for _, v := range vs {
+			out = append(out, strings.Split(v, ",")...)
+		}
+		slices.Sort(out)
+		return slices.Compact(out)
+	}
+	send, receive := split(values["--send"]), split(values["--receive"])
+	nosend, noreceive := split(values["--no-send"]), split(values["--no-receive"])
+	if err := checkKinds(send, receive, nosend, noreceive); err != nil {
+		return nil, err
+	}
+	out := []string{args[0]}
+	for _, fv := range []struct {
+		flag string
+		vs   []string
+	}{
+		{"--send", send}, {"--receive", receive}, {"--no-send", nosend}, {"--no-receive", noreceive},
+		{"--expose", split(values["--expose"])}, {"--trust", split(values["--trust"])}, {"--reach", split(values["--reach"])},
+	} {
+		for _, v := range fv.vs {
+			out = append(out, fv.flag, v)
+		}
+	}
+	if limit != "" {
+		out = append(out, "--mail-limit", strconv.Itoa(n))
+	}
+	return out, nil
 }
 
-// mailLimitOf is the peer and the limit of a parsed peer allow <peer>
-// --mail-limit <n>.
-func mailLimitOf(argv []string) (string, int) {
-	n, _ := strconv.Atoi(argv[4])
-	return argv[2], n
+// checkPeerAllow is the peer allow's own checks as the asker, in the
+// order that refuses first what is the operator's alone: who the peer
+// sees and is trusted and reached as, then the kinds, then the limit.
+// allowPeer refuses the kinds first, but an ask that would widen trust
+// on the back of mail is refused whole.
+func checkPeerAllow(ctx context.Context, w *wtx, argv []string, actor string) error {
+	al := peerAllowOf(argv)
+	switch {
+	case len(al.expose) > 0:
+		return w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone)
+	case len(al.trust) > 0:
+		return w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone)
+	case len(al.reach) > 0:
+		return w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone)
+	}
+	if len(al.send)+len(al.receive) > 0 {
+		return w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(al.send, al.receive))
+	}
+	if al.hasLimit {
+		p, err := loadPeer(w.Tx, al.name)
+		if err != nil {
+			return err
+		}
+		if al.limit > p.MailsAnHour() {
+			return w.operatorOnly(ctx, actor, "take more mail from a peer", Askable)
+		}
+	}
+	return nil
 }
 
-// mailLimitCard is the card of peer allow <peer> --mail-limit <n>. The peer
-// is named as the yard knows it, with what it calls itself and the start of
-// its key, since two peers may have names that look alike; the approval is
-// held to the key whole (Seen). Asking refuses a limit the link has
-// already, and one below it: to take less mail is anyone's, and needs no
-// approval.
-func (w *wtx) mailLimitCard(argv []string, asking bool) (AskRun, error) {
-	name, n := mailLimitOf(argv)
-	p, err := loadPeer(w.Tx, name)
-	if err != nil {
-		return AskRun{}, err
-	}
-	has := p.MailsAnHour()
-	switch {
-	case !asking:
-	case n == has:
-		return AskRun{}, fmt.Errorf("peer %s: the link takes %d mails and asks an hour already, so the command would change nothing", name, has)
-	case n < has:
-		return AskRun{}, fmt.Errorf("peer %s: the link takes %d mails and asks an hour, and to take less needs no approval: anyone runs yardr peer allow %s --mail-limit %d", name, has, name, n)
-	}
+// peerAs names the peer as the yard knows it, with what it calls itself
+// and the start of its key, since two peers may have names that look
+// alike.
+func peerAs(p *Peer) string {
 	as := "key " + keyStart(p.Key)
 	if p.Calls != "" {
 		as = "it calls itself " + p.Calls + ", " + as
 	}
+	return as
+}
+
+// peerAllowCard is the card of peer allow: the limit it sets, and the
+// kinds it carries each way and stops. The peer is named with what it
+// calls itself and the start of its key, and the approval is held to the
+// key whole and to what the link carries (Seen). Asking refuses a limit
+// the link has already, and one below it: to take less mail is anyone's,
+// and needs no approval. It refuses kinds that change nothing the same
+// way.
+func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
+	al := peerAllowOf(argv)
+	p, err := loadPeer(w.Tx, al.name)
+	if err != nil {
+		return AskRun{}, err
+	}
+	var does []string
+	back := []string{"peer", "allow", al.name}
+	backBy := ""
+	if al.hasLimit {
+		has := p.MailsAnHour()
+		switch {
+		case !asking:
+		case al.limit == has:
+			return AskRun{}, fmt.Errorf("peer %s: the link takes %d mails and asks an hour already, so the command would change nothing", al.name, has)
+		case al.limit < has:
+			return AskRun{}, fmt.Errorf("peer %s: the link takes %d mails and asks an hour, and to take less needs no approval: anyone runs yardr peer allow %s --mail-limit %d", al.name, has, al.name, al.limit)
+		}
+		does = append(does, fmt.Sprintf("the link with %s (%s) takes %d mails and asks an hour from it. It takes %d now.", al.name, peerAs(p), al.limit, has))
+		back = append(back, "--mail-limit", strconv.Itoa(has))
+	}
+	addedSend := slices.DeleteFunc(slices.Clone(al.send), func(k string) bool { return slices.Contains(p.Send, k) })
+	addedReceive := slices.DeleteFunc(slices.Clone(al.receive), func(k string) bool { return slices.Contains(p.Receive, k) })
+	removedSend := slices.DeleteFunc(slices.Clone(al.nosend), func(k string) bool { return !slices.Contains(p.Send, k) })
+	removedReceive := slices.DeleteFunc(slices.Clone(al.noreceive), func(k string) bool { return !slices.Contains(p.Receive, k) })
+	kinds := len(al.send)+len(al.receive)+len(al.nosend)+len(al.noreceive) > 0
+	if asking && kinds && len(addedSend)+len(addedReceive)+len(removedSend)+len(removedReceive) == 0 {
+		return AskRun{}, fmt.Errorf("peer %s: the link carries %s to it and takes %s from it already, so the command would change nothing", al.name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
+	}
+	if len(addedSend) > 0 {
+		does = append(does, fmt.Sprintf("the link with %s (%s) carries %s to it. It carries %s now.", al.name, peerAs(p), strings.Join(addedSend, ", "), or(strings.Join(p.Send, ", "), "nothing")))
+		for _, k := range addedSend {
+			back = append(back, "--no-send", k)
+		}
+	}
+	if len(addedReceive) > 0 {
+		does = append(does, fmt.Sprintf("the link with %s (%s) takes %s from it. It takes %s now.", al.name, peerAs(p), strings.Join(addedReceive, ", "), or(strings.Join(p.Receive, ", "), "nothing")))
+		for _, k := range addedReceive {
+			back = append(back, "--no-receive", k)
+		}
+	}
+	if len(removedSend) > 0 {
+		does = append(does, fmt.Sprintf("the link with %s stops carrying %s to it.", al.name, strings.Join(removedSend, ", ")))
+		for _, k := range removedSend {
+			back = append(back, "--send", k)
+		}
+		backBy = "only the operator"
+	}
+	if len(removedReceive) > 0 {
+		does = append(does, fmt.Sprintf("the link with %s stops taking %s from it.", al.name, strings.Join(removedReceive, ", ")))
+		for _, k := range removedReceive {
+			back = append(back, "--receive", k)
+		}
+		backBy = "only the operator"
+	}
+	finger := map[string]string{"peer " + al.name: p.Key}
+	if kinds {
+		finger["peer "+al.name+" carries"] = seen(p.Send, p.Receive)
+	}
 	return AskRun{
-		Argv: argv,
-		Does: []string{fmt.Sprintf("the link with %s (%s) takes %d mails and asks an hour from it. It takes %d now.", name, as, n, has)},
-		Back: runCommandLine([]string{"peer", "allow", name, "--mail-limit", strconv.Itoa(has)}),
-		Seen: map[string]string{"peer " + name: p.Key},
+		Argv:   argv,
+		Does:   does,
+		Back:   runCommandLine(back),
+		BackBy: backBy,
+		Seen:   finger,
 	}, nil
 }
 
@@ -365,24 +649,36 @@ func keyStart(key string) string {
 	return key
 }
 
+// peerKeyStale says why the ask seq about the peer name is approved no
+// more when the link is another one under the same name, and nil when it
+// is the one the card was written from.
+func (w *wtx) peerKeyStale(seq uint64, name string, was, now AskRun) error {
+	const nothing = "Nothing ran. Decline it; it is asked again if it is still wanted."
+	seen := "peer " + name
+	if was.Seen[seen] == now.Seen[seen] {
+		return nil
+	}
+	added := ""
+	if p, err := loadPeer(w.Tx, name); err == nil {
+		added = " (the link there now was added " + p.AddedAt.Local().Format("2 Jan 15:04") + ")"
+	}
+	return fmt.Errorf("ask %d was written when the link with %s was another: it was removed and made again since%s. %s", seq, name, added, nothing)
+}
+
 // mailLimitStale says why the ask seq for peer allow <peer> --mail-limit
 // <n> is approved no more: the link is another one under the same name, or
 // it takes another number of mails than the card says.
 func (w *wtx) mailLimitStale(seq uint64, was, now AskRun) error {
-	name, n := mailLimitOf(was.Argv)
+	al := peerAllowOf(was.Argv)
+	name, n := al.name, al.limit
 	const nothing = "Nothing ran. Decline it; it is asked again if it is still wanted."
-	seen := "peer " + name
-	if was.Seen[seen] != now.Seen[seen] {
-		added := ""
-		if p, err := loadPeer(w.Tx, name); err == nil {
-			added = " (the link there now was added " + p.AddedAt.Local().Format("2 Jan 15:04") + ")"
-		}
-		return fmt.Errorf("ask %d was written when the link with %s was another: it was removed and made again since%s. %s", seq, name, added, nothing)
+	if err := w.peerKeyStale(seq, name, was, now); err != nil {
+		return err
 	}
 	// The limit the card was written at is in the command that takes it
 	// back, which is the same command with that number.
-	_, had := mailLimitOf(strings.Fields(was.Back)[1:])
-	_, has := mailLimitOf(strings.Fields(now.Back)[1:])
+	had := peerAllowOf(strings.Fields(was.Back)[1:]).limit
+	has := peerAllowOf(strings.Fields(now.Back)[1:]).limit
 	switch {
 	case had == has:
 		return fmt.Errorf("ask %d says %q, and the yard would say %q now: the card is from before that changed. %s", seq, strings.Join(was.Does, " "), strings.Join(now.Does, " "), nothing)
@@ -392,13 +688,47 @@ func (w *wtx) mailLimitStale(seq uint64, was, now AskRun) error {
 	return fmt.Errorf("ask %d says the link with %s takes %d mails an hour now, and it takes %d: the card is from before that changed. %s", seq, name, had, has, nothing)
 }
 
+// peerAllowStale says why the ask seq for peer allow is approved no more:
+// the limit's own reasons when it sets one, and the key and the sentences
+// when it carries kinds.
+func (w *wtx) peerAllowStale(seq uint64, was, now AskRun) error {
+	al := peerAllowOf(was.Argv)
+	if al.hasLimit {
+		return w.mailLimitStale(seq, was, now)
+	}
+	if err := w.peerKeyStale(seq, al.name, was, now); err != nil {
+		return err
+	}
+	return staleCard(seq, was, now)
+}
+
+// runPeerAllow makes a peer allow as actor through allowPeer, and answers
+// what the command prints at a terminal.
+func runPeerAllow(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	al := peerAllowOf(argv)
+	ch := PeerAllow{Send: al.send, Receive: al.receive, NoSend: al.nosend, NoReceive: al.noreceive}
+	if al.hasLimit {
+		ch.MailLimit = al.limit
+	}
+	p, err := w.allowPeer(ctx, al.name, ch, actor, by)
+	if err != nil {
+		return "", err
+	}
+	if al.hasLimit && len(al.send)+len(al.receive)+len(al.nosend)+len(al.noreceive) == 0 {
+		return "peer " + p.Name + ": " + p.MailTakes(), nil
+	}
+	return fmt.Sprintf("peer %s: send %s; receive %s; expose %s", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody")), nil
+}
+
 // askedRun checks the command a run ask for the user to proposes, written
 // by actor, and answers it as the ask stores it: the command in the yard's
 // own form, with the yard's sentences, the command that takes it back and
 // what the yard saw of what it names, whatever the writer sent for them.
 //
-// It refuses a command that is not on the list, one the yard would refuse
-// or that would change nothing, anyone but the operator as the one asked
+// It refuses a command that is not on the list (telling apart one the
+// asker may run themselves, one that is the operator's alone, and none
+// the yard runs from a card), one the yard would refuse or that would
+// change nothing, anyone but the operator as the one asked
 // (for a command that is a user's own, anyone but that user and the
 // operator: runCommand.whose), and a writer that is no crew member and no user of the yard: a bead's
 // agent reads text from outside the yard and is the one most likely to be
@@ -406,10 +736,11 @@ func (w *wtx) mailLimitStale(seq uint64, was, now AskRun) error {
 // whatever actor it names. Asking gives the asker nothing: the ask is words
 // until the operator approves it.
 func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskRun, error) {
-	c, argv, err := parseRun(run.Argv)
-	if err != nil {
+	c, argv, err := parseRow(run.Argv)
+	if err != nil && err != errNotRow {
 		return nil, err
 	}
+	notRow := err == errNotRow
 	const whose = "a command for the operator to approve is proposed by a crew member or a user of the yard"
 	sess, err := paneSession(w.Tx, callerOf(ctx))
 	if err != nil {
@@ -421,9 +752,32 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if w.Bucket(bCrew).Get([]byte(actor)) == nil && w.Bucket(bUsers).Get([]byte(actor)) == nil {
 		return nil, fmt.Errorf("%s; this is %s: say what is needed in a note on the bead (yardr bead note)", whose, or(actor, "nobody"))
 	}
+	if notRow {
+		return nil, w.checkAlone(ctx, run.Argv, actor)
+	}
 	operator, err := operatorIn(w.Tx)
 	if err != nil {
 		return nil, err
+	}
+	if c.check != nil {
+		// The command's own check as the asker: nothing says run it
+		// yourself better than the yard allowing it, and nothing says
+		// it is the operator's better than the yard refusing it.
+		if err := c.check(ctx, w, argv, actor); err != nil {
+			if ask, ok := IsOperatorOnly(err); !ok {
+				return nil, err
+			} else if ask == Alone {
+				return nil, aloneRefusal(err)
+			}
+			// The operator must be allowed it: the ask proposes what
+			// they would run. Their leg runs without the asker's pane,
+			// which is the asker's, not theirs.
+			if err := c.check(context.Background(), w, argv, operator); err != nil {
+				return nil, fmt.Errorf("running it as the operator would be refused: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("%s needs no approval: run it yourself", runCommandLine(argv))
+		}
 	}
 	user := ""
 	if c.whose != nil {
@@ -446,6 +800,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if err != nil {
 		return nil, err
 	}
+	card.Description = c.description
 	return &card, nil
 }
 
@@ -546,7 +901,7 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	card, err := c.card(w, argv, false)
 	if err != nil {
-		return nil, fmt.Errorf("ask %d: %w. Nothing ran. Decline it; it is asked again if it is still wanted", seq, err)
+		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back || card.BackBy != was.BackBy {
 		return nil, c.stale(w, seq, was, card)

@@ -518,7 +518,8 @@ func loadPeerOf(tx *bolt.Tx, name, key string) (*Peer, error) {
 func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
 	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
 	err := s.write(func(w *wtx) error {
-		if err := w.operatorOnly(ctx, actor, "add a peer"); err != nil {
+		// Alone: a link is whom the yard talks to.
+		if err := w.operatorOnly(ctx, actor, "add a peer", Alone); err != nil {
 			return err
 		}
 		if err := peerFree(w.Tx, &p); err != nil {
@@ -752,6 +753,21 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 	return p, nil
 }
 
+// allowKindsAsk is whether carrying send and receive kinds of a peer may
+// be proposed as a run ask: mail and ping may, and ask, file, bead and
+// thread are the operator's alone. Bead lets another yard start work
+// here, and ask, file and thread carry its words deeper into the yard.
+func allowKindsAsk(send, receive []string) AskClass {
+	for _, k := range append(slices.Clone(send), receive...) {
+		switch k {
+		case PeerMail, PeerPing:
+		default:
+			return Alone
+		}
+	}
+	return Askable
+}
+
 // allowPeer is AllowPeer inside the transaction, so that an approved run
 // ask makes the change in the write that records its approval (ApproveAsk):
 // by is then the ask it was approved on, which the event carries.
@@ -773,22 +789,22 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 		return out
 	}
 	if len(ch.Send)+len(ch.Receive) > 0 {
-		if err := w.operatorOnly(ctx, actor, "allow a peer's messages"); err != nil {
+		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(ch.Send, ch.Receive)); err != nil {
 			return nil, err
 		}
 	}
 	if len(ch.Expose) > 0 {
-		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer"); err != nil {
+		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone); err != nil {
 			return nil, err
 		}
 	}
 	if len(ch.Trust) > 0 {
-		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard"); err != nil {
+		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone); err != nil {
 			return nil, err
 		}
 	}
 	if len(ch.Reach) > 0 {
-		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer"); err != nil {
+		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone); err != nil {
 			return nil, err
 		}
 	}
@@ -796,7 +812,7 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 		return nil, err
 	}
 	if ch.MailLimit > p.MailsAnHour() {
-		if err := w.operatorOnly(ctx, actor, "take more mail from a peer"); err != nil {
+		if err := w.operatorOnly(ctx, actor, "take more mail from a peer", Askable); err != nil {
 			return nil, err
 		}
 	}
@@ -879,7 +895,8 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 func (s *Store) SetPeerURL(ctx context.Context, name, url, actor string) (*Peer, error) {
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
-		if err := w.operatorOnly(ctx, actor, "change where a peer is called"); err != nil {
+		// Alone: the address is where the yard's calls go.
+		if err := w.operatorOnly(ctx, actor, "change where a peer is called", Alone); err != nil {
 			return err
 		}
 		if p, err = loadPeer(w.Tx, name); err != nil {

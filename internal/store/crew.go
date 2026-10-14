@@ -322,92 +322,125 @@ var grants = []struct {
 // member's session granting it to itself, or to another, would make the
 // setting mean nothing. One that keeps or narrows what was allowed is
 // anyone's, as the rest of it is.
+// crewGrantsAdded answers what want lets its crew member do outside the
+// yard that have does not, a phrase for each grant that grew, in the
+// order PutCrew refuses them: "let <name> open threads in ...".
+func crewGrantsAdded(have, want CrewMember) []string {
+	var out []string
+	for _, g := range grants {
+		before := g.may(have)
+		added := slices.DeleteFunc(g.may(want), func(s string) bool { return slices.Contains(before, s) })
+		if len(added) == 0 {
+			continue
+		}
+		out = append(out, fmt.Sprintf("let %s %s %s", want.Name, g.does, strings.Join(added, ", ")))
+	}
+	return out
+}
+
 func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*CrewMember, error) {
 	var out *CrewMember
 	err := s.write(func(w *wtx) error {
-		var r CrewMember
-		ok, err := get(w.Tx, bCrew, def.Name, &r)
-		if err != nil {
-			return err
-		}
-		if err := checkCrewRev(def.Name, r.Revision, def.Revision); err != nil {
-			return err
-		}
-		if !ok {
-			// One name is one party: mail to it must reach one of the two.
-			if w.Bucket(bUsers).Get([]byte(def.Name)) != nil {
-				return fmt.Errorf("crew member %s: that is a user's name, and mail to a name reaches one party: choose another", def.Name)
-			}
-			// A new crew member starts reading the inbox from now, not history.
-			head := uint64(0)
-			if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
-				head = binary.BigEndian.Uint64(k)
-			}
-			r = CrewMember{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
-				Journal: journalID(def.Name)}
-			if w.Bucket(bHandles).Get([]byte(r.Journal)) == nil {
-				// The crew's journal is the yard's own work, the
-				// operator's as a crew-created bead is.
-				operator, err := operatorIn(w.Tx)
-				if err != nil {
-					return err
-				}
-				jr := &beadRow{Bead: Bead{Title: "Journal of " + def.Name, Type: TypeJournal,
-					Stage: "journal", Status: "open", Labels: []string{"crew:" + def.Name},
-					CreatedAt: now(), CreatedBy: &actor, Originator: operator}}
-				if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
-					return err
-				}
-				if err := w.event(r.Journal, "created", actor, createdData(&jr.Bead)); err != nil {
-					return err
-				}
-			}
-		}
-		for _, g := range grants {
-			before := g.may(r)
-			added := slices.DeleteFunc(g.may(def), func(s string) bool { return slices.Contains(before, s) })
-			if len(added) == 0 {
-				continue
-			}
-			if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s %s %s", def.Name, g.does, strings.Join(added, ", "))); err != nil {
-				return err
-			}
-		}
-		// Held to ConfigKeys as a group's config is (putGroup).
-		kept := r.Config
-		if r.Runner != def.Runner {
-			kept = nil
-		}
-		if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
-			return ps[0]
-		}
-		if err := checkCrewSessionSettings(ctx, w.Tx, def.Name, r.Config, def.Config, actor); err != nil {
-			return err
-		}
-		if err := checkCrewUsers(w.Tx, &def); err != nil {
-			return err
-		}
-		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
-			def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
-		r.On = def.On
-		if r.Config == nil {
-			r.Config = map[string]any{}
-		}
-		for _, d := range []string{r.MaxAge, r.HandoffGrace} {
-			if d != "" {
-				if _, err := time.ParseDuration(d); err != nil {
-					return fmt.Errorf("duration %q: %w", d, err)
-				}
-			}
-		}
-		r.Revision = newRevision()
-		if err := put(w.Tx, bCrew, r.Name, r); err != nil {
-			return err
-		}
-		out = &r
-		return w.event(r.Journal, "crew_defined", actor, map[string]any{"crew": r.Name, "runner": r.Runner})
+		var err error
+		out, err = w.putCrew(ctx, def, actor, nil)
+		return err
 	})
 	return out, err
+}
+
+// putCrew is PutCrew inside the transaction, so that an approved run ask
+// saves the definition in the write that records its approval: by is then
+// the ask it was approved on, which the event carries.
+func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *approvedOn) (*CrewMember, error) {
+	var r CrewMember
+	ok, err := get(w.Tx, bCrew, def.Name, &r)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkCrewRev(def.Name, r.Revision, def.Revision); err != nil {
+		return nil, err
+	}
+	if !ok {
+		// One name is one party: mail to it must reach one of the two.
+		if w.Bucket(bUsers).Get([]byte(def.Name)) != nil {
+			return nil, fmt.Errorf("crew member %s: that is a user's name, and mail to a name reaches one party: choose another", def.Name)
+		}
+		// A new crew member starts reading the inbox from now, not history.
+		head := uint64(0)
+		if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
+			head = binary.BigEndian.Uint64(k)
+		}
+		r = CrewMember{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
+			Journal: journalID(def.Name)}
+		if w.Bucket(bHandles).Get([]byte(r.Journal)) == nil {
+			// The crew's journal is the yard's own work, the
+			// operator's as a crew-created bead is.
+			operator, err := operatorIn(w.Tx)
+			if err != nil {
+				return nil, err
+			}
+			jr := &beadRow{Bead: Bead{Title: "Journal of " + def.Name, Type: TypeJournal,
+				Stage: "journal", Status: "open", Labels: []string{"crew:" + def.Name},
+				CreatedAt: now(), CreatedBy: &actor, Originator: operator}}
+			if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
+				return nil, err
+			}
+			if err := w.event(r.Journal, "created", actor, createdData(&jr.Bead)); err != nil {
+				return nil, err
+			}
+		}
+	}
+	// A grant on a crew member that is there may be proposed; one
+	// on a member being defined is the operator's alone with the
+	// definition, which says what the yard runs.
+	if added := crewGrantsAdded(r, def); len(added) > 0 {
+		ask := Askable
+		if !ok {
+			ask = Alone
+		}
+		if err := w.operatorOnly(ctx, actor, added[0], ask); err != nil {
+			return nil, err
+		}
+	}
+	// Held to ConfigKeys as a group's config is (putGroup).
+	kept := r.Config
+	if r.Runner != def.Runner {
+		kept = nil
+	}
+	if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
+		return nil, ps[0]
+	}
+	if err := checkCrewSessionSettings(ctx, w.Tx, def.Name, r.Config, def.Config, actor); err != nil {
+		return nil, err
+	}
+	if err := checkCrewUsers(w.Tx, &def); err != nil {
+		return nil, err
+	}
+	r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
+		def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
+	r.On = def.On
+	if r.Config == nil {
+		r.Config = map[string]any{}
+	}
+	for _, d := range []string{r.MaxAge, r.HandoffGrace} {
+		if d != "" {
+			if _, err := time.ParseDuration(d); err != nil {
+				return nil, fmt.Errorf("duration %q: %w", d, err)
+			}
+		}
+	}
+	r.Revision = newRevision()
+	if err := put(w.Tx, bCrew, r.Name, r); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"crew": r.Name, "runner": r.Runner}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event(r.Journal, "crew_defined", actor, data); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // checkCrewSessionSettings keeps the conversation logins and the serving
@@ -436,7 +469,7 @@ func checkCrewSessionSettings(ctx context.Context, tx *bolt.Tx, name string, bef
 		if had == set && reflect.DeepEqual(was, is) {
 			continue
 		}
-		if err := operatorOnly(ctx, tx, actor, fmt.Sprintf("change %s on crew member %s", key, name)); err != nil {
+		if err := operatorOnly(ctx, tx, actor, fmt.Sprintf("change %s on crew member %s", key, name), Alone); err != nil {
 			return err
 		}
 	}

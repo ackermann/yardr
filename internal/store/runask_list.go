@@ -161,10 +161,10 @@ func andList(words []string) string {
 	return strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
 }
 
-// parseSourceLimit reads the words of source set <source>
-// calls_per_hour=<n> or updates_per_hour=<n>. The other settings of a
-// source refuse the command: a path and a program are no words of a command
-// that is approved from a card.
+// parseSourceLimit reads the words of source set <source> <setting>=<n>.
+// Where the credential comes from is read too, and refused as the
+// operator's alone by the check, not here: a path and a program are no
+// words of a command that is approved from a card.
 func parseSourceLimit(rest []string) ([]string, error) {
 	const use = "yardr source set <source> calls_per_hour=<n> or updates_per_hour=<n>"
 	args, _, err := runWords(use, "source set", "the operator's", rest, nil)
@@ -179,16 +179,28 @@ func parseSourceLimit(rest []string) ([]string, error) {
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("--run takes %s: %q is no setting", use, args[1])
-	case key != SourceCallsPerHour && key != SourceUpdatesPerHour:
-		return nil, fmt.Errorf("--run takes %s, and source set with %s= is the operator's to type in a terminal: where a credential comes from is no number", use, key)
+	case key != SourceCallsPerHour && key != SourceUpdatesPerHour && key != SourceEnvFile && key != SourceMintCommand:
+		return nil, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, strings.Join(SourceSettings, ", "))
 	case value == "":
 		return nil, fmt.Errorf("--run takes %s, and source set with %s= and nothing after it is the operator's to type in a terminal", use, key)
+	}
+	if key == SourceEnvFile || key == SourceMintCommand {
+		return []string{name, args[1]}, nil
 	}
 	n, err := sourceSetting(name, key, value)
 	if err != nil {
 		return nil, err
 	}
 	return []string{name, key + "=" + strconv.Itoa(n)}, nil
+}
+
+// checkSourceLimit is the source set's own check as the asker: the two
+// limits may be proposed, and where the credential comes from is the
+// operator's alone.
+func checkSourceLimit(ctx context.Context, w *wtx, argv []string, actor string) error {
+	name, key, _ := sourceLimitOf(argv)
+	_, err := w.sourceSetCheck(ctx, name, key, actor)
+	return err
 }
 
 // sourceLimitOf is the source, the setting and the number of a parsed
@@ -471,6 +483,10 @@ func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
 // runGrant gives the grant of a parsed source grant to each of its
 // grantees, in this one write, and answers a line for each as yardr source
 // grant prints it.
+func checkGrant(ctx context.Context, w *wtx, argv []string, actor string) error {
+	return w.checkGrantSource(ctx, actor)
+}
+
 func runGrant(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 	name, what, to := grantOf(argv)
 	d, err := declared(w.Tx, name)

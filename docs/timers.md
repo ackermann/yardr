@@ -145,7 +145,9 @@ deleted) is dropped, with `timer_dropped`.
 - `yardr crew show <name>` and `yardr user show <name>`.
 
 `yardr timer rm <id>` removes a timer you set or that tells you; the
-operator removes any.
+operator removes any. A crew member that wants another's timer removed
+proposes it with a run ask ([chat.md](chat.md#questions-for-you)); one's
+own is removed directly.
 
 ## Events
 

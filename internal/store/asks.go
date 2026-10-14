@@ -305,8 +305,10 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return nil, fmt.Errorf("a command is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
 		}
 		// What can be refused without the yard's records is refused before
-		// the write: a command that is not on the list.
-		if _, _, err := parseRun(ask.Run.Argv); err != nil {
+		// the write: a command no row reads. What names no row is told
+		// apart inside, with the records: the asker's own to run, the
+		// operator's alone, or none the yard runs from a card.
+		if _, _, err := parseRow(ask.Run.Argv); err != nil && err != errNotRow {
 			return nil, err
 		}
 	}
@@ -1099,6 +1101,9 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	case r.Ask.Run != nil:
 		out = append(out, fmt.Sprintf("  when you approve, the yard runs this as %s, and nothing else:", OneLine(r.Ask.To)),
 			"      "+strings.ReplaceAll(NoteLetters(r.Ask.Run.Command()), "\n", "\n      "))
+		if r.Ask.Run.Description != "" {
+			out = append(out, "  what the command does: "+OneLine(NoteLetters(r.Ask.Run.Description)))
+		}
 		for _, does := range r.Ask.Run.Does {
 			out = append(out, "  the yard says: "+does)
 		}

@@ -114,10 +114,11 @@ need of a login it relays.
 give, for the operator to approve: a crew member that needs it asks this
 way instead of mailing the person a line to paste into a terminal. The
 command is written as it is typed, with or without the leading yardr, and
-is one of a fixed list:
+is one of the list the yard runs from a card:
 
-  peer allow <peer> --mail-limit <n>
-      the link takes more mail in an hour
+  peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>
+      the link carries mail and ping each way, or takes more mail in an
+      hour
   source set <source> calls_per_hour=<n>|updates_per_hour=<n>
       one caller makes that many calls of the source in an hour, or that
       many updates among them; a lower number too, which is the operator's
@@ -132,30 +133,52 @@ is one of a fixed list:
       which parts a source tells a user of outside the yard, on their
       phone: a list of notifications, mail and asks with commas between,
       or nothing after tell= for all three again
+  user add <name>
+      a person becomes a user of the yard, and reads mail from now on
+  user rm <name>
+      a user goes, with their subscriptions and devices; the mail stays
+  crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>
+      a crew member may open threads or set the status of threads in the
+      sources, or mail crew members of the peers
+  settings set <key> <value>
+      the yard's own setting changes; who the operator is and the settings
+      of where the yard reads and serves from are the operator's alone
+  peer rename <old> <new>
+      the link is called by its new name; its key and what it carries stay
+  bead update <bead> --originator <user>
+      the bead is for the user
+  timer rm <id>
+      another's timer is removed; one's own needs no approval
 
-Anything else is typed by the operator: a flag of peer allow that is not
---mail-limit, a source's env_file and mint_command, source add, a user's
-notify and env_file, and every other command. The last two rows are a
-user's own as they are the operator's, since a crew member does not decide
-what a person is told: the ask is for that user or for the operator
-(--to), and the one asked approves it. The yard splits the command at
-spaces and nowhere else, so nothing is quoted: a quote, a backslash, ;, |,
-&, $ or a line break is refused, and a comma anywhere but in the parts of
-tell=. It checks the
+Whether each is the operator's is the command's own check: when the asker
+may run the command themselves the ask is refused with that. What is the
+operator's alone is refused as a run ask: what defines what the yard runs
+or whom it trusts (a command of a group or a source, who a peer sees and
+is trusted and reached as, a device, another yard paired), what takes a
+file path, and what reaches another yard. Such a command is typed in a
+terminal. The subscription and the tell are a user's own as they are the
+operator's, since a crew member does not decide what a person is told:
+the ask is for that user or for the operator (--to), and the one asked
+approves it. The yard splits the command at spaces and nowhere else, so
+nothing is quoted: a quote, a backslash, ;, |, &, $ or a line break is
+refused, and a comma anywhere but in a list the command takes (the parts
+of tell=, the kinds peer allow carries, the grants crew set gives). It checks the
 command against the yard as it stands, and refuses one the yard would
 refuse and one that would change nothing (a peer, source, group, crew
-member or user the yard has not, a number out of range, the limit that
-stands, a grant or a subscription that is held already, the parts a user
-is told of already; a lower mail limit needs no approval, anyone sets it). The ask is stored with the command in the yard's own form and with the yard's
+member, user, setting, timer or bead the yard has not, a number out of
+range, what stands already, a grant or a subscription that is held
+already, the parts a user is told of already; what the asker may run
+needs no approval). The ask is stored with the command in the yard's own form and with the yard's
 sentences for what it changes, made from the yard's records, whatever the
 question says. The card shows the command whole and those sentences, and
 each --context line with the asker's name before it. Nothing runs until
 the operator approves (yardr bead answer <id> <ask> --approve), and then
 the yard runs exactly the command shown, as the operator; an approval is
 refused when the yard changed since the ask, which is then asked again:
-what the command changes is not what the card says it is, or the source,
-the link, the group or the crew member it names was replaced or given
-another config under its name.
+what the command changes is not what the card says it is, or what it
+names was replaced or set under its name since: the source, the link,
+the group, the crew member, the user, the setting, the bead or the
+timer.
 
 A run ask takes no --option, --recommend or --about, and at most five
 --context lines: why the asker wants it. It is refused, and nothing is
@@ -442,7 +465,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
 	ask.Flags().StringVar(&askSecretLogin, "secret-login", "", "ask for the input of the harness login waiting under this reference (its leader's input need names it): handed to the login, kept nowhere")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
-	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one of a fixed list (yardr bead ask --help)")
+	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")

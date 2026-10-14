@@ -363,6 +363,32 @@ func SettingOf(key string) (Setting, bool) {
 	return Setting{}, false
 }
 
+// settingAsk is whether setting key may be proposed as a run ask. Alone
+// are who the operator is, what the yard installs itself from, who the
+// web view acts as and what it trusts, where backups go, the addresses
+// the servers bind, and the herdr session, whose check turns on which
+// panes run now: the operator types those. A new setting defaults to
+// Alone until it is marked Askable here.
+func settingAsk(key string) AskClass {
+	switch key {
+	case OperatorSetting, DefaultPackSetting,
+		UpgradeFromSetting, UpgradeRestoreSetting,
+		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
+		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
+		BackupDirSetting, HookAddrSetting, WebAddrSetting,
+		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
+		HerdrSessionSetting:
+		return Alone
+	case YardmasterSetting, StyleSetting, NoteSetting, DefaultKindSetting,
+		TimerLimitSetting, TimerMinEverySetting, BlobMaxSetting,
+		PeerFileMaxSetting, BackupEverySetting, BackupKeepSetting,
+		MaxSessionsSetting, NameSetting:
+		return Askable
+	default:
+		return Alone
+	}
+}
+
 // SettingKeys are the keys of KnownSettings, sorted.
 func SettingKeys() []string {
 	out := make([]string, len(KnownSettings))
@@ -590,51 +616,66 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 		}
 	}
 	return s.write(func(w *wtx) error {
-		if err := w.operatorOnly(ctx, actor, "change a setting"); err != nil {
-			return err
-		}
-		if !known && (value != "" || w.Bucket(bSettings).Get([]byte(key)) == nil) {
-			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(SettingKeys(), ", "))
-		}
-		if key == OperatorSetting && value != "" && w.Bucket(bCrew).Get([]byte(value)) != nil {
-			if was, err := operatorIn(w.Tx); err != nil {
-				return err
-			} else if was != value {
-				return fmt.Errorf("%s %q: that is a crew member's name, and mail to a name reaches one party: "+
-					"choose another name for the operator, or remove the crew member first (yardr crew rm %s)", key, value, value)
-			}
-		}
 		if key == HerdrSessionSetting {
+			// Alone (settingAsk): the check turns on which panes run
+			// now, which no card can be held to. It stays here, with
+			// the store, and not in setSetting, which a run ask runs.
 			if err := s.herdrSessionFree(w.Tx, value); err != nil {
 				return err
 			}
 		}
-		if key == UpgradeFromSetting && value != "" {
-			if err := upgradeFromTellable(w.Tx); err != nil {
-				return err
-			}
+		return w.setSetting(ctx, key, value, known, actor, nil)
+	})
+}
+
+// setSetting is SetSetting inside the transaction, so that an approved run
+// ask changes the setting in the write that records its approval: by is
+// then the ask it was approved on, which the event carries. known is
+// whether key is one of KnownSettings.
+func (w *wtx) setSetting(ctx context.Context, key, value string, known bool, actor string, by *approvedOn) error {
+	if err := w.operatorOnly(ctx, actor, "change a setting", settingAsk(key)); err != nil {
+		return err
+	}
+	if !known && (value != "" || w.Bucket(bSettings).Get([]byte(key)) == nil) {
+		return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(SettingKeys(), ", "))
+	}
+	if key == OperatorSetting && value != "" && w.Bucket(bCrew).Get([]byte(value)) != nil {
+		if was, err := operatorIn(w.Tx); err != nil {
+			return err
+		} else if was != value {
+			return fmt.Errorf("%s %q: that is a crew member's name, and mail to a name reaches one party: "+
+				"choose another name for the operator, or remove the crew member first (yardr crew rm %s)", key, value, value)
 		}
-		var err error
-		if value == "" {
-			err = w.Bucket(bSettings).Delete([]byte(key))
-		} else {
-			err = put(w.Tx, bSettings, key, value)
-		}
-		if err != nil {
+	}
+	if key == UpgradeFromSetting && value != "" {
+		if err := upgradeFromTellable(w.Tx); err != nil {
 			return err
 		}
-		if key == OperatorSetting {
-			if err := w.ensureOperator(actor); err != nil {
-				return err
-			}
+	}
+	var err error
+	if value == "" {
+		err = w.Bucket(bSettings).Delete([]byte(key))
+	} else {
+		err = put(w.Tx, bSettings, key, value)
+	}
+	if err != nil {
+		return err
+	}
+	if key == OperatorSetting {
+		if err := w.ensureOperator(actor); err != nil {
+			return err
 		}
-		if key == UpgradeFromSetting && value != "" {
-			if err := w.subscribeUpgradeFailures(); err != nil {
-				return err
-			}
+	}
+	if key == UpgradeFromSetting && value != "" {
+		if err := w.subscribeUpgradeFailures(); err != nil {
+			return err
 		}
-		return w.event("", "setting_changed", actor, map[string]any{"key": key, "value": value})
-	})
+	}
+	data := map[string]any{"key": key, "value": value}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "setting_changed", actor, data)
 }
 
 // upgradeFromSet reports whether the automatic install is on: the

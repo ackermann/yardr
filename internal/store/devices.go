@@ -170,7 +170,7 @@ func mayAddDevice(ctx context.Context, tx *bolt.Tx, user, actor string) error {
 	} else if who != "" {
 		return fmt.Errorf("a device is added by the operator, outside an agent's pane: whoever adds one decides who may speak as %s; this is %s", user, who)
 	}
-	return operatorOnly(ctx, tx, actor, "add a device")
+	return operatorOnly(ctx, tx, actor, "add a device", Alone)
 }
 
 // deviceFree refuses a device that cannot be added: one of a user the yard

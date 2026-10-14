@@ -731,6 +731,9 @@ like the rest of a definition; left out of a `crew add --replace`, the
 setting is gone. The store refuses the opening
 itself for a crew member that is not allowed, whoever asks; who may change the
 setting is checked by the CLI, the same line, not wall, as who may speak.
+Widening a grant is proposed with a run ask
+([chat.md](chat.md#questions-for-you)): `crew set <name>` with the grants,
+apart from the rest of the definition.
 
 A pack can ask for it: `open_threads: [linear]` under a crew member in
 `pack.yaml`. That sets nothing by itself. `yardr pack apply` asks the

@@ -73,10 +73,11 @@ func (y *askYard) limit(t *testing.T) int {
 func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 	y, key := runYard(t)
 	want := AskRun{
-		Argv: []string{"peer", "allow", "airy", "--mail-limit", "300"},
-		Does: []string{"the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now."},
-		Back: "yardr peer allow airy --mail-limit 30",
-		Seen: map[string]string{"peer airy": key},
+		Argv:        []string{"peer", "allow", "airy", "--mail-limit", "300"},
+		Description: "Say which kinds of messages the link with a peer carries",
+		Does:        []string{"the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now."},
+		Back:        "yardr peer allow airy --mail-limit 30",
+		Seen:        map[string]string{"peer airy": key},
 	}
 	for _, typed := range [][]string{
 		{"peer allow airy --mail-limit 300"},
@@ -89,7 +90,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 		ask.Run.Back = "yardr peer rm airy"
 		ask.Run.Seen = map[string]string{"peer airy": "another key"}
 		got := y.asked(t, y.ask(t, ask, "yardmaster")).Ask.Run
-		if got == nil || !slices.Equal(got.Argv, want.Argv) || !slices.Equal(got.Does, want.Does) || got.Back != want.Back || !sameMap(got.Seen, want.Seen) {
+		if got == nil || !slices.Equal(got.Argv, want.Argv) || got.Description != want.Description || !slices.Equal(got.Does, want.Does) || got.Back != want.Back || !sameMap(got.Seen, want.Seen) {
 			t.Errorf("typed %q, the ask stores %+v, want %+v", typed, got, want)
 		}
 		if got.Command() != "yardr peer allow airy --mail-limit 300" {
@@ -109,14 +110,14 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 // and no user.
 func TestRunAskRefusals(t *testing.T) {
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>" + "): anything else is the operator's to type in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user add <name>, yardr user rm <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
 		actor string
 		want  string
 	}{
-		{"not on the list", func(a *Ask) { a.Run.Argv = []string{"user add eve"} }, "", list},
+		{"not on the list", func(a *Ask) { a.Run.Argv = []string{"user key mckean crm"} }, "", list},
 		{"another yardr command", func(a *Ask) { a.Run.Argv = []string{"yardr peer rm airy"} }, "", list},
 		{"no yardr command", func(a *Ask) { a.Run.Argv = []string{"rm -rf /"} }, "", list},
 		{"nothing", func(a *Ask) { a.Run.Argv = nil }, "", list},
@@ -127,7 +128,7 @@ func TestRunAskRefusals(t *testing.T) {
 		{"an ampersand", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 &"} }, "", `'&' is none of their characters`},
 		{"a dollar", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit $N"} }, "", `'$' is none of their characters`},
 		{"a line break", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300\nyardr user add eve"} }, "", `'\n' is none of their characters`},
-		{"a comma, which only a list of parts takes", func(a *Ask) { a.Run.Argv = []string{"peer allow airy,north --mail-limit 300"} }, "", `',' is none of their characters`},
+		{"a comma in a name", func(a *Ask) { a.Run.Argv = []string{"peer allow airy,north --mail-limit 300"} }, "", "peer airy,north: not found"},
 		{"a comma in no command of the list", func(a *Ask) { a.Run.Argv = []string{"user add eve,bo"} }, "", `',' is none of their characters`},
 		{"a letter of another script", func(a *Ask) { a.Run.Argv = []string{"peer allow аiry --mail-limit 300"} }, "", "is none of their characters"},
 		{"a peer the yard has not", func(a *Ask) { a.Run.Argv = []string{"peer allow a1ry --mail-limit 300"} }, "", "peer a1ry: not found"},
@@ -135,15 +136,15 @@ func TestRunAskRefusals(t *testing.T) {
 		{"too many", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 10001"} }, "", "peer airy: a link takes 1 to 10000 mails an hour, not 10001"},
 		{"below zero", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit -5"} }, "", "a link takes 1 to 10000 mails an hour, not -5"},
 		{"no number", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit many"} }, "", `"many" is no number`},
-		{"the limit now", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 30"} }, "", "peer airy: the link takes 30 mails and asks an hour already, so the command would change nothing"},
-		{"a lower limit", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 10"} }, "", "to take less needs no approval: anyone runs yardr peer allow airy --mail-limit 10"},
-		{"no limit", func(a *Ask) { a.Run.Argv = []string{"peer allow airy"} }, "", "it names no --mail-limit"},
+		{"the limit now", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 30"} }, "", "yardr peer allow airy --mail-limit 30 needs no approval: run it yourself"},
+		{"a lower limit", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 10"} }, "", "yardr peer allow airy --mail-limit 10 needs no approval: run it yourself"},
+		{"no limit", func(a *Ask) { a.Run.Argv = []string{"peer allow airy"} }, "", "it says nothing to change"},
 		{"no peer", func(a *Ask) { a.Run.Argv = []string{"peer allow --mail-limit 300"} }, "", "it names no peer"},
 		{"two peers", func(a *Ask) { a.Run.Argv = []string{"peer allow airy north --mail-limit 300"} }, "", "one peer, not airy and north"},
 		{"the limit twice", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 --mail-limit 400"} }, "", "--mail-limit once"},
-		{"trust beside it", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 --trust mckean@airy=mckean"} }, "", "is none of their characters"},
-		{"a flag that is not the list's", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 --receive bead"} }, "", "peer allow with --receive is the operator's to type in a terminal"},
-		{"reach alone", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --no-reach x"} }, "", "peer allow with --no-reach is the operator's to type in a terminal"},
+		{"trust beside it", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 --trust mckean@airy=mckean"} }, "", "is two asks: propose the limit and the rest apart"},
+		{"the limit beside kinds", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 --receive bead"} }, "", "is two asks: propose the limit and the rest apart"},
+		{"narrowing reach", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --no-reach x"} }, "", "--no-reach narrows one, and is run directly"},
 		{"an option", func(a *Ask) { a.Options = []AskOption{{Label: "Yes", Consequence: "it runs"}} }, "", "a run ask takes no --option and no --recommend"},
 		{"an about-bead", func(a *Ask) { a.About = []string{y.bead} }, "", "a run ask takes no --about"},
 		{"a secret beside it", func(a *Ask) { a.Secret = &AskSecret{Source: "crm"} }, "", "an ask asks for a secret or proposes a command to run, not both"},
@@ -197,6 +198,7 @@ func TestRunAskCard(t *testing.T) {
 		"  yardmaster says: the yard says: nothing changes.",
 		"  when you approve, the yard runs this as mckean, and nothing else:",
 		"      yardr peer allow airy --mail-limit 300",
+		"  what the command does: Say which kinds of messages the link with a peer carries",
 		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.",
 		"  anyone can take it back: yardr peer allow airy --mail-limit 30",
 		"  approve with: yardr bead answer " + y.bead + " 1 --approve",
@@ -505,7 +507,7 @@ func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
 	}
 	var card AskRun
 	if err := y.write(func(w *wtx) (err error) {
-		card, err = w.mailLimitCard(was.Argv, false)
+		card, err = w.peerAllowCard(was.Argv, false)
 		return err
 	}); err != nil {
 		t.Fatal(err)

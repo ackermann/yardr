@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -157,25 +158,60 @@ func notOperator(ctx context.Context, tx *bolt.Tx, actor string) (operator, this
 	return "", "", nil
 }
 
+// AskClass says whether an operator-only action may be proposed as a run
+// ask. Alone is the zero value: a new operator-only check lands alone
+// until its site marks it Askable, so nothing becomes proposable by
+// omission. Alone is for what defines what the yard runs or whom it
+// trusts, takes a file path, or reaches another yard: the operator types
+// it in a terminal, and a run ask proposing it is refused with that
+// reason.
+type AskClass int
+
+const (
+	Alone AskClass = iota
+	Askable
+)
+
+// OperatorOnlyError refuses what only the operator may do, in the same
+// words whatever is asked and whoever asks, with whether a run ask may
+// propose it. Both operatorOnly and maySource refuse with it.
+type OperatorOnlyError struct {
+	msg string
+	ask AskClass
+}
+
+func (e *OperatorOnlyError) Error() string { return e.msg }
+
+// IsOperatorOnly reports whether err refuses an operator-only action, and
+// whether a run ask may propose it.
+func IsOperatorOnly(err error) (AskClass, bool) {
+	var o *OperatorOnlyError
+	if errors.As(err, &o) {
+		return o.ask, true
+	}
+	return Alone, false
+}
+
 // operatorOnly refuses what only the operator may do (does, as in "add a
 // peer") when actor is anyone else (notOperator), in the same words
-// whatever is asked and whoever asks.
-func operatorOnly(ctx context.Context, tx *bolt.Tx, actor, does string) error {
+// whatever is asked and whoever asks. ask marks whether a run ask may
+// propose it, beside the refusal it marks.
+func operatorOnly(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
 	operator, this, err := notOperator(ctx, tx, actor)
 	if err != nil || this == "" {
 		return err
 	}
-	return fmt.Errorf("only %s may %s; this is %s", operator, does, this)
+	return &OperatorOnlyError{msg: fmt.Sprintf("only %s may %s; this is %s", operator, does, this), ask: ask}
 }
 
-func (w *wtx) operatorOnly(ctx context.Context, actor, does string) error {
-	return operatorOnly(ctx, w.Tx, actor, does)
+func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {
+	return operatorOnly(ctx, w.Tx, actor, does, ask)
 }
 
 // operatorOnly is the rule for a change that is no write of the database
 // (a pairing, which lives in the server's memory).
-func (s *Store) operatorOnly(ctx context.Context, actor, does string) error {
-	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does) })
+func (s *Store) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {
+	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does, ask) })
 }
 
 // maySpeakAs refuses to speak as the crew member name to anyone but the
@@ -202,7 +238,7 @@ func maySpeakAs(ctx context.Context, tx *bolt.Tx, name, actor string) error {
 
 // addUser writes a new user who reads mail from now on: mail an earlier
 // user of the name left is not theirs, nor are its notifications.
-func (w *wtx) addUser(name, actor string) (*User, error) {
+func (w *wtx) addUser(name, actor string, by *approvedOn) (*User, error) {
 	u := &User{Name: name, CreatedAt: now(), CreatedBy: actor}
 	if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
 		u.Cursor = binary.BigEndian.Uint64(k)
@@ -214,7 +250,11 @@ func (w *wtx) addUser(name, actor string) (*User, error) {
 	if err := put(w.Tx, bUsers, name, u); err != nil {
 		return nil, err
 	}
-	return u, w.event("", "user_added", actor, map[string]any{"user": name})
+	data := map[string]any{"user": name}
+	if by != nil {
+		data["approved"] = by
+	}
+	return u, w.event("", "user_added", actor, data)
 }
 
 // ensureOperator gives the operator a user when there is none of the name.
@@ -229,7 +269,7 @@ func (w *wtx) ensureOperator(actor string) error {
 	if w.Bucket(bUsers).Get([]byte(operator)) != nil || w.Bucket(bCrew).Get([]byte(operator)) != nil {
 		return nil
 	}
-	u, err := w.addUser(operator, actor)
+	u, err := w.addUser(operator, actor, nil)
 	if err != nil {
 		return err
 	}
@@ -289,20 +329,27 @@ func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) 
 	}
 	var out *User
 	err := s.write(func(w *wtx) error {
-		if err := w.operatorOnly(ctx, actor, "add a user"); err != nil {
-			return err
-		}
-		switch {
-		case w.Bucket(bUsers).Get([]byte(name)) != nil:
-			return fmt.Errorf("%w: there is a user %s already", ErrConflict, name)
-		case w.Bucket(bCrew).Get([]byte(name)) != nil:
-			return fmt.Errorf("user %s: that is a crew member's name, and mail to a name reaches one party: choose another", name)
-		}
 		var err error
-		out, err = w.addUser(name, actor)
+		out, err = w.insertUser(ctx, name, actor, nil)
 		return err
 	})
 	return out, err
+}
+
+// insertUser is AddUser inside the transaction, so that an approved run
+// ask adds the user in the write that records its approval: by is then
+// the ask it was approved on, which the event carries.
+func (w *wtx) insertUser(ctx context.Context, name, actor string, by *approvedOn) (*User, error) {
+	if err := w.operatorOnly(ctx, actor, "add a user", Askable); err != nil {
+		return nil, err
+	}
+	switch {
+	case w.Bucket(bUsers).Get([]byte(name)) != nil:
+		return nil, fmt.Errorf("%w: there is a user %s already", ErrConflict, name)
+	case w.Bucket(bCrew).Get([]byte(name)) != nil:
+		return nil, fmt.Errorf("user %s: that is a crew member's name, and mail to a name reaches one party: choose another", name)
+	}
+	return w.addUser(name, actor, by)
 }
 
 func (s *Store) Users(ctx context.Context) ([]User, error) {
@@ -342,38 +389,48 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 // first. Like adding one, it is the operator's to do (operatorOnly).
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
-		if err := w.operatorOnly(ctx, actor, "remove a user"); err != nil {
-			return err
-		}
-		if _, err := getUser(w.Tx, name); err != nil {
-			return err
-		}
-		if operator, err := operatorIn(w.Tx); err != nil {
-			return err
-		} else if operator == name {
-			return fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
-		}
-		if err := w.Bucket(bUsers).Delete([]byte(name)); err != nil {
-			return err
-		}
-		if err := dropNotifications(w.Tx, name); err != nil {
-			return err
-		}
-		if err := dropPushes(w.Tx, name); err != nil {
-			return err
-		}
-		data := map[string]any{"user": name}
-		if err := dropDevices(w.Tx, name, data); err != nil {
-			return err
-		}
-		if err := unexpose(w.Tx, name, data); err != nil {
-			return err
-		}
-		if err := untrust(w.Tx, name, data); err != nil {
-			return err
-		}
-		return w.event("", "user_removed", actor, data)
+		return w.deleteUser(ctx, name, actor, nil)
 	})
+}
+
+// deleteUser is DeleteUser inside the transaction, so that an approved run
+// ask removes the user in the write that records its approval: by is then
+// the ask it was approved on, which the event carries.
+func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn) error {
+	if err := w.operatorOnly(ctx, actor, "remove a user", Askable); err != nil {
+		return err
+	}
+	if _, err := getUser(w.Tx, name); err != nil {
+		return err
+	}
+	if operator, err := operatorIn(w.Tx); err != nil {
+		return err
+	} else if operator == name {
+		return fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
+	}
+	if err := w.Bucket(bUsers).Delete([]byte(name)); err != nil {
+		return err
+	}
+	if err := dropNotifications(w.Tx, name); err != nil {
+		return err
+	}
+	if err := dropPushes(w.Tx, name); err != nil {
+		return err
+	}
+	data := map[string]any{"user": name}
+	if err := dropDevices(w.Tx, name, data); err != nil {
+		return err
+	}
+	if err := unexpose(w.Tx, name, data); err != nil {
+		return err
+	}
+	if err := untrust(w.Tx, name, data); err != nil {
+		return err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "user_removed", actor, data)
 }
 
 // toUser reports whether a mail event is for a user, not a crew member.

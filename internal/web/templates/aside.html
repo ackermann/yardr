@@ -29,6 +29,9 @@
     {{- end}}
     {{- if .RunCommand}}
     <p class="entry-note">to approve: {{.RunCommand}}</p>
+    {{- if .RunDescription}}
+    <p class="entry-note">what the command does: {{.RunDescription}}</p>
+    {{- end}}
     {{- end}}
     {{- else}}
     {{- if .Recommend}}

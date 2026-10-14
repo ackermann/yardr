@@ -306,7 +306,7 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	} else if sec.Login != "" {
 		err = w.maySource(ctx, actor, "answering the login")
 	} else {
-		err = w.maySource(ctx, actor, "setting a source's credential")
+		err = w.maySource(ctx, actor, "setting a source's credential", Alone)
 	}
 	if err != nil {
 		return err

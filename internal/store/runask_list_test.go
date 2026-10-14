@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -155,10 +156,11 @@ func TestRunAskSourceLimit(t *testing.T) {
 	seq := y.ask(t, listAsk("mckean", "yardr  source set crm calls_per_hour=0200"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
 	want := AskRun{
-		Argv:   []string{"source", "set", "crm", "calls_per_hour=200"},
-		Does:   []string{crmAt + " may be called 200 times an hour by each session or crew member that may call it. It may be called 60 times now."},
-		Back:   "yardr source set crm calls_per_hour=60",
-		BackBy: "only the operator",
+		Argv:        []string{"source", "set", "crm", "calls_per_hour=200"},
+		Description: "Change a source's credential or per-hour call limits",
+		Does:        []string{crmAt + " may be called 200 times an hour by each session or crew member that may call it. It may be called 60 times now."},
+		Back:        "yardr source set crm calls_per_hour=60",
+		BackBy:      "only the operator",
 	}
 	if !slices.Equal(run.Argv, want.Argv) || !slices.Equal(run.Does, want.Does) || run.Back != want.Back || run.BackBy != want.BackBy ||
 		len(run.Seen) != 1 || run.Seen["source crm"] != seen(runCRM, "", "") {
@@ -167,6 +169,7 @@ func TestRunAskSourceLimit(t *testing.T) {
 	card := y.asked(t, seq).Lines()
 	for _, line := range []string{
 		"      yardr source set crm calls_per_hour=200",
+		"  what the command does: " + want.Description,
 		"  the yard says: " + want.Does[0],
 		"  only the operator can take it back: yardr source set crm calls_per_hour=60",
 	} {
@@ -294,7 +297,8 @@ func TestRunAskGrant(t *testing.T) {
 	run := *y.asked(t, seq).Ask.Run
 	const read = "may make every read call of " + crmAt + ", with the credential the yard holds for it: today that is find (GET /contacts), get (GET /contacts/{id}), and it covers any read call the operator later gives the source. It is granted nothing of crm now."
 	want := AskRun{
-		Argv: []string{"source", "grant", "crm", "read", "--group", "builders", "--group", "reviewers", "--crew", "yardmaster"},
+		Argv:        []string{"source", "grant", "crm", "read", "--group", "builders", "--group", "reviewers", "--crew", "yardmaster"},
+		Description: "Let a group's sessions or a crew member make calls of a source",
 		Does: []string{
 			"the group builders (exec), and so each session it starts, " + read,
 			"the group reviewers (herdr, codex), and so each session it starts, " + read,
@@ -488,11 +492,12 @@ func TestRunAskListRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	const terminal = "the operator's to type in a terminal"
+	const alone = "it is the operator's alone, typed in a terminal and never proposed as a run ask"
 	for _, c := range []struct{ command, want string }{
-		{"source set crm env_file=/tmp/crm.env", "source set with env_file= is " + terminal},
-		{"source set crm env_file=", "source set with env_file= is " + terminal},
-		{"source set crm mint_command=/usr/local/bin/mint", "source set with mint_command= is " + terminal},
-		{"source set crm mint_command=", "source set with mint_command= is " + terminal},
+		{"source set crm env_file=/tmp/crm.env", alone},
+		{"source set crm env_file=", "source set with env_file= and nothing after it is " + terminal},
+		{"source set crm mint_command=/usr/local/bin/mint", alone},
+		{"source set crm mint_command=", "source set with mint_command= and nothing after it is " + terminal},
 		{"source set crm calls_per_hour=", "source set with calls_per_hour= and nothing after it is " + terminal},
 		{"source set crm calls_per_hour=200 --actor mckean", "source set with --actor is " + terminal},
 		{"source set crm calls_per_hour=200 updates_per_hour=3", "one source and one setting, not 3 words"},
@@ -500,18 +505,20 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"source set crm calls_per_hour=many", `calls_per_hour="many": want a whole number from 1`},
 		{"source set crm calls_per_hour=60", "source crm: calls_per_hour is 60 already, so the command would change nothing"},
 		{"source set erp calls_per_hour=200", "source erp: not found"},
-		{"source add crm.yaml", "anything else is " + terminal},
-		{"source key crm", "anything else is " + terminal},
-		{"source rm crm", "anything else is " + terminal},
-		{"peer allow airy --trust mckean=mckean", "peer allow with --trust is " + terminal},
-		{"peer allow airy --trust mckean@airy=mckean", "A command that needs it is " + terminal},
-		{"peer allow airy --reach mckean=mckean", "peer allow with --reach is " + terminal},
-		{"peer allow airy --reach mckean@airy=mckean", "A command that needs it is " + terminal},
-		{"peer allow airy --send mail", "peer allow with --send is " + terminal},
-		{"peer allow airy --receive bead", "peer allow with --receive is " + terminal},
-		{"peer allow airy --expose mckean", "peer allow with --expose is " + terminal},
-		{"peer allow airy --mail-limit 300 --expose mckean", "peer allow with --expose is " + terminal},
-		{"peer allow airy --mail-limit 300 --reach mckean=mckean", "peer allow with --reach is " + terminal},
+		{"source add crm.yaml", alone},
+		{"source add /tmp/crm,backup.yaml", alone},
+		{"source key crm", alone},
+		{"source rm crm", alone},
+		{"peer allow airy --trust mckean=mckean", alone},
+		{"peer allow airy --trust mckean@airy=mckean", alone},
+		{"peer allow airy --reach mckean=mckean", alone},
+		{"peer allow airy --reach mckean@airy=mckean", alone},
+		{"peer allow airy --receive bead", alone},
+		{"peer allow airy --expose mckean", alone},
+		{"peer allow airy --mail-limit 300 --expose mckean", "is two asks: propose the limit and the rest apart"},
+		{"peer allow airy --mail-limit 300 --reach mckean=mckean", "is two asks: propose the limit and the rest apart"},
+		{"peer allow airy --mail-limit 300 --no-send mail", "is two asks: propose the limit and the rest apart"},
+		{"peer allow airy --mail-limit 300 --no-receive mail", "is two asks: propose the limit and the rest apart"},
 		{"source grant crm read --crew yardmaster --actor mckean", "source grant with --actor is " + terminal},
 		{"source grant crm read", "it names nobody the grant is for"},
 		{"source grant crm --crew yardmaster", "one source and read or one call, not 1 words"},
@@ -552,9 +559,15 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"user set yardmaster tell=mail", "and yardmaster is none"},
 		{"user set mckean tell=", "mckean is told of notifications, mail and asks outside the yard already, so the command would change nothing"},
 		{"user set mckean tell=asks,mail,notifications", "mckean is told of notifications, mail and asks outside the yard already, so the command would change nothing"},
-		{"user add eve", "anything else is " + terminal},
-		{"user rm ada", "anything else is " + terminal},
-		{"user key mckean crm", "anything else is " + terminal},
+		{"group set builders cmd=true", "group set with cmd=true defines what the yard runs: " + alone},
+		{"group set builders --unset cmd", "group set with --unset cmd defines what the yard runs: " + alone},
+		{"group set builders runner=exec", "group set with runner=exec defines what the yard runs: " + alone},
+		{"group add builders --runner exec --set cmd=make", "group add with runner exec defines what the yard runs: " + alone},
+		{"group add builders --runner=exec --set=cmd=make", "group add with runner exec defines what the yard runs: " + alone},
+		{"group add builders --runner exec --set cmd=make,check", "group add with runner exec defines what the yard runs: " + alone},
+		{"group add builders --runner herdr --set cmd=make", "group add with cmd defines what the yard runs: " + alone},
+		{"group set builders runner=herdr", "anything else is run directly, or typed by the operator in a terminal"},
+		{"user key mckean crm", "anything else is run directly, or typed by the operator in a terminal"},
 	} {
 		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
@@ -594,7 +607,8 @@ func TestRunAskSubscribe(t *testing.T) {
 	seq := y.ask(t, listAsk("mckean", "yardr subscribe mckean yardr --where label=ui --where depot=yardr --where state=done --where label=web --where label=ui"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
 	want := AskRun{
-		Argv: []string{"subscribe", "mckean", "yardr", "--done", "--where", "depot=yardr", "--where", "label=ui", "--where", "label=web"},
+		Argv:        []string{"subscribe", "mckean", "yardr", "--done", "--where", "depot=yardr", "--where", "label=ui", "--where", "label=web"},
+		Description: "Deliver a source's events to a crew member's inbox, or a user's as notifications (no arguments: who is told what)",
 		Does: []string{
 			"mckean gets a line among the notifications of their inbox for each bead that becomes done where depot is yardr, and label is ui or web (the subscription yardr all depot=yardr label=ui label=web state=done). They have no such subscription now.",
 			"Nothing sends it on outside the yard: no source tells mckean of notifications there.",
@@ -610,6 +624,7 @@ func TestRunAskSubscribe(t *testing.T) {
 	for _, line := range []string{
 		"  when you approve, the yard runs this as mckean, and nothing else:",
 		"      yardr subscribe mckean yardr --done --where depot=yardr --where label=ui --where label=web",
+		"  what the command does: " + want.Description,
 		"  the yard says: " + want.Does[1],
 		"  mckean or the operator can take it back: " + want.Back,
 	} {
@@ -783,7 +798,8 @@ func TestRunAskUserTell(t *testing.T) {
 	seq := y.ask(t, listAsk("mckean", "yardr user set mckean tell=asks,notifications,asks"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
 	want := AskRun{
-		Argv: []string{"user", "set", "mckean", "tell=notifications,asks"},
+		Argv:        []string{"user", "set", "mckean", "tell=notifications,asks"},
+		Description: "Set where, how and what a source tells a user",
 		Does: []string{
 			"mckean has no notify source, so nothing tells them outside the yard, and the change tells them nothing until one is set (yardr user set mckean notify=<source>). A source would then tell them of notifications and asks; it would tell them of notifications, mail and asks as things stand.",
 			"What still waited to be told of mail is dropped, and is not told later. Their inbox and their queue of decisions in the yard are filled as before.",
@@ -799,6 +815,7 @@ func TestRunAskUserTell(t *testing.T) {
 	for _, line := range []string{
 		"  when you approve, the yard runs this as mckean, and nothing else:",
 		"      yardr user set mckean tell=notifications,asks",
+		"  what the command does: " + want.Description,
 		"  the yard says: " + want.Does[0],
 		"  the yard says: " + want.Does[1],
 		"  mckean or the operator can take it back: yardr user set mckean tell=",
@@ -821,7 +838,7 @@ func TestRunAskUserTell(t *testing.T) {
 		}
 		return slices.Sorted(maps.Keys(m))
 	}
-	if got, want := fields(seq), fields(sub); !slices.Equal(got, want) || !slices.Equal(got, []string{"argv", "back", "back_by", "command", "does"}) {
+	if got, want := fields(seq), fields(sub); !slices.Equal(got, want) || !slices.Equal(got, []string{"argv", "back", "back_by", "command", "description", "does"}) {
 		t.Fatalf("a client is sent %v of this row, and %v of a subscription", got, want)
 	}
 	const whose = "approving this command is mckean's, whom it was asked of: the yard runs it as them; "
@@ -1041,5 +1058,320 @@ func TestRunAskGrantQuotesAKindThatIsNoName(t *testing.T) {
 		t.Fatal("no card")
 	} else if says := slices.DeleteFunc(card, func(l string) bool { return !strings.Contains(l, "the yard says:") }); len(says) != 3 {
 		t.Errorf("the card has %d lines of the yard's, want 3:\n%s", len(says), strings.Join(card, "\n"))
+	}
+}
+
+// A refusal with no mark is the operator's alone: Alone is the zero value
+// of AskClass, so a new operator-only check lands alone until its site
+// marks it Askable. The operator is refused nothing.
+func TestOperatorOnlyWithoutAMarkIsAlone(t *testing.T) {
+	y, _ := runYard(t)
+	refuse := func(actor string, ask AskClass) error {
+		return y.db.View(func(tx *bolt.Tx) error {
+			return operatorOnly(y.ctx, tx, actor, "do the new thing", ask)
+		})
+	}
+	var none AskClass
+	if class, ok := IsOperatorOnly(refuse("yardmaster", none)); !ok || class != Alone {
+		t.Errorf("a refusal with no mark is %v, %v", class, ok)
+	}
+	if class, ok := IsOperatorOnly(refuse("yardmaster", Askable)); !ok || class != Askable {
+		t.Errorf("a refusal marked Askable is %v, %v", class, ok)
+	}
+	if err := refuse("mckean", none); err != nil {
+		t.Errorf("the operator is refused their own: %v", err)
+	}
+}
+
+// Every known setting has an explicit run-ask class, and a setting added
+// later is alone until its effect is reviewed and marked Askable.
+func TestSettingRunAskClassesAreExplicit(t *testing.T) {
+	want := map[string]AskClass{
+		OperatorSetting:       Alone,
+		YardmasterSetting:     Askable,
+		StyleSetting:          Askable,
+		NoteSetting:           Askable,
+		DefaultKindSetting:    Askable,
+		DefaultPackSetting:    Alone,
+		HookAddrSetting:       Alone,
+		WebAddrSetting:        Alone,
+		WebPagesAddrSetting:   Alone,
+		WebPagesHostSetting:   Alone,
+		WebAsSetting:          Alone,
+		WebJWTIssuerSetting:   Alone,
+		WebJWTAudienceSetting: Alone,
+		WebJWTJWKSSetting:     Alone,
+		WebJWTHeaderSetting:   Alone,
+		WebJWTUsersSetting:    Alone,
+		BDPAddrSetting:        Alone,
+		TimerLimitSetting:     Askable,
+		TimerMinEverySetting:  Askable,
+		BlobMaxSetting:        Askable,
+		PeerFileMaxSetting:    Askable,
+		BackupEverySetting:    Askable,
+		BackupKeepSetting:     Askable,
+		BackupDirSetting:      Alone,
+		MaxSessionsSetting:    Askable,
+		HerdrSessionSetting:   Alone,
+		NameSetting:           Askable,
+		UpgradeFromSetting:    Alone,
+		UpgradeRestoreSetting: Alone,
+	}
+	for _, setting := range KnownSettings {
+		class, ok := want[setting.Key]
+		if !ok {
+			t.Errorf("setting %s has no run-ask class in the test", setting.Key)
+			continue
+		}
+		if got := settingAsk(setting.Key); got != class {
+			t.Errorf("setting %s has class %d, want %d", setting.Key, got, class)
+		}
+		delete(want, setting.Key)
+	}
+	for key := range want {
+		t.Errorf("run-ask class test names unknown setting %s", key)
+	}
+	if got := settingAsk("new_setting"); got != Alone {
+		t.Errorf("unmarked setting has class %d, want Alone", got)
+	}
+}
+
+// A source grant is an operator-only action that may be asked. Its run row
+// must use the same check as GrantSource for both the proposer and operator.
+func TestRunAskSourceGrantUsesItsStoreCheck(t *testing.T) {
+	y := listYard(t)
+	c, argv, err := parseRun([]string{"source grant crm read --group reviewers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.check == nil {
+		t.Fatal("source grant has no asker permission check")
+	}
+	var askerErr, operatorErr error
+	if err := y.write(func(w *wtx) error {
+		askerErr = c.check(y.ctx, w, argv, "yardmaster")
+		operatorErr = c.check(y.ctx, w, argv, "mckean")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, directErr := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "reviewers"}, "yardmaster")
+	if directErr == nil || askerErr == nil || askerErr.Error() != directErr.Error() {
+		t.Fatalf("run row check = %v, direct source grant = %v", askerErr, directErr)
+	}
+	if class, ok := IsOperatorOnly(askerErr); !ok || class != Askable {
+		t.Fatalf("source grant refusal = %v; operator-only class is %v, %v", askerErr, class, ok)
+	}
+	if operatorErr != nil {
+		t.Errorf("operator's source grant check = %v, want allowed", operatorErr)
+	}
+}
+
+// A source limit run row uses the same permission and source existence
+// check as SetSource, including the order of their refusals.
+func TestRunAskSourceSetUsesItsStoreCheck(t *testing.T) {
+	y := listYard(t)
+	c, argv, err := parseRun([]string{"source set crm calls_per_hour=200"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rowErr error
+	if err := y.write(func(w *wtx) error {
+		rowErr = c.check(y.ctx, w, argv, "yardmaster")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, directErr := y.SetSource(y.ctx, "crm", SourceCallsPerHour, "200", "yardmaster")
+	if directErr == nil || rowErr == nil || rowErr.Error() != directErr.Error() {
+		t.Fatalf("run row check = %v, direct source set = %v", rowErr, directErr)
+	}
+	if class, ok := IsOperatorOnly(rowErr); !ok || class != Askable {
+		t.Fatalf("source set refusal = %v; operator-only class is %v, %v", rowErr, class, ok)
+	}
+	if err := y.write(func(w *wtx) error { return c.check(y.ctx, w, argv, "mckean") }); err != nil {
+		t.Errorf("operator's source set check = %v, want allowed", err)
+	}
+}
+
+// timer sets an hourly timer of to's by actor, and answers its id.
+func (y *askYard) timer(t *testing.T, to, actor string) string {
+	t.Helper()
+	tm, err := y.AddTimer(y.ctx, NewTimer{To: to, Reason: "stretch", Every: time.Hour}, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tm.ID
+}
+
+// The new rows refuse what the command would not do, in the store's own
+// words: what names nobody or nothing, names one that is taken or is no
+// user, peer or setting, or sets what is the operator's alone. What the
+// asker may run themselves is refused as theirs to run.
+func TestRunAskNewRowsRefusals(t *testing.T) {
+	y, _ := runYard(t)
+	own := y.timer(t, "ada", "yardmaster")
+	sets, err := ParseSets([]string{"peers=airy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := MergeConfig("yardmaster", map[string]any{}, sets, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Config: config}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ command, want string }{
+		{"user add mckean", "there is a user mckean already"},
+		{"user add yardmaster", "that is a crew member's name"},
+		{"user add eve bo", "one user, not 2 words"},
+		{"user rm", "one user, not 0 words"},
+		{"user rm mckean", "is the yard's operator and is not removed"},
+		{"user rm eve", "user eve: not found"},
+		{"crew set nobody peers=airy", "crew member nobody: not found"},
+		{"crew set yardmaster dir=/tmp", "dir is no grant of a crew member, and is set directly"},
+		{"crew set yardmaster peers=north", "peer north: not found"},
+		{"crew set yardmaster open_threads=erp", "source erp: not found"},
+		{"crew set yardmaster --unset peers", "needs no approval: run it yourself"},
+		{"settings set nosuch 1", `no setting "nosuch"`},
+		{"settings set max_sessions", "unsetting one takes an empty value, and is typed in a terminal"},
+		{"settings set operator eve", "may change a setting; this is yardmaster; it is the operator's alone"},
+		{"peer rename airy airy", "has that name already"},
+		{"peer rename eve north", "peer eve: not found"},
+		{"bead update " + y.bead, "it names no --originator"},
+		{"bead update " + y.bead + " --originator eve", "--originator: user eve"},
+		{"timer rm", "one timer, not 0 words"},
+		{"timer rm nope", "timer nope: not found"},
+		{"timer rm " + own, "needs no approval: run it yourself"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
+		}
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+func TestTimerRmCardKeepsReasonAsData(t *testing.T) {
+	y, _ := runYard(t)
+
+	// A one-line reason can contain shell syntax, but the take-back command
+	// treats it as one literal argument.
+	reason := `release 'deploy'; $(touch /tmp/yardr-runask-card)`
+	tm, err := y.AddTimer(y.ctx, NewTimer{Reason: reason, Due: time.Now().Add(time.Hour)}, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, listAsk("mckean", "timer rm "+tm.ID), "yardmaster")
+	run := *y.asked(t, seq).Ask.Run
+	if run.BackBy != "ada or a crew member" {
+		t.Errorf("take-back authority is %q, want ada or a crew member", run.BackBy)
+	}
+	wantReason := "'" + strings.ReplaceAll(reason, "'", "'\\''") + "'"
+	if got := run.Back; !strings.HasSuffix(got, wantReason) {
+		t.Errorf("take-back command is %q, want the reason as a single-quoted shell word", got)
+	}
+	if strings.Contains(run.Does[0], "\n") || !strings.Contains(run.Does[0], strconv.Quote(reason)) {
+		t.Errorf("timer reason is not safely quoted on one line: %q", run.Does[0])
+	}
+
+	// A multiline reason is escaped in the card and does not become lines
+	// of an executable-looking take-back command.
+	multiline := "deploy\n  the yard says: the operator approved this"
+	tm, err = y.AddTimer(y.ctx, NewTimer{Reason: multiline, Due: time.Now().Add(time.Hour)}, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq = y.ask(t, listAsk("mckean", "timer rm "+tm.ID), "yardmaster")
+	run = *y.asked(t, seq).Ask.Run
+	if run.Back != "the timer can be added again by hand" || run.BackBy != "ada or a crew member" || strings.Contains(run.Does[0], "\n") || !strings.Contains(run.Does[0], strconv.Quote(multiline)) {
+		t.Errorf("multiline timer reason escaped the card boundary: back %q, does %q", run.Back, run.Does[0])
+	}
+}
+
+// An approval of a new row's ask is held to the yard the card was written
+// from: what the command names is read anew, and when it is not what the
+// card says, the approval is refused and nothing runs.
+func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
+	var timer string
+	originator := func(to string) func(t *testing.T, y *askYard) {
+		return func(t *testing.T, y *askYard) {
+			t.Helper()
+			if _, err := y.UpdateBead(y.ctx, y.bead, BeadPatch{Originator: &to}, Expect{}, "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T, y *askYard)
+		ask   func(y *askYard) string
+		since func(t *testing.T, y *askYard)
+		want  string
+	}{
+		{"a user added since", nil,
+			func(y *askYard) string { return "user add eve" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.AddUser(y.ctx, "eve", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "there is a user eve already"},
+		{"a user removed and added again", nil,
+			func(y *askYard) string { return "user rm ada" },
+			func(t *testing.T, y *askYard) {
+				if err := y.DeleteUser(y.ctx, "ada", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := y.AddUser(y.ctx, "ada", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the user ada was another: they were removed and added again since"},
+		{"a crew definition set since", nil,
+			func(y *askYard) string { return "crew set yardmaster peers=airy" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Dir: "/yard"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the crew member yardmaster was another: its definition was set since"},
+		{"a setting changed since", nil,
+			func(y *askYard) string { return "settings set max_sessions 20" },
+			func(t *testing.T, y *askYard) {
+				if err := y.SetSetting(y.ctx, "max_sessions", "30", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when setting max_sessions was another: it was changed since"},
+		{"a peer renamed since", nil,
+			func(y *askYard) string { return "peer rename airy north" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.RenamePeer(y.ctx, "airy", "east", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "peer airy: not found"},
+		{"an originator changed since", nil,
+			func(y *askYard) string { return "bead update " + y.bead + " --originator ada" },
+			originator("mckean"), "is for no one now, and it is for mckean"},
+		{"an originator already", nil,
+			func(y *askYard) string { return "bead update " + y.bead + " --originator ada" },
+			originator("ada"), "it is for ada already: nothing is left to change"},
+		{"a timer gone since",
+			func(t *testing.T, y *askYard) { timer = y.timer(t, "mckean", "mckean") },
+			func(y *askYard) string { return "timer rm " + timer },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.RemoveTimer(y.ctx, timer, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "timer t1: not found"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			y, _ := runYard(t)
+			if c.setup != nil {
+				c.setup(t, y)
+			}
+			seq := y.ask(t, listAsk("mckean", c.ask(y)), "yardmaster")
+			c.since(t, y)
+			y.refusedStale(t, seq, c.want)
+		})
 	}
 }

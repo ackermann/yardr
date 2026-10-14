@@ -1369,9 +1369,12 @@ setting; this is <actor>`, nothing is stored and no `setting_changed` event
 is written. That holds for every setting, `operator` among them: the
 operator names the next one. No crew member and no bead's agent sets one,
 and there is no grant that lets one. Reading (`yardr settings get`) is
-anyone's. Like the other things only the operator does (adding a user or a
-peer), this is a line against mistakes, not a wall: nothing checks who is
-at the keyboard.
+anyone's. A crew member that wants a setting changed proposes it with a
+run ask ([chat.md](chat.md#questions-for-you)), for the settings the list
+names; `operator` and the settings of where the yard reads and serves from
+stay the operator's to type. Like the other things only the operator does
+(adding a user or a peer), this is a line against mistakes, not a wall:
+nothing checks who is at the keyboard.
 
 A yard that names no operator yet has nobody to hold a setting to. It
 takes one from anyone who is no agent of its own: no crew member, and no

@@ -174,7 +174,7 @@ everything either way.`,
 	}
 	set := &cobra.Command{
 		Use:   "set <name> [notify=<source>] [env_file=<file>] [tell=<parts>]",
-		Short: "Say which source tells a user outside the yard, where their address is, and of what",
+		Short: "Set where, how and what a source tells a user",
 		Long: `notify is the source that tells the user outside the yard: a declared source
 whose file has a notify key (yardr source list shows which), or a source
 yardr has built in that can. One that cannot is refused, with the ones that
