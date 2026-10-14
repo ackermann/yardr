@@ -100,7 +100,8 @@ itself says.
 With a source that says limits
 ([integrations.md](integrations.md#say-what-a-subscription-still-carries))
 `--try` also runs that source's command, once for each provider the yard
-burns that a source answers for, for up to 30 seconds each, and says what
+burns that a source answers for, and once for each source that answers for
+itself, for up to 30 seconds each, and says what
 it answered. It is the one place doctor asks a provider of limits.
 
 With declared sources
@@ -308,13 +309,15 @@ never a fault. Not printed on a home with no yard.
 | `not configured packs: no pack is imported; yardr pack apply <dir> --depot <depot> (docs/packs.md)` | |
 | `configured packs: <pack> into <depot>, …` | |
 | `not configured limits: no source says what a harness kind's subscription still carries, so a usage limit is known only by the harness stopping on it; a source with a limits key says it (yardr source --help, docs/integrations.md)` | no declared source has a `limits` key ([integrations.md](integrations.md#say-what-a-subscription-still-carries)) |
-| `configured limits: <source> for <kind>, <kind>; …; not asked (yardr limits asks, and yardr doctor --try)` | which source says the limits of which harness kinds, read from the sources' files. Its command was not run: a provider is slow, and asking is a person's to want |
-| `configured limits: <source> for <kind>, <kind>; …` | the same under `--try`, followed by a `tried:` line per provider |
+| `configured limits: <source> for <kind>, <kind>; …; not asked (yardr limits asks, and yardr doctor --try)` | which source says the limits of which harness kinds, read from the sources' files (`<source> answers for itself` for one with no kinds). Its command was not run: a provider is slow, and asking is a person's to want |
+| `configured limits: <source> for <kind>, <kind>; …` | the same under `--try`, followed by a `tried:` line per provider and per source that answers for itself |
 | `note limits: source <source> gives no answer as this command finds it: limits command <program>: <error>. The daemon's PATH is its own: name the program by its whole path` | the program the source's file names is not found by this command; nothing was run to find out |
 | `note limits: <kind> is in use (<who names it>) and no source says its limits (limits.kinds)` | a source says limits, and the yard's default, a group or a crew member runs on a kind none lists, naming no `provider` |
 | `note limits: <who> names provider <provider> and no source answers for it (limits.kinds)` | a group or crew member sets `provider` to a name no source's kinds values name |
-| `note limits: route <id> (stage <stage>) puts the condition <condition> on group <group>, and no source answers for its provider <provider>: the condition holds whatever is used (limits.kinds)` | a route's quota condition is on a group whose provider no source answers for (`its kind <kind>` for a group that names no `provider`), so it gates nothing ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)). Said with no limits source too |
+| `note limits: route <id> (stage <stage>) puts the condition <condition> on group <group>, and no source answers for its provider <provider>: the condition holds whatever is used (limits.kinds)` | a route's quota condition is on a group whose provider no source answers for (`its kind <kind>` for a group that names no `provider`), so it gates nothing (`the comparison on the provider's windows holds whatever is used` where the condition also names a source) ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)). Said with no limits source too |
+| `note limits: route <id> (stage <stage>) puts the condition <condition> on group <group>, and no source named <source> says limits of itself: the comparison holds whatever is used (a limits key with no kinds)` | a route's comparison names a source that answers for nothing of its own, so it gates nothing. Said with no limits source too |
 | `note limits: tried: <source> answered for provider <provider> (<who burns it>): <n> windows; <no window is used up, or: an agent burning <provider> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a provider the yard burns, for up to 30 seconds |
+| `note limits: tried: <source> answered for itself: <n> windows; <no window is used up, or: the <label> window is used up, which <resets <when> (in <how long>), or: reset not known>>` | `--try`: a source that answers for itself was asked once, for up to 30 seconds |
 | `note limits: tried: provider <provider> (<who burns it>) is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
 | `not configured login service for herdr's server: herdr's server does not start at login, and after a reboot no agent starts until it runs; yardr up --login installs its login service and the daemon's (docs/install.md, "Keep it running after a reboot")` | no service file in the user's service directory or the machine's runs `herdr server`: yardr's own is not there, and none of the person's is ([install.md](install.md#keep-it-running-after-a-reboot)) |
 | `configured login service for herdr's server: herdr's server starts at login (<file>); yardr down --login removes it with the last yard that starts at login` | `yardr up --login` wrote `<file>`, in this yard or another of the user's; whether the service manager has it loaded is not asked (`yardr status` asks) |

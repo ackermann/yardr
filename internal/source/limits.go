@@ -20,15 +20,26 @@ const ProviderMark = "{provider}"
 // carries: by a command of the operator's, which the yard runs. It is the
 // one thing of a declaration that is run and not sent, so it is the
 // operator's alone to add and no pack brings it.
+//
+// A source with no kinds answers for itself instead: its command takes no
+// ProviderMark and is asked by the source's name, for the windows it
+// reports. yardr limits names it beside the providers, and a route's
+// condition names its windows as source.window.
 type Limits struct {
 	// Command is the program and its arguments, run without a shell. One
-	// argument at least holds ProviderMark; the program never does.
+	// argument at least holds ProviderMark, unless the source answers for
+	// itself; the program never does.
 	Command []string `json:"command"`
 	// Kinds maps a harness kind (a group's or a crew member's kind) to the
 	// provider's own name for it. A kind that is not here has no limits
-	// known through this source.
+	// known through this source. None at all, and the source answers for
+	// itself.
 	Kinds map[string]string `json:"kinds"`
 }
+
+// Self reports whether the source answers for itself: its limits key names
+// no kinds, and its command is asked by the source's name.
+func (l *Limits) Self() bool { return len(l.Kinds) == 0 }
 
 // Argv is the command that asks for kind: Command with the provider's name
 // for the kind in place of ProviderMark. ok is false for a kind the source
@@ -66,24 +77,22 @@ func (l *Limits) KindNames() []string {
 var providerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // limits reads the key that makes a source one that says what a harness
-// kind's subscription still carries. What it refuses is what would fail at
-// every ask, or would ask something else than the file reads as: a command
-// that is no list of words, one with no place for the provider's name, a
+// kind's subscription still carries, or, with no kinds, what the source
+// says of itself. What it refuses is what would fail at every ask, or would
+// ask something else than the file reads as: a command that is no list of
+// words, one with no place for the provider's name where kinds are named, a
 // kind herdr starts no agent of.
 func (r *reader) limits(e entry) *Limits {
 	l := &Limits{Kinds: map[string]string{}}
 	commanded, kinded := false, false
+	var commandNode *yaml.Node
 	for _, f := range r.entries(e.v, e.path, "command", "kinds") {
 		switch f.key {
 		case "command":
-			commanded = true
+			commanded, commandNode = true, f.v
 			l.Command = r.command(f, strconv.Quote(ProviderMark)+", --json")
-			switch {
-			case l.Command == nil:
-			case strings.Contains(l.Command[0], ProviderMark):
+			if l.Command != nil && strings.Contains(l.Command[0], ProviderMark) {
 				r.errf(f.v, f.path, "%s in the program: it is the same program for every kind, and the provider's name is an argument of it", ProviderMark)
-			case !slices.ContainsFunc(l.Command[1:], func(a string) bool { return strings.Contains(a, ProviderMark) }):
-				r.errf(f.v, f.path, "no %s among the arguments: it is where the provider's name for the kind asked about goes", ProviderMark)
 			}
 		case "kinds":
 			kinded = true
@@ -111,7 +120,15 @@ func (r *reader) limits(e entry) *Limits {
 	if !commanded {
 		r.errf(e.v, join(e.path, "command"), "missing: the program that says the limits and its arguments, as a list with %s in it", ProviderMark)
 	}
-	if !kinded {
+	// The mark and the kinds go together: with kinds it is where the
+	// provider's name goes, and without both the source answers for
+	// itself.
+	marked := len(l.Command) > 0 && slices.ContainsFunc(l.Command[1:], func(a string) bool { return strings.Contains(a, ProviderMark) })
+	switch {
+	case l.Command == nil:
+	case kinded && !marked:
+		r.errf(commandNode, join(e.path, "command"), "no %s among the arguments: it is where the provider's name for the kind asked about goes", ProviderMark)
+	case !kinded && marked:
 		r.errf(e.v, join(e.path, "kinds"), "missing: the harness kinds the source answers for, each with the provider's own name for it (kimi: kimi)")
 	}
 	return l

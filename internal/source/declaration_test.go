@@ -401,6 +401,14 @@ func TestParseLimits(t *testing.T) {
 	if d, err = Parse("f", []byte(both)); err != nil || d.Limits == nil || len(d.Calls) != 1 || d.Notify == nil {
 		t.Fatalf("calls and limits = %+v, %v", d, err)
 	}
+	// With no kinds it answers for itself: its command takes no
+	// {provider} and is asked by the source's name.
+	self := "name: machine\nlimits:\n  command: [machine/limits, --target, load=80]\n"
+	if d, err = Parse("f", []byte(self)); err != nil || d.Limits == nil || !d.Limits.Self() || len(d.Limits.Kinds) != 0 {
+		t.Fatalf("a limits key with no kinds = %+v, %v", d, err)
+	} else if got := strings.Join(d.Limits.Command, " "); got != "machine/limits --target load=80" {
+		t.Fatalf("command = %q", got)
+	}
 }
 
 func TestParseLimitsRefusals(t *testing.T) {
@@ -416,7 +424,7 @@ func TestParseLimitsRefusals(t *testing.T) {
 		"a kind herdr does not start":     {limits(cmd + "  kinds: { kimi: kimi, chatgpt: codex }\n"), "f:4: limits.kinds.chatgpt: chatgpt is no harness kind herdr starts (it starts: pi, claude,"},
 		"a provider's name like a flag":   {limits(cmd + "  kinds: { kimi: --all }\n"), `limits.kinds.kimi: "--all" is no name of a provider`},
 		"a provider's name that is a map": {limits(cmd + "  kinds: { kimi: { name: kimi } }\n"), "limits.kinds.kimi: want a string, got a mapping"},
-		"no kinds":                        {limits(cmd), "limits.kinds: missing: the harness kinds the source answers for"},
+		"a mark with no kinds":            {limits(cmd), "limits.kinds: missing: the harness kinds the source answers for"},
 		"kinds that are empty":            {limits(cmd + "  kinds: {}\n"), "limits.kinds: no kind"},
 		"no command":                      {limits(kinds), "limits.command: missing: the program that says the limits"},
 		"a program that leaves the file":  {limits("  command: [../q, \"{provider}\"]\n" + kinds), `limits.command: the program "../q" has a '.' or '..' segment`},

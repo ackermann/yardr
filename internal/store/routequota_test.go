@@ -11,8 +11,8 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// quotaGroups are two groups that start agents, a and b, and one of
-// people.
+// quotaGroups are two groups that start agents, a and b, one of people,
+// and one that runs a command.
 func quotaGroups(t *testing.T) (store.API, func(first string, further ...string) (*store.Route, error)) {
 	t.Helper()
 	s, ctx := flowDepot(t)
@@ -20,6 +20,7 @@ func quotaGroups(t *testing.T) (store.API, func(first string, further ...string)
 		{Name: "a", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
 		{Name: "b", Runner: "herdr", Config: map[string]any{"kind": "codex"}},
 		{Name: "people", Runner: "manual", Members: []string{"jo"}},
+		{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}},
 	} {
 		if err := s.PutGroup(ctx, g, "jo"); err != nil {
 			t.Fatal(err)
@@ -94,12 +95,23 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 		{"a", []string{"people"}, "group people is manual: --else and a quota condition are for groups that start agents"},
 		{"people", []string{"a"}, "group people is manual: --else and a quota condition are for groups that start agents"},
 		{"people@Weekly<80", nil, "group people is manual: --else and a quota condition are for groups that start agents"},
+		{"people@machine.load<80", nil, "group people is manual: --else and a quota condition are for groups that start agents"},
+		{"refinery@Weekly<80", nil, "group refinery starts no agents: its condition names the window Weekly of a provider"},
+		{"refinery@machine.load<80,Weekly<80", nil, "group refinery starts no agents: its condition names the window Weekly of a provider"},
+		{"refinery@<80", nil, "group refinery starts no agents: its condition names every window of a provider"},
+		{"a@machine.load<80", []string{"refinery"}, "group refinery is exec: a route with several groups names only groups that start agents"},
+		{"refinery", []string{"a"}, "group refinery is exec: a route with several groups names only groups that start agents"},
+		{"wait", nil, "wait ends a route (--else wait): it is not a group to send to"},
+		{"wait@Weekly<80", nil, "wait ends a route (--else wait): it is not a group to send to"},
+		{"a@Weekly<80", []string{"wait@Weekly<80"}, "wait takes no condition"},
+		{"a@Weekly<80", []string{"wait", "b"}, "nothing is tried after wait"},
 		{"a", []string{"ghost"}, "group ghost: not found"},
 		{"a", []string{"b", "a"}, "group a is named twice"},
 		{"a@Weekly", nil, `condition "Weekly": "Weekly" is not <window><<percent used>`},
 		{"a@Weekly<lots", nil, `"Weekly<lots" is not <window><<percent used>`},
 		{"a@Weekly<80,5h<0", nil, `"5h<0" is not <window><<percent used>`},
 		{"a", []string{"b@<101"}, `group b: condition "<101"`},
+		{"a@.load<80", nil, `".load<80" is not <window><<percent used>`},
 		{"a@Weekly<target+lots", nil, `"Weekly<target+lots" is not <window><<percent used>, as in Weekly<80`},
 		{"a@Weekly<target+lots", nil, `nor <window><target> with an optional margin, as in Weekly<target+10`},
 		{"a@Weekly<target+", nil, `nor <window><target> with an optional margin`},
@@ -119,6 +131,66 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 	if routes, err := s.Routes(t.Context()); err != nil || len(routes) != 0 {
 		t.Fatalf("routes after the refusals = %+v, %v", routes, err)
 	}
+}
+
+// One exec group may be gated alone on the windows of sources, and a route
+// may end in wait; the marker lists with the route but is none of its
+// groups, and no group takes the name.
+func TestRouteGatesOneExecGroupAndEndsInWait(t *testing.T) {
+	s, add := quotaGroups(t)
+	ctx := t.Context()
+	r, err := add("refinery@machine.load<80", "wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.GroupList() != "refinery@machine.load<80 else wait" || r.Worker() != "refinery" || r.Further() != nil || !r.Quotaed() {
+		t.Fatalf("the route lists as %q, worker %q, further %q", r.GroupList(), r.Worker(), r.Further())
+	}
+	if _, err := add("a@machine.load<80", "wait"); err != nil {
+		t.Fatalf("a group that starts agents gated on a source: %v", err)
+	}
+	if _, err := add("refinery", "wait"); err != nil {
+		t.Fatalf("one exec group with wait and no condition: %v", err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "wait", Runner: "herdr"}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "wait ends a route (--else wait), so no group takes the name") {
+		t.Fatalf("a group named wait: %v", err)
+	}
+}
+
+// A group a route gates alone on a source may become exec; one a route with
+// several groups names, or one conditioned on a provider's windows, may not.
+func TestGroupGatedAloneOnASourceMayBecomeExec(t *testing.T) {
+	toExec := func(name string) store.Group {
+		return store.Group{Name: name, Runner: "exec", Config: map[string]any{"cmd": "true"}}
+	}
+	t.Run("gated alone on a source", func(t *testing.T) {
+		s, add := quotaGroups(t)
+		if _, err := add("a@machine.load<80", "wait"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(t.Context(), toExec("a"), "jo"); err != nil {
+			t.Fatalf("to exec: %v", err)
+		}
+	})
+	t.Run("with several groups", func(t *testing.T) {
+		s, add := quotaGroups(t)
+		if _, err := add("a@machine.load<80", "b"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(t.Context(), toExec("a"), "jo"); err == nil || !strings.Contains(err.Error(), "it cannot become exec") {
+			t.Fatalf("to exec: %v", err)
+		}
+	})
+	t.Run("conditioned on a provider", func(t *testing.T) {
+		s, add := quotaGroups(t)
+		if _, err := add("a@Weekly<80"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(t.Context(), toExec("a"), "jo"); err == nil || !strings.Contains(err.Error(), "it cannot become exec") {
+			t.Fatalf("to exec: %v", err)
+		}
+	})
 }
 
 // A group a route names with --else or a condition cannot be saved with
@@ -184,6 +256,15 @@ func TestRouteChoose(t *testing.T) {
 		q.Windows[1].TargetPercent = pct(weekTarget)
 		return q
 	}
+	// machine is what the machine source says of itself: load at load
+	// percent, swap and disk nearly idle, each with its target.
+	machine := func(load float64) store.Quota {
+		return store.Quota{Provider: "machine", Windows: []store.QuotaWindow{
+			{Label: "load", UsedPercent: pct(load), TargetPercent: pct(80)},
+			{Label: "swap", UsedPercent: pct(10), TargetPercent: pct(85)},
+			{Label: "disk", UsedPercent: pct(40), TargetPercent: pct(90)},
+		}}
+	}
 	route := func(first string, further ...string) store.Route {
 		g := store.ParseRouteGroup(first)
 		r := store.Route{Group: g.Name, When: g.When}
@@ -192,6 +273,8 @@ func TestRouteChoose(t *testing.T) {
 		}
 		return r
 	}
+	// quota holds the provider's windows by group, and a source's own under
+	// the source's name.
 	for name, tc := range map[string]struct {
 		route store.Route
 		quota map[string]store.Quota
@@ -243,17 +326,40 @@ func TestRouteChoose(t *testing.T) {
 				{Group: "a", Reason: "Claude's 5h window is 95% used, the route asks under 90", ResetsAt: &early}}}, "a"},
 		"a window with no target": {route("a@Weekly<target+10", "b"), map[string]store.Quota{"a": claude(99, 10)},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: Claude's report does not say the target of the Weekly window"}, "a"},
+		"a source's window under its threshold": {route("a@machine.load<80", "b"), map[string]store.Quota{"machine": machine(70)},
+			store.RouteChoice{Group: "a"}, "a@machine"},
+		"a source's window past it": {route("a@machine.load<80", "b"), map[string]store.Quota{"machine": machine(93)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "machine's load window is 93% used, the route asks under 80"}}}, "a@machine"},
+		"every window of a source": {route("a@machine.<80", "b"), map[string]store.Quota{"machine": machine(93)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "machine's load window is 93% used, the route asks under 80"}}}, "a@machine"},
+		"a source and a provider in one condition": {route("a@machine.load<80,Weekly<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": claude(90, 10)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: &late}}}, "a@machine a"},
+		"a source nothing is known of holds": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": {Unknown: "no source named machine says limits of itself"}},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no source named machine says limits of itself"}, "a@machine"},
+		"wait ends the route": {route("a@Weekly<80", "wait"), map[string]store.Quota{"a": claude(90, 10)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: &late}}}, "a"},
+		"wait after a group with no condition": {route("a", "wait"), nil, store.RouteChoice{Group: "a"}, ""},
 	} {
 		var asked []string
-		got := tc.route.Choose(func(group string) store.Quota {
-			asked = append(asked, group)
-			return tc.quota[group]
+		got := tc.route.Choose(func(group, source string) store.Quota {
+			if source == "" {
+				asked = append(asked, group)
+				return tc.quota[group]
+			}
+			asked = append(asked, group+"@"+source)
+			return tc.quota[source]
 		})
 		if !reflect.DeepEqual(got, tc.want) || strings.Join(asked, " ") != tc.asked {
 			t.Errorf("%s:\n got %+v (asked %v)\nwant %+v (asked %s)", name, got, asked, tc.want, tc.asked)
 		}
 	}
-	c := route("a@Weekly<80", "b@5h<50").Choose(func(string) store.Quota { return claude(90, 90) })
+	c := route("a@Weekly<80", "b@5h<50").Choose(func(_, _ string) store.Quota { return claude(90, 90) })
 	if at := c.Resets(); at == nil || !at.Equal(early) {
 		t.Errorf("the earliest reset = %v, want %v", at, early)
 	}

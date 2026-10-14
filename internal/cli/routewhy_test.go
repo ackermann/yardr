@@ -272,6 +272,46 @@ func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
 	}
 }
 
+// doctor notes a comparison that names a source with no limits of its own,
+// and stays quiet where the source answers for itself.
+func TestDoctorNotesARouteWhoseConditionNamesNoSuchSource(t *testing.T) {
+	_, st, _ := quotaCLI(t)
+	ctx := context.Background()
+	cfg := &config.Config{Home: t.TempDir()}
+	r, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "ghost.load<80",
+		Else: []store.RouteGroup{{Name: "b", When: "ghost.load<80,ghost.swap<80"}}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err := limitsPart(ctx, cfg, st, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"route " + r.ID + " (stage new) puts the condition ghost.load<80 on group a, and no source named ghost says limits of itself: the comparison holds whatever is used (a limits key with no kinds)",
+		"route " + r.ID + " (stage new) puts the condition ghost.load<80,ghost.swap<80 on group b, and no source named ghost says limits of itself: the comparison holds whatever is used (a limits key with no kinds)",
+	}
+	if strings.Join(part.Notes, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("notes = %q; want %q", part.Notes, want)
+	}
+	if _, err := st.PutSource(ctx, "machine.yaml", "name: machine\nlimits:\n  command: [/bin/true]\n", "me"); err != nil {
+		t.Fatal(err)
+	}
+	sourced, err := st.AddRoute(ctx, store.Route{Stage: "review", Group: "a", When: "machine.load<80"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err = limitsPart(ctx, cfg, st, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range part.Notes {
+		if strings.Contains(n, sourced.ID) {
+			t.Fatalf("a condition the machine source answers for is noted: %q", n)
+		}
+	}
+}
+
 // A herdr group stored without a kind burns the provider of the yard's
 // default_kind, as its sessions do, in route add's warning and doctor's
 // note alike. (yardr-j6f0: both took it for the runner's own default.)

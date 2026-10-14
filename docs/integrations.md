@@ -445,6 +445,20 @@ yardr limits
 #   an agent burning kimi waits for the 5h window, which resets 00:02 (in 42m)
 ```
 
+A source with no kinds answers for itself instead, and `yardr limits`
+lists it beside the providers, each with its windows. `machine` is one,
+whose command says the load, swap and disk of this machine
+(`contrib/machine-limits`):
+
+```sh
+yardr limits machine
+# machine says (provider machine):
+#   load  12.5% used (target 80%)  reset not known
+#   swap  10% used (target 85%)     reset not known
+#   disk  40% used (target 90%)     reset not known
+#   no window is used up
+```
+
 yardr holds no logic of any provider. A declared source has the capability
 when its file has a `limits` key: **a command**, and the harness kinds it
 answers for, each with the provider's own name for it. Such a file needs no
@@ -473,6 +487,29 @@ yardr limits                    # every provider the yard burns, each once, nami
 yardr limits kimi --json        # the report, for a program
 ```
 
+With no kinds the file is shorter, and the command takes no `{provider}`:
+
+```yaml
+name: machine
+about: Load, swap and disk of this machine, as limits windows (contrib/machine-limits).
+limits:
+  command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90]
+```
+
+```sh
+yardr source add contrib/machine-limits/machine.yaml   # from main, not a checkout
+yardr source check machine     # asks the source once, for itself
+yardr limits                   # its windows beside the providers'
+```
+
+`load` is the 1-minute load average over the core count, as a percent (10
+cores at load 8 = 80); `swap` is used over total swap, or 0 where the
+machine has none; `disk` is used over the volume that holds the yard's
+home. Each carries its target, the `--target` the declaration sets (the
+script's defaults are the same). None resets. A route's condition names
+one as `machine.load<80`
+([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
+
 Leave out of `kinds` the harnesses that are not logged in on the machine:
 they have no answer, and `source check` fails for them.
 
@@ -482,11 +519,15 @@ they have no answer, and `source check` fails for them.
   of its `kind`. Not a model: no provider answers by model. A provider no
   source names has no limits known, and a kind that resolves to nothing is
   not asked. `yardr limits <kind>` still asks by kind, for the one named.
+  For a source with no kinds the question is the source itself, asked by
+  its name: `yardr limits machine`.
 - **The command** is run by yardr itself, as the user yardr runs as:
   without a shell (each word is one element of the list), its stdin closed,
   in the yard's home, with the environment of whoever asks and nothing
   added, `{provider}` replaced by the provider's name: the `provider`
-  setting's where one is set, else the name the kind maps to. It has 30
+  setting's where one is set, else the name the kind maps to. A command
+  that answers for its source is run as the file has it, with nothing
+  replaced. It has 30
   seconds; then it and everything it started are killed as one process
   group. Name the program by its whole path (the daemon's `PATH` need not
   be your shell's), or as a file beside the declaration, which `source add`
@@ -534,9 +575,10 @@ they have no answer, and `source check` fails for them.
   condition on a group**
   ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
   at the moment one of the route's groups could start the bead it asks for
-  the group's provider, and for this it keeps what the provider said for
+  the group's provider, and for each source the condition names for the
+  source itself, and for this it keeps what each said for
   five minutes, a failed run included. So that is at most twelve runs an
-  hour for a provider however many beads are ready, none while no ready
+  hour for a provider or a source however many beads are ready, none while no ready
   bead meets a condition, and a pass that asks holds for at most the
   command's 30 seconds.
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
@@ -549,8 +591,9 @@ they have no answer, and `source check` fails for them.
   says which source answers for which kinds and runs nothing
   ([doctor.md](doctor.md#optional)).
 - **Refused when the file is added**: a `command` that is no list of
-  strings, has no `{provider}` among its arguments or has it in the
-  program; a kind herdr starts no agent of; a provider's name that could
+  strings, has no `{provider}` among its arguments where the file names
+  kinds, or has it in the program; a `{provider}` where the file names no
+  kinds; a kind herdr starts no agent of; a provider's name that could
   be read as a flag; a kind another source of the yard already answers for
   (one source answers for a kind); `base`, `credential`, `check` or
   `notify` in a file with no `calls`.

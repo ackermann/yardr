@@ -81,8 +81,12 @@ func putGroup(w *wtx, g *Group, actor string) error {
 		return fmt.Errorf("group %s: members are only for manual groups (this one is %s)", g.Name, g.Runner)
 	}
 	var old Group
-	if _, err := get(w.Tx, bGroups, g.Name, &old); err != nil {
+	replaced, err := get(w.Tx, bGroups, g.Name, &old)
+	if err != nil {
 		return err
+	}
+	if g.Name == RouteWait && !replaced {
+		return fmt.Errorf("group wait: wait ends a route (--else wait), so no group takes the name")
 	}
 	g.Subscriptions = old.Subscriptions
 	kept := old.Config
@@ -306,10 +310,10 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 //
 // A route may name further groups after the first (Else), and each group it
 // names may carry a condition on the windows of its provider's usage limits
-// (When, RouteGroup.When). Group, When and Else are how the record is
-// stored, and a route from before them is one group without a condition;
-// they are read through Groups and Choose alone, so that the dispatcher and
-// every view give one answer about a route.
+// or of a source's own (When, RouteGroup.When); wait ends it. Group, When
+// and Else are how the record is stored, and a route from before them is one
+// group without a condition; they are read through Groups and Choose alone,
+// so that the dispatcher and every view give one answer about a route.
 //
 // Label and AndLabels are stored the same way, a route from before the
 // second being one with a label or none; they are read through Labels.
@@ -330,6 +334,11 @@ type Route struct {
 	When string       `json:"when,omitempty"`
 	Else []RouteGroup `json:"else,omitempty"`
 }
+
+// RouteWait ends a route: the bead waits, as when no group's condition
+// holds. It is not a group: no group is named it, it takes no condition,
+// and nothing is tried after it.
+const RouteWait = "wait"
 
 // RouteGroup is one group a route names and the condition it takes the
 // route's beads under.
@@ -403,10 +412,14 @@ func (r Route) Names(group string) bool {
 // gives the answer the first does, whatever the quota.
 func (r Route) Worker() string { return r.Groups()[0].Name }
 
-// Further are the names of the groups after the first, in order.
+// Further are the names of the groups after the first, in order. The wait
+// marker is none: it ends the route, and nothing after it is tried.
 func (r Route) Further() []string {
 	var out []string
 	for _, g := range r.Groups()[1:] {
+		if g.Name == RouteWait {
+			continue
+		}
 		out = append(out, g.Name)
 	}
 	return out
@@ -433,8 +446,10 @@ func (r Route) GroupList() string {
 // labels Label is less than Under percent used, or, where Target is set,
 // less than the window's target (the share of it that has passed, as the
 // source reports it) plus Margin. Label "" is every window the provider
-// reports.
+// reports. Source names a source of the yard, and the window is one of the
+// windows it answers for itself; "" is the group's provider.
 type QuotaLimit struct {
+	Source string
 	Label  string
 	Under  float64
 	Target bool
@@ -442,18 +457,29 @@ type QuotaLimit struct {
 }
 
 // ParseQuota reads a condition, comparisons separated by commas:
-// "Weekly<80,5h<90", or "<80" for every window. In place of a number the
-// right side may be the window's target with an optional margin:
-// "Weekly<target", "Weekly<target+10". The label is the limits source's
-// own text for the window, so the yard knows no provider's windows; the
-// number and the margin are the operator's.
+// "Weekly<80,5h<90", or "<80" for every window. A comparison may name a
+// source for the window: "machine.load<80", or "machine.<80" for every
+// window the source reports. In place of a number the right side may be the
+// window's target with an optional margin: "Weekly<target",
+// "Weekly<target+10". The label is the limits source's own text for the
+// window, so the yard knows no provider's windows; the number and the
+// margin are the operator's.
 func ParseQuota(when string) ([]QuotaLimit, error) {
 	var out []QuotaLimit
 	for _, part := range strings.Split(when, ",") {
 		label, num, ok := strings.Cut(part, "<")
-		l := QuotaLimit{Label: strings.TrimSpace(label)}
 		if !ok {
 			return nil, quotaError(when, part)
+		}
+		l := QuotaLimit{}
+		label = strings.TrimSpace(label)
+		if head, window, dotted := strings.Cut(label, "."); dotted {
+			l.Source, l.Label = strings.TrimSpace(head), strings.TrimSpace(window)
+			if l.Source == "" {
+				return nil, quotaError(when, part)
+			}
+		} else {
+			l.Label = label
 		}
 		if under, err := strconv.ParseFloat(strings.TrimSpace(num), 64); err == nil && under > 0 && under <= 100 {
 			l.Under = under
@@ -470,10 +496,10 @@ func ParseQuota(when string) ([]QuotaLimit, error) {
 	return out, nil
 }
 
-// quotaError is why a comparison is none: it names both right sides, the
-// number and the target.
+// quotaError is why a comparison is none: it names the window's two forms
+// and both right sides, the number and the target.
 func quotaError(when, part string) error {
-	return fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or <80 for every window), with a percentage above 0 and at most 100, nor <window><target> with an optional margin, as in Weekly<target+10", when, part)
+	return fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or machine.load<80 for a window of a source, <80 for every window), with a percentage above 0 and at most 100, nor <window><target> with an optional margin, as in Weekly<target+10", when, part)
 }
 
 // parseMargin reads the right side of a comparison with the target: the
@@ -510,9 +536,9 @@ func parseMargin(right string) (float64, bool) {
 	return sign * margin, true
 }
 
-// Quota is what is known of the windows of a group's provider when a route
-// chooses: what the yard's limits source said. The store asks nobody; the
-// dispatcher hands it in (Route.Choose).
+// Quota is what is known of the windows of a group's provider, or of a
+// source's own, when a route chooses: what the yard's limits source said.
+// The store asks nobody; the dispatcher hands it in (Route.Choose).
 type Quota struct {
 	// Provider names whose windows these are, for the sentence about one.
 	Provider string
@@ -575,14 +601,18 @@ func (c RouteChoice) Why() string {
 
 // Choose goes through the route's groups in order and takes the first
 // whose condition holds. quota is asked for the windows of a group's
-// provider, only for a group that has a condition and only once the groups
-// before it failed theirs: whoever calls decides whether and how they are
-// learned, and a route with no condition asks for nothing. Whether the
-// group chosen can start a bead now (its limit, its runtime) is not asked
-// here: a group at its limit is waited for, not passed over.
-func (r Route) Choose(quota func(group string) Quota) RouteChoice {
+// provider, and of each source its condition names, only for a group that
+// has a condition and only once the groups before it failed theirs: whoever
+// calls decides whether and how they are learned, and a route with no
+// condition asks for nothing. Whether the group chosen can start a bead now
+// (its limit, its runtime) is not asked here: a group at its limit is
+// waited for, not passed over.
+func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
 	var c RouteChoice
 	for _, g := range r.Groups() {
+		if g.Name == RouteWait {
+			return c
+		}
 		if g.When == "" {
 			c.Group = g.Name
 			return c
@@ -594,7 +624,18 @@ func (r Route) Choose(quota func(group string) Quota) RouteChoice {
 			c.Group, c.Unknown = g.Name, err.Error()
 			return c
 		}
-		failed, unknown, resets := quota(g.Name).judge(limits)
+		// Each source a condition names is asked once, "" being the
+		// group's provider.
+		asked := map[string]Quota{}
+		get := func(source string) Quota {
+			q, ok := asked[source]
+			if !ok {
+				q = quota(g.Name, source)
+				asked[source] = q
+			}
+			return q
+		}
+		failed, unknown, resets := judge(limits, get)
 		if len(failed) == 0 {
 			c.Group = g.Name
 			if len(unknown) > 0 {
@@ -609,16 +650,24 @@ func (r Route) Choose(quota func(group string) Quota) RouteChoice {
 
 // judge compares the windows with limits: the comparisons that failed, in
 // words, those that could not be made, and the earliest reset among the
-// windows that failed.
-func (q Quota) judge(limits []QuotaLimit) (failed, unknown []string, resets *time.Time) {
-	if q.Unknown != "" {
-		return nil, []string{q.Unknown}, nil
-	}
-	whose := "its provider's"
-	if q.Provider != "" {
-		whose = q.Provider + "'s"
-	}
+// windows that failed. Each comparison reads the quota of the source it
+// names, "" being the group's provider; a source nothing is known of is
+// said once, however many comparisons name it.
+func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknown []string, resets *time.Time) {
+	said := map[string]bool{}
 	for _, l := range limits {
+		q := quota(l.Source)
+		if q.Unknown != "" {
+			if !said[l.Source] {
+				said[l.Source] = true
+				unknown = append(unknown, q.Unknown)
+			}
+			continue
+		}
+		whose := "its provider's"
+		if q.Provider != "" {
+			whose = q.Provider + "'s"
+		}
 		seen := false
 		for _, w := range q.Windows {
 			if l.Label != "" && w.Label != l.Label {
@@ -707,9 +756,10 @@ func routeEvent(r Route) map[string]any {
 
 // AddRoute adds a route and logs route_added. Every group it names must
 // exist. One that names a further group or carries a condition may name
-// only groups that start agents: a quota means nothing for people, a
-// script or another yard, and with it holds that whichever group of such a
-// route takes a bead, agents work the stage and nobody is a member.
+// only groups that start agents, or gate one exec group alone on the
+// windows of sources: a quota means nothing for people or another yard, and
+// with it holds that whichever group of such a route takes a bead, one
+// runner works the stage and nobody is a member.
 //
 // A label given twice is stored once, and the first of them as Label,
 // where a route with one label always had it.
@@ -726,17 +776,28 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		return nil, fmt.Errorf("bead priority %d: a bead's priority is 0 or more, 0 the most urgent", *r.BeadPriority)
 	}
 	err := s.write(func(w *wtx) error {
-		for i, rg := range r.Groups() {
+		gs := r.Groups()
+		runners := make(map[string]string, len(gs))
+		for i, rg := range gs {
+			if rg.Name == RouteWait {
+				switch {
+				case i == 0:
+					return fmt.Errorf("wait ends a route (--else wait): it is not a group to send to")
+				case rg.When != "":
+					return fmt.Errorf("wait takes no condition: it ends the route, and the bead waits")
+				case i != len(gs)-1:
+					return fmt.Errorf("nothing is tried after wait: it ends the route")
+				}
+				continue
+			}
 			var g Group
 			if ok, err := get(w.Tx, bGroups, rg.Name, &g); err != nil {
 				return err
 			} else if !ok {
 				return fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
 			}
-			if r.Quotaed() && g.Runner != "herdr" {
-				return fmt.Errorf("group %s is %s: --else and a quota condition are for groups that start agents", g.Name, g.Runner)
-			}
-			if slices.ContainsFunc(r.Groups()[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
+			runners[rg.Name] = g.Runner
+			if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
 				return fmt.Errorf("group %s is named twice", rg.Name)
 			}
 			if rg.When != "" {
@@ -744,6 +805,9 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 					return fmt.Errorf("group %s: %w", rg.Name, err)
 				}
 			}
+		}
+		if err := quotaGroupsOK(r, runners); err != nil {
+			return err
 		}
 		if r.Depot != nil && w.Bucket(bDepots).Get([]byte(*r.Depot)) == nil {
 			return fmt.Errorf("depot %s: %w", *r.Depot, ErrNotFound)
@@ -760,14 +824,83 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 	return &r, nil
 }
 
+// quotaGroupsOK is nil when the groups of r, a route with --else or a
+// condition, may carry it: every group named starts agents, or the route
+// gates one exec group alone on the windows of sources. runners names each
+// group's runner; the wait marker is none. A group that starts no agents
+// burns no provider, so a condition on one names a source alone; and with
+// one group whichever takes a bead, one runner works the stage.
+func quotaGroupsOK(r Route, runners map[string]string) error {
+	if !r.Quotaed() {
+		return nil
+	}
+	var real []RouteGroup
+	for _, g := range r.Groups() {
+		if g.Name != RouteWait {
+			real = append(real, g)
+		}
+	}
+	for _, g := range real {
+		switch runners[g.Name] {
+		case "herdr":
+			continue
+		case "exec":
+		default:
+			return fmt.Errorf("group %s is %s: --else and a quota condition are for groups that start agents; one exec group may be gated alone on a source, as refinery@machine.load<80", g.Name, runners[g.Name])
+		}
+		if len(real) > 1 {
+			return fmt.Errorf("group %s is exec: a route with several groups names only groups that start agents; gate one exec group alone, as refinery@machine.load<80", g.Name)
+		}
+		if g.When == "" {
+			continue
+		}
+		// AddRoute parsed this already; a record that does not is refused
+		// as it reads.
+		limits, err := ParseQuota(g.When)
+		if err != nil {
+			return fmt.Errorf("group %s: %w", g.Name, err)
+		}
+		for _, l := range limits {
+			if l.Source == "" {
+				what := "the window " + l.Label
+				if l.Label == "" {
+					what = "every window"
+				}
+				return fmt.Errorf("group %s starts no agents: its condition names %s of a provider, which only a group that starts agents burns; a condition on it names a source alone, as machine.load<80", g.Name, what)
+			}
+		}
+	}
+	return nil
+}
+
 // checkQuotaRoutes refuses saving g, a group that starts no agents, while a
-// route that names a further group or carries a condition names it: AddRoute
-// let that route in because the group started agents.
+// route that names a further group or carries a condition names it and would
+// no longer carry it: AddRoute let that route in because the group started
+// agents, or was the one exec group it gates on a source.
 func checkQuotaRoutes(tx *bolt.Tx, g *Group) error {
 	return each(tx, bRoutes, "", func(_ []byte, r *Route) error {
-		if r.Quotaed() && r.Names(g.Name) {
-			return fmt.Errorf("group %s: route %s (%s, stage %s) names it with --else or a quota condition, which are for groups that start agents: it cannot become %s (yardr route rm %s first)",
-				g.Name, r.ID, r.GroupList(), r.Stage, g.Runner, r.ID)
+		if !r.Quotaed() || !r.Names(g.Name) {
+			return nil
+		}
+		runners := map[string]string{}
+		for _, rg := range r.Groups() {
+			if rg.Name == RouteWait {
+				continue
+			}
+			if rg.Name == g.Name {
+				runners[rg.Name] = g.Runner
+				continue
+			}
+			var o Group
+			if ok, err := get(tx, bGroups, rg.Name, &o); err != nil {
+				return err
+			} else if ok {
+				runners[rg.Name] = o.Runner
+			}
+		}
+		if err := quotaGroupsOK(*r, runners); err != nil {
+			return fmt.Errorf("group %s: route %s (%s, stage %s) names it with --else or a quota condition, and %s: it cannot become %s (yardr route rm %s first)",
+				g.Name, r.ID, r.GroupList(), r.Stage, err, g.Runner, r.ID)
 		}
 		return nil
 	})

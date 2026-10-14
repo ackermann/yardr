@@ -328,6 +328,113 @@ func TestLimitsOfTheProvidersInUse(t *testing.T) {
 	}
 }
 
+// selfStandIn is a file of a source, machine, that answers for itself: its
+// command takes no provider, writes a line to asked each time it is run,
+// and then does body.
+func selfStandIn(t *testing.T, body string) (file, asked string) {
+	t.Helper()
+	dir := t.TempDir()
+	asked = filepath.Join(dir, "asked")
+	script := filepath.Join(dir, "machine")
+	scripttest.Write(t, script, "#!/bin/sh\necho ran >>"+asked+"\n"+body+"\n")
+	file = filepath.Join(dir, "machine.yaml")
+	if err := os.WriteFile(file, []byte("name: machine\nlimits:\n  command: ["+script+"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return file, asked
+}
+
+// machineAnswer is a report with the load, swap and disk windows, each with
+// its target.
+func machineAnswer() string {
+	return `echo '{"provider":"machine","windows":[` +
+		`{"label":"load","used_percent":12.5,"target_percent":80},` +
+		`{"label":"swap","used_percent":10,"target_percent":85},` +
+		`{"label":"disk","used_percent":93,"target_percent":90}]}'`
+}
+
+// yardr limits lists a source that answers for itself beside the providers,
+// each with its windows and their targets; with its name it asks for it
+// alone. --json carries the sources under sources.
+func TestLimitsListsASourceThatAnswersForItself(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "jo"}
+	file, _ := limitsStandIn(t, kimiAnswer())
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	machine, askedMachine := selfStandIn(t, machineAnswer())
+	out, err := run(t, a.sourceCmd(), "add", machine)
+	if err != nil || !strings.Contains(out, "limits: its command says what the source itself carries (yardr limits)") ||
+		!strings.Contains(out, "next: yardr source check machine (it asks the source for itself)") {
+		t.Fatalf("source add machine: %q %v", out, err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Config: map[string]any{"kind": "kimi"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.limitsCmd())
+	if err != nil {
+		t.Fatalf("limits: %q %v", out, err)
+	}
+	for _, want := range []string{
+		"moonshot  quokka says (provider Kimi): burned by group builders (kind kimi)",
+		"machine says (provider machine):\n",
+		"  load  12.5% used (target 80%)  reset not known",
+		"  swap  10% used (target 85%)",
+		"  disk  93% used (target 90%)",
+		"over target",
+		"  no window is used up",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("limits printed no %q:\n%s", want, out)
+		}
+	}
+	if got := asks(t, askedMachine); got != "ran" {
+		t.Fatalf("asked machine = %q, want once", got)
+	}
+
+	a.json = true
+	out, err = run(t, a.limitsCmd())
+	a.json = false
+	var res struct {
+		Limits []struct {
+			Provider string `json:"provider"`
+		} `json:"limits"`
+		Sources []struct {
+			Source string `json:"source"`
+			Limits struct {
+				Provider string `json:"provider"`
+				Windows  []struct {
+					Label         string   `json:"label"`
+					TargetPercent *float64 `json:"target_percent"`
+				} `json:"windows"`
+			} `json:"limits"`
+			Unknown string `json:"limits_unknown"`
+		} `json:"sources"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 1 || len(res.Sources) != 1 {
+		t.Fatalf("limits --json: %q %v", out, err)
+	}
+	if s := res.Sources[0]; s.Source != "machine" || s.Limits.Provider != "machine" || len(s.Limits.Windows) != 3 ||
+		s.Limits.Windows[0].Label != "load" || *s.Limits.Windows[0].TargetPercent != 80 || s.Unknown != "" {
+		t.Fatalf("limits --json sources = %+v", res.Sources)
+	}
+
+	// With its name the source is asked for alone, and a kind it does not
+	// list stays a kind: the kind meaning wins.
+	out, err = run(t, a.limitsCmd(), "machine")
+	if err != nil || !strings.Contains(out, "machine says (provider machine):\n") || strings.Contains(out, "moonshot") {
+		t.Fatalf("limits machine: %q %v", out, err)
+	}
+	if out, err = run(t, a.limitsCmd(), "kimi"); err != nil || !strings.Contains(out, "kimi  quokka says") {
+		t.Fatalf("limits kimi: %q %v", out, err)
+	}
+	if got := asks(t, askedMachine); got != "ran ran ran" {
+		t.Fatalf("asked machine = %q, want once per run that lists it, and none for the kind", got)
+	}
+}
+
 // An explicit provider is still a known use when no source has a limits key:
 // list it as unknown, while kinds with no provider remain unmapped.
 func TestLimitsProviderWithoutAnySource(t *testing.T) {
@@ -509,6 +616,73 @@ func TestSourceWithLimitsShownAndChecked(t *testing.T) {
 	}
 	if out, err = run(t, a.sourceCmd(), "check", "quokka"); err != nil {
 		t.Fatalf("check, every kind answered: %q %v", out, err)
+	}
+}
+
+// A source that answers for itself is shown and listed with its command,
+// and yardr source check asks it once, for the source.
+func TestSourceThatAnswersForItselfShownAndChecked(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	file, asked := selfStandIn(t, machineAnswer())
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "machine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"machine  no calls\n",
+		"  limits: its command says what the source itself carries (yardr limits)\n",
+		"    command: ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show printed no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "kind ") {
+		t.Errorf("show speaks of kinds for a source that answers for itself:\n%s", out)
+	}
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "itself") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	if got := asks(t, asked); got != "" {
+		t.Fatalf("show and list asked: %q", got)
+	}
+	out, err = run(t, a.sourceCmd(), "check", "machine")
+	if err != nil || !strings.Contains(out, "machine: limits: machine says (provider machine):") ||
+		!strings.Contains(out, "machine: limits:   load  12.5% used (target 80%)") {
+		t.Fatalf("check: %q %v", out, err)
+	}
+	if got := asks(t, asked); got != "ran" {
+		t.Fatalf("check asked %q, want the source once", got)
+	}
+}
+
+// doctor says of a source that answers for itself, and --try asks it.
+func TestDoctorLimitsPartAsksASourceThatAnswersForItself(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	cfg := &config.Config{Home: t.TempDir()}
+	file, asked := selfStandIn(t, machineAnswer())
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	part, err := limitsPart(context.Background(), cfg, st, nil, false)
+	if err != nil || !part.Configured || !strings.HasPrefix(part.Detail, "machine answers for itself; not asked (") || len(part.Notes) != 0 {
+		t.Fatalf("part = %+v %v", part, err)
+	}
+	if got := asks(t, asked); got != "" {
+		t.Fatalf("doctor without --try asked the source: %q", got)
+	}
+	part, err = limitsPart(context.Background(), cfg, st, nil, true)
+	if err != nil || part.Detail != "machine answers for itself" || len(part.Notes) != 1 ||
+		part.Notes[0] != "tried: machine answered for itself: 3 windows; no window is used up" {
+		t.Fatalf("part under --try = %+v %v", part, err)
+	}
+	if got := asks(t, asked); got != "ran" {
+		t.Fatalf("doctor --try asked %q, want the source once", got)
 	}
 }
 

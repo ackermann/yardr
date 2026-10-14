@@ -103,7 +103,7 @@ func TestLimits(t *testing.T) {
 	}
 	head, err := f.st.Head(ctx)
 	must(t, err)
-	if !reflect.DeepEqual(empty, web.Limits{Limits: []web.ProviderLimits{}, Unmapped: []string{}, Head: head}) {
+	if !reflect.DeepEqual(empty, web.Limits{Limits: []web.ProviderLimits{}, Sources: []web.SourceLimits{}, Unmapped: []string{}, Head: head}) {
 		t.Errorf("an empty yard: %+v, want empty lists and head %d", empty, head)
 	}
 	if strings.Contains(r.body, "null") {
@@ -170,6 +170,75 @@ func TestLimits(t *testing.T) {
 	// A list is read only, as every page.
 	if r := f.do("POST", "/limits"); r.status != 405 {
 		t.Errorf("POST /limits: status %d", r.status)
+	}
+}
+
+// selfSource stores machine, a source that answers for itself: the
+// stand-in appends a line to the asked file each time it runs, then does
+// body. It returns the asked file.
+func selfSource(t *testing.T, f *fixture, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	asked := filepath.Join(dir, "asked")
+	script := filepath.Join(dir, "machine")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho ran >>"+asked+"\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	text := "name: machine\nlimits:\n  command: [" + script + "]\n"
+	if _, err := f.st.PutSource(context.Background(), "machine.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(f.home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return asked
+}
+
+// selfAnswer is a report with the load, swap and disk windows, each with
+// its target.
+func selfAnswer() string {
+	return `echo '{"provider":"machine","windows":[` +
+		`{"label":"load","used_percent":12.5,"target_percent":80},` +
+		`{"label":"swap","used_percent":10,"target_percent":85},` +
+		`{"label":"disk","used_percent":40,"target_percent":90}]}'`
+}
+
+// /limits answers one entry per source that answers for itself beside the
+// providers, whether or not a kind is in use, and the page shows its
+// windows with their targets. The minute's cache holds for sources as for
+// providers: a second read asks nothing again.
+func TestLimitsOfASourceThatAnswersForItself(t *testing.T) {
+	f := newFixture(t)
+	asked := selfSource(t, f, selfAnswer())
+	var got web.Limits
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 0 || len(got.Unmapped) != 0 || len(got.Sources) != 1 {
+		t.Fatalf("limits = %+v, want the one source and nothing else", got)
+	}
+	if s := got.Sources[0]; s.Source != "machine" || s.Limits == nil || s.Limits.Provider != "machine" ||
+		len(s.Limits.Windows) != 3 || s.Limits.Windows[0].Label != "load" || s.Unknown != "" {
+		t.Fatalf("the source's entry = %+v", s)
+	}
+	if w := got.Sources[0].Limits.Windows[0]; w.UsedPercent == nil || *w.UsedPercent != 12.5 ||
+		w.TargetPercent == nil || *w.TargetPercent != 80 {
+		t.Fatalf("the load window = %+v", w)
+	}
+	if got := askedFor(t, asked); got != "ran" {
+		t.Fatalf("asked = %q, want the source once, with no kind in use", got)
+	}
+	// A second read shares the last answer; the page shows the windows.
+	var again web.Limits
+	f.getJSON("/limits", &again)
+	if len(again.Sources) != 1 || again.Sources[0].Limits == nil {
+		t.Fatalf("a second read: %+v", again)
+	}
+	if got := askedFor(t, asked); got != "ran" {
+		t.Fatalf("asked = %q, want nothing asked again within the minute", got)
+	}
+	r := f.get("/limits", "Accept", "text/html")
+	if r.status != 200 || !strings.Contains(r.body, "<h2>machine</h2>") ||
+		!strings.Contains(r.body, "12.5% used") || !strings.Contains(r.body, "(target 80%)") {
+		t.Errorf("the page shows no machine windows:\n%s", r.body)
 	}
 }
 

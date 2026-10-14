@@ -227,6 +227,15 @@ check or notify either.
       claude: claude
       kimi: kimi
 
+With no kinds the source answers for itself instead: its command takes no
+{provider} and is asked by the source's name, for the windows it reports.
+contrib/machine-limits has one, whose command says the load, swap and disk
+of this machine as windows (docs/integrations.md):
+
+  name: machine
+  limits:
+    command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90]
+
 The command is run by yardr itself, as the user yardr runs as: without a
 shell (each word is one element of the list), its stdin closed, in the
 yard's home, with {provider} replaced by the name the kind maps to, for at
@@ -249,14 +258,17 @@ add --help). Anything else (another exit status, no answer in time, other
 output) is no answer: the limits are then not known, and the reason is the
 last lines the command printed on stderr.
 
-Refused when the file is added: a command that is no list of strings, has no
-{provider} among its arguments or has it in the program; a kind herdr starts
-no agent of; a kind another source of the yard already answers for. No pack
-brings a limits key: it is a command the yard runs, so it is the operator's.
-What runs the command: yardr limits, yardr source check and yardr doctor
---try, each when a person asks, and the daemon when a harness stopped on a
-usage limit, for the window and its reset in the session_harness_error, and
-once more at that reset before it prompts the agent (docs/groups.md). yardr limits --help says more.
+Refused when the file is added: a command that is no list of strings, one
+with no {provider} among its arguments where the file names kinds, or with
+it in the program; a {provider} where the file names no kinds; a kind herdr
+starts no agent of; a kind another source of the yard already answers for.
+No pack brings a limits key: it is a command the yard runs, so it is the
+operator's. What runs the command: yardr limits, yardr source check and
+yardr doctor --try, each when a person asks, and the daemon when a harness
+stopped on a usage limit, for the window and its reset in the
+session_harness_error, once more at that reset before it prompts the agent,
+and for a ready bead whose route puts a quota condition on a group
+(docs/groups.md). yardr limits --help says more.
 
 A file can also name the commands by which the yard speaks in the source's
 threads, and how the source's issues are a bead's link:
@@ -481,7 +493,11 @@ env_file; what the new file changes of its calls is printed.`,
 				}
 				if d.Limits != nil {
 					fmt.Println("  " + limitsLine(d))
-					fmt.Printf("next: yardr source check %s (it asks for each of those kinds)\n", d.Name)
+					asks := "it asks for each of those kinds"
+					if d.Limits.Self() {
+						asks = "it asks the source for itself"
+					}
+					fmt.Printf("next: yardr source check %s (%s)\n", d.Name, asks)
 				}
 				var copied []string
 				for _, f := range d.CommandFiles(home) {
@@ -540,6 +556,9 @@ env_file; what the new file changes of its calls is printed.`,
 					kinds := "-"
 					if d.Limits != nil {
 						kinds = strings.Join(d.Limits.KindNames(), ", ")
+						if d.Limits.Self() {
+							kinds = "itself"
+						}
 					}
 					rows = append(rows, []string{d.Name, or(d.Base, "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
@@ -1072,7 +1091,8 @@ A source that says limits (a limits key) has its command run once for each
 harness kind its file lists, one after the other, and what each answered is
 printed as yardr limits prints it. It fails when a kind got no answer, so a
 kind whose harness is not logged in on this machine is better left out of
-the file. Each run may take up to ` + limits.Timeout.String() + `.
+the file. A source that answers for itself has its command run once, for
+the source. Each run may take up to ` + limits.Timeout.String() + `.
 
 Of every other command the file names (thread's), check says whether its
 program is there and can be run, and fails when one cannot; it runs none.
@@ -1181,11 +1201,8 @@ process for it. Nothing of the request is written anywhere.`,
 			if err := a.out(out, func() {
 				said()
 				sayCmds()
-				now := time.Now()
-				for _, k := range asked {
-					for _, l := range k.lines(now) {
-						fmt.Printf("%s: limits: %s\n", d.Name, l)
-					}
+				for _, l := range checkLines(asked, time.Now()) {
+					fmt.Printf("%s: limits: %s\n", d.Name, l)
 				}
 			}); err != nil {
 				return err
@@ -1254,8 +1271,12 @@ func hearLine(d *source.Declaration) string {
 	return fmt.Sprintf("hear: keeps a delivery whose %s is the %s of %s; anything else is dropped after verification", h.Field, h.Address.Env, who)
 }
 
-// limitsLine says in a line that a source says limits, and of which kinds.
+// limitsLine says in a line that a source says limits: of which kinds, or
+// of the source itself.
 func limitsLine(d *source.Declaration) string {
+	if d.Limits.Self() {
+		return "limits: its command says what the source itself carries (yardr limits)"
+	}
 	return fmt.Sprintf("limits: its command says what the subscription of %s still carries (yardr limits <kind>)", strings.Join(d.Limits.KindNames(), ", "))
 }
 

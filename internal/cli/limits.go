@@ -85,10 +85,40 @@ func askProvider(ctx context.Context, g providerGroup) providerLimits {
 	return out
 }
 
+// sourceLimits is what one ask came to, for a source that answers for
+// itself: the source's report and what the yard reads from it, or why
+// nothing is known.
+type sourceLimits struct {
+	Source string `json:"source"`
+	// Limits is the report; nil when nothing is known.
+	Limits *limits.Report `json:"limits,omitempty"`
+	// Window and ResetsAt are the window that is used up and resets last,
+	// when one is (limits.Report.UsedUp).
+	Window   string     `json:"window,omitempty"`
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
+	// Unknown is why nothing is known, in a line.
+	Unknown string `json:"limits_unknown,omitempty"`
+}
+
+// askSource asks the source for itself, once, and says what it came to.
+func askSource(ctx context.Context, a limits.Answerer) sourceLimits {
+	out := sourceLimits{Source: a.Source}
+	r, err := a.AskSelf(ctx)
+	if err != nil {
+		out.Unknown = err.Error()
+		return out
+	}
+	out.Limits = r
+	if w := r.UsedUp(); w != nil {
+		out.Window, out.ResetsAt = w.Label, w.ResetsAt
+	}
+	return out
+}
+
 func (a *app) limitsCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "limits [kind]",
-		Short: "What the subscriptions the yard burns still carry: their windows, how far each is used, when each resets",
+		Use:   "limits [kind|source]",
+		Short: "What the subscriptions the yard burns still carry, and what its sources say of themselves",
 		Long: `Asks the source of the yard that says limits (a declared source with a
 limits key: yardr source --help) what the subscriptions the yard burns
 still carry, and prints each window of their usage limits: how far it is
@@ -109,15 +139,25 @@ each provider is asked once, naming who burns it.
     5h      100% used (100 of 100)  resets 00:02 (in 42m)             used up
     an agent burning kimi waits for the 5h window, which resets 00:02 (in 42m)
 
+A source that answers for itself (a limits key with no kinds: yardr source
+--help) is listed beside the providers, each with its windows, and with its
+name it is asked for alone:
+
+  yardr limits machine
+  machine says (provider machine):
+    load  12.5% used (target 80%)  reset not known
+    no window is used up
+
 Where the provider says what share of a window has passed, it is printed
 beside the used figure, and a window burned past it is marked over target;
 a route's quota condition may compare with it (yardr route add --help).
 
-Every run asks: the source's command is run once per provider, once for
-the kind with one named, now, by this command and as whoever runs it, for
-at most ` + limits.Timeout.String() + ` each. Nothing is remembered between two runs. A
-provider may be slow and may be bounded in how often it answers, so this
-is a command for when you want to know, not one to run in a loop.
+Every run asks: the source's command is run once per provider and once per
+source that answers for itself, once for the kind or source with one named,
+now, by this command and as whoever runs it, for at most ` + limits.Timeout.String() + ` each.
+Nothing is remembered between two runs. A provider may be slow and may be
+bounded in how often it answers, so this is a command for when you want to
+know, not one to run in a loop.
 
 The answer is for the login the provider reads on this machine, which is
 the operator's. A group or crew member whose env_file gives its harness
@@ -128,11 +168,12 @@ names it or when its command gave no answer: another exit status than 0,
 nothing within the bound, or output that is not the JSON the yard reads.
 A kind that resolves to nothing is not asked, and is named under unmapped.
 The exit status is then 1. --json prints, per provider, the burning kinds
-and users beside the report under limits, the window that is used up and
-resets last under window and resets_at, or the reason under
-limits_unknown.`,
+and users beside the report under limits, and per source that answers for
+itself under sources: the window that is used up and resets last under
+window and resets_at, or the reason under limits_unknown.`,
 		Example: `  yardr limits
   yardr limits kimi
+  yardr limits machine
   yardr limits kimi --json | jq -r '.limits[0].resets_at'`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -146,10 +187,33 @@ limits_unknown.`,
 				return err
 			}
 			if len(args) == 1 {
+				as, err := limits.Answerers(ctx, st, cfg.Home)
+				if err != nil {
+					return err
+				}
+				if _, _, listed := limits.Resolve(as, args[0], ""); !listed {
+					if self, ok := limits.SelfAnswerer(as, args[0]); ok {
+						// No source lists the kind: the name is a source
+						// that answers for itself.
+						own := []sourceLimits{askSource(ctx, self)}
+						if err := a.out(map[string]any{"limits": []kindLimits{}, "sources": own, "unmapped": []string{}}, func() {
+							now := time.Now()
+							for _, l := range own[0].lines(now) {
+								fmt.Println(l)
+							}
+						}); err != nil {
+							return err
+						}
+						if own[0].Unknown != "" {
+							return errCheckFailed // the line said which and why
+						}
+						return nil
+					}
+				}
 				asked := []kindLimits{askLimits(ctx, func(ctx context.Context, kind string) (*limits.Report, error) {
 					return limits.Ask(ctx, st, cfg.Home, kind)
 				}, args[0])}
-				if err := a.out(map[string]any{"limits": asked, "unmapped": []string{}}, func() {
+				if err := a.out(map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func() {
 					now := time.Now()
 					for _, k := range asked {
 						for _, l := range k.lines(now) {
@@ -177,8 +241,14 @@ limits_unknown.`,
 			for _, u := range unasked {
 				unmapped = append(unmapped, u.kind)
 			}
+			var selves []limits.Answerer
+			for _, a := range as {
+				if a.Limits.Self() {
+					selves = append(selves, a)
+				}
+			}
 			if len(as) == 0 && len(groups) == 0 {
-				return a.out(map[string]any{"limits": []providerLimits{}, "unmapped": unmapped}, func() {
+				return a.out(map[string]any{"limits": []providerLimits{}, "sources": []sourceLimits{}, "unmapped": unmapped}, func() {
 					fmt.Println("No source of this yard says limits: nothing is known, and nothing was asked.")
 					fmt.Println("A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
 				})
@@ -187,16 +257,25 @@ limits_unknown.`,
 			for _, g := range groups {
 				asked = append(asked, askProvider(ctx, g))
 			}
-			if len(asked) == 0 {
-				return a.out(map[string]any{"limits": asked, "unmapped": unmapped}, func() {
+			own := []sourceLimits{}
+			for _, a := range selves {
+				own = append(own, askSource(ctx, a))
+			}
+			if len(asked) == 0 && len(own) == 0 {
+				return a.out(map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func() {
 					fmt.Printf("Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (%s).\n", answeredKinds(as))
 					fmt.Println("yardr limits <kind> asks for one.")
 				})
 			}
-			if err := a.out(map[string]any{"limits": asked, "unmapped": unmapped}, func() {
+			if err := a.out(map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func() {
 				now := time.Now()
 				for _, p := range asked {
 					for _, l := range p.lines(now) {
+						fmt.Println(l)
+					}
+				}
+				for _, s := range own {
+					for _, l := range s.lines(now) {
 						fmt.Println(l)
 					}
 				}
@@ -206,7 +285,8 @@ limits_unknown.`,
 			}); err != nil {
 				return err
 			}
-			if slices.ContainsFunc(asked, func(p providerLimits) bool { return p.Unknown != "" }) {
+			if slices.ContainsFunc(asked, func(p providerLimits) bool { return p.Unknown != "" }) ||
+				slices.ContainsFunc(own, func(s sourceLimits) bool { return s.Unknown != "" }) {
 				return errCheckFailed // the lines said which and why
 			}
 			return nil
@@ -323,11 +403,15 @@ func groupUses(as []limits.Answerer, uses []limitUse) ([]providerGroup, []harnes
 }
 
 // answeredKinds says which source answers for which kinds: "aiquokka for
-// claude, codex, kimi".
+// claude, codex, kimi"; a source that answers for itself says so.
 func answeredKinds(as []limits.Answerer) string {
 	parts := make([]string, len(as))
 	for i, a := range as {
-		parts[i] = a.Source + " for " + strings.Join(a.Limits.KindNames(), ", ")
+		if a.Limits.Self() {
+			parts[i] = a.Source + " answers for itself"
+		} else {
+			parts[i] = a.Source + " for " + strings.Join(a.Limits.KindNames(), ", ")
+		}
 	}
 	return strings.Join(parts, "; ")
 }
@@ -342,25 +426,7 @@ func (k kindLimits) lines(now time.Time) []string {
 	if r.Plan != "" {
 		head += ", plan " + r.Plan
 	}
-	out := []string{head + "):"}
-	if len(r.Windows) == 0 {
-		return append(out, "  no window: the provider knows of no limit")
-	}
-	label, used := 0, 0
-	for _, w := range r.Windows {
-		label, used = max(label, len(w.Label)), max(used, len(usedText(w)))
-	}
-	for _, w := range r.Windows {
-		line := fmt.Sprintf("  %-*s  %-*s  %s", label, w.Label, used, usedText(w), resetText(w.ResetsAt, now))
-		if w.UsedUp() {
-			line += "  used up"
-		}
-		if w.OverTarget() {
-			line += "  over target"
-		}
-		out = append(out, line)
-	}
-	return append(out, "  "+k.summary(now))
+	return append([]string{head + "):"}, append(windowLines(r, now), "  "+k.summary(now))...)
 }
 
 // summary says in a line what the report means for an agent of the kind.
@@ -381,14 +447,20 @@ func (p providerLimits) lines(now time.Time) []string {
 	if r.Plan != "" {
 		head += ", plan " + r.Plan
 	}
-	out := []string{head + "): burned by " + p.burnedBy()}
+	return append([]string{head + "): burned by " + p.burnedBy()}, append(windowLines(r, now), "  "+p.summary(now))...)
+}
+
+// windowLines are a report's windows, each how far it is used and when it
+// resets, the columns aligned, used up and over target marked.
+func windowLines(r *limits.Report, now time.Time) []string {
 	if len(r.Windows) == 0 {
-		return append(out, "  no window: the provider knows of no limit")
+		return []string{"  no window: the provider knows of no limit"}
 	}
 	label, used := 0, 0
 	for _, w := range r.Windows {
 		label, used = max(label, len(w.Label)), max(used, len(usedText(w)))
 	}
+	var out []string
 	for _, w := range r.Windows {
 		line := fmt.Sprintf("  %-*s  %-*s  %s", label, w.Label, used, usedText(w), resetText(w.ResetsAt, now))
 		if w.UsedUp() {
@@ -399,7 +471,29 @@ func (p providerLimits) lines(now time.Time) []string {
 		}
 		out = append(out, line)
 	}
-	return append(out, "  "+p.summary(now))
+	return out
+}
+
+// lines are what an ask came to, for a person.
+func (s sourceLimits) lines(now time.Time) []string {
+	if s.Limits == nil {
+		return []string{fmt.Sprintf("%s  not known: %s", s.Source, s.Unknown)}
+	}
+	r := s.Limits
+	head := fmt.Sprintf("%s says (provider %s", s.Source, r.Provider)
+	if r.Plan != "" {
+		head += ", plan " + r.Plan
+	}
+	return append([]string{head + "):"}, append(windowLines(r, now), "  "+s.summary(now))...)
+}
+
+// summary says in a line what the report means: which window is used up,
+// when one is.
+func (s sourceLimits) summary(now time.Time) string {
+	if s.Window == "" {
+		return "no window is used up"
+	}
+	return fmt.Sprintf("the %s window is used up, which %s", s.Window, resetText(s.ResetsAt, now))
 }
 
 // summary says in a line what the report means for an agent burning the
@@ -556,19 +650,52 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 	for _, u := range unmapped {
 		part.Notes = append(part.Notes, fmt.Sprintf("%s is in use (%s) and no source says its limits (limits.kinds)", u.kind, strings.Join(u.by, ", ")))
 	}
+	for _, a := range as {
+		if !a.Limits.Self() || !try {
+			continue
+		}
+		s := askSource(ctx, a)
+		if s.Unknown != "" {
+			part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s is not known: %s", a.Source, s.Unknown))
+		} else {
+			part.Notes = append(part.Notes, fmt.Sprintf("tried: %s answered for itself: %s; %s",
+				a.Source, plural(len(s.Limits.Windows), "window"), s.summary(time.Now())))
+		}
+	}
 	part.Notes = append(part.Notes, gated...)
 	return part, nil
 }
 
 // checkLimits is the part of yardr source check for a source that says
-// limits: one ask per kind its file lists. It reports whether every kind
-// was answered.
-func checkLimits(ctx context.Context, a limits.Answerer) (asked []kindLimits, ok bool) {
+// limits: one ask per kind its file lists, or one ask of the source where
+// it answers for itself. It reports whether every ask was answered.
+func checkLimits(ctx context.Context, a limits.Answerer) (asked any, ok bool) {
+	if a.Limits.Self() {
+		s := askSource(ctx, a)
+		return []sourceLimits{s}, s.Unknown == ""
+	}
 	ok = true
+	var kinds []kindLimits
 	for _, kind := range a.Limits.KindNames() {
 		k := askLimits(ctx, a.Ask, kind)
 		ok = ok && k.Unknown == ""
-		asked = append(asked, k)
+		kinds = append(kinds, k)
 	}
-	return asked, ok
+	return kinds, ok
+}
+
+// checkLines are what source check's asks came to, for a person.
+func checkLines(asked any, now time.Time) []string {
+	var out []string
+	switch a := asked.(type) {
+	case []kindLimits:
+		for _, k := range a {
+			out = append(out, k.lines(now)...)
+		}
+	case []sourceLimits:
+		for _, s := range a {
+			out = append(out, s.lines(now)...)
+		}
+	}
+	return out
 }

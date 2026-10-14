@@ -1,0 +1,104 @@
+#!/bin/sh
+# limits: the limits command of the machine source (../machine.yaml). It
+# answers the load, swap and disk of this machine as three limits windows,
+# on macOS and Linux, as one JSON object:
+#
+#   {"provider":"machine","windows":[
+#     {"label":"load","used_percent":41.2,"target_percent":80}, ...]}
+#
+# load is the 1-minute load average over the core count, as a percent;
+# swap is used over total swap, or 0 where the machine has none; disk is
+# used over the volume that holds the current directory (the yard's home,
+# which the core runs this from). Each window carries its target, the
+# operator's --target or the default (load 80, swap 85, disk 90). The
+# windows never reset, so none carries resets_at.
+set -u
+
+load_target=80 swap_target=85 disk_target=90
+say() { echo "machine/limits: $*" >&2; }
+
+# num is a number yardr reads: digits with at most one dot, and neither
+# first nor last.
+isnum() {
+  case "$1" in
+  '' | *[!0-9.]* | .* | *.*.* | *.) return 1 ;;
+  esac
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --target)
+    shift
+    arg=${1:-}
+    case "$arg" in
+    load=* | swap=* | disk=*) : ;;
+    *)
+      say "want --target load=N, swap=N or disk=N, got '${1:-nothing}'"
+      exit 1
+      ;;
+    esac
+    name=${arg%%=*} value=${arg#*=}
+    if ! isnum "$value" || ! awk -v v="$value" 'BEGIN { exit !(v >= 0 && v <= 100) }'; then
+      say "target $value is no number from 0 to 100"
+      exit 1
+    fi
+    case "$name" in
+    load) load_target=$value ;;
+    swap) swap_target=$value ;;
+    disk) disk_target=$value ;;
+    esac
+    shift
+    ;;
+  *)
+    say "unknown argument $1 (want --target load=N, swap=N or disk=N)"
+    exit 1
+    ;;
+  esac
+done
+
+case "$(uname)" in
+Darwin)
+  loadavg=$(sysctl -n vm.loadavg | awk '{ print $2 }') # "{ 1.65 1.82 2.10 }"
+  cores=$(sysctl -n hw.ncpu)
+  # "total = 14336.00M  used = 12999.94M  free = ...": each in megabytes,
+  # whatever unit it is given in.
+  swap=$(sysctl -n vm.swapusage | awk '
+    function mb(s) { u = substr(s, length(s)); v = substr(s, 1, length(s) - 1)
+      if (u == "K") return v / 1024; if (u == "M") return v
+      if (u == "G") return v * 1024; if (u == "T") return v * 1024 * 1024
+      return "none" }
+    { print mb($3), mb($6) }')
+  swap_total=${swap%% *} swap_used=${swap##* }
+  ;;
+Linux)
+  loadavg=$(awk '{ print $1 }' /proc/loadavg)
+  cores=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo)
+  swap=$(awk '/^SwapTotal:/ { t = $2 } /^SwapFree:/ { f = $2 } END { print t, t - f }' /proc/meminfo)
+  swap_total=${swap%% *} swap_used=${swap##* }
+  ;;
+*)
+  say "$(uname) is neither macOS nor Linux"
+  exit 1
+  ;;
+esac
+
+# The first field that ends in % on df's last line is the volume's: the
+# device may wrap onto a line of its own, and the header names the column
+# Capacity on one system and Use% on the other.
+disk=$(df . 2>/dev/null | awk 'END { for (i = 1; i <= NF; i++) if ($i ~ /%$/) { sub(/%$/, "", $i); print $i; exit } }')
+
+isnum "$loadavg" || { say "no 1-minute load average"; exit 1; }
+case "$cores" in '' | *[!0-9]* | 0) say "no core count"; exit 1 ;; esac
+isnum "$swap_total" && isnum "$swap_used" || { say "no swap numbers"; exit 1; }
+isnum "$disk" || { say "no used share for this directory's volume"; exit 1; }
+
+awk -v load="$loadavg" -v cores="$cores" \
+  -v stotal="$swap_total" -v sused="$swap_used" -v disk="$disk" \
+  -v tload="$load_target" -v tswap="$swap_target" -v tdisk="$disk_target" '
+  BEGIN {
+    swap = (stotal > 0) ? sused * 100 / stotal : 0
+    printf "{\"provider\":\"machine\",\"windows\":["
+    printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%s},", load * 100 / cores, tload
+    printf "{\"label\":\"swap\",\"used_percent\":%.1f,\"target_percent\":%s},", swap, tswap
+    printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%s}]}", disk, tdisk
+  }'

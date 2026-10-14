@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -49,7 +50,12 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 	if !free {
 		return c, false
 	}
-	c = r.Choose(func(group string) store.Quota { return d.routeQuota(ctx, groups[group], def) })
+	c = r.Choose(func(group, source string) store.Quota {
+		if source != "" {
+			return d.sourceQuota(ctx, source)
+		}
+		return d.routeQuota(ctx, groups[group], def)
+	})
 	if c.Group != "" {
 		return c, true
 	}
@@ -90,6 +96,23 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 	if err != nil {
 		return store.Quota{Unknown: err.Error()}
 	}
+	return quotaOf(r)
+}
+
+// sourceQuota is what the source named source says of itself, as a route's
+// condition reads it: the comparisons that name a source read these windows
+// whatever the group's provider is, so a group with no kind is gated the
+// same way.
+func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota {
+	r, err := d.askSource(ctx, source, routeLimitsMemory)
+	if err != nil {
+		return store.Quota{Unknown: err.Error()}
+	}
+	return quotaOf(r)
+}
+
+// quotaOf is a report as a route's condition reads it.
+func quotaOf(r *limits.Report) store.Quota {
 	q := store.Quota{Provider: r.Provider}
 	for _, w := range r.Windows {
 		qw := store.QuotaWindow{Label: w.Label, UsedPercent: w.UsedPercent, TargetPercent: w.TargetPercent, ResetsAt: w.ResetsAt}

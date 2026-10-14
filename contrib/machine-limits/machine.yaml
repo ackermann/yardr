@@ -1,0 +1,4 @@
+name: machine
+about: Load, swap and disk of this machine, as limits windows (contrib/machine-limits).
+limits:
+  command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90]

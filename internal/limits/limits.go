@@ -115,17 +115,23 @@ func (r *Report) UsedUp() *Window {
 // the limits asked for: nothing is known, as in a yard that never heard of
 // limits. It is no failure of a provider. Kind is the kind no source lists;
 // Provider the provider no source's kinds table names, for an ask with the
-// provider setting.
+// provider setting; Source the source asked for itself that answers for
+// nothing of its own.
 type NoSource struct {
 	Kind     string
 	Provider string
+	Source   string
 }
 
 func (e *NoSource) Error() string {
-	if e.Provider != "" {
+	switch {
+	case e.Provider != "":
 		return fmt.Sprintf("no source of this yard answers for provider %s (a source with a limits key whose kinds name it)", e.Provider)
+	case e.Source != "":
+		return fmt.Sprintf("no source named %s says limits of itself (a source with a limits key and no kinds: yardr source --help)", e.Source)
+	default:
+		return fmt.Sprintf("no source of this yard says the limits of %s (a source with a limits key whose kinds list it: yardr source --help)", e.Kind)
 	}
-	return fmt.Sprintf("no source of this yard says the limits of %s (a source with a limits key whose kinds list it: yardr source --help)", e.Kind)
 }
 
 // Store is what of the yard's store an ask reads.
@@ -209,6 +215,33 @@ func AskFor(ctx context.Context, st Store, home, kind, provider string) (*Report
 	return a.Ask(ctx, kind)
 }
 
+// AskSource asks the source named name for what it says of itself: one run
+// of its command. home is the yard's home. Only a source whose limits key
+// names no kinds answers; the error is a *NoSource naming the source where
+// none does, and otherwise why the source gave no answer.
+func AskSource(ctx context.Context, st Store, home, name string) (*Report, error) {
+	as, err := Answerers(ctx, st, home)
+	if err != nil {
+		return nil, err
+	}
+	a, ok := SelfAnswerer(as, name)
+	if !ok {
+		return nil, &NoSource{Source: name}
+	}
+	return a.AskSelf(ctx)
+}
+
+// SelfAnswerer is the source named name where it answers for itself: one
+// whose limits key names no kinds.
+func SelfAnswerer(as []Answerer, name string) (Answerer, bool) {
+	for _, a := range as {
+		if a.Source == name && a.Limits.Self() {
+			return a, true
+		}
+	}
+	return Answerer{}, false
+}
+
 // Resolve is the provider an agent of kind with the provider setting burns,
 // and the source that answers for it, without asking. With the setting, the
 // provider is the setting, answered by the first source by name whose kinds
@@ -254,6 +287,12 @@ func (a Answerer) Provides(name string) bool {
 // command with the name substituted directly.
 func (a Answerer) AskName(ctx context.Context, name string) (*Report, error) {
 	return command(a).askName(ctx, name)
+}
+
+// AskSelf asks this source for what it says of itself: one run of its
+// command as its file has it, for a source whose limits key names no kinds.
+func (a Answerer) AskSelf(ctx context.Context) (*Report, error) {
+	return command(a).run(ctx, slices.Clone(a.Limits.Command))
 }
 
 // Missing reports why the source's program cannot be found by this process,

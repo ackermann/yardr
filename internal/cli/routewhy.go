@@ -135,6 +135,9 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 	var out []string
 	gated := map[string]string{} // provider -> the first conditioned group burning it
 	for _, rg := range r.Groups() {
+		if rg.Name == store.RouteWait {
+			break // it ends the route, and burns nothing
+		}
 		name, _, _ := groupProvider(as, groups[rg.Name], def)
 		if rg.When != "" {
 			if _, seen := gated[name]; !seen && name != "" {
@@ -175,13 +178,20 @@ func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
 	return sameProvider(as, groups, r, defaultKind(ctx, st))
 }
 
-// routeNotes are doctor's notes on routes whose condition can never be
-// evaluated: it is on a group no source answers for, so it holds whatever
-// is used and gates nothing.
+// routeNotes are doctor's notes on routes with a comparison that can never
+// be evaluated: it is on a provider no source answers for, or it names a
+// source that says no limits of itself, so it holds whatever is used and
+// gates nothing.
 func routeNotes(as []limits.Answerer, routes []store.Route, groups []store.Group, def string) []string {
 	byName := map[string]store.Group{}
 	for _, g := range groups {
 		byName[g.Name] = g
+	}
+	self := map[string]bool{}
+	for _, a := range as {
+		if a.Limits.Self() {
+			self[a.Source] = true
+		}
 	}
 	var out []string
 	for _, r := range routes {
@@ -189,16 +199,44 @@ func routeNotes(as []limits.Answerer, routes []store.Route, groups []store.Group
 			if rg.When == "" {
 				continue
 			}
-			name, kind, ok := groupProvider(as, byName[rg.Name], def)
-			if ok {
+			// AddRoute stored only what parses; a record that does not is
+			// said nowhere.
+			limits, err := store.ParseQuota(rg.When)
+			if err != nil {
 				continue
 			}
-			whose := "its kind " + kind
-			if name != "" {
-				whose = "its provider " + name
+			var provider, sourced bool
+			for _, l := range limits {
+				if l.Source == "" {
+					provider = true
+				} else {
+					sourced = true
+				}
 			}
-			out = append(out, fmt.Sprintf("route %s (stage %s) puts the condition %s on group %s, and no source answers for %s: "+
-				"the condition holds whatever is used (limits.kinds)", r.ID, r.Stage, rg.When, rg.Name, whose))
+			if provider {
+				name, kind, ok := groupProvider(as, byName[rg.Name], def)
+				if !ok {
+					whose := "its kind " + kind
+					if name != "" {
+						whose = "its provider " + name
+					}
+					holds := "the condition holds whatever is used"
+					if sourced {
+						holds = "the comparison on the provider's windows holds whatever is used"
+					}
+					out = append(out, fmt.Sprintf("route %s (stage %s) puts the condition %s on group %s, and no source answers for %s: %s (limits.kinds)",
+						r.ID, r.Stage, rg.When, rg.Name, whose, holds))
+				}
+			}
+			seen := map[string]bool{}
+			for _, l := range limits {
+				if l.Source == "" || seen[l.Source] || self[l.Source] {
+					continue
+				}
+				seen[l.Source] = true
+				out = append(out, fmt.Sprintf("route %s (stage %s) puts the condition %s on group %s, and no source named %s says limits of itself: "+
+					"the comparison holds whatever is used (a limits key with no kinds)", r.ID, r.Stage, rg.When, rg.Name, l.Source))
+			}
 		}
 	}
 	return out

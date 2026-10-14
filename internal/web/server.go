@@ -105,11 +105,13 @@ type Server struct {
 	// (--host) and, with network, the machine's own.
 	network bool
 	names   []string
-	// limitsMu guards limitsBy, the last answer per provider and the
-	// run on its way, if one is; limitsEvery is how long one ask stands.
-	limitsMu    sync.Mutex
-	limitsBy    map[string]*limitsEntry
-	limitsEvery time.Duration
+	// limitsMu guards limitsBy and sourceLimitsBy, the last answer per
+	// provider and per source that answers for itself, each with the run
+	// on its way, if one is; limitsEvery is how long one ask stands.
+	limitsMu       sync.Mutex
+	limitsBy       map[string]*limitsEntry[ProviderLimits]
+	sourceLimitsBy map[string]*limitsEntry[SourceLimits]
+	limitsEvery    time.Duration
 	// as is the user the view acts as (--as), "" when it acts as none:
 	// the talk page sends its mail as them, and a bead's page answers its
 	// asks and sends it on; no other page takes a write.
@@ -134,8 +136,9 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite,
 		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
-		limitsBy: map[string]*limitsEntry{}, limitsEvery: defaultLimitsEvery,
-		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
+		limitsBy: map[string]*limitsEntry[ProviderLimits]{}, sourceLimitsBy: map[string]*limitsEntry[SourceLimits]{},
+		limitsEvery: defaultLimitsEvery,
+		pagesMux:    http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err

@@ -127,7 +127,11 @@ always holds. `yardr route list` prints them as
   report has. yardr compares two numbers and knows no provider's windows;
   the threshold is yours, and no pack brings one. Whose windows are meant
   follows from the group's `kind` and its `provider` setting, as for a
-  harness that stopped on a limit.
+  harness that stopped on a limit. A comparison may name a source for the
+  window instead: `machine.load<80` reads the window labelled `load` of
+  what the source `machine` says of itself, whatever the group's provider
+  is (`machine.<80` is every window it reports), and the two forms mix
+  (`machine.load<80,Weekly<90`).
 - **The pace instead of a number.** In place of a percentage the right
   side may be the window's target with an optional margin:
   `Weekly<target`, `Weekly<target+10`, `Weekly<target-5`. The target is
@@ -139,19 +143,26 @@ always holds. `yardr route list` prints them as
   gives no target cannot be compared with one, and reads as any
   comparison that cannot be made does (below): the condition holds and
   the `claimed` event says the limits were not known.
-- **Only groups that start agents.** A route with `--else` or a condition
-  may name only herdr groups: `route add` refuses any other (`group
+- **Only groups that start agents, or one exec group gated on a source.**
+  A route with `--else` or a condition may name only herdr groups, or gate
+  one exec group alone on the windows of sources, as
+  `refinery@machine.load<80`: `route add` refuses any other (`group
   decisions is manual: --else and a quota condition are for groups that
   start agents`), and `group add` refuses to give a group such a route
-  names another runner. So whichever group takes a bead, agents work the
-  stage and nobody is a member: `yardr review`, the beads that wait for a
-  person and who may move a bead on do not change with the quota.
+  names another runner. A group that starts no agents burns no provider,
+  so a condition on one names a source alone. So whichever group takes a
+  bead, one runner works the stage and nobody is a member: `yardr review`,
+  the beads that wait for a person and who may move a bead on do not
+  change with the quota.
 - **When no condition holds, the bead waits.** A route with one
-  conditioned group and no `--else` says "this group or nobody". The bead
-  gets one `quota_wait` event, logged once until it starts: `route`,
-  `passed` (each group with its `reason` in words and the earliest
-  `resets_at` among its windows that failed), `reason` (the same on one
-  line) and `resets_at`, the earliest of them all.
+  conditioned group and no `--else` says "this group or nobody", as
+  `--else wait` says out loud: `wait` is not a group, takes no condition,
+  and nothing is tried after it. The bead gets one `quota_wait` event,
+  logged once until it starts: `route`, `passed` (each group with its
+  `reason` in words and the earliest `resets_at` among its windows that
+  failed), `reason` (the same on one line) and `resets_at`, the earliest
+  of them all. A source's windows may never reset, and then no `resets_at`
+  is said.
 - **A group at its limit is waited for, not passed over.** So is one whose
   runtime is down or that is held back for a model. Only a quota condition
   sends a bead to a further group, and what the yard runs at once stays
@@ -159,17 +170,19 @@ always holds. `yardr route list` prints them as
 - **A condition that cannot be evaluated holds.** No source answers for
   the group's provider, its command failed, the report has no window of
   that label, gives it no percentage or, for a condition on the target,
-  no target: the group takes the bead as it would with no condition, and
-  the `claimed` event says so in `limits_unknown`. A limits command that
-  breaks takes the gate away; it does not stop the yard.
+  no target, and for a comparison on a source no source of the name that
+  answers for itself: the group takes the bead as it would with no
+  condition, and the `claimed` event says so in `limits_unknown`. A limits
+  command that breaks takes the gate away; it does not stop the yard.
 - **The `claimed` event** of a bead the dispatcher started names the
   `route` by its id and, when groups were passed over, `passed`: each with
   its `reason`, such as `Claude's Weekly window is 83% used, the route asks
-  under 80`, or for a condition on the target `Claude's Weekly window is
-  38% used, the route asks under target 17% + 10`. `was` names the group
-  that last held the bead in this stage, when it is another: a bead sent
-  back to the stage went to another group than the one that worked it
-  before.
+  under 80`, for a condition on the target `Claude's Weekly window is
+  38% used, the route asks under target 17% + 10`, or for a comparison on
+  a source `machine's load window is 93% used, the route asks under 80`.
+  `was` names the group that last held the bead in this stage, when it is
+  another: a bead sent back to the stage went to another group than the one
+  that worked it before.
 - **`yardr bead show` says it in one line**, under the bead's owner, when
   the route had something to say: a group passed over, limits that were
   not known, or another group before. A bead that waits for a condition
@@ -180,13 +193,14 @@ always holds. `yardr route list` prints them as
     routed to spare-builders by route qp3f…: builders passed over (Claude's Weekly window is 83% used, the route asks under 80)
     waits since 14:02 for a group of route qp3f… whose condition holds: builders passed over (Claude's Weekly window is 83% used, the route asks under 80); the first of those windows resets Sat 17 Oct 09:00 (in 3d 2h)
   ```
-- **Two conditions that cannot work are said, and neither is refused.**
+- **Conditions that cannot work are said, and none is refused.**
   Groups that burn one provider read the same windows, so a further group
   with no condition that burns the provider of a conditioned group before
   it takes every bead that group was passed over for, as used up as it is:
-  `yardr route add` warns of it on stderr and adds the route. And a
-  condition on a group no limits source answers for holds whatever is
-  used: `yardr doctor` notes each such route under `limits`.
+  `yardr route add` warns of it on stderr and adds the route. A condition
+  on a group no limits source answers for holds whatever is used, as a
+  comparison that names a source with no limits of its own does: `yardr
+  doctor` notes each such route under `limits`.
 - **The choice is made at the claim**, once: a session keeps its group
   until it ends, whatever the window does meanwhile. A bead sent back to
   the stage is routed again and may go to another group. For a stage a
@@ -197,11 +211,11 @@ always holds. `yardr route list` prints them as
   asks for the limits.
 - **How often the limits command runs for this.** Only for a ready bead
   whose route has a condition, when one of the route's groups could start
-  it, and at most once in five minutes for a provider, a failed run
-  included. A group can so start a session or two after its window crossed
-  the threshold, which a threshold below 100 leaves room for. The
-  condition is a margin, not a forecast: sessions started under it can
-  still fill the window, and then the harness stops and
+  it, and at most once in five minutes for a provider or a source, a
+  failed run included. A group can so start a session or two after its
+  window crossed the threshold, which a threshold below 100 leaves room
+  for. The condition is a margin, not a forecast: sessions started under
+  it can still fill the window, and then the harness stops and
   [the existing path](#a-usage-limit-says-its-window-and-when-it-resets)
   takes over.
 - **To overrule it**, give a route of higher priority no condition: a

@@ -11,11 +11,13 @@ import (
 )
 
 // Limits is /limits: what `yardr limits` answers with no kind named, one
-// entry per provider in use, and `unmapped` naming the kinds in use that
-// resolve to nothing, beside the yard's head from before the read, as the
-// lists have it. It has a page under the Config entry, as the lists do.
+// entry per provider in use, one per source that answers for itself, and
+// `unmapped` naming the kinds in use that resolve to nothing, beside the
+// yard's head from before the read, as the lists have it. It has a page
+// under the Config entry, as the lists do.
 type Limits struct {
 	Limits   []ProviderLimits `json:"limits"`
+	Sources  []SourceLimits   `json:"sources"`
 	Unmapped []string         `json:"unmapped"`
 	Head     uint64           `json:"head"`
 }
@@ -41,27 +43,42 @@ type ProviderLimits struct {
 	Unknown string `json:"limits_unknown,omitempty"`
 }
 
+// SourceLimits is what one ask came to, for a source that answers for
+// itself. It is what `yardr limits --json` prints per source under
+// sources, field for field.
+type SourceLimits struct {
+	Source string `json:"source"`
+	// Limits is the report; nil when nothing is known.
+	Limits *limits.Report `json:"limits,omitempty"`
+	// Window and ResetsAt are the window that is used up and resets last,
+	// when one is (limits.Report.UsedUp).
+	Window   string     `json:"window,omitempty"`
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
+	// Unknown is why nothing is known, in a line.
+	Unknown string `json:"limits_unknown,omitempty"`
+}
+
 // defaultLimitsEvery is how long one ask of the limits source stands: a GET
 // asks again when the last answer is older. A minute, as signalbox's quota
 // kept (QUOTA_EVERY): a provider may be bounded itself in how often it is
 // asked, and may renew a stored login as it reads it.
 const defaultLimitsEvery = time.Minute
 
-// limitsEntry is what the view knows of one provider's limits: the last
-// answer and when it was asked for, and the run on its way, if one is.
-type limitsEntry struct {
+// limitsEntry is what the view knows of one ask: the last answer and when
+// it was asked for, and the run on its way, if one is.
+type limitsEntry[T any] struct {
 	asked  time.Time
-	answer ProviderLimits
+	answer T
 	// run is the run on its way; nil when none is.
-	run *limitsRun
+	run *limitsRun[T]
 }
 
-// limitsRun is one run of the source's command for a provider. done is
-// closed when the answer is in, so a read that arrived while it was on its
-// way shares it instead of starting a second run.
-type limitsRun struct {
+// limitsRun is one run of the source's command. done is closed when the
+// answer is in, so a read that arrived while it was on its way shares it
+// instead of starting a second run.
+type limitsRun[T any] struct {
 	done   chan struct{}
-	answer ProviderLimits
+	answer T
 }
 
 // limitUse is one place the yard burns quota: a harness kind with its
@@ -168,20 +185,17 @@ func groupUses(as []limits.Answerer, uses []limitUse) ([]providerGroup, []string
 	return groups, unmapped
 }
 
-// limitsProvider asks for the provider what `yardr limits` asks for it: one
-// run of the operator's command, or the last answer while it still stands.
-// Concurrent reads share the one run on its way and never start a second
-// per provider; a run that fails is an entry with no report, not an error.
-// Who burns the provider is fresh every read: only the ask stands a
-// minute. ctx ends the wait, not the run: the run is detached, so the next
-// reader still gets its answer, and is bounded by limits.Timeout however it
-// was asked.
-func (s *Server) limitsProvider(ctx context.Context, g providerGroup) (ProviderLimits, error) {
+// limitsAsk answers from the last ask while it stands, else runs ask: one
+// run per key at a time, shared by concurrent reads. fresh carries what is
+// new every read onto the answer. A run that fails is an entry with no
+// report, not an error. ctx ends the wait, not the run: the run is
+// detached, so the next reader still gets its answer, and is bounded by
+// limits.Timeout however it was asked.
+func (s *Server) limitsAsk[T any](ctx context.Context, by map[string]*limitsEntry[T], key string, ask func(context.Context) T, fresh func(T) T) (T, error) {
 	s.limitsMu.Lock()
-	e := s.limitsBy[g.name]
+	e := by[key]
 	if e != nil && e.run == nil && time.Since(e.asked) < s.limitsEvery {
-		answer := e.answer
-		answer.Kinds, answer.BurnedBy = g.kinds, g.by
+		answer := fresh(e.answer)
 		s.limitsMu.Unlock()
 		return answer, nil
 	}
@@ -190,40 +204,58 @@ func (s *Server) limitsProvider(ctx context.Context, g providerGroup) (ProviderL
 		s.limitsMu.Unlock()
 		select {
 		case <-run.done:
-			answer := run.answer
-			answer.Kinds, answer.BurnedBy = g.kinds, g.by
-			return answer, nil
+			return fresh(run.answer), nil
 		case <-ctx.Done():
-			return ProviderLimits{}, ctx.Err()
+			var none T
+			return none, ctx.Err()
 		}
 	}
 	if e == nil {
-		e = &limitsEntry{}
-		s.limitsBy[g.name] = e
+		e = &limitsEntry[T]{}
+		by[key] = e
 	}
-	run := &limitsRun{done: make(chan struct{})}
+	run := &limitsRun[T]{done: make(chan struct{})}
 	e.run = run
 	e.asked = time.Now()
 	s.limitsMu.Unlock()
 
-	answer := askProvider(context.WithoutCancel(ctx), g)
+	answer := ask(context.WithoutCancel(ctx))
 	s.limitsMu.Lock()
 	e.answer, e.run = answer, nil
 	run.answer = answer
 	s.limitsMu.Unlock()
 	close(run.done)
-	return answer, nil
+	return fresh(answer), nil
+}
+
+// limitsProvider asks for the provider what `yardr limits` asks for it: one
+// run of the operator's command, or the last answer while it still stands.
+// Who burns the provider is fresh every read: only the ask stands a
+// minute.
+func (s *Server) limitsProvider(ctx context.Context, g providerGroup) (ProviderLimits, error) {
+	return s.limitsAsk(ctx, s.limitsBy, g.name,
+		func(ctx context.Context) ProviderLimits { return askProvider(ctx, g) },
+		func(a ProviderLimits) ProviderLimits { a.Kinds, a.BurnedBy = g.kinds, g.by; return a })
+}
+
+// limitsSource asks for the source what `yardr limits` asks for it: one run
+// of the operator's command, or the last answer while it still stands,
+// shared by concurrent reads as a provider's is.
+func (s *Server) limitsSource(ctx context.Context, a limits.Answerer) (SourceLimits, error) {
+	return s.limitsAsk(ctx, s.sourceLimitsBy, a.Source,
+		func(ctx context.Context) SourceLimits { return askSource(ctx, a) },
+		func(s SourceLimits) SourceLimits { return s })
 }
 
 // handleLimits answers /limits: what `yardr limits` answers with no kind
 // named, beside the head from before the read, as a page under the Config
 // entry and as the same JSON field for field. A GET may run the
-// operator's command: at most one run per provider a minute, however often
-// the route is read; reads in between share the last answer, and concurrent
-// reads the one run on its way. The page reads through this handler, so
-// its re-read costs no extra run. A provider that fails nulls its entry
-// without failing the route; a provider no source answers for is not
-// asked, and is not known with why. The answer is one shape, the
+// operator's command: at most one run per provider and per source a minute,
+// however often the route is read; reads in between share the last answer,
+// and concurrent reads the one run on its way. The page reads through this
+// handler, so its re-read costs no extra run. A provider that fails nulls
+// its entry without failing the route; a provider no source answers for is
+// not asked, and is not known with why. The answer is one shape, the
 // command's, on loopback and with --unsafe alike.
 func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -232,7 +264,7 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	out := Limits{Limits: []ProviderLimits{}, Unmapped: []string{}, Head: head}
+	out := Limits{Limits: []ProviderLimits{}, Sources: []SourceLimits{}, Unmapped: []string{}, Head: head}
 	as, err := limits.Answerers(ctx, s.st, s.home)
 	if err != nil {
 		s.fail(w, r, err)
@@ -260,6 +292,17 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Limits = append(out.Limits, p)
 	}
+	for _, a := range as {
+		if !a.Limits.Self() {
+			continue
+		}
+		src, err := s.limitsSource(ctx, a)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		out.Sources = append(out.Sources, src)
+	}
 	s.respond(w, r, Page{Template: "limits", Title: "Limits", Menu: "config", Data: out, head: head, stream: "seq"})
 }
 
@@ -268,6 +311,21 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 func askProvider(ctx context.Context, g providerGroup) ProviderLimits {
 	out := ProviderLimits{Provider: g.name, Kinds: g.kinds, BurnedBy: g.by}
 	r, err := g.answerer.AskName(ctx, g.name)
+	if err != nil {
+		out.Unknown = err.Error()
+		return out
+	}
+	out.Limits = r
+	if w := r.UsedUp(); w != nil {
+		out.Window, out.ResetsAt = w.Label, w.ResetsAt
+	}
+	return out
+}
+
+// askSource asks the source for itself once, and says what it came to.
+func askSource(ctx context.Context, a limits.Answerer) SourceLimits {
+	out := SourceLimits{Source: a.Source}
+	r, err := a.AskSelf(ctx)
 	if err != nil {
 		out.Unknown = err.Error()
 		return out

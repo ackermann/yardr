@@ -105,6 +105,50 @@ func TestAsk(t *testing.T) {
 	}
 }
 
+// A source whose limits key names no kinds answers for itself: AskSource
+// runs its command as the file has it, with no provider substituted, and
+// the report is what it printed. A source with kinds, or no source of the
+// name, is not asked: nothing is known.
+func TestAskSource(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	seen := filepath.Join(t.TempDir(), "seen")
+	p := standIn(t, `{ echo "args: $*"; } >`+seen+`; echo '{"provider":"machine","windows":[{"label":"load","used_percent":12.5,"target_percent":80}]}'`)
+	st := sources{
+		{Name: "machine", Text: "name: machine\nlimits:\n  command: [" + p + ", --target, load=80]\n"},
+		{Name: "quokka", Text: "name: quokka\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot }\n"},
+	}
+	r, err := AskSource(ctx, st, home, "machine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "args: --target load=80\n" {
+		t.Fatalf("the command saw %q", got)
+	}
+	if r.Source != "machine" || r.Provider != "machine" || len(r.Windows) != 1 ||
+		r.Windows[0].Label != "load" || *r.Windows[0].UsedPercent != 12.5 || *r.Windows[0].TargetPercent != 80 {
+		t.Fatalf("report = %+v", r)
+	}
+
+	os.Remove(seen)
+	var none *NoSource
+	if _, err := AskSource(ctx, st, home, "quokka"); !errors.As(err, &none) || none.Source != "quokka" ||
+		err.Error() != "no source named quokka says limits of itself (a source with a limits key and no kinds: yardr source --help)" {
+		t.Fatalf("a source with kinds, asked for itself: %v", err)
+	}
+	if _, err := AskSource(ctx, st, home, "ghost"); !errors.As(err, &none) || none.Source != "ghost" {
+		t.Fatalf("no source of the name: %v", err)
+	}
+	if _, err := os.Stat(seen); err == nil {
+		t.Fatal("the command was run for a source that answers for nothing of its own")
+	}
+	// Asking by kind never reaches a source that answers for itself: no
+	// table lists a kind for it.
+	if _, err := Ask(ctx, st, home, "machine"); !errors.As(err, &none) || none.Kind != "machine" {
+		t.Fatalf("Ask(machine) = %v", err)
+	}
+}
+
 // A group or crew member may say which subscription it burns: AskFor asks
 // for the provider setting, through the first source by name whose kinds
 // table names it among its values, even where no table lists the kind

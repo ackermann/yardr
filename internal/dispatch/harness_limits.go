@@ -88,6 +88,36 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age t
 	return r, err
 }
 
+// askSource is what the source named source says of itself: from memory
+// when the source was asked within age, else by one run of its command.
+// Only a source whose limits key names no kinds answers; the error is a
+// *limits.NoSource naming the source where none does, and nothing was run.
+// The memory is the providers' own: a source's key has no provider in it,
+// and no provider's name is empty.
+func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Duration) (*limits.Report, error) {
+	as, err := limits.Answerers(ctx, d.Store, d.Home)
+	if err != nil {
+		return nil, err
+	}
+	a, ok := limits.SelfAnswerer(as, source)
+	if !ok {
+		return nil, &limits.NoSource{Source: source}
+	}
+	key, now := a.Source+"\x00", d.now()
+	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < age {
+		return m.report, m.err
+	}
+	r, err := a.AskSelf(ctx)
+	if d.limitsAsked == nil {
+		d.limitsAsked = map[string]limitsAnswer{}
+	}
+	d.limitsAsked[key] = limitsAnswer{at: now, report: r, err: err}
+	if err != nil {
+		d.Log.Warn("limits of a source not known", "source", a.Source, "err", err)
+	}
+	return r, err
+}
+
 // harnessLimits adds to data, a session_harness_error of reason
 // rate_limited for an agent of kind with the provider setting, what the
 // yard's source says of the subscription's limits: the report (`limits`)

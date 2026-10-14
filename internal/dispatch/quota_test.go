@@ -457,6 +457,137 @@ func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) 
 	}
 }
 
+// machineStandIn is a source in place of the machine's: the yard's source
+// "machine" answers for itself with what say last set, and runs counts how
+// often its command ran.
+func machineStandIn(t *testing.T, s store.API) (say func(string), runs func() int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "machine")
+	scripttest.Write(t, script, "#!/bin/sh\necho x >>"+dir+"/asked\ncat "+dir+"/answer\n")
+	_, err := s.PutSource(context.Background(), "machine.yaml", "name: machine\nlimits:\n  command: ["+script+"]\n", "me")
+	must(t, err)
+	say = func(report string) {
+		t.Helper()
+		must(t, os.WriteFile(filepath.Join(dir, "answer"), []byte(report), 0o600))
+	}
+	say(`{"provider":"machine","windows":[]}`)
+	return say, func() int {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, "asked"))
+		if os.IsNotExist(err) {
+			return 0
+		}
+		must(t, err)
+		return len(b) / 2
+	}
+}
+
+// loadReport is what the machine source says with load at load percent,
+// swap and disk nearly idle, each with its target.
+func loadReport(load float64) string {
+	return fmt.Sprintf(`{"provider":"machine","windows":[`+
+		`{"label":"load","used_percent":%v,"target_percent":80},`+
+		`{"label":"swap","used_percent":10,"target_percent":85},`+
+		`{"label":"disk","used_percent":40,"target_percent":90}]}`,
+		load)
+}
+
+// A route with a condition on a source holds dispatch while the source
+// answers over the threshold and releases it under; the wait says the
+// source's window, and the source's command runs at most once in five
+// minutes however many beads are ready.
+func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
+	ctx := context.Background()
+	s, _, d, _, r, now := quotaYard(t, "a@machine.load<80", "wait")
+	say, runs := machineStandIn(t, s)
+	say(loadReport(93))
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "" {
+		t.Fatalf("claimed by %q, want nobody: machine.load is past the threshold", group)
+	}
+	evs := eventKinds(t, s, b.ID, "quota_wait")
+	if len(evs) != 1 {
+		t.Fatalf("quota_wait events = %v, want one", evs)
+	}
+	if reason, _ := evs[0].Data["reason"].(string); evs[0].Data["route"] != r.ID ||
+		reason != "a passed over (machine's load window is 93% used, the route asks under 80)" {
+		t.Fatalf("quota_wait = %v", evs[0].Data)
+	}
+	if _, has := evs[0].Data["resets_at"]; has {
+		t.Fatalf("quota_wait = %v: the machine's windows never reset", evs[0].Data)
+	}
+
+	say(loadReport(12))
+	*now = now.Add(6 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil {
+		t.Fatalf("claimed by %q with %v, want a with nobody passed over", group, data)
+	}
+	if got := runs(); got != 2 {
+		t.Fatalf("the machine command ran %d times, want 2: once over, once under", got)
+	}
+}
+
+// A condition may mix a source's window with the provider's: each
+// comparison reads its own windows.
+func TestRouteConditionMixesASourceAndAProvider(t *testing.T) {
+	ctx := context.Background()
+	s, _, d, p, _, _ := quotaYard(t, "a@machine.load<80,Weekly<80", "b")
+	say, _ := machineStandIn(t, s)
+	p.say(weekly(70, 10))
+	say(loadReport(93))
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	group, data := claimedBy(t, s, b.ID)
+	if group != "b" {
+		t.Fatalf("claimed by %q, want b: machine.load is past the threshold", group)
+	}
+	passed, _ := data["passed"].([]any)
+	if len(passed) != 1 {
+		t.Fatalf("passed = %v, want the one group", data["passed"])
+	}
+	if one, _ := passed[0].(map[string]any); one["group"] != "a" ||
+		one["reason"] != "machine's load window is 93% used, the route asks under 80" {
+		t.Fatalf("passed = %v", one)
+	}
+}
+
+// A group with no kind is gated the same way: an exec group carries a
+// condition on a source, and its beads wait while the source answers over.
+func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"exec": f}, Backoff: time.Nanosecond}
+	now := noon()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, s.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Limit: 5, Config: map[string]any{"cmd": "true"}}, "me"))
+	say, _ := machineStandIn(t, s)
+	g := store.ParseRouteGroup("refinery@machine.load<80")
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: g.Name, When: g.When, Else: []store.RouteGroup{{Name: "wait"}}}, "me")
+	must(t, err)
+	say(loadReport(93))
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "" {
+		t.Fatalf("claimed by %q, want nobody: machine.load is past the threshold", group)
+	}
+	if evs := eventKinds(t, s, b.ID, "quota_wait"); len(evs) != 1 {
+		t.Fatalf("quota_wait events = %v, want one", evs)
+	}
+	say(loadReport(12))
+	now = now.Add(6 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "refinery" {
+		t.Fatalf("claimed by %q once load opened, want refinery", group)
+	}
+	if got := f.starts(); len(got) != 1 {
+		t.Fatalf("starts = %v, want the one", got)
+	}
+}
+
 // A herdr group stored without a kind is asked for as the kind its
 // sessions start with: the yard's default_kind, not the runner's own
 // default. (yardr-j6f0: the condition read the windows of another provider

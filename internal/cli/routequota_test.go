@@ -157,6 +157,75 @@ func TestRouteAddTakesATargetCondition(t *testing.T) {
 	}
 }
 
+// route add takes a condition on a source's window, wait after the groups,
+// and one exec group gated on a source alone; route list prints them as
+// written. wait ends the route, so nothing warns of it.
+func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
+	a, st, _ := quotaCLI(t)
+	ctx := context.Background()
+	if err := st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--group", "a@machine.load<80", "--else", "wait"}, "a@machine.load<80 else wait"},
+		{[]string{"--group", "refinery@machine.load<80", "--else", "wait"}, "refinery@machine.load<80 else wait"},
+		{[]string{"--group", "a@machine.load<80,Weekly<80", "--else", "b"}, "a@machine.load<80,Weekly<80 else b"},
+	} {
+		errs := captureStderr(t)
+		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...)
+		if err != nil {
+			t.Fatalf("route add %v: %v", tc.args, err)
+		}
+		routes, err := st.Routes(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := -1
+		for n, r := range routes {
+			if r.ID == strings.TrimSpace(id) {
+				i = n
+			}
+		}
+		if i < 0 || routes[i].GroupList() != tc.want {
+			t.Fatalf("route add %v stored %v, want %s", tc.args, routes, tc.want)
+		}
+		if got := errs.String(); got != "" {
+			t.Errorf("route add %v warned: %s", tc.args, got)
+		}
+	}
+	out, err := run(t, a.routeCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a@machine.load<80 else wait", "refinery@machine.load<80 else wait", "a@machine.load<80,Weekly<80 else b"} {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
+			t.Errorf("route list has no %q:\n%s", want, out)
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--group", "wait"}, "wait ends a route (--else wait): it is not a group to send to"},
+		{[]string{"--group", "a@Weekly<80", "--else", "wait@Weekly<80"}, "wait takes no condition"},
+		{[]string{"--group", "a@Weekly<80", "--else", "wait", "--else", "b"}, "nothing is tried after wait"},
+		{[]string{"--group", "refinery@Weekly<80"}, "group refinery starts no agents"},
+		{[]string{"--group", "a", "--else", "refinery"}, "group refinery is exec: a route with several groups names only groups that start agents"},
+		{[]string{"--group", "people", "--else", "wait"}, "group people is manual: --else and a quota condition are for groups that start agents"},
+		{[]string{"--group", "a@.load<80"}, `is not <window><<percent used>`},
+	} {
+		if _, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("route add %v: %v, want %q", tc.args, err, tc.want)
+		}
+	}
+	if routes, _ := st.Routes(ctx); len(routes) != 3 {
+		t.Fatalf("a refused route was stored: %+v", routes)
+	}
+}
+
 // flow show names a route's groups in order for a stage, and review and
 // the member check answer for a route with one manual group as they did.
 // None of them runs the limits command.
