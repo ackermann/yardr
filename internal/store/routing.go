@@ -1296,6 +1296,8 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 			return err
 		}
 		row.Group, row.Session = &group, &stored.ID
+		at := stored.StartedAt
+		row.StayClaimAt, row.StayClaimGroup, row.StayClaimSession = &at, group, stored.ID
 		if err := w.mintBead(row, actor); err != nil {
 			return err
 		}
@@ -1413,6 +1415,14 @@ func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string)
 		}
 		if state != "aborted" && sess.Stage == row.Stage {
 			row.Failures++
+		}
+		// A failed claim never pairs as a build: its time is cleared,
+		// its group kept for the counts. Aborted is no failure of the
+		// bead's (a start the runtime could not make), so it still
+		// pairs; a session that is not the stay's latest claim leaves
+		// the reclaim's alone.
+		if (state == "failed" || state == "died") && row.StayClaimSession == sessionID {
+			row.StayClaimAt = nil
 		}
 		if _, err := w.saveBead(old, row, "yard"); err != nil {
 			return err

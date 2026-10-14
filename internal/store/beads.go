@@ -71,6 +71,23 @@ type beadRow struct {
 	// sessions being pruned, and un-holding resets it rather than being
 	// read back from an event.
 	Failures int `json:"failures,omitempty"`
+	// StayStart is when the bead's current stay in its stage started: its
+	// creation for the first stay, the move in for later ones, the seed
+	// for yards from before stays had clocks (eta.go). Zero on a closed
+	// bead with no stay open.
+	StayStart time.Time `json:"stay_start,omitempty"`
+	// StayClaimAt is when the current stay was last claimed, nil when it
+	// never was or when that claim failed (EndSession): a failed claim
+	// never pairs as a build. StayClaimGroup is the group that claimed
+	// it, kept for the counts when the claim failed; StayClaimSession is
+	// the session it claimed it with. All three are cleared when the
+	// stage changes.
+	StayClaimAt      *time.Time `json:"stay_claim_at,omitempty"`
+	StayClaimGroup   string     `json:"stay_claim_group,omitempty"`
+	StayClaimSession string     `json:"stay_claim_session,omitempty"`
+	// Visited is the stages the bead has reached, in first-visit order
+	// under ETAVisitedCap: what the send-back rule reads.
+	Visited []string `json:"visited,omitempty"`
 }
 
 type NewBead struct {
@@ -321,6 +338,7 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 			Metadata: nb.Metadata,
 		}}
 		row.Depot = depot
+		row.StayStart, row.Visited = row.CreatedAt, []string{stage}
 		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
 			return nil, err
 		}
@@ -1370,6 +1388,11 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 			}
 		}
 		terminal = f != nil && f.IsTerminal(stage)
+		// Before ending the session frees the bead: the exit records
+		// whose work ended (exitStay), and the event says so too.
+		if err := exitStay(w.Tx, b, stage, now()); err != nil {
+			return "", nil, err
+		}
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
@@ -1666,6 +1689,9 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 				return "", nil, err
 			}
 			b.Status, b.CloseReason, b.ClosedAt = "open", nil, nil
+			b.StayStart = now()
+			b.StayClaimAt, b.StayClaimGroup, b.StayClaimSession = nil, "", ""
+			b.Visited = AppendVisited(b.Visited, b.Stage)
 			return "reopened", nil, nil
 		})
 		if err != nil {

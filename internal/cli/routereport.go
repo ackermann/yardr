@@ -80,19 +80,8 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	// sendBacks counts, per bead and stage, the moves back into the stage.
 	sendBacks := map[string]int{}
 	// visited is the stages a bead has reached, in the order it first
-	// reached them: what "later" means below. A move into a stage the
-	// bead had already left, from one it reached later, is a send-back;
-	// a first arrival, and a move on after a send-back, are not.
+	// reached them: what the send-back rule (store.IsSendBack) reads.
 	visited := map[string][]string{}
-	visit := func(bead, stage string) int {
-		for i, s := range visited[bead] {
-			if s == stage {
-				return i
-			}
-		}
-		visited[bead] = append(visited[bead], stage)
-		return len(visited[bead]) - 1
-	}
 	sessionOf := map[string]reportClaim{}
 	for _, e := range evs {
 		if e.Bead == nil {
@@ -107,7 +96,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			if group == "" || stage == "" {
 				continue
 			}
-			visit(bead, stage)
+			visited[bead] = store.AppendVisited(visited[bead], stage)
 			if !o.stages[stage] || e.At.Before(o.since) {
 				continue
 			}
@@ -122,13 +111,13 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			if from == "" || to == "" || from == to {
 				continue
 			}
-			fromIdx := visit(bead, from)
-			if toIdx := slices.Index(visited[bead], to); toIdx >= 0 && fromIdx > toIdx && o.stages[to] {
+			visited[bead] = store.AppendVisited(visited[bead], from)
+			if store.IsSendBack(visited[bead], from, to) && o.stages[to] {
 				if !e.At.Before(o.since) {
 					sendBacks[bead+"\x00"+to]++
 				}
 			} else {
-				visit(bead, to)
+				visited[bead] = store.AppendVisited(visited[bead], to)
 			}
 			if !e.At.Before(o.since) {
 				group, _ := e.Data["group"].(string)
@@ -259,23 +248,12 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			Failed:   ce.failed,
 		}
 		if len(ce.builds) > 0 {
-			s := limits.Span(medianDuration(ce.builds))
+			s := limits.Span(store.MedianDuration(ce.builds))
 			row.MedianBuild = &s
 		}
 		rep.Rows = append(rep.Rows, row)
 	}
 	return rep
-}
-
-// medianDuration is the middle of ds (sorted in place), the mean of the two
-// middle ones when there are evenly many.
-func medianDuration(ds []time.Duration) time.Duration {
-	slices.Sort(ds)
-	n := len(ds)
-	if n%2 == 1 {
-		return ds[n/2]
-	}
-	return (ds[n/2-1] + ds[n/2]) / 2
 }
 
 func hasReportPrefix(label string, prefixes []string) bool {
