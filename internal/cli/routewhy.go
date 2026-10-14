@@ -142,7 +142,8 @@ func groupEnvFile(g store.Group) string {
 // operator's warns of nothing.
 func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.Route, def string) []string {
 	var out []string
-	gated := map[string]string{} // provider -> the first conditioned group burning it
+	type providerLogin struct{ provider, envFile string }
+	gated := map[providerLogin]string{} // provider and env_file -> first conditioned group
 	for _, rg := range r.Groups() {
 		if rg.Name == store.RouteWait {
 			break // it ends the route, and burns nothing
@@ -159,13 +160,15 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 				}
 			}
 			if comparesProvider {
-				if _, seen := gated[name]; !seen && name != "" {
-					gated[name] = rg.Name
+				key := providerLogin{name, groupEnvFile(groups[rg.Name])}
+				if _, seen := gated[key]; !seen && name != "" {
+					gated[key] = rg.Name
 				}
 			}
 			continue
 		}
-		if first, same := gated[name]; same && groupEnvFile(groups[first]) == groupEnvFile(groups[rg.Name]) {
+		key := providerLogin{name, groupEnvFile(groups[rg.Name])}
+		if first, same := gated[key]; same {
 			out = append(out, fmt.Sprintf("%s burns provider %s, as %s does, and has no condition: a bead that passes over %s goes on to %s "+
 				"however far the same windows are used. Give it a condition of its own (%s@<window><<percent>) or name a group of another provider",
 				rg.Name, name, first, first, rg.Name, rg.Name))

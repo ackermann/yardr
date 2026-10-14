@@ -234,21 +234,26 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 		{Name: "own", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/own.env"}},
 		{Name: "spare", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/spare.env"}},
 		{Name: "twin", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/own.env"}},
+		{Name: "spare-twin", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/spare.env"}},
 	} {
 		if err := st.PutGroup(ctx, g, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, tc := range []struct {
-		args []string
-		warn string // the group warned of, "" for none
+		args  []string
+		first string // the conditioned group the warning compares with
+		warn  string // the group warned of, "" for none
 	}{
 		// Different logins read different windows: the failover is real.
-		{[]string{"--group", "own@Weekly<80", "--else", "spare"}, ""},
+		{args: []string{"--group", "own@Weekly<80", "--else", "spare"}},
 		// A personal group failing over to the operator's ambient login.
-		{[]string{"--group", "own@Weekly<80", "--else", "a"}, ""},
+		{args: []string{"--group", "own@Weekly<80", "--else", "a"}},
 		// One file is one login: the bead goes on as used up as it is.
-		{[]string{"--group", "own@Weekly<80", "--else", "twin"}, "twin"},
+		{args: []string{"--group", "own@Weekly<80", "--else", "twin"}, first: "own", warn: "twin"},
+		// A later condition on another login must not hide that login's
+		// own unconditioned fallback from the warning.
+		{args: []string{"--group", "own@Weekly<80", "--else", "spare@Weekly<80", "--else", "spare-twin"}, first: "spare", warn: "spare-twin"},
 	} {
 		errs := captureStderr(t)
 		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...)
@@ -263,8 +268,8 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 			}
 			continue
 		}
-		want := "warning: route " + id + ": " + tc.warn + " burns provider anthropic, as own does, and has no condition: " +
-			"a bead that passes over own goes on to " + tc.warn + " however far the same windows are used."
+		want := "warning: route " + id + ": " + tc.warn + " burns provider anthropic, as " + tc.first + " does, and has no condition: " +
+			"a bead that passes over " + tc.first + " goes on to " + tc.warn + " however far the same windows are used."
 		if !strings.HasPrefix(got, want) || strings.Count(got, "\n") != 1 {
 			t.Errorf("route add %v warned %q, want one line beginning %q", tc.args, got, want)
 		}
