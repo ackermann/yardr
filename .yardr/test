@@ -168,7 +168,7 @@ packs/starter/                 internal/pack internal/cli
 packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
-packs/template/                internal/pack
+packs/template/                internal/pack packs
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/test                    .
 internal/hooks/testdata/       internal/hooks internal/dispatch
@@ -189,7 +189,7 @@ README.md                      contrib/release .
 LICENSE                        contrib/release .
 NOTICE                         contrib/release
 docs/pushover.md               internal/cli
-docs/integrations.md           internal/cli
+docs/integrations.md           internal/cli packs
 docs/groups.md                 internal/agents
 docs/api.md                    internal/rpc
 docs/packs.md                  packs

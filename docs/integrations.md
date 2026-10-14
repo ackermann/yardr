@@ -1202,11 +1202,25 @@ yard's to add. `yardr pack show linear` prints the notes again
 ### 3. The hook and its secret
 
 *Anyone.* The secret the service signs with goes in a file, mode 0600, and
-the hook names the file:
+the hook names the file. A new file takes its mode from the shell's
+umask, so narrow it first. The secret is never a command's word: that
+line would stay in the shell's history. Each command below is one thing
+to type, in a block of its own; run the second, type or paste the secret
+blind and press Enter:
 
 ```sh
-printf '%s' '<signing secret>' > ~/.yardr/linear.secret
+umask 077
+```
+
+```sh
+IFS= read -rs v && printf '%s' "$v" > ~/.yardr/linear.secret; unset v
+```
+
+```sh
 chmod 600 ~/.yardr/linear.secret
+```
+
+```sh
 yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
 # hook linear saved: POST /hooks/linear (linear)
 ```
@@ -1226,11 +1240,25 @@ ACCEPTED until a delivery came.
 ### 4. The crew member's credential
 
 *Anyone, for the file; the token is made in Linear.* What the crew member
-speaks with goes in an env file of its own, never in the store:
+speaks with goes in an env file of its own, never in the store. A new
+file takes its mode from the shell's umask, so narrow it first. The
+token is never a command's word: that line would stay in the shell's
+history. Each command below is one thing to type, in a block of its own;
+run the second, type or paste the token blind and press Enter:
 
 ```sh
-echo 'LINEAR_API_KEY=<token>' > ~/.yardr/crew/yardmaster.env
+umask 077
+```
+
+```sh
+IFS= read -rs v && printf 'LINEAR_API_KEY=%s' "$v" > ~/.yardr/crew/yardmaster.env; unset v
+```
+
+```sh
 chmod 600 ~/.yardr/crew/yardmaster.env
+```
+
+```sh
 yardr crew set yardmaster env_file=~/.yardr/crew/yardmaster.env
 yardr crew show yardmaster
 #   env_file …/crew/yardmaster.env (LINEAR_API_KEY)

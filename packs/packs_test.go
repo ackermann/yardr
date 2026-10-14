@@ -816,6 +816,49 @@ func TestGitHubPack(t *testing.T) {
 	}
 }
 
+// The template a new source pack is copied from, and the integrations page
+// that follows the linear pack's setup notes, type no secret as a command's
+// word either: that line would stay in the shell's history. Neither is
+// embedded, so this reads both from the checkout.
+func TestTemplateAndDocsTypeNoSecret(t *testing.T) {
+	setup, err := os.ReadFile("template/SETUP.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`IFS= read -rs v && printf '%s' "$v" > ~/.yardr/acme.secret; unset v`,
+		`IFS= read -rs v && printf 'ACME_TOKEN=%s\n' "$v" > ~/.yardr/crew/<name>.env; unset v`,
+		`IFS= read -rs v && printf 'ACME_UPDATE_TOKEN=%s\n' "$v" >> ~/.yardr/crew/<name>.env; unset v`,
+		"the key file's path are typed as usual: they are no secret",
+	} {
+		if !strings.Contains(string(setup), want) {
+			t.Errorf("template/SETUP.md lacks %q", want)
+		}
+	}
+	for _, not := range []string{"printf '%s' '<signing secret>'", "'ACME_TOKEN=<token>'", "'ACME_UPDATE_TOKEN=<token>'"} {
+		if strings.Contains(string(setup), not) {
+			t.Errorf("template/SETUP.md types a secret as a command's word: %q", not)
+		}
+	}
+	page, err := os.ReadFile("../docs/integrations.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`IFS= read -rs v && printf '%s' "$v" > ~/.yardr/linear.secret; unset v`,
+		`IFS= read -rs v && printf 'LINEAR_API_KEY=%s' "$v" > ~/.yardr/crew/yardmaster.env; unset v`,
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("docs/integrations.md lacks %q", want)
+		}
+	}
+	for _, not := range []string{"printf '%s' '<signing secret>'", "echo 'LINEAR_API_KEY=<token>'"} {
+		if strings.Contains(string(page), not) {
+			t.Errorf("docs/integrations.md types a secret as a command's word: %q", not)
+		}
+	}
+}
+
 // The pushover pack is Pushover as an integration: of kind source, one
 // declared source with the notify key that tells a user, and no commands.
 // The source is named pushover. Its declaration is the file the yardr

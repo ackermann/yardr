@@ -12,13 +12,20 @@ the service is a flow pack's to say, not this file's.
    anything else it cannot use.
 2. **The hook and its secret.** The webhook's signing secret goes in a file,
    mode 0600, which the hook names. A new file takes its mode from the
-   shell's umask, so narrow it first:
+   shell's umask, so narrow it first. The secret is never a command's
+   word: that line would stay in the shell's history. Each command below
+   is one thing to type, in a block of its own; run the second, type or
+   paste the secret blind and press Enter:
    ```sh
    umask 077
    ```
    ```sh
-   printf '%s' '<signing secret>' > ~/.yardr/acme.secret
+   IFS= read -rs v && printf '%s' "$v" > ~/.yardr/acme.secret; unset v
+   ```
+   ```sh
    chmod 600 ~/.yardr/acme.secret
+   ```
+   ```sh
    yardr hook add acme --source acme --secret-file ~/.yardr/acme.secret
    # hook acme saved: POST /hooks/acme (acme)
    ```
@@ -26,20 +33,32 @@ the service is a flow pack's to say, not this file's.
 3. **The crew member's credential.** Two tokens in an env file of the crew
    member's own, mode 0600, never in the store: one the reads are sent
    with, one the updates are. A new file takes its mode from the shell's
-   umask, so narrow it first:
+   umask, so narrow it first. Neither token is ever a command's word:
+   that line would stay in the shell's history. Each command below is one
+   thing to type, in a block of its own; run the second and the third,
+   typing or pasting each token blind and pressing Enter:
    ```sh
    umask 077
    ```
    ```sh
-   printf '%s\n' 'ACME_TOKEN=<token>' 'ACME_UPDATE_TOKEN=<token>' > ~/.yardr/crew/<name>.env
+   IFS= read -rs v && printf 'ACME_TOKEN=%s\n' "$v" > ~/.yardr/crew/<name>.env; unset v
+   ```
+   ```sh
+   IFS= read -rs v && printf 'ACME_UPDATE_TOKEN=%s\n' "$v" >> ~/.yardr/crew/<name>.env; unset v
+   ```
+   ```sh
    chmod 600 ~/.yardr/crew/<name>.env
+   ```
+   ```sh
    yardr crew set <name> env_file=~/.yardr/crew/<name>.env
    ```
-   Drop the second line where the declaration dropped `update_env`.
+   Drop the third command where the declaration dropped `update_env`.
    Restart the crew member after changing the file. Or the member speaks
    with a minted credential: the two mint names beside the tokens' place,
    and the operator's mint command, which turns their values into a
-   short-lived token, with the umask narrowed first as above:
+   short-lived token, with the umask narrowed first as above. The id and
+   the key file's path are typed as usual: they are no secret, and the
+   key itself is never typed:
    ```sh
    umask 077
    ```
