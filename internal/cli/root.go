@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -219,6 +220,11 @@ func (a *app) store(ctx context.Context) (store.API, error) {
 		st, err := connect(ctx, cfg)
 		if err != nil {
 			return nil, err
+		}
+		// The session this run acts as goes with every call, so one made
+		// before its session is on record is refused as its session's.
+		if c, ok := st.(*rpc.Client); ok {
+			c.Session = a.identity().session
 		}
 		a.st = st
 	}

@@ -110,10 +110,16 @@ func agentPane(ctx context.Context, tx *bolt.Tx) (string, error) {
 		return "the session " + sess.ID + " of a bead's agent", nil
 	}
 	r, err := paneCrew(tx, callerOf(ctx))
-	if err != nil || r == nil {
+	if err != nil {
 		return "", err
 	}
-	return "the crew member " + r.Name, nil
+	if r != nil {
+		return "the crew member " + r.Name, nil
+	}
+	if err := startingRefused(tx, sessionOf(ctx)); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 func checkDeviceName(name string) error {

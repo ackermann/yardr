@@ -36,10 +36,17 @@ type Client struct {
 	// Revision is the build this client runs (version.Current), sent with
 	// every call.
 	Revision string
+	// Session is the session the caller runs in ($YARDR_SESSION), sent
+	// with every call, so a call made before its session is on record is
+	// refused as its session's. "" outside a session.
+	Session string
 	// Retry is how long a call keeps retrying while no server listens, as
 	// while one execs a new build of itself (default ReplaceRetry).
 	Retry time.Duration
 }
+
+// SessionHeader carries the caller's session on every call.
+const SessionHeader = "X-Yardr-Session"
 
 var _ store.API = (*Client)(nil)
 
@@ -119,6 +126,9 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 	}
 	if c.Revision != "" {
 		req.Header.Set(version.Header, c.Revision)
+	}
+	if c.Session != "" {
+		req.Header.Set(SessionHeader, c.Session)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

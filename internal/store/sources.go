@@ -137,6 +137,9 @@ func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) e
 	if r != nil {
 		return refuse("%s; this is the crew member %s", r.Name)
 	}
+	if err := startingRefused(w.Tx, sessionOf(ctx)); err != nil {
+		return err
+	}
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return &OperatorOnlyError{msg: fmt.Sprintf("%s; %s is a crew member", why, actor), ask: ask}
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -200,5 +202,25 @@ func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 	}
 	if errs.Len() != 0 {
 		t.Fatalf("stderr = %q", errs.String())
+	}
+}
+
+// The session the run acts as goes with every call over the socket, so a
+// call made before its session is on record is refused as its session's.
+func TestStoreSendsTheRunsSession(t *testing.T) {
+	newHome(t)
+	t.Setenv("YARDR_SESSION", "s1")
+	old := connect
+	connect = func(context.Context, *config.Config) (store.API, error) {
+		return rpc.NewClient(filepath.Join(t.TempDir(), "s")), nil
+	}
+	t.Cleanup(func() { connect = old })
+	st, err := (&app{}).store(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := st.(*rpc.Client)
+	if !ok || c.Session != "s1" {
+		t.Fatalf("the store = %#v, want a client sending session s1", st)
 	}
 }

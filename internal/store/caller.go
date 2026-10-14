@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,42 @@ func WithCaller(ctx context.Context, pid int) context.Context {
 func callerOf(ctx context.Context) int {
 	pid, _ := ctx.Value(callerKey{}).(int)
 	return pid
+}
+
+type sessionKey struct{}
+
+// WithSession records on ctx the session the call says it is of
+// ($YARDR_SESSION, sent with the call over the socket), so a call made
+// before its session is on record can be refused as its session's (see
+// startingRefused). A call made in the owning process names none.
+func WithSession(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, id)
+}
+
+func sessionOf(ctx context.Context) string {
+	id, _ := ctx.Value(sessionKey{}).(string)
+	return id
+}
+
+// startingRefused refuses a call from no known pane that names a session
+// the store has no pane on record for yet: an exec session's process calls
+// before the dispatcher records its handle (MarkRunning), and until then
+// the pane checks would pass it on the actor's name alone. A manual
+// session is a person's claim, and a session past starting has its pane
+// recorded already: neither is refused here.
+func startingRefused(tx *bolt.Tx, id string) error {
+	if id == "" {
+		return nil
+	}
+	sess := new(Session)
+	ok, err := get(tx, bSessions, id, sess)
+	if err != nil {
+		return err
+	}
+	if ok && (sess.Manual() || sess.State != "starting") {
+		return nil
+	}
+	return fmt.Errorf("the session %s is starting and not on record yet", id)
 }
 
 // paneSession is the session whose pane the process pid runs in: the one

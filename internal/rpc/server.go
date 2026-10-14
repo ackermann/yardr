@@ -134,7 +134,11 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	result, more, err := invoke(r.Context(), m, body)
+	ctx := r.Context()
+	if id := r.Header.Get(SessionHeader); id != "" {
+		ctx = store.WithSession(ctx, id)
+	}
+	result, more, err := invoke(ctx, m, body)
 	if err != nil {
 		writeJSON(w, reply{Error: toWire(err)})
 		return
