@@ -482,6 +482,11 @@ func TestUserResolverThatDoesNotReturn(t *testing.T) {
 	if got := u.Rejected(); got[refusedTimeout] != 1 {
 		t.Errorf("the refusals are counted %v, want one %s", got, refusedTimeout)
 	}
+	// The short limit served the hanging credential; the device beside it
+	// is answered under the limit the yard runs with. Under load the
+	// store's lookup can outlast the short one, and the device is refused
+	// for being slow, not for being unknown.
+	u.resolveTimeout = ResolveTimeout
 	if w := ask(h, http.MethodGet, "/user/me", token, nil); w.Code != http.StatusOK {
 		t.Errorf("the device beside it = %d", w.Code)
 	}
