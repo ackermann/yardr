@@ -375,7 +375,7 @@ func settingAsk(key string) AskClass {
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, RouterAddrSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone

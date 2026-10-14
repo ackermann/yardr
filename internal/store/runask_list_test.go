@@ -1094,6 +1094,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		DefaultKindSetting:    Askable,
 		DefaultPackSetting:    Alone,
 		HookAddrSetting:       Alone,
+		RouterAddrSetting:     Alone,
 		WebAddrSetting:        Alone,
 		WebPagesAddrSetting:   Alone,
 		WebPagesHostSetting:   Alone,
