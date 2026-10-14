@@ -1096,13 +1096,17 @@ func (a *app) handoffs(ctx context.Context, st store.API, runners map[string]dis
 		return
 	}
 	if !a.json {
-		names := slices.Sorted(func(yield func(string) bool) {
-			for n := range asked {
-				if !yield(n) {
-					return
+		var names []string
+		for _, g := range agents {
+			if _, waiting := asked[g.key()]; waiting {
+				name := g.Name
+				if g.For != "" {
+					name += " for " + g.For
 				}
+				names = append(names, name)
 			}
-		})
+		}
+		slices.Sort(names)
 		fmt.Fprintf(stderr, "waiting up to %s for the handoff of %s\n", wait, strings.Join(names, ", "))
 	}
 	for deadline := time.Now().Add(wait); len(asked) > 0 && time.Now().Before(deadline) && ctx.Err() == nil; time.Sleep(pollEvery) {
