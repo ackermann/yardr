@@ -212,9 +212,9 @@ Mail was sent within the yard, or came from a linked yard for one of this yard. 
 | `data.text` | string | the mail |
 | `data.to_user` | bool, may be absent | true when the receiver is a user; absent when it is a crew member |
 | `data.as` | string, may be absent | on mail that came from a linked yard, whose `actor` is `<name>@<peer>`: the user of this yard the link trusted that name as when it came, as a letter's `as`; absent on any other mail |
-| `data.files` | array, may be absent | the images the mail carries, as a letter's `files`; absent on mail without any |
-| `data.files[].hash` | string | the image's name: `GET /blobs/<hash>` answers the bytes |
-| `data.files[].type` | string | `image/png` or `image/jpeg` |
+| `data.files` | array, may be absent | the files the mail carries, each an image or a page, as a letter's `files`; absent on mail without any |
+| `data.files[].hash` | string | the file's name: `GET /blobs/<hash>` answers the bytes |
+| `data.files[].type` | string | `image/png`, `image/jpeg` or `text/html; charset=utf-8` |
 | `data.files[].bytes` | number | how many bytes it is |
 | `data.via` | string, may be absent | the [device](#over-the-network) the sender wrote through; absent on mail written on the yard's own machine. Every event a device's call writes as its user carries it, a `noted` and a `mail_read` too |
 
@@ -365,38 +365,48 @@ A note was added to the bead: a plain note, a question (an ask), or an answer (a
 
 ## An image: `GET /blobs/<hash>`
 
-Mail can carry images. A letter names each in `files` (the `mail` event in
-`data.files`) by its hash, the SHA-256 of its bytes in hex, with its type
-and size, and this reads one:
+Mail and a bead's notes carry files: an image or a page. A letter names
+each in `files` (the `mail` event in `data.files`, a note in its own) by
+its hash, the SHA-256 of its bytes in hex, with its type and size, and
+this reads one:
 
 ```
 GET /blobs/<hash>
 ```
 
-The reply has status 200, the `Content-Type` the letter said (`image/png`
-or `image/jpeg`) and the image's bytes as its body. A hash the yard does
+A file is a PNG or a JPEG image, or an HTML page. Which it is is read
+from its bytes when it is put, and is what the reply's `Content-Type`
+says: `image/png`, `image/jpeg` or `text/html; charset=utf-8`. The reply
+has status 200 and the file's bytes as its body. A hash the yard does
 not hold is status 404, with a line of text that says so. That is the one
 answer here that is no JSON.
 
-An image never changes under its hash, so a client that has one need not
-ask again. The yard removes an image once no mail it still has names it
-(`yardr store prune`), which is how a hash from a letter can come to be 404.
+A file never changes under its hash, so a client that has one need not
+ask again. The yard removes a file once no mail or note it still has
+names it (`yardr store prune`), which is how a hash from a letter can
+come to be 404.
 
 Sending one is two calls: [`PutBlob`](#putblob) with the bytes, then
 [`Mail`](#mail) with the hash it answered among `files`. The cap on one
-image is `blob_max_bytes` of [`Settings`](#settings). To a linked yard it is
-the same with [`MailPeer`](#mailpeer), when the link carries `file` out and
-the file is within `peer_file_max_bytes`
+file is `blob_max_bytes` of [`Settings`](#settings). To a linked yard it is
+the same with [`MailPeer`](#mailpeer), an image or a page alike, when the
+link carries `file` out and the file is within `peer_file_max_bytes`
 ([peers.md](peers.md#an-image-with-the-mail)). A file of mail from a linked
 yard that this yard did not take has `not_taken`, the reason, beside the
-sender's `hash`, `type` and `bytes`: there is no image to ask for then.
+sender's `hash`, `type` and `bytes`: there is no file to ask for then.
 In a [`Conversation`](#conversation) with one of a linked yard, a file of
 this yard's own mail that the other yard did not take has `not_taken` too,
 with that yard's reason.
 
+In the web view a note's page opens from the bead's page, and a mail's
+page is named on the talk page without a link: only a note's page opens,
+until mail viewing is decided ([web.md](web.md#talk)). The view's own
+`/blobs/<hash>` serves only a file a note names; a mail's file answers
+there as a missing blob ([web.md](web.md#one-bead)).
+
 The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
-yardr's own views name an image (`1 image: <path>`). The directory is
-yardr's own: a client reads an image here, and never writes there.
+yardr's own views name a file (`1 image: <path>`, `1 page: <path>`). The
+directory is yardr's own: a client reads a file here, and never writes there.
 
 ## Who you are
 
@@ -460,7 +470,7 @@ curl -H "Authorization: Bearer $(cat ~/.config/footplate/mac.token)" \
   -X POST https://mac.example.net/user/call/UserAsks -d '{}'
 ```
 
-A call, its reply, its errors, the stream and an image are as this page
+A call, its reply, its errors, the stream and a file are as this page
 says they are on the socket, so a client changes how it connects and
 nothing else. What is not the same:
 
@@ -497,7 +507,7 @@ nothing else. What is not the same:
   the note read back (`via` in `Conversation` and in `Bead`'s `notes[]`). A
   view shows it behind the writer: `jo (via phone)`.
 - **A request is bounded**: a call's body to 1 MiB, and `PutBlob`'s to the
-  yard's cap on an image besides. One over it is answered 413.
+  yard's cap on a file besides. One over it is answered 413.
 - The two headers of a reply on the socket, the build and the pid, are not
   sent.
 
@@ -623,7 +633,7 @@ POST /call/Head
 
 ### `Settings`
 
-The yard's operator, when set, and its cap on an image. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no image.
+The yard's operator, when set, and its cap on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
 
 ```
 POST /call/Settings
@@ -869,9 +879,9 @@ POST /call/UserInbox
 | `mail[].text` | string | the mail |
 | `mail[].read` | bool | whether its receiver acknowledged it |
 | `mail[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
-| `mail[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
-| `mail[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
-| `mail[].files[].type` | string | `image/png` or `image/jpeg` |
+| `mail[].files` | array, may be absent | the files the mail carries, each an image or a page, in the order it was sent with them; absent on mail without any |
+| `mail[].files[].hash` | string | the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `mail[].files[].type` | string | `image/png`, `image/jpeg` or `text/html; charset=utf-8` |
 | `mail[].files[].bytes` | number | how many bytes it is |
 | `unread` | number | all the unread, shown or not |
 | `last` | number | the seq of the newest unread, `0` when none is |
@@ -879,11 +889,11 @@ POST /call/UserInbox
 
 ### `PutBlob`
 
-Gives the yard an image, so that mail can carry it: `Mail` then names it by the hash this answers. The bytes go in the JSON of the call, in base64. Only a PNG or a JPEG is taken, and which it is is read from the bytes themselves; anything else is refused, and so is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps an image once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. An image no mail names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail is about to be sent, and put it again when that was longer ago.
+Gives the yard a file, so that mail or a note can carry it: `Mail` then names it by the hash this answers. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail is about to be sent, and put it again when that was longer ago.
 
 | argument | type | |
 |---|---|---|
-| `data` | string | the image's bytes, in base64 (the standard alphabet, padded) |
+| `data` | string | the file's bytes, in base64 (the standard alphabet, padded) |
 
 ```
 POST /call/PutBlob
@@ -900,8 +910,8 @@ POST /call/PutBlob
 
 | field of the result | type | |
 |---|---|---|
-| `hash` | string | the image's name: the SHA-256 of its bytes, in hex |
-| `type` | string | `image/png` or `image/jpeg`, as the bytes say |
+| `hash` | string | the file's name: the SHA-256 of its bytes, in hex |
+| `type` | string | `image/png`, `image/jpeg` or `text/html; charset=utf-8`, as the bytes say |
 | `bytes` | number | how many bytes it is |
 
 ### `Mail`
@@ -911,9 +921,9 @@ Sends mail to a crew member or a user of this yard. It answers nothing; the mail
 | argument | type | |
 |---|---|---|
 | `to` | string | the receiver's name |
-| `text` | string | the mail, 1 to 4096 bytes; it may be empty when the mail carries an image |
+| `text` | string | the mail, 1 to 4096 bytes; it may be empty when the mail carries a file |
 | `actor` | string | who sends it: the user's name |
-| `files` | array of string | the images the mail carries, at most 8: the hash of each, as `PutBlob` answered it. Left out, the mail carries none. One the yard does not hold refuses the mail |
+| `files` | array of string | the files the mail carries, images and pages, at most 8: the hash of each, as `PutBlob` answered it. Left out, the mail carries none. One the yard does not hold refuses the mail |
 
 ```
 POST /call/Mail
@@ -939,7 +949,7 @@ Queues mail to one of a linked yard, `<to>@<peer>`. It is refused when the link 
 | `peer` | string | this yard's name for the link |
 | `text` | string | the mail |
 | `actor` | string | who sends it: the user's name |
-| `files` | array of string | the hashes of the images the mail carries, as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when an image is over `peer_file_max_bytes` |
+| `files` | array of string | the hashes of the files the mail carries, images and pages, as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when a file is over `peer_file_max_bytes` |
 
 ```
 POST /call/MailPeer
@@ -1122,9 +1132,9 @@ POST /call/Conversation
 | `[].read` | bool | whether its receiver acknowledged it |
 | `[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
 | `[].via` | string, may be absent | the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine |
-| `[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
-| `[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
-| `[].files[].type` | string | `image/png` or `image/jpeg` |
+| `[].files` | array, may be absent | the files the mail carries, each an image or a page, in the order it was sent with them; absent on mail without any |
+| `[].files[].hash` | string | the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `[].files[].type` | string | `image/png`, `image/jpeg` or `text/html; charset=utf-8` |
 | `[].files[].bytes` | number | how many bytes it is |
 | `[].delivery` | string, may be absent | on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up |
 
@@ -1950,9 +1960,9 @@ POST /call/Bead
 | `notes[].text` | string | the note |
 | `notes[].at` | time | when it was written |
 | `notes[].via` | string, may be absent | the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine |
-| `notes[].files` | array, may be absent | the images the note carries, in the order it was written with them; absent on a note without any |
-| `notes[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
-| `notes[].files[].type` | string | `image/png` or `image/jpeg` |
+| `notes[].files` | array, may be absent | the files the note carries, each an image or a page, in the order it was written with them; absent on a note without any |
+| `notes[].files[].hash` | string | the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `notes[].files[].type` | string | `image/png`, `image/jpeg` or `text/html; charset=utf-8` |
 | `notes[].files[].bytes` | number | how many bytes it is |
 | `asks[].ask` | number | the ask note's seq: what an answer names |
 | `asks[].to` | string | who must answer |
