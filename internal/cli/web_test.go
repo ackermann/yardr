@@ -420,7 +420,7 @@ func TestWebServeJWTModeServes(t *testing.T) {
 	serves := func(args ...string) {
 		t.Helper()
 		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
-		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0"}, args...))
+		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}, args...))
 		cmd.SilenceUsage, cmd.SilenceErrors = true, true
 		sctx, cancel := context.WithCancel(ctx)
 		defer cancel()
