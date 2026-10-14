@@ -450,6 +450,84 @@ func TestUserGiveSecretIsNotTakenInTheClear(t *testing.T) {
 	}
 }
 
+// A hosted yard takes a secret from its router: the peer the router_addr
+// setting names, saying the request came to it over https. The value lands
+// in the file, for the operator's ask and for a user's own address. From
+// that peer without the header, from anywhere else, and with the setting
+// unset, it is refused with today's sentence, before the body is read, and
+// nothing is given.
+func TestUserGivesASecretThroughTheRouter(t *testing.T) {
+	const router = "172.18.0.2"
+	ctx := context.Background()
+	routed := func(t *testing.T) *secretYard {
+		t.Helper()
+		y := newSecretYard(t)
+		if err := y.st.SetSetting(ctx, store.RouterAddrSetting, router, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return y
+	}
+	t.Run("the operator's ask, from the router said https", func(t *testing.T) {
+		const value = "s3cret-fr0m-the-edge"
+		y := routed(t)
+		w := y.give(router+":40000", y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})), "X-Forwarded-Proto", "https")
+		if !strings.Contains(w.Body.String(), `"given":["CRM_TOKEN"]`) {
+			t.Fatalf("answered %s", w.Body)
+		}
+		if b, _ := os.ReadFile(y.file); string(b) != "CRM_TOKEN="+value+"\n" {
+			t.Errorf("the env file holds %q", b)
+		}
+	})
+	t.Run("a user's own address, from the router said https", func(t *testing.T) {
+		const value = "u-0f-sam-fr0m-the-edge"
+		y := routed(t)
+		if _, err := y.st.PutSource(ctx, "push.yaml", addressDecl, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Your id at push", To: "sam",
+			Context: []string{"It is on the first page after login."}, Secret: &store.AskSecret{Source: "push", User: "sam"}}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q}}`, seq, value)
+		w := y.give(router+":40000", y.sam, strings.NewReader(args), "X-Forwarded-Proto", "https")
+		if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
+			t.Fatalf("answered %s", w.Body)
+		}
+		file := filepath.Join(filepath.Dir(y.db), "users", "sam.env")
+		if b, _ := os.ReadFile(file); string(b) != "PUSH_USER="+value+"\n" {
+			t.Errorf("sam's file holds %q", b)
+		}
+	})
+	for name, c := range map[string]struct {
+		from   string
+		header []string
+	}{
+		"the router, no header":          {router + ":40000", nil},
+		"the router, said http":          {router + ":40000", []string{"X-Forwarded-Proto", "http"}},
+		"the router, one proxy in plain": {router + ":40000", []string{"X-Forwarded-Proto", "https, http"}},
+		"another peer, said https":       {elsewhere, []string{"X-Forwarded-Proto", "https"}},
+		"another peer, no header":        {elsewhere, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			y := routed(t)
+			w := y.give(c.from, y.jo, unread{t}, c.header...)
+			for _, want := range []string{"in plain HTTP from another machine", "a secret is taken over https only, or from the yard's own machine", "make a new one at the service"} {
+				if !strings.Contains(w.Body.String(), want) {
+					t.Errorf("answered %s, want it to say %q", w.Body, want)
+				}
+			}
+			y.untouched(t, name)
+		})
+	}
+	// Unset, the router's peer is another machine.
+	y := newSecretYard(t)
+	if w := y.give(router+":40000", y.jo, unread{t}, "X-Forwarded-Proto", "https"); !strings.Contains(w.Body.String(), "in plain HTTP from another machine") {
+		t.Errorf("answered %s", w.Body)
+	}
+	y.untouched(t, "an unset router_addr")
+}
+
 // A value given over the listener is in the source's env file and in
 // nothing else: not the store's file, not an event, a note or an answer of
 // any call, not a refusal, not the listener's log, and not the stream

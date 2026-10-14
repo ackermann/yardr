@@ -596,10 +596,11 @@ func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) boo
 }
 
 // inTheClear says why the call name of OperatorCalls is not taken from the
-// request r, "" when it is taken. yardr does not do TLS: the listener
-// speaks plain HTTP, and what ends TLS stands in front of it. So a secret,
-// and an approval that runs a command as the operator, is taken only from a
-// request
+// request r, "" when it is taken. router is the yard's router_addr setting:
+// the address of its router on the user's network, "" when unset.
+// yardr does not do TLS: the listener speaks plain HTTP, and what ends TLS
+// stands in front of it. So a secret, and an approval that runs a command
+// as the operator, is taken only from a request
 // that reached the listener from this machine, which is the proxy or the
 // tunnel that ended TLS here, or a client on the machine itself; and not
 // from one whose proxy says it came in plain (X-Forwarded-Proto, read for a
@@ -608,12 +609,17 @@ func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) boo
 // more than that: a proxy on this machine that takes plain HTTP from
 // outside and does not say so is not seen.
 //
+// A hosted yard's router is the one peer besides this machine a secret is
+// taken from: the address the setting names, saying the request came to it
+// over https (fromRouter). An approval is not: ApproveAsk stays
+// loopback-only, whatever the setting names.
+//
 // An approval holds no secret of its own. It is held to the same rule for
 // what it does: a token read off a network in the clear would otherwise
 // have the operator's commands run from wherever it was read.
 //
 // The refusal comes after the request has crossed, so it says that too.
-func inTheClear(r *http.Request, name string) string {
+func inTheClear(r *http.Request, name, router string) string {
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
 	if name == "ApproveAsk" {
@@ -621,6 +627,9 @@ func inTheClear(r *http.Request, name string) string {
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		if name == "GiveSecret" && fromRouter(r, router) {
+			return ""
+		}
 		return what + " is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
 			"Put the proxy or tunnel that ends TLS on the yard's machine, or answer there (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." + crossed
 	}
@@ -633,6 +642,45 @@ func inTheClear(r *http.Request, name string) string {
 		}
 	}
 	return ""
+}
+
+// fromRouter reports whether the request r reached the listener from the
+// yard's router: the peer the router_addr setting names, saying the
+// request came to it over https. The header is read for a yes here, as it
+// is read for a no from the yard's own machine: the router is the edge,
+// and a secret is taken from it only for what came to it over https.
+// Anything else — no header, or any word but https — is not from the
+// router. The peer is compared as an address, not as words, so the
+// setting's form of it does not matter.
+func fromRouter(r *http.Request, router string) bool {
+	addr := net.ParseIP(router)
+	peer := net.ParseIP(remote(r))
+	if addr == nil || peer == nil || !peer.Equal(addr) {
+		return false
+	}
+	protos := r.Header.Values("X-Forwarded-Proto")
+	if len(protos) == 0 {
+		return false
+	}
+	for _, proto := range protos {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// routerAddr is the yard's router_addr setting: the address of its router
+// on the user's network, "" when unset. It is read on every call, so a
+// change moves nothing that runs; what cannot be read is no router.
+func (u *UserServer) routerAddr(ctx context.Context) string {
+	all, err := u.st.Settings(ctx)
+	if err != nil {
+		return ""
+	}
+	return all[store.RouterAddrSetting]
 }
 
 func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
@@ -648,7 +696,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if operators {
-		if why := inTheClear(r, name); why != "" {
+		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}
@@ -672,7 +720,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, noSuchMethod(name))
 			return
 		}
-		if why := inTheClear(r, name); why != "" {
+		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}

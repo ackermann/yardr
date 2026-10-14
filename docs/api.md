@@ -606,6 +606,15 @@ to the rule so that a token read off a network cannot have a command of
 the operator's run from wherever it was read. Every other call is served
 wherever it comes from, as before.
 
+A hosted yard takes `GiveSecret` from one peer besides its own machine:
+its router, the address the `router_addr` setting names, when the request
+says it came to the router over https (`X-Forwarded-Proto: https`). On
+that network the router is the only such peer. The header is read for a
+yes here, as it is read for a no from the yard's own machine: without it,
+or saying anything but https, the giving is refused with the same
+sentence. `ApproveAsk` stays loopback-only: from the router's peer it is
+refused as from anywhere else.
+
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
 proxy adds to say who is calling (`X-User`, `X-Forwarded-For`) is not read:

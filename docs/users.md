@@ -570,9 +570,10 @@ and what an approval changed stays until it is taken back: the card and
 What stands against it besides: the yard runs the command stored on the
 ask and takes no word of it from the call; an approval is refused when
 what the command names or changes is no longer what the card said; a
-command runs once for one ask; an approval is taken, like a secret, only
-from a request that reached the listener from the yard's own machine,
-where TLS ends; and each approval through a device is marked `via
+command runs once for one ask; an approval is taken only from a request
+that reached the listener from the yard's own machine, where TLS ends (a
+secret is taken besides from the yard's router, [api.md](api.md#tls-is-yours-and-the-clients-rule));
+and each approval through a device is marked `via
 <device>` on the answer and on the change's own event, which names the
 ask. `yardr user device list` says when and from which address a device
 was last used. A device of any other user, and a credential that anything

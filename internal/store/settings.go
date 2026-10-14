@@ -46,6 +46,10 @@ const (
 	DefaultPackSetting = "default_pack"
 	// HookAddrSetting is the address the server takes webhooks on.
 	HookAddrSetting = "hook_addr"
+	// RouterAddrSetting is the address of the yard's router on the user's
+	// network, which GiveSecret is taken from besides the yard's own
+	// machine (rpc).
+	RouterAddrSetting = "router_addr"
 	// WebAddrSetting and BDPAddrSetting are the addresses the web view and
 	// the BDP server listen on when their --addr is not given.
 	WebAddrSetting = "web_addr"
@@ -172,6 +176,15 @@ var KnownSettings = []Setting{
 		Default: "starter", Check: checkDefaultPack},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
+	{Key: RouterAddrSetting, Help: "the address of the yard's router on the user's network, such as 172.18.0.2, " +
+		"written by the provisioner of a hosted yard: GiveSecret is taken from that peer when it says the request came to it over https " +
+		"(X-Forwarded-Proto: https), and from the yard's own machine as before. Read on every call; unset, from the yard's own machine alone",
+		Check: func(v string) error {
+			if net.ParseIP(v) == nil {
+				return fmt.Errorf("%s %q: the router's address as an IP address, such as 172.18.0.2: it is compared with the address the request came from", RouterAddrSetting, v)
+			}
+			return nil
+		}},
 	{Key: WebAddrSetting, Help: "the address the web view listens on, on loopback, when YARDR_WEB_ADDR is not set and yardr web serve, start or install is given no --addr; " +
 		"a view that runs keeps its address, and a login service the one in its file until it is installed again",
 		Default: DefaultWebAddr, Env: "WEB_ADDR", Check: func(v string) error {

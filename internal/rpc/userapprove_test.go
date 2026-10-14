@@ -257,3 +257,23 @@ func TestUserApproveAskIsNotTakenInTheClear(t *testing.T) {
 		t.Errorf("an approval through the proxy on the yard's machine is answered %s", w.Body)
 	}
 }
+
+// An approval stays loopback-only: from the router's peer, said https, it
+// is refused with today's sentence, before the body is read, and nothing
+// runs.
+func TestUserApproveAskIsNotTakenFromTheRouter(t *testing.T) {
+	y := newRunYard(t)
+	if err := y.st.SetSetting(context.Background(), store.RouterAddrSetting, "172.18.0.2", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	w := y.approve("172.18.0.2:40000", y.jo, unread{t}, "X-Forwarded-Proto", "https")
+	for _, want := range []string{"in plain HTTP from another machine", "an approval is taken over https only, or from the yard's own machine", "The device's token was sent with it", "yardr user device rm"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Errorf("answered %s: an approval holds no secret", w.Body)
+	}
+	y.nothingRan(t, "an approval from the router")
+}

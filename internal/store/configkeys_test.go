@@ -225,10 +225,12 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
+		`router_addr "router": the router's address as an IP address`:                                                       {"router_addr", "router"},
+		`router_addr "172.18.0.2:8790": the router's address as an IP address`:                                              {"router_addr", "172.18.0.2:8790"},
 		`BDP address "8765": want host:port, such as 127.0.0.1:8765`:                                                        {"bdp_addr", "8765"},
 		`BDP address "127.0.0.1:0": the port is a number from 1 to 65535`:                                                   {"bdp_addr", "127.0.0.1:0"},
 		`web_addr: --addr 0.0.0.0:8791 refused: 0.0.0.0 is not a loopback address, and yardr web has no authentication yet`: {"web_addr", "0.0.0.0:8791"},
@@ -257,7 +259,7 @@ func TestStoreChecksSettings(t *testing.T) {
 	if all, err := s.Settings(ctx); err != nil || len(all) != 0 {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
-	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
+	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790", "router_addr": "172.18.0.2",
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
 		"web_as": "jo", "web_jwt_issuer": "https://team.cloudflareaccess.com", "web_jwt_audience": "aud-tag",
 		"web_jwt_jwks": "https://team.cloudflareaccess.com/cdn-cgi/access/certs", "web_jwt_header": "Authorization",
@@ -265,6 +267,10 @@ func TestStoreChecksSettings(t *testing.T) {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}
+	}
+	// The router's address takes either form of IP.
+	if err := s.SetSetting(ctx, "router_addr", "fd00::2", "me"); err != nil {
+		t.Errorf("SetSetting(router_addr, fd00::2) = %v", err)
 	}
 	// The keys' URL over http serves a test issuer on loopback.
 	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://127.0.0.1:9/certs", "me"); err != nil {
