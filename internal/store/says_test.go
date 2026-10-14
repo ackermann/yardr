@@ -203,12 +203,16 @@ hook:
 	}
 	// A hook of a source the yard does not declare takes no line that
 	// filters on a declared key: its events carry the store's fields
-	// alone.
+	// alone. The refusal names the first unknown key in sorted order,
+	// every time: the line filters on conclusion and event, and the
+	// check walks the filter's keys sorted.
 	st = storetest.New(t)
-	if _, err := st.PutHook(context.Background(), store.Hook{Name: "gh", Source: "github",
-		SecretFile: "/nonexistent/s", Says: []store.Say{line}}, "me"); err == nil ||
-		!strings.Contains(err.Error(), `cannot filter github on "event"`) {
-		t.Errorf("undeclared: %v", err)
+	for range 32 {
+		if _, err := st.PutHook(context.Background(), store.Hook{Name: "gh", Source: "github",
+			SecretFile: "/nonexistent/s", Says: []store.Say{line}}, "me"); err == nil ||
+			!strings.Contains(err.Error(), `cannot filter github on "conclusion"`) {
+			t.Fatalf("undeclared: %v", err)
+		}
 	}
 }
 

@@ -317,8 +317,8 @@ func (sub Subscription) check() error {
 	if !slices.Contains([]string{ScopeAll, ScopeMentions, ScopeInvolved}, sub.Scope) {
 		return fmt.Errorf("subscribe: scope %q: use all, mentions or involved", sub.Scope)
 	}
-	for k, v := range sub.Where {
-		if slices.Contains(WhereValues(v), "") {
+	for _, k := range slices.Sorted(maps.Keys(sub.Where)) {
+		if slices.Contains(WhereValues(sub.Where[k]), "") {
 			return fmt.Errorf("subscribe: empty value for %s", k)
 		}
 	}
@@ -344,7 +344,7 @@ func (w *wtx) bindSubscription(name string, sub *Subscription) error {
 		sub.Where = nil
 	}
 	keys := whereKeysTx(w.Tx, sub.Source)
-	for k := range sub.Where {
+	for _, k := range slices.Sorted(maps.Keys(sub.Where)) {
 		if !slices.Contains(keys, k) {
 			return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
 		}

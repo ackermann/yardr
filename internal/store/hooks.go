@@ -278,11 +278,11 @@ func (h Hook) checkMakes(keys []string) error {
 		if len(m.Where) == 0 {
 			return fmt.Errorf("hook %s: makes -> %s:%s: no filter: a line says which events it is for (event=issues action=opened)", h.Name, m.Type, m.Stage)
 		}
-		for k, v := range m.Where {
+		for _, k := range slices.Sorted(maps.Keys(m.Where)) {
 			if !slices.Contains(keys, k) {
 				return fmt.Errorf("hook %s: makes %s: cannot filter %s on %q: use %s", h.Name, m, h.Source, k, strings.Join(keys, ", "))
 			}
-			if slices.Contains(WhereValues(v), "") {
+			if slices.Contains(WhereValues(m.Where[k]), "") {
 				return fmt.Errorf("hook %s: makes %s: empty value for %s", h.Name, m, k)
 			}
 		}
@@ -365,11 +365,11 @@ func (h Hook) checkSays(keys []string) error {
 		if len(s.Where) == 0 {
 			return fmt.Errorf("hook %s: says -> %s: no filter: a line says which events it is for (event=pull_request action=closed)", h.Name, s.Outcome)
 		}
-		for k, v := range s.Where {
+		for _, k := range slices.Sorted(maps.Keys(s.Where)) {
 			if !slices.Contains(keys, k) {
 				return fmt.Errorf("hook %s: says %s: cannot filter %s on %q: use %s", h.Name, s, h.Source, k, strings.Join(keys, ", "))
 			}
-			if slices.Contains(WhereValues(v), "") {
+			if slices.Contains(WhereValues(s.Where[k]), "") {
 				return fmt.Errorf("hook %s: says %s: empty value for %s", h.Name, s, k)
 			}
 		}
