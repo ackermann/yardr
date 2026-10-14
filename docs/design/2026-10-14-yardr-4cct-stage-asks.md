@@ -1,0 +1,124 @@
+# A stage that waits for a person states its question, so the stage puts an ask on the bead and the answer moves it
+
+Design yardr-4cct, proposed 2026-10-14. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+A yard is one installation of yardr; a depot is a repository beads are worked in; a bead is one durable piece of work; a flow is the stages a bead goes through, and a stage is one step of it; a group is who works a stage, and a manual group is people; an outcome is how a session says its stage ended; an ask is one question as data on a bead, and an answer is what one person did with it; prime (`yardr prime --bead`) is what whoever works a bead reads first. See docs/glossary.md for all of yardr's words.
+
+## 1. The question
+
+mckean, 14 Oct 2026 (mail 28802): "asks (decisions), they are super helpful, could those be a part of stages as well? eg. a human stage could land as an ask, eg. choice, or input or check that something is done." A bead waiting in a person's stage shows up with no question attached: the stage says nothing about what the person is to decide. The question is whether the stage itself can ask it, so deciding and moving the bead are one act.
+
+## 2. What exists today
+
+**Asks are notes of kind ask on any bead in any stage.** `yardr bead ask` (internal/cli/bead_ask.go) stores one schema (internal/store/asks.go: `Ask`): the question in one line, `To` (who must answer; the command defaults it to the yard's operator), at least one line of context, options each with a label and a consequence, an optional recommendation with its why, and about-beads. An ask with no options wants words. `newAsk` appends the option "You decide" to every ask with options, with the consequence "leave it to \<actor\>"; the writer cannot write it and cannot leave it out. A secret ask and a run ask are asks of fixed shape answered by the yard alone (secretask.go, runask.go).
+
+**Answers are notes of kind answer.** `AddAnswer` (asks.go) stores a pick with words, words alone, Later, or Decline, checked by `answerShape` and `answerable`. `answerable` takes no actor: anyone may answer any ask, and the note records who did. `ResolveAsks` folds answers into their ask with a state (`AskOpen`, `AskAnswered`, `AskAside`, `AskDeclined`, `AskTakenBack`): any pick answers the ask, so it leaves the person's open queue, and a newer pick replaces the older one for display. Later puts the ask aside for 24 hours (`LaterFor`) or until the asker's next note on the bead, whichever is first (`laterBack`). Only the asker or the operator may take an ask back (`TakeBackAsk`, via `notOperator`), with a reason the person reads in its place; an answered, declined or taken-back ask is refused, naming how it ended.
+
+**The queues and the views already exist.** `UserAsks` (internal/store/decisions.go) lists a user's open asks oldest first with the decided ones beside them. The socket's `AnswerAsk`, `DeferAsk` and `DeclineAsk` delegate to `AddAnswer`, so the terminal and the views share one implementation. `prime --bead`, `review` and `chat` render asks as numbered text with the recommendation marked and the state (`Lines` in asks.go); answers fold into their ask. `yardr review` walks the open beads in stages routed to manual groups (docs/review.md) and offers the stage's outcomes as actions, else its allowed next stages. The web view shows "what waits for a person" beside the line (docs/web.md). An ask for a user of this yard is also copied to each linked yard the operator gave reach for that user (`AskReach` in internal/store/peertrust.go, settled by `settleCopies`), and an answer from there lands on the bead as one given here does.
+
+**Flows say where a bead may go; outcomes say how a session ended.** A `.flow` file names edges, some with `on <outcome>` (docs/flows.md); `Flow.Resolve` (internal/store/flows.go) maps a stage and an outcome to the next stage. `Advance`, `AdvanceNote` and `Done` share `advance` (internal/store/beads.go), which moves the bead in one write through `moveBead` and `move`, logs the `advanced` event with the outcome, and closes the bead on a terminal stage. A move out of a stage whose group has members is refused for non-members (`checkMembers`, with the group from `stageGroup`, in internal/store/routing.go); a group with no members refuses nobody. `CreateBead` may start a bead in a stage (`-s`); `Reopen` keeps the bead in its stage, from where it moves on by hand.
+
+**Stage files say what a stage is for.** A stage file belongs to one flow and lives where the flow lives: beside a repository flow (`.yardr/flows/<name>/<stage>.md`, read from the base branch through `RepoFlows.StageFile` in internal/store/repoflows.go) or in the yard's home for a store flow (`~/.yardr/flows/<name>/<stage>.md`), read as the files are on disk (docs/flows.md). Prime and the brief show the file; the flow's map shows its first sentence, or a leading `summary:` line, which the stage block, the brief and the web view leave out (`StageFile.split` in internal/store/flowmap.go). `yardr flow show` warns of files named after no stage.
+
+**`decide` and `backlog` have no outcomes.** In the starter pack (packs/starter/pack.yaml) and the yardr depot's own flow (.yardr/flows/default.flow), `decide` has hand edges only (`manual: [backlog, new]`); its stage file (.yardr/flows/default/decide.md) says the person moves the bead by hand once the answer is on it as a note. `backlog` is the same. Manual stages with outcomes exist too: the train flow routes `in-pr` and `merge` to the `decisions` group with full outcome sets. A manual group is configured with members (`yardr group add ... --runner manual --members ...`, docs/groups.md); members may include crew members, and an empty list means anyone may move the bead.
+
+**Degraded behaviour has a shape.** A bead whose flow does not resolve stays where it is: its moves are refused with the error, the dispatcher logs one `bad_flow` attention event, and prime and review show the error (docs/flows.md). Mail the yard itself sends is authored `yard`, the precedent for the yard asking in its own name.
+
+## 3. The proposal
+
+A manual stage may carry an ask template: a section in its stage file. When a bead enters the stage, the yard puts an ask on it in the same write, to the stage's people, built from the template. The person's pick (or words) moves the bead in the same write as the answer, through the flow's existing outcomes. Three template kinds answer mckean's three: choice, input, and check. A stage without a template behaves exactly as today. Standalone asks (`yardr bead ask`, on any bead in any stage) are unchanged.
+
+The carrying mechanism is the ask note with `AnswerAsk` and the views as they are; no second answer path is added, and the socket, the terminal commands and footplate need nothing new.
+
+### 3.1 The template lives in the stage file, as its last section
+
+The template is a section headed `## Ask` at the end of the stage file, so it belongs to one flow, is read from the same place the flow is read from, and is reviewed together with the prose it must agree with. A stage file without the section has no template. A section that is present must parse fully; anything else is a template error, named with its line. The section is stripped wherever the stage file is shown (the brief, prime, the web view), as the `summary:` line already is. `yardr flow show` reports a broken template beside its file, as it warns of stray files today.
+
+The section's fields, all literal text (section 4 says why nothing is interpolated):
+
+```
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The builder asked for a decision; the question is in their note.
+- The branch is ready to review either way.
+recommend: 1
+why: The question is small and the branch is green.
+done: The bead moves to new with your words as the note.
+backlog: The bead goes back to be reshaped by the yardmaster.
+```
+
+- `kind` is required: `choice`, `input`, or `check`.
+- `question` is required, one line; `context` is required, at least one `- ` line, reusing the ask's own rule.
+- `choice` offers one option per line of the form `<outcome>: <consequence>`, a subset of the stage's outcomes allowed, at least one line. The option's label is the outcome's name: review already offers outcomes by name, and the consequence carries the human meaning. Each outcome must resolve under the flow that governs the bead when the ask is put, or the template is broken. `recommend` and `why` follow the ask's rules.
+- `input` asks for words: no options and no recommendation. `move:` names the outcome the words fire, default `done`; `move: none` records the words and moves nothing, for a stage with no outcomes.
+- `check` asks "has X been done?": the question and context come from the template, `move:` names the outcome Done fires (default `done`), and the Done option's consequence is fixed by the yard ("the bead leaves \<stage\> (outcome \<move\>)"). There is no explicit Not-yet option: a pick answers an ask and it leaves the queue, so a recorded Not-yet would never come back; Later, the existing action, is the not-yet (section 5 asks whether an explicit one is wanted instead).
+
+### 3.2 Entering the stage puts the ask, in the move's write
+
+Every entry into a manual stage with a template puts the ask in the same write: `advance` (so `Advance`, `AdvanceNote` and `Done`), `CreateBead` with `-s`, and the move after `Reopen`. The template is read before the write, as repository flows already are (git and disk never run inside a write): through `RepoFlows` for a repository flow, from the yard's home for a store flow.
+
+The ask note is authored `yard`. It is addressed to each member of the stage's group that is a user of the yard, one ask per member; crew members have no decisions queue and are skipped, as are members naming another yard (a `name@peer` member is read through the existing reach copies of the local ask, so nothing new crosses a link). When no member is a user — an empty list, or crew only — the ask goes to the operator, as `--to` defaults today. Entering a stage that already has an open ask of that stage puts none, so the put is idempotent.
+
+The ask carries two fields beside the standard ones, frozen at ask time so a later edit of the template cannot change what a standing ask does: `Stage`, the stage it was put for, and `Move`, the outcome per stored option (the entry for "You decide" is empty, and an input ask's single entry is its `move:`). The put path writes them; `newAsk` clears whatever a caller sends for them, as secret and run asks are already stored with the yard's own values whatever the writer sent.
+
+A broken template puts no ask: the bead enters as today, the yard logs one attention event naming the stage and the error (as `bad_flow` does for a flow), and prime and review show the error where the ask would stand (section 5 asks whether entry should refuse instead).
+
+### 3.3 The answer moves the bead, in the answer's write
+
+`AddAnswer`, in the write that stores the answer, moves the bead when the ask is the stage's ask for the stage the bead is in: a pick of option N reports `Move[N]` through the same path as `Done`, and words on an input ask report its single entry. The move runs the stage's membership check, and a non-member's pick is refused whole — answer and move together — with the existing reason, since anyone may answer any ask and only members may move the bead. The answer's words stay on the answer note, which prime already renders among the bead's notes, so the move carries no separate note; the `advanced` event records the outcome as any `Done` does. An answer that lands from a linked yard moves the bead the same way, since it lands as an answer note under the same rules.
+
+- Picking "You decide" is recorded and moves nothing: the option cannot be left out, and on a stage ask "leave it to yard" means the bead waits as today. The person re-picks from the bead or moves it by hand.
+- Later puts the ask aside under the existing rule; the asker's-next-note early return never fires, since the yard writes no notes. Decline ends the ask and the bead waits as today; the yard never re-asks on its own.
+- An input ask's words land on the answer note, and that note is where they stay: prime shows asks with their answers among the notes, so an agent in the next stage reads them with nothing new rendered and no named field.
+
+### 3.4 Leaving the stage takes the ask back; coming back asks fresh
+
+Any move out of the stage takes back that stage's open and put-aside asks in the same write, authored `yard` with the reason "moved to \<to\> by \<actor\>", whether the bead left by an answer, by `advance`, or by `done`. Answered and declined asks stay as history. Several members therefore resolve as first answer wins: the winner's move takes the other members' open asks back, and a later pick there is refused as asked no more, naming the move. A bead sent back into the stage gets a fresh ask; the old answered one stays as history.
+
+### 3.5 What a person types and sees
+
+The operator adds the section of 3.1 to the stage file and lands it; from then on a bead entering the stage gains, in the member's decisions queue, a row with the question, asked by `yard`, beside the bead's title and stage. The card shows the question, the context lines, the numbered options with their consequences and "You decide" last, and the recommendation with its why. The person picks: `yardr bead answer <id> <ask> 1 that's decided` (or the keys in footplate, or the web view). Prime then shows the ask answered with the pick and the bead in its new stage; the bead's `advanced` event carries the outcome. If instead the person moves the bead by hand first, the ask reads "taken back by yard: moved to new by mckean".
+
+### 3.6 What footplate, the socket and older builds need
+
+Nothing. Rows, cards, picks, picks with words, Later, Decline and the decided list run on the calls and events as documented today; the stage ask is an ask, and the move is an outcome like any `Done`. The two new ask fields are empty where unused, which older builds ignore; a yard on an older build puts no stage asks and answers travelling asks as plain asks, with no move.
+
+## 4. Left out
+
+**Interpolation of the bead's fields.** The template's question and context are literal. The card already carries the bead, its title, topic and stage, and prime shows the body and notes beside the ask. Quoting fields (`{{title}}` and the like) would need its own syntax, its escaping, and its behaviour when a field is missing, for what the views already place next to the question.
+
+**Labels apart from outcome names.** A choice option reads as its outcome with the consequence beside it, as review offers outcomes today. Separate pretty labels would add a third part to every template line and a mapping to keep, for cards whose consequences already say the meaning.
+
+**Secret and run stage asks.** A stage waits for a decision, not for a credential or an approval of a command; those stay asked by hand, where their gates (a declared source, a command on the list) are checked against the yard as it stands.
+
+**Forms with several fields, and validation.** The bead leaves these out: an input ask takes words, and anything stricter is a later design.
+
+**A stage that waits for an outside system.** The bead leaves this out: a hook does that.
+
+**Hiding the hand move while a stage ask is open.** Review and the web view keep offering their move actions beside the ask (section 5 asks whether they should defer instead). A declined ask must still be movable by hand, so the hand path cannot go away entirely.
+
+## 5. Open questions
+
+**1. A group with several members: ask each of them, or one?** Option A, each, as proposed: one ask per user-member, first answer wins and the rest are taken back with the move named; costs are one queue entry and one note per member. Option B, one: the first listed member, or round-robin across entries; costs are a bead waiting on someone who is away, and rotation state to keep. I would take A: it asks whoever decides first and reuses the take-back, and groups with several people are rare.
+
+**2. Does `decide` in the default flow get a template, and which?** Option A, an input template, as proposed for the bead below: "What was decided for this bead?", recording the words with `move: none`, the person still moving the bead by hand; costs are one ask per bead in `decide` for no move. Option B, a choice template: `decide` first gains outcomes in the flow (e.g. `done` to `new`, a second to `backlog`), then the pick moves; costs are a flow change every depot shares and outcomes on a stage that deliberately has none. Option C, no template: `decide` behaves as today. I would take A: the queue states the question, which is what was asked for, and the hand move stays for the judgement of where the bead goes. `backlog` stays without one either way: shaping has no single question.
+
+**3. Check's no path: Later, or an explicit Not-yet option?** Option A, Later, as proposed: the person puts the ask aside with the existing action and it returns in 24 hours; costs are that the card never names "not yet". Option B, an explicit option that puts the ask aside when picked; costs are a pick that is not a pick — a second kind of mapping beside outcomes — and its own rendering. I would take A: a recorded Not-yet would answer the ask and leave the queue, so the explicit option can only ever mean Later with more machinery.
+
+**4. A broken template: enter degraded, or refuse entry?** Option A, degraded, as proposed: the bead enters without an ask, one attention event names the stage and the error, and prime and review show it; costs are a bead waiting in a stage whose question silently went missing until someone reads the event. Option B, refuse the move into the stage; costs are the blast radius: a builder's `done` fails for a template they never touched, and a misconfigured person-stage blocks agent stages. I would take A: a person-stage's misconfiguration must not fail agents' moves, and the event matches `bad_flow`.
+
+**5. Keep both queues, or does review defer to an open stage ask?** Option A, keep both, as proposed: the ask stands in decisions and the bead in review with its move actions; answering moves and advancing takes back; costs are two places showing one bead. Option B, review and the web view hide the move actions while a stage ask is open and point at the ask instead; costs are view changes in two places and a dead end to design around when the ask is declined. I would take A: the two paths already reconcile through the take-back, and the hand move must stay for the declined ask.
+
+## 6. The beads it would become
+
+All in depot yardr, in landing order; each updates its pages in docs/flows.md and passes the depot's test command.
+
+**1. The template: `## Ask` in the stage file, parsed, stripped and warned about.** Goal: a stage file may end in an `## Ask` section of 3.1; prime, the brief and the web view show the file without it; `yardr flow show` reports a broken one beside its file. Where to look: `RepoFlows.StageFile` in internal/store/repoflows.go and `stageFileOf` in internal/store/flows.go for repository flows; the yard's-home read of `~/.yardr/flows/<name>/<stage>.md` (docs/flows.md) for store flows; `StageFile.split` in internal/store/flowmap.go for the `summary:` stripping precedent. Done when: valid choice, input and check sections parse to the fields of 3.1; every malformed section is refused naming its line; display paths strip the section; `flow show` warns; no bead behaviour changes. Depends on nothing.
+
+**2. Entering puts the ask; leaving takes it back.** Goal: every entry into a templated manual stage puts one ask per user-member (operator when none), authored `yard`, in the move's write; every move out takes open and put-aside stage asks back with the move named. Where to look: `advance`, `moveBead` and `move` in internal/store/beads.go and the `CreateBead` write for the put path; `newAsk` in internal/store/asks.go for clearing caller-sent `Stage`/`Move`; `TakeBackAsk` for the take-back rules; `stageGroup` in internal/store/routing.go for the group's members. Done when: entry puts exactly the asks of 3.2 (members, operator fallback, idempotent re-put, `Stage`/`Move` frozen); leaving takes back with "moved to \<to\> by \<actor\>"; answered and declined asks are untouched; re-entry asks fresh; store tests cover entry, hand moves, re-entry and the operator fallback. Depends on 1.
+
+**3. The answer moves the bead.** Goal: a pick or words on a stage ask reports its outcome through `Done` in the answer's write; a non-member's pick is refused whole; first answer wins. Where to look: `AddAnswer` and `answerable` in internal/store/asks.go for the move hook; `checkMembers` in internal/store/routing.go for the refusal; `settleCopies` for the losing asks of other members. Done when: choice picks and input words move with the outcome on the `advanced` event and no separate note; "You decide" records without moving; Later and Decline behave as 3.3; a non-member's answer is refused with the membership reason; two members answering in turn leave one move and one take-back; answers arriving from a linked yard move the same way. Depends on 2.
+
+**4. `decide`'s template, and a trial of the whole.** Goal: `decide` in the default flow carries the template question 2 decides, and the design is proven in an isolated yard before anyone relies on it. Where to look: the starter pack (packs/starter/pack.yaml and its decide stage file) and the yardr depot's own `.yardr/flows/default/decide.md`; contrib/isolated-yard for the trial. Done when: the decided template is on `decide` with `backlog` template-free; the trial runs entry, a pick that moves, words that move, Later, Decline, a hand move taking back, re-entry asking fresh, and a broken template entering degraded, each step recorded on this bead; docs/flows.md and docs/review.md describe stage asks. Depends on 3.
