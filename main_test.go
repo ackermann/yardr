@@ -151,6 +151,77 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 	}
 }
 
+// GitHub left the core for packs/github: no Go code yardr is built from
+// names it, except what the move audited (bead yardr-2c8b): the pack's own
+// name; the stand-in and the trial sources, which serve its API shape so
+// the pack proves without the real service; the problem and schema URL
+// namespaces and the fetched programs' release addresses, which live under
+// github.com; and help texts, examples and comments that use GitHub as the
+// example source. Tests are not held to this: they prove the pack against
+// the stand-in. A line importing a Go module (github.com/...) cannot go.
+func TestNoGoCodeNamesGitHub(t *testing.T) {
+	name := regexp.MustCompile(`(?i)github`)
+	kept := []string{
+		"contrib/isolated-yard/sources/main.go",
+		"internal/bdp/server.go",
+		"internal/cli/crew.go",
+		"internal/cli/hooks.go",
+		"internal/cli/link.go",
+		"internal/cli/needs.go",
+		"internal/cli/ops.go",
+		"internal/cli/pack.go",
+		"internal/cli/reply.go",
+		"internal/cli/sourcecmd.go",
+		"internal/cli/subscriptions.go",
+		"internal/cli/threadopen.go",
+		"internal/cli/threadstate.go",
+		"internal/hooks/open.go",
+		"internal/standin/standin.go",
+		"packs/packs.go",
+	}
+	// A Go import of a module: an optional name, the quoted path, and
+	// nothing else. Anything longer that names github.com (a URL built or
+	// held) is the code's to own, and fails outside the kept files.
+	isImport := regexp.MustCompile(`^\s*(\S+ )?"github\.com/[^"]*"(,)?\s*$`)
+	var files int
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		path = filepath.ToSlash(path)
+		if d.IsDir() {
+			if path == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		files++
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(kept, path) {
+			return nil
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			if isImport.MatchString(line) {
+				continue
+			}
+			if m := name.FindString(line); m != "" {
+				t.Errorf("%s:%d names %s: GitHub is a pack's to name (packs/github): %s", path, i+1, m, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	// Not for want of looking: the walk started at the repository's root.
+	if err != nil || files < 100 {
+		t.Fatalf("%d Go files read, %v", files, err)
+	}
+}
+
 // The README is what a reader meets first, and it is kept short: what yardr
 // is, its principles, the install, the concepts, a quick start, the commands
 // and where the rest is. What is cut from it lives in docs/, so the README is
