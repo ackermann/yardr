@@ -178,6 +178,9 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		}
 		pick := -1
 		for _, i := range byBeadStage[x.bead+"\x00"+x.from] {
+			if claims[i].session != "" && seenFailed[claims[i].session] {
+				continue
+			}
 			if !paired[i] && claims[i].group == x.group && !claims[i].at.After(x.at) {
 				pick = i
 			}

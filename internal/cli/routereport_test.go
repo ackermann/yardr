@@ -176,6 +176,47 @@ func TestRouteReport(t *testing.T) {
 	}
 }
 
+// A claim cut short by failure is not a build: the bead a hand moved on
+// after its session stalled closes with the failure counted and no build
+// sample.
+func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "opus", Runner: "herdr", Limit: 4}, "me"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "opus"}, "me")
+	must(err)
+	_, err = st.CreateBead(ctx, store.NewBead{ID: "yard-f1", Title: "stalled then moved by hand", Depot: "yard", Labels: []string{"difficulty:1"}}, "me")
+	must(err)
+	s, err := st.Claim(ctx, "yard-f1", "opus", "new", "yard")
+	must(err)
+	// The session stalls: the bead stays claimed, and a member moves it
+	// on by hand without another claim.
+	must(st.LogDispatch(ctx, "yard-f1", "session_stalled", "yard", map[string]any{"session": s.ID}))
+	_, err = st.Advance(ctx, "yard-f1", "review", store.Expect{}, "me")
+	must(err)
+	_, err = st.CloseBead(ctx, "yard-f1", "done", store.Expect{}, "me")
+	must(err)
+
+	_, rows := reportRows(t, st)
+	row, ok := rows["opus\x00difficulty:1"]
+	if !ok {
+		t.Fatalf("no row for the stalled bead: %v", rows)
+	}
+	if row[2] != "1" || row[4] != "1" {
+		t.Errorf("row = beads %s failed %s, want 1 and 1", row[2], row[4])
+	}
+	if row[5] != "-" {
+		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[5])
+	}
+}
+
 func TestRouteReportFlags(t *testing.T) {
 	st := reportFixture(t)
 
