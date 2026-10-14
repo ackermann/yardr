@@ -415,12 +415,12 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 		if err := w.Bucket(bEventsBy).Put([]byte(join(bead, seqKey(seq))), []byte{}); err != nil {
 			return err
 		}
-	} else if e.Kind == InstallFailed || e.Kind == RolledBack {
-		// The upgrade's failure kinds are the only bead-less events
-		// matched against subscriptions: a hook event carries what
-		// hookDeliveries decided, and every other bead-less event (mail,
-		// subscribed, setting_changed, ...) reaches its readers as
-		// before.
+	} else if e.Kind == InstallFailed || e.Kind == RolledBack || e.Kind == HookQuiet {
+		// The upgrade's failure kinds and a hook gone quiet are the only
+		// bead-less events matched against subscriptions: a hook event
+		// carries what hookDeliveries decided, and every other bead-less
+		// event (mail, subscribed, setting_changed, ...) reaches its
+		// readers as before.
 		if err := w.deliverBeadless(&e); err != nil {
 			return err
 		}

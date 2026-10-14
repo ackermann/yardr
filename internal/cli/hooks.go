@@ -175,7 +175,10 @@ of its inbox.`,
 		Use: "list", Short: "List hooks", Args: cobra.NoArgs,
 		Long: `Lists the hooks: the path each is served on, its secret file, whether the
 receiver takes its deliveries (STATE), and when it last accepted and last
-refused one.
+refused one. A hook that used to deliver and has delivered nothing for
+longer than its usual gap (the median interval between its accepted
+deliveries over the last week, times three, with a floor of an hour) reads
+quiet there instead of ok, with how long nothing came and the gap.
 
 LAST REFUSED is the time and the reason of the hook's last hook_rejected
 event: unauthorized (no signature, a wrong one, or a timestamp too old),
@@ -195,12 +198,28 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 			if err != nil {
 				return err
 			}
-			return a.out(hs, func() {
+			now := hookNow()
+			quiet, err := quietGaps(c.Context(), st, hs, now)
+			if err != nil {
+				return err
+			}
+			out := make([]hookRow, 0, len(hs))
+			for _, h := range hs {
+				one := hookRow{Hook: h}
+				if gap, ok := quiet[h.Name]; ok {
+					one.Quiet = &hookQuietJSON{Silent: span(now.Sub(*h.Accepted)), Gap: span(gap)}
+				}
+				out = append(out, one)
+			}
+			return a.out(out, func() {
 				rows := [][]string{}
 				for _, h := range hs {
 					state := "ok"
 					if h.Blocked != "" {
 						state = "blocked: " + h.Blocked
+					}
+					if gap, ok := quiet[h.Name]; ok {
+						state = "quiet: nothing for " + span(now.Sub(*h.Accepted)) + " (usual gap " + span(gap) + ")"
 					}
 					moves := "-"
 					if len(h.Map) > 0 {

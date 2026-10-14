@@ -295,14 +295,16 @@ type Dispatcher struct {
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
-	reported   map[string]string  // bead -> last unroutable reason, to log once
-	stays      map[string]stay    // bead -> its stay in a manual group's stage (waits.go)
-	status     map[string]string  // session -> last runner status
-	unknown    map[string]string  // session -> last liveness error logged
-	down       map[string]*outage // group -> its runtime's current outage
-	idleSince  map[string]time.Time
-	idleTold   map[string]bool // session -> session_idle raised this idle spell
-	idleNudged map[string]bool // session -> idle nudge sent this idle spell
+	reported   map[string]string // bead -> last unroutable reason, to log once
+	stays      map[string]stay   // bead -> its stay in a manual group's stage (waits.go)
+	// quietChecked is when the hooks were last judged quiet (hookquiet.go).
+	quietChecked time.Time
+	status       map[string]string  // session -> last runner status
+	unknown      map[string]string  // session -> last liveness error logged
+	down         map[string]*outage // group -> its runtime's current outage
+	idleSince    map[string]time.Time
+	idleTold     map[string]bool // session -> session_idle raised this idle spell
+	idleNudged   map[string]bool // session -> idle nudge sent this idle spell
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
@@ -773,6 +775,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.timers(ctx)
 	// By the same clock, and before the crew for the same reason.
 	d.waits(ctx, byName)
+	// By the same clock: a hook gone quiet tells the yardmaster once.
+	d.quietHooks(ctx)
 	// While the upgrade gate pauses dispatch the pass still reconciles,
 	// and still stamps, but the crew and the route below start nothing.
 	paused := d.gatePaused()

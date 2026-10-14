@@ -174,14 +174,16 @@ func (w *wtx) deliver(e *Event) error {
 	return w.endWatchesOn(e, row, nil)
 }
 
-// deliverBeadless decides, as a bead-less upgrade failure event e is
-// logged, which crew members it reaches through yardr subscriptions and
-// why, and records that on the event as "deliveries"; the users it reaches
-// the same way are recorded as "notified", and each gets a notification
-// (see Notification). It is matched on kind alone: kind and actor are the
-// event's own, and a subscription that filters on any other key needs a
-// bead, which e has none of (beadlessWhere). Only scope all reaches without
-// one (match, with no mention in, assignment of, or part in nothing).
+// deliverBeadless decides, as a bead-less yard event e is logged (the
+// upgrade's failure kinds, a hook gone quiet: the only bead-less kinds
+// matched against subscriptions), which crew members it reaches through
+// yardr subscriptions and why, and records that on the event as
+// "deliveries"; the users it reaches the same way are recorded as
+// "notified", and each gets a notification (see Notification). It is
+// matched on kind alone: kind and actor are the event's own, and a
+// subscription that filters on any other key needs a bead, which e has
+// none of (beadlessWhere). Only scope all reaches without one (match,
+// with no mention in, assignment of, or part in nothing).
 func (w *wtx) deliverBeadless(e *Event) error {
 	type cand struct {
 		name string

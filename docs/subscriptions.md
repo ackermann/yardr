@@ -8,7 +8,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 | source | what it delivers | how a crew member subscribes |
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
-| `yardr` | yardr's own events: bead events (created, advanced, noted, closed, …), and the upgrade failures `install_failed` and `rolled_back`, about no bead | `yardr subscribe <name> yardr …`, `yardr bead watch` |
+| `yardr` | yardr's own events: bead events (created, advanced, noted, closed, …), and `install_failed`, `rolled_back` and `hook_quiet`, about no bead | `yardr subscribe <name> yardr …`, `yardr bead watch` |
 | `peer` | what a linked yard says of the beads this yard has away at it: arrived, advanced, held, unheld, gave_up ([below](#the-peer-source)) | `yardr subscribe <name> peer …`, `yardr thread follow <name> --source peer <bead>` |
 | `--on` on the crew member | event kinds, or `attention`, the class of kinds that need someone (the default); every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
@@ -482,8 +482,10 @@ store could not be made:
 [configuration.md](configuration.md#copies-of-the-store)), `note_untold` (a
 note neither delivery took: see "Done waits for unread notes" in
 [line.md](line.md)), `install_failed`
-(an install of a new yardr failed) and `rolled_back` (a failed install put
-the previous build back). The list is yardr's, one for the yard and
+(an install of a new yardr failed), `rolled_back` (a failed install put
+the previous build back) and `hook_quiet` (a hook that used to deliver
+delivered nothing for longer than its usual gap: [below](#a-quiet-hook)).
+The list is yardr's, one for the yard and
 every release's own: no command changes it.
 
 The name goes where a kind goes, and what is stored is the name:
@@ -496,9 +498,10 @@ The name goes where a kind goes, and what is stored is the name:
   kinds beside it: `yardr subscribe clerk yardr --where depot=web --where
   kind=attention` is what needs someone in one depot, and not in another.
   A user subscribes to it the same way. As every yardr subscription it
-  carries the events of work beads; beside them, `install_failed` and
-  `rolled_back`, which are about no bead, match a filter on kind alone:
-  `kind=install_failed`, `kind=rolled_back`, or `kind=attention`, with no
+  carries the events of work beads; beside them, `install_failed`,
+  `rolled_back` and `hook_quiet`, which are about no bead, match a filter
+  on kind alone: `kind=install_failed`, `kind=rolled_back`,
+  `kind=hook_quiet`, or `kind=attention`, with no
   bead key (`bead`, `depot`, `stage`, …) beside it. `runtime_down` and
   `backup_failed`, about no bead, and `crew_gave_up`, which is on a crew
   member's journal, come through `--on` alone.
@@ -518,8 +521,8 @@ A manual group has subscriptions and no `--on`, so it takes the class as a
 filter: `yardr subscribe <group> yardr --where kind=attention` delivers the
 bead events of the class to each of its members that is a crew member
 (reason `all via <group>`). Of the events about no bead, only the two
-upgrade failure kinds reach a group, matched on kind alone as for a crew
-member ([below](#the-class-attention)).
+upgrade failure kinds and a quiet hook reach a group, matched on kind
+alone as for a crew member ([below](#the-class-attention)).
 
 A crew member made before the class has in its `--on` the list of kinds
 that was the default on the day it was made, and that list stays as it is:
@@ -816,6 +819,35 @@ delivery went elsewhere, or was not sent).
 
 To have a crew member hear of it, add the kind to its [`--on`](#--on); it is in
 no default.
+
+### A quiet hook
+
+A hook that used to deliver and has delivered nothing for longer than its
+usual gap is quiet: the webhook is off at the source, or cannot reach this
+yard. The gap is the hook's own history: the median interval between its
+accepted deliveries over the last week, times three, with a floor of an
+hour. `yardr hook list` reads `quiet` in STATE for such a hook instead of
+`ok`, with how long nothing came and the gap, and `yardr doctor` notes it
+on its hooks line, with a probe of the yard's own listener: one that
+answers leaves the break between the source and the yard (the webhook, or
+the proxy in front of the yard), and one that does not answer is the
+break. A hook that never delivered, one that is blocked, and one whose
+last delivery was refused are not judged quiet: the source reaches the
+yard in the last two, and the hook's own line already says so.
+
+A quiet hook is also a `hook_quiet` event, about no bead, carrying `hook`,
+`source`, `last` (when it last accepted a delivery) and `gap`:
+
+```
+yardr events          # … hook_quiet  yard  gap=1h hook=linear last=2026-10-14T09:12:00Z source=linear
+```
+
+The daemon logs it once per quiet spell, not on every pass: a delivery
+ends the spell, and the next quiet logs anew. It is of the class
+[`attention`](#the-class-attention), so the yardmaster hears it through
+its default `--on`, and it matches a yardr subscription on kind alone,
+like the upgrade's failure kinds: `yardr subscribe <name> yardr --where
+kind=hook_quiet` carries it.
 
 Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log

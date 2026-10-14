@@ -472,6 +472,19 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 			}
 		}
 		hook.Configured, hook.Detail = true, strings.Join(names, ", ")
+		now := hookNow()
+		quiet, err := quietGaps(ctx, st, hs, now)
+		if err != nil {
+			return nil, err
+		}
+		if len(quiet) > 0 {
+			l, _ := hooks.ReadListener(cfg)
+			for _, h := range hs {
+				if gap, ok := quiet[h.Name]; ok {
+					hook.Notes = append(hook.Notes, quietNote(h, gap, now, l))
+				}
+			}
+		}
 	}
 	// The receiver's address is the server's, so what the server said: with
 	// hooks, always; without, when it has an address all the same, since one
