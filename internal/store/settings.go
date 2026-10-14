@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,6 +58,14 @@ const (
 	// WebAsSetting is the user the web view acts as when its --as is not
 	// given.
 	WebAsSetting = "web_as"
+	// WebJWTIssuerSetting, WebJWTAudienceSetting, WebJWTJWKSSetting,
+	// WebJWTHeaderSetting and WebJWTUsersSetting shape the web view's JWT
+	// mode: who proves each request (internal/web).
+	WebJWTIssuerSetting   = "web_jwt_issuer"
+	WebJWTAudienceSetting = "web_jwt_audience"
+	WebJWTJWKSSetting     = "web_jwt_jwks"
+	WebJWTHeaderSetting   = "web_jwt_header"
+	WebJWTUsersSetting    = "web_jwt_users"
 	// NameSetting is the yard's name.
 	NameSetting = "name"
 	// MaxSessionsSetting caps the sessions that run on this machine at
@@ -85,6 +94,10 @@ const (
 
 // herdrSessionName is what herdr 0.9 takes as a session's name.
 var herdrSessionName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// httpToken is what a header's name may hold (RFC 9110's token), for the
+// web_jwt_header setting.
+var httpToken = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
 
 // MaxSessions is the max_sessions of settings: the most sessions that run
 // something on this machine (RunsHere) the dispatcher has going at once,
@@ -189,6 +202,52 @@ var KnownSettings = []Setting{
 		Env: "WEB_AS", Check: func(v string) error {
 			if err := checkUserName(v); err != nil {
 				return fmt.Errorf("%s: %w", WebAsSetting, err)
+			}
+			return nil
+		}},
+	{Key: WebJWTIssuerSetting, Help: "the issuer a gateway's token must carry (its iss claim), such as https://team.cloudflareaccess.com; " +
+		"setting it turns the web view's JWT mode on: every request but /health must then carry a token the gateway signed (docs/web.md, \"Behind an auth gateway\"). " +
+		"The view refuses to start without web_jwt_audience and web_jwt_jwks, with --as, YARDR_WEB_AS or web_as alongside, or while the keys cannot be fetched",
+		Check: func(v string) error {
+			if err := checkJWTURL("an issuer", v); err != nil {
+				return fmt.Errorf("%s: %w", WebJWTIssuerSetting, err)
+			}
+			return nil
+		}},
+	{Key: WebJWTAudienceSetting, Help: "the audience a gateway's token must carry (its aud claim), such as an Access application's AUD tag; " +
+		"required in JWT mode, so a token minted for another application is refused",
+		Check: func(v string) error {
+			if strings.TrimSpace(v) == "" || strings.ContainsAny(v, " \t\n\r") {
+				return fmt.Errorf("%s %q: an audience is one word, such as the application's AUD tag", WebJWTAudienceSetting, v)
+			}
+			return nil
+		}},
+	{Key: WebJWTJWKSSetting, Help: "the URL the keys that verify a gateway's tokens are fetched from, " +
+		"such as https://team.cloudflareaccess.com/cdn-cgi/access/certs; required in JWT mode",
+		Check: func(v string) error {
+			if err := checkJWTURL("the keys' URL", v); err != nil {
+				return fmt.Errorf("%s: %w", WebJWTJWKSSetting, err)
+			}
+			// A key set fetched over plain http is the network's to
+			// rewrite, and its keys admit anyone as anyone: http serves a
+			// test issuer on this machine only.
+			if u, _ := url.Parse(v); u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+				return fmt.Errorf("%s %q: http is for a test issuer on loopback; a gateway's keys come over https", WebJWTJWKSSetting, v)
+			}
+			return nil
+		}},
+	{Key: WebJWTHeaderSetting, Help: "the header carrying the gateway's token; a Bearer prefix is stripped on Authorization only",
+		Default: "Cf-Access-Jwt-Assertion", Check: func(v string) error {
+			if !httpToken.MatchString(v) {
+				return fmt.Errorf("%s %q: a header's name, such as X-Pomerium-Jwt-Assertion", WebJWTHeaderSetting, v)
+			}
+			return nil
+		}},
+	{Key: WebJWTUsersSetting, Help: "whose token acts as whom in JWT mode: email=user pairs separated by commas, each user a user of the yard; " +
+		"matched without regard to case. A token whose email maps to no user is refused, and the view refuses to start when no user of the yard has a name in the table",
+		Check: func(v string) error {
+			if _, err := ParseWebJWTUsers(v); err != nil {
+				return fmt.Errorf("%s: %w", WebJWTUsersSetting, err)
 			}
 			return nil
 		}},
@@ -326,6 +385,56 @@ func (s Setting) Effective(stored map[string]string) (value, from string) {
 		return s.Default, FromDefault
 	}
 	return "", ""
+}
+
+// checkJWTURL takes what a gateway's URLs are: absolute, over http or
+// https. An issuer is compared with a token's iss claim, never fetched;
+// the keys' URL is fetched, and http serves a test issuer on loopback only
+// (the web_jwt_jwks check holds it so).
+func checkJWTURL(what, v string) error {
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%s %q: a URL, such as https://team.cloudflareaccess.com", what, v)
+	}
+	return nil
+}
+
+// isLoopbackHost reports whether host is this machine's loopback: an IP of
+// it, or localhost.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// ParseWebJWTUsers is the web_jwt_users setting as the web view reads it:
+// email=user pairs separated by commas, emails in lower case, matched
+// without regard to case. It refuses a pair with no "=", no email or no
+// user, an email with no @, a user name no user may have, and an email
+// named twice.
+func ParseWebJWTUsers(value string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, pair := range strings.Split(value, ",") {
+		email, user, ok := strings.Cut(pair, "=")
+		email, user = strings.TrimSpace(email), strings.TrimSpace(user)
+		switch {
+		case !ok || email == "" || user == "":
+			return nil, fmt.Errorf("%q: email=user pairs separated by commas", pair)
+		case !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\n\r"):
+			return nil, fmt.Errorf("email %q: an address with an @", email)
+		}
+		if err := checkUserName(user); err != nil {
+			return nil, err
+		}
+		if low := strings.ToLower(email); out[low] != "" {
+			return nil, fmt.Errorf("email %q twice", email)
+		} else {
+			out[low] = user
+		}
+	}
+	return out, nil
 }
 
 // checkDefaultPack takes what names a pack wherever a later command runs:

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -139,9 +141,9 @@ this machine. Both answers carry Retry-After.`,
 			// --as only when it is given, so a view of theirs reads the
 			// setting itself.
 			asFrom := ""
+			var all map[string]string
 			if !c.Flags().Changed("as") {
 				set, _ := store.SettingOf(store.WebAsSetting)
-				var all map[string]string
 				if all, err = st.Settings(ctx); err != nil {
 					return err
 				}
@@ -151,6 +153,18 @@ this machine. Both answers carry Retry-After.`,
 				if _, err := st.GetUser(ctx, as); err != nil {
 					return webAsRefused(as, asFrom)
 				}
+			}
+			// JWT mode is on when the yard sets web_jwt_issuer: every
+			// request but /health must then carry a token the gateway
+			// signed, so no acting user stands beside it.
+			if all == nil {
+				if all, err = st.Settings(ctx); err != nil {
+					return err
+				}
+			}
+			jwtCfg, err := webJWTConfig(ctx, st, all, as, asFrom)
+			if err != nil {
+				return err
 			}
 			// The yard's web_addr, where no --addr was given: checked when
 			// it was set, and by web.Listen below.
@@ -185,6 +199,11 @@ this machine. Both answers carry Retry-After.`,
 			}
 			if as != "" {
 				srv.ActAs(as)
+			}
+			if jwtCfg.Issuer != "" {
+				if err := srv.UseJWT(ctx, jwtCfg); err != nil {
+					return fmt.Errorf("%s %s refused: %w", store.WebJWTJWKSSetting, jwtCfg.JWKSURL, err)
+				}
 			}
 			ln, err := web.Listen("--addr", addr, unsafe)
 			if err != nil {
@@ -395,6 +414,70 @@ func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, fla
 		}
 	}
 	return nil
+}
+
+// webJWTConfig is JWT mode as the yard's settings shape it, when its
+// web_jwt_issuer is set: without it the view is today's, and the config is
+// empty. It refuses what JWT mode cannot start with: an acting user from
+// --as, YARDR_WEB_AS or web_as (as, from), a missing audience or keys'
+// URL, and a users table naming no user of the yard.
+func webJWTConfig(ctx context.Context, st store.API, all map[string]string, as, from string) (web.JWTConfig, error) {
+	var none web.JWTConfig
+	issuer := all[store.WebJWTIssuerSetting]
+	if issuer == "" {
+		return none, nil
+	}
+	if as != "" {
+		return none, webJWTAsRefused(as, from)
+	}
+	if all[store.WebJWTAudienceSetting] == "" {
+		return none, webJWTMissing(store.WebJWTAudienceSetting, "the audience the gateway mints tokens for")
+	}
+	if all[store.WebJWTJWKSSetting] == "" {
+		return none, webJWTMissing(store.WebJWTJWKSSetting, "the URL the keys are fetched from")
+	}
+	header, _ := store.SettingOf(store.WebJWTHeaderSetting)
+	headerValue, _ := header.Effective(all)
+	users := map[string]string{}
+	if raw := all[store.WebJWTUsersSetting]; raw != "" {
+		var err error
+		// The shape was checked when it was set; what is stored parses.
+		if users, err = store.ParseWebJWTUsers(raw); err != nil {
+			return none, fmt.Errorf("%s refused: %w", store.WebJWTUsersSetting, err)
+		}
+	}
+	for _, email := range slices.Sorted(maps.Keys(users)) {
+		if _, err := st.GetUser(ctx, users[email]); err != nil {
+			return none, fmt.Errorf("%s %s=%s refused: the yard has no user of that name (yardr user list)",
+				store.WebJWTUsersSetting, email, users[email])
+		}
+	}
+	return web.JWTConfig{Issuer: issuer, Audience: all[store.WebJWTAudienceSetting],
+		JWKSURL: all[store.WebJWTJWKSSetting], Header: headerValue, Users: users}, nil
+}
+
+// webJWTAsRefused is the refusal of the user the view would act as, from
+// --as, YARDR_WEB_AS or the yard's web_as setting (from), in JWT mode: no
+// request is ever served as the default user, and no flag silently does
+// nothing.
+func webJWTAsRefused(as, from string) error {
+	whose, unset := "--as "+as, "start without --as"
+	switch from {
+	case store.FromEnvironment:
+		whose, unset = "YARDR_WEB_AS "+as, "unset YARDR_WEB_AS"
+	case store.FromSet:
+		whose, unset = "web_as "+as, `unset web_as (yardr settings set web_as "")`
+	}
+	return fmt.Errorf("%s refused: the yard sets %s, and a view in JWT mode takes no acting user (%s, or unset %s)",
+		whose, store.WebJWTIssuerSetting, unset, store.WebJWTIssuerSetting)
+}
+
+// webJWTMissing is the refusal of JWT mode without one of its required
+// settings: without an audience a token minted for another application
+// would be accepted, and without a keys' URL no token verifies.
+func webJWTMissing(setting, what string) error {
+	return fmt.Errorf("JWT mode is on (the yard sets %s) and %s is unset: set %s (yardr settings set %s <value>)",
+		store.WebJWTIssuerSetting, setting, what, setting)
 }
 
 // webAddr is the address web serve listens on: addr, which is the flag

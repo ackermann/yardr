@@ -2,7 +2,14 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -307,4 +314,136 @@ func TestWebAnswersTo(t *testing.T) {
 			t.Errorf("webAnswersTo(%v, %v) = %q, want %q", c.unsafe, c.names, got, c.want)
 		}
 	}
+}
+
+// In JWT mode, with web_jwt_issuer set, serve refuses what the mode cannot
+// start with: an acting user from each of --as, YARDR_WEB_AS and web_as, a
+// missing audience or keys' URL, a users table naming no user of the yard,
+// and keys that cannot be fetched.
+func TestWebServeJWTRefusals(t *testing.T) {
+	home, st, _ := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	t.Setenv("YARDR_WEB_AS", "")
+	a := func() *app { return &app{st: st, cfg: &config.Config{Home: home}, actor: "me"} }
+	set := func(key, value string) {
+		t.Helper()
+		if err := st.SetSetting(ctx, key, value, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serve := func(args ...string) error {
+		t.Helper()
+		_, err := run(t, a().webCmd(), append([]string{"serve", "--addr", "127.0.0.1:0"}, args...)...)
+		return err
+	}
+	refused := func(err error, wants ...string) string {
+		t.Helper()
+		if err == nil {
+			t.Fatal("serve started, want a refusal")
+		}
+		for _, want := range wants {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("%v, want a refusal with %q", err, want)
+			}
+		}
+		return err.Error()
+	}
+	// Keys that cannot be fetched: the URL answers nothing.
+	closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	closed.Close()
+	set(store.WebJWTIssuerSetting, "https://team.example.net")
+	set(store.WebJWTAudienceSetting, "aud-tag")
+	set(store.WebJWTJWKSSetting, closed.URL)
+	set(store.WebJWTUsersSetting, "jo@example.net=Jo")
+	// Each acting user is refused, naming the setting it stands beside.
+	refused(serve("--as", "Jo"), "--as Jo refused", "web_jwt_issuer")
+	t.Setenv("YARDR_WEB_AS", "Jo")
+	refused(serve(), "YARDR_WEB_AS Jo refused", "web_jwt_issuer")
+	t.Setenv("YARDR_WEB_AS", "")
+	set(store.WebAsSetting, "Jo")
+	refused(serve(), "web_as Jo refused", "web_jwt_issuer")
+	set(store.WebAsSetting, "")
+	// A missing audience or keys' URL.
+	set(store.WebJWTAudienceSetting, "")
+	refused(serve(), "web_jwt_audience is unset")
+	set(store.WebJWTAudienceSetting, "aud-tag")
+	set(store.WebJWTJWKSSetting, "")
+	refused(serve(), "web_jwt_jwks is unset")
+	set(store.WebJWTJWKSSetting, closed.URL)
+	// A users table naming no user of the yard, before any fetch: the
+	// keys' URL answers nothing, and still the refusal names the user.
+	set(store.WebJWTUsersSetting, "stranger@example.net=nosuch")
+	refused(serve(), "web_jwt_users", "no user", "yardr user list")
+	set(store.WebJWTUsersSetting, "jo@example.net=Jo")
+	// Keys that cannot be fetched.
+	refused(serve(), "web_jwt_jwks", "could not fetch")
+}
+
+// In JWT mode with keys that fetch, serve starts and records the view; an
+// explicitly empty --as stands aside for the mode, as it does for web_as.
+func TestWebServeJWTModeServes(t *testing.T) {
+	home, st, _ := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	t.Setenv("YARDR_WEB_AS", "")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := json.Marshal(map[string]any{"keys": []any{map[string]any{
+		"kty": "RSA", "kid": "a",
+		"n": base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
+		"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes()),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(doc)
+	}))
+	t.Cleanup(jwks.Close)
+	for k, v := range map[string]string{
+		store.WebJWTIssuerSetting:   "https://team.example.net",
+		store.WebJWTAudienceSetting: "aud-tag",
+		store.WebJWTJWKSSetting:     jwks.URL,
+		store.WebJWTUsersSetting:    "jo@example.net=Jo",
+	} {
+		if err := st.SetSetting(ctx, k, v, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Home: home}
+	serves := func(args ...string) {
+		t.Helper()
+		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0"}, args...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		sctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- cmd.ExecuteContext(sctx) }()
+		var views []webView
+		for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+			select {
+			case err := <-done:
+				t.Fatalf("web serve %v ended: %v", args, err)
+			default:
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("web serve %v recorded nothing", args)
+			}
+			views = webViews(cfg)
+		}
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("web serve did not stop")
+		}
+	}
+	serves()
+	serves("--as=")
 }

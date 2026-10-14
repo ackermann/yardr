@@ -122,6 +122,9 @@ type Server struct {
 	pagesMux  *http.ServeMux
 	pagesAddr string
 	pagesHost string
+	// jwt verifies a gateway's token per request (UseJWT), nil when the
+	// view takes no JWT mode.
+	jwt *jwtVerifier
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -258,6 +261,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.knownHost(r.Host) {
 		s.misdirected(w, r)
 		return
+	}
+	// In JWT mode every request proves itself with the gateway's token,
+	// but the health check, which carries no user and says no secret.
+	if s.jwt != nil && r.URL.Path != "/health" {
+		user, code, msg := s.jwt.verify(r)
+		if code != 0 {
+			if code == http.StatusServiceUnavailable {
+				// No keys: the next fetch may have them.
+				w.Header().Set("Retry-After", "60")
+			}
+			http.Error(w, msg, code)
+			return
+		}
+		r = r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, user))
 	}
 	h := w.Header()
 	h.Set("Content-Security-Policy", s.policy())

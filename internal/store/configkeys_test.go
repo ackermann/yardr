@@ -225,7 +225,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
@@ -235,6 +235,17 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_addr: --addr :8791 refused: an address with no host listens on every interface`:                                {"web_addr", ":8791"},
 		`web_addr: --addr 8791: address 8791: missing port in address`:                                                      {"web_addr", "8791"},
 		`web_as: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                                     {"web_as", "a b"},
+		`web_jwt_issuer: an issuer "team": a URL`:                                                                           {"web_jwt_issuer", "team"},
+		`web_jwt_issuer: an issuer "ftp://team/x": a URL`:                                                                   {"web_jwt_issuer", "ftp://team/x"},
+		`web_jwt_audience "two words": an audience is one word`:                                                             {"web_jwt_audience", "two words"},
+		`web_jwt_jwks: the keys' URL "team/certs": a URL`:                                                                   {"web_jwt_jwks", "team/certs"},
+		`web_jwt_jwks "http://keys.example.net/x": http is for a test issuer on loopback`:                                   {"web_jwt_jwks", "http://keys.example.net/x"},
+		`web_jwt_header "a b": a header's name`:                                                                             {"web_jwt_header", "a b"},
+		`web_jwt_users: "mckean": email=user pairs separated by commas`:                                                     {"web_jwt_users", "mckean"},
+		`web_jwt_users: "mckean@example.net": email=user pairs separated by commas`:                                         {"web_jwt_users", "mckean@example.net"},
+		`web_jwt_users: email "no-at-sign": an address with an @`:                                                           {"web_jwt_users", "no-at-sign=jo"},
+		`web_jwt_users: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                              {"web_jwt_users", "a@b.example=a b"},
+		`web_jwt_users: email "A@B.EXAMPLE" twice`:                                                                          {"web_jwt_users", "a@b.example=jo,A@B.EXAMPLE=ann"},
 		`timer_limit "0": a whole number, 1 or more`:                                                                        {"timer_limit", "0"},
 		`default_pack "packs/x": a directory is given as an absolute path`:                                                  {"default_pack", "packs/x"},
 		`yard name "a b"`: {"name", "a b"},
@@ -248,10 +259,19 @@ func TestStoreChecksSettings(t *testing.T) {
 	}
 	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
-		"web_as": "jo"} {
+		"web_as": "jo", "web_jwt_issuer": "https://team.cloudflareaccess.com", "web_jwt_audience": "aud-tag",
+		"web_jwt_jwks": "https://team.cloudflareaccess.com/cdn-cgi/access/certs", "web_jwt_header": "Authorization",
+		"web_jwt_users": "mckean@example.net=mckean, Jo@Example.NET=jo"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}
+	}
+	// The keys' URL over http serves a test issuer on loopback.
+	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://127.0.0.1:9/certs", "me"); err != nil {
+		t.Errorf("SetSetting(web_jwt_jwks, loopback http) = %v", err)
+	}
+	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://localhost:9/certs", "me"); err != nil {
+		t.Errorf("SetSetting(web_jwt_jwks, localhost http) = %v", err)
 	}
 	// Unset is unchecked: "" is no value of any setting.
 	if err := s.SetSetting(ctx, "timer_limit", "", "me"); err != nil {
@@ -296,5 +316,23 @@ func TestStoreChecksSettings(t *testing.T) {
 	note, _ := store.SettingOf("operator_note")
 	if v, from := note.Effective(nil); v != "" || from != "" {
 		t.Errorf("unset operator_note = %q from %q", v, from)
+	}
+}
+
+// ParseWebJWTUsers reads the users table as the web view matches it:
+// emails in lower case, pairs trimmed.
+func TestParseWebJWTUsers(t *testing.T) {
+	got, err := store.ParseWebJWTUsers(" McKean@Example.NET = mckean , jo@example.net=jo ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"mckean@example.net": "mckean", "jo@example.net": "jo"}
+	if len(got) != len(want) {
+		t.Fatalf("ParseWebJWTUsers = %v, want %v", got, want)
+	}
+	for email, user := range want {
+		if got[email] != user {
+			t.Fatalf("ParseWebJWTUsers = %v, want %v", got, want)
+		}
 	}
 }

@@ -182,6 +182,52 @@ besides the view's names. Name only a name whose resolution you control,
 as with `--host`; the loopback rules above hold for the origin's own
 port either way.
 
+### Behind an auth gateway
+
+With an auth gateway in front of the view — one that logs the visitor in
+and forwards each request with a signed JWT proving who they are — the view
+verifies that token on every request but `/health`, and maps its email to
+a user of the yard. Setting `web_jwt_issuer` turns this JWT mode on:
+
+```sh
+yardr settings set web_jwt_issuer https://team.cloudflareaccess.com
+yardr settings set web_jwt_audience <the application's AUD tag>
+yardr settings set web_jwt_jwks https://team.cloudflareaccess.com/cdn-cgi/access/certs
+yardr settings set web_jwt_users mckean@example.net=mckean
+yardr web install --host yard.example.net
+```
+
+Each gateway is one row, not one code path: the header carrying the token,
+the issuer (`iss`) and audience (`aud`) it must carry, and the URL its keys
+are fetched from.
+
+| Gateway | Header (`web_jwt_header`) | Issuer (`web_jwt_issuer`) | Keys (`web_jwt_jwks`) | Audience (`web_jwt_audience`) |
+|---|---|---|---|---|
+| Cloudflare Access | `Cf-Access-Jwt-Assertion` | `https://<team>.cloudflareaccess.com` | `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` | the application's AUD tag |
+| oauth2-proxy | `Authorization` (the ID token as `Bearer`, with `--pass-authorization-header`) | the provider's issuer | the provider's `jwks_uri` | the OAuth client id |
+| Pomerium | `X-Pomerium-Jwt-Assertion` | `https://authenticate.<yours>` | `https://authenticate.<yours>/.well-known/pomerium/jwks.json` | the route's domain |
+
+Cloudflare mirrors the token as a `CF_Authorization` cookie too, but the
+header is authoritative and the only carrier the view reads. oauth2-proxy
+also passes an access token as `X-Forwarded-Access-Token`
+(`--pass-access-token`); that is a JWT only with some providers, so prefer
+the ID token. Its `X-Forwarded-User` and `X-Forwarded-Email` stay untrusted,
+as every bare header does: anything on loopback can set one. Pomerium sends
+its assertion only with identity headers enabled, globally or for the route
+(`pass_identity_headers`, false by default).
+
+Whose email the view trusts is the operator's call: a signature proves the
+gateway asserted the address, not that its identity provider checked the
+visitor owns it, so pick a gateway whose provider verifies emails. A token
+whose `email_verified` claim is present and false is refused.
+
+In JWT mode `--as`, `YARDR_WEB_AS` and `web_as` are refused at start — no
+request is ever served as the default user — and so is a start without
+`web_jwt_audience` or `web_jwt_jwks`, or while the keys cannot be fetched.
+A request without the header, or with a token that is malformed, badly
+signed, expired, of another issuer or for another audience, is 401; a valid
+token whose email maps to no user is 403.
+
 ### `--unsafe`: every interface
 
 `yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected

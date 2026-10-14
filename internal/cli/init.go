@@ -1286,6 +1286,16 @@ runs keeps its user until it is stopped and started again. A login service
 keeps YARDR_WEB_AS from its install environment when set; otherwise its
 view reads the setting at every start.
 
+web_jwt_issuer, web_jwt_audience, web_jwt_jwks, web_jwt_header and
+web_jwt_users put the web view behind an auth gateway (docs/web.md,
+"Behind an auth gateway"). Setting the issuer turns JWT mode on: every
+request but /health must then carry a token the gateway signed, verified
+against the keys fetched from the JWKS URL, whose email maps to a user of
+the yard. With the issuer set the view refuses to start without an
+audience and a keys' URL, with --as, YARDR_WEB_AS or web_as alongside, or
+while the keys cannot be fetched. One that runs keeps its mode until it is
+stopped and started again.
+
 herdr_session is the herdr session the yard's agents run in (herdr session
 list). Set, every call the yard makes to herdr goes to it, from the daemon,
 a command or a login service, whatever shell each was started from. Unset,

@@ -38,6 +38,23 @@ func (s *Server) SetLimitsEvery(d time.Duration) { s.limitsEvery = d }
 // Age is how the pages say a duration.
 func Age(d time.Duration) string { return age(d) }
 
+// AgeJWTKeys moves the JWT key cache's fetch and attempt back by d, for
+// tests of the hourly refresh.
+func (s *Server) AgeJWTKeys(d time.Duration) {
+	s.jwt.mu.Lock()
+	defer s.jwt.mu.Unlock()
+	s.jwt.fetched = s.jwt.fetched.Add(-d)
+	s.jwt.attempted = s.jwt.attempted.Add(-d)
+}
+
+// DropJWTKeys empties the JWT key cache, for tests of the answer with no
+// usable keys.
+func (s *Server) DropJWTKeys() {
+	s.jwt.mu.Lock()
+	defer s.jwt.mu.Unlock()
+	s.jwt.keys = map[string]any{}
+}
+
 // Unified is old and new as the history's diff.
 func Unified(old, new string) string { return unified(old, new) }
 
