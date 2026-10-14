@@ -705,7 +705,7 @@ func TestWebServeRecordsItself(t *testing.T) {
 	cfg := &config.Config{Home: home}
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
-	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0"})
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"})
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	done := make(chan error, 1)
 	go func() { done <- cmd.ExecuteContext(ctx) }()
@@ -749,7 +749,7 @@ func TestWebServeAsRecordsItself(t *testing.T) {
 	cfg := &config.Config{Home: home}
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
-	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--as", "Jo"})
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0", "--as", "Jo"})
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	done := make(chan error, 1)
 	go func() { done <- cmd.ExecuteContext(ctx) }()

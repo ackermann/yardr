@@ -68,7 +68,8 @@ func TestWebAddr(t *testing.T) {
 // under any TMPDIR (a socket path too long for the system ends it earlier).
 func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
 	newHome(t)
-	for _, args := range [][]string{{"--unsafe"}, {"--unsafe", "--addr", ":9000"}, {"--unsafe", "--addr", "0.0.0.0:9000"}, {"--unsafe", "--addr", "192.168.1.10:9000"}} {
+	for _, args := range [][]string{{"--unsafe"}, {"--unsafe", "--addr", ":9000"}, {"--unsafe", "--addr", "0.0.0.0:9000"}, {"--unsafe", "--addr", "192.168.1.10:9000"},
+		{"--unsafe", "--pages-addr", "0.0.0.0:9000"}, {"--unsafe", "--pages-host", "pages.example.net"}} {
 		a := &app{}
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
 		if !errors.Is(err, errNoServer) {
@@ -165,7 +166,7 @@ func TestWebServeAsTakesFlagEnvAndSetting(t *testing.T) {
 	servesAs := func(args []string, want string) {
 		t.Helper()
 		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
-		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0"}, args...))
+		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}, args...))
 		cmd.SilenceUsage, cmd.SilenceErrors = true, true
 		sctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -241,7 +242,7 @@ func TestStatusAndDoctorSayActsAsFromSetting(t *testing.T) {
 	}
 	cfg := &config.Config{Home: home}
 	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
-	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0"})
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"})
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()

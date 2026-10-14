@@ -124,7 +124,7 @@ func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 	}
 	stubWeb(t)
 	for _, addr := range []string{"0.0.0.0:8791", ":8791", "192.168.1.5:8791", "example.net:8791", "8791"} {
-		flag := web.CheckAddr(addr, false)
+		flag := web.CheckAddr("--addr", addr, false)
 		if flag == nil {
 			t.Fatalf("--addr %s is taken", addr)
 		}
@@ -183,7 +183,14 @@ func TestServeTakesTheAddrSetting(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			cmd := a().rootCmd()
-			cmd.SetArgs(append([]string{c.kind, "serve"}, args...))
+			serveArgs := append([]string{c.kind, "serve"}, args...)
+			if c.kind == svcWeb {
+				// The sandbox origin beside the view: off a fixed
+				// port, so the test holds no address of the
+				// machine's.
+				serveArgs = append(serveArgs, "--pages-addr", "127.0.0.1:0")
+			}
+			cmd.SetArgs(serveArgs)
 			cmd.SilenceUsage, cmd.SilenceErrors = true, true
 			done := make(chan error, 1)
 			go func() { done <- cmd.ExecuteContext(ctx) }()

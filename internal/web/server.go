@@ -114,6 +114,14 @@ type Server struct {
 	// the talk page sends its mail as them, and a bead's page answers its
 	// asks and sends it on; no other page takes a write.
 	as string
+	// pagesMux serves the sandbox origin: a note's blobs under the
+	// scripted policy, and nothing else. pagesAddr is the address it
+	// listens on, as bound, which the bead page's run links are built
+	// from; pagesHost is the public name those links use behind a
+	// proxy of yours (--pages-host), "" for none.
+	pagesMux  *http.ServeMux
+	pagesAddr string
+	pagesHost string
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -123,7 +131,8 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite,
 		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
-		limitsBy: map[string]*limitsEntry{}, limitsEvery: defaultLimitsEvery}
+		limitsBy: map[string]*limitsEntry{}, limitsEvery: defaultLimitsEvery,
+		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err
@@ -132,6 +141,7 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 	s.routes()
+	s.pagesRoutes()
 	return s, nil
 }
 
@@ -218,6 +228,13 @@ func (s *Server) routes() {
 	})
 }
 
+// pagesRoutes registers the sandbox origin's only route: a note's blobs,
+// served by handlePagesBlob. Everything else is the mux's own 404: the
+// origin answers no yard route at all.
+func (s *Server) pagesRoutes() {
+	s.pagesMux.HandleFunc("GET /blobs/{hash}", s.handlePagesBlob)
+}
+
 // policy lets the browser load and reach this server only, so a page that
 // names another host by mistake fails where it is seen instead of calling
 // out. The page has no inline script or style, and nothing may frame it.
@@ -239,22 +256,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// then carries that name, so a name that is not this machine's is
 	// refused.
 	if !s.knownHost(r.Host) {
-		as, hint := "localhost or 127.0.0.1", ""
-		if s.network {
-			as = "an IP address"
-		}
-		as = strings.Join(append([]string{as}, s.names...), " or ")
-		// The name may be this machine's all the same (a tailnet's, the
-		// LAN's DNS, a proxy's): only its operator can say so. What is no
-		// host name is not offered back as one, and neither is an IP
-		// address, which a view on loopback answers to under no flag but
-		// --unsafe.
-		host := hostOf(r.Host)
-		if name, err := CheckHost(host); err == nil && net.ParseIP(host) == nil {
-			hint = ". If that name is this machine's, start the view with --host " + name
-		}
-		http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host+hint,
-			http.StatusMisdirectedRequest)
+		s.misdirected(w, r)
 		return
 	}
 	h := w.Header()
@@ -262,6 +264,102 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	s.mux.ServeHTTP(w, r)
+}
+
+// misdirected answers a request whose Host header names no host of this
+// machine's with 421, saying which names are answered. extra are answered
+// names beyond the view's own: the sandbox origin's public one.
+func (s *Server) misdirected(w http.ResponseWriter, r *http.Request, extra ...string) {
+	as, hint := "localhost or 127.0.0.1", ""
+	if s.network {
+		as = "an IP address"
+	}
+	as = strings.Join(append(append([]string{as}, s.names...), extra...), " or ")
+	// The name may be this machine's all the same (a tailnet's, the
+	// LAN's DNS, a proxy's): only its operator can say so. What is no
+	// host name is not offered back as one, and neither is an IP
+	// address, which a view on loopback answers to under no flag but
+	// --unsafe.
+	host := hostOf(r.Host)
+	if name, err := CheckHost(host); err == nil && net.ParseIP(host) == nil {
+		hint = ". If that name is this machine's, start the view with --host " + name
+	}
+	http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host+hint,
+		http.StatusMisdirectedRequest)
+}
+
+// PagesHandler serves the sandbox origin: a note's blobs under the
+// scripted policy, and nothing else. It is fenced as the view itself is
+// — the loopback, --host and --unsafe rules with the same 421s — and
+// answers to the origin's public name (--pages-host) besides.
+func (s *Server) PagesHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.knownHost(r.Host) && !s.knownPagesHost(r.Host) {
+			var extra []string
+			if s.pagesHost != "" {
+				extra = []string{s.pagesHost}
+			}
+			s.misdirected(w, r, extra...)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Security-Policy", scriptedPolicy)
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		s.pagesMux.ServeHTTP(w, r)
+	})
+}
+
+// knownPagesHost reports whether a request's Host header is the sandbox
+// origin's public name (--pages-host): the name a proxy of yours routes
+// to the origin, which is no name of the view's.
+func (s *Server) knownPagesHost(hostport string) bool {
+	return s.pagesHost != "" && strings.EqualFold(hostOf(hostport), s.pagesHost)
+}
+
+// SetPagesAddr is the sandbox origin's address as bound, which the bead
+// page's run links are built from. Call it before the server serves.
+func (s *Server) SetPagesAddr(addr string) { s.pagesAddr = addr }
+
+// SetPagesHost is the sandbox origin's public name (--pages-host), which
+// run links use behind a proxy of yours and the origin answers to. Call
+// it before the server serves.
+func (s *Server) SetPagesHost(host string) { s.pagesHost = host }
+
+// runBase is the sandbox origin as the browser that asked with hostport
+// reaches it, without a scheme: a reader on this machine goes straight
+// to where the origin listens, and a reader elsewhere goes by the name
+// it reached the view by — the origin's public one where one is given —
+// on the origin's port, which a proxy forwards beside the view's.
+func (s *Server) runBase(hostport string) string {
+	host, port, err := net.SplitHostPort(s.pagesAddr)
+	if err != nil {
+		host, port, _ = net.SplitHostPort(store.DefaultWebPagesAddr)
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
+		// The origin listens on every interface (--unsafe): a reader
+		// here reaches it on loopback.
+		host = "127.0.0.1"
+	}
+	if h := hostOf(hostport); h == "" || strings.EqualFold(h, "localhost") || loopbackIP(h) {
+		return "//" + net.JoinHostPort(host, port)
+	}
+	if s.pagesHost != "" {
+		// The page was reached through a proxy under the view's name;
+		// the origin's own name is reached on the same port.
+		if _, reqport, err := net.SplitHostPort(hostport); err == nil {
+			return "//" + net.JoinHostPort(s.pagesHost, reqport)
+		}
+		return "//" + s.pagesHost
+	}
+	return "//" + net.JoinHostPort(hostOf(hostport), port)
+}
+
+// loopbackIP reports whether host is an IP address on loopback.
+func loopbackIP(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // Page is what a handler answers with: Data is the page's whole content,
@@ -430,9 +528,10 @@ func (s *Server) yardName(ctx context.Context) string {
 // Listen opens addr for the web view, which has no authentication yet and
 // so listens on loopback only: any other address is refused, and so is a
 // name that turns out to listen elsewhere. With unsafe every address is
-// opened, the ones that listen on every interface too.
-func Listen(addr string, unsafe bool) (net.Listener, error) {
-	if err := CheckAddr(addr, unsafe); err != nil {
+// opened, the ones that listen on every interface too. whose is the flag
+// that gave the address, as a refusal names it.
+func Listen(whose, addr string, unsafe bool) (net.Listener, error) {
+	if err := CheckAddr(whose, addr, unsafe); err != nil {
 		return nil, err
 	}
 	ln, err := net.Listen("tcp", addr)
@@ -442,18 +541,21 @@ func Listen(addr string, unsafe bool) (net.Listener, error) {
 	// localhost is a name, and a hosts file may point it anywhere.
 	if tcp, ok := ln.Addr().(*net.TCPAddr); !unsafe && (!ok || !tcp.IP.IsLoopback()) {
 		_ = ln.Close()
-		return nil, refused(addr, fmt.Sprintf("it listens on %s", ln.Addr()))
+		return nil, refused(whose, addr, fmt.Sprintf("it listens on %s", ln.Addr()))
 	}
 	return ln, nil
 }
 
 // CheckAddr refuses a listen address that is not on the loopback
-// interface, saying why. With unsafe it refuses only what is no address.
-func CheckAddr(addr string, unsafe bool) error { return store.CheckWebAddr(addr, unsafe) }
+// interface, saying why as whose refused it. With unsafe it refuses only
+// what is no address.
+func CheckAddr(whose, addr string, unsafe bool) error {
+	return store.CheckWebAddr(whose, addr, unsafe)
+}
 
-// refused is the refusal of addr, for why: the store's, where the check is
-// for the web_addr setting.
-func refused(addr, why string) error { return store.WebAddrRefused(addr, why) }
+// refused is the refusal of addr, for why, as whose refused it: the
+// store's, where the check is for the web_addr setting.
+func refused(whose, addr, why string) error { return store.WebAddrRefused(whose, addr, why) }
 
 // AllowNetwork is --unsafe for the requests: the view is served off
 // loopback, so a request may name the machine by any IP or by hostname,
@@ -513,23 +615,7 @@ func (s *Server) Names() []string { return slices.Clone(s.names) }
 // in lower case and without the dot that ends a full name, or says why it
 // is no host name. A wildcard is none: a view that answers to every name
 // has no guard against DNS rebinding left.
-func CheckHost(name string) (string, error) {
-	host := strings.TrimSuffix(strings.ToLower(name), ".")
-	switch {
-	case host == "":
-		return "", fmt.Errorf("--host %q refused: it is no name", name)
-	case strings.Contains(host, "*"):
-		return "", fmt.Errorf("--host %s refused: a wildcard would answer to any site's name, and yardr web has no authentication yet. Name each host", name)
-	case strings.Contains(host, ":"):
-		return "", fmt.Errorf("--host %s refused: give the name alone, without a scheme or a port (an IP address is answered already)", name)
-	}
-	for _, label := range strings.Split(host, ".") {
-		if label == "" || strings.Trim(label, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
-			return "", fmt.Errorf("--host %s refused: it is no host name (letters, digits, - and _, in parts joined by dots)", name)
-		}
-	}
-	return host, nil
-}
+func CheckHost(name string) (string, error) { return store.CheckWebHost("--host", name) }
 
 // knownHost reports whether a request's Host header names this machine's
 // loopback interface, one of the host names it answers to or, served off

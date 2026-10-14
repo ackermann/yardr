@@ -381,7 +381,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 		} else if addr != "" {
 			err := error(nil)
 			if k.Name == svcWeb {
-				err = store.CheckWebAddr(addr, false)
+				err = store.CheckWebAddr("--addr", addr, false)
 			}
 			var pid int
 			args, started := []string{"--" + k.Addr, addr}, false

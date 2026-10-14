@@ -54,6 +54,20 @@ YARDR_WEB_AS=jo yardr web start    # the environment overrides the setting
 yardr web start --as jo            # --as still wins
 ```
 
+The sandbox origin, where a note's pages run ([One bead](#one-bead)),
+listens on `--pages-addr` when it is given, else on
+`YARDR_WEB_PAGES_ADDR` when set in the command's environment, else on
+the yard's `web_pages_addr` setting, else on `127.0.0.1:8789`, on
+loopback like the view and under the same Host rules (`--unsafe` opens
+it on every interface too, on its port). A second yard on this machine
+sets both addresses, as the view's address alone no longer moves it
+off the first yard's ports:
+
+```sh
+yardr settings set web_addr 127.0.0.1:8792
+yardr settings set web_pages_addr 127.0.0.1:8788   # its sandbox origin
+```
+
 ## Loopback only
 
 There is no authentication yet, so the view listens on the loopback
@@ -74,6 +88,10 @@ interface and nowhere else, unless `--unsafe` is given (below):
 To look at a yard on another machine, forward the port over ssh
 (`ssh -L 8791:127.0.0.1:8791 host`), or put a proxy of your own in front of
 the view (next).
+
+The sandbox origin beside the view is fenced the same way: loopback
+only, the same Host rules and 421s, and it answers to its public name
+(`--pages-host`) besides, where one is given.
 
 ### Behind a proxy
 
@@ -120,7 +138,7 @@ and nothing is added to them:
 The flag takes one name or a comma list and may be repeated
 (`--host yard.example.net --host yard.lan`). The view says what it answers
 to when it starts:
-`serving the yard url=http://127.0.0.1:8791/ answers_to="a loopback address, localhost, yard.example.net"`.
+`serving the yard url=http://127.0.0.1:8791/ pages=http://127.0.0.1:8789/ answers_to="a loopback address, localhost, yard.example.net"`.
 `yardr status` and `yardr web status` still call such a view
 `this machine only`: loopback is all it listens on. Every client that comes
 through the proxy is the one loopback client to the stream limits
@@ -143,6 +161,25 @@ help does not say which `Host` the view then sees. Start the view without
 `--host` first: if the page opens under the tailnet name, `tailscale serve`
 rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 `--host` to start it with.
+
+A proxy in front of the view forwards the sandbox origin's port too:
+run links name the view's host on the origin's port
+(`//yard.example.net:8789/blobs/<hash>`), so the proxy passes that port
+to where the origin listens, as it passes the view's, with the Host
+header unchanged. Where the origin should have a name of its own
+instead, route a second name to it and give that name with
+`--pages-host` (`YARDR_WEB_PAGES_HOST`, or the yard's `web_pages_host`
+setting, as `--pages-addr` goes by its own three):
+
+```sh
+yardr web serve --host yard.example.net --pages-host pages.yard.example.net
+```
+
+Run links then use the second name on the port the view was reached by
+(`//pages.yard.example.net/blobs/<hash>`), and the origin answers to it
+besides the view's names. Name only a name whose resolution you control,
+as with `--host`; the loopback rules above hold for the origin's own
+port either way.
 
 ### `--unsafe`: every interface
 
@@ -184,7 +221,7 @@ read-only.
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
   On a view that acts it says `can read the yard and act as <user>` instead.
   The line after it says what the view answers to:
-  `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
+  `serving the yard url=http://[::]:8791/ pages=http://[::]:8789/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
 ## Acting as a user
 
@@ -245,7 +282,7 @@ reaches it is the edge's to say — the private network's membership, a login
 of its own — as who reads the yard is ([Behind a proxy](#behind-a-proxy)).
 The edge is what stands in front. `yardr status` says whom a view acts as
 (`this machine only, acts as mckean`), and the start line carries it too
-(`serving the yard url=http://127.0.0.1:8791/ acts_as=mckean`), whether
+(`serving the yard url=http://127.0.0.1:8791/ pages=http://127.0.0.1:8789/ acts_as=mckean`), whether
 the flag, the variable or the setting named the user.
 
 ## Keeping it running
@@ -288,6 +325,14 @@ installed; when that variable is unset in the service, its view reads
 view refuses to start when no user of the yard has the name, whatever named it; `yardr web
 start` then ends at once and names the log the reason is in, and the
 service's view logs it at every login.
+
+Both take `--pages-addr` and `--pages-host` as `yardr web serve` does
+([The address](#the-address)): the sandbox origin beside the view
+listens on one and is named by the other. `yardr web install` writes
+each into the service's file when it is given; without them the view
+the service starts goes by `YARDR_WEB_PAGES_ADDR` and
+`YARDR_WEB_PAGES_HOST` from its install environment, else the yard's
+`web_pages_addr` and `web_pages_host` settings, read at every start.
 
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
@@ -377,7 +422,9 @@ itself refuses to load or call anything else. The policy also refuses
 inline `<script>`, inline `<style>` and `style=` attributes, so a page has
 none: scripts and styles live in the asset files. It refuses every form
 target (`form-action 'none'`) but on a view that acts, whose talk and bead
-pages post to the view itself (`form-action 'self'`).
+pages post to the view itself (`form-action 'self'`). The one exception
+to the test is a bead page's run links, which name the yard's own sandbox
+origin; the test allows those and only those ([One bead](#one-bead)).
 
 ## Pages
 
@@ -397,7 +444,7 @@ pages post to the view itself (`form-action 'self'`).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)) | |
+| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin the same bytes run under the scripted policy | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1114,6 +1161,30 @@ embeds the page. The sandbox's opaque origin withholds the yard from the
 page; what survives is the reader following a link out by clicking it.
 The yard's own pages keep their policy, and the no-other-host test still
 holds: a navigation is not a fetch.
+
+Each page carries run beside its static link, opening the same bytes on
+the sandbox origin: the view's second listener, on loopback beside the
+view ([The address](#the-address)), answering blob bytes only and no
+yard route. A reader on this machine goes straight to where the origin
+listens; a reader elsewhere goes by the name the view was reached by,
+on the origin's port, or by the origin's public name where `--pages-host`
+gives one ([Behind a proxy](#behind-a-proxy)).
+
+A page run there runs its inline scripts, and nothing else: no
+`allow-same-origin`, so the yard's API and cookies stay out of reach;
+no fetch, frames or workers; popups blocked. Two gaps stay open, both
+probed in HeadlessChrome 155 with the exact headers on 14 Oct 2026
+(fetch, workers, frames, popups, cookies and storage all blocked
+there). WebRTC peer connections are blocked only where the browser
+enforces the `webrtc` directive, and as of October 2026 no released
+browser does (Chromium reports the directive unrecognized): a script
+can still open a peer connection. And the sandbox carries no
+allow-top-navigation token and no allow-popups, but those tokens only
+stop a nested page navigating its top frame: a page opened top-level,
+as run opens it, can still navigate itself — by script, by meta
+refresh, by its reader's click — which can carry data in the URL. That
+redirect gap is filed as yardr-b4ey; the security lane confirms the
+policy in a real browser.
 
 ```json
 {

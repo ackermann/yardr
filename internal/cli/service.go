@@ -682,6 +682,10 @@ func serviceAddr(cfg *config.Config, kind string) string {
 // webLocalAddr is where the web view listens unless told otherwise.
 const webLocalAddr = store.DefaultWebAddr
 
+// webPagesLocalAddr is where the view's sandbox origin listens unless
+// told otherwise.
+const webPagesLocalAddr = store.DefaultWebPagesAddr
+
 // answers reports whether something accepts connections on addr; tests
 // replace it.
 var answers = func(addr string) bool {

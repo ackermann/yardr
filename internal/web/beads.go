@@ -565,6 +565,9 @@ type BeadPage struct {
 	// board. HTML-only like Missing: the JSON names the files as the
 	// notes have them.
 	Board []BoardEntry `json:"-"`
+	// RunBase is the sandbox origin the page's run links open on, as the
+	// reader reaches it, without a scheme. HTML-only, as Missing is.
+	RunBase string `json:"-"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
 	// History is every event of the bead the log still has, the oldest
@@ -621,7 +624,7 @@ type MoveAction struct {
 }
 
 func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
-	d, err := s.beadPage(r.Context(), r.PathValue("id"))
+	d, err := s.beadPage(r.Context(), r.PathValue("id"), r.Host)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -631,9 +634,11 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 
 // beadPage reads the bead's page: what `yardr prime --bead <id>` knows,
 // for a person. The POST that wrote nothing reads it again with the
-// reason, so the two never show different beads.
-func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
-	d := &BeadPage{As: s.as, Notes: []store.Note{}, Sessions: []store.Session{}}
+// reason, so the two never show different beads. hostport is the Host
+// header the reader asked with, which the page's run links are built
+// from.
+func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, error) {
+	d := &BeadPage{As: s.as, Notes: []store.Note{}, Sessions: []store.Session{}, RunBase: s.runBase(hostport)}
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		return nil, err
@@ -778,6 +783,19 @@ func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
 // section 3.3.)
 const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+// scriptedPolicy is the policy a note's page runs under on the sandbox
+// origin: its inline scripts run, and nothing else. The sandbox's opaque
+// origin (no allow-same-origin) withholds the yard's API and cookies from
+// the page; fetch, frames and workers are dead, and WebRTC peer
+// connections are blocked where the browser enforces the webrtc
+// directive. Top-level navigation is denied entirely — no
+// allow-top-navigation token, no allow-popups — so a script cannot carry
+// data out by redirecting on a click: a page's links do not leave the
+// sandbox, and a reader copies a URL if they want it.
+// (docs/design/2026-10-14-yardr-x4t5-board.md, section 3.5, as the
+// approval on yardr-x4t5 decided it.)
+const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
 // handleBlob serves a note's image or page: the bytes of a blob a note on
 // some bead names, with their type. Anything else — a mail's file, one the
 // yard never held, a name that is no hash — answers as a missing blob:
@@ -796,11 +814,37 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	if ref.IsPage() {
 		w.Header().Set("Content-Security-Policy", pagePolicy)
 	}
-	// As the socket serves a blob: the bytes never change, so the name is
-	// all a cache needs to know.
+	serveBlob(w, r, s.home, hash, ref)
+}
+
+// handlePagesBlob serves a note's blob on the sandbox origin: the same
+// bytes the view serves, under the scripted policy PagesHandler set
+// before the mux served. Anything else answers plainly: the origin
+// answers no yard route, not even the yard's error page.
+func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	ref, err := s.st.NoteBlob(r.Context(), hash)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "no such blob", http.StatusNotFound)
+			return
+		}
+		if r.Context().Err() == nil {
+			s.log.Error("pages: "+r.URL.Path, "err", err)
+		}
+		http.Error(w, "could not read the blob", http.StatusInternalServerError)
+		return
+	}
+	serveBlob(w, r, s.home, hash, ref)
+}
+
+// serveBlob serves a note's blob ref, held under hash: its bytes with
+// their type. As the socket serves a blob: the bytes never change, so
+// the name is all a cache needs to know.
+func serveBlob(w http.ResponseWriter, r *http.Request, home, hash string, ref *store.BlobRef) {
 	w.Header().Set("Content-Type", ref.Type)
 	w.Header().Set("ETag", `"`+ref.Hash+`"`)
-	http.ServeFile(w, r, store.BlobPath(s.home, hash))
+	http.ServeFile(w, r, store.BlobPath(home, hash))
 }
 
 // inc is one more than i: an ask's options are numbered from one, and the

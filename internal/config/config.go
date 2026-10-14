@@ -38,12 +38,13 @@ func IsVar(key string, names ...string) bool {
 }
 
 // ServerSettings are the yardr variables the yard's servers read where
-// they start: the addresses the webhook receiver, web view and BDP server
-// take, and the user the web view acts as; how long the server keeps events
+// they start: the addresses the webhook receiver, web view, the view's
+// sandbox origin and BDP server take, the sandbox origin's public name,
+// and the user the web view acts as; how long the server keeps events
 // and webhook bodies; and where it serves its profiles when measured
 // (PPROF, internal/server). They are the yard's, set by whoever starts a
 // server by hand, and never the work's (see WithoutServerSettings).
-var ServerSettings = []string{"HOOK_ADDR", "WEB_ADDR", "WEB_AS", "BDP_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
+var ServerSettings = []string{"HOOK_ADDR", "WEB_ADDR", "WEB_PAGES_ADDR", "WEB_PAGES_HOST", "WEB_AS", "BDP_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
 
 // WithoutServerSettings is environ without the ServerSettings: the
 // environment of what a yard starts for work (a
@@ -84,6 +85,13 @@ type Config struct {
 	// overrides its service's setting when nonempty.
 	WebAddr string
 	BDPAddr string
+	// WebPagesAddr is YARDR_WEB_PAGES_ADDR, the address the web view's
+	// sandbox origin listens on whatever web_pages_addr says, and
+	// WebPagesHost is YARDR_WEB_PAGES_HOST, the public name run links
+	// use for it whatever web_pages_host says; empty leaves each to
+	// its setting.
+	WebPagesAddr string
+	WebPagesHost string
 }
 
 // UseHome makes dir the home of this process and of every process it
@@ -150,7 +158,8 @@ func LoadReadOnly() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR"), WebAddr: Getenv("WEB_ADDR"), BDPAddr: Getenv("BDP_ADDR")}
+	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR"), WebAddr: Getenv("WEB_ADDR"), BDPAddr: Getenv("BDP_ADDR"),
+		WebPagesAddr: Getenv("WEB_PAGES_ADDR"), WebPagesHost: Getenv("WEB_PAGES_HOST")}
 	if n := len(c.Socket()); n > MaxSocket {
 		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
 			"allows %d; give --home (or YARDR_HOME) a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)

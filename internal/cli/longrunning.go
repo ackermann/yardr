@@ -77,6 +77,12 @@ type longRunning struct {
 	// flags before the yard is asked for Setting, then checks the effective
 	// address before anything is started or written.
 	Check func(flags *pflag.FlagSet) error
+	// FromSetting gives the kind's flags beyond its address their
+	// environment and setting values, as addrFromSetting gives the
+	// address: a start, an install and the serve itself check and hand
+	// on what serve would listen on. Nil for a kind whose address is
+	// its only such flag.
+	FromSetting func(a *app, ctx context.Context, cfg *config.Config, flags *pflag.FlagSet) error
 	// Warn is what a login service of the kind will lack, as far as it
 	// shows at the install.
 	Warn func(a *app, ctx context.Context, cfg *config.Config, program string) ([]string, error)
@@ -89,8 +95,8 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host", "as"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
-		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback},
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host", "as", "pages-addr", "pages-host"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
+		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback, FromSetting: (*app).pagesFlagsFromSetting},
 	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr", Setting: store.BDPAddrSetting, EnvAddr: func(c *config.Config) string { return c.BDPAddr },
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv},
 	// --state and --once are left to a terminal: a background export
@@ -127,8 +133,19 @@ func (k *longRunning) logName() string { return filepath.Base(k.Log(&config.Conf
 // are names it answers to, and open no interface.
 func webLoopback(flags *pflag.FlagSet) error {
 	const never = "yardr web start and yardr web install never listen off loopback"
-	if err := web.CheckAddr(flags.Lookup("addr").Value.String(), false); err != nil {
+	if err := web.CheckAddr("--addr", flags.Lookup("addr").Value.String(), false); err != nil {
 		return fmt.Errorf("%w. %s", err, never)
+	}
+	// The sandbox origin stays on loopback with these two, as the view
+	// does, and a public name that is no name is refused here and not
+	// in a log nobody reads.
+	if err := web.CheckAddr("--pages-addr", flags.Lookup("pages-addr").Value.String(), false); err != nil {
+		return fmt.Errorf("%w. %s", err, never)
+	}
+	if v := flags.Lookup("pages-host").Value.String(); v != "" {
+		if _, err := store.CheckWebHost("--pages-host", v); err != nil {
+			return err
+		}
 	}
 	host := flags.Lookup("host")
 	_, err := webHosts(host.Value.(pflag.SliceValue).GetSlice(), host.Changed, false)
@@ -519,6 +536,11 @@ are handed on to it.`, line, k.logName(), k.Name),
 			if err := a.addrFromSetting(c.Context(), cfg, k, c.Flags()); err != nil {
 				return err
 			}
+			if k.FromSetting != nil {
+				if err := k.FromSetting(a, c.Context(), cfg, c.Flags()); err != nil {
+					return err
+				}
+			}
 			// The environment may have supplied the address after the
 			// first check. Validate the effective value before starting it.
 			if k.Setting != "" && k.Check != nil {
@@ -634,6 +656,11 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			}
 			if err := a.addrFromSetting(c.Context(), cfg, k, c.Flags()); err != nil {
 				return err
+			}
+			if k.FromSetting != nil {
+				if err := k.FromSetting(a, c.Context(), cfg, c.Flags()); err != nil {
+					return err
+				}
 			}
 			if k.Setting != "" && k.Check != nil {
 				if err := k.Check(c.Flags()); err != nil {

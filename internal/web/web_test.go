@@ -721,7 +721,7 @@ func TestReadOnly(t *testing.T) {
 // why: there is no authentication yet.
 func TestRefusedAddress(t *testing.T) {
 	for _, addr := range []string{":8791", "0.0.0.0:8791", "192.168.1.10:8791", "[::]:8791", "example.com:80", "[2001:db8::1]:80"} {
-		err := web.CheckAddr(addr, false)
+		err := web.CheckAddr("--addr", addr, false)
 		if err == nil {
 			t.Errorf("%s: accepted", addr)
 			continue
@@ -731,20 +731,20 @@ func TestRefusedAddress(t *testing.T) {
 				t.Errorf("%s: the refusal lacks %q: %v", addr, want, err)
 			}
 		}
-		if ln, err := web.Listen(addr, false); err == nil {
+		if ln, err := web.Listen("--addr", addr, false); err == nil {
 			ln.Close()
 			t.Errorf("%s: Listen opened it", addr)
 		}
 	}
 	for _, addr := range []string{"127.0.0.1:8791", "127.0.0.1:0", "[::1]:8791", "localhost:8791", "127.8.8.8:1"} {
-		if err := web.CheckAddr(addr, false); err != nil {
+		if err := web.CheckAddr("--addr", addr, false); err != nil {
 			t.Errorf("%s: %v", addr, err)
 		}
 	}
-	if err := web.CheckAddr("127.0.0.1", false); err == nil || strings.Contains(err.Error(), "refused") {
+	if err := web.CheckAddr("--addr", "127.0.0.1", false); err == nil || strings.Contains(err.Error(), "refused") {
 		t.Errorf("an address with no port: %v, want the parse error", err)
 	}
-	ln, err := web.Listen("127.0.0.1:0", false)
+	ln, err := web.Listen("--addr", "127.0.0.1:0", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,14 +755,14 @@ func TestRefusedAddress(t *testing.T) {
 // and Listen opens one; what is no address is still an error.
 func TestUnsafeAddress(t *testing.T) {
 	for _, addr := range []string{":9000", "0.0.0.0:9000", "[::]:9000", "192.168.178.90:8791", "127.0.0.1:8791", "example.com:80"} {
-		if err := web.CheckAddr(addr, true); err != nil {
+		if err := web.CheckAddr("--addr", addr, true); err != nil {
 			t.Errorf("%s: %v", addr, err)
 		}
 	}
-	if err := web.CheckAddr("0.0.0.0", true); err == nil {
+	if err := web.CheckAddr("--addr", "0.0.0.0", true); err == nil {
 		t.Error("an address with no port: accepted")
 	}
-	ln, err := web.Listen(":0", true)
+	ln, err := web.Listen("--addr", ":0", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,10 +997,26 @@ var otherHost = regexp.MustCompile(`(?i)\b(?:https?:)?//[^\s"'<>()\\]+`)
 func TestNoOtherHost(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
+	// One bead carries a page, so the walk meets a run link: the one
+	// foreign URL a page may name, to the yard's own sandbox origin.
+	ctx := context.Background()
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Depot: "loose"}, "me")
+	must(t, err)
+	page, err := f.st.PutBlob(ctx, pageHTML)
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, door.ID, "the door, hung", "me", "", page.Hash)
+	must(t, err)
 	self, err := url.Parse(f.ts.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// isRunLink is a bead page's run link and nothing else: the sandbox
+	// origin's address with a blob's path, never another host.
+	isRunLink := func(link string) bool {
+		hash, ok := strings.CutPrefix(link, "//"+store.DefaultWebPagesAddr+"/blobs/")
+		return ok && len(hash) == 64 && strings.Trim(hash, "0123456789abcdef") == ""
+	}
+	var runs int
 	seen := map[string]bool{}
 	queue := []string{"/", "/nowhere"}
 	ref := regexp.MustCompile(`(?:href|src)="([^"]+)"`)
@@ -1033,12 +1049,21 @@ func TestNoOtherHost(t *testing.T) {
 			t.Errorf("%s has inline style or script, which the policy refuses", path)
 		}
 		for _, m := range ref.FindAllStringSubmatch(r.body, -1) {
+			// A run link names the sandbox origin, the walk's one
+			// link off this server; it is followed nowhere.
+			if isRunLink(m[1]) {
+				runs++
+				continue
+			}
 			if !strings.HasPrefix(m[1], "/") || strings.HasPrefix(m[1], "//") {
 				t.Errorf("%s links to %q, not a path on this server", path, m[1])
 				continue
 			}
 			queue = append(queue, strings.ReplaceAll(m[1], "&amp;", "&"))
 		}
+	}
+	if runs == 0 {
+		t.Error("the walk met no run link")
 	}
 	var assets int
 	var beadPage bool

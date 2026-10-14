@@ -124,12 +124,17 @@ func TestLoadServiceAddressOverrides(t *testing.T) {
 	t.Setenv("YARDR_HOME", filepath.Join(dir, "home"))
 	t.Setenv("YARDR_WEB_ADDR", "127.0.0.1:9001")
 	t.Setenv("YARDR_BDP_ADDR", "127.0.0.1:9002")
+	t.Setenv("YARDR_WEB_PAGES_ADDR", "127.0.0.1:9003")
+	t.Setenv("YARDR_WEB_PAGES_HOST", "pages.example.net")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.WebAddr != "127.0.0.1:9001" || c.BDPAddr != "127.0.0.1:9002" {
 		t.Fatalf("Load service address overrides = web %q, bdp %q", c.WebAddr, c.BDPAddr)
+	}
+	if c.WebPagesAddr != "127.0.0.1:9003" || c.WebPagesHost != "pages.example.net" {
+		t.Fatalf("Load sandbox origin overrides = addr %q, host %q", c.WebPagesAddr, c.WebPagesHost)
 	}
 }
 
@@ -271,7 +276,7 @@ func TestUseHome(t *testing.T) {
 // which Getenv reads as unset.
 func TestWithoutServerSettings(t *testing.T) {
 	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_BEAD=web-3",
-		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=3d",
+		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=3d", "YARDR_WEB_PAGES_ADDR=127.0.0.1:4", "YARDR_WEB_PAGES_HOST=pages.example.net",
 		"YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}
 	before := slices.Clone(environ)
 	got := WithoutServerSettings(environ)

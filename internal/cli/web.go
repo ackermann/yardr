@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
@@ -25,6 +27,7 @@ func (a *app) webCmd() *cobra.Command {
 	var unsafe bool
 	var hosts []string
 	var as string
+	var pagesAddr, pagesHost string
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve a view of the yard over HTTP",
@@ -65,6 +68,19 @@ loopback. Name only names whose resolution you control: a page under a
 name someone else controls could read the yard through a visitor's browser
 (docs/web.md, "Behind a proxy").
 
+Beside the view it serves the sandbox origin, where a note's pages run:
+a second listener on loopback answering blob bytes only, under a policy
+that runs a page's inline scripts and nothing else. It listens on
+--pages-addr, else on YARDR_WEB_PAGES_ADDR when set in the command's
+environment, else on the yard's web_pages_addr setting (yardr settings
+set web_pages_addr <host:port>), else on 127.0.0.1:8789, on loopback
+like the view and under the same Host rules. A bead's page carries run
+beside each page's static link, opening the same bytes there. Behind a
+proxy of yours the origin is reached by the name the view was reached
+by, on the origin's port, which the proxy forwards beside the view's;
+--pages-host names a second name for it instead, which the proxy routes
+to the origin and run links use (docs/web.md, "Behind a proxy").
+
 The view acts as --as when it is given, else as YARDR_WEB_AS when set in
 the command's environment, else as the yard's web_as setting (yardr
 settings set web_as <user>), and reads only with none of them. Whoever it
@@ -93,8 +109,17 @@ this machine. Both answers carry Retry-After.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Before the store: a refused address must not start a server.
 			given := c.Flags().Changed("addr")
-			if err := web.CheckAddr(webAddr(addr, given, unsafe), unsafe); err != nil {
+			if err := web.CheckAddr("--addr", webAddr(addr, given, unsafe), unsafe); err != nil {
 				return err
+			}
+			pagesGiven := c.Flags().Changed("pages-addr")
+			if err := web.CheckAddr("--pages-addr", webAddr(pagesAddr, pagesGiven, unsafe), unsafe); err != nil {
+				return err
+			}
+			if c.Flags().Changed("pages-host") {
+				if _, err := store.CheckWebHost("--pages-host", pagesHost); err != nil {
+					return err
+				}
 			}
 			hosts, err := webHosts(hosts, c.Flags().Changed("host"), unsafe)
 			if err != nil {
@@ -131,8 +156,25 @@ this machine. Both answers carry Retry-After.`,
 				return err
 			}
 			addr := webAddr(addr, given, unsafe)
-			if err := web.CheckAddr(addr, unsafe); err != nil {
+			if err := web.CheckAddr("--addr", addr, unsafe); err != nil {
 				return err
+			}
+			// The sandbox origin's address and public name, each flag
+			// when given, else the environment, else the yard's
+			// setting, else the default address and no name.
+			if err := a.pagesFlagsFromSetting(ctx, a.cfg, c.Flags()); err != nil {
+				return err
+			}
+			pagesAddr = webAddr(pagesAddr, pagesGiven, unsafe)
+			if err := web.CheckAddr("--pages-addr", pagesAddr, unsafe); err != nil {
+				return err
+			}
+			if pagesHost != "" {
+				if checked, err := store.CheckWebHost("--pages-host", pagesHost); err != nil {
+					return err
+				} else {
+					pagesHost = checked
+				}
 			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			srv, err := web.NewServer(st, a.cfg.Home, log)
@@ -142,10 +184,20 @@ this machine. Both answers carry Retry-After.`,
 			if as != "" {
 				srv.ActAs(as)
 			}
-			ln, err := web.Listen(addr, unsafe)
+			ln, err := web.Listen("--addr", addr, unsafe)
 			if err != nil {
 				return err
 			}
+			// The sandbox origin beside the view: a note's pages run
+			// there, on an origin of their own. Both listen before
+			// either serves, so a taken pages port fails the view
+			// instead of serving it without its run links.
+			pln, err := web.Listen("--pages-addr", pagesAddr, unsafe)
+			if err != nil {
+				return err
+			}
+			srv.SetPagesAddr(pln.Addr().String())
+			srv.SetPagesHost(pagesHost)
 			if unsafe {
 				// A machine with no name is still reached by its IP.
 				hostname, _ := os.Hostname()
@@ -163,11 +215,14 @@ this machine. Both answers carry Retry-After.`,
 			// otherwise hold Shutdown until its time ran out.
 			hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second,
 				BaseContext: func(net.Listener) context.Context { return ctx }}
+			ps := &http.Server{Handler: srv.PagesHandler(), ReadHeaderTimeout: 10 * time.Second,
+				BaseContext: func(net.Listener) context.Context { return ctx }}
 			go func() {
 				<-ctx.Done()
 				sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				_ = hs.Shutdown(sctx)
+				_ = ps.Shutdown(sctx)
 			}()
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
@@ -176,7 +231,8 @@ this machine. Both answers carry Retry-After.`,
 			} else {
 				defer clear()
 			}
-			at := []any{"url", "http://" + ln.Addr().String() + "/"}
+			at := []any{"url", "http://" + ln.Addr().String() + "/",
+				"pages", "http://" + pln.Addr().String() + "/"}
 			if as != "" {
 				at = append(at, "acts_as", as)
 			}
@@ -184,8 +240,20 @@ this machine. Both answers carry Retry-After.`,
 				at = append(at, "answers_to", to)
 			}
 			log.Info("serving the yard", at...)
-			if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				return err
+			serveErr := make(chan error, 2)
+			go func() { serveErr <- hs.Serve(ln) }()
+			go func() { serveErr <- ps.Serve(pln) }()
+			var first error
+			for i := 0; i < 2; i++ {
+				if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) && first == nil {
+					first = err
+					// The view serves nothing half up: one that
+					// ends ends them both.
+					stop()
+				}
+			}
+			if first != nil {
+				return first
 			}
 			return nil
 		},
@@ -194,12 +262,16 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
+	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+"); every interface on that port with --unsafe")
+	serve.Flags().StringVar(&pagesHost, "pages-host", "", "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
 		c.Flags().Lookup("as").Usage = "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)"
+		c.Flags().Lookup("pages-addr").Usage = "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else " + webPagesLocalAddr + ")"
+		c.Flags().Lookup("pages-host").Usage = "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
 	v.start.Long = `Start yardr web serve detached from this terminal, logging to
@@ -263,10 +335,68 @@ func webAsRefused(as, from string) error {
 	return fmt.Errorf("%s refused: the yard has no user of that name (yardr user list)", whose)
 }
 
-// webAddr is the address web serve listens on: addr, which is --addr when
-// it was given, else the yard's web_addr, else the loopback default. Under
-// --unsafe an address that was not given is every interface, on the port of
-// that one: the selected address's port.
+// pagesFlagsFromSetting gives --pages-addr and --pages-host the
+// environment override, else the yard's setting, when the flag was not
+// given. It is the web kind's FromSetting: serve, start and install go
+// by it, so a start and an install check and hand on what serve would
+// listen on. The flags stay ones that were not given. The yard is asked
+// only when a setting decides.
+func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, flags *pflag.FlagSet) error {
+	givenAddr, givenHost := flags.Changed("pages-addr"), flags.Changed("pages-host")
+	if givenAddr && givenHost {
+		return nil
+	}
+	if cfg == nil {
+		var err error
+		if cfg, err = config.Load(); err != nil {
+			return err
+		}
+		a.cfg = cfg
+	}
+	if !givenAddr && cfg.WebPagesAddr != "" {
+		if err := flags.Lookup("pages-addr").Value.Set(cfg.WebPagesAddr); err != nil {
+			return err
+		}
+		givenAddr = true
+	}
+	if !givenHost && cfg.WebPagesHost != "" {
+		if err := flags.Lookup("pages-host").Value.Set(cfg.WebPagesHost); err != nil {
+			return err
+		}
+		givenHost = true
+	}
+	if givenAddr && givenHost {
+		return nil
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if !givenAddr {
+		if v := all[store.WebPagesAddrSetting]; v != "" {
+			if err := flags.Lookup("pages-addr").Value.Set(v); err != nil {
+				return err
+			}
+		}
+	}
+	if !givenHost {
+		if v := all[store.WebPagesHostSetting]; v != "" {
+			if err := flags.Lookup("pages-host").Value.Set(v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// webAddr is the address web serve listens on: addr, which is the flag
+// when it was given, else the yard's setting, else the loopback
+// default. Under --unsafe an address that was not given is every
+// interface, on the port of that one: the selected address's port.
 func webAddr(addr string, given, unsafe bool) string {
 	if unsafe && !given {
 		if _, port, err := net.SplitHostPort(addr); err == nil {

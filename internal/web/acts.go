@@ -234,7 +234,7 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 // beadAgain re-reads the bead page after a POST that wrote nothing, with
 // the reason on the redrawn page.
 func (s *Server) beadAgain(w http.ResponseWriter, r *http.Request, id, why string) {
-	d, err := s.beadPage(r.Context(), id)
+	d, err := s.beadPage(r.Context(), id, r.Host)
 	if err != nil {
 		s.fail(w, r, err)
 		return

@@ -49,6 +49,11 @@ const (
 	// the BDP server listen on when their --addr is not given.
 	WebAddrSetting = "web_addr"
 	BDPAddrSetting = "bdp_addr"
+	// WebPagesAddrSetting is the address the web view's sandbox origin
+	// listens on when its --pages-addr is not given; WebPagesHostSetting
+	// is the public name run links use for it behind a proxy of yours.
+	WebPagesAddrSetting = "web_pages_addr"
+	WebPagesHostSetting = "web_pages_host"
 	// WebAsSetting is the user the web view acts as when its --as is not
 	// given.
 	WebAsSetting = "web_as"
@@ -69,10 +74,13 @@ const (
 )
 
 // DefaultWebAddr and DefaultBDPAddr are where the web view and the BDP
-// server listen in a yard that sets neither.
+// server listen in a yard that sets neither. DefaultWebPagesAddr is
+// where the view's sandbox origin listens: its own loopback port, so a
+// scripted page runs on an origin of its own.
 const (
-	DefaultWebAddr = "127.0.0.1:8791"
-	DefaultBDPAddr = "127.0.0.1:8765"
+	DefaultWebAddr      = "127.0.0.1:8791"
+	DefaultBDPAddr      = "127.0.0.1:8765"
+	DefaultWebPagesAddr = "127.0.0.1:8789"
 )
 
 // herdrSessionName is what herdr 0.9 takes as a session's name.
@@ -154,8 +162,24 @@ var KnownSettings = []Setting{
 	{Key: WebAddrSetting, Help: "the address the web view listens on, on loopback, when YARDR_WEB_ADDR is not set and yardr web serve, start or install is given no --addr; " +
 		"a view that runs keeps its address, and a login service the one in its file until it is installed again",
 		Default: DefaultWebAddr, Env: "WEB_ADDR", Check: func(v string) error {
-			if err := CheckWebAddr(v, false); err != nil {
+			if err := CheckWebAddr("--addr", v, false); err != nil {
 				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr web serve --unsafe with --addr", WebAddrSetting, err)
+			}
+			return nil
+		}},
+	{Key: WebPagesAddrSetting, Help: "the address the web view's sandbox origin listens on, on loopback, when YARDR_WEB_PAGES_ADDR is not set and yardr web serve, start or install is given no --pages-addr; " +
+		"a view that runs keeps its address, and a login service the one in its file until it is installed again",
+		Default: DefaultWebPagesAddr, Env: "WEB_PAGES_ADDR", Check: func(v string) error {
+			if err := CheckWebAddr("--pages-addr", v, false); err != nil {
+				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr web serve --unsafe with --pages-addr", WebPagesAddrSetting, err)
+			}
+			return nil
+		}},
+	{Key: WebPagesHostSetting, Help: "the public name run links use for the web view's sandbox origin behind a proxy of yours, when YARDR_WEB_PAGES_HOST is not set and yardr web serve, start or install is given no --pages-host; " +
+		"unset, run links use the host the view was reached by",
+		Env: "WEB_PAGES_HOST", Check: func(v string) error {
+			if _, err := CheckWebHost("--pages-host", v); err != nil {
+				return fmt.Errorf("%s: %w", WebPagesHostSetting, err)
 			}
 			return nil
 		}},
@@ -345,32 +369,59 @@ func checkHostPort(what, addr, example string) error {
 }
 
 // CheckWebAddr refuses a listen address of the web view that is not on the
-// loopback interface, saying why. With unsafe it refuses only what is no
+// loopback interface, saying why as whose refused it (the flag that gave
+// it: --addr, --pages-addr). With unsafe it refuses only what is no
 // address. It is here for the web_addr setting, which is held to what the
 // view's --addr is (web.CheckAddr).
-func CheckWebAddr(addr string, unsafe bool) error {
+func CheckWebAddr(whose, addr string, unsafe bool) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("--addr %s: %w", addr, err)
+		return fmt.Errorf("%s %s: %w", whose, addr, err)
 	}
 	if unsafe {
 		return nil
 	}
 	switch ip := net.ParseIP(host); {
 	case host == "":
-		return WebAddrRefused(addr, "an address with no host listens on every interface")
+		return WebAddrRefused(whose, addr, "an address with no host listens on every interface")
 	case ip == nil && !strings.EqualFold(host, "localhost"):
-		return WebAddrRefused(addr, host+" is not a loopback address")
+		return WebAddrRefused(whose, addr, host+" is not a loopback address")
 	case ip != nil && !ip.IsLoopback():
-		return WebAddrRefused(addr, host+" is not a loopback address")
+		return WebAddrRefused(whose, addr, host+" is not a loopback address")
 	}
 	return nil
 }
 
-// WebAddrRefused is the refusal of addr as the web view's, for why.
-func WebAddrRefused(addr, why string) error {
-	return fmt.Errorf("--addr %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
-		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", addr, why)
+// WebAddrRefused is the refusal of addr as the web view's, for why, as
+// whose refused it (the flag that gave it: --addr, --pages-addr).
+func WebAddrRefused(whose, addr, why string) error {
+	return fmt.Errorf("%s %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
+		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", whose, addr, why)
+}
+
+// CheckWebHost returns name as a request's Host header is compared with
+// it, in lower case and without the dot that ends a full name, or says
+// why it is no host name, as whose refused it (the flag that gave it:
+// --host, --pages-host). A wildcard is none: a view that answers to
+// every name has no guard against DNS rebinding left. It is here for
+// the web_pages_host setting, which is held to what --pages-host takes
+// (web.CheckHost).
+func CheckWebHost(whose, name string) (string, error) {
+	host := strings.TrimSuffix(strings.ToLower(name), ".")
+	switch {
+	case host == "":
+		return "", fmt.Errorf("%s %q refused: it is no name", whose, name)
+	case strings.Contains(host, "*"):
+		return "", fmt.Errorf("%s %s refused: a wildcard would answer to any site's name, and yardr web has no authentication yet. Name each host", whose, name)
+	case strings.Contains(host, ":"):
+		return "", fmt.Errorf("%s %s refused: give the name alone, without a scheme or a port (an IP address is answered already)", whose, name)
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || strings.Trim(label, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+			return "", fmt.Errorf("%s %s refused: it is no host name (letters, digits, - and _, in parts joined by dots)", whose, name)
+		}
+	}
+	return host, nil
 }
 
 // Settings returns every setting.
