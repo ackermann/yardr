@@ -158,7 +158,8 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	// CI's checkout: one commit, no origin/main. After git's own complaint.
 	t.Run("a landing with a base that is not there", func(t *testing.T) {
 		out, code := run("YARDR_LANDING=1")
-		want := "test: YARDR_LANDING is set, and origin/main (the default, YARDR_BASE not being set) is no commit here, or has none in common with HEAD: the whole suite\n"
+		want := "test: YARDR_LANDING is set, and origin/main (the default, YARDR_BASE not being set) is no commit here, or has none in common with HEAD: the whole suite\n" +
+			"test: no comparable base: running the socket suites beside the first run\n"
 		if code != 0 || !strings.HasSuffix(out, want) {
 			t.Errorf("exit %d, output %q, want exit 0 and at its end %q", code, out, want)
 		}
@@ -307,6 +308,7 @@ func TestYardTestSelects(t *testing.T) {
 	const landing = pre + "YARDR_LANDING is set, and "
 	const skipSocket = pre + "the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
 	const runSocketStore = pre + "the plain selection holds store: running the socket suites beside the first run"
+	const runSocketAll = pre + "the plain selection holds store dispatch bdp: running the socket suites beside the first run"
 	for _, c := range []struct {
 		name    string
 		changed []string
@@ -331,13 +333,13 @@ func TestYardTestSelects(t *testing.T) {
 		{"a landing of a test file", []string{"alone/p_test.go"},
 			landing + "alone/p_test.go changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of go.mod", []string{"go.mod", "docs/web.md"},
-			landing + "go.mod changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "go.mod changed" + since + ": the whole suite", []string{runSocketAll}},
 		{"a landing of go.sum", []string{"go.sum"},
-			landing + "go.sum changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "go.sum changed" + since + ": the whole suite", []string{runSocketAll}},
 		{"a landing of an embedded file", []string{"docs/web.md", "emb/a.txt"},
 			landing + "emb/a.txt, which a package embeds, changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of a file no row knows", []string{"docs/web.md", "contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{runSocketAll}},
 		// What embedded a file that is gone cannot be asked any more.
 		{"a landing that deletes a file", []string{"-docs/web.md"},
 			landing + "docs/web.md was deleted" + since + ": the whole suite", []string{skipSocket}},
@@ -350,6 +352,8 @@ func TestYardTestSelects(t *testing.T) {
 			landing + "internal/cli/p.go changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing touching internal/rpc runs the socket suites", []string{"internal/rpc/p.go"},
 			landing + "internal/rpc/p.go changed" + since + ": the whole suite", []string{runSocketStore}},
+		{"a landing of an unknown file runs the socket suites", []string{"contrib/x.txt"},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{runSocketAll}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1"}, c.changed...)
@@ -410,6 +414,10 @@ func TestYardTestSelects(t *testing.T) {
 			[]string{"vet ./...", "linux vet ./...", "test -race ./..."},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./..."}},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", runSocketStore,
+			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},

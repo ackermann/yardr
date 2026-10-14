@@ -164,20 +164,28 @@ whole() {
   leg=beside
   if [ -n "$from" ]; then
     # The gate: the plain selection, which a landing over an embedded or
-    # unknown file already picked on its way here.
+    # embedded file already picked on its way here. An unrecognized file
+    # makes the plain run test every package, as do go.mod and go.sum, so the
+    # socket suites are in that selection too.
     [ -n "$tmp" ] || pick
     holds=""
-    for s in store dispatch bdp; do
-      if grep -q "/internal/$s\$" "$tmp/run"; then
-        holds="$holds${holds:+ }$s"
-      fi
-    done
+    if [ -s "$tmp/stray" ]; then
+      holds="store dispatch bdp"
+    else
+      for s in store dispatch bdp; do
+        if grep -q "/internal/$s\$" "$tmp/run"; then
+          holds="$holds${holds:+ }$s"
+        fi
+      done
+    fi
     if [ -n "$holds" ]; then
       echo "test: the plain selection holds $holds: running the socket suites beside the first run"
     else
       echo "test: the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
       leg=skip
     fi
+  else
+    echo "test: no comparable base: running the socket suites beside the first run"
   fi
   [ -z "$YARDR_TEST_PLAN" ] || exit 0
   listed
