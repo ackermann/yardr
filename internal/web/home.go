@@ -238,6 +238,25 @@ func (h *Home) firstStage(depot, typ, stage string) bool {
 	return false
 }
 
+// attention is what waits for a person: everything something stops, and
+// the parked beads past their flow's first, in the line's order, faults
+// first. Home lists it in its centre; every other page counts it in its
+// header.
+func attention(ov *Home, l *Line) []Waiting {
+	byID := map[string]*store.Bead{}
+	for i := range ov.yard.beads {
+		byID[ov.yard.beads[i].ID] = &ov.yard.beads[i]
+	}
+	out := append([]Waiting{}, l.Waits...)
+	for _, w := range l.Parked {
+		if b := byID[w.Bead]; b != nil && b.Depot != nil && ov.firstStage(*b.Depot, b.Type, w.Stage) {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
 // needsShown is how many waiting beads the home page names before the "All
 // waiting N" row carries the rest to /line: five, as decided on yardr-8y0f.
 // The JSON names them all either way.
@@ -399,19 +418,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	// Home's aside is the line panel alone: the waits stand at the top of
 	// its centre already.
 	l.Home = true
-	// What waits for a person: everything something stops, and the parked
-	// beads past their flow's first, in the line's order, faults first.
-	byID := map[string]*store.Bead{}
-	for i := range ov.yard.beads {
-		byID[ov.yard.beads[i].ID] = &ov.yard.beads[i]
-	}
-	ov.Attention = append(ov.Attention, l.Waits...)
-	for _, w := range l.Parked {
-		if b := byID[w.Bead]; b != nil && b.Depot != nil && ov.firstStage(*b.Depot, b.Type, w.Stage) {
-			continue
-		}
-		ov.Attention = append(ov.Attention, w)
-	}
+	ov.Attention = append(ov.Attention, attention(ov, l)...)
 	// What runs now: the live sessions but the manual groups' claims.
 	rd := s.newReader(nil)
 	for _, sess := range ov.yard.sessions {

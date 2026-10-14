@@ -12,8 +12,8 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Line is the right column, the same on every page: the beads that wait for
-// a person, and under them the line in numbers.
+// Line is what waits for a person, and under it the line in numbers:
+// the aside beside home, and the line page whole.
 type Line struct {
 	// As is the user the view acts as, "" when it does not act: an asked
 	// row then answers with buttons, and no other row takes a write.
@@ -26,9 +26,8 @@ type Line struct {
 	Parked []Waiting `json:"parked"`
 	// Late are the open beads running past their usual time, the newest
 	// change first: /line's own rows under the waits. A late bead needs
-	// nothing yet, so they stand apart from the waits and the needs
-	// count. Only the /line page reads them; the shell's column leaves
-	// them out.
+	// nothing yet, so they stand apart from the waits and the header's
+	// count. Only the /line page reads them; the asides leave them out.
 	Late []LateRow `json:"late"`
 	Open int       `json:"open"`
 	// Working counts the beads an agent's or a command's session has
@@ -53,7 +52,7 @@ type LineDepot struct {
 	Open int    `json:"open"`
 }
 
-// OpenDepots are the depots that hold an open bead: what the column shows,
+// OpenDepots are the depots that hold an open bead: what the line shows,
 // which prints no zero.
 func (l Line) OpenDepots() []LineDepot {
 	var out []LineDepot
@@ -235,8 +234,8 @@ type LateRow struct {
 // prompt nobody answers) and not a stage that is a person's by design.
 func (r Reason) Alarm() bool { return r.Kind == "held" || r.Kind == "blocked" }
 
-// line reads the right column. ov is the overview when the handler has read
-// it already, nil otherwise.
+// line reads what waits for a person and the line in numbers. ov is the
+// overview when the handler has read it already, nil otherwise.
 func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 	if ov == nil {
 		var err error
@@ -304,7 +303,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		return nil, nil, err
 	}
 	operator := settings[store.OperatorSetting]
-	// A depot whose repository cannot be read must not take the column, and
+	// A depot whose repository cannot be read must not take the line, and
 	// with it every page, down: its beads are then not known to be stranded.
 	stranded, err := s.st.Stranded(ctx, "")
 	if err != nil {
@@ -588,8 +587,8 @@ func homeLine(r *http.Request) bool {
 	return true
 }
 
-// handleLine is the right column as a page of its own, for a window with no
-// room for the column.
+// handleLine is what waits for a person, and the line in numbers, as a
+// page of its own.
 func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
 	head, err := s.st.Head(r.Context())
 	if err != nil {
@@ -607,14 +606,14 @@ func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The late beads under the waits: the page's own rows, which the
-	// shell's column leaves out.
+	// asides leave out.
 	if l.Late, err = s.lateRows(r.Context(), ov.yard); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	l.Home = homeLine(r)
-	// The page lists late beads in its centre. Keep them out of the shared
-	// column, which /line also serves after every event on every page.
+	// The page lists late beads in its centre. Keep them out of the
+	// aside, which /line also serves after every event beside home.
 	column := *l
 	column.Late = nil
 	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: &column, head: head})

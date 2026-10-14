@@ -937,7 +937,10 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 			t.Errorf("the manual claim's page lacks %s", want)
 		}
 	}
-	// The right column has a working dot of its own, for its count.
+	// The bead's page keeps no aside to carry a working dot of its own.
+	if strings.Contains(body, "<aside") {
+		t.Errorf("the manual claim's page keeps the aside home and the line alone keep: %s", body)
+	}
 	if bead, _, _ := strings.Cut(body[strings.Index(body, `<div id="bead"`):], `<aside`); strings.Contains(bead, "dot working") {
 		t.Errorf("the manual claim's page has a working dot: %s", bead)
 	}
@@ -1070,12 +1073,11 @@ func (a *asked) Events(ctx context.Context, bead string, limit int) ([]store.Eve
 }
 
 // /beads costs what its open beads cost, and each of them once: the list
-// and the right column are made from one listing and the live sessions,
-// and a bead's events are read only where the column says something from
+// and the header's count are made from one listing and the live sessions,
+// and a bead's events are read only where the waits say something from
 // them: who held a bead, whether an agent's session waits on a prompt. A
 // manual group's claim runs nothing that could, and a yard has one on
-// every parked bead. The column is the one every page but home shows:
-// home's is the line alone.
+// every parked bead.
 func TestBeadsReadsTheYardOnce(t *testing.T) {
 	st := &asked{API: storetest.New(t), n: map[string]int{}}
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
@@ -1115,20 +1117,26 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 		t.Helper()
 		_, aside, ok := strings.Cut(body, "<aside")
 		if !ok {
-			t.Fatalf("the page has no right column: %s", body)
+			t.Fatalf("the page has no aside: %s", body)
 		}
 		return aside
 	}
 	home := column(f.get("/").body)
-	whole := column(f.get("/sessions").body)
+	whole := column(f.get("/line").body)
 	st.reset()
 	r := f.get("/beads")
 	got := st.reset()
 	if want := map[string]int{"ListBeads": 1, "Sessions": 1, "Events": 2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("/beads asked the store for %v, want %v", got, want)
 	}
-	if col := column(r.body); col != whole {
-		t.Errorf("the column of /beads\n%s\nis not the whole one /sessions shows\n%s", col, whole)
+	// /beads counts what waits in its header instead: the blocked bead,
+	// the held one and the three parked, one line to home, and no aside.
+	beads := squash(r.body)
+	if !strings.Contains(beads, `<a class="needs-count" href="/">5 wait for you</a>`) {
+		t.Errorf("/beads counts no waiting bead in its header: %s", beads)
+	}
+	if strings.Contains(beads, "<aside") {
+		t.Errorf("/beads keeps the aside home and the line alone keep: %s", beads)
 	}
 	text := squash(whole)
 	for _, want := range []string{
@@ -1138,18 +1146,18 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 		`<dt>open</dt><dd>5</dd>`,
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("the column lacks %s: %s", want, text)
+			t.Errorf("the line's aside lacks %s: %s", want, text)
 		}
 	}
 	// Home's is the line alone: the numbers stay, and the waits are gone
 	// from beside the centre that lists them.
 	homeText := squash(home)
 	if !strings.Contains(homeText, `<dt>open</dt><dd>5</dd>`) {
-		t.Errorf("home's column lacks the open count: %s", homeText)
+		t.Errorf("home's aside lacks the open count: %s", homeText)
 	}
 	for _, not := range []string{`Waits for you`, `Parked · 3`, `<article class="wait">`} {
 		if strings.Contains(homeText, not) {
-			t.Errorf("home's column has %s: %s", not, homeText)
+			t.Errorf("home's aside has %s: %s", not, homeText)
 		}
 	}
 	var list web.Beads

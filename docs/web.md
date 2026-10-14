@@ -512,7 +512,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/talk?with=<member>` | the conversation with that member; without `?with=` the yardmaster's, else the first member's | `Talk` |
 | `/talk?with=<member>&before=<seq>` | an older page of the conversation: the 50 letters under that seq, a snapshot | `Talk` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
-| `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
+| `/line` | what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
 | `/line?home=1` | the home mode: the line panel alone, what home's aside shows and re-reads ([The right column](#the-right-column)) | `Line` |
 | `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
 | `/flows?panel=1` | the yard panel: every depot's flows drawn as track, with the open beads standing on them as blocks ([Flows](#flows)) | `Flows` |
@@ -535,11 +535,12 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/health` | the yard's liveness facts for a monitor, a proxy or footplate ([Health](#health)) | `Health` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
-The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions,
-the crew, the talk page's newest letters and the depot, group, route, peer,
-edge and quota lists are live
+The feed, home's aside, `/line`, `/flows`, `/beads`, a bead's page, the
+sessions, the crew, the talk page's newest letters and the depot, group,
+route, peer, edge and quota lists are live
 ([Live pages](#live-pages)). The overview above the feed is a snapshot:
-reload the page to see it change.
+reload the page to see it change, as with the header's count on the
+other pages.
 
 Home as JSON:
 
@@ -850,13 +851,15 @@ page: `{"page": ..., "built": false}`).
 
 ## The right column
 
-The same on every page but home, and `/line` as a page of its own where
-the window has no room for it. Home's aside is the line panel alone:
-home lists the waits at the top of its centre already, so the aside
-shows only the numbers. `/line?home=1` is that home mode as a page,
-what home's aside shows and re-reads, while `/line` itself still
-renders the waits and the line whole. The parameter shapes the HTML
-alone: as JSON the column answers whole either way. As JSON (`/line`):
+Home carries the aside beside its centre, and `/line` is the same as a
+page of its own. Home's aside is the line panel alone: home lists the
+waits at the top of its centre already, so the aside shows only the
+numbers. `/line?home=1` is that home mode as a page, what home's aside
+shows and re-reads, while `/line` itself still renders the waits and
+the line whole. The parameter shapes the HTML alone: as JSON the line
+answers whole either way. Every other page counts what waits in its
+header instead: one line, `N wait for you` to home (`1 waits for you`
+for one), nothing at zero. As JSON (`/line`):
 
 ```json
 {
@@ -895,7 +898,7 @@ every reason (`why`) that holds for it:
 
 - A bead whose only reason is `manual` is in `parked`, every other one in
   `waits`: nothing stops a parked bead, it sits in a stage that is a
-  person's by design (a backlog, a decision). The column lists the parked
+  person's by design (a backlog, a decision). `/line` lists the parked
   under what waits, in a part headed "Parked" with their count; "Nothing
   waits for you." shows when both are empty. A parked bead that is also
   held or stranded is in `waits`, with its `manual` reason too, as is an
@@ -914,13 +917,13 @@ every reason (`why`) that holds for it:
   no daemon ran gets its `session_unblocked` on the next daemon's first
   pass, and shows blocked until then.
 - When the yard cannot say which beads are stranded, the error is logged
-  and the column shows the rest.
+  and the line shows the rest.
 
 `late` are the open beads running past their usual time, the newest
 change first: `/line`'s own rows under the waits, in a part headed
 "Late" with their count. A late bead needs nothing yet, so they stand
-apart from the waits and the needs count. Only the `/line` page reads
-them; the shell's right column on every other page leaves them out. Each
+apart from the waits and the header's count. Only the `/line` page reads
+them; the asides leave them out. Each
 row carries the bead's estimate: `late` is always set, `eta` beside it
 when there is anything to say beyond the mark
 ([Estimates](#estimates-the-eta-and-the-late-mark)).
@@ -943,7 +946,7 @@ a person moves the bead on. To the view that is no work in progress:
   (`/line`);
 - `/sessions` lists it under `manual`, apart from the running sessions,
   with the state `claimed`;
-- its bead is `parked` in the column, as is an unclaimed bead in a stage
+- its bead is `parked` on `/line`, as is an unclaimed bead in a stage
   routed to a manual group, unless something else stops it.
 
 A session is manual when its runner is `manual`; one from before sessions
@@ -958,15 +961,15 @@ page lacks. A page that needs more of it than the feed's entries says so
 (`Page.stream`) and the shell adds `&format=`: `home` on `/`, `card` on
 `/flows`, `seq` on `/beads`, a bead's page and the depot, group, route,
 peer, edge and quota lists ([The stream](#the-stream)).
-Whatever the format, an event is one unnamed message, which is all the
-right column listens for. These hang on the stream:
+Whatever the format, an event is one unnamed message, which is all
+home's aside listens for. These hang on the stream:
 
-- the right column reads `/line` again on every event and puts the answer
-  in its place (`hx-trigger="sse:message"`), and so does `/line`'s own copy
-  of it. A bead that is held shows there with its reason as soon as the
-  event arrives, and goes when it is unheld. Home's column reads
-  `/line?home=1` instead, so an event never brings the waits back beside
-  the centre that lists them;
+- home's aside reads `/line?home=1` again on every event and puts the
+  answer in its place (`hx-trigger="sse:message"`), and `/line` reads
+  `/line` again the same way, in its centre and its aside. A bead that
+  is held shows on `/line` with its reason as soon as the event arrives,
+  and goes when it is unheld. Home's aside reads the home mode, so an
+  event never brings the waits back beside the centre that lists them;
 - `/sessions`, `/crew`, `/beads`, a bead's page, the talk page's newest
   letters and the depot, group, route, peer, edge and quota lists read
   themselves again the same way;
@@ -1643,10 +1646,12 @@ arrangement.**
 - **Left**, 200px: the yard's name and a short menu (Home, Yard, Flows,
   Beads, Sessions, Crew members, Config).
 - **Centre**: the page. At 1100px and wider it takes all the width the
-  menu and the aside leave, so every page fills the window and the menu
-  and the aside stand in the same place on every page that has them.
-- **Right**, 300px: what waits for a person, and a summary of the line. It
-  is the same on every page but home, whose aside is the line alone.
+  menu and the aside leave, so every page fills the window; home and the
+  line keep the aside, and every other page counts what waits in its
+  header instead.
+- **Right**, 300px, beside home and the line alone: what waits for a
+  person, and a summary of the line. Home's aside is the line alone:
+  home lists the waits at the top of its centre already.
 
 A wide centre stays readable: a list's rows keep their one line, with the
 time at the right edge; running text (a bead's body, a note: `.text`,
@@ -1655,17 +1660,17 @@ pairs (`.figures`, `.rows`, `.facts`) use the width.
 
 The page scrolls as a document: no column has a scrollbar of its own, at
 any width. The menu stays in view while the page scrolls under it; the
-right column scrolls with the page. Wide text that must not wrap (a stage
+aside scrolls with the page. Wide text that must not wrap (a stage
 file, `.text.file`) still scrolls sideways inside its block.
 
 | window | arrangement |
 |---|---|
-| 1100px and wider | menu, a fluid centre, right |
-| 700px to 1099px | menu and centre, up to 600px and centred; the right column goes, and a Line entry in the menu leads to `/line` |
+| 1100px and wider | menu, a fluid centre, right beside home and the line |
+| 700px to 1099px | menu and centre, up to 600px and centred; the aside goes |
 | under 700px (a phone) | the centre column alone; the menu is a bar at the bottom, Line included, which stays in view while the page scrolls |
 
-The shell is `internal/web/templates/shell.html`; the right column is the
-`aside` template (`aside.html`), which `/line` renders in the centre.
+The shell is `internal/web/templates/shell.html`; the aside is the
+`aside` template (`aside.html`), which `/line` renders in the centre too.
 
 ## Look
 

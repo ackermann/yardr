@@ -175,8 +175,7 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // Config is /config: the hub of the yard's configuration pages, the links
-// to the six lists. It is static links with no live part of its own; the
-// shell's stream keeps the column beside it.
+// to the six lists. It is static links with no live part of its own.
 type Config struct {
 	Links []ConfigLink `json:"links"`
 	Head  uint64       `json:"head"`

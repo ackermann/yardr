@@ -129,8 +129,6 @@ ul, ol { list-style: none; }
 }
 .menu li a:hover { color: var(--accent); }
 .menu li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
-/* The entry that stands in for the right column shows only without it. */
-.menu .aside-entry { display: none; }
 /* The phone's More entry shows below 700 px only, where the bottom bar
    has no room for the whole menu. */
 .menu .more { display: none; }
@@ -142,13 +140,18 @@ ul, ol { list-style: none; }
 
 .right { padding: var(--gap); display: flex; flex-direction: column; gap: var(--gap); }
 
+/* A page without the aside fills the window: its centre runs to the
+   window's edge, as the yard page's does. Below 1100 px the narrower
+   rule below already centres a fixed-width centre, with or without it. */
+@media (min-width: 1100px) {
+  .shell:not(:has(aside.right)) { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
+}
+
 /* The yard page has no right column, so its centre runs to the window's
    edge, with the depots in as many columns as fit. On a phone they
-   stack, as every page does; the Line entry stands in for the missing
-   column. */
+   stack, as every page does. */
 @media (min-width: 700px) {
   .shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
-  .shell.wide .menu .aside-entry { display: block; }
 }
 /* The yard panel: each depot as wide as its widest plan needs, depots
    side by side where there is room and wrapping where not. A depot wider
@@ -174,11 +177,18 @@ ul, ol { list-style: none; }
 .page-head {
   position: sticky;
   top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
   padding: 12px var(--gap);
   background: var(--ground);
   border-bottom: 1px solid var(--hairline);
 }
 .page-head h1 { font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+/* What waits for the visitor, counted in the header of a page without
+   the aside: one line to home, in the human face. */
+.page-head .needs-count { flex: 0 0 auto; color: var(--dim); font-family: var(--sans); font-size: var(--small); white-space: nowrap; }
 
 /* One entry of the centre column's feed. */
 .item { padding: var(--gap); border-bottom: 1px solid var(--hairline); }
@@ -476,12 +486,11 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 
 /* --- narrower windows ---------------------------------------------------- */
 
-/* No room for three columns: the right one goes, its entry appears.
-   The centre keeps its width, centred, as on every narrower window. */
+/* No room for three columns: the right one goes. The centre keeps its
+   width, centred, as on every narrower window. */
 @media (max-width: 1099px) {
   .shell { grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)); justify-content: center; }
   .right { display: none; }
-  .menu .aside-entry { display: block; }
 }
 
 /* A phone: the centre column alone, the menu a bar at the bottom. The bar

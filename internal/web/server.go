@@ -34,10 +34,8 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
-// menu is the left menu, in order. The line entry is the phone's way to
-// the right column, which has no room there; the stylesheet shows it only
-// where that column is hidden. Phone marks the entries the phone's bottom
-// bar shows; the rest open under its More entry, in the same order.
+// menu is the left menu, in order. Phone marks the entries the phone's
+// bottom bar shows; the rest open under its More entry, in the same order.
 var menu = []menuItem{
 	{Name: "home", Label: "Home", Path: "/", Phone: true},
 	{Name: "talk", Label: "Talk", Path: "/talk", Phone: true},
@@ -47,13 +45,11 @@ var menu = []menuItem{
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
 	{Name: "crew", Label: "Crew", Path: "/crew"},
 	{Name: "config", Label: "Config", Path: "/config"},
-	{Name: "line", Label: "Line", Path: "/line", Aside: true, Phone: true},
+	{Name: "line", Label: "Line", Path: "/line", Phone: true},
 }
 
 type menuItem struct {
 	Name, Label, Path string
-	// Aside marks the entry that stands in for the right column.
-	Aside bool
 	// Phone marks an entry the phone's bottom bar shows itself; the
 	// rest open under its More entry.
 	Phone bool
@@ -413,8 +409,9 @@ type Page struct {
 	// only reads itself again, home on / for the entries its feed keeps.
 	// "" is the feed's entries.
 	stream string
-	// Wide is a page with no right column: its centre runs to the
-	// window's edge. The JSON never carries it.
+	// Wide is the Yard panel: its centre runs to the window's edge.
+	// The pages without the aside do the same by the stylesheet.
+	// The JSON never carries it.
 	Wide bool
 }
 
@@ -431,6 +428,9 @@ type view struct {
 	Yard    string
 	Entries []menuItem
 	Aside   *Line
+	// Needs counts what waits for the visitor, as home lists it: the
+	// header's line on a page without the aside, nothing at zero.
+	Needs int
 	// Head is the seq the page's stream starts after. It is read before
 	// what the page shows, so the stream brings everything the page lacks.
 	Head uint64
@@ -461,7 +461,8 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 		s.fail(w, r, fmt.Errorf("no template %q", p.Template))
 		return
 	}
-	// The shell shows the yard's name and the line on every page.
+	// The shell shows the yard's name on every page: the aside beside
+	// home and the line, and the header's count elsewhere.
 	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream, MoreCurrent: moreCurrent(p.Menu)}
 	if v.Aside == nil {
 		var err error
@@ -482,6 +483,9 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 			s.fail(w, r, err)
 			return
 		}
+		// Home and the line carry the aside and need no count; they
+		// pass their line and never reach here.
+		v.Needs = len(attention(ov, v.Aside))
 	}
 	// Rendered whole before the first byte: a template that fails halfway
 	// must not leave half a page under a 200.

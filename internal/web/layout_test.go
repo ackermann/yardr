@@ -7,17 +7,32 @@ import (
 	"testing"
 )
 
-// At 1100 px and wider every page fills the window: the centre takes all
-// the width the menu and the aside leave, and the menu and the aside stand
-// in the same place on every page that has them. The markup carries which
-// pages keep the aside (every page but the yard panel, whose wide shell
-// TestYardPageIsWide covers), the stylesheet the fluid centre, the
-// readable measure and the unchanged narrower windows; what the pixels do
-// is the bead's screenshots'.
+// At 1100 px and wider every page fills the window: home and the line
+// keep the aside, and every other page counts what waits in its header
+// instead. The markup carries which pages keep the aside (the yard
+// panel's wide shell TestYardPageIsWide covers), the stylesheet the
+// fluid centre, the readable measure and the unchanged narrower windows;
+// what the pixels do is the bead's screenshots'.
 func TestPagesFillTheWindow(t *testing.T) {
 	f := newFixture(t)
 	run, _, _, _, _ := stocked(t, f)
-	for _, path := range []string{"/", "/beads", "/sessions", "/crew", "/line", "/flows", "/beads/" + run.ID,
+	for _, path := range []string{"/", "/line"} {
+		r := f.get(path)
+		if r.status != 200 {
+			t.Errorf("%s: status %d", path, r.status)
+			continue
+		}
+		if !strings.Contains(r.body, `<div class="shell"`) {
+			t.Errorf("%s: not in the shell", path)
+		}
+		if strings.Contains(r.body, "shell wide") {
+			t.Errorf("%s: wide, so it keeps no aside", path)
+		}
+		if !strings.Contains(r.body, "<aside") {
+			t.Errorf("%s: keeps no aside", path)
+		}
+	}
+	for _, path := range []string{"/beads", "/sessions", "/crew", "/flows", "/beads/" + run.ID,
 		"/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits"} {
 		r := f.get(path)
 		if r.status != 200 {
@@ -28,10 +43,10 @@ func TestPagesFillTheWindow(t *testing.T) {
 			t.Errorf("%s: not in the shell", path)
 		}
 		if strings.Contains(r.body, "shell wide") {
-			t.Errorf("%s: wide, so it keeps no right column", path)
+			t.Errorf("%s: wide", path)
 		}
-		if !strings.Contains(r.body, "<aside") {
-			t.Errorf("%s: keeps no right column", path)
+		if strings.Contains(r.body, "<aside") {
+			t.Errorf("%s: keeps the aside home and the line alone keep", path)
 		}
 	}
 	css, err := os.ReadFile("assets/yard.css")
@@ -39,6 +54,8 @@ func TestPagesFillTheWindow(t *testing.T) {
 	for _, want := range []string{
 		// The desktop shell: a fluid centre between the menu and the aside.
 		"grid-template-columns: var(--menu-width) minmax(0, 1fr) var(--right-width);",
+		// A page without the aside fills the window too.
+		".shell:not(:has(aside.right)) { grid-template-columns: var(--menu-width) minmax(0, 1fr); }",
 		// Running text keeps a measure of about 90 characters.
 		".text, .entry-note { max-width: 90ch; }",
 		// Below 1100 px the centre keeps its width, centred.
@@ -217,8 +234,8 @@ func TestRoutesCompactRows(t *testing.T) {
 func TestPhoneBarMore(t *testing.T) {
 	f := newFixture(t)
 	body := f.get("/").body
-	// The bar's entries carry no phone-more class; the entries More opens
-	// carry it on the main list. Line keeps its aside-entry alone.
+	// The bar's entries carry no class; the entries More opens carry
+	// phone-more on the main list.
 	for _, path := range []string{"/", "/talk", "/beads", "/line"} {
 		if strings.Contains(body, `phone-more"><a href="`+path+`"`) {
 			t.Errorf("the bar hides %s under More", path)
@@ -229,8 +246,11 @@ func TestPhoneBarMore(t *testing.T) {
 			t.Errorf("%s is not marked for More", path)
 		}
 	}
-	if !strings.Contains(body, `<li class="aside-entry"><a href="/line"`) {
-		t.Error("Line lost its aside-entry")
+	if !strings.Contains(body, `<li><a href="/line"`) {
+		t.Error("Line is not a plain entry of the bar")
+	}
+	if strings.Contains(body, "aside-entry") {
+		t.Error("the menu still marks an entry for the aside")
 	}
 	// More stands last, after Line, and holds the rest in the menu's
 	// order, under their own names.

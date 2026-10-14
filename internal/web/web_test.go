@@ -636,11 +636,15 @@ func TestLine(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("line\n got %+v\nwant %+v", got, want)
 	}
-	// Every page carries it in the right column, the unbuilt ones too.
-	for _, path := range []string{"/", "/line", "/beads"} {
+	// Home and the line carry it in the aside; every other page counts
+	// what waits in its header instead.
+	for _, path := range []string{"/", "/line"} {
 		if text := squash(f.get(path).body); !strings.Contains(text, `<dt>open</dt><dd>5</dd>`) {
 			t.Errorf("%s does not show the line's 5 open beads", path)
 		}
+	}
+	if text := squash(f.get("/beads").body); !strings.Contains(text, `<a class="needs-count" href="/">1 waits for you</a>`) {
+		t.Error("/beads counts no waiting bead in its header")
 	}
 }
 

@@ -13,7 +13,7 @@
 </head>
 <body>
 {{- /* One stream for the page (a browser allows a host few connections):
-       the right column reads itself again on every event of it, and a page
+       home's column reads itself again on every event of it, and a page
        that is live hangs its own part on it, in the format it asks for
        (Page.stream): each has an unnamed message per event, which is all
        the column needs. An error page has no column and no stream. */}}
@@ -22,7 +22,7 @@
     <a class="yard" href="/">{{.Yard}}</a>
     <ul>
       {{- range .Entries}}
-      <li{{if .Aside}} class="aside-entry"{{else if not .Phone}} class="phone-more"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
+      <li{{if not .Phone}} class="phone-more"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
       {{- end}}
       {{- /* The phone's bottom bar shows the phone entries alone; the
              rest open under More, in the menu's order. The stylesheet
@@ -31,12 +31,17 @@
     </ul>
   </nav>
   <main class="centre" id="centre">
-    <header class="page-head"><h1>{{.Title}}</h1></header>
+    {{- /* Home lists what waits in its centre and the line keeps it in
+           its own; every other page counts it in its header, one line
+           to home, nothing at zero. */}}
+    <header class="page-head"><h1>{{.Title}}</h1>{{if .Needs}}<a class="needs-count" href="/">{{if eq .Needs 1}}1 waits for you{{else}}{{.Needs}} wait for you{{end}}</a>{{end}}</header>
     {{template "content" .}}
   </main>
-  {{- if not .Wide}}
-  <aside class="right" aria-label="The line"{{if .Aside}} hx-get="/line{{if .Aside.Home}}?home=1{{end}}" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
-    {{- if .Aside}}{{template "aside" .Aside}}{{end}}
+  {{- /* The aside stands beside home and the line alone; every other
+         page counts what waits in its header instead. */}}
+  {{- if and (not .Wide) .Aside (or (eq .Menu "home") (eq .Menu "line"))}}
+  <aside class="right" aria-label="The line" hx-get="/line{{if .Aside.Home}}?home=1{{end}}" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">
+    {{template "aside" .Aside}}
   </aside>
   {{- end}}
 </div>
