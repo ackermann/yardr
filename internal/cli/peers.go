@@ -423,7 +423,7 @@ the peer has already.`,
 				if p.Waiting > 0 {
 					fmt.Printf("%d messages that waited for it still wait, and are posted there, each at its next try\n", p.Waiting)
 				}
-				if !daemonRunning(cfg.DaemonLock()) {
+				if !config.DaemonRunning(cfg.DaemonLock()) {
 					fmt.Printf("no daemon runs on this yard, and the daemon is what calls it: %s daemon\n", yardrAt(cfg.Home))
 				}
 			})
@@ -1272,7 +1272,7 @@ func (a *app) ping(ctx context.Context, cfg *config.Config, st store.API, name s
 func noPong(ctx context.Context, st store.API, cfg *config.Config, p store.Peer, timeout time.Duration, id string) string {
 	ctx = context.WithoutCancel(ctx)
 	text := fmt.Sprintf("no pong from %s within %s", p.Name, timeout)
-	if !daemonRunning(cfg.DaemonLock()) {
+	if !config.DaemonRunning(cfg.DaemonLock()) {
 		return text + fmt.Sprintf(": no daemon runs on this yard, and the daemon is what carries messages (%s daemon)", yardrAt(cfg.Home))
 	}
 	if !slices.Contains(p.Receive, store.PeerPing) {

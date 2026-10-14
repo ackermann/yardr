@@ -192,7 +192,7 @@ const (
 func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration) *startResult {
 	res := &startResult{}
 	var exited <-chan error
-	if !daemonRunning(cfg.DaemonLock()) {
+	if !config.DaemonRunning(cfg.DaemonLock()) {
 		var err error
 		if exited, err = spawnDaemon(cfg); err != nil {
 			res.Problem = "the daemon could not be started: " + err.Error()
@@ -256,7 +256,7 @@ const (
 // is not on PATH (the start says so), are not asked about. The call costs a
 // model call, so it is made on a yes only.
 func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (goOn bool, err error) {
-	if a.json || !interactive() || agentSession() || daemonRunning(cfg.DaemonLock()) {
+	if a.json || !interactive() || agentSession() || config.DaemonRunning(cfg.DaemonLock()) {
 		return true, nil
 	}
 	r, err := st.GetCrew(ctx, yardmaster)
@@ -536,7 +536,7 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 			// A daemon that lost the lock to another is no failure: that
 			// other one starts the yardmaster.
 			exited = nil
-			if !daemonRunning(cfg.DaemonLock()) {
+			if !config.DaemonRunning(cfg.DaemonLock()) {
 				return r, "the daemon stopped right after it started."
 			}
 		case <-time.After(pollEvery):
@@ -702,7 +702,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 		}
 	}
 	switch {
-	case !daemonRunning(cfg.DaemonLock()):
+	case !config.DaemonRunning(cfg.DaemonLock()):
 		known = append(known, "no daemon is running on this yard")
 		next = append(next, fmt.Sprintf("start it in a terminal pane of its own, where you see what it does: %s daemon", yardr))
 	case started:

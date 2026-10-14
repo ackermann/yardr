@@ -583,7 +583,7 @@ func (g *guide) watch(ctx context.Context) error {
 		}
 		fmt.Println()
 	}
-	if !daemonRunning(g.cfg.DaemonLock()) {
+	if !config.DaemonRunning(g.cfg.DaemonLock()) {
 		fmt.Printf("No daemon is running, so nothing picks it up yet: `%s init --start` starts one in the background.\n", yardr)
 	}
 	web := "serves the yard in a browser while it runs, at http://127.0.0.1:8791/"

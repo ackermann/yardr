@@ -298,7 +298,7 @@ func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
 			rep.Machine[i].For = forStoppedYard
 		}
 	}
-	rep.State = &yardState{Server: serverStopped, Daemon: daemonRunning(cfg.DaemonLock()), Failing: []failingCrew{}, Held: []string{}}
+	rep.State = &yardState{Server: serverStopped, Daemon: config.DaemonRunning(cfg.DaemonLock()), Failing: []failingCrew{}, Held: []string{}}
 	skip := func(key, title string) optionalPart {
 		return optionalPart{Key: key, Title: title, Skipped: true, Detail: skippedWhy}
 	}
@@ -318,7 +318,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		// says something, and the fault is the server's.
 		rep.Yard = true
 		rep.Machine = machineNeeds(ctx, nil, try)
-		rep.State = &yardState{Server: serverUnreachable, ServerError: err.Error(), Daemon: daemonRunning(cfg.DaemonLock()),
+		rep.State = &yardState{Server: serverUnreachable, ServerError: err.Error(), Daemon: config.DaemonRunning(cfg.DaemonLock()),
 			Failing: []failingCrew{}, Held: []string{}}
 		rep.Steps = []setupStep{}
 		rep.faults()
@@ -379,7 +379,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 // doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, crew []store.CrewMember) (*yardState, error) {
-	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Crew: len(crew),
+	state := &yardState{Server: serverUp, Daemon: config.DaemonRunning(cfg.DaemonLock()), Crew: len(crew),
 		Failing: []failingCrew{}, Held: []string{}, crew: crew}
 	yardmaster := yardmasterOf(ctx, st)
 	def := defaultKind(ctx, st)

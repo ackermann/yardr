@@ -380,6 +380,7 @@ pages post to the view itself (`form-action 'self'`).
 | `/deps` | what waits on what: the edges with an open end, grouped by the blocked bead, each end with its title and stage, live | `Deps` |
 | `/deps?all=1` | the same page; its edges are every edge of the yard, the ones between closed beads too | `Deps` |
 | `/limits` | what the subscriptions the yard burns still carry: each provider in use with its windows, how far each is used and when it resets, and who burns it (`yardr limits`), live | `Limits` |
+| `/health` | the yard's liveness facts for a monitor, a proxy or footplate ([Health](#health)) | `Health` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions,
@@ -1293,6 +1294,39 @@ when the browser gives the old one up, which a browser does when a
 reconnect is answered with anything but a stream (another program on the
 port, for one). The entries since the page was loaded then come again.
 Reload the page.
+
+## Health
+
+`/health` is the yard's liveness facts for a monitor, a proxy or
+footplate: the server's build and start time, whether the daemon holds
+its lock, on which build, and when it last completed a pass, and the
+view's own build. It is a machine route: JSON to every client, with no
+template and no menu entry.
+
+```sh
+curl -s http://127.0.0.1:8791/health
+```
+
+```json
+{
+  "status": "ok",
+  "server": {"build": "1904417", "since": "2026-10-14T09:02:11Z"},
+  "daemon": {"running": true, "build": "1904417", "last_pass": "2026-10-14T09:01:44Z"},
+  "view": {"build": "1904417"}
+}
+```
+
+It answers 200 whenever the view serves it. `status` is `ok` when the
+yard is whole — the server answers, the daemon holds its lock, its
+build is on record and it stamped a pass — and `degraded` otherwise: a
+proxy keeps routing to a view that answers, even over a yard whose
+daemon is down, and the JSON says whether the yard is whole. A part
+with nothing on record is left out, not guessed at: a daemon from
+before its starts were recorded has no `build`, one that never stamped
+a pass has no `last_pass`. Only a yard it cannot read at all fails,
+with a 500 through the error path. Nothing it says is a secret, and it
+is served to the same audience as the rest of the view; the store's
+head sequence is deliberately not among it.
 
 ## Layout
 

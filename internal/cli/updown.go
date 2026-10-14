@@ -329,10 +329,10 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 			daemon.Running, daemon.Started, daemon.PID = true, true, pid
 		}
 	}
-	running := daemonRunning(cfg.DaemonLock())
+	running := config.DaemonRunning(cfg.DaemonLock())
 	switch {
 	case running && (!install || !srv.Running || !herdr.Running):
-		daemon.Running, daemon.PID = true, daemonPID(cfg.DaemonLock())
+		daemon.Running, daemon.PID = true, config.DaemonPID(cfg.DaemonLock())
 		notInstalled()
 	case !srv.Running:
 		daemon.Error, daemon.Do = "the server does not run, and the daemon works on its store", yardr+" up, once the server starts"
@@ -342,10 +342,10 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 		daemon.Do = yardr + " up, once herdr's server runs"
 		notInstalled()
 	case install:
-		l := a.loginInstall(ctx, cfg, kindOf(svcDaemon), nil, func() bool { return daemonRunning(cfg.DaemonLock()) })
+		l := a.loginInstall(ctx, cfg, kindOf(svcDaemon), nil, func() bool { return config.DaemonRunning(cfg.DaemonLock()) })
 		rep.Login = append(rep.Login, l)
-		if daemonRunning(cfg.DaemonLock()) {
-			daemon.Running, daemon.Started, daemon.PID = true, true, daemonPID(cfg.DaemonLock())
+		if config.DaemonRunning(cfg.DaemonLock()) {
+			daemon.Running, daemon.Started, daemon.PID = true, true, config.DaemonPID(cfg.DaemonLock())
 		} else {
 			// The yard is to be up all the same.
 			start()
@@ -785,7 +785,7 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 		return nil, err
 	}
 	rep.count(agents)
-	daemon := yardPart{Part: svcDaemon, Running: daemonRunning(cfg.DaemonLock()), PID: daemonPID(cfg.DaemonLock())}
+	daemon := yardPart{Part: svcDaemon, Running: config.DaemonRunning(cfg.DaemonLock()), PID: config.DaemonPID(cfg.DaemonLock())}
 	// asFound is the answer of a down that stopped no agent: the parts as
 	// they are.
 	asFound := func(srv yardPart) []yardPart {

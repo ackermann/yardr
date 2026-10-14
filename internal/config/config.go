@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -198,6 +199,36 @@ func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }
 
 // DaemonLock is the file the daemon holds a flock on while it runs.
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
+
+// DaemonRunning reports whether a process holds an exclusive flock on lock,
+// the daemon on its DaemonLock or a long-running command on its record,
+// without taking it or creating the file.
+func DaemonRunning(lock string) bool {
+	f, err := os.Open(lock)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// DaemonPID is the pid of the process that holds lock, 0 when none does.
+func DaemonPID(lock string) int {
+	if !DaemonRunning(lock) {
+		return 0
+	}
+	b, err := os.ReadFile(lock)
+	if err != nil {
+		return 0
+	}
+	var pid int
+	fmt.Sscan(string(b), &pid)
+	return pid
+}
 
 // DaemonPass is the file the daemon stamps with its build and the time at
 // the end of every completed pass (see PassStamp).

@@ -202,6 +202,10 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
 	s.mux.HandleFunc("GET /assets/{file}", s.handleAsset)
+	// The yard's liveness facts for a monitor, a proxy or footplate: a
+	// machine route, answered directly as JSON, with no template and no
+	// menu entry.
+	s.mux.HandleFunc("GET /health", s.handleHealth)
 	// A browser asks for one unbidden; the view has no image, and an empty
 	// answer keeps its console clear of a 404.
 	s.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) {

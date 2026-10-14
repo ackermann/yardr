@@ -587,7 +587,7 @@ type daemonState struct {
 }
 
 func readDaemon(ctx context.Context, cfg *config.Config) daemonState {
-	return daemonState{Running: daemonRunning(cfg.DaemonLock()), PID: daemonPID(cfg.DaemonLock()), Service: stateOf(ctx, cfg, svcDaemon)}
+	return daemonState{Running: config.DaemonRunning(cfg.DaemonLock()), PID: config.DaemonPID(cfg.DaemonLock()), Service: stateOf(ctx, cfg, svcDaemon)}
 }
 
 // line is whether the daemon runs, in words.

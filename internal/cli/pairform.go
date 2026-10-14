@@ -669,7 +669,7 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 	}
 	var noPong string
 	proved := false
-	if p.URL != "" && !daemonRunning(cfg.DaemonLock()) {
+	if p.URL != "" && !config.DaemonRunning(cfg.DaemonLock()) {
 		// Known now: not worth the wait for a pong that cannot come.
 		noPong = fmt.Sprintf("no daemon runs on this yard, and the daemon is what carries messages: `%s init --start` starts it", yardr)
 	} else {

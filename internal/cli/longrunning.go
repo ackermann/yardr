@@ -302,7 +302,7 @@ type instance struct {
 // is alive: that pid may be another program's by then.
 func held(dir string) []string {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*.json"))
-	return slices.DeleteFunc(paths, func(p string) bool { return !daemonRunning(p) })
+	return slices.DeleteFunc(paths, func(p string) bool { return !config.DaemonRunning(p) })
 }
 
 // announce records this process as a running one of the kind, with what
@@ -364,7 +364,7 @@ var viewRevision = version.Current
 func sweep(dir string) {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 	for _, p := range paths {
-		if !daemonRunning(p) {
+		if !config.DaemonRunning(p) {
 			os.Remove(p)
 		}
 	}
@@ -374,8 +374,8 @@ func sweep(dir string) {
 func (k *longRunning) running(cfg *config.Config) []instance {
 	run := []instance{}
 	if k.Lock != nil {
-		if lock := k.Lock(cfg); daemonRunning(lock) {
-			run = append(run, instance{PID: daemonPID(lock), path: lock})
+		if lock := k.Lock(cfg); config.DaemonRunning(lock) {
+			run = append(run, instance{PID: config.DaemonPID(lock), path: lock})
 		}
 		return run
 	}
@@ -386,21 +386,6 @@ func (k *longRunning) running(cfg *config.Config) []instance {
 		}
 	}
 	return run
-}
-
-// daemonPID is the pid of the daemon that holds the home's lock, 0 when
-// none does.
-func daemonPID(lock string) int {
-	if !daemonRunning(lock) {
-		return 0
-	}
-	b, err := os.ReadFile(lock)
-	if err != nil {
-		return 0
-	}
-	var pid int
-	fmt.Sscan(string(b), &pid)
-	return pid
 }
 
 // signalStop tells the process of pid to stop; tests replace it.
@@ -425,7 +410,7 @@ func (k *longRunning) stop(cfg *config.Config, wait time.Duration) ([]instance, 
 	}
 	deadline := time.Now().Add(wait)
 	for _, r := range run {
-		for ; daemonRunning(r.path); time.Sleep(pollEvery / 5) {
+		for ; config.DaemonRunning(r.path); time.Sleep(pollEvery / 5) {
 			if time.Now().After(deadline) {
 				return nil, fmt.Errorf("the %s (pid %d) was told to stop and still holds %s after %s", k.What, r.PID, r.path, wait)
 			}

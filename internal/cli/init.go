@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -440,7 +439,7 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 		if err := a.offerPane(ctx, cfg, st, res.Yardmaster, wait, res.Start); err != nil {
 			return err
 		}
-		res.Daemon = daemonRunning(cfg.DaemonLock())
+		res.Daemon = config.DaemonRunning(cfg.DaemonLock())
 	}
 	return a.out(res, res.printNext)
 }
@@ -660,7 +659,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		}
 		res.Added = append(res.Added, "the default_kind setting, which marks the yard set up")
 	}
-	res.Daemon = daemonRunning(cfg.DaemonLock())
+	res.Daemon = config.DaemonRunning(cfg.DaemonLock())
 	return res, nil
 }
 
@@ -822,21 +821,6 @@ func bases(paths []string) []string {
 		out[i] = filepath.Base(p)
 	}
 	return out
-}
-
-// daemonRunning reports whether a daemon holds the home's daemon lock,
-// without taking it or creating the file.
-func daemonRunning(lock string) bool {
-	f, err := os.Open(lock)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return errors.Is(err, syscall.EWOULDBLOCK)
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
 }
 
 // printYard is the summary of the yard init created or set up again.

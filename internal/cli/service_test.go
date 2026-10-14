@@ -461,7 +461,7 @@ func TestDaemonStopAndStatus(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	out, err = run(t, a.rootCmd(), "daemon", "stop")
-	if err != nil || !slices.Equal(*pids, []int{me}) || !strings.Contains(out, "daemon stopped (pid ") || daemonRunning(filepath.Join(home, "daemon.lock")) {
+	if err != nil || !slices.Equal(*pids, []int{me}) || !strings.Contains(out, "daemon stopped (pid ") || config.DaemonRunning(filepath.Join(home, "daemon.lock")) {
 		t.Fatalf("%v, signalled %v\n%s", err, *pids, out)
 	}
 }

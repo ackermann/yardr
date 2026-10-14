@@ -1,11 +1,22 @@
 package web
 
 import (
+	"context"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
+	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
+
+// SetDescribeServer replaces the server probe GET /health reads, for tests;
+// it returns what restores the real one.
+func SetDescribeServer(fn func(context.Context, *config.Config) (server.Info, bool)) (restore func()) {
+	prev := describeServer
+	describeServer = fn
+	return func() { describeServer = prev }
+}
 
 // Streams is how many /events streams are open.
 func (s *Server) Streams() int { return int(s.streams.Load()) }

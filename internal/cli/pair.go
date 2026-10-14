@@ -682,7 +682,7 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 	if p.URL == "" {
 		a.progress("it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
 	}
-	if p.URL != "" && !daemonRunning(cfg.DaemonLock()) {
+	if p.URL != "" && !config.DaemonRunning(cfg.DaemonLock()) {
 		// Known now: not worth the wait for a pong that cannot come.
 		res.PingError = fmt.Sprintf("no daemon runs on this yard, and the daemon is what carries messages: %s daemon, then %s peer ping %s", yardr, yardr, p.Name)
 	} else if got, err := a.ping(ctx, cfg, st, p.Name, opt.timeout); err != nil {

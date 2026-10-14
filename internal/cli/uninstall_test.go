@@ -130,7 +130,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 					t.Errorf("%s is still there", f)
 				}
 			}
-			if daemonRunning(config.At(home).DaemonLock()) {
+			if config.DaemonRunning(config.At(home).DaemonLock()) {
 				t.Error("the daemon still runs")
 			}
 			// herdr's server is never stopped: its service is not unloaded.

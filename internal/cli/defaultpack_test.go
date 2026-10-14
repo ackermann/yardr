@@ -326,7 +326,7 @@ func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
 	if err != nil || !strings.Contains(errs.String(), "--start: nothing is started, since the yard has no yardmaster to wait for") {
 		t.Errorf("init --start without a yardmaster: %v\n%s%s", err, out, errs)
 	}
-	if rs, _ := st.Crew(ctx); len(rs) != 0 || daemonRunning(filepath.Join(home, "daemon.lock")) {
+	if rs, _ := st.Crew(ctx); len(rs) != 0 || config.DaemonRunning(filepath.Join(home, "daemon.lock")) {
 		t.Errorf("init --start without a yardmaster added one (%+v) or started a daemon", rs)
 	}
 	// A default pack that is gone is named with the setting, before
