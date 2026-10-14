@@ -733,12 +733,16 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	page, err := st.PutBlob(ctx, pageHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, n := range [][2]string{
 		{"from a trusted name", "ada@airy"},
 		{"from a stranger", "jo@airy"},
 		{"this yard's own", "builder"},
 	} {
-		if err := st.AddNote(ctx, b.ID, n[0], n[1]); err != nil {
+		if err := st.AddNote(ctx, b.ID, n[0], n[1], page.Hash); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -751,17 +755,33 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts, home: home}
 
-	page := f.get("/beads/" + b.ID).body
+	body := f.get("/beads/" + b.ID).body
 	for _, want := range []string{
 		"ada@airy (as ada)",
 		"jo@airy (" + store.OutsideMail + ")",
 	} {
-		if !strings.Contains(page, want) {
+		if !strings.Contains(body, want) {
 			t.Errorf("the bead's page lacks %q", want)
 		}
 	}
-	if strings.Contains(page, "builder (") {
+	if strings.Contains(body, "builder (") {
 		t.Errorf("a note of this yard is marked on the page")
+	}
+	boardAt, notesAt := strings.Index(body, `id="board"`), strings.Index(body, `id="notes"`)
+	if boardAt < 0 || notesAt < boardAt {
+		t.Fatalf("the page has no board above the notes:\n%s", body)
+	}
+	board := body[boardAt:notesAt]
+	for _, want := range []string{
+		"ada@airy (as ada)",
+		"jo@airy (" + store.OutsideMail + ")",
+	} {
+		if !strings.Contains(board, want) {
+			t.Errorf("the note board lacks %q", want)
+		}
+	}
+	if strings.Contains(board, "builder (") {
+		t.Errorf("a note of this yard is marked on the board")
 	}
 
 	var got web.BeadPage
