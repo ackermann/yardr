@@ -8,7 +8,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 | source | what it delivers | how a crew member subscribes |
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
-| `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
+| `yardr` | yardr's own events: bead events (created, advanced, noted, closed, …), and the upgrade failures `install_failed` and `rolled_back`, about no bead | `yardr subscribe <name> yardr …`, `yardr bead watch` |
 | `peer` | what a linked yard says of the beads this yard has away at it: arrived, advanced, held, unheld, gave_up ([below](#the-peer-source)) | `yardr subscribe <name> peer …`, `yardr thread follow <name> --source peer <bead>` |
 | `--on` on the crew member | event kinds, or `attention`, the class of kinds that need someone (the default); every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
@@ -246,8 +246,9 @@ reaches no one (kinds of attention, a new crew member's --on, that nobody has): 
   ([below](#--on)). A row that names the class, in `--on` or as a
   subscription with no other filter, counts for every kind of it, so the
   line is not printed while someone hears the class. A kind someone has
-  only as a subscription is not listed, though the subscription does not
-  carry its events that are about no bead.
+  only as a subscription is not listed, though the subscription carries a
+  bead-less event only for the two upgrade failure kinds
+  ([below](#the-class-attention)).
 
 Rows are told apart by their exact source, scope and filters: `yardr all
 kind=held` and `yardr all kind=held depot=web` are two rows, though every
@@ -342,7 +343,9 @@ reason being why it reached the user ([Scopes](#scopes)). A closed bead's
 line carries the commit when the event has one: its own `commit`, or the
 one its reason names, as the assembly's `merged <sha>` does. The third is a
 hook delivery: source, type and action, who acted, the thread's title, the
-text and the link. The event's part is cut at 300 characters and the title
+text and the link. An event about no bead (the upgrade's failures) reads
+`<kind> (<reason>) by <actor> <key=value …>`, with no bead and no title.
+The event's part is cut at 300 characters and the title
 at 120, with `…`; the link is never cut.
 
 What differs from a crew member:
@@ -354,8 +357,10 @@ What differs from a crew member:
   refused (above). In the yardr source every scope
   works: `@ada` in a note mentions the user `ada`, and `involved` adds the
   beads they created, advanced or noted.
-- There is no `--on` for a user, so yardr's events that are not about a
-  bead reach no person this way.
+- There is no `--on` for a user. The two upgrade failure kinds
+  (`install_failed`, `rolled_back`) reach one through a yardr subscription
+  on kind alone instead ([below](#the-class-attention)); every other
+  event not about a bead reaches no person.
 - A subscription with `bead=<id>` ends when the bead closes, after the
   close is told, as a crew member's watch does.
 
@@ -385,6 +390,17 @@ kind (`web-hk7z advanced`) and its line; a hook delivery's without its
 link. [users.md](users.md#told-outside-the-yard) has what is sent, when,
 and what happens when the source fails; [pushover.md](pushover.md) sets one
 up.
+
+**The upgrade's failures.** `install_failed` and `rolled_back` are about no
+bead, and match a yardr subscription on kind alone ([below](#the-class-attention)).
+The operator holds `yardr all kind=install_failed kind=rolled_back` by
+default: a user made for the operator carries it, a yard that already has
+one gains it once, and setting `upgrade_from` subscribes them again in the
+same write ([configuration.md](configuration.md#settings)). While that
+setting is set, unsubscribing a subscription that matches either kind is
+refused, naming the setting: remove the setting first. An event marked
+already told — the upgrade's recovery logging marks one whose direct send
+succeeded — is a notification as usual, and no push is queued for it.
 
 ## `--on`
 
@@ -478,10 +494,12 @@ The name goes where a kind goes, and what is stored is the name:
   kinds beside it: `yardr subscribe clerk yardr --where depot=web --where
   kind=attention` is what needs someone in one depot, and not in another.
   A user subscribes to it the same way. As every yardr subscription it
-  carries the events of work beads only: `runtime_down`, `backup_failed`,
-  `install_failed` and `rolled_back`, which are about no bead, and
-  `crew_gave_up`, which is on a crew member's journal, come
-  through `--on` alone.
+  carries the events of work beads; beside them, `install_failed` and
+  `rolled_back`, which are about no bead, match a filter on kind alone:
+  `kind=install_failed`, `kind=rolled_back`, or `kind=attention`, with no
+  bead key (`bead`, `depot`, `stage`, …) beside it. `runtime_down` and
+  `backup_failed`, about no bead, and `crew_gave_up`, which is on a crew
+  member's journal, come through `--on` alone.
 - **In a pack.** `hears: events: [attention]`, as the starter pack has it
   ([packs.md](packs.md)).
 
@@ -497,7 +515,9 @@ release used (`resident_gave_up`) is of the class as the kind it is today
 A manual group has subscriptions and no `--on`, so it takes the class as a
 filter: `yardr subscribe <group> yardr --where kind=attention` delivers the
 bead events of the class to each of its members that is a crew member
-(reason `all via <group>`). The events about no bead do not reach a group.
+(reason `all via <group>`). Of the events about no bead, only the two
+upgrade failure kinds reach a group, matched on kind alone as for a crew
+member ([below](#the-class-attention)).
 
 A crew member made before the class has in its `--on` the list of kinds
 that was the default on the day it was made, and that list stays as it is:

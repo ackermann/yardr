@@ -126,7 +126,8 @@ func TestSubscribeMatrixReachesNoOne(t *testing.T) {
 	text, m := matrixYard(t)
 	var want []string
 	for _, k := range store.AttentionKinds {
-		if !slices.Contains([]string{"gave_up", "held", "move_refused"}, k) {
+		// The operator's default subscription reaches the failure kinds.
+		if !slices.Contains([]string{"gave_up", "held", "move_refused", store.InstallFailed, store.RolledBack}, k) {
 			want = append(want, k)
 		}
 	}

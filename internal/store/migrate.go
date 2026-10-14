@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 20 has the operator told of a failed upgrade: their user
+// subscribes to install_failed and rolled_back (migrateUpgradeTell), which
+// a build before it would drop from the record it rewrites, as it does when
+// the user acknowledges their inbox. Nothing is migrated for yards with no
+// operator user: one made later carries the subscription from its creation
+// (ensureOperator).
 // schemaVersion 19 has depots with a test command and nothing else that
 // says how they are checked: the fields of a depot's record that named the
 // command yardr itself ran before a bead landed (check, check_light,
@@ -142,7 +148,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 19
+const schemaVersion = 20
 
 var kSchema = []byte("schema")
 
@@ -285,6 +291,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 11, run: func(tx *bolt.Tx) error { return migrateCrew(tx, stampedSchema(tx), home, moved) }},
 		{version: 12, run: func(tx *bolt.Tx) error { return migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots) }},
 		{version: 19, run: atVersion(migrateChecks)},
+		{version: 20, run: atVersion(migrateUpgradeTell)},
 	}
 }
 

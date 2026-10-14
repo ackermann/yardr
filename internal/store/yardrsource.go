@@ -174,6 +174,74 @@ func (w *wtx) deliver(e *Event) error {
 	return w.endWatchesOn(e, row, nil)
 }
 
+// deliverBeadless decides, as a bead-less upgrade failure event e is
+// logged, which crew members it reaches through yardr subscriptions and
+// why, and records that on the event as "deliveries"; the users it reaches
+// the same way are recorded as "notified", and each gets a notification
+// (see Notification). It is matched on kind alone: kind and actor are the
+// event's own, and a subscription that filters on any other key needs a
+// bead, which e has none of (beadlessWhere). Only scope all reaches without
+// one (match, with no mention in, assignment of, or part in nothing).
+func (w *wtx) deliverBeadless(e *Event) error {
+	type cand struct {
+		name string
+		user bool
+		subs []boundSub
+	}
+	var cands []cand
+	yardr := func(subs []boundSub) bool {
+		return slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr })
+	}
+	err := subscribers(w.Tx, func(r *CrewMember, subs []boundSub) error {
+		if e.Actor != r.Name && yardr(subs) {
+			cands = append(cands, cand{name: r.Name, subs: subs})
+		}
+		return nil
+	})
+	if err == nil {
+		// Nor is a person told of what they did themselves.
+		err = userSubscribers(w.Tx, func(u *User, subs []boundSub) error {
+			if e.Actor != u.Name && yardr(subs) {
+				cands = append(cands, cand{name: u.Name, user: true, subs: subs})
+			}
+			return nil
+		})
+	}
+	if err != nil {
+		return err
+	}
+	out, told := map[string]any{}, map[string]any{}
+	fields := map[string][]string{"kind": kindWords(e.Kind), "actor": {e.Actor}}
+	for _, c := range cands {
+		got := ""
+		for _, sub := range c.subs {
+			if sub.Source != SourceYardr || !beadlessWhere(sub.Where) {
+				continue
+			}
+			if reason := match(sub.Subscription, fields, given(false), given(false), given(false)); reason != "" {
+				got = best(got, sub.reason(reason))
+			}
+		}
+		switch {
+		case got == "":
+		case c.user:
+			told[c.name] = got
+		default:
+			out[c.name] = got
+		}
+	}
+	if len(out) > 0 {
+		e.Data["deliveries"] = out
+	}
+	if len(told) > 0 {
+		e.Data["notified"] = told
+		if err := w.notify(yardNotification(e), told); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // answeredAsk is an answer event read whole: who asked, and the line it
 // reads as in an inbox.
 type answeredAsk struct {

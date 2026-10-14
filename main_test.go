@@ -112,7 +112,10 @@ func TestCoreComparesNoSourceName(t *testing.T) {
 // setup notes and docs/pushover.md. The one permitted line is the go:embed
 // directive that carries the packs in the binary, which names their
 // directories as data: a bare word (yardr pack apply telegram) resolves
-// through it.
+// through it. The other is the upgrade_from refusal
+// (internal/store/settings.go), which names the two packs that set a notify
+// source, by design (yardr-6ja6 decision 10): a refusal that cannot point
+// at them leaves the operator with no next step.
 func TestNoGoCodeNamesANotifyService(t *testing.T) {
 	name := regexp.MustCompile(`(?i)telegram|pushover`)
 	var files int
@@ -137,6 +140,9 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(body), "\n") {
 			if path == "packs/packs.go" && strings.Contains(line, "go:embed") {
+				continue
+			}
+			if path == "internal/store/settings.go" && strings.Contains(line, "pack apply") {
 				continue
 			}
 			if m := name.FindString(line); m != "" {

@@ -218,7 +218,8 @@ func (w *wtx) addUser(name, actor string) (*User, error) {
 
 // ensureOperator gives the operator a user when there is none of the name.
 // A crew member of the name keeps it and no user is made: yardr doctor says
-// which of the two to rename.
+// which of the two to rename. A user it makes carries the automatic
+// install's failure subscription; one already there is left as it is.
 func (w *wtx) ensureOperator(actor string) error {
 	operator, err := operatorIn(w.Tx)
 	if err != nil || operator == "" {
@@ -227,8 +228,33 @@ func (w *wtx) ensureOperator(actor string) error {
 	if w.Bucket(bUsers).Get([]byte(operator)) != nil || w.Bucket(bCrew).Get([]byte(operator)) != nil {
 		return nil
 	}
-	_, err = w.addUser(operator, actor)
-	return err
+	u, err := w.addUser(operator, actor)
+	if err != nil {
+		return err
+	}
+	u.Subscriptions = append(u.Subscriptions, upgradeFailureSub())
+	return put(w.Tx, bUsers, operator, u)
+}
+
+// subscribeUpgradeFailures gives the operator's user the automatic
+// install's failure subscription, unless it holds it already: setting
+// upgrade_from subscribes them again in the same write, so the automatic
+// path never runs untold even where it was removed before.
+func (w *wtx) subscribeUpgradeFailures() error {
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return err
+	}
+	u, err := getUser(w.Tx, operator)
+	if err != nil {
+		return err
+	}
+	want := upgradeFailureSub()
+	if slices.ContainsFunc(u.Subscriptions, want.same) {
+		return nil
+	}
+	u.Subscriptions = append(u.Subscriptions, want)
+	return put(w.Tx, bUsers, operator, u)
 }
 
 // migrateOperator is ensureOperator for a yard from before users, run when

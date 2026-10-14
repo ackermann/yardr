@@ -1412,6 +1412,7 @@ value; `--json` has where it is from.
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
 | `blob_max_bytes` | the most bytes one image in mail may have ([users.md](users.md#an-image-in-mail)); a whole number from 1, default 8388608 (8 MiB). A larger one is refused when it is put, by `yardr mail --file` and by `PutBlob` on the socket; images the yard already holds stay. |
 | `peer_file_max_bytes` | the most bytes one image sent to a linked yard, or taken from one, may have ([peers.md](peers.md#an-image-with-the-mail)); a whole number from 1 to 33554432 (32 MiB). Unset, it is `blob_max_bytes`, and never more than 32 MiB. An image over it is refused before its mail is queued here, and refused with its size when it comes from a peer. |
+| `upgrade_from` | the depot whose landed build the yard installs itself after the assembly lands on it (`yardr upgrade`); unset, nothing is installed. Setting it is refused while the operator names no notify source, and names how to set one (`yardr pack apply pushover` or `yardr pack apply telegram`, with `--notify`): with none, a failed install could tell nobody outside the yard. Setting it subscribes the operator to the install's failure kinds (`install_failed`, `rolled_back`) in the same write, and while it is set unsubscribing from either kind is refused: remove the setting first ([subscriptions.md](subscriptions.md#users-as-subscribers)). |
 
 Environment variables yardr reads:
 

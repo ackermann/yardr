@@ -433,6 +433,10 @@ func (s *Store) dropSubscriptions(name, source, actor string, match func(Subscri
 			var gone []string
 			for _, sub := range subs {
 				if sub.Source == source && match(sub) {
+					if source == SourceYardr && matchesFailureKind(sub) && upgradeFromSet(w.Tx) {
+						return nil, "", nil, fmt.Errorf("subscription %s: the automatic install tells of a failed install through it while %s is set: remove the setting first (yardr settings set %s \"\")",
+							sub, UpgradeFromSetting, UpgradeFromSetting)
+					}
 					gone = append(gone, sub.String())
 					continue
 				}
@@ -554,6 +558,52 @@ func best(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// upgradeFailureSub is the yardr subscription the operator holds for the
+// automatic install's failures: scope all on exactly the two failure kinds,
+// matched with or without a bead (deliverBeadless). ensureOperator adds it
+// with the operator's user, the schema 20 migration for yards that have
+// one, and setting upgrade_from again in the same write.
+func upgradeFailureSub() Subscription {
+	return Subscription{Source: SourceYardr, Scope: ScopeAll,
+		Where: map[string]string{"kind": JoinWhere([]string{InstallFailed, RolledBack})}}
+}
+
+// beadlessWhere reports whether a yardr filter matches a bead-less event at
+// all: kind and actor are the event's own, and any other key is a bead's
+// (beadFields), which there is none to match against.
+func beadlessWhere(where map[string]string) bool {
+	for k := range where {
+		if k != "kind" && k != "actor" {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesFailureKind reports whether the yardr subscription reaches its
+// holder for a bead-less upgrade failure event (InstallFailed, RolledBack):
+// of scope all, filtering on kind alone, with no kind filter or one naming
+// either kind or the attention class. A narrower scope never matches
+// without a bead (there is no mention in, assignment of, or part in
+// nothing), and one filtering on bead fields needs a bead, which such an
+// event has none of. Dropping one while the automatic install is on is
+// refused (dropSubscriptions).
+func matchesFailureKind(sub Subscription) bool {
+	if sub.Source != SourceYardr || sub.Scope != ScopeAll || !beadlessWhere(sub.Where) {
+		return false
+	}
+	want, filtered := sub.Where["kind"]
+	if !filtered {
+		return true
+	}
+	for _, v := range WhereValues(want) {
+		if v == InstallFailed || v == RolledBack || v == KindAttention {
+			return true
+		}
+	}
+	return false
 }
 
 // match is why an event reaches the holder of sub, "" when it does not: the

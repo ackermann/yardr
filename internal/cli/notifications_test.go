@@ -25,7 +25,8 @@ func TestSubscribeAlreadyThere(t *testing.T) {
 		t.Fatalf("the first again: %q", out)
 	}
 	u, err := st.GetUser(context.Background(), "jo")
-	if err != nil || len(u.Subscriptions) != 2 {
+	// The two asked for, beside the operator's failure subscription.
+	if err != nil || len(u.Subscriptions) != 3 {
 		t.Fatalf("subscriptions = %+v, %v", u, err)
 	}
 }
@@ -310,7 +311,8 @@ func TestSetupOffersToBeToldOfLandedBeads(t *testing.T) {
 			t.Fatalf("%s: asked %q, %v", who, keysOf(f), err)
 		}
 	}
-	if u, err := st.GetUser(ctx, "Jo"); err != nil || len(u.Subscriptions) != 0 {
+	if u, err := st.GetUser(ctx, "Jo"); err != nil || len(u.Subscriptions) != 1 ||
+		u.Subscriptions[0].String() != "yardr all kind=install_failed kind=rolled_back" {
 		t.Fatalf("a no subscribed Jo: %+v, %v", u, err)
 	}
 }

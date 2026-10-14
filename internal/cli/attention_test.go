@@ -39,9 +39,13 @@ func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
 		return mustAs(t, st, "jo", "subscribe"), m
 	}
 	text, m := matrix()
-	if len(m.Rows) != 1 || m.Rows[0].Subscription.String() != "yardr all kind=attention" || m.Rows[0].Kind != store.KindAttention ||
-		!slices.Equal(m.Rows[0].Reaches, []string{"clerk", "yardmaster"}) || len(m.ReachesNoOne) != 0 {
-		t.Fatalf("matrix = %+v, want the class as its one row, and no kind that reaches no one:\n%s", m, text)
+	// The class is one row; the operator's failure subscription is the
+	// yard's other row.
+	if len(m.Rows) != 2 || m.Rows[0].Subscription.String() != "yardr all kind=attention" || m.Rows[0].Kind != store.KindAttention ||
+		!slices.Equal(m.Rows[0].Reaches, []string{"clerk", "yardmaster"}) ||
+		m.Rows[1].Subscription.String() != "yardr all kind=install_failed kind=rolled_back" ||
+		!slices.Equal(m.Rows[1].Reaches, []string{"jo"}) || len(m.ReachesNoOne) != 0 {
+		t.Fatalf("matrix = %+v, want the class as one row and the operator's subscription, and no kind that reaches no one:\n%s", m, text)
 	}
 	if strings.Contains(text, "reaches no one") || strings.Contains(text, "kind=held") {
 		t.Errorf("the class is not one row:\n%s", text)
@@ -58,7 +62,8 @@ func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
 	text, m = matrix()
 	var want []string
 	for _, k := range store.AttentionKinds {
-		if k != "gave_up" && k != "held" {
+		// The operator's default subscription reaches the failure kinds.
+		if k != "gave_up" && k != "held" && k != store.InstallFailed && k != store.RolledBack {
 			want = append(want, k)
 		}
 	}

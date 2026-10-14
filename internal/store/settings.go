@@ -56,6 +56,9 @@ const (
 	MaxSessionsSetting = "max_sessions"
 	// HerdrSessionSetting names the herdr session the yard's panes are in.
 	HerdrSessionSetting = "herdr_session"
+	// UpgradeFromSetting names the depot whose landed build the yard
+	// installs itself after the assembly lands on it (yardr upgrade).
+	UpgradeFromSetting = "upgrade_from"
 )
 
 // DefaultWebAddr and DefaultBDPAddr are where the web view and the BDP
@@ -227,6 +230,8 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, nothing is installed",
+		Check: func(v string) error { return checkName("depot name", v) }},
 }
 
 // SettingOf is the setting key names.
@@ -408,6 +413,11 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 				return err
 			}
 		}
+		if key == UpgradeFromSetting && value != "" {
+			if err := upgradeFromTellable(w.Tx); err != nil {
+				return err
+			}
+		}
 		var err error
 		if value == "" {
 			err = w.Bucket(bSettings).Delete([]byte(key))
@@ -422,8 +432,47 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 				return err
 			}
 		}
+		if key == UpgradeFromSetting && value != "" {
+			if err := w.subscribeUpgradeFailures(); err != nil {
+				return err
+			}
+		}
 		return w.event("", "setting_changed", actor, map[string]any{"key": key, "value": value})
 	})
+}
+
+// upgradeFromSet reports whether the automatic install is on: the
+// upgrade_from setting names a depot.
+func upgradeFromSet(tx *bolt.Tx) bool {
+	return tx.Bucket(bSettings).Get([]byte(UpgradeFromSetting)) != nil
+}
+
+// upgradeFromTellable refuses the automatic install where a failure could
+// tell nobody outside the yard: with no operator, with an operator who is
+// no user, or with one naming no notify source. The refusal names how to
+// set one.
+func upgradeFromTellable(tx *bolt.Tx) error {
+	operator, err := operatorIn(tx)
+	if err != nil {
+		return err
+	}
+	if operator == "" {
+		return fmt.Errorf("%s: the yard names no operator, and a failed install is told to the operator outside the yard: "+
+			"name one first (yardr settings set operator <name>)", UpgradeFromSetting)
+	}
+	var u User
+	if ok, err := get(tx, bUsers, operator, &u); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("%s: the operator %s is a crew member's name, and mail to a name reaches one party: "+
+			"choose another name for the operator, or remove the crew member first (yardr crew rm %s)", UpgradeFromSetting, operator, operator)
+	}
+	if u.Notify == "" {
+		return fmt.Errorf("%s: the operator %s names no notify source, and a failed install is told outside the yard: "+
+			"name one first (yardr pack apply pushover --source-env pushover=<file> --notify %s=pushover,<file>, or the telegram pack the same way)",
+			UpgradeFromSetting, operator, operator)
+	}
+	return nil
 }
 
 // HandleHerdrSession is where a handle names the herdr session its pane is

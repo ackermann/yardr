@@ -67,6 +67,10 @@ type Notification struct {
 	Text string `json:"text"`
 	// Read is whether the user acknowledged it (AckUserNotifications).
 	Read bool `json:"read"`
+	// Told is whether the event was already told outside the yard when it
+	// was logged (eventTold): the notification is written and no push is
+	// queued for it (notify).
+	Told bool `json:"told,omitempty"`
 }
 
 // NotificationPage is the notifications part of a user's inbox.
@@ -87,9 +91,9 @@ func Notified(e Event, user string) string {
 	return reason
 }
 
-// notSaid are the keys of an event's data that say whom it reached, which
-// its row leaves out.
-var notSaid = []string{"deliveries", "watches_ended", "notified"}
+// notSaid are the keys of an event's data that say whom it reached, or
+// that it was already told, which its row leaves out.
+var notSaid = []string{"deliveries", "watches_ended", "notified", "told"}
 
 // userSubscribers calls fn for every user that has subscriptions. A user
 // is no member of a group, so they are the user's own.
@@ -130,7 +134,8 @@ func (w *wtx) maySubscribe(name, actor string) error {
 
 // notify writes the notification n for each of users (user -> reason), with
 // the push that tells it outside the yard (queuePush), and drops what is
-// over the bound. n's text is its row with the place of the
+// over the bound. One already told (Told) is written and no push is queued
+// for it. n's text is its row with the place of the
 // reason left open (reasonSlot).
 func (w *wtx) notify(n Notification, users map[string]any) error {
 	row := n.Text
@@ -140,8 +145,10 @@ func (w *wtx) notify(n Notification, users map[string]any) error {
 		if err := put(w.Tx, bNotifications, join(name, seqKey(n.Seq)), n); err != nil {
 			return err
 		}
-		if err := w.queuePush(name, PushNotification, n.Seq); err != nil {
-			return err
+		if !n.Told {
+			if err := w.queuePush(name, PushNotification, n.Seq); err != nil {
+				return err
+			}
 		}
 		ks := keys(w.Tx, bNotifications, name+"\x00")
 		for _, k := range ks[:max(0, len(ks)-MaxNotifications)] {
@@ -195,13 +202,30 @@ func clip(s string, n int) string {
 // own, else one its reason names (the assembly's "merged <sha>").
 var commitIn = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 
+// eventTold reports whether the event was already told outside the yard
+// when it was logged: the upgrade's recovery logging marks a failure event
+// told when its direct send succeeded, so normal delivery does not send it
+// again.
+func eventTold(e *Event) bool {
+	told, _ := e.Data["told"].(bool)
+	return told
+}
+
+// yardNotification is bead-less event e as a notification, its row in the
+// words yardr inbox shows a crew member: "<kind> (<reason>) by <actor>
+// <key=value ...>".
+func yardNotification(e *Event) Notification {
+	return Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Told: eventTold(e),
+		Text: fmt.Sprintf("%s (%s) by %s %s", e.Kind, reasonSlot, e.Actor, showMap(Brief(said(e.Data))))}
+}
+
 // beadNotification is bead event e as a notification, its row in the words
 // yardr inbox shows a crew member: "<bead> <kind> (<reason>) by <actor>
 // <key=value ...>". An answer reads as its sentence instead (see
 // answerSentence), in words wherever it lands. The title follows it unless
 // the event says it already.
 func beadNotification(e *Event, row *beadRow) Notification {
-	n := Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Bead: row.ID, Title: row.Title}
+	n := Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Bead: row.ID, Title: row.Title, Told: eventTold(e)}
 	if line, _ := e.Data["answer"].(string); line != "" {
 		n.Text = line
 		return n

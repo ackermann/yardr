@@ -147,6 +147,16 @@ func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map
 	return s.write(func(w *wtx) error { return w.event(bead, kind, actor, data) })
 }
 
+// InstallFailed and RolledBack are the automatic install's failure kinds:
+// an install of a new yardr failed, and a failed install put the previous
+// build back. Both are yard events, about no bead, told by kind
+// subscription (deliverBeadless); the operator holds one by default
+// (upgradeFailureSub).
+const (
+	InstallFailed = "install_failed"
+	RolledBack    = "rolled_back"
+)
+
 // DispatchKinds are the events LogDispatch accepts: what the daemon and its
 // runners report about the work they supervise, none of which changes state.
 // move_refused is the store's own (see Store.refused) and is here as what
