@@ -187,6 +187,18 @@ $2}"
   hold "$note"
 }
 
+# Dokku's IsValidAppName starts with an ASCII lower-case letter or digit,
+# then allows anything except slash, colon, underscore and ASCII uppercase.
+# Check in the C locale so shell ranges match Go's ASCII ranges.
+dokku_app_name_invalid() (
+  LC_ALL=C
+  export LC_ALL
+  case $1 in
+  [!a-z0-9]* | *[/:_A-Z]*) return 0 ;;
+  esac
+  return 1
+)
+
 if [ "$MODE" = deploy ]; then
   sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE^{commit}") ||
     fail "base $BASE is not a local branch of $REPO; deploy-dokku pushes only a local branch"
@@ -205,22 +217,17 @@ if [ "$MODE" = deploy ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   live "not deployed: landed on train $TRAIN's branch $BASE (at $at), not on the depot's base. The train deploys when it lands."
 fi
 
-# The host and the app become part of an ssh command line: a name with
-# anything else in it (a leading -, a space, a quote) is refused, not passed.
+# The host becomes the ssh destination, so it must be a host name or address.
+# DOKKU_APP is checked below against Dokku's own rule.
 case $HOST in
 '') fail "DOKKU_HOST is not set in the group's cmd; nothing was pushed" ;;
 -* | *[!A-Za-z0-9.-]*) fail "DOKKU_HOST is no host name or address ($HOST); nothing was pushed" ;;
 esac
 if [ "$MODE" = deploy ]; then
-  # Dokku's own rule for an app's name (its IsValidAppName, which apps:create
-  # and a push enforce): it begins with a lower case letter or digit, and the
-  # rest is lower case letters, digits, dots and hyphens. A name outside it
-  # cannot exist on the host, so it is refused here, before the push, with
-  # the host's refusal said sooner.
-  case $APP in
-  '') fail "DOKKU_APP is not set in the group's cmd; nothing was pushed" ;;
-  [!a-z0-9]* | *[!a-z0-9.-]*) fail "DOKKU_APP is no app name ($APP); nothing was pushed" ;;
-  esac
+  [ -n "$APP" ] || fail "DOKKU_APP is not set in the group's cmd; nothing was pushed"
+  if dokku_app_name_invalid "$APP"; then
+    fail "DOKKU_APP is no app name ($APP); nothing was pushed"
+  fi
 elif [ "$MODE" = preview ]; then
   # The removal reads a preview's name back as the depot's name and the rest
   # of the bead's id: an id that is not written so would leave an app nobody
@@ -366,7 +373,25 @@ fi
 echo "== $BEAD took: push $secs s (exit $rc)"
 
 where=dokku@$HOST:$APP
-[ -z "$URL" ] || where=$(printf '%s\n' "$URL" | sed "s/{app}/$APP/g")
+if [ -n "$URL" ]; then
+  # Treat the app as literal replacement text; sed would interpret '&' and
+  # backslashes in a Dokku-valid name as replacement syntax.
+  rest=$URL
+  where=
+  while :; do
+    case $rest in
+    *"{app}"*)
+      before=${rest%%"{app}"*}
+      where=$where$before$APP
+      rest=${rest#*"{app}"}
+      ;;
+    *)
+      where=$where$rest
+      break
+      ;;
+    esac
+  done
+fi
 if [ "$rc" = 0 ] && [ "$MODE" = preview ]; then
   on=
   [ -z "$TRAIN" ] || on=" It holds train $TRAIN's branch so far and this bead's change."

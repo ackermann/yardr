@@ -489,6 +489,32 @@ func TestDeployPushesToADottedApp(t *testing.T) {
 	}
 }
 
+// Dokku permits punctuation after the initial lower-case alphanumeric. The
+// app name stays literal in the git-over-ssh command and in the URL note.
+func TestDeployPushesToDokkuValidAppNameWithShellSyntax(t *testing.T) {
+	y := newYard(t)
+	app := "app$(touch shellpwned)&'"
+	y.opts["DOKKU_APP"] = app
+	y.opts["DOKKU_URL"] = "https://{app}.example.test"
+	y.makeApp(app)
+	sha := y.commit(y.repo, "b.txt", "landed\n")
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "live" {
+		t.Fatalf("bead in %s, want live", b.Stage)
+	}
+	if got := y.at(app); got != sha {
+		t.Fatalf("the host's main is at %q, want the base %s", got, sha)
+	}
+	if _, err := os.Stat(filepath.Join(y.state, "host", "shellpwned")); !os.IsNotExist(err) {
+		t.Fatalf("the app name ran shell syntax on the host: %v", err)
+	}
+	if want := "live https://" + app + ".example.test at " + sha[:7]; !strings.Contains(y.notes("r-1"), want) {
+		t.Fatalf("the note does not carry the app name literally (%q):\n%s", want, y.notes("r-1"))
+	}
+}
+
 // With DOKKU_KEY_FILE the push offers that key and no other; only its path
 // is on the command line.
 func TestDeployUsesTheKeyFile(t *testing.T) {
@@ -733,9 +759,10 @@ func TestDeployRefusesBeforeThePush(t *testing.T) {
 		"no host":                          {map[string]string{"DOKKU_HOST": ""}, "DOKKU_HOST is not set"},
 		"a host that is an option":         {map[string]string{"DOKKU_HOST": "-oProxyCommand=x"}, "DOKKU_HOST is no host name"},
 		"no app":                           {map[string]string{"DOKKU_APP": ""}, "DOKKU_APP is not set"},
-		"an app with a quote in it":        {map[string]string{"DOKKU_APP": "a';x"}, "DOKKU_APP is no app name"},
 		"an app with an underscore":        {map[string]string{"DOKKU_APP": "my_app"}, "DOKKU_APP is no app name"},
 		"an app with an upper case letter": {map[string]string{"DOKKU_APP": "MyApp"}, "DOKKU_APP is no app name"},
+		"an app with a slash":              {map[string]string{"DOKKU_APP": "my/app"}, "DOKKU_APP is no app name"},
+		"an app with a colon":              {map[string]string{"DOKKU_APP": "my:app"}, "DOKKU_APP is no app name"},
 		"an app starting with a dot":       {map[string]string{"DOKKU_APP": ".app"}, "DOKKU_APP is no app name"},
 		"an app starting with a hyphen":    {map[string]string{"DOKKU_APP": "-app"}, "DOKKU_APP is no app name"},
 		"no known-hosts variable":          {map[string]string{"DOKKU_KNOWN_HOSTS": ""}, "DOKKU_KNOWN_HOSTS is not set"},
