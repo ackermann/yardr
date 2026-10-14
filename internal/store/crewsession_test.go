@@ -404,6 +404,9 @@ func paneCtx(t *testing.T, ctx context.Context) (context.Context, map[string]any
 // An ask's answer goes to the session that asked: hal's conversation for
 // an ask from hal's pane, the line for an ask from nowhere.
 func TestAskAnswerRoutedToAsker(t *testing.T) {
+	if os.Getenv("YARDR_TEST_RPC") != "" {
+		t.Skip("one RPC test process cannot represent both a conversation pane and the line session")
+	}
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	pane, shell := paneCtx(t, ctx)
@@ -466,6 +469,9 @@ func TestAskAnswerRoutedToAsker(t *testing.T) {
 // it; the handoff is per session, read back by the session that wrote it,
 // and asks a session to restart its own next one.
 func TestJournalHandoffPerSession(t *testing.T) {
+	if os.Getenv("YARDR_TEST_RPC") != "" {
+		t.Skip("one RPC test process cannot represent both a conversation pane and the line session")
+	}
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	pane, shell := paneCtx(t, ctx)

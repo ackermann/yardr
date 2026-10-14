@@ -33,7 +33,11 @@ func serveCrew(t *testing.T, s store.API, for_ string, envFor map[string]string)
 	for user, path := range envFor {
 		def.Config["env_for_"+user] = path
 	}
-	if _, err := s.PutCrew(ctx, def, "me"); err != nil {
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, def, settings[store.OperatorSetting]); err != nil {
 		t.Fatal(err)
 	}
 }
