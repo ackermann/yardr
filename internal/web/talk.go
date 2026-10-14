@@ -20,8 +20,8 @@ type Talk struct {
 	// As is the user the view acts as, "" when it does not act: the page
 	// then says so instead of any conversation.
 	As string `json:"as"`
-	// With is the crew member or user in conversation, "" when the view
-	// does not act or the yard has no crew.
+	// With is the crew member or other user in conversation, "" when the
+	// view does not act or has no conversation partner.
 	With string `json:"with"`
 	// WithStatus is its state, in the words footplate lists it with; ""
 	// when with names no crew member: a conversation with a person shows
@@ -100,10 +100,10 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	with := r.URL.Query().Get("with")
 	switch {
 	case with == "":
-		with = defaultPeer(crew)
-	case isPeer(crew, users, with):
+		with = defaultTalkPeer(crew, users, as)
+	case isTalkPeer(crew, users, as, with):
 	default:
-		s.fail(w, r, fmt.Errorf("crew member %s: %w (nor is there a user of that name)", with, store.ErrNotFound))
+		s.fail(w, r, fmt.Errorf("talk partner %s: %w", with, store.ErrNotFound))
 		return
 	}
 	var before uint64
@@ -143,21 +143,30 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, r, Page{Template: "talk", Title: title, Menu: "talk", Data: out, head: head})
 }
 
-// defaultPeer is the member the talk page opens on: the yardmaster where
-// the yard has one, else its first crew member, "" with no crew.
-func defaultPeer(crew []store.CrewMember) string {
+// defaultTalkPeer is the partner the talk page opens on: the yardmaster
+// where the yard has one, else its first crew member, else its first user
+// other than the one the view acts as.
+func defaultTalkPeer(crew []store.CrewMember, users []store.User, as string) string {
 	if slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == "yardmaster" }) {
 		return "yardmaster"
 	}
 	if len(crew) > 0 {
 		return crew[0].Name
 	}
+	for _, u := range users {
+		if u.Name != as {
+			return u.Name
+		}
+	}
 	return ""
 }
 
-// isPeer reports whether name is a crew member or a user of the yard: the
-// talk page holds a conversation with either.
-func isPeer(crew []store.CrewMember, users []store.User, name string) bool {
+// isTalkPeer reports whether name is a crew member or another user of the
+// yard: the talk page holds a conversation with either.
+func isTalkPeer(crew []store.CrewMember, users []store.User, as, name string) bool {
+	if name == as {
+		return false
+	}
 	return slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == name }) ||
 		slices.ContainsFunc(users, func(u store.User) bool { return u.Name == name })
 }
@@ -247,10 +256,10 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 	}
 	with := r.URL.Query().Get("with")
 	if with == "" {
-		with = defaultPeer(crew)
+		with = defaultTalkPeer(crew, users, s.acting(ctx))
 	}
-	if with == "" || !isPeer(crew, users, with) {
-		s.fail(w, r, fmt.Errorf("crew member %s: %w (nor is there a user of that name)", with, store.ErrNotFound))
+	if with == "" || !isTalkPeer(crew, users, s.acting(ctx), with) {
+		s.fail(w, r, fmt.Errorf("talk partner %s: %w", with, store.ErrNotFound))
 		return
 	}
 	text := r.PostFormValue("text")

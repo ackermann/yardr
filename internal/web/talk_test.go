@@ -491,6 +491,51 @@ func TestTalkPerson(t *testing.T) {
 	}
 }
 
+// With no crew, the talk page still opens on another user and shows the
+// picker and form; the acting user is not a conversation partner.
+func TestTalkPersonWithoutCrew(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	ctx := context.Background()
+	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.AddUser(ctx, "amy", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	r := f.get("/talk")
+	if r.status != http.StatusOK {
+		t.Fatalf("/talk: status %d, want the conversation with amy", r.status)
+	}
+	for _, want := range []string{
+		`<a href="/talk?with=amy" aria-current="page">amy</a>`,
+		`<form id="send" method="post" action="/talk?with=amy"`,
+		"No mail between jo and amy yet.",
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	if strings.Contains(r.body, `<span class="state">`) || strings.Contains(r.body, "/talk?with=jo") {
+		t.Errorf("the page shows a person status or lists the acting user:\n%s", r.body)
+	}
+	if r := f.get("/talk?with=jo"); r.status != http.StatusNotFound {
+		t.Errorf("/talk?with=jo: status %d, want 404", r.status)
+	}
+
+	form := url.Values{"text": {"hello"}}
+	if r := f.postForm("/talk", form, "Origin", f.ts.URL); r.status != http.StatusSeeOther || r.header.Get("Location") != "/talk?with=amy" {
+		t.Fatalf("POST /talk: status %d, location %q, want 303 to amy", r.status, r.header.Get("Location"))
+	}
+	conv, _, err := f.st.Conversation(ctx, "jo", "amy", 0, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conv) != 1 || conv[0].Text != "hello" || conv[0].From != "jo" {
+		t.Errorf("conversation with amy: %+v, want the one message from jo", conv)
+	}
+}
+
 // A POST from the view's own origin sends mail as the view's user, and
 // lands on the conversation; anything else is refused.
 func TestTalkPost(t *testing.T) {
