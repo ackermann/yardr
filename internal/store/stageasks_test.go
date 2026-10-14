@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -179,6 +180,64 @@ func TestStageAskCreateBeadEntry(t *testing.T) {
 	}
 	if got[0].Ask.Entry != created || got[1].Ask.Entry != created {
 		t.Fatalf("ask entries = %d, %d; created = %d", got[0].Ask.Entry, got[1].Ask.Entry, created)
+	}
+}
+
+// Store-flow stage files live in the yard's home. Both advancing into one
+// and creating a bead directly in it put the stage ask.
+func TestStageAskStoreFlow(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "flows", "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "flows", "work", "review.md"), []byte(stageAskChoice), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := storetest.Open(t, filepath.Join(home, "yard.db"))
+	ctx := context.Background()
+	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": stageAskFlow})
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow(stageAskFlow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "work"
+	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "web", "", "work", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, start := range []string{"new", "review"} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: start}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if start == "new" {
+			b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := stageAsks(t, s, b.ID)
+		if len(got) != 1 || got[0].Ask.To != "ada" || got[0].Ask.Stage != "review" || got[0].Note.Author != "yard" {
+			t.Fatalf("store-flow ask from %s: %+v", start, got)
+		}
 	}
 }
 
