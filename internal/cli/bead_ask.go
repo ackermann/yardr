@@ -780,13 +780,12 @@ func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 		return
 	}
 	as := trustMarks(ctx, st)
+	if as == nil {
+		as = map[string]string{}
+	}
 	for _, r := range store.ResolveAsks(notes, time.Now()) {
 		if r.Note.Seq == seq {
-			lines := r.Lines()
-			if as != nil {
-				lines = r.LinesMarked(as)
-			}
-			fmt.Println(strings.Join(lines, "\n"))
+			fmt.Println(strings.Join(r.LinesMarked(as), "\n"))
 			return
 		}
 	}

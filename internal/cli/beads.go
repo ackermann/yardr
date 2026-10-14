@@ -311,18 +311,19 @@ func printBlockedBy(ds []store.Dep) {
 //
 // An author from another yard says whose word the note is, as mail does:
 // (as <user>) where a link trusts the name (as, from trustMarks), the
-// foreign line otherwise. A nil as reads unmarked, when the trusts cannot
-// be read.
+// foreign line otherwise. A nil as marks with no grants: when the trusts
+// cannot be read, every name of another yard carries the foreign line
+// and nobody reads (as <user>).
 func printNotes(notes []store.Note, home string, as map[string]string) {
 	if len(notes) == 0 {
 		return
 	}
+	if as == nil {
+		as = map[string]string{}
+	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
-		author := store.OneLine(n.Author)
-		if as != nil {
-			author = store.OneLine(store.MarkedAuthor(n.Author, as))
-		}
+		author := store.OneLine(store.MarkedAuthor(n.Author, as))
 		fmt.Printf("  %s %s (note %d)%s\n", author, n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
 		fmt.Printf("    %s\n", strings.ReplaceAll(store.NoteLetters(n.Text), "\n", "\n    "))
 		if line := store.NoteFilesLine(home, n.Files); line != "" {
@@ -502,7 +503,7 @@ same as the eta and late objects, absent likewise.`,
 				return err
 			}
 			// An author from another yard says whose word the note is, as
-			// mail does; unmarked when the trusts cannot be read.
+			// mail does; with no grants when the trusts cannot be read.
 			printNotes(notes, a.mailHome(), trustMarks(c.Context(), st))
 			return nil
 		},
@@ -618,8 +619,9 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 
 // trustMarks reads whom the links trust as a user of this yard, for the
 // marks numbered text carries on an answer from another yard. Nil when
-// the yard cannot be asked, having said why: the ask then reads
-// unmarked, as before.
+// the yard cannot be asked, having said why: callers mark with no
+// grants then, so every name of another yard carries the foreign line
+// and nobody reads (as <user>).
 func trustMarks(ctx context.Context, st store.API) map[string]string {
 	peers, err := st.Peers(ctx)
 	if err != nil {
@@ -956,12 +958,13 @@ func (a *app) primeCmd() *cobra.Command {
 				if len(notes) > 0 {
 					fmt.Println("\nNotes:")
 					// An answer from another yard says whose word it is,
-					// as mail does; unmarked when the trusts cannot be read.
+					// as mail does; with no grants when the trusts cannot
+					// be read.
 					as := trustMarks(c.Context(), st)
-					blocks := store.NoteBlocks(notes, time.Now(), a.mailHome())
-					if as != nil {
-						blocks = store.NoteBlocksMarked(notes, time.Now(), as, a.mailHome())
+					if as == nil {
+						as = map[string]string{}
 					}
+					blocks := store.NoteBlocksMarked(notes, time.Now(), as, a.mailHome())
 					for _, block := range blocks {
 						fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
 					}

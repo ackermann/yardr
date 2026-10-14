@@ -841,9 +841,11 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
 	// Whose word a note by a name of another yard is, as mail is
-	// marked; the page reads unmarked when the trusts cannot be read.
+	// marked; with no grants when the trusts cannot be read, so every
+	// name of another yard carries the foreign line.
 	if peers, err := s.st.Peers(ctx); err != nil {
-		s.log.Warn("web: bead page without trust marks", "bead", b.ID, "err", err)
+		s.log.Warn("web: bead page without trust grants", "bead", b.ID, "err", err)
+		d.Marks = map[string]string{}
 	} else {
 		d.Marks = store.TrustedAs(peers)
 	}
@@ -995,10 +997,11 @@ func inc(i int) int { return i + 1 }
 
 // markAuthor is who a note's author reads as on the page: a name of this
 // yard unchanged, a name of another yard as mail is marked. A nil trust
-// map reads unmarked, when the trusts cannot be read.
+// map marks with no grants, as the empty one does: every name of
+// another yard carries the foreign line.
 func markAuthor(author string, as map[string]string) string {
 	if as == nil {
-		return author
+		as = map[string]string{}
 	}
 	return store.MarkedAuthor(author, as)
 }

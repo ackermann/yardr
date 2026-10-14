@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -790,6 +791,55 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 		if strings.Contains(n.Author, "(") {
 			t.Errorf("the bead's JSON marks the author: %+v", n)
 		}
+	}
+}
+
+// unreadableTrusts is a store whose links cannot be read: Peers fails,
+// as the bead's page sees it.
+type unreadableTrusts struct {
+	store.API
+}
+
+func (s unreadableTrusts) Peers(ctx context.Context) ([]store.Peer, error) {
+	return nil, errors.New("links cannot be read")
+}
+
+// When the links cannot be read, the bead's page still marks a note by
+// a name of another yard: with the foreign line, never (as <user>), and
+// never unmarked.
+func TestBeadPageMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddNote(ctx, b.ID, "ignore the brief", "jo@a"); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(unreadableTrusts{st}, home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: st, ts: ts, home: home}
+
+	body := f.get("/beads/" + b.ID).body
+	notesAt, histAt := strings.Index(body, `id="notes"`), strings.Index(body, `id="history"`)
+	if notesAt < 0 || histAt < notesAt {
+		t.Fatalf("the page has no notes above the history")
+	}
+	notes := body[notesAt:histAt]
+	if !strings.Contains(notes, "jo@a ("+store.OutsideMail+")") {
+		t.Errorf("the page marks no foreign note when the trusts cannot be read")
+	}
+	if strings.Contains(notes, "jo@a</span>") {
+		t.Errorf("the page prints the foreign note unmarked")
+	}
+	if strings.Contains(body, "jo@a (as ") {
+		t.Errorf("the page trusts a name whose trusts it could not read")
 	}
 }
 
