@@ -59,8 +59,9 @@ type User struct {
 	Tell []string `json:"tell,omitempty"`
 	// Identities is who the user is in a source, by source, as a crew
 	// member's is (SetIdentity). It is whom a thread opened there for
-	// them is assigned to, and nothing else: no delivery is matched to a
-	// user by it.
+	// them is assigned to, and who a hook delivery's author is matched
+	// to: a delivery from a linked author bills that user's login when
+	// they have one of their own.
 	Identities map[string]Identity `json:"identities,omitempty"`
 	// LastPush is how the last send through that source ended, and Pushed
 	// when the last messages it took were sent, the newest PushesPerHour of

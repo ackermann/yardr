@@ -212,7 +212,13 @@ func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, dec
 	var bead *store.Bead
 	if why == "" {
 		data["depot"] = depot
-		bead, err = d.Store.CreateBead(ctx, madeBead(ev, line, depot), "hook:"+h.Name)
+		nb := madeBead(ev, line, depot)
+		forUser, fallback := d.hookOriginator(ctx, ev, line, depot)
+		nb.For = forUser
+		for k, v := range fallback {
+			data[k] = v
+		}
+		bead, err = d.Store.CreateBead(ctx, nb, "hook:"+h.Name)
 	}
 	id := ""
 	switch {
@@ -234,6 +240,88 @@ func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, dec
 		d.Log.Warn("hook_rule event", "err", err)
 	}
 	return false
+}
+
+// hookOriginator is whose subscription the bead line makes of ev builds
+// on: the delivery's author when they are a linked user (yardr user
+// identity) with their own login and a personal route in the bead's
+// stage, else the operator's. The author is a bystander, giving input
+// through a flow, unless both checks say they are an interactor who talks
+// to the yard; a default never spends another person's subscription.
+//
+// "Their own login" is declared, not probed: a herdr group whose config
+// sets login_for to them. A missing or mispointed env file does not move
+// the bead: the declaration wins while the group waits runtime_down, so a
+// transient file state never silently rebills interactor work to the
+// operator. The route check probes MatchRoute with a bead of theirs as it
+// would be made, and counts only a personal route, whose first group
+// declares the same login_for; a subsidy route never proves a login.
+//
+// It returns the bead's For and, when a linked author falls back to the
+// operator, what the hook_rule event records of it: the linked author and
+// which check failed (no_personal_group, or no_personal_route with the
+// matched route and worker where there is one). An unlinked author, the
+// operator themself, and anything the store cannot answer bill the
+// operator's as every hook bead does, with nothing recorded.
+func (d *Dispatcher) hookOriginator(ctx context.Context, ev ruleEvent, line *store.Make, depot string) (string, map[string]any) {
+	if ev.actor == "" {
+		return "", nil
+	}
+	users, err := d.Store.Users(ctx)
+	if err != nil {
+		d.Log.Warn("hook event: reading the users", "err", err)
+		return "", nil
+	}
+	linked := ""
+	for _, u := range users {
+		if u.IsIn(ev.source, ev.actor) {
+			linked = u.Name
+			break
+		}
+	}
+	if linked == "" {
+		return "", nil
+	}
+	settings, err := d.Store.Settings(ctx)
+	if err != nil {
+		d.Log.Warn("hook event: reading the settings", "err", err)
+		return "", nil
+	}
+	operator := settings[store.OperatorSetting]
+	if linked == operator {
+		return "", nil
+	}
+	groups, err := d.Store.Groups(ctx)
+	if err != nil {
+		d.Log.Warn("hook event: reading the groups", "err", err)
+		return "", nil
+	}
+	byName := make(map[string]store.Group, len(groups))
+	personal := false
+	for _, g := range groups {
+		byName[g.Name] = g
+		if g.Runner == "herdr" && g.LoginFor() == linked {
+			personal = true
+		}
+	}
+	if !personal {
+		return "", map[string]any{"linked_author": linked, "originator_rule": "no_personal_group"}
+	}
+	routes, err := d.Store.Routes(ctx)
+	if err != nil {
+		d.Log.Warn("hook event: reading the routes", "err", err)
+		return "", nil
+	}
+	SortRoutes(routes)
+	matched := Match(routes, store.Bead{Stage: line.Stage, Type: line.Type, Depot: &depot, Originator: linked}, operator)
+	if matched == nil || !store.IsPersonalRoute(*matched, byName, linked, operator) {
+		fallback := map[string]any{"linked_author": linked, "originator_rule": "no_personal_route"}
+		if matched != nil {
+			fallback["route"], fallback["worker"] = matched.ID, matched.Worker()
+		}
+		return "", fallback
+	}
+	return linked, nil
 }
 
 // madeBead is the bead line makes of ev in depot: the thread's title, the

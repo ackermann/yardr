@@ -35,6 +35,14 @@ func (r CrewMember) IsIn(source, id string) bool {
 	return known && who.is(id)
 }
 
+// IsIn reports whether id is who the user is in source: what tells that
+// the author of one of the source's events was them, so a hook delivery
+// from a linked author can bill their own login.
+func (u User) IsIn(source, id string) bool {
+	who, known := u.Identities[source]
+	return known && who.is(id)
+}
+
 // botSuffix ends the login of an App's bot: the App yardr acts as
 // yardr[bot].
 const botSuffix = "[bot]"
