@@ -638,7 +638,7 @@ declared sources
 declared source pushover, from sources/pushover.yaml
   its calls go to https://api.pushover.net/1: message (update)
   would be added to the yard's sources
-  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>
+  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret pushover
   missing  notify       it can tell a user outside the yard and no user names it. The import names none: yardr user key <user> pushover gives their PUSHOVER_USER, then yardr user set <user> notify=pushover
 ```
 
@@ -724,7 +724,7 @@ calls of source crm, for group web-builders
 calls of source crm, for group web-support
   the pack asks for note (update)
   lacks     note (update): nothing is asked or granted
-    missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set crm env_file=<a file of mode 0600 that sets CRM_TOKEN and CRM_UPDATE_TOKEN>, then apply the pack again
+    missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret crm, then apply the pack again
 ```
 
 | the plan says | meaning |

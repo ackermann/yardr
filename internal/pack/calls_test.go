@@ -175,7 +175,7 @@ func TestPlanAsksAboutCallsOnceTheSourceHasItsCredential(t *testing.T) {
 	}
 	for _, c := range plan.Calls {
 		if len(c.Asks)+len(c.Has)+len(c.Declined) != 0 || !slices.Equal(c.Lacks, c.Wants) || len(c.Missing) != 1 || c.Missing[0].What != store.SourceEnvFile ||
-			!strings.Contains(c.Missing[0].Detail, "yardr source set crm env_file=<a file of mode 0600 that sets CRM_TOKEN>, then apply the pack again") {
+			!strings.Contains(c.Missing[0].Detail, "yardr source key crm gives CRM_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret crm, then apply the pack again") {
 			t.Fatalf("before the credential: %+v", c)
 		}
 	}

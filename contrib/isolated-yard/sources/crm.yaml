@@ -2,7 +2,7 @@
 # Replace BASE in the base key by the address the stand-in printed, then:
 #
 #   yardr source add crm.yaml
-#   yardr source set crm env_file=<a file of mode 0600 with CRM_TOKEN=crm-standin and CRM_UPDATE_TOKEN=crm-update-standin>
+#   printf 'CRM_TOKEN=crm-standin\nCRM_UPDATE_TOKEN=crm-update-standin\n' | yardr source key crm
 #   yardr source grant crm read --group <group>
 #   yardr source grant crm note --group <group>     # an update, granted by its name
 #   yardr call crm customer id=1

@@ -67,9 +67,11 @@ func TestReadCredentialMint(t *testing.T) {
 	if _, _, err := d.ReadCredential(ctx, mintOnly, "", Read); !errors.As(err, &noCommand) || !strings.Contains(err.Error(), "yardr source set crm mint_command=<program> [args...]") {
 		t.Fatalf("no mint_command: %v", err)
 	}
-	// No file: the command that sets it up, with every name.
-	if _, _, err := d.ReadCredential(ctx, "", script, Read); err == nil || !strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN is not set up") ||
-		!strings.Contains(err.Error(), "yardr source set crm env_file=") {
+	// No file: the command that writes it first, with every name, and an
+	// agent's way on from a pane.
+	if _, _, err := d.ReadCredential(ctx, "", script, Read); err == nil ||
+		!strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN is not set up: yardr source key crm gives CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") ||
+		!strings.Contains(err.Error(), "an agent asks from its pane: yardr bead ask --secret crm") {
 		t.Fatalf("no env_file: %v", err)
 	}
 	// A file that names no credential reads nothing.
@@ -130,7 +132,7 @@ func TestSelectCredential(t *testing.T) {
 	if sel, err := d.SelectCredential(one, Read); err != nil || sel.Value != "tok-static" || sel.Inputs != nil {
 		t.Fatalf("static: %+v %v", sel, err)
 	}
-	if _, err := d.SelectCredential("", Read); err == nil || !strings.Contains(err.Error(), "is not set up") {
+	if _, err := d.SelectCredential("", Read); err == nil || !strings.Contains(err.Error(), "is not set up: yardr source key crm gives") {
 		t.Fatalf("no env_file: %v", err)
 	}
 	bare, err := Parse("q.yaml", []byte("name: q\nbase: https://q.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))

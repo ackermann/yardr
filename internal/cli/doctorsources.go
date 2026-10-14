@@ -71,9 +71,12 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		quiet := credErr != nil && src.EnvFile == "" && !granted && !told && holder != ""
 		if credErr != nil {
 			if !quiet {
-				// The error names the command, as it is typed for the default home.
+				// The error names the commands, as they are typed for the default home.
 				note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
-				part.Notes = append(part.Notes, strings.ReplaceAll(note, ": yardr source set", ": "+yardr+" source set"))
+				for _, c := range []string{"source key", "source set", "bead ask"} {
+					note = strings.ReplaceAll(note, "yardr "+c, yardr+" "+c)
+				}
+				part.Notes = append(part.Notes, note)
 			}
 		} else if d.Credential != nil && d.Credential.UpdateEnv != "" && sel.Inputs == nil {
 			// A read call can still be made; only its updates lack one.

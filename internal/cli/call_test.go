@@ -203,7 +203,7 @@ func TestCallUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := run(t, jo.sourceCmd(), "add", file)
-	if err != nil || !strings.Contains(out, "env_file=<a file of mode 0600 that sets CRM_TOKEN and CRM_UPDATE_TOKEN>") {
+	if err != nil || !strings.Contains(out, "next: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves") {
 		t.Fatalf("source add = %q, %v", out, err)
 	}
 	// An env file that sets the one credential and not the update's.

@@ -493,7 +493,10 @@ env_file; what the new file changes of its calls is printed.`,
 					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(home, "sources", d.Name), strings.Join(copied, ", "))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
-					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, d.Credential.Names())
+					// Source add is the operator's, refused from an agent's pane,
+					// so this names the operator's ways alone: the command that
+					// writes the file first, then the file they keep themselves.
+					fmt.Printf("next: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves\n", d.Name, d.Credential.Names(), d.Name)
 				}
 			})
 		},

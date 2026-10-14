@@ -32,7 +32,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 	for _, want := range []string{
 		"source pushover saved: 1 call under https://api.pushover.net/1",
 		"notify: the call message tells a user, at the PUSHOVER_USER of their env_file (yardr user set <name> notify=pushover)",
-		"next: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>",
+		"next: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("add printed no %q:\n%s", want, out)
@@ -45,7 +45,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 	for _, want := range []string{
 		"pushover  https://api.pushover.net/1",
 		"A push to a person's phone through Pushover.",
-		"credential: PUSHOVER_TOKEN is not set up: yardr source set pushover env_file=",
+		"credential: PUSHOVER_TOKEN is not set up: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret pushover",
 		"check: the file names no call for it",
 		"call message  update  POST /messages.json  One push to one person",
 		"user  string  matching ^[A-Za-z0-9]{30}$",
@@ -136,7 +136,7 @@ func TestSourceShowKeepsEnvFileNeedForNotifiedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "  credential: PUSHOVER_TOKEN is not set up: yardr source set pushover env_file=") {
+	if !strings.Contains(out, "  credential: PUSHOVER_TOKEN is not set up: yardr source key pushover gives PUSHOVER_TOKEN") {
 		t.Fatalf("show hid the source credential needed for user notifications:\n%s", out)
 	}
 }
@@ -311,7 +311,7 @@ func TestSourceCheckMinted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "next: yardr source set crm env_file=<a file of mode 0600 that sets CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN>") {
+	if !strings.Contains(out, "next: yardr source key crm gives CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves") {
 		t.Fatalf("add: %q", out)
 	}
 	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "CRM_APP_ID, CRM_APP_KEY (minted), CRM_TOKEN in no env_file yet") {

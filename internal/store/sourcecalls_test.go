@@ -403,7 +403,8 @@ func TestSourceCallLimit(t *testing.T) {
 	if _, err := s.SetSource(ctx, "crm", store.SourceEnvFile, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CallSource(ctx, ping); err == nil || !strings.Contains(err.Error(), "CRM_TOKEN is not set up") {
+	if _, err := s.CallSource(ctx, ping); err == nil || !strings.Contains(err.Error(), "CRM_TOKEN is not set up: yardr source key crm gives CRM_TOKEN") ||
+		!strings.Contains(err.Error(), "an agent asks from its pane: yardr bead ask --secret crm") {
 		t.Fatalf("without a credential = %v", err)
 	}
 	if _, data := lastCall(t, s); !strings.Contains(data, `"status":"no_credential"`) {

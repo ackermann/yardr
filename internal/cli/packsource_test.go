@@ -94,7 +94,7 @@ func TestPackApplyAddsTheDeclaredSource(t *testing.T) {
 	for _, want := range []string{
 		"\ndeclared sources\n  create           pushover\n",
 		"\ndeclared source pushover, from sources/pushover.yaml\n  its calls go to https://api.pushover.net/1: message (update)\n  would be added to the yard's sources\n",
-		"  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>\n",
+		"  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key pushover gives PUSHOVER_TOKEN, or yardr source set pushover env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret pushover\n",
 		"  missing  notify       it can tell a user outside the yard and no user names it. The import names none: yardr user key <user> pushover gives their PUSHOVER_USER, then yardr user set <user> notify=pushover\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -111,7 +111,7 @@ func TestPackApplyAddsTheDeclaredSource(t *testing.T) {
 	}
 	for _, want := range []string{
 		"\nsource pushover is declared: 1 call under https://api.pushover.net/1 (yardr source show pushover)\n",
-		"next, for source pushover: no env_file is set for it, and a pack neither carries nor names one: yardr source set pushover env_file=",
+		"next, for source pushover: no env_file is set for it, and a pack neither carries nor names one: yardr source key pushover gives PUSHOVER_TOKEN",
 		"next, for source pushover: it can tell a user outside the yard and no user names it.",
 	} {
 		if !strings.Contains(out, want) {
@@ -194,7 +194,7 @@ func TestPackApplyKeepsMintCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if want := "  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set widget env_file=<a file of mode 0600 that sets WIDGET_APP_ID and WIDGET_APP_KEY, or WIDGET_TOKEN>\n"; !strings.Contains(out, want) {
+	if want := "  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source key widget gives WIDGET_APP_ID and WIDGET_APP_KEY, or WIDGET_TOKEN, or yardr source set widget env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret widget\n"; !strings.Contains(out, want) {
 		t.Fatalf("pack check lacks %q:\n%s", want, out)
 	}
 	if _, err := run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes"); err != nil {

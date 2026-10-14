@@ -2429,7 +2429,11 @@ func credentialNeed(decl *source.Declaration, envFile, mintCommand string) (n Ne
 	case err == nil:
 		return Need{store.SourceEnvFile, "ok", state}, true
 	case envFile == "":
-		return Need{store.SourceEnvFile, "missing", fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", decl.Name, decl.Credential.Names())}, true
+		// The command that writes the file first, so that nobody does by
+		// hand; the file the operator keeps themselves is named instead.
+		// An agent reads this from pack check, where source key is refused
+		// from a pane, so its way on is named too: this names no caller.
+		return Need{store.SourceEnvFile, "missing", fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask --secret %s", decl.Name, decl.Credential.Names(), decl.Name, decl.Name)}, true
 	}
 	var noCommand *source.NoMintCommand
 	if errors.As(err, &noCommand) {

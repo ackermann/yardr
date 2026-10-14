@@ -158,7 +158,7 @@ func TestSourceKeyTyped(t *testing.T) {
 func TestSourceShowSaysAFileThatIsNotSet(t *testing.T) {
 	a, _, file := keyYard(t)
 	out, err := run(t, a.sourceCmd(), "show", "crm")
-	if err != nil || !strings.Contains(out, "credential: CRM_TOKEN is not set up: yardr source set crm env_file=") {
+	if err != nil || !strings.Contains(out, "credential: CRM_TOKEN is not set up: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN") {
 		t.Fatalf("show with no file: %q, %v", out, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
