@@ -184,7 +184,7 @@ type runCommand struct {
 var runList = []runCommand{{
 	words:       []string{"peer", "allow"},
 	use:         "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>",
-	description: "Say which kinds of messages the link with a peer carries",
+	description: "Set which messages a peer link carries and its mail limit",
 	parse:       parsePeerAllow,
 	check:       checkPeerAllow,
 	card:        (*wtx).peerAllowCard,

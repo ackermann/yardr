@@ -119,7 +119,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
 		"  when you approve, the yard runs this as jo, and nothing else:",
 		"      yardr peer allow airy --mail-limit 300",
-		"  what the command does: Say which kinds of messages the link with a peer carries",
+		"  what the command does: Set which messages a peer link carries and its mail limit",
 		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.",
 		"  anyone can take it back: yardr peer allow airy --mail-limit 30",
 		"  approve with: yardr bead answer " + b.ID + " 1 --approve",

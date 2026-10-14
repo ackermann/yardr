@@ -510,7 +510,7 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	if !strings.Contains(s, `<p class="entry-note">`+command+`</p>`) {
 		t.Errorf("the home ask detail lacks the yard's command")
 	}
-	description := "what the command does: Say which kinds of messages the link with a peer carries"
+	description := "what the command does: Set which messages a peer link carries and its mail limit"
 	if !strings.Contains(s, `<p class="entry-note">`+description+`</p>`) {
 		t.Errorf("the home ask detail lacks the command's help description")
 	}

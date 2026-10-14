@@ -74,7 +74,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 	y, key := runYard(t)
 	want := AskRun{
 		Argv:        []string{"peer", "allow", "airy", "--mail-limit", "300"},
-		Description: "Say which kinds of messages the link with a peer carries",
+		Description: "Set which messages a peer link carries and its mail limit",
 		Does:        []string{"the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now."},
 		Back:        "yardr peer allow airy --mail-limit 30",
 		Seen:        map[string]string{"peer airy": key},
@@ -198,7 +198,7 @@ func TestRunAskCard(t *testing.T) {
 		"  yardmaster says: the yard says: nothing changes.",
 		"  when you approve, the yard runs this as mckean, and nothing else:",
 		"      yardr peer allow airy --mail-limit 300",
-		"  what the command does: Say which kinds of messages the link with a peer carries",
+		"  what the command does: Set which messages a peer link carries and its mail limit",
 		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.",
 		"  anyone can take it back: yardr peer allow airy --mail-limit 30",
 		"  approve with: yardr bead answer " + y.bead + " 1 --approve",
@@ -632,6 +632,7 @@ func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
 		"  yardmaster says: You write from airy all day, so most of its mail is yours.",
 		"  when you approve, the yard runs this as mckean, and nothing else:",
 		"      yardr peer allow airy --mail-limit 300",
+		"  what the command does: Set which messages a peer link carries and its mail limit",
 		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.",
 		"  anyone can take it back: yardr peer allow airy --mail-limit 30",
 		"  approve with: yardr bead answer " + y.bead + " 1 --approve",
