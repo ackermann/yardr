@@ -18,7 +18,10 @@ name each in your note.
    do the docs describe the end state, is anything a child left "for a later
    child" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, on the train
-   branch. Run the whole suite (`YARDR_LANDING=1 sh .yardr/test`) after your changes.
+   branch. Run `YARDR_LANDING=1 sh .yardr/test` after your changes. It runs
+   the whole suite when the train changed compiled content; when nothing
+   compiled changed, it runs the plain selection instead (docs/line.md,
+   "One whole-suite run per bead").
 
 Approval here is the last review before the train lands on `main`. Before the
 train leaves, one note on it says how the review ended. Outcomes:

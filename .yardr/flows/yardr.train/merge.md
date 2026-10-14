@@ -10,11 +10,13 @@ rebased onto `main`. The conflict is between the train as a whole and what
 landed on `main`, so read its children's beads for its side. Do not push
 `yard/<train>`: the integrator pushes it, with a lease.
 
-Before the train leaves as `done`, the branch is rebased onto `main`, the whole
-suite passes on it (`YARDR_LANDING=1 sh .yardr/test`), and one note on the train
-begins exactly `merge re-review:`. It lists the old tip (`old tip: <sha>`),
-every conflicting file, what each side wanted, how both were kept, and the
-test result.
+Before the train leaves as `done`, the branch is rebased onto `main` and the
+landing test command passes on it (`YARDR_LANDING=1 sh .yardr/test`). The
+command runs the whole suite when compiled content changed, and the plain
+selection when nothing compiled changed (docs/line.md, "One whole-suite run
+per bead"). One note on the train begins exactly `merge re-review:`. It lists
+the old tip (`old tip: <sha>`), every conflicting file, what each side wanted,
+how both were kept, and the test result.
 
 Outcomes:
 
