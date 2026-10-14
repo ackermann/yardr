@@ -72,7 +72,7 @@ func (a *app) serverCmd() *cobra.Command {
 	}, &cobra.Command{
 		Use: "status", Short: "Report whether the server answers", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := config.LoadReadOnly()
 			if err != nil {
 				return err
 			}
