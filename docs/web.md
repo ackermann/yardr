@@ -1171,21 +1171,22 @@ listens; a reader elsewhere goes by the name the view was reached by,
 on the origin's port, or by the origin's public name where `--pages-host`
 gives one ([Behind a proxy](#behind-a-proxy)).
 
-A page run there runs its inline scripts, and nothing else: no
-`allow-same-origin`, so the yard's API and cookies stay out of reach;
-no fetch, frames or workers; popups blocked. Two gaps stay open, both
-probed in HeadlessChrome 155 with the exact headers on 14 Oct 2026
-(fetch, workers, frames, popups, cookies and storage all blocked
-there). WebRTC peer connections are blocked only where the browser
-enforces the `webrtc` directive, and as of October 2026 no released
-browser does (Chromium reports the directive unrecognized): a script
-can still open a peer connection. And the sandbox carries no
-allow-top-navigation token and no allow-popups, but those tokens only
-stop a nested page navigating its top frame: a page opened top-level,
-as run opens it, can still navigate itself — by script, by meta
-refresh, by its reader's click — which can carry data in the URL. That
-redirect gap is filed as yardr-b4ey; the security lane confirms the
-policy in a real browser.
+A page run there runs its inline scripts under the walls that hold:
+no cookies, no reach into the yard (`connect-src 'none'` stops fetch,
+XHR, WebSocket and EventSource), no form posts (`form-action 'none'`),
+no popups, and blob bytes only — the origin answers no yard route. The
+sandbox flags stay as they are: with no `allow-popups` a script cannot
+open a new window, and with no `allow-top-navigation` a nested page
+cannot navigate its top frame. What a script can carry out is the
+page's own words and what a reader types into it: by navigating away
+with them in a URL — a page opened top-level, as run opens it, can
+always navigate itself by script, by meta refresh, by its reader's
+click, as any web page can — and by WebRTC, which no released browser
+blocks (the policy carries the `webrtc 'block'` directive, but as of
+October 2026 no released browser enforces it; probed in HeadlessChrome
+155 with the exact headers on 14 Oct 2026, where fetch, workers,
+frames, popups, cookies and storage were all blocked). A reader who
+types into a page from a note trusts its author.
 
 ```json
 {

@@ -141,16 +141,25 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 			t.Errorf("the page's %s %q, want %q", h[0], got, h[1])
 		}
 	}
+	if cookie := r.header.Get("Set-Cookie"); cookie != "" {
+		t.Errorf("the page sets a cookie %q, want none", cookie)
+	}
 	r = f.getPages("/blobs/" + shot.Hash)
 	if r.status != 200 || r.header.Get("Content-Type") != "image/png" || r.body != string(shotPNG) {
 		t.Errorf("the note's image: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))
 	}
 	assertScriptedPolicy(t, r.header.Get("Content-Security-Policy"))
+	if cookie := r.header.Get("Set-Cookie"); cookie != "" {
+		t.Errorf("the image sets a cookie %q, want none", cookie)
+	}
 	r = f.do(f.sandbox, "HEAD", "/blobs/"+page.Hash)
 	if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != "" {
 		t.Errorf("HEAD the page: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))
 	}
 	assertScriptedPolicy(t, r.header.Get("Content-Security-Policy"))
+	if cookie := r.header.Get("Set-Cookie"); cookie != "" {
+		t.Errorf("HEAD the page sets a cookie %q, want none", cookie)
+	}
 	for _, hash := range []string{mailed.Hash, mailedPage.Hash, strings.Repeat("0", 64), "nope"} {
 		r := f.getPages("/blobs/" + hash)
 		if r.status != 404 || !strings.Contains(r.body, "no such blob") {
@@ -167,10 +176,11 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 
 // assertScriptedPolicy holds the response's policy to the scripted policy
 // of the design (section 3.5), exactly. These are header checks: inline
-// scripts run, and fetch, frames and workers are forbidden by the policy;
-// WebRTC is blocked only in browsers that enforce its directive. The
-// absent allow-top-navigation and allow-popups tokens do not stop a
-// top-level page from navigating itself; docs/web.md records that limit.
+// scripts run, and fetch, frames, workers and form posts are forbidden
+// by the policy; WebRTC is blocked only in browsers that enforce its
+// directive. The absent allow-top-navigation and allow-popups tokens do
+// not stop a top-level page from navigating itself; docs/web.md records
+// that limit.
 func assertScriptedPolicy(t *testing.T, csp string) {
 	t.Helper()
 	if want := "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"; csp != want {

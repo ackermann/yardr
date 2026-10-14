@@ -786,14 +786,13 @@ const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src
 // scriptedPolicy is the policy a note's page runs under on the sandbox
 // origin: inline scripts may run, while the policy forbids fetches,
 // frames, workers and form submissions. The sandbox's opaque origin (no
-// allow-same-origin) withholds the yard's API and cookies from the page.
-// WebRTC peer connections are blocked only where the browser enforces the
-// webrtc directive. The missing allow-top-navigation and allow-popups
-// tokens prevent a nested page from navigating its top frame or opening a
-// popup, but run opens this document top-level, where it can navigate
-// itself. The WebRTC and self-navigation limits are described in
-// docs/web.md; the self-navigation claim is being corrected in the
-// follow-up design bead yardr-b4ey.
+// allow-same-origin) withholds the yard's API and cookies from the page,
+// and the origin sets no cookie. WebRTC peer connections are blocked
+// only where the browser enforces the webrtc directive. The missing
+// allow-top-navigation and allow-popups tokens prevent a nested page
+// from navigating its top frame or opening a popup, but run opens this
+// document top-level, where it can navigate itself. The WebRTC and
+// self-navigation limits are described in docs/web.md.
 const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // handleBlob serves a note's image or page: the bytes of a blob a note on
