@@ -36,6 +36,22 @@ type peerYard struct {
 	asked atomic.Int64 // requests that reached the listener
 }
 
+// peerSendDisallowedHook changes a link after the dispatcher's peer
+// snapshot but before its delivery-time allowance check.
+type peerSendDisallowedHook struct {
+	store.API
+	before func()
+}
+
+func (h *peerSendDisallowedHook) PeerSendDisallowed(ctx context.Context, name string, seq uint64) (bool, error) {
+	if h.before != nil {
+		before := h.before
+		h.before = nil
+		before()
+	}
+	return h.API.PeerSendDisallowed(ctx, name, seq)
+}
+
 func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 	t.Helper()
 	api, own := storetest.NewOwned(t)
@@ -125,6 +141,54 @@ func (y *peerYard) waiting(t *testing.T, peer string) []store.PeerOut {
 	out, err := y.api.PeerOutbox(context.Background(), peer, 0)
 	must(t, err)
 	return out
+}
+
+// If a kind becomes allowed again between the pass's peer snapshot and the
+// store's delivery check, the still-waiting message stays ahead of later
+// messages in the outbox.
+func TestPeerSendReallowedWhileWaitingDoesNotLetMessagesOvertake(t *testing.T) {
+	clock := newClock()
+	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+	link(t, a, b, false, true)
+	a.yardmaster(t, "b")
+	b.yardmaster(t, "a")
+	ctx := context.Background()
+	for _, setting := range []struct {
+		yard *peerYard
+		peer string
+	}{{a, "b"}, {b, "a"}} {
+		_, err := setting.yard.api.AllowPeer(ctx, setting.peer, store.PeerAllow{
+			Send: []string{store.PeerPing, store.PeerMail}, Receive: []string{store.PeerPing, store.PeerMail},
+		}, "jo")
+		must(t, err)
+	}
+	mail, err := b.api.MailPeer(ctx, "yardmaster", "a", "later mail", "yardmaster")
+	must(t, err)
+	ping, err := b.api.PeerSend(ctx, "a", store.PeerPing, nil, "jo")
+	must(t, err)
+	_, err = b.api.AllowPeer(ctx, "a", store.PeerAllow{NoSend: []string{store.PeerMail}}, "jo")
+	must(t, err)
+
+	// Re-enable mail after Reconcile has read the now-disallowed peer, but
+	// before push checks the old head of its outbox.
+	b.d.Store = &peerSendDisallowedHook{API: b.api, before: func() {
+		_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{store.PeerPing, store.PeerMail}}, "jo")
+		must(t, err)
+	}}
+	b.pass(t)
+	b.d.Store = b.api
+	if got := b.waiting(t, "a"); len(got) != 2 || got[0].ID != mail.ID || got[1].ID != ping.ID {
+		t.Fatalf("outbox after the stale disallow check = %+v, want both messages still waiting in order", got)
+	}
+	if got := b.events(t, "peer_message_sent"); len(got) != 0 {
+		t.Fatalf("a later message crossed while the first remained waiting: %+v", got)
+	}
+
+	b.pass(t)
+	sent := b.events(t, "peer_message_sent")
+	if len(sent) < 2 || sent[0].Data["id"] != mail.ID || sent[1].Data["id"] != ping.ID {
+		t.Fatalf("messages were not delivered in outbox order: %+v", sent)
+	}
 }
 
 func newClock() *peerClock { return &peerClock{now: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)} }

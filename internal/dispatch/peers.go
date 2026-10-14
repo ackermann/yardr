@@ -294,13 +294,23 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 			// waited: it is dropped, not posted, and never tried
 			// again. Gone with it, so what waits behind it is posted.
 			dropped, err := d.Store.PeerSendDisallowed(ctx, m.Peer, m.Seq)
-			switch {
-			case err != nil && !errors.Is(err, store.ErrNotFound):
-				d.Log.Warn("peer message: dropping one its link no longer carries", "peer", m.Peer, "id", m.ID, "err", err)
-			case dropped:
-				d.Log.Info("message dropped: the link no longer carries its kind out", "peer", m.Peer, "kind", m.Kind, "id", m.ID)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
 			}
-			continue
+			if err != nil {
+				d.Log.Warn("peer message: dropping one its link no longer carries", "peer", m.Peer, "id", m.ID, "err", err)
+				// It is still at the head of the outbox. Keep what follows
+				// behind it until a later pass can decide what to do.
+				return true
+			}
+			if dropped {
+				d.Log.Info("message dropped: the link no longer carries its kind out", "peer", m.Peer, "kind", m.Kind, "id", m.ID)
+				continue
+			}
+			// The link may have started carrying the kind again since the
+			// peer snapshot above. It remains waiting; do not let a later
+			// message overtake it in this pass.
+			return true
 		}
 		if m.RetryAt != nil && d.now().Before(*m.RetryAt) {
 			return true
