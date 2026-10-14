@@ -41,7 +41,7 @@ type API interface {
 	MoveSourceRecords(ctx context.Context, from, to, actor string) (*SourceMove, error)
 	Links(ctx context.Context, id string) ([]Link, error)
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
-	AddNote(ctx context.Context, id, text, actor string) error
+	AddNote(ctx context.Context, id, text, actor string, files ...string) error
 	AddNoted(ctx context.Context, id, text, actor string) (*Note, error)
 	AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error)
 	AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error)

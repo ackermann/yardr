@@ -47,7 +47,7 @@ var Calls = map[string][]string{
 	"DeferAsk":             {"bead", "ask", "actor"},
 	"DeclineAsk":           {"bead", "ask", "words", "actor"},
 	"TakeBackAsk":          {"bead", "ask", "reason", "actor"},
-	"AddNote":              {"bead", "text", "actor"},
+	"AddNote":              {"bead", "text", "actor", "files"},
 }
 
 // OperatorCalls are documented as Calls are, and are the operator's alone

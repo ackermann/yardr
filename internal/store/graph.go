@@ -747,13 +747,35 @@ type Note struct {
 	NotifyLive bool `json:"notify_live,omitempty"`
 	// Files are the images the note carries, as PutBlob answered them, in
 	// the order the note was written with them; nil on a note without
-	// any. Only a plain note written with yardr bead note --file has any.
+	// any. Only a plain note written with files has any (yardr bead note
+	// --file, or AddNote over the wire).
 	Files []BlobRef `json:"files,omitempty"`
 }
 
-func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
-	_, err := s.AddNoted(ctx, id, text, actor)
-	return err
+// AddNote puts a plain note on the bead without telling its live session,
+// unlike AddNotedAs. files are the images and pages the note carries, each
+// by its hash as PutBlob answered it, as with yardr bead note --file; a
+// note with any needs words. Left out, the note carries none.
+func (s *Store) AddNote(ctx context.Context, id, text, actor string, files ...string) error {
+	// A bead's handle never holds an "@" (validID).
+	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		return s.refuseForeignNote(bead, peer)
+	}
+	if len(files) > 0 && strings.TrimSpace(text) == "" {
+		return fmt.Errorf("a note with images needs words: say what the picture shows")
+	}
+	refs, err := s.noteFiles(files)
+	if err != nil {
+		return err
+	}
+	return s.writeVia(ctx, func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		_, err = w.addNotedNotify(row, NoteNote, text, actor, "", refs)
+		return err
+	})
 }
 
 // AddNoted is AddNote that answers the note it wrote, seq and all, for

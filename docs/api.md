@@ -890,7 +890,7 @@ POST /call/UserInbox
 
 ### `PutBlob`
 
-Gives the yard a file, so that mail or a note can carry it. `Mail` and `MailPeer` name mail files by the hash this answers; `yardr bead note --file` attaches a blob to a note. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail or note is about to be written, and put it again when that was longer ago.
+Gives the yard a file, so that mail or a note can carry it. `Mail`, `MailPeer` and `AddNote` name files by the hash this answers; `yardr bead note --file` attaches a blob to a note. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail or note is about to be written, and put it again when that was longer ago.
 
 | argument | type | |
 |---|---|---|
@@ -2078,17 +2078,25 @@ POST /call/TakeBackAsk
 
 ### `AddNote`
 
-Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. It answers nothing; the note is then a `noted` event in the stream.
+Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. With `files` the note carries images and pages, as one written with `yardr bead note --file` does. It answers nothing; the note is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
-| `text` | string | the note |
+| `text` | string | the note; it may not be empty when the note carries files |
 | `actor` | string | who writes it: the user's name |
+| `files` | array of string | the files the note carries, images and pages, at most 8: the hash of each, as `PutBlob` answered it. Left out, the note carries none. One the yard does not hold refuses the note |
 
 ```
 POST /call/AddNote
 {"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}
+
+{}
+```
+
+```
+POST /call/AddNote
+{"bead":"yd-greet","text":"the newcomer arrives Monday, in this doorway","actor":"jo","files":["497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"]}
 
 {}
 ```

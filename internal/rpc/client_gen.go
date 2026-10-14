@@ -104,8 +104,8 @@ func (c *Client) Links(ctx context.Context, id string) ([]store.Link, error) {
 func (c *Client) IssueLinks(ctx context.Context, issue string) ([]store.Link, error) {
 	return callV[[]store.Link](c, ctx, "IssueLinks", issue)
 }
-func (c *Client) AddNote(ctx context.Context, id, text, actor string) error {
-	return c.call(ctx, "AddNote", nil, id, text, actor)
+func (c *Client) AddNote(ctx context.Context, id, text, actor string, files ...string) error {
+	return c.call(ctx, "AddNote", nil, id, text, actor, files)
 }
 func (c *Client) AddNoted(ctx context.Context, id, text, actor string) (*store.Note, error) {
 	return callV[*store.Note](c, ctx, "AddNoted", id, text, actor)

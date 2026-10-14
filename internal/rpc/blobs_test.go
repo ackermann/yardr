@@ -58,6 +58,19 @@ func TestBlobsOverTheSocket(t *testing.T) {
 			`{"error":{"code":"error","message":"mail to clerk@north: peer north: the link does not carry file out, so mail to it carries no file: the operator allows it with yardr peer allow north --send file"}}`},
 		// What the mail carried is in the conversation.
 		{"Conversation", `{"a":"jo","b":"yardmaster"}`, `"text":"look","read":false,"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
+		// A note carries files as mail does, and what it carried is on
+		// the bead; one the yard does not hold, and files without words,
+		// are refused. An old client names no files, by name or in an
+		// array, and its note is a note as before.
+		{"AddNote", `{"bead":"yd-shed","text":"hung","actor":"jo","files":["` + hash + `"]}`, `{}`},
+		{"AddNote", `{"bead":"yd-shed","text":"a ghost","actor":"jo","files":["` + unknown + `"]}`,
+			`{"error":{"code":"not-found","message":"image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)"}}`},
+		{"AddNote", `{"bead":"yd-shed","text":"  ","actor":"jo","files":["` + hash + `"]}`,
+			`{"error":{"code":"error","message":"a note with images needs words: say what the picture shows"}}`},
+		{"AddNote", `{"bead":"yd-shed","text":"straight","actor":"jo"}`, `{}`},
+		{"AddNote", `["yd-shed","by array","jo"]`, `{}`},
+		{"Bead", `{"bead":"yd-shed"}`, `"text":"hung","at":`},
+		{"Bead", `{"bead":"yd-shed"}`, `"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
 	} {
 		if got := strings.TrimSpace(string(post(t, hc, c.method, c.body))); !strings.Contains(got, c.want) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)

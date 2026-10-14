@@ -466,6 +466,81 @@ func TestAddNotedAsFiles(t *testing.T) {
 	}
 }
 
+// A note written through AddNote with files carries them as one written
+// with yardr bead note --file does: the same bound, the same words, the
+// same refusal for one the yard does not hold. With files omitted it
+// writes a plain note, and unlike AddNotedAs it tells no live session.
+func TestAddNoteFiles(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jpeg, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := api.AddNote(ctx, b.ID, "the shed, painted", "jo", png.Hash, jpeg.Hash); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := api.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || len(notes[0].Files) != 2 ||
+		notes[0].Files[0] != *png || notes[0].Files[1] != *jpeg {
+		t.Fatalf("the bead's notes = %+v, %v", notes, err)
+	}
+	view, err := api.Bead(ctx, b.ID)
+	if err != nil || len(view.Notes) != 1 || len(view.Notes[0].Files) != 2 || view.Notes[0].Files[0].Hash != png.Hash {
+		t.Fatalf("the bead whole = %+v, %v", view, err)
+	}
+	if err := api.AddNote(ctx, b.ID, "no files", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if notes, _ := api.Notes(ctx, b.ID); len(notes) != 2 || len(notes[1].Files) != 0 {
+		t.Fatalf("the note without files = %+v", notes)
+	}
+
+	many := make([]string, store.MaxNoteFiles+1)
+	for i := range many {
+		many[i] = png.Hash
+	}
+	if err := api.AddNote(ctx, b.ID, "too many", "jo", many...); err == nil ||
+		!strings.Contains(err.Error(), "a note carries at most 8 images, not 9") {
+		t.Errorf("9 files = %v", err)
+	}
+	if err := api.AddNote(ctx, b.ID, " \n\t ", "jo", png.Hash); err == nil ||
+		!strings.Contains(err.Error(), "a note with images needs words") {
+		t.Errorf("an image note without words = %v", err)
+	}
+	unknown := strings.Repeat("0", 64)
+	if err := api.AddNote(ctx, b.ID, "a ghost", "jo", unknown); err == nil ||
+		!strings.Contains(err.Error(), "the yard does not hold it") {
+		t.Errorf("an unknown hash = %v", err)
+	}
+	if notes, _ := api.Notes(ctx, b.ID); len(notes) != 2 {
+		t.Errorf("what was refused was written: %+v", notes)
+	}
+
+	// A live session is told nothing, files or none.
+	if err := api.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := api.Claim(ctx, b.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := api.AddNote(ctx, b.ID, "the fence too", "jo", png.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if notes, _ := api.Notes(ctx, b.ID); notes[len(notes)-1].Notify != "" {
+		t.Fatalf("AddNote with live session %s names %q", sess.ID, notes[len(notes)-1].Notify)
+	}
+}
+
 // Prune keeps a blob a note names, past the grace, and sweeps one nothing
 // names.
 func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
