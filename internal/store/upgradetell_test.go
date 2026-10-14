@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,59 @@ func TestUpgradeFromSetting(t *testing.T) {
 	}
 	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.OperatorSetting] != "jo" {
 		t.Fatalf("after unset = %v", got)
+	}
+}
+
+// A pre-existing yard can have its operator name on a crew member. Such a
+// yard cannot tell the operator outside the store, so upgrade_from refuses
+// even though the legacy setting passes the operator-only check.
+func TestUpgradeFromSettingRefusesLegacyOperatorCrew(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "mckean", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "jo", Runner: "manual"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// This is legacy state: current settings cannot make a crew member the
+	// operator, but an older yard may already have one.
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := json.Marshal("jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("settings")).Put([]byte(store.OperatorSetting), operator)
+	})
+	closeErr := db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	st, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	err = st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "jo")
+	if err == nil || !strings.Contains(err.Error(), "the operator jo is a crew member's name") {
+		t.Fatalf("legacy operator crew: %v", err)
+	}
+	if got, _ := st.Settings(ctx); got[store.UpgradeFromSetting] != "" {
+		t.Fatalf("failed setting was stored: %v", got)
 	}
 }
 
