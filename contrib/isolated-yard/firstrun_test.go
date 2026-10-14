@@ -257,7 +257,13 @@ func TestFirstRunWithStdinClosed(t *testing.T) {
 	for range 2 { // a second time changes nothing
 		var subs []sub
 		if code := drive(t, d, &subs, append(as, "subscribe", operator, "yardr", "--done", "--where", "depot=web")...); code != 0 ||
-			len(subs) != 1 || subs[0].Source != "yardr" || subs[0].Where["depot"] != "web" || subs[0].Where["state"] != "done" {
+			len(subs) != 2 ||
+			!slices.ContainsFunc(subs, func(s sub) bool {
+				return s.Source == "yardr" && s.Where["depot"] == "web" && s.Where["state"] == "done"
+			}) ||
+			!slices.ContainsFunc(subs, func(s sub) bool {
+				return s.Source == "yardr" && s.Where["kind"] == "install_failed\x00rolled_back"
+			}) {
 			t.Fatalf("subscribe: exit %d, %+v", code, subs)
 		}
 	}
