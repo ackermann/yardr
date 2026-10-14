@@ -297,6 +297,59 @@ func TestPhoneBarMore(t *testing.T) {
 	}
 }
 
+// On a phone a feed row takes two lines: the verb in full and the bead on
+// the first, the time at its right, the title below ending in an
+// ellipsis. At 700 px and wider the row is one line, as today. What the
+// pixels do is the bead's screenshots.
+func TestFeedRowOnPhone(t *testing.T) {
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	text := string(css)
+	phone := mediaCSS(t, text, "max-width: 699px")
+	for _, want := range []string{
+		".entry-line .entry-what { flex-wrap: wrap; }",
+		".entry-line .separator { display: none; }",
+		".entry-line .label { order: 1; margin-left: auto; }",
+		".entry-line .entry-title { order: 2; flex: 1 1 100%; }",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+	// The title still ends in an ellipsis, on its own line now.
+	title := cssRule(t, ".entry-line .entry-title")
+	for _, want := range []string{"overflow: hidden;", "text-overflow: ellipsis;"} {
+		if !strings.Contains(title, want) {
+			t.Errorf(".entry-line .entry-title lacks %s: %s", want, title)
+		}
+	}
+	// The wide row is one line, as today.
+	wide := cssRule(t, ".entry-line .entry-what")
+	for _, want := range []string{"display: flex;", "white-space: nowrap;"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf(".entry-line .entry-what lacks %s: %s", want, wide)
+		}
+	}
+}
+
+// More opens as a layer over the page: a backdrop dims the page under it,
+// so the sheet's edge reads, and a tap on it closes the sheet. What the
+// pixels do is the bead's screenshot.
+func TestMoreBackdrop(t *testing.T) {
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	phone := mediaCSS(t, string(css), "max-width: 699px")
+	for _, want := range []string{
+		".menu .more details[open] > summary { position: relative; z-index: 1; }",
+		`.menu .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }`,
+		".menu .more details[open] > ul { z-index: 1; }",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+}
+
 // On a phone an ask's row gives the question the row's first line whole,
 // ending in an ellipsis, and the bead, the pick and the age stand under it.
 // At 1100 px and wider the row is one line, as today. What the pixels do is

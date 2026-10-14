@@ -1345,6 +1345,7 @@ anywhere else.
 | `--faint` | `#b0afb6` | `#625f54` | labels, what is done |
 | `--accent` | `#a9ceff` | `#3c5777` | the one accent: the current page, a link in use, focus |
 | `--landed` | `#cfa548` | `#8d6830` | the second accent, for what landed and nothing else |
+| `--shade` | `rgba(0, 0, 0, 0.45)` | the same | the backdrop that dims the page under the phone's More sheet |
 | `--working` | the accent | the accent | status: a session is working |
 | `--running` | `#6db58a` | `#2f7d55` | status: idle or running |
 | `--held` | `#e0735f` | `#b3402c` | status: blocked or held, and errors |

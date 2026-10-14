@@ -17,6 +17,9 @@
   --accent: #a9ceff;
   /* the second accent, for what landed and nothing else */
   --landed: #cfa548;
+  /* the sheet's shade: the backdrop that dims the page under it, the
+     same on either theme */
+  --shade: rgba(0, 0, 0, 0.45);
 
   /* status */
   --working: var(--accent);
@@ -199,6 +202,15 @@ ul, ol { list-style: none; }
 .entry-line .entry-what > :first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .entry-line .entry-title { flex: 1 1 0; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; font-family: var(--sans); }
 .entry-line .bead, .entry-line .separator, .entry-line .label { flex: 0 0 auto; }
+/* On the phone the row takes two lines: the verb in full and the bead on
+   the first, the time at its right, the title below ending in an
+   ellipsis. The separators go: the lines break cleanly without them. */
+@media (max-width: 699px) {
+  .entry-line .entry-what { flex-wrap: wrap; }
+  .entry-line .separator { display: none; }
+  .entry-line .label { order: 1; margin-left: auto; }
+  .entry-line .entry-title { order: 2; flex: 1 1 100%; }
+}
 
 .flow { margin-top: var(--gap); }
 
@@ -515,4 +527,11 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
   .menu .more li + li { border-top: 1px solid var(--hairline); }
   .menu .more li a { padding: 14px var(--gap); text-align: left; font-size: var(--small); letter-spacing: var(--label-spacing); min-height: 44px; }
   .menu .more li a[aria-current="page"] { padding-left: var(--gap); box-shadow: inset 2px 0 0 var(--accent); }
+  /* More opens as a layer over the page: a backdrop dims the page under
+     it, so the sheet's edge reads, and a tap on it closes the sheet —
+     the tap lands on the summary the backdrop belongs to, which shuts
+     the details. The sheet and the bar's More stand above the shade. */
+  .menu .more details[open] > summary { position: relative; z-index: 1; }
+  .menu .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }
+  .menu .more details[open] > ul { z-index: 1; }
 }
