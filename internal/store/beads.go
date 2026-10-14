@@ -251,6 +251,9 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 // what creates the bead inside one, so that a write may make more than the
 // bead (AskNew) and make nothing when any of it is refused.
 func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wtx) (*beadRow, error), error) {
+	if strings.TrimSpace(nb.Title) == "" {
+		return nil, fmt.Errorf("a bead needs a title")
+	}
 	if nb.ID != "" && !validID.MatchString(nb.ID) {
 		return nil, fmt.Errorf("bead id %q: use letters, digits, '.', '_' or '-'", nb.ID)
 	}
@@ -917,6 +920,9 @@ type BeadPatch struct {
 
 // UpdateBead applies p. A stale exp refuses it (see Expect).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
+	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
+		return nil, fmt.Errorf("a bead needs a title")
+	}
 	// A new pin must name a flow that exists: one naming nothing would
 	// only fail later, when dispatch or a move resolves it.
 	if p.Type != nil {

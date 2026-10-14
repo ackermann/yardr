@@ -654,6 +654,33 @@ func TestBeadCreateBlockedBy(t *testing.T) {
 	}
 }
 
+// bead create refuses an empty title and one of only spaces, and creates
+// nothing; bead update refuses to set one the same way (yardr-0fbd).
+func TestBeadRefusesAnEmptyTitle(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "titled"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	head, _ := st.Head(ctx)
+	for _, title := range []string{"", "   "} {
+		if out, err := run(t, a.beadCmd(), "create", title); err == nil || !strings.Contains(err.Error(), "a bead needs a title") {
+			t.Fatalf("create %q: %v\n%s", title, err, out)
+		}
+		if out, err := run(t, a.beadCmd(), "update", b.ID, "--title", title); err == nil || !strings.Contains(err.Error(), "a bead needs a title") {
+			t.Fatalf("update --title %q: %v\n%s", title, err, out)
+		}
+	}
+	if now, _ := st.Head(ctx); now != head {
+		t.Fatalf("refused titles logged %d events", now-head)
+	}
+	if got, _ := st.GetBead(ctx, b.ID); got.Title != "titled" || got.Revision != b.Revision {
+		t.Fatalf("refused update changed the bead: %+v", got)
+	}
+}
+
 // Against a server from before NewBead.BlockedBy, bead create --blocked-by
 // creates nothing rather than a bead a route could hand out unblocked.
 func TestBlockedByRefusesAnOlderServer(t *testing.T) {
