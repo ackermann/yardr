@@ -100,6 +100,10 @@ type Result struct {
 	Mapped []MapOp `json:"mapped"`
 	// Declared are the sources the import added or replaced.
 	Declared []string `json:"declared"`
+	// Folds are what the import folded from each declared source's
+	// -declared name into the source itself, one per source that had
+	// anything under the old name.
+	Folds []Fold `json:"folds"`
 	// Recorded says the yard's record of the import was written; false when
 	// nothing changed.
 	Recorded bool `json:"recorded"`
@@ -125,6 +129,15 @@ type CallGrant struct {
 	Calls  []string `json:"calls"`
 }
 
+// Fold is what one apply folded from a -declared name into the source
+// the pack brings: the links, and the records MoveSourceRecords moved.
+type Fold struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Links int    `json:"links"`
+	store.SourceMove
+}
+
 // Wrote reports whether the import changed anything in the yard.
 func (r *Result) Wrote() bool {
 	return r.Created+r.Changed+len(r.Pruned)+len(r.Granted)+len(r.Calls)+len(r.Exposed) > 0
@@ -142,7 +155,9 @@ func (p *Plan) Missing(a Answers) []Question {
 }
 
 // Apply does to the yard what the plan says, in the plan's order, then
-// removes the dropped objects when told to prune, then records the import.
+// removes the dropped objects when told to prune, then records the import,
+// then folds each declared source's -declared links and records into the
+// source itself.
 //
 // It checks everything it can before the first write: that the plan is not
 // refused, that every question has an answer and the answers are usable,
@@ -155,8 +170,11 @@ func (p *Plan) Missing(a Answers) []Question {
 // finishes the import rather than repeating it. A dropped object whose
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
+// The fold runs after the record, so a source whose links or records are
+// not folded in leaves the import applied and recorded, and the error
+// names the source.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Exposed: []Exposed{}, Mapped: []MapOp{}, Declared: []string{}}
+	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Exposed: []Exposed{}, Mapped: []MapOp{}, Declared: []string{}, Folds: []Fold{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -269,6 +287,26 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	if len(res.PruneErrors) > 0 {
 		return res, fmt.Errorf("the import is applied and recorded, but not everything dropped could be removed: %s", strings.Join(res.PruneErrors, "; "))
+	}
+	// Last of all: a source pack names its source, and what the yard
+	// recorded under the same name with -declared is folded in, once.
+	// A refused source is skipped: it was not added.
+	for _, d := range p.Declared {
+		if o.SourceRefused[d.Source] != "" {
+			continue
+		}
+		from := d.Source + "-declared"
+		links, err := st.MoveLinkSource(ctx, from, d.Source, o.Actor)
+		if err != nil {
+			return nil, fmt.Errorf("source %s is declared, but its links were not folded in: %w", d.Source, err)
+		}
+		moved, err := st.MoveSourceRecords(ctx, from, d.Source, o.Actor)
+		if err != nil {
+			return nil, fmt.Errorf("source %s is declared, but its records were not folded in: %w", d.Source, err)
+		}
+		if links > 0 || moved.Moved() {
+			res.Folds = append(res.Folds, Fold{From: from, To: d.Source, Links: links, SourceMove: *moved})
+		}
 	}
 	return res, nil
 }

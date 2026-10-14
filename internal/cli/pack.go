@@ -850,26 +850,6 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		}
 		return err
 	}
-	// A source pack names its source; what the yard recorded under the
-	// same name with -declared is folded in, once, by this apply.
-	var folds []sourceFold
-	for _, d := range i.plan.Declared {
-		if i.sources[d.Source] != "" {
-			continue
-		}
-		from := d.Source + "-declared"
-		links, err := i.st.MoveLinkSource(ctx, from, d.Source, a.who())
-		if err != nil {
-			return fmt.Errorf("source %s is declared, but its links were not folded in: %w", d.Source, err)
-		}
-		folded, err := i.st.MoveSourceRecords(ctx, from, d.Source, a.who())
-		if err != nil {
-			return fmt.Errorf("source %s is declared, but its records were not folded in: %w", d.Source, err)
-		}
-		if links > 0 || folded.Moved() {
-			folds = append(folds, sourceFold{from: from, to: d.Source, links: links, folded: folded})
-		}
-	}
 	// After the objects: the sources are there for --source-env and
 	// --notify to be set on. The plan is made again, so what the sets
 	// leave open is said fresh.
@@ -882,12 +862,12 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 	}
 	if res != nil {
 		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res,
-			"folds": folds, "sets": i.sets}
+			"folds": res.Folds, "sets": i.sets}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
 			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
-			for _, f := range folds {
-				f.print()
+			for _, f := range res.Folds {
+				printFold(f)
 			}
 			if after != nil {
 				after()
@@ -899,35 +879,25 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 	return serr
 }
 
-// sourceFold is what one apply folded from a -declared name into the
+// printFold says what the apply folded from a -declared name into the
 // source the pack brings.
-type sourceFold struct {
-	from   string
-	to     string
-	links  int
-	folded *store.SourceMove
-}
-
-// print says what the apply folded; nothing when it folded nothing.
-func (f sourceFold) print() {
+func printFold(f pack.Fold) {
 	var parts []string
-	if f.links > 0 {
-		parts = append(parts, plural(f.links, "link"))
+	if f.Links > 0 {
+		parts = append(parts, plural(f.Links, "link"))
 	}
-	if f.folded != nil {
-		for _, c := range []struct {
-			n    int
-			word string
-		}{
-			{f.folded.Hooks, "hook"}, {f.folded.Identities, "identity"}, {f.folded.Grants, "grant"},
-			{f.folded.Subscriptions, "subscription"}, {f.folded.Threads, "thread"},
-		} {
-			if c.n > 0 {
-				parts = append(parts, plural(c.n, c.word))
-			}
+	for _, c := range []struct {
+		n    int
+		word string
+	}{
+		{f.Hooks, "hook"}, {f.Identities, "identity"}, {f.Grants, "grant"},
+		{f.Subscriptions, "subscription"}, {f.Threads, "thread"},
+	} {
+		if c.n > 0 {
+			parts = append(parts, plural(c.n, c.word))
 		}
 	}
-	fmt.Printf("folded %s into %s: %s\n", f.from, f.to, strings.Join(parts, ", "))
+	fmt.Printf("folded %s into %s: %s\n", f.From, f.To, strings.Join(parts, ", "))
 }
 
 // notDone is why this run leaves out a stage map or a declared source,

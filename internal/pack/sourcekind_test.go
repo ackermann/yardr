@@ -444,6 +444,128 @@ func TestPruneRemovesTheCommandsFiles(t *testing.T) {
 	}
 }
 
+// Applying a source pack folds what the yard recorded under the
+// source's -declared name into the source itself: hooks, identity,
+// grants, subscriptions, participation and links. A refused source is
+// skipped, and running it twice changes nothing.
+func TestSourcePackApplyFoldsDeclaredRecords(t *testing.T) {
+	st := storetest.New(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	id := store.Identity{ID: "u-yardmaster", Key: "yardmaster"}
+	if err := st.SetIdentity(ctx, "yardmaster", "acme", id, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdentity(ctx, "yardmaster", "acme-declared", id, "me"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := st.GetCrew(ctx, "yardmaster")
+	r.Config[store.OpenThreads] = "acme,acme-declared"
+	r.Config[store.SetState] = "acme-declared"
+	if _, err := st.PutCrew(ctx, *r, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutHook(ctx, store.Hook{Name: "acme-declared", Source: "acme-declared", SecretFile: "/s"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme-declared", Scope: store.ScopeInvolved}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FollowThread(ctx, "yardmaster", "acme-declared", "42", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "web-1", Title: "one", Depot: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: "acme-declared", URL: "https://acme.test/issue/42"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Home: t.TempDir()}
+	p := load(t, writePack(t, sourcePackFiles()))
+
+	// Refused: the source is not added and nothing is folded; what is
+	// under the old name stays.
+	res, err := pack.Apply(ctx, st, build(t, st, p, o), pack.ApplyOptions{SourceRefused: map[string]string{"acme": "adding is the operator's"}, Actor: "ann"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Folds) != 0 {
+		t.Fatalf("a refused source was folded: %+v", res.Folds)
+	}
+	if h, _ := st.GetHook(ctx, "acme-declared"); h.Source != "acme-declared" {
+		t.Fatalf("hook source = %q", h.Source)
+	}
+
+	res, err = pack.Apply(ctx, st, build(t, st, p, o), pack.ApplyOptions{Actor: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []pack.Fold{{From: "acme-declared", To: "acme", Links: 1,
+		SourceMove: store.SourceMove{Hooks: 1, Identities: 1, Grants: 1, Subscriptions: 1, Threads: 1}}}
+	if !reflect.DeepEqual(res.Folds, want) {
+		t.Fatalf("folds = %+v, want %+v", res.Folds, want)
+	}
+	if h, _ := st.GetHook(ctx, "acme-declared"); h.Source != "acme" {
+		t.Errorf("hook source = %q", h.Source)
+	}
+	if r, _ := st.GetCrew(ctx, "yardmaster"); len(r.Identities) != 1 || r.Identities["acme"] != id {
+		t.Errorf("identities = %+v", r.Identities)
+	} else if got := strings.Join(r.MayOpen(), ","); got != "acme" {
+		t.Errorf("open_threads = %q", got)
+	} else if got := strings.Join(r.MaySetState(), ","); got != "acme" {
+		t.Errorf("set_state = %q", got)
+	} else if len(r.Subscriptions) != 1 || r.Subscriptions[0].Source != "acme" {
+		t.Errorf("subscriptions = %+v", r.Subscriptions)
+	}
+	if threads, _ := st.Threads(ctx, "yardmaster"); len(threads) != 1 || threads[0].Source != "acme" || threads[0].Thread != "42" {
+		t.Errorf("threads = %+v", threads)
+	}
+	if ls, _ := st.Links(ctx, "web-1"); len(ls) != 1 || ls[0].Source != "acme" {
+		t.Errorf("links = %+v", ls)
+	}
+
+	// Twice changes nothing: the source is there, and nothing is under
+	// the old name.
+	res, err = pack.Apply(ctx, st, build(t, st, p, o), pack.ApplyOptions{Actor: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Folds) != 0 {
+		t.Fatalf("second apply folded again: %+v", res.Folds)
+	}
+}
+
+// When the fold fails the import stays applied and recorded, and the
+// error names the source it was not folded into.
+func TestSourcePackApplyFoldFailureKeepsTheImport(t *testing.T) {
+	st := storetest.New(t)
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdentity(ctx, "yardmaster", "acme", store.Identity{ID: "u-one"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdentity(ctx, "yardmaster", "acme-declared", store.Identity{ID: "u-two"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Home: t.TempDir()}
+	_, err := pack.Apply(ctx, st, build(t, st, load(t, writePack(t, sourcePackFiles())), o), pack.ApplyOptions{Actor: "me"})
+	if err == nil || !strings.Contains(err.Error(), "source acme is declared, but its records were not folded in: ") ||
+		!strings.Contains(err.Error(), "one acme-declared identity and another acme identity") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := st.GetSource(ctx, "acme"); err != nil {
+		t.Fatalf("the source was not added: %v", err)
+	}
+	if recs, _ := st.Packs(ctx); len(recs) != 1 {
+		t.Fatalf("the import was not recorded: %+v", recs)
+	}
+}
+
 // A pack of kind source without sources is no pack: it declares at least
 // one.
 func TestSourcePackWithoutSourcesIsRefused(t *testing.T) {
