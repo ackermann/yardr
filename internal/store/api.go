@@ -51,6 +51,10 @@ type API interface {
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
+	// AddAnswerExpected is AddAnswer guarded by the bead revision, checked
+	// in the same write as the answer. Browser forms use it so two tabs
+	// cannot both answer from the same page.
+	AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error
 	UserAsks(ctx context.Context, name string) (*AskQueue, error)
 	WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string) (*BeadView, error)

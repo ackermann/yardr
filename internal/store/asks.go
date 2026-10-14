@@ -523,17 +523,37 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // a pick and words are refused, so that no path but ApproveAsk runs its
 // command, from this yard or over a link.
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
+	return s.addAnswer(ctx, id, ans, actor, "")
+}
+
+// AddAnswerExpected is AddAnswer with the revision the caller read. The
+// check and the answer share one write, so another tab cannot answer an
+// older revision in the gap between a read and the write.
+func (s *Store) AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error {
+	if revision == "" {
+		return fmt.Errorf("an answer needs the bead revision it was drawn from")
+	}
+	return s.addAnswer(ctx, id, ans, actor, revision)
+}
+
+func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, revision string) error {
 	if err := answerShape(id, &ans); err != nil {
 		return err
 	}
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		if revision != "" {
+			return fmt.Errorf("a revision cannot guard an ask on another yard's bead")
+		}
 		return s.answerForeign(ctx, bead, peer, ans, actor)
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
+		}
+		if revision != "" && row.Revision != revision {
+			return fmt.Errorf("%w: bead %s is at revision %s, not %s; read it again", ErrConflict, row.ID, row.Revision, revision)
 		}
 		notes, err := beadNotes(w.Tx, row.UUID)
 		if err != nil {

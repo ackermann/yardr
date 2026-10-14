@@ -680,14 +680,16 @@ func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
 			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.To, Command: cmd})
 		}
 	}
-	if s.as != "" && nerr == nil {
+	if s.as != "" {
 		// What the view's user may do with the bead, as `yardr review`
 		// offers it; none when it waits for no manual group they belong
 		// to, or its flow names no move.
-		if moves, err := s.moveActions(ctx, b, next); err != nil {
-			return nil, err
-		} else {
-			d.Moves = moves
+		if nerr == nil {
+			if moves, err := s.moveActions(ctx, b, next); err != nil {
+				return nil, err
+			} else {
+				d.Moves = moves
+			}
 		}
 		if asks, err := s.openBeadAsks(ctx, b.ID); err != nil {
 			return nil, err

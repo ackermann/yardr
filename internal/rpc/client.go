@@ -334,6 +334,9 @@ func (c *Client) AskNew(ctx context.Context, nb store.NewBead, ask store.Ask, ac
 func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, actor string) error {
 	return c.call(ctx, "AddAnswer", nil, id, ans, actor)
 }
+func (c *Client) AddAnswerExpected(ctx context.Context, id string, ans store.Answer, actor, revision string) error {
+	return c.call(ctx, "AddAnswerExpected", nil, id, ans, actor, revision)
+}
 func (c *Client) UserAsks(ctx context.Context, name string) (*store.AskQueue, error) {
 	return callV[*store.AskQueue](c, ctx, "UserAsks", name)
 }

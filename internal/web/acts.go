@@ -203,39 +203,30 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 		s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d on bead %s is answered already, or asked of another; read it again", seq, b.ID))
 		return
 	}
-	words := r.PostFormValue("words")
+	answer := store.Answer{Ask: seq, Words: r.PostFormValue("words")}
 	if opt := r.PostFormValue("option"); opt != "" {
 		n, err := strconv.Atoi(opt)
 		if err != nil {
 			s.beadAgain(w, r, b.ID, "an option is a number, not "+opt)
 			return
 		}
-		err = s.st.AnswerAsk(ctx, b.ID, seq, n, words, s.as)
-		if err != nil {
-			s.beadAgain(w, r, b.ID, err.Error())
-			return
-		}
+		answer.Option = n
 	} else {
 		switch r.PostFormValue("action") {
 		case "answer":
-			if err := s.st.AnswerAsk(ctx, b.ID, seq, 0, words, s.as); err != nil {
-				s.beadAgain(w, r, b.ID, err.Error())
-				return
-			}
+			// Words alone answer an ask that offers none.
 		case "later":
-			if err := s.st.DeferAsk(ctx, b.ID, seq, s.as); err != nil {
-				s.beadAgain(w, r, b.ID, err.Error())
-				return
-			}
+			answer.Later = true
 		case "decline":
-			if err := s.st.DeclineAsk(ctx, b.ID, seq, words, s.as); err != nil {
-				s.beadAgain(w, r, b.ID, err.Error())
-				return
-			}
+			answer.Decline = true
 		default:
 			s.beadAgain(w, r, b.ID, "pick an option, answer with words, put it aside with Later, or decline it")
 			return
 		}
+	}
+	if err := s.st.AddAnswerExpected(ctx, b.ID, answer, s.as, rev); err != nil {
+		s.beadAgain(w, r, b.ID, err.Error())
+		return
 	}
 	http.Redirect(w, r, "/beads/"+url.PathEscape(b.ID), http.StatusSeeOther)
 }

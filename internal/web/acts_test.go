@@ -3,15 +3,46 @@ package web_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
+
+type flowUnavailableStore struct{ store.API }
+
+func (s flowUnavailableStore) NextStages(context.Context, string) (*store.NextStages, error) {
+	return nil, errors.New("flow is unavailable")
+}
+
+// answerBarrier waits until both form submissions reach the store, so the
+// test exercises two requests that passed the handler's read-side check
+// before either writes.
+type answerBarrier struct {
+	store.API
+	mu    sync.Mutex
+	count int
+	ready chan struct{}
+}
+
+func (s *answerBarrier) AddAnswerExpected(ctx context.Context, id string, answer store.Answer, actor, revision string) error {
+	s.mu.Lock()
+	s.count++
+	if s.count == 2 {
+		close(s.ready)
+	}
+	ready := s.ready
+	s.mu.Unlock()
+	<-ready
+	return s.API.AddAnswerExpected(ctx, id, answer, actor, revision)
+}
 
 // actYard is a yard with the user jo, a depot, and a bead carrying an open
 // ask to jo. It answers the bead and the ask's seq.
@@ -98,6 +129,32 @@ func TestBeadAskButtons(t *testing.T) {
 	r = f3.get("/beads/" + b3.ID)
 	if strings.Contains(r.body, "<form") || strings.Contains(r.body, "asks for") {
 		t.Errorf("without --as the bead page answers:\n%s", r.body)
+	}
+}
+
+// An ask remains available on the bead page even if the flow cannot be
+// read: answering it does not depend on the flow.
+func TestBeadAskVisibleWithBrokenFlow(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	b, seq := actYard(t, f, pickAsk())
+	srv, err := web.NewServer(flowUnavailableStore{API: f.st}, f.home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.ActAs("jo")
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f.ts = ts
+	r := f.get("/beads/" + b.ID)
+	for _, want := range []string{
+		"flow is unavailable",
+		"Move the links now?",
+		`<input type="hidden" name="ask" value="` + strconv.FormatUint(seq, 10) + `">`,
+		`<button type="submit" name="option" value="1">Move them now</button>`,
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the bead page lacks %q:\n%s", want, r.body)
+		}
 	}
 }
 
@@ -273,6 +330,55 @@ func TestBeadStaleRevision(t *testing.T) {
 	}
 	if got, _ := f2.st.GetBead(ctx, b2.ID); got.Stage != "decide" {
 		t.Errorf("the stale move sent the bead to %s", got.Stage)
+	}
+}
+
+// Two tabs can submit the same revision at once. The store compares the
+// revision in the write, so one answer lands and the other is redrawn as
+// stale instead of overwriting the first pick.
+func TestBeadConcurrentAnswers(t *testing.T) {
+	base, _ := talkFixture(t, "jo")
+	b, seq := actYard(t, base, pickAsk())
+	barrier := &answerBarrier{API: base.st, ready: make(chan struct{})}
+	srv, err := web.NewServer(barrier, base.home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.ActAs("jo")
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: base.st, ts: ts, home: base.home}
+	rev := revOf(t, f, b.ID)
+	var wg sync.WaitGroup
+	responses := make(chan resp, 2)
+	for _, option := range []string{"1", "2"} {
+		wg.Add(1)
+		go func(option string) {
+			defer wg.Done()
+			form := url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)}, "option": {option}}
+			responses <- f.postForm("/beads/"+b.ID, form, "Origin", f.ts.URL)
+		}(option)
+	}
+	wg.Wait()
+	close(responses)
+	succeeded, refused := 0, 0
+	for r := range responses {
+		switch {
+		case r.status == http.StatusSeeOther:
+			succeeded++
+		case r.status == http.StatusOK && strings.Contains(r.body, "is at revision"):
+			refused++
+		default:
+			t.Errorf("unexpected response: status %d\n%s", r.status, r.body)
+		}
+	}
+	if succeeded != 1 || refused != 1 {
+		t.Fatalf("same-revision submissions: %d succeeded, %d refused; want one of each", succeeded, refused)
+	}
+	notes, err := f.st.Notes(context.Background(), b.ID)
+	must(t, err)
+	if len(notes) != 2 || notes[1].Author != "jo" {
+		t.Errorf("notes after concurrent answers: %+v; want one answer by jo", notes)
 	}
 }
 
