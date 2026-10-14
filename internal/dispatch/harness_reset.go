@@ -108,12 +108,13 @@ func resetLine(kind, window string) string {
 
 // windowOpen asks the yard's source once more whether an agent of kind with
 // the provider setting can work, read under env: false while a window is
-// used up that resets later, or at a time the provider does not say. scope
-// names whose login is read, as askLimits asks. It is the one place
+// used up that resets later, or at a time the provider does not say. It
+// uses the same environment overlay as the limit error it is reopening. It
+// is the one place
 // besides harnessLimits where the dispatcher runs the source's command, and
 // it is reached only at the wake of an agent that is about to be prompted.
-func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string, scope string) bool {
-	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env, scope)
+func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string) bool {
+	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env)
 	if err != nil {
 		return ctx.Err() == nil
 	}
@@ -130,7 +131,7 @@ func (d *Dispatcher) sessionWindowOpen(ctx context.Context, g store.Group, kind,
 	if err != nil {
 		return ctx.Err() == nil
 	}
-	return d.windowOpen(ctx, kind, provider, env, "group "+g.Name)
+	return d.windowOpen(ctx, kind, provider, env)
 }
 
 // harnessReset is the wake of the idle session s, whose usage limit's window
@@ -335,7 +336,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		}
 		return false, nil
 	}
-	if !d.windowOpen(ctx, kind, provider, nil, "") {
+	if !d.windowOpen(ctx, kind, provider, nil) {
 		if ctx.Err() != nil {
 			return false, nil
 		}

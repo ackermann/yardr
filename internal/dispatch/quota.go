@@ -98,7 +98,7 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 	if err != nil {
 		return store.Quota{Unknown: err.Error()}
 	}
-	r, err := d.askLimits(ctx, kind, provider, routeLimitsMemory, env, "group "+g.Name)
+	r, err := d.askLimits(ctx, kind, provider, routeLimitsMemory, env)
 	if err != nil {
 		return store.Quota{Unknown: err.Error()}
 	}

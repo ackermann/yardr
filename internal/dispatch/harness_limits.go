@@ -2,7 +2,9 @@ package dispatch
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -67,17 +69,28 @@ func groupEnv(g store.Group) ([]string, error) {
 	return f.Env, nil
 }
 
+// limitsEnvScope identifies the environment overlay whose login is read.
+// Keep only its digest in the cache key: env_file entries can be secrets.
+// Groups with the same overlay share one answer; changing a file's entries
+// gives a new scope even while the old answer is still fresh.
+func limitsEnvScope(env []string) string {
+	if len(env) == 0 {
+		return "ambient"
+	}
+	sum := sha256.Sum256([]byte(strings.Join(env, "\x00")))
+	return fmt.Sprintf("env:%x", sum)
+}
+
 // askLimits is what the yard's source says of the subscription an agent of
 // kind with the provider setting burns, read under env: from memory when
-// the provider was asked for scope within age (limitsMemory, or
+// the provider was asked for that environment within age (limitsMemory, or
 // routeLimitsMemory for a route's condition), else by one run of its
-// command. scope names whose login is read ("group builders", "" for the
-// machine's), so two logins never share an answer. With the
-// setting, the first source by name whose kinds table names it is asked,
+// command. With a provider setting, the first source by name whose kinds
+// table names it is asked,
 // even where no table lists the kind; without it, the kind resolves
 // through the kinds table as before. The error is a *limits.NoSource
 // naming the provider where no source names it, and nothing was run.
-func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age time.Duration, env []string, scope string) (*limits.Report, error) {
+func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age time.Duration, env []string) (*limits.Report, error) {
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
 		return nil, err
@@ -89,7 +102,7 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age t
 		}
 		return nil, &limits.NoSource{Kind: kind}
 	}
-	key, now := a.Source+"\x00"+name+"\x00"+scope, d.now()
+	key, now := a.Source+"\x00"+name+"\x00"+limitsEnvScope(env), d.now()
 	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < age {
 		return m.report, m.err
 	}
@@ -151,8 +164,8 @@ func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Dura
 // With no source for the subscription, or a provider that gave no answer,
 // the event is as it was, with why nothing is known in `limits_unknown`,
 // and "" is returned.
-func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, env []string, scope string, data map[string]any) (said string, w *limits.Window) {
-	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env, scope)
+func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, env []string, data map[string]any) (said string, w *limits.Window) {
+	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", nil // the daemon is stopping: the provider was not heard out
@@ -192,5 +205,5 @@ func (d *Dispatcher) sessionLimits(ctx context.Context, g store.Group, kind, pro
 		data["limits_unknown"] = err.Error()
 		return "", nil
 	}
-	return d.harnessLimits(ctx, kind, provider, env, "group "+g.Name, data)
+	return d.harnessLimits(ctx, kind, provider, env, data)
 }

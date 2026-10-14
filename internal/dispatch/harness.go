@@ -527,7 +527,7 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 		if reason == ReasonRateLimited {
 			// A crew member's error reads the machine's login: no group
 			// judges it, so no group's env is joined.
-			said, w := d.harnessLimits(ctx, kind, provider, nil, "", data)
+			said, w := d.harnessLimits(ctx, kind, provider, nil, data)
 			var wakes string
 			wake, wakes = d.resetWake(runner, r.Handle, w, data)
 			data["hint"] = said + wakes + data["hint"].(string)

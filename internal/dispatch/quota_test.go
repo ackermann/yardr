@@ -86,8 +86,9 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
 	now := noon()
 	dispatch.SetClock(d, func() time.Time { return now })
+	aEnv := loginEnv(t, "a-login")
 	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5,
-		Config: map[string]any{"kind": "kimi", "env_file": loginEnv(t, "a-login")}}, "me"))
+		Config: map[string]any{"kind": "kimi", "env_file": aEnv}}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Limit: 5,
 		Config: map[string]any{"kind": "kimi", "env_file": loginEnv(t, "b-login")}}, "me"))
 	p := newLoginStandIn(t, s)
@@ -127,17 +128,60 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 		t.Fatalf("asks = %v, want no further run within the five minutes", got)
 	}
 
+	// Changing the env_file in place changes which login this group burns,
+	// so a fresh answer is needed even inside the old login's cache window.
+	if err := os.WriteFile(aEnv, []byte("YARDR_TEST_LOGIN=a-login-2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.sayAs("a-login-2", weekly(10, 10))
+	b = newBead(t, s, "login changed")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "a" {
+		t.Fatalf("claimed by %q, want a after the group's login changes", group)
+	}
+	if got, want := p.asks(), []string{"moonshot a-login", "moonshot b-login", "moonshot a-login-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("asks = %v, want a fresh read under the group's new login", got)
+	}
+
 	// After them a's windows open again, and the bead goes to a on its
 	// own answer, read once more.
 	now = now.Add(6 * time.Minute)
-	p.sayAs("a-login", weekly(10, 10))
+	p.sayAs("a-login-2", weekly(10, 10))
 	b = newBead(t, s, "z")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "a" {
 		t.Fatalf("claimed by %q, want a", group)
 	}
-	if got, want := p.asks(), []string{"moonshot a-login", "moonshot b-login", "moonshot a-login"}; !reflect.DeepEqual(got, want) {
+	if got, want := p.asks(), []string{"moonshot a-login", "moonshot b-login", "moonshot a-login-2", "moonshot a-login-2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("asks = %v, want %v", got, want)
+	}
+}
+
+// Groups carrying the same env overlay read the same login and share the
+// cached answer, so a route does not ask the provider twice for it.
+func TestQuotaMemoryIsSharedAcrossGroupsWithTheSameLogin(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("YARDR_TEST_LOGIN", "operator")
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
+	shared := loginEnv(t, "shared-login")
+	for _, name := range []string{"a", "b"} {
+		must(t, s.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Limit: 5,
+			Config: map[string]any{"kind": "kimi", "env_file": shared}}, "me"))
+	}
+	p := newLoginStandIn(t, s)
+	p.sayAs("shared-login", weekly(85, 10))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80",
+		Else: []store.RouteGroup{{Name: "b", When: "Weekly<80"}}}, "me")
+	must(t, err)
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "" {
+		t.Fatalf("claimed by %q, want both groups to wait on the shared login", group)
+	}
+	if got, want := p.asks(), []string{"moonshot shared-login"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("asks = %v, want one read shared by both groups", got)
 	}
 }
 
