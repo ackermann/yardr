@@ -112,7 +112,7 @@ this machine. Both answers carry Retry-After.`,
 			// --as only when it is given, so a view of theirs reads the
 			// setting itself.
 			asFrom := ""
-			if as == "" {
+			if !c.Flags().Changed("as") {
 				set, _ := store.SettingOf(store.WebAsSetting)
 				var all map[string]string
 				if all, err = st.Settings(ctx); err != nil {

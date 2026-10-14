@@ -204,6 +204,9 @@ func TestWebServeAsTakesFlagEnvAndSetting(t *testing.T) {
 	t.Setenv("YARDR_WEB_AS", "ann")
 	servesAs(nil, "ann")
 	servesAs([]string{"--as", "Jo"}, "Jo")
+	// An explicitly empty flag wins too: it is how a caller can keep a
+	// view read-only despite an environment or setting default.
+	servesAs([]string{"--as="}, "")
 	t.Setenv("YARDR_WEB_AS", "")
 
 	for _, c := range []struct {
