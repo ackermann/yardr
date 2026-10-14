@@ -129,6 +129,33 @@ func TestHomeNeedsAsk(t *testing.T) {
 	_ = ctx
 }
 
+// Under its one-line row the home ask stands whole, as on its bead's
+// page: the context lines, each option with its consequence, and the
+// recommendation labelled. The row above it links to the bead.
+func TestHomeNeedsAskDetail(t *testing.T) {
+	f := askFixture(t)
+	b := askBead(t, f, "a door", "new")
+	askOn(t, f, b.ID, pickAsk())
+
+	s := answerSection(t, f.get("/").body)
+	for _, want := range []string{
+		`<a href="/beads/` + b.ID + `" class="ask">`,
+		`<div class="need-ask">`,
+		`<p class="entry-note">The links file declares the new source.</p>`,
+		`<p class="entry-note">The old source goes away Friday.</p>`,
+		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span></li>`,
+		`<li><span>2. After Friday</span><span class="faint"> — keep the old source until the release is out</span></li>`,
+		`<p class="entry-note">Recommended: 1. Move them now: the test passed</p>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the home ask lacks %q", want)
+		}
+	}
+	if strings.Contains(s, `<p class="entry-note">1. Move them now</p>`) {
+		t.Error("the home ask shows the recommendation unlabelled")
+	}
+}
+
 // A bead that both waits and carries an open ask stands once, fault first:
 // the held lead, then the question. It counts once, as a fault.
 func TestHomeNeedsAskAndFault(t *testing.T) {
@@ -164,7 +191,9 @@ func TestHomeNeedsAskAndFault(t *testing.T) {
 	}
 }
 
-// /line shows the same ask rows with the asks' context.
+// /line shows the same asks whole, as the bead page does: the context
+// lines, each option with its consequence, and the recommendation
+// labelled. The bead id links to the bead.
 func TestLineAskContext(t *testing.T) {
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
@@ -176,11 +205,13 @@ func TestLineAskContext(t *testing.T) {
 	}
 	text := squash(f.get("/line").body)
 	for _, want := range []string{
-		`<span class="bead">` + b.ID + `</span>`,
+		`<a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a>`,
 		`<p class="why">Move the links now?</p>`,
-		`<p class="entry-note">1. Move them now</p>`,
-		"The links file declares the new source.",
-		"The old source goes away Friday.",
+		`<p class="entry-note">The links file declares the new source.</p>`,
+		`<p class="entry-note">The old source goes away Friday.</p>`,
+		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span></li>`,
+		`<li><span>2. After Friday</span><span class="faint"> — keep the old source until the release is out</span></li>`,
+		`<p class="entry-note">Recommended: 1. Move them now: the test passed</p>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("/line lacks %q", want)
@@ -209,7 +240,8 @@ func TestHomeNeedsAskRecommend(t *testing.T) {
 	if !strings.Contains(s, `<span class="faint"> words wanted</span>`) {
 		t.Error("the words-wanted ask names no words wanted")
 	}
-	// The plain ask's row carries no recommendation.
+	// The plain ask's row carries no recommendation, but its options
+	// stand with their consequences.
 	rows := strings.Split(s, `<li><a href="/beads/`)
 	found := false
 	for _, row := range rows[1:] {
@@ -218,8 +250,16 @@ func TestHomeNeedsAskRecommend(t *testing.T) {
 			continue
 		}
 		found = true
-		if n := strings.Count(row, `<span class="faint">`); n != 1 {
-			t.Errorf("the unrecommended row has %d faint spans, want the age alone: %q", n, row)
+		if strings.Contains(row, "Recommended:") {
+			t.Errorf("the unrecommended row names a recommendation: %q", row)
+		}
+		for _, want := range []string{
+			`<li><span>1. Red</span><span class="faint"> — paint it red</span></li>`,
+			`<li><span>2. Blue</span><span class="faint"> — paint it blue</span></li>`,
+		} {
+			if !strings.Contains(row, want) {
+				t.Errorf("the unrecommended row lacks %q", want)
+			}
 		}
 	}
 	if !found {
@@ -338,6 +378,9 @@ func TestHomeNeedsAskTwice(t *testing.T) {
 	}
 	if !strings.Contains(s, "Move the links now?") || strings.Contains(s, "And the windows?") {
 		t.Error("home shows not the oldest question alone")
+	}
+	if !strings.Contains(s, "The old source goes away Friday.") || strings.Contains(s, "the windows.") {
+		t.Error("home shows not the oldest ask's context alone")
 	}
 	got := waiting(lineJSON(t, f))
 	if len(got) != 1 || len(got[0].Why) != 2 {

@@ -2,15 +2,40 @@
 {{define "wait"}}
   {{$w := .}}
   <article class="wait">
-    <header><span class="bead">{{.Bead}}</span><span class="label">{{.Stage}}</span></header>
+    <header><a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a><span class="label">{{.Stage}}</span></header>
     <p class="wait-title">{{.Title}}</p>
     {{- range .Why}}
     <p class="why{{if .Alarm}} held{{end}}">{{.Text}}</p>
+    {{- /* An ask stands whole, as on its bead's page: the context lines,
+           each option with its consequence, and the recommendation
+           labelled. Any other reason keeps its one line and its note. */}}
+    {{- if eq .Kind "ask"}}
+    {{- range .Context}}
+    <p class="entry-note">{{.}}</p>
+    {{- end}}
+    {{- if .Options}}
+    <ul class="options">
+      {{- range $i, $o := .Options}}
+      <li><span>{{inc $i}}. {{$o.Label}}</span>{{with $o.Consequence}}<span class="faint"> — {{.}}</span>{{end}}</li>
+      {{- end}}
+    </ul>
+    {{- end}}
+    {{- if and .Options .Recommend}}
+    <p class="entry-note">Recommended: {{.Recommend}}{{with .RecommendWhy}}: {{.}}{{end}}</p>
+    {{- end}}
+    {{- if .SecretLine}}
+    <p class="entry-note">{{.SecretLine}}</p>
+    {{- end}}
+    {{- if .RunCommand}}
+    <p class="entry-note">to approve: {{.RunCommand}}</p>
+    {{- end}}
+    {{- else}}
     {{- if .Recommend}}
     <p class="entry-note">{{.Recommend}}</p>
     {{- end}}
     {{- if .Note}}
     <p class="entry-note">{{.Note}}</p>
+    {{- end}}
     {{- end}}
     {{- /* Where the view acts, each ask answers under its reason, with
            its options as buttons. */}}

@@ -103,6 +103,15 @@ type Reason struct {
 	// ask recommends nothing. The home row shows it faint; HTML-only: the
 	// JSON carries the question and the context.
 	Recommend string `json:"-"`
+	// RecommendWhy is why the ask recommends it, folded to one line, ""
+	// when it says nothing or recommends nothing: what the ask's detail
+	// names after the option. HTML-only, as the recommendation is.
+	RecommendWhy string `json:"-"`
+	// Context is an ask's context lines, each folded to one line, whole:
+	// what the ask's detail shows, where Note joins and shortens them
+	// for the JSON. Nil on any other reason. HTML-only, as the
+	// recommendation is.
+	Context []string `json:"-"`
 	// Ask is the ask's seq on its bead, 0 when the reason is no ask: what
 	// an answer names. Options are the ask's options in order, none for
 	// an ask that wants words, a secret or a command's approval.
@@ -424,20 +433,22 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, er
 }
 
 // askReason is one open ask as a wait: the question in one line, its
-// context lines as the note, and its recommendation in one line for the
-// home row: the recommended option's number with its label, so the row
-// names what to pick where writing lives. The row keeps one line, so the
-// question folds to it, as letters only, and a context line folds to the
-// line it is; the note's breaks are then only between genuine lines. An
-// ask with no options wants words, a secret ask says what it asks for,
-// and a run ask shows the command its approval runs, whole.
+// context lines as the note and whole, and its recommendation in one line
+// for the home row: the recommended option's number with its label, so
+// the row names what to pick where writing lives. The row keeps one line,
+// so the question folds to it, as letters only, and a context line folds
+// to the line it is; the note's breaks are then only between genuine
+// lines. The ask's detail shows the lines whole, with the options and the
+// recommendation labelled. An ask with no options wants words, a secret
+// ask says what it asks for, and a run ask shows the command its approval
+// runs, whole.
 func askReason(r store.ResolvedAsk) Reason {
 	context := make([]string, len(r.Ask.Context))
 	for i, line := range r.Ask.Context {
 		context[i] = store.OneLine(line)
 	}
 	out := Reason{Kind: "ask", Text: store.OneLine(r.Ask.Question), Note: short(strings.Join(context, "\n")),
-		Ask: r.Note.Seq, Options: r.Ask.Options}
+		Context: context, Ask: r.Note.Seq, Options: r.Ask.Options}
 	switch {
 	case r.Ask.Run != nil:
 		// The yard's own, and never shortened: the command as it would run.
@@ -451,6 +462,7 @@ func askReason(r store.ResolvedAsk) Reason {
 		out.Recommend = "words wanted"
 	case r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options):
 		out.Recommend = fmt.Sprintf("%d. %s", r.Ask.Recommend, store.OneLine(r.Ask.Options[r.Ask.Recommend-1].Label))
+		out.RecommendWhy = store.OneLine(r.Ask.Why)
 	}
 	return out
 }

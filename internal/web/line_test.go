@@ -74,7 +74,7 @@ func TestWaitsHeld(t *testing.T) {
 	for _, path := range []string{"/line", "/sessions", "/crew", "/beads", "/nowhere"} {
 		text := squash(f.get(path).body)
 		for _, part := range []string{
-			`<article class="wait"><header><span class="bead">` + b.ID + `</span><span class="label">new</span></header>`,
+			`<article class="wait"><header><a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a><span class="label">new</span></header>`,
 			`<p class="wait-title">a door</p><p class="why held">held by builder</p><p class="entry-note">the hinge is &lt;missing&gt;</p>`,
 			`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
 		} {
@@ -152,7 +152,7 @@ func TestWaitsManual(t *testing.T) {
 	}
 	text := squash(f.get("/line").body)
 	for _, part := range []string{
-		`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + claimed.ID + `</span>`,
+		`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><a class="bead" href="/beads/` + claimed.ID + `">` + claimed.ID + `</a>`,
 		`<p class="why">waits for decisions (anna, ben) in decide</p>`,
 		`<dt>open</dt><dd>3</dd>`,
 		`<li><span>decide</span><span class="num">2</span></li>`,
@@ -253,7 +253,7 @@ func TestManualClaimsOnly(t *testing.T) {
 	for _, path := range []string{"/line", "/sessions"} {
 		text := squash(f.get(path).body)
 		for _, part := range []string{
-			`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 5</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[4].ID + `</span>`,
+			`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 5</h3><div class="parked"><article class="wait"><header><a class="bead" href="/beads/` + beads[4].ID + `">` + beads[4].ID + `</a>`,
 			`<dt>open</dt><dd>5</dd>`,
 		} {
 			if !strings.Contains(text, part) {
@@ -343,9 +343,9 @@ func TestManualClaimsMixed(t *testing.T) {
 
 	text := squash(f.get("/sessions").body)
 	for _, part := range []string{
-		`<h2 class="label">Waits for you</h2><article class="wait"><header><span class="bead">` + beads[1].ID + `</span><span class="label">backlog</span></header>` +
+		`<h2 class="label">Waits for you</h2><article class="wait"><header><a class="bead" href="/beads/` + beads[1].ID + `">` + beads[1].ID + `</a><span class="label">backlog</span></header>` +
 			`<p class="wait-title">idea b</p><p class="why held">held by me</p><p class="why">waits for backlog in backlog</p></article>` +
-			`<h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[2].ID + `</span>`,
+			`<h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><a class="bead" href="/beads/` + beads[2].ID + `">` + beads[2].ID + `</a>`,
 		`<dt><span class="dot working"></span>working</dt><dd>2</dd>`,
 		`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
 		`<dt><span class="dot running"></span>sessions</dt><dd>2</dd>`,

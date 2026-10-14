@@ -404,6 +404,14 @@ ul, ol { list-style: none; }
 .need-answer button:hover { color: var(--accent); border-color: var(--accent); }
 /* A needs row keeps one line for its link; the answer stands under it. */
 .needs li .need-answer { margin: 4px 0 8px; }
+/* An asked row's ask, under its link: the context lines, the options with
+   their consequences, and the labelled recommendation, as on the bead's
+   page. The list keeps one line per row, so the ask takes its lines back;
+   long lines wrap, and nothing widens the page. */
+.needs li .need-ask { margin: 4px 0 0; white-space: normal; }
+/* The list's one-line rule names every item under it, the options'
+   included, so the options take their lines back one by one. */
+.needs li .need-ask li { white-space: normal; }
 /* A move, on the bead's page: the note with the buttons that send it on. */
 .move-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .move-form input[type="text"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
