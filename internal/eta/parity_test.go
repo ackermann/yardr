@@ -109,7 +109,7 @@ func TestMatchParity(t *testing.T) {
 	}
 	for i, sb := range beads {
 		want, ok := "", false
-		if m := store.MatchRoute(routes, sb); m != nil {
+		if m := store.MatchRoute(routes, sb, ""); m != nil {
 			want, ok = m.Worker(), true
 		}
 		var queried []string
@@ -133,7 +133,7 @@ func TestMatchParity(t *testing.T) {
 // A manual match resolves its runner too: the stage walks as a manual leg.
 func TestMatchManualParity(t *testing.T) {
 	sr := store.Route{ID: "r1", Stage: "new", Group: "people"}
-	if m := store.MatchRoute([]store.Route{sr}, store.Bead{Stage: "new", Type: "task", Priority: 2}); m == nil || m.Worker() != "people" {
+	if m := store.MatchRoute([]store.Route{sr}, store.Bead{Stage: "new", Type: "task", Priority: 2}, ""); m == nil || m.Worker() != "people" {
 		t.Fatalf("store matches %v", m)
 	}
 	flow := &eta.Flow{
