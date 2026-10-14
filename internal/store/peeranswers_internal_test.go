@@ -376,6 +376,25 @@ func TestPeerAnswerAfterRename(t *testing.T) {
 	}
 }
 
+func TestAnsweredHereMatchesPeerAliasAndBead(t *testing.T) {
+	answer := Answer{Ask: 3, Option: 1, Words: "CSV only."}
+	text, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := foreignAsk{
+		Bead: "their-bead", Seq: 3, Ask: Ask{To: "jo@a"},
+		Answers: []foreignAnswer{{Answer: answer, By: "jo"}},
+	}
+	note := PeerNote{Author: "jo@a2", Text: string(text)}
+	if by, ok := answeredHere([]foreignAsk{ask}, "their-bead", note); !ok || by != "jo" {
+		t.Fatalf("answer under a renamed peer alias = %q, %t; want jo, true", by, ok)
+	}
+	if by, ok := answeredHere([]foreignAsk{ask}, "another-bead", note); ok {
+		t.Fatalf("answer for another bead was attributed to %q", by)
+	}
+}
+
 // foreign is a question north asks this yard's mckean, as ask 3 on its bead
 // yd-links, taken under the message id.
 func (y *homeYard) foreign(t *testing.T, id string, ask Ask) {

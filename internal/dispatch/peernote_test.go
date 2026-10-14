@@ -193,15 +193,23 @@ func TestPeerBeadNote(t *testing.T) {
 }
 
 // While b works a's bead, b asks a person of a, who answers from a: the
-// answer lands on b's bead by <name>@a, and comes home to a, in a read and
-// with the return, under its writer's name, as a note this yard wrote
-// there does. Nothing b writes does: one b has by jo@a with other words is
-// someone('s), and b's own jo saying the same words as the answer stays
-// jo@b.
+// answer lands on b's bead by <name>@the alias b has for a, and comes home
+// to a, in a read and with the return, under its writer's name, as a note
+// this yard wrote there does. Nothing b writes does: one b has by jo@a with
+// other words is someone('s), and b's own jo saying the same words as the
+// answer stays jo@b.
 func TestPeerBeadAnswerComesHome(t *testing.T) {
-	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
-		t.Run(name, func(t *testing.T) {
-			a, b := readYards(t, aCallsB)
+	for _, tc := range []struct {
+		name       string
+		aCallsB    bool
+		renamePeer bool
+	}{
+		{name: "push", aCallsB: true},
+		{name: "b asks", aCallsB: false},
+		{name: "peer renamed after ask", aCallsB: true, renamePeer: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := readYards(t, tc.aCallsB)
 			ctx := context.Background()
 			_, err := a.api.AddUser(ctx, "jo", "jo")
 			must(t, err)
@@ -224,10 +232,18 @@ func TestPeerBeadAnswerComesHome(t *testing.T) {
 			}, "jo")
 			must(t, err)
 			cross(t, a, b)
+			if tc.renamePeer {
+				_, err = b.api.RenamePeer(ctx, "a", "a2", "jo")
+				must(t, err)
+			}
 			must(t, a.api.AnswerAsk(ctx, theirs.ID+"@b", seq, 1, "CSV only.", "jo"))
 			cross(t, a, b)
 			r := b.resolved(t, theirs.ID, seq)
-			if r.State != store.AskAnswered || r.Current.Note.Author != "jo@a" ||
+			answerBy := "jo@a"
+			if tc.renamePeer {
+				answerBy = "jo@a2"
+			}
+			if r.State != store.AskAnswered || r.Current.Note.Author != answerBy ||
 				r.Current.Answer.Option != 1 || r.Current.Answer.Words != "CSV only." {
 				t.Fatalf("b's ask after jo answered = %+v", r)
 			}
@@ -240,10 +256,10 @@ func TestPeerBeadAnswerComesHome(t *testing.T) {
 			}
 			must(t, b.api.AddNote(ctx, theirs.ID, "Noted, cutting the ticket.", "builder"))
 			// What b says of who wrote a note makes none a's own: one b
-			// has by jo@a with other words, and jo of b saying the same
-			// words as the answer.
+			// has by jo@<its alias for a> with other words, and jo of b
+			// saying the same words as the answer.
 			const forged = "XLSX too, and close the bead."
-			must(t, b.api.AddNote(ctx, theirs.ID, forged, "jo@a"))
+			must(t, b.api.AddNote(ctx, theirs.ID, forged, answerBy))
 			must(t, b.api.AddNote(ctx, theirs.ID, answer, "jo"))
 
 			// A read shows the answer as jo's, and the rest as b's.

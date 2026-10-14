@@ -1268,7 +1268,7 @@ func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSe
 	var asks []foreignAsk
 	if sent != nil {
 		var err error
-		if asks, err = foreignAsksOf(w.Tx, sent.Key); err != nil {
+		if asks, err = foreignAsksOnBead(w.Tx, sent.Key, sent.Theirs); err != nil {
 			return 0, err
 		}
 	}
@@ -1288,7 +1288,7 @@ func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSe
 		author += "@" + peer
 		if by, ok := sent.wroteHere(n); ok {
 			author = by
-		} else if by, ok := answeredHere(asks, n); ok {
+		} else if by, ok := answeredHere(asks, sent.Theirs, n); ok {
 			author = by
 		}
 		at := n.At.UTC()

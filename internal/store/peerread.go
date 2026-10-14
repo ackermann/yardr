@@ -471,7 +471,7 @@ func (w *wtx) answeredRead(p *Peer, m PeerMessage, r PeerReadMessage, rec *peerR
 	}
 	notes := slices.DeleteFunc(slices.Clone(r.Notes), func(n PeerNote) bool { return strings.TrimSpace(n.Text) == "" })
 	at := now()
-	asks, err := foreignAsksOf(w.Tx, sent.Key)
+	asks, err := foreignAsksOnBead(w.Tx, sent.Key, r.Bead)
 	if err != nil {
 		return "", err
 	}
@@ -481,7 +481,7 @@ func (w *wtx) answeredRead(p *Peer, m PeerMessage, r PeerReadMessage, rec *peerR
 		// is none is someone, and a time that has not been is now.
 		by, here := sent.wroteHere(n)
 		if !here {
-			by, here = answeredHere(asks, n)
+			by, here = answeredHere(asks, r.Bead, n)
 		}
 		if notes[i].Here = here; here {
 			notes[i].Author = by

@@ -421,12 +421,12 @@ func (w *wtx) deliverAsk(p *Peer, m PeerMessage, ask *peerAsk) error {
 	return w.queueAskPush(ask.To, "", 0, join(p.Key, m.ID))
 }
 
-// foreignAsksOf are the foreign asks taken from the peer whose key is key,
-// as they are today: none of an earlier link with the same yard.
-func foreignAsksOf(tx *bolt.Tx, key string) ([]foreignAsk, error) {
+// foreignAsksOnBead are the foreign asks the peer whose key is key took on
+// bead, as they are today: none of an earlier link with the same yard.
+func foreignAsksOnBead(tx *bolt.Tx, key, bead string) ([]foreignAsk, error) {
 	var out []foreignAsk
-	err := each(tx, bPeerAsks, "", func(_ []byte, rec *foreignAsk) error {
-		if rec.Key == key {
+	err := each(tx, bPeerAsks, join(key, ""), func(_ []byte, rec *foreignAsk) error {
+		if rec.Key == key && rec.Bead == bead {
 			out = append(out, *rec)
 		}
 		return nil
@@ -809,23 +809,24 @@ func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64, actor string) (
 
 // answeredHere says whether n, a note the peer of a stay sent among those
 // written on its bead, is an answer someone of this yard gave to one of
-// asks, the foreign asks taken from that peer, and who. The peer has it by
-// <name>@<what it calls this yard>, as the ask named the person (Ask.To),
-// with the answer as the peer wrote it; it is known by both, from what
-// this yard kept when it answered. A peer can make no other note this
-// yard's own by it, only send back an answer given to it.
-func answeredHere(asks []foreignAsk, n PeerNote) (string, bool) {
-	name, _, at := strings.Cut(n.Author, "@")
-	if !at {
+// asks on bead, and who. The peer has it by <name>@<what it calls this
+// yard>, but that alias may have changed since the ask was made. The asking
+// yard knows the name from Ask.To and the answer from what it kept; both
+// must match. A peer can make no other note this yard's own by it, only
+// send back an answer given to it.
+func answeredHere(asks []foreignAsk, bead string, n PeerNote) (string, bool) {
+	name, peer, at := strings.Cut(n.Author, "@")
+	if !at || strings.Count(n.Author, "@") != 1 || !peerMailName.MatchString(name) || !peerMailName.MatchString(peer) {
 		return "", false
 	}
 	for _, f := range asks {
-		if f.Ask.To != n.Author {
+		to, _, addressed := strings.Cut(f.Ask.To, "@")
+		if f.Bead != bead || !addressed || to != name {
 			continue
 		}
 		for _, a := range f.Answers {
 			text, err := json.Marshal(a.Answer)
-			if a.By != name || err != nil || string(text) != n.Text {
+			if a.By != name || a.Answer.Ask != f.Seq || err != nil || string(text) != n.Text {
 				continue
 			}
 			return a.By, true
