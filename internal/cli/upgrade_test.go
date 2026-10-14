@@ -310,6 +310,14 @@ func TestUpgradeCheckSinceFlag(t *testing.T) {
 	}
 }
 
+func TestUpgradeSincePreservesInstallStartPrecision(t *testing.T) {
+	installStart := time.Date(2026, 10, 14, 9, 2, 11, 875000000, time.UTC)
+	got, err := upgradeSince(installStart.Format(time.RFC3339Nano))
+	if err != nil || !got.Equal(installStart) {
+		t.Fatalf("since = %v, %v; want exact install start %v", got, err, installStart)
+	}
+}
+
 // A daemon that flaps during the run fails: held, then not, or the reverse.
 func TestUpgradeCheckDaemonFlap(t *testing.T) {
 	_, st, a := upgradeYard(t)

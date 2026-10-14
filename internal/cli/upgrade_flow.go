@@ -22,7 +22,10 @@ import (
 // whole multi-yard gate; noRestore overrides the upgrade_restore setting
 // for one run.
 func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.Duration, noRestore bool) error {
-	start := time.Now()
+	runStarted := time.Now()
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be greater than zero")
+	}
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
 			return notInitialized{cfg.Home}
@@ -158,6 +161,12 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 		}
 	}
 
+	// Start both the pass-evidence window and the shared health deadline at
+	// the install boundary. Preflight work (backups and the previous binary)
+	// must not let a pass from before installation satisfy the gate, or eat
+	// into the time the new build has to prove itself.
+	installStarted := time.Now()
+	gateDeadline := installStarted.Add(timeout)
 	if out, err := upgradeGoInstall(ctx, depot.Path); err != nil {
 		removeGates()
 		reason := fmt.Sprintf("go install . in %s failed: %v", depot.Path, err)
@@ -195,13 +204,12 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 		}
 	}
 
-	since := start.Format(time.RFC3339)
-	deadline := start.Add(timeout)
+	since := installStarted.Format(time.RFC3339Nano)
 	homes := make([]string, len(was))
 	for i, w := range was {
 		homes[i] = w.home
 	}
-	results := upgradePoll(ctx, target, homes, since, deadline)
+	results := upgradePoll(ctx, target, homes, since, gateDeadline)
 	failed := []upgradePollResult{}
 	for _, r := range results {
 		if !r.ok {
@@ -211,7 +219,7 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 	if len(failed) == 0 {
 		removeGates()
 		upgradeLogMarked(ctx, st, cfg.Home, actor)
-		fmt.Printf("%-9s  ok in %s\n", "health", time.Since(start).Round(time.Second))
+		fmt.Printf("%-9s  ok in %s\n", "health", time.Since(runStarted).Round(time.Second))
 		return nil
 	}
 

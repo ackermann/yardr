@@ -125,6 +125,15 @@ func TestUpgradeRestoreOn(t *testing.T) {
 	}
 }
 
+func TestUpgradeRejectsNonPositiveTimeout(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		err := (&app{}).upgradeRun(context.Background(), config.At(t.TempDir()), timeout, false)
+		if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
+			t.Fatalf("timeout %s: err = %v", timeout, err)
+		}
+	}
+}
+
 // The gate poll runs the installed binary per yard, passing the install's
 // start as --since: an old caller checks a new server through the new
 // binary, never in-process.
@@ -164,6 +173,45 @@ func TestUpgradePollFailure(t *testing.T) {
 	res := upgradePoll(context.Background(), "/bin/yardr", []string{"/h1"}, time.Now().Format(time.RFC3339), deadline)
 	if len(res) != 1 || res[0].ok || !strings.Contains(res[0].why, "not running") {
 		t.Fatalf("result = %+v, want the yard named with why", res)
+	}
+}
+
+// Every installed-binary check is canceled by the shared deadline. A
+// subprocess stuck while checking one yard must not stretch the rewind
+// window beyond --timeout.
+func TestUpgradePollDeadlineCancelsCheck(t *testing.T) {
+	started := make(chan struct{}, 1)
+	stub(t, &upgradeRunInstalled, func(ctx context.Context, _, home string, _ ...string) (string, error) {
+		select {
+		case started <- struct{}{}:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		<-ctx.Done()
+		return "", ctx.Err()
+	})
+	deadline := time.Now().Add(50 * time.Millisecond)
+	done := make(chan []upgradePollResult, 1)
+	go func() {
+		done <- upgradePoll(context.Background(), "/bin/yardr", []string{"/h1", "/h2"}, "since", deadline)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("the installed-binary check did not start")
+	}
+	select {
+	case results := <-done:
+		if len(results) != 2 {
+			t.Fatalf("results = %+v, want one per yard", results)
+		}
+		for _, result := range results {
+			if result.ok || !strings.Contains(result.why, "deadline") {
+				t.Fatalf("result = %+v, want a deadline failure", result)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the shared deadline did not cancel the installed-binary checks")
 	}
 }
 

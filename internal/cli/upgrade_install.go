@@ -300,11 +300,17 @@ type upgradePollResult struct {
 // the predicate always runs in the build it asserts, passing the install's
 // start as --since. A yard the gate cannot check fails it, named.
 func upgradePoll(ctx context.Context, bin string, yards []string, since string, deadline time.Time) []upgradePollResult {
+	// A deadline that only guards the polling loop is not enough: one
+	// installed CLI can hang while checking a yard. Give every yard's
+	// subprocess the same deadline too, so one stuck check cannot extend the
+	// rewind window or hold up the other results.
+	pollCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	out := make([]upgradePollResult, len(yards))
 	done := make(chan int, len(yards))
 	for i, home := range yards {
 		go func(i int, home string) {
-			out[i] = upgradePollOne(ctx, bin, home, since, deadline)
+			out[i] = upgradePollOne(pollCtx, bin, home, since, deadline)
 			done <- i
 		}(i, home)
 	}
@@ -320,9 +326,21 @@ func upgradePoll(ctx context.Context, bin string, yards []string, since string, 
 func upgradePollOne(ctx context.Context, bin, home, since string, deadline time.Time) upgradePollResult {
 	last := "the yard could not be checked"
 	for {
+		if err := ctx.Err(); err != nil {
+			if err == context.DeadlineExceeded || !time.Now().Before(deadline) {
+				last = "the health check deadline expired"
+			}
+			return upgradePollResult{home: home, why: last}
+		}
 		out, err := upgradeRunInstalled(ctx, bin, home, "upgrade", "--check", "--since", since)
+		if ctx.Err() == context.DeadlineExceeded || !time.Now().Before(deadline) {
+			return upgradePollResult{home: home, why: "the health check deadline expired"}
+		}
 		if err == nil {
 			return upgradePollResult{home: home, ok: true}
+		}
+		if ctx.Err() != nil {
+			return upgradePollResult{home: home, why: last}
 		}
 		last = strings.TrimSpace(out)
 		if last == "" {
@@ -339,9 +357,6 @@ func upgradePollOne(ctx context.Context, bin, home, since string, deadline time.
 			if len(fails) > 0 {
 				last = strings.Join(fails, "; ")
 			}
-		}
-		if time.Now().After(deadline) {
-			return upgradePollResult{home: home, why: last}
 		}
 		select {
 		case <-ctx.Done():
