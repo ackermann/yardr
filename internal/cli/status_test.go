@@ -57,7 +57,7 @@ func statusJSON(t *testing.T, a *app) statusReport {
 // announce records a web view of the home as web serve does, for the test.
 func announce(t *testing.T, home, addr string, unsafe bool, as string) {
 	t.Helper()
-	clear, err := announceWeb(&config.Config{Home: home}, addr, unsafe, as)
+	clear, err := announceWeb(&config.Config{Home: home}, addr, unsafe, as, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ func TestStatusWorkLine(t *testing.T) {
 func TestStatusStaleWebView(t *testing.T) {
 	home, _, a := statusYard(t, "abcdef123456")
 	cfg := &config.Config{Home: home}
-	clear, err := announceWeb(cfg, "127.0.0.1:9000", false, "")
+	clear, err := announceWeb(cfg, "127.0.0.1:9000", false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestDoctorWebView(t *testing.T) {
 
 	// A view started by hand, no service: what misled before (yardr-t68z),
 	// when the line was about the service alone and read as "no view".
-	clear, err := announceWeb(&config.Config{Home: home}, "127.0.0.1:9000", false, "")
+	clear, err := announceWeb(&config.Config{Home: home}, "127.0.0.1:9000", false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

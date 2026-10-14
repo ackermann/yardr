@@ -67,12 +67,13 @@ type TalkLetter struct {
 const talkLimit = 50
 
 func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
-	if s.as == "" {
+	ctx := r.Context()
+	as := s.acting(ctx)
+	if as == "" {
 		// The view does not act: no user to show a conversation of.
 		s.respond(w, r, Page{Template: "talk", Title: "Talk", Menu: "talk", Data: Talk{}})
 		return
 	}
-	ctx := r.Context()
 	head, err := s.st.Head(ctx)
 	if err != nil {
 		s.fail(w, r, err)
@@ -100,7 +101,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out := Talk{As: s.as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
+	out := Talk{As: as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
 		Before: before, Head: head, MaxMail: store.MaxMailBytes}
 	if with == "" {
 		// The yard has no crew: the page says whose command that is.
@@ -109,7 +110,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	}
 	// Whose unread mail the user has, for the peers' marks: the letters
 	// are not needed here.
-	box, err := s.st.UserInbox(ctx, s.as, 1)
+	box, err := s.st.UserInbox(ctx, as, 1)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -117,14 +118,14 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	for _, r := range crew {
 		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
 	}
-	letters, more, err := s.st.Conversation(ctx, s.as, with, 0, talkLimit, before)
+	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, before)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	out.More = more
 	for _, l := range letters {
-		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == s.as || l.As == s.as, Sender: sender(l, s.as, with)})
+		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)})
 	}
 	title := "Talk with " + with
 	s.respond(w, r, Page{Template: "talk", Title: title, Menu: "talk", Data: out, head: head})
@@ -157,11 +158,11 @@ func sender(l store.Letter, me, with string) string {
 }
 
 // handleTalkPost takes the talk page's form: mail to the member in
-// conversation, sent as the user the view acts as. It is registered only
-// with --as (ActAs): without it the mux answers 405 itself, as on every
-// other route. Mail sent, it redirects to the conversation; mail refused
-// re-reads the page with the reason, as 200 so htmx puts it in place (it
-// leaves an error's page out).
+// conversation, sent as the user the request acts as. It is registered only
+// on a view that acts (ActAs, or UseJWT for JWT mode): without either the
+// mux answers 405 itself, as on every other route. Mail sent, it redirects
+// to the conversation; mail refused re-reads the page with the reason, as
+// 200 so htmx puts it in place (it leaves an error's page out).
 func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); !ownOrigin(origin, r.Host) {
 		http.Error(w, "yardr web takes mail only from its own pages: the request's origin is "+quoted(origin)+", not this view's. A page on another site cannot send mail as this view's user",
@@ -183,7 +184,7 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := r.PostFormValue("text")
-	if err := s.st.Mail(ctx, with, text, s.as); err != nil {
+	if err := s.st.Mail(ctx, with, text, s.acting(ctx)); err != nil {
 		s.talkAgain(w, r, with, text, err.Error())
 		return
 	}
@@ -194,19 +195,20 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 // the reason and the text back in the form.
 func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, why string) {
 	ctx := r.Context()
+	as := s.acting(ctx)
 	head, err := s.st.Head(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	out := Talk{As: s.as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
+	out := Talk{As: as, With: with, Crew: []TalkPeer{}, Letters: []TalkLetter{},
 		Head: head, MaxMail: store.MaxMailBytes, Error: why, Draft: text}
 	crew, err := s.st.Crew(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	box, err := s.st.UserInbox(ctx, s.as, 1)
+	box, err := s.st.UserInbox(ctx, as, 1)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -214,14 +216,14 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 	for _, r := range crew {
 		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
 	}
-	letters, more, err := s.st.Conversation(ctx, s.as, with, 0, talkLimit, 0)
+	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, 0)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	out.More = more
 	for _, l := range letters {
-		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == s.as || l.As == s.as, Sender: sender(l, s.as, with)})
+		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)})
 	}
 	s.respond(w, r, Page{Template: "talk", Title: "Talk with " + with, Menu: "talk", Data: out, head: head})
 }

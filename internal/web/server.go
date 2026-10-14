@@ -2,7 +2,8 @@
 // with html/template, and the same data as JSON to whoever asks for it.
 // Without --as it only reads the yard; with --as <user> the talk page
 // sends mail as that user, and a bead's page answers its asks and sends
-// the bead on, and nothing else takes a write.
+// the bead on, and nothing else takes a write. In JWT mode each request
+// acts as its own verified user instead.
 //
 // A page is one template in templates/ and one handler that builds the
 // page's data once and hands it to respond; docs/web.md says how to add one.
@@ -192,8 +193,9 @@ func (s *Server) loadPages() (map[string]*template.Template, error) {
 }
 
 // routes registers every page. Patterns name GET, so the mux refuses every
-// other method itself: without --as the view changes nothing. The routes
-// that take a write are registered by ActAs, with --as only.
+// other method itself: without --as or JWT mode the view changes nothing.
+// The routes that take a write are registered by ActAs (--as) or UseJWT
+// (JWT mode).
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.handleHome)
 	s.mux.HandleFunc("GET /talk", s.handleTalk)
@@ -244,12 +246,13 @@ func (s *Server) pagesRoutes() {
 // policy lets the browser load and reach this server only, so a page that
 // names another host by mistake fails where it is seen instead of calling
 // out. The page has no inline script or style, and nothing may frame it.
-// A view that acts has the talk page's form and the beads' own, which post
-// to the view itself; one that does not act has no form, and the policy
-// says so.
-func (s *Server) policy() string {
+// A request that acts has the talk page's form and the beads' own, which
+// post to the view itself; one that does not act has no form, and the
+// policy says so. In JWT mode that is per request: a request whose token
+// resolved to a user may post, and /health, which carries none, may not.
+func (s *Server) policy(r *http.Request) string {
 	form := "form-action 'none'"
-	if s.as != "" {
+	if s.acting(r.Context()) != "" {
 		form = "form-action 'self'"
 	}
 	return "default-src 'self'; base-uri 'none'; " + form + "; frame-ancestors 'none'"
@@ -268,7 +271,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// In JWT mode every request proves itself with the gateway's token,
 	// but the health check, which carries no user and says no secret.
 	if s.jwt != nil && r.URL.Path != "/health" {
-		user, code, msg := s.jwt.verify(r)
+		id, code, msg := s.jwt.verify(r)
 		if code != 0 {
 			if code == http.StatusServiceUnavailable {
 				// No keys: the next fetch may have them.
@@ -277,10 +280,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, code)
 			return
 		}
-		r = r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, user))
+		r = r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, id))
 	}
 	h := w.Header()
-	h.Set("Content-Security-Policy", s.policy())
+	h.Set("Content-Security-Policy", s.policy(r))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	s.mux.ServeHTTP(w, r)
@@ -612,12 +615,30 @@ func (s *Server) AllowHosts(hosts ...string) {
 // before the server serves.
 func (s *Server) ActAs(user string) {
 	s.as = user
+	s.postRoutes()
+}
+
+// postRoutes registers the routes that take a write: the talk page's form
+// and the bead page's own. ActAs and UseJWT each register them once, and
+// never together: a view acts as its fixed user or per request, not both.
+func (s *Server) postRoutes() {
 	s.mux.HandleFunc("POST /talk", s.handleTalkPost)
 	s.mux.HandleFunc("POST /beads/{id}", s.handleBeadPost)
 }
 
 // As is the user the view acts as, "" when it acts as none.
 func (s *Server) As() string { return s.as }
+
+// acting is the user the request acts as: the request's verified JWT user
+// in JWT mode, else the view's fixed one (--as). Every write path and
+// every gate that names a user reads this, so two visitors act as
+// themselves on one view.
+func (s *Server) acting(ctx context.Context) string {
+	if s.jwt != nil {
+		return jwtIdentityOf(ctx).user
+	}
+	return s.as
+}
 
 func (s *Server) addNames(hosts []string) {
 	for _, h := range hosts {

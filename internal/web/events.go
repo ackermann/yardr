@@ -134,7 +134,8 @@ func (s *Server) enter(remote string) (leave func(), status int) {
 //
 // The streams open at once are limited (streamMax, streamPerAddr): one
 // past the limit is answered 429 or 503 with Retry-After, before the yard
-// is asked anything.
+// is asked anything. In JWT mode a stream ends at its token's expiry, and
+// the client reconnects with a fresh token.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	format := q.Get("format")
@@ -208,6 +209,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if !send(fmt.Appendf(nil, "retry: %d\n\n", streamRetry.Milliseconds())) {
 		return
 	}
+	// In JWT mode the stream ends at the token's expiry: the gateway mints
+	// short-lived tokens, and the client reconnects with a fresh one
+	// (after the retry above). One already past its expiry ends now: it
+	// was verified within the minute's leeway, but no event goes out
+	// under it.
+	var exp <-chan time.Time
+	if at := RequestExpiry(r); !at.IsZero() {
+		if time.Until(at) <= 0 {
+			return
+		}
+		timer := time.NewTimer(time.Until(at))
+		defer timer.Stop()
+		exp = timer.C
+	}
 	beat := time.NewTicker(streamBeat)
 	defer beat.Stop()
 	// From here on a failing store is not answered with an error: the
@@ -224,6 +239,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok || !send(s.frame(ctx, e, format)) {
 				return
 			}
+		case <-exp:
+			return
 		}
 	}
 }

@@ -108,8 +108,11 @@ yardr web serve --host yard.example.net   # still 127.0.0.1:8791, answers to yar
 ```
 
 yardr knows nothing of the proxy: it sets none up, looks for none, does no
-TLS and reads no header a proxy adds (`X-Forwarded-Host`,
-`X-Forwarded-For`, a user's name). What it asks of one, whichever it is:
+TLS and, outside JWT mode, reads no header a proxy adds
+(`X-Forwarded-Host`, `X-Forwarded-For`, a user's name). In JWT mode it
+reads the one configured header (`web_jwt_header`) and verifies the signed
+token it carries ([Behind an auth gateway](#behind-an-auth-gateway)). What
+it asks of one, whichever it is:
 
 - **Forward the `Host` header unchanged.** The view compares the header it
   gets with the names it was given, in any case and with any port. In nginx
@@ -228,6 +231,17 @@ A request without the header, or with a token that is malformed, badly
 signed, expired, of another issuer or for another audience, is 401; a valid
 token whose email maps to no user is 403.
 
+Each request then acts as its own user: the talk page holds the visitor's
+conversation and sends mail as them, an ask answers where it is addressed
+to them, a bead sends on where it waits for them, and the home and line
+needs queue shows each visitor only the asks addressed to them — two
+visitors act as themselves on one view. The POST routes exist in JWT mode
+as with `--as`, and a form's POST is still taken only from the view's own
+pages ([Acting as a user](#acting-as-a-user)). The event stream closes at
+the token's expiry, and the client reconnects with a fresh token. `yardr
+status` and the start line say whose tokens the view verifies (`jwt from
+<issuer>`).
+
 ### `--unsafe`: every interface
 
 `yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected
@@ -330,7 +344,10 @@ of its own — as who reads the yard is ([Behind a proxy](#behind-a-proxy)).
 The edge is what stands in front. `yardr status` says whom a view acts as
 (`this machine only, acts as mckean`), and the start line carries it too
 (`serving the yard url=http://127.0.0.1:8791/ pages=http://127.0.0.1:8789/ acts_as=mckean`), whether
-the flag, the variable or the setting named the user.
+the flag, the variable or the setting named the user. Behind an auth
+gateway the view acts per request instead of as one user: each visitor's
+token maps to their own user ([Behind an auth
+gateway](#behind-an-auth-gateway)).
 
 ## Keeping it running
 

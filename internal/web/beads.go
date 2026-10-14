@@ -638,7 +638,8 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 // header the reader asked with, which the page's run links are built
 // from.
 func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, error) {
-	d := &BeadPage{As: s.as, Notes: []store.Note{}, Sessions: []store.Session{}, RunBase: s.runBase(hostport)}
+	as := s.acting(ctx)
+	d := &BeadPage{As: as, Notes: []store.Note{}, Sessions: []store.Session{}, RunBase: s.runBase(hostport)}
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		return nil, err
@@ -699,8 +700,8 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.To, Command: cmd})
 		}
 	}
-	if s.as != "" {
-		// What the view's user may do with the bead, as `yardr review`
+	if as != "" {
+		// What the request's user may do with the bead, as `yardr review`
 		// offers it; none when it waits for no manual group they belong
 		// to, or its flow names no move.
 		if nerr == nil {

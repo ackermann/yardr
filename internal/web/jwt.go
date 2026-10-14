@@ -58,21 +58,42 @@ type JWTConfig struct {
 	Users    map[string]string
 }
 
-// jwtUserKey is the request's verified JWT user (RequestUser).
+// jwtIdentity is what a verified gateway token resolves to: the yard user
+// its email maps to, and when the token expires. It rides the request's
+// context under jwtUserKey.
+type jwtIdentity struct {
+	user string
+	exp  time.Time
+}
+
+// jwtUserKey is the request's verified JWT identity (RequestUser,
+// RequestExpiry).
 type jwtUserKey struct{}
+
+// jwtIdentityOf is the identity the request's verified gateway token
+// resolved to, the zero one when the view is not in JWT mode or the
+// request carried no verified token (/health, and every request with JWT
+// mode off).
+func jwtIdentityOf(ctx context.Context) jwtIdentity {
+	id, _ := ctx.Value(jwtUserKey{}).(jwtIdentity)
+	return id
+}
 
 // RequestUser is the yard user the request's verified gateway token mapped
 // to, "" when the view is not in JWT mode or the request carried no
 // verified token (/health, and every request with JWT mode off).
-func RequestUser(r *http.Request) string {
-	user, _ := r.Context().Value(jwtUserKey{}).(string)
-	return user
-}
+func RequestUser(r *http.Request) string { return jwtIdentityOf(r.Context()).user }
+
+// RequestExpiry is when the request's verified gateway token expires, the
+// zero time when the request carried no verified token.
+func RequestExpiry(r *http.Request) time.Time { return jwtIdentityOf(r.Context()).exp }
 
 // UseJWT turns JWT mode on: every request but /health must carry a token
 // the gateway signed, verified against cfg, whose email maps to a user of
-// the yard. It fetches the keys first: JWT mode starts with keys, never
-// without. Call it before the server serves.
+// the yard, and each request acts as its own user. It registers the POST
+// routes, as ActAs does — registration is by mode, identity is by request —
+// and fetches the keys first: JWT mode starts with keys, never without.
+// Call it before the server serves.
 func (s *Server) UseJWT(ctx context.Context, cfg JWTConfig) error {
 	switch {
 	case cfg.Issuer == "":
@@ -103,6 +124,7 @@ func (s *Server) UseJWT(ctx context.Context, cfg JWTConfig) error {
 	v.keys, v.fetched = keys, time.Now()
 	v.mu.Unlock()
 	s.jwt = v
+	s.postRoutes()
 	return nil
 }
 
@@ -130,27 +152,28 @@ type jwtVerifier struct {
 	fetchErr  error
 }
 
-// verify is the request's mapped user, or the refusal's code and sentence:
+// verify is the request's identity, or the refusal's code and sentence:
 // a missing header or an invalid token is 401, an email no user has is
 // 403, and no usable keys at all is 503.
-func (v *jwtVerifier) verify(r *http.Request) (string, int, string) {
+func (v *jwtVerifier) verify(r *http.Request) (jwtIdentity, int, string) {
+	deny := func(code int, msg string) (jwtIdentity, int, string) { return jwtIdentity{}, code, msg }
 	raw := r.Header.Get(v.header)
 	if v.bearer {
 		raw = cutBearer(raw)
 	}
 	if raw == "" {
-		return "", http.StatusUnauthorized, "the gateway's token is missing: the " + v.header + " header is not on the request"
+		return deny(http.StatusUnauthorized, "the gateway's token is missing: the "+v.header+" header is not on the request")
 	}
 	kid, alg, claims, ok := peekToken(raw)
 	if !ok {
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: malformed"
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: malformed")
 	}
 	// What the gateways sign with: anything else is refused before any
 	// key is read, so no token picks its own algorithm.
 	switch alg {
 	case "RS256", "ES256":
 	default:
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: signed with " + alg
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: signed with "+alg)
 	}
 	// Presence only: the values are checked after the signature proves
 	// them, but a token without them cannot verify, so no key is read.
@@ -160,7 +183,7 @@ func (v *jwtVerifier) verify(r *http.Request) (string, int, string) {
 		{"iss", "another issuer's"},
 	} {
 		if _, ok := claims[missing.claim]; !ok {
-			return "", http.StatusUnauthorized, "the gateway's token is invalid: " + missing.why
+			return deny(http.StatusUnauthorized, "the gateway's token is invalid: "+missing.why)
 		}
 	}
 	// An hour's keys are replaced when the fetch answers; when it fails
@@ -173,29 +196,34 @@ func (v *jwtVerifier) verify(r *http.Request) (string, int, string) {
 		err := v.fetchErr
 		v.mu.Unlock()
 		v.log.Warn("no keys verify the gateway's tokens", "err", err)
-		return "", http.StatusServiceUnavailable, "no keys verify the gateway's tokens: none could be fetched"
+		return deny(http.StatusServiceUnavailable, "no keys verify the gateway's tokens: none could be fetched")
 	case key == nil:
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: signed with an unknown key"
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: signed with an unknown key")
 	}
 	verified := jwt.MapClaims{}
 	_, err := v.parser().ParseWithClaims(raw, verified, func(*jwt.Token) (any, error) { return key, nil })
 	if err != nil {
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: " + invalidWhy(err)
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: "+invalidWhy(err))
 	}
 	email, _ := verified["email"].(string)
 	if email == "" {
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: it names no email"
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: it names no email")
 	}
 	// The issuer's email is trusted (docs/web.md states whose): only a
 	// claim that says otherwise refuses the token.
 	if ev, ok := verified["email_verified"]; ok && ev != true {
-		return "", http.StatusUnauthorized, "the gateway's token is invalid: its email is unverified"
+		return deny(http.StatusUnauthorized, "the gateway's token is invalid: its email is unverified")
 	}
 	user, ok := v.users[strings.ToLower(email)]
 	if !ok {
-		return "", http.StatusForbidden, "the gateway's token names " + email + ", and the yard has no user with that email (" + store.WebJWTUsersSetting + ")"
+		return deny(http.StatusForbidden, "the gateway's token names "+email+", and the yard has no user with that email ("+store.WebJWTUsersSetting+")")
 	}
-	return user, 0, ""
+	// Expiry was required and verified above; the stream closes at it.
+	var exp time.Time
+	if at, _ := verified.GetExpirationTime(); at != nil {
+		exp = at.Time
+	}
+	return jwtIdentity{user: user, exp: exp}, 0, ""
 }
 
 // parser verifies a token's signature, issuer, audience, expiry and

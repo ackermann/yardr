@@ -51,8 +51,9 @@ other name.
 
 --unsafe listens on every interface (0.0.0.0:8791, on the selected
 address's port, or the --addr given, which may then be any address), to open the view from another machine on
-the same network. There is still no authentication: anyone who can reach
-this machine on that port can read the whole yard. A request is answered
+the same network. Outside JWT mode there is still no authentication: anyone who can reach
+this machine on that port can read the whole yard. In JWT mode every request
+must carry a token the gateway signed. A request is answered
 when its Host header is an IP address, a loopback name or this machine's
 host name (with or without .local), and 421 under any other name.
 
@@ -95,6 +96,14 @@ page answers its asks to the user and sends the bead on where it waits for
 them, as yardr review offers it. A form's POST is taken only from the
 view's own pages, and every other route stays GET. Without a user the talk
 page says the view does not act, and the view changes nothing.
+
+Behind an auth gateway that forwards each request with a signed JWT proving
+who the visitor is, the yard's web_jwt_issuer setting turns JWT mode on
+(docs/web.md, "Behind an auth gateway"): every request but /health must
+carry the gateway's token, and each request acts as the yard user its email
+maps to — two visitors act as themselves on one view. --as, YARDR_WEB_AS
+and web_as are then refused at start, and the start line and yardr status
+say whose tokens the view verifies (jwt from <issuer>).
 
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
@@ -226,11 +235,7 @@ this machine. Both answers carry Retry-After.`,
 				hostname, _ := os.Hostname()
 				srv.AllowNetwork(hostname, hosts...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
-				can := "can read the yard"
-				if as != "" {
-					can = "can read the yard and act as " + as
-				}
-				log.Warn("no authentication: anyone who can reach this machine on port " + port + " " + can)
+				log.Warn(unsafeWarning(port, as, jwtCfg.Issuer))
 			} else if len(hosts) > 0 {
 				srv.AllowHosts(hosts...)
 			}
@@ -249,7 +254,7 @@ this machine. Both answers carry Retry-After.`,
 			}()
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
-			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as); err != nil {
+			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as, jwtCfg.Issuer); err != nil {
 				log.Warn("yardr status will not list this view: it could not be recorded", "err", err)
 			} else {
 				defer clear()
@@ -258,6 +263,8 @@ this machine. Both answers carry Retry-After.`,
 				"pages", "http://" + pln.Addr().String() + "/"}
 			if as != "" {
 				at = append(at, "acts_as", as)
+			} else if jwtCfg.Issuer != "" {
+				at = append(at, "jwt_from", jwtCfg.Issuer)
 			}
 			if to := webAnswersTo(unsafe, srv.Names()); to != "" {
 				at = append(at, "answers_to", to)
@@ -507,6 +514,22 @@ func webAnswersTo(unsafe bool, names []string) string {
 		return strings.Join(append([]string{"a loopback address", "localhost"}, names...), ", ")
 	}
 	return ""
+}
+
+// unsafeWarning is what --unsafe says at start: who can reach the view on
+// port, and what reaching it lets them do — read the yard, and act as its
+// user where one stands. In JWT mode (issuer) reaching it is not reading
+// it: every request must carry a token the gateway signed.
+func unsafeWarning(port, as, issuer string) string {
+	if issuer != "" {
+		return "open to the network: anyone who can reach this machine on port " + port +
+			" is refused without a token the gateway signed"
+	}
+	can := "can read the yard"
+	if as != "" {
+		can = "can read the yard and act as " + as
+	}
+	return "no authentication: anyone who can reach this machine on port " + port + " " + can
 }
 
 // webHosts is what --host gave, each name as the view compares it, or why

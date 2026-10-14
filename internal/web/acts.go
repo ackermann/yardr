@@ -40,7 +40,7 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 	if i < 0 || groups[i].Runner != "manual" {
 		return nil, nil
 	}
-	if members := groups[i].Members; len(members) > 0 && !slices.Contains(members, s.as) {
+	if members := groups[i].Members; len(members) > 0 && !slices.Contains(members, s.acting(ctx)) {
 		return nil, nil
 	}
 	var out []MoveAction
@@ -86,7 +86,7 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 	return out, nil
 }
 
-// openBeadAsks are the bead's open asks to the user the view acts as,
+// openBeadAsks are the bead's open asks to the user the request acts as,
 // oldest first, as the socket's Bead reads them.
 func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, error) {
 	v, err := s.st.Bead(ctx, id)
@@ -95,7 +95,7 @@ func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, 
 	}
 	var out []store.BeadAsk
 	for _, a := range v.Asks {
-		if a.State == "open" && a.To == s.as {
+		if a.State == "open" && a.To == s.acting(ctx) {
 			out = append(out, a)
 		}
 	}
@@ -103,11 +103,11 @@ func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, 
 }
 
 // handleBeadPost takes the bead page's forms, and the needs rows' own:
-// an ask's answer, or a move to the next stage. It is registered only
-// with --as (ActAs): without it the mux answers 405 itself, as on every
-// other route. A write answered, the page lands on the bead; a write
-// refused re-reads the bead with the reason, as 200 so a form puts it in
-// place.
+// an ask's answer, or a move to the next stage. It is registered only on a
+// view that acts (ActAs, or UseJWT for JWT mode): without either the mux
+// answers 405 itself, as on every other route. A write answered, the page
+// lands on the bead; a write refused re-reads the bead with the reason, as
+// 200 so a form puts it in place.
 func (s *Server) handleBeadPost(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); !ownOrigin(origin, r.Host) {
 		http.Error(w, "yardr web takes answers and moves only from its own pages: the request's origin is "+quoted(origin)+", not this view's. A page on another site cannot answer or move as this view's user",
@@ -137,7 +137,7 @@ func (s *Server) handleBeadPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // beadMove reports the outcome, or advances to the stage, as `yardr review`
-// does: with the note, from the bead's stage and revision, as the view's
+// does: with the note, from the bead's stage and revision, as the request's
 // user. The move must be one the page offers: a bead that waits for
 // another group, or an outcome its flow does not name, is refused.
 func (s *Server) beadMove(w http.ResponseWriter, r *http.Request, b *store.Bead, outcome, to, note, rev string) {
@@ -163,7 +163,7 @@ func (s *Server) beadMove(w http.ResponseWriter, r *http.Request, b *store.Bead,
 		}
 	}
 	if want == nil {
-		s.beadAgain(w, r, b.ID, "bead "+b.ID+" does not wait for "+s.as+" with that move; read it again")
+		s.beadAgain(w, r, b.ID, "bead "+b.ID+" does not wait for "+s.acting(ctx)+" with that move; read it again")
 		return
 	}
 	if want.NoteRequired && strings.TrimSpace(note) == "" {
@@ -173,9 +173,9 @@ func (s *Server) beadMove(w http.ResponseWriter, r *http.Request, b *store.Bead,
 	exp := store.Expect{Stage: b.Stage, Revision: rev}
 	var moved *store.Bead
 	if want.Kind == "done" {
-		moved, err = s.st.Done(ctx, b.ID, want.Outcome, note, exp, s.as)
+		moved, err = s.st.Done(ctx, b.ID, want.Outcome, note, exp, s.acting(ctx))
 	} else {
-		moved, err = s.st.AdvanceNote(ctx, b.ID, want.To, note, exp, s.as)
+		moved, err = s.st.AdvanceNote(ctx, b.ID, want.To, note, exp, s.acting(ctx))
 	}
 	if err != nil {
 		s.beadAgain(w, r, b.ID, err.Error())
@@ -185,7 +185,7 @@ func (s *Server) beadMove(w http.ResponseWriter, r *http.Request, b *store.Bead,
 }
 
 // beadAnswer answers the form's ask through AnswerAsk, DeferAsk or
-// DeclineAsk, as the view's user. The ask must be open to them: one
+// DeclineAsk, as the request's user. The ask must be open to them: one
 // answered already, or asked of another, is refused.
 func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bead, rev string) {
 	ctx := r.Context()
@@ -224,7 +224,7 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 			return
 		}
 	}
-	if err := s.st.AddAnswerExpected(ctx, b.ID, answer, s.as, rev); err != nil {
+	if err := s.st.AddAnswerExpected(ctx, b.ID, answer, s.acting(ctx), rev); err != nil {
 		s.beadAgain(w, r, b.ID, err.Error())
 		return
 	}

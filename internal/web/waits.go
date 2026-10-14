@@ -222,7 +222,7 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 			return nil, err
 		}
 	}
-	l := &Line{As: s.as, Stages: []StageCount{}, Depots: []LineDepot{}}
+	l := &Line{As: s.acting(ctx), Stages: []StageCount{}, Depots: []LineDepot{}}
 	add := func(counts []StageCount) {
 		for _, c := range counts {
 			if c.Open == 0 {
@@ -335,13 +335,13 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			}
 			why = append(why, Reason{Kind: "manual", Text: text + " in " + b.Stage})
 		}
-		// An open ask to the operator waits with the rest, fault first: a
-		// bead that both waits and is asked stands once.
+		// An open ask to the acting user waits with the rest, fault first:
+		// a bead that both waits and is asked stands once.
 		why = append(why, asks[b.ID]...)
 		if len(why) == 0 {
 			continue
 		}
-		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why, Revision: b.Revision, As: s.as}
+		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why, Revision: b.Revision, As: s.acting(ctx)}
 		if b.Depot != nil {
 			w.Depot = *b.Depot
 		}
@@ -365,14 +365,15 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 
 // openAsks reads the open asks on the yard's open beads, oldest first per
 // bead: the queue UserAsks keeps, joined to the rows the waits join. A
-// view that acts reads the user it acts as; one that does not reads the
-// operator. A question from another yard (bead@peer) stands in no row: it
-// has no bead here and no stage for a lamp. A yard that names no one to
-// read, or whose queue cannot be read, waits without asks, as a depot
-// whose beads cannot be told stranded does.
+// request that acts reads the user it acts as — in JWT mode the request's
+// verified user, so each visitor sees only their own asks; one that does
+// not reads the operator. A question from another yard (bead@peer) stands
+// in no row: it has no bead here and no stage for a lamp. A yard that
+// names no one to read, or whose queue cannot be read, waits without asks,
+// as a depot whose beads cannot be told stranded does.
 func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, error) {
 	out := map[string][]Reason{}
-	op := s.as
+	op := s.acting(ctx)
 	if op == "" {
 		all, err := s.st.Settings(ctx)
 		if err != nil {

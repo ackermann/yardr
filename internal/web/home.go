@@ -137,7 +137,7 @@ func (s *Server) overview(ctx context.Context, y *yard) (*Home, error) {
 			return nil, err
 		}
 	}
-	out := &Home{Yard: s.yardName(ctx), As: s.as, Depots: []HomeDepot{},
+	out := &Home{Yard: s.yardName(ctx), As: s.acting(ctx), Depots: []HomeDepot{},
 		Attention: []Waiting{}, Running: []SessionRow{}, Closed: []HomeClosed{}, yard: y}
 	manual := manualClaims(y.sessions)
 	byDepot := map[string][]*store.Bead{}

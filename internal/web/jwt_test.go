@@ -8,11 +8,14 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -140,12 +143,12 @@ func (s *jwksStub) breakWith(status int) {
 	s.status = status
 }
 
-// serveJWT serves a yard in JWT mode against the stub's keys, carrying the
-// header ("" for the default) and the users table.
-func serveJWT(t *testing.T, jwks *jwksStub, header string, users map[string]string) (*httptest.Server, *web.Server) {
+// jwtServer builds a server for st in JWT mode against the stub's keys,
+// carrying the header ("" for the default) and the users table.
+func jwtServer(t *testing.T, st store.API, jwks *jwksStub, header string, users map[string]string) (*web.Server, string) {
 	t.Helper()
-	st := storetest.New(t)
-	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(st, home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,9 +158,28 @@ func serveJWT(t *testing.T, jwks *jwksStub, header string, users map[string]stri
 	}); err != nil {
 		t.Fatal(err)
 	}
+	return srv, home
+}
+
+// serveJWT serves a yard in JWT mode against the stub's keys, carrying the
+// header ("" for the default) and the users table.
+func serveJWT(t *testing.T, jwks *jwksStub, header string, users map[string]string) (*httptest.Server, *web.Server) {
+	t.Helper()
+	srv, _ := jwtServer(t, storetest.New(t), jwks, header, users)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	return ts, srv
+}
+
+// jwtFixture serves a yard in JWT mode as serveJWT does, and hands back
+// the fixture for its store.
+func jwtFixture(t *testing.T, jwks *jwksStub, header string, users map[string]string) *fixture {
+	t.Helper()
+	st := storetest.New(t)
+	srv, home := jwtServer(t, st, jwks, header, users)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	return &fixture{t: t, st: st, ts: ts, home: home}
 }
 
 // jwtClaims is a valid token's claims for email.
@@ -593,4 +615,270 @@ func TestJWTRefreshOutlivesItsRequest(t *testing.T) {
 	if got := jwtGet(t, ts, "/", web.DefaultJWTHeader, token); got.status != 200 {
 		t.Fatalf("after the hang-up, the rotated key: status %d, want 200: %s", got.status, got.body)
 	}
+}
+
+// In JWT mode two tokens with two mapped emails act as their own users on
+// one view: talk sends as each and shows each their own conversation, each
+// answers only the asks to them, a bead sends on only for the member it
+// waits for, and the home and line queue shows each visitor only the asks
+// addressed to them. The POST routes answer (no 405), and the policy opens
+// form-action 'self' on a request with a resolved user.
+func TestJWTTwoUsersActAsThemselves(t *testing.T) {
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	f := jwtFixture(t, jwks, "", map[string]string{
+		"jo@example.net": "jo", "kay@example.net": "kay",
+	})
+	header := web.DefaultJWTHeader
+	ctx := context.Background()
+	must(t, func() error { _, err := f.st.AddUser(ctx, "jo", "jo"); return err }())
+	must(t, func() error { _, err := f.st.AddUser(ctx, "kay", "kay"); return err }())
+	must(t, func() error {
+		_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo")
+		return err
+	}())
+	must(t, f.st.Mail(ctx, "yardmaster", "paint the shed", "jo"))
+	must(t, f.st.Mail(ctx, "jo", "it is painted", "yardmaster"))
+	must(t, f.st.Mail(ctx, "yardmaster", "fix the gate", "kay"))
+	must(t, f.st.Mail(ctx, "kay", "it is fixed", "yardmaster"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "jo"))
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "home"}, "jo")
+	must(t, err)
+	doorAsk, err := f.st.AddAsk(ctx, door.ID, store.Ask{Question: "Move the links now?", To: "jo",
+		Context: []string{"The links file declares the new source.", "The old source goes away Friday."}}, "yardmaster")
+	must(t, err)
+	gate, err := f.st.CreateBead(ctx, store.NewBead{Title: "a gate", Stage: "new", Depot: "home"}, "kay")
+	must(t, err)
+	gateAsk, err := f.st.AddAsk(ctx, gate.ID, store.Ask{Question: "Oil the hinges?", To: "kay",
+		Context: []string{"The gate sticks in wet weather.", "Oil is in the shed."}}, "yardmaster")
+	must(t, err)
+	// The door waits in decide for decisions, whose only member is jo.
+	actFlow(t, f)
+	if _, err := f.st.Advance(ctx, door.ID, "decide", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	jo := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
+	kay := signRSA(t, keys.a, "a", jwtClaims("kay@example.net"))
+
+	// Each sees their own conversation, with the form that writes to it.
+	r := f.get("/talk", header, jo)
+	if r.status != 200 || !strings.Contains(r.body, "paint the shed") ||
+		strings.Contains(r.body, "fix the gate") ||
+		!strings.Contains(r.body, "Mail to yardmaster as jo") ||
+		!strings.Contains(r.body, `<form id="send" method="post"`) {
+		t.Errorf("jo's talk: status %d, want jo's letters and the form, and none of kay's:\n%s", r.status, r.body)
+	}
+	r = f.get("/talk", header, kay)
+	if r.status != 200 || !strings.Contains(r.body, "fix the gate") ||
+		strings.Contains(r.body, "paint the shed") ||
+		!strings.Contains(r.body, "Mail to yardmaster as kay") {
+		t.Errorf("kay's talk: status %d, want kay's letters and none of jo's:\n%s", r.status, r.body)
+	}
+	// The policy opens per request: 'self' where a user resolved, 'none'
+	// on /health, which carries none.
+	if csp := f.get("/", header, jo).header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self'") {
+		t.Errorf("with a resolved user, Content-Security-Policy %q, want form-action 'self'", csp)
+	}
+	if csp := f.get("/health").header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'none'") {
+		t.Errorf("on /health, Content-Security-Policy %q, want form-action 'none'", csp)
+	}
+
+	// Talk posts as the token's user: the new letter stands in kay's
+	// conversation and none of jo's.
+	form := url.Values{"text": {"oil them twice"}}
+	if r := f.postForm("/talk?with=yardmaster", form, "Origin", f.ts.URL, header, kay); r.status != http.StatusSeeOther {
+		t.Fatalf("kay's talk post: status %d, want 303", r.status)
+	}
+	letters, _, err := f.st.Conversation(ctx, "kay", "yardmaster", 0, 50, 0)
+	must(t, err)
+	if last := letters[len(letters)-1]; last.From != "kay" || last.Text != "oil them twice" {
+		t.Fatalf("kay's conversation ends with %+v, want her mail", last)
+	}
+	letters, _, err = f.st.Conversation(ctx, "jo", "yardmaster", 0, 50, 0)
+	must(t, err)
+	for _, l := range letters {
+		if l.Text == "oil them twice" {
+			t.Fatalf("kay's mail stands in jo's conversation: %+v", l)
+		}
+	}
+
+	// Jo's door page answers her ask and sends the door on; kay's does
+	// neither.
+	r = f.get("/beads/"+door.ID, header, jo)
+	for _, want := range []string{`<h3 class="label">asks for jo</h3>`, "Move the links now?", `<h3 class="label">send on as jo</h3>`} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("jo's door page lacks %q:\n%s", want, r.body)
+		}
+	}
+	r = f.get("/beads/"+door.ID, header, kay)
+	for _, want := range []string{"asks for", "move-form", "send on as"} {
+		if strings.Contains(r.body, want) {
+			t.Errorf("kay's door page answers or moves with %q:\n%s", want, r.body)
+		}
+	}
+
+	// The home and line queue shows each visitor only the asks addressed
+	// to them: the door's manual wait stands for both, but its ask only
+	// for jo.
+	askBeads := func(ws []web.Waiting) map[string]bool {
+		out := map[string]bool{}
+		for _, w := range ws {
+			for _, reason := range w.Why {
+				if reason.Kind == "ask" {
+					out[w.Bead] = true
+				}
+			}
+		}
+		return out
+	}
+	homeOf := func(token string) web.Home {
+		t.Helper()
+		r := f.get("/", "Accept", "application/json", header, token)
+		var h web.Home
+		if err := json.Unmarshal([]byte(r.body), &h); err != nil {
+			t.Fatal("home is no JSON")
+		}
+		return h
+	}
+	lineOf := func(token string) web.Line {
+		t.Helper()
+		r := f.get("/line", "Accept", "application/json", header, token)
+		var l web.Line
+		if err := json.Unmarshal([]byte(r.body), &l); err != nil {
+			t.Fatal("the line is no JSON")
+		}
+		return l
+	}
+	if h := homeOf(jo); h.As != "jo" || len(askBeads(h.Attention)) != 1 || !askBeads(h.Attention)[door.ID] {
+		t.Errorf("jo's home: as %q, asks on %v, want as jo and the door's alone", h.As, askBeads(h.Attention))
+	}
+	if h := homeOf(kay); h.As != "kay" || len(askBeads(h.Attention)) != 1 || !askBeads(h.Attention)[gate.ID] {
+		t.Errorf("kay's home: as %q, asks on %v, want as kay and the gate's alone", h.As, askBeads(h.Attention))
+	}
+	if l := lineOf(jo); l.As != "jo" || len(askBeads(l.Waits)) != 1 || !askBeads(l.Waits)[door.ID] || len(askBeads(l.Parked)) != 0 {
+		t.Errorf("jo's line: as %q, waits %v, parked %v, want as jo and the door's wait alone",
+			l.As, askBeads(l.Waits), askBeads(l.Parked))
+	}
+	if l := lineOf(kay); l.As != "kay" || len(askBeads(l.Waits)) != 1 || !askBeads(l.Waits)[gate.ID] || len(askBeads(l.Parked)) != 0 {
+		t.Errorf("kay's line: as %q, waits %v, parked %v, want as kay and the gate's wait alone",
+			l.As, askBeads(l.Waits), askBeads(l.Parked))
+	}
+
+	// Each answers only the asks to them: jo's answer lands as her, her
+	// answer to kay's ask is refused, and kay's lands.
+	rev := revOf(t, f, door.ID)
+	form = url.Values{"rev": {rev}, "ask": {strconv.FormatUint(doorAsk, 10)}, "action": {"answer"}, "words": {"tonight"}}
+	if r := f.postForm("/beads/"+door.ID, form, "Origin", f.ts.URL, header, jo); r.status != http.StatusSeeOther {
+		t.Fatalf("jo's answer: status %d, want 303", r.status)
+	}
+	v, err := f.st.Bead(ctx, door.ID)
+	must(t, err)
+	if len(v.Asks) != 1 || v.Asks[0].State != "answered" {
+		t.Fatalf("the door's ask: %+v", v.Asks)
+	}
+	notes, err := f.st.Notes(ctx, door.ID)
+	must(t, err)
+	if last := notes[len(notes)-1]; last.Author != "jo" {
+		t.Errorf("the answer is %s's, want jo's", last.Author)
+	}
+	rev = revOf(t, f, gate.ID)
+	form = url.Values{"rev": {rev}, "ask": {strconv.FormatUint(gateAsk, 10)}, "action": {"answer"}, "words": {"no"}}
+	r = f.postForm("/beads/"+gate.ID, form, "Origin", f.ts.URL, header, jo)
+	if r.status != 200 || !strings.Contains(r.body, "asked of another") {
+		t.Errorf("jo answering kay's ask: status %d, want the refusal:\n%s", r.status, r.body)
+	}
+	v, err = f.st.Bead(ctx, gate.ID)
+	must(t, err)
+	if len(v.Asks) != 1 || v.Asks[0].State != "open" {
+		t.Fatalf("kay's ask: %+v, want it still open", v.Asks)
+	}
+	if r := f.postForm("/beads/"+gate.ID, form, "Origin", f.ts.URL, header, kay); r.status != http.StatusSeeOther {
+		t.Fatalf("kay's answer: status %d, want 303", r.status)
+	}
+
+	// And sends on only what waits for them: kay's move is refused, jo's
+	// closes the door.
+	rev = revOf(t, f, door.ID)
+	form = url.Values{"rev": {rev}, "outcome": {"done"}, "note": {"looks right"}}
+	r = f.postForm("/beads/"+door.ID, form, "Origin", f.ts.URL, header, kay)
+	if r.status != 200 || !strings.Contains(r.body, "does not wait for kay") {
+		t.Errorf("kay's move: status %d, want the refusal:\n%s", r.status, r.body)
+	}
+	if r := f.postForm("/beads/"+door.ID, form, "Origin", f.ts.URL, header, jo); r.status != http.StatusSeeOther {
+		t.Fatalf("jo's move: status %d, want 303", r.status)
+	}
+	b, err := f.st.GetBead(ctx, door.ID)
+	must(t, err)
+	if b.Status != "closed" {
+		t.Errorf("the door is %s in %s, want it closed", b.Status, b.Stage)
+	}
+}
+
+// In JWT mode the event stream ends at the token's expiry: the client reads
+// what was sent and then the end, and reconnects with a fresh token. A
+// token already past its expiry — verified within the minute's leeway —
+// ends at once.
+func TestJWTStreamEndsAtExpiry(t *testing.T) {
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	ts, srv := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
+	header := web.DefaultJWTHeader
+
+	// stream reads a stream under a token expiring at exp until its end,
+	// and how long the end took to come.
+	stream := func(exp time.Time) (string, time.Duration, error) {
+		t.Helper()
+		claims := jwtClaims(jwtTestEmail)
+		claims["exp"] = exp.Unix()
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/events?format=json&after=0", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set(header, signRSA(t, keys.a, "a", claims))
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		if r.StatusCode != 200 {
+			body, _ := io.ReadAll(r.Body)
+			t.Fatalf("status %d, want 200: %s", r.StatusCode, body)
+		}
+		type out struct {
+			body string
+			err  error
+		}
+		done := make(chan out, 1)
+		go func() {
+			b, err := io.ReadAll(r.Body)
+			done <- out{string(b), err}
+		}()
+		start := time.Now()
+		select {
+		case o := <-done:
+			return o.body, time.Since(start), o.err
+		case <-time.After(15 * time.Second):
+			return "", 0, errors.New("the stream outlived the token")
+		}
+	}
+	// The end comes at the expiry, neither at once nor never: the token
+	// has two seconds, so the stream ends between half a second and the
+	// timeout above.
+	body, took, err := stream(time.Now().Add(2 * time.Second))
+	must(t, err)
+	if !strings.HasPrefix(body, "retry: 500\n\n") {
+		t.Errorf("the stream sent %q, want the retry and then the end", body)
+	}
+	if took < 500*time.Millisecond {
+		t.Errorf("the stream ended after %v, want it to last the token out", took)
+	}
+	settle(t, "the stream outlived the token", func() bool { return srv.Streams() == 0 })
+	// Past its expiry the stream ends at once, with the retry alone.
+	body, _, err = stream(time.Now().Add(-30 * time.Second))
+	must(t, err)
+	if !strings.HasPrefix(body, "retry: 500\n\n") {
+		t.Errorf("a token past its expiry sent %q, want the retry and then the end", body)
+	}
+	settle(t, "the stream outlived the token", func() bool { return srv.Streams() == 0 })
 }

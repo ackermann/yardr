@@ -451,3 +451,124 @@ func TestWebServeJWTModeServes(t *testing.T) {
 	serves()
 	serves("--as=")
 }
+
+// jwtTestJWKS serves a key set of one generated RSA key, for tests of serve
+// in JWT mode.
+func jwtTestJWKS(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := json.Marshal(map[string]any{"keys": []any{map[string]any{
+		"kty": "RSA", "kid": "a",
+		"n": base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
+		"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes()),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(doc)
+	}))
+	t.Cleanup(jwks.Close)
+	return jwks.URL
+}
+
+// A view in JWT mode records whose tokens it verifies, and no acting user:
+// yardr status and doctor say "jwt from" in place of "acts as".
+func TestStatusAndDoctorSayJWTFrom(t *testing.T) {
+	home, st, a := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	t.Setenv("YARDR_WEB_AS", "")
+	for k, v := range map[string]string{
+		store.WebJWTIssuerSetting:   "https://team.example.net",
+		store.WebJWTAudienceSetting: "aud-tag",
+		store.WebJWTJWKSSetting:     jwtTestJWKS(t),
+		store.WebJWTUsersSetting:    "jo@example.net=Jo",
+	} {
+		if err := st.SetSetting(ctx, k, v, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Home: home}
+	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- cmd.ExecuteContext(sctx) }()
+	var views []webView
+	for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+		select {
+		case err := <-done:
+			t.Fatalf("web serve ended: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("web serve recorded nothing")
+		}
+		views = webViews(cfg)
+	}
+	if views[0].JWTFrom != "https://team.example.net" || views[0].As != "" {
+		t.Fatalf("view: %+v", views[0])
+	}
+	out, err := run(t, a().rootCmd(), "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "jwt from https://team.example.net")
+	rep, _ := doctorJSON(t, st)
+	var web *optionalPart
+	for i := range rep.Optional {
+		if rep.Optional[i].Key == "web" {
+			web = &rep.Optional[i]
+		}
+	}
+	if web == nil {
+		t.Fatalf("doctor has no web part: %+v", rep.Optional)
+	}
+	if len(web.Views) != 1 || web.Views[0].JWTFrom != "https://team.example.net" || !strings.Contains(web.Detail, "jwt from https://team.example.net") {
+		t.Errorf("doctor's web part: %+v", web)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("web serve did not stop")
+	}
+}
+
+func TestUnsafeWarning(t *testing.T) {
+	for _, c := range []struct {
+		port, as, issuer string
+		want             string
+	}{
+		{"8791", "", "", "no authentication: anyone who can reach this machine on port 8791 can read the yard"},
+		{"9000", "Jo", "", "no authentication: anyone who can reach this machine on port 9000 can read the yard and act as Jo"},
+		{"8791", "", "https://team.example.net", "open to the network: anyone who can reach this machine on port 8791 is refused without a token the gateway signed"},
+	} {
+		if got := unsafeWarning(c.port, c.as, c.issuer); got != c.want {
+			t.Errorf("unsafeWarning(%q, %q, %q) = %q, want %q", c.port, c.as, c.issuer, got, c.want)
+		}
+	}
+}
+
+func TestWebOpenNote(t *testing.T) {
+	plain := webView{URL: "http://192.168.7.7:9001/", PID: 4242, Addr: "0.0.0.0:9001"}
+	if got, want := webOpenNote(plain), "http://192.168.7.7:9001/ (pid 4242) is open to the network, no login: it was started with --unsafe, "+
+		"and anyone who can reach this machine on port 9001 can read the yard"; got != want {
+		t.Errorf("webOpenNote without JWT = %q, want %q", got, want)
+	}
+	jwt := plain
+	jwt.JWTFrom = "https://team.example.net"
+	if got, want := webOpenNote(jwt), "http://192.168.7.7:9001/ (pid 4242) is open to the network: it was started with --unsafe, "+
+		"and every request must carry a token the gateway signed"; got != want {
+		t.Errorf("webOpenNote in JWT mode = %q, want %q", got, want)
+	}
+}

@@ -28,7 +28,11 @@ type webView struct {
 	Unsafe bool `json:"unsafe"`
 	// As is the user it acts as (--as, YARDR_WEB_AS or web_as), "" when it
 	// acts as none.
-	As      string    `json:"as,omitempty"`
+	As string `json:"as,omitempty"`
+	// JWTFrom is the issuer whose tokens a view in JWT mode verifies
+	// (web_jwt_issuer), "" when the view takes no JWT mode. It stands in
+	// place of As: the two never stand together.
+	JWTFrom string    `json:"jwt_from,omitempty"`
 	Started time.Time `json:"started"`
 	// Revision is the build it runs, as it recorded it: a view does not
 	// replace itself when a new yardr is installed, as the server and the
@@ -49,9 +53,10 @@ type webView struct {
 func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr, acting as the user as ("" for none), until clear is called.
-func announceWeb(cfg *config.Config, addr string, unsafe bool, as string) (clear func(), err error) {
-	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe, "as": as})
+// addr, acting as the user as ("" for none) or verifying the tokens of
+// jwtFrom in JWT mode ("" for none), until clear is called.
+func announceWeb(cfg *config.Config, addr string, unsafe bool, as, jwtFrom string) (clear func(), err error) {
+	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom})
 }
 
 // webViews are the home's running web views, oldest first. A record nobody
@@ -71,13 +76,19 @@ func webViews(cfg *config.Config) []webView {
 	return views
 }
 
-// reach is the view in words: who can open it, and whom it acts as.
+// reach is the view in words: who can open it, and whom it acts as — or, in
+// JWT mode, whose tokens it verifies.
 func (v webView) reach() string {
 	reach := "this machine only"
 	if v.Open {
-		reach = "open to the network (--unsafe), no login"
+		reach = "open to the network (--unsafe)"
+		if v.JWTFrom == "" {
+			reach += ", no login"
+		}
 	}
-	if v.As != "" {
+	if v.JWTFrom != "" {
+		reach += ", jwt from " + v.JWTFrom
+	} else if v.As != "" {
 		reach += ", acts as " + v.As
 	}
 	return reach
@@ -139,9 +150,7 @@ func webPart(cfg *config.Config) optionalPart {
 	for _, v := range views {
 		running = append(running, fmt.Sprintf("%s (pid %d, %s)", v.URL, v.PID, v.reach()))
 		if v.Open {
-			_, port, _ := net.SplitHostPort(v.Addr)
-			part.Notes = append(part.Notes, fmt.Sprintf("%s (pid %d) is open to the network, no login: it was started with --unsafe, "+
-				"and anyone who can reach this machine on port %s can read the yard", v.URL, v.PID, port))
+			part.Notes = append(part.Notes, webOpenNote(v))
 		}
 	}
 	now := "not running now"
@@ -160,4 +169,17 @@ func webPart(cfg *config.Config) optionalPart {
 	part.Detail = fmt.Sprintf("not running, and nothing keeps it running; %s web serve shows the yard in a browser while it runs, "+
 		"%s web install keeps it running from login on (docs/web.md)", yardr, yardr)
 	return part
+}
+
+// webOpenNote is doctor's note for a view open to the network: anyone who
+// can reach the machine reads the yard — or, in JWT mode, is refused
+// without a token the gateway signed.
+func webOpenNote(v webView) string {
+	_, port, _ := net.SplitHostPort(v.Addr)
+	if v.JWTFrom != "" {
+		return fmt.Sprintf("%s (pid %d) is open to the network: it was started with --unsafe, "+
+			"and every request must carry a token the gateway signed", v.URL, v.PID)
+	}
+	return fmt.Sprintf("%s (pid %d) is open to the network, no login: it was started with --unsafe, "+
+		"and anyone who can reach this machine on port %s can read the yard", v.URL, v.PID, port)
 }
