@@ -17,6 +17,7 @@ func TestSessionRunnerName(t *testing.T) {
 		{"exec", Session{Runner: "exec", Handle: map[string]any{"pid": 7}}, "exec"},
 		{"old herdr session", Session{Handle: map[string]any{"agent": "a"}}, "herdr"},
 		{"old exec session", Session{Handle: map[string]any{"pid": 7}}, "exec"},
+		{"old peer session", Session{Handle: map[string]any{"peer": "north"}}, "peer"},
 		{"the recorded runner over the handle", Session{Runner: "peer", Handle: map[string]any{"agent": "a", "manual": true}}, "peer"},
 		{"starting, no handle yet", Session{}, ""},
 	} {

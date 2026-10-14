@@ -986,6 +986,8 @@ func (s Session) RunnerName() string {
 		return "manual"
 	case s.Handle["pid"] != nil:
 		return "exec"
+	case s.Handle["peer"] != nil:
+		return PeerRunner
 	case s.Handle["agent"] != nil:
 		return "herdr"
 	}
