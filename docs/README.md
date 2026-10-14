@@ -41,7 +41,7 @@ internal/dispatch   routing, claims, liveness, teardown (the only control loop)
 internal/runner     manual, exec, herdr, peer
 internal/bdp        the BDP Read server (protocol rules, selector, paging)
 internal/web        the read-only web view (pages as HTML or JSON, embedded assets)
-internal/rpc        the store API over the server's unix socket
+internal/rpc        the store API over the server's unix socket; go generate ./internal/rpc writes the client's wrappers from store.API
 internal/server     the store-owning server process; started on first use
 internal/version    build revisions; notices a new binary installed over a running one
 internal/cli        cobra commands
