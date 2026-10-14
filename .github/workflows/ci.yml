@@ -34,8 +34,9 @@ jobs:
           fi
       # The depot's test command as the assembly runs it on what lands: go
       # vet, go test -race over every package, and the store/dispatch/bdp
-      # suites again through the unix-socket client. Running the script
-      # itself keeps CI and the landing from drifting apart.
+      # suites again through the unix-socket client. It is the whole suite
+      # here because the checkout has no base to compare with. Running the
+      # script itself keeps CI and the landing from drifting apart.
       - name: depot tests (.yardr/test, as for a landing)
         run: YARDR_LANDING=1 sh .yardr/test
       # What that run leaves out: the plain (non-race) build, and every

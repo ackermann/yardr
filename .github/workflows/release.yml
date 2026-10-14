@@ -26,7 +26,8 @@ jobs:
           cache: true
       # The same tests a bead passes before it lands (gofmt, go vet, go test
       # -race, the rpc suites): a tag on a commit that fails them makes no
-      # release.
+      # release. The checkout has no base to compare with, so here it is the
+      # whole suite.
       - name: depot tests (.yardr/test, as for a landing)
         run: YARDR_LANDING=1 sh .yardr/test
       # The script a person runs for the same build. It cross-compiles the

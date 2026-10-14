@@ -5,8 +5,10 @@ The assembly lands the bead on `main` from here, one bead at a time
 stage. The bead was built, reviewed and approved; the assembly rebases
 `yard/<bead>` onto `main` if `main` moved, runs the depot's test command on
 exactly what will land (`main`'s copy of `.yardr/test`, with
-`YARDR_LANDING=1`: the whole suite), whatever the builder and the reviewer
-reported, and fast-forwards `main` to that commit.
+`YARDR_LANDING=1`: the whole suite, or the plain selection when the landing
+changes nothing compiled; docs/line.md, "One whole-suite run per bead"),
+whatever the builder and the reviewer reported, and fast-forwards `main` to
+that commit.
 
 Outcomes:
 

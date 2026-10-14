@@ -3,7 +3,9 @@ The reviewed train lands on `main` from here. No agent works this stage.
 Locally, which is how depot yardr lands trains: the assembly
 (`contrib/assembly/merge-local`) rebases `yard/<train>` onto `main` if `main`
 moved, runs the depot's test command on what will land (`.yardr/test` with
-`YARDR_LANDING=1`: the whole suite), fast-forwards `main` to it and
+`YARDR_LANDING=1`: the whole suite, or the plain selection when the landing
+changes nothing compiled; docs/line.md, "One whole-suite run per bead"),
+fast-forwards `main` to it and
 advances the train straight to `merged`, by the edge no outcome offers; that
 closes it.
 
