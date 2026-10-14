@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -710,8 +711,10 @@ func TestGoneClients(t *testing.T) {
 		func() bool { return runtime.NumGoroutine() <= base })
 }
 
-// A client that takes nothing does not hold up the others, and is dropped
-// when a write to it has waited long enough: its stream does not stay.
+// A client that takes nothing is dropped when a write to it has waited
+// long enough: its stream does not stay. Stalling it takes megabytes:
+// the connection's buffers grow to megabytes on their own, so no small
+// cap set for the test would hold one.
 func TestSlowClient(t *testing.T) {
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
@@ -725,16 +728,42 @@ func TestSlowClient(t *testing.T) {
 	slow, err := net.Dial("tcp", ts.Listener.Addr().String())
 	must(t, err)
 	defer slow.Close()
-	_ = slow.(*net.TCPConn).SetReadBuffer(1024)
+	_, err = fmt.Fprintf(slow, "GET /events?format=json&after=0 HTTP/1.1\r\nHost: %s\r\n\r\n", ts.Listener.Addr())
+	must(t, err)
+	settle(t, "the client has no stream", func() bool { return srv.Streams() == 1 })
+
+	// More than the connection's buffers hold: 48 MB.
+	big := strings.Repeat("x", 1<<20)
+	const n = 48
+	for range n {
+		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"reason": big}))
+	}
+	settle(t, "the client that reads nothing still has its stream", func() bool { return srv.Streams() == 0 })
+}
+
+// A client that takes nothing does not hold up the others: while its
+// stream stands, a reading client gets every event. Small ones, so
+// nothing here waits on pace: the drop is TestSlowClient's, with the
+// megabytes stalling takes.
+func TestSlowClientNoHoldUp(t *testing.T) {
+	st := storetest.New(t)
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	srv.SetStreamWrite(300 * time.Millisecond)
+	ts := httptest.NewServer(srv)
+	defer shut(ts)
+	ctx := context.Background()
+
+	slow, err := net.Dial("tcp", ts.Listener.Addr().String())
+	must(t, err)
+	defer slow.Close()
 	_, err = fmt.Fprintf(slow, "GET /events?format=json&after=0 HTTP/1.1\r\nHost: %s\r\n\r\n", ts.Listener.Addr())
 	must(t, err)
 	quick := openStream(t, ts.URL+"/events?format=json&after=0")
 	settle(t, "two clients are not two streams", func() bool { return srv.Streams() == 2 })
 
-	// More than the connection's buffers hold: 48 MB.
-	big := strings.Repeat("x", 1<<20)
+	big := strings.Repeat("x", 1<<10)
 	const n = 48
-	start := time.Now()
 	for range n {
 		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"reason": big}))
 	}
@@ -743,9 +772,73 @@ func TestSlowClient(t *testing.T) {
 			t.Fatalf("the reading client got frame %d of %d bytes, want %d whole", fr.id, len(fr.data), i+1)
 		}
 	}
-	t.Logf("the reading client had all %d events %s after the first was written", n, time.Since(start).Round(time.Millisecond))
-	settle(t, "the client that reads nothing still has its stream", func() bool { return srv.Streams() == 1 })
+	// Both streams stand: nothing stalled, nothing was dropped.
+	if n := srv.Streams(); n != 2 {
+		t.Fatalf("%d streams stand, want both clients' two", n)
+	}
 	quick.cancel()
+	slow.Close()
+	settle(t, "a stream outlived its client", func() bool { return srv.Streams() == 0 })
+}
+
+// A client that reads steadily, if slowly, is dropped never: a frame it
+// cannot drain in one deadline still arrives whole, since the stream
+// renews the deadline as its bytes flow.
+func TestSteadyClient(t *testing.T) {
+	st := storetest.New(t)
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	srv.SetStreamWrite(300 * time.Millisecond)
+	ts := httptest.NewServer(srv)
+	defer shut(ts)
+
+	c, err := net.Dial("tcp", ts.Listener.Addr().String())
+	must(t, err)
+	defer c.Close()
+	must(t, c.SetDeadline(time.Now().Add(60*time.Second)))
+	// HTTP/1.0: the frame comes as plain bytes, not in chunks.
+	_, err = fmt.Fprintf(c, "GET /events?format=json&after=0 HTTP/1.0\r\nHost: %s\r\n\r\n", ts.Listener.Addr())
+	must(t, err)
+	// Past the response's headers, one byte at a time: a larger read
+	// would pull the frame in ahead of the pace below.
+	var hdr []byte
+	var one [1]byte
+	for !strings.HasSuffix(string(hdr), "\r\n\r\n") {
+		_, err := io.ReadFull(c, one[:])
+		must(t, err)
+		hdr = append(hdr, one[0])
+	}
+
+	// One frame, larger than any buffering: the buffers take megabytes
+	// at once, so only tens of megabytes keep a steady reader on one
+	// write past one deadline.
+	big := strings.Repeat("x", 24<<20)
+	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"reason": big}))
+	var got []byte
+	// Whole when the frame's bytes are all here: the retry line comes
+	// first, so length alone is not the end.
+	whole := func() bool {
+		return len(got) >= len(big) && strings.HasSuffix(string(got[max(0, len(got)-2):]), "\n\n")
+	}
+	// A steady 256 KB every 25 ms: seconds for the frame, which one
+	// 300 ms deadline could never cover.
+	pace := make([]byte, 256<<10)
+	for !whole() {
+		// One paced piece: 256 KB, however many reads it takes, then
+		// 25 ms. Pacing reads instead of bytes would let short reads
+		// set the pace.
+		got0 := len(got)
+		for len(got)-got0 < len(pace) && !whole() {
+			n, err := c.Read(pace)
+			must(t, err)
+			got = append(got, pace[:n]...)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if len(got) < len(big) {
+		t.Fatalf("the steady client got %d bytes, want the whole %d-byte frame", len(got), len(big))
+	}
+	c.Close()
 	settle(t, "a stream outlived its client", func() bool { return srv.Streams() == 0 })
 }
 

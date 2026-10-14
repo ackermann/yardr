@@ -15,10 +15,16 @@ import (
 )
 
 const (
-	// streamWrite bounds one write to a stream's client. A client that
-	// takes nothing for this long is dropped: it holds a subscription of
-	// the yard, and one that still lives reconnects where it stopped.
+	// streamWrite bounds one write to a stream's client. A frame goes
+	// out in chunks of streamChunk with the deadline renewed for each,
+	// so a client that keeps taking bytes stays, however large the
+	// frame, and only one that takes nothing for this long is dropped:
+	// it holds a subscription of the yard, and one that still lives
+	// reconnects where it stopped.
 	streamWrite = 10 * time.Second
+	// streamChunk is how much of a frame a stream writes under one
+	// deadline (see streamWrite).
+	streamChunk = 32 << 10
 	// streamBeat is how often a quiet stream is written to, so a client
 	// that went away without closing is found, and nothing between the
 	// two takes the silence for a dead connection.
@@ -184,11 +190,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// A proxy in front (nginx) must hand each event on as it comes.
 	h.Set("X-Accel-Buffering", "no")
 	rc := http.NewResponseController(w)
-	// send writes one frame and reports whether the client took it.
+	// send writes one frame and reports whether the client took it. The
+	// deadline is renewed for every chunk, so what drops a client is
+	// taking nothing for streamWrite, not a frame it cannot drain whole
+	// in one deadline.
 	send := func(frame []byte) bool {
-		_ = rc.SetWriteDeadline(time.Now().Add(s.streamWrite))
-		if _, err := w.Write(frame); err != nil {
-			return false
+		for len(frame) > 0 {
+			_ = rc.SetWriteDeadline(time.Now().Add(s.streamWrite))
+			n, err := w.Write(frame[:min(len(frame), streamChunk)])
+			if err != nil || n == 0 {
+				return false
+			}
+			frame = frame[n:]
 		}
 		return rc.Flush() == nil
 	}
