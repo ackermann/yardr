@@ -18,7 +18,7 @@ type etaTest struct {
 	now time.Time
 }
 
-func newETATest(t *testing.T) *etaTest {
+func newETATest(t testing.TB) *etaTest {
 	t.Helper()
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
 	y := &etaTest{now: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
@@ -45,7 +45,7 @@ func (y *etaTest) at(t time.Time) *etaTest {
 	return y
 }
 
-func (y *etaTest) create(t *testing.T, title, stage string, labels ...string) *Bead {
+func (y *etaTest) create(t testing.TB, title, stage string, labels ...string) *Bead {
 	t.Helper()
 	b, err := y.CreateBead(context.Background(), NewBead{Title: title, Stage: stage, Labels: labels}, "me")
 	if err != nil {
@@ -54,7 +54,7 @@ func (y *etaTest) create(t *testing.T, title, stage string, labels ...string) *B
 	return b
 }
 
-func (y *etaTest) claim(t *testing.T, id, group, stage string) *Session {
+func (y *etaTest) claim(t testing.TB, id, group, stage string) *Session {
 	t.Helper()
 	s, err := y.Claim(context.Background(), id, group, stage, "yard")
 	if err != nil {
@@ -63,7 +63,7 @@ func (y *etaTest) claim(t *testing.T, id, group, stage string) *Session {
 	return s
 }
 
-func (y *etaTest) advance(t *testing.T, id, stage string) {
+func (y *etaTest) advance(t testing.TB, id, stage string) {
 	t.Helper()
 	if _, err := y.Advance(context.Background(), id, stage, Expect{}, "me"); err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func (y *etaTest) advance(t *testing.T, id, stage string) {
 }
 
 // row reads the bead's stored row, with its stay fields.
-func (y *etaTest) row(t *testing.T, id string) *beadRow {
+func (y *etaTest) row(t testing.TB, id string) *beadRow {
 	t.Helper()
 	var row *beadRow
 	if err := y.read(func(tx *bolt.Tx) error {
@@ -84,7 +84,7 @@ func (y *etaTest) row(t *testing.T, id string) *beadRow {
 	return row
 }
 
-func (y *etaTest) cell(t *testing.T, group, label, stage string) ETACell {
+func (y *etaTest) cell(t testing.TB, group, label, stage string) ETACell {
 	t.Helper()
 	c, err := y.ETACell(context.Background(), group, label, stage)
 	if err != nil {

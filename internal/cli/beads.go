@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
@@ -102,7 +103,7 @@ func writerAskLine(w store.WriterAsk) string {
 }
 
 func (a *app) printBead(b *store.Bead) error {
-	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil)
+	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil, nil)
 }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
@@ -123,8 +124,9 @@ func printLinks(ls []store.Link) {
 // holding it, with the stages they name. test, when given, is the test
 // command of the bead's depot, for whoever is about to work the bead (prime).
 // routed, when given, is why the bead went to its group or what it waits
-// for, where the route had a choice to make.
-func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, links ...store.Link) error {
+// for, where the route had a choice to make. est, when given, is the
+// bead's ETA and late mark, each printed when it has anything to say.
+func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, est *eta.Result, links ...store.Link) error {
 	return a.out(b, func() {
 		// The title, the body and the reason it closed are a writer's
 		// words, and stand in the output its notes stand in. The title
@@ -173,6 +175,14 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 		}
 		if len(b.Labels) > 0 {
 			fmt.Printf("  labels %s\n", strings.Join(b.Labels, ", "))
+		}
+		if est != nil {
+			if est.ETA != nil {
+				fmt.Printf("  %s\n", est.ETA.Line)
+			}
+			if est.Late != nil {
+				fmt.Printf("  %s\n", est.Late.Line)
+			}
 		}
 		if b.CloseReason != nil {
 			fmt.Printf("  closed: %s\n", store.OneLine(*b.CloseReason))
@@ -431,6 +441,10 @@ func (a *app) newBeadShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			est, err := st.Estimate(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
@@ -442,6 +456,11 @@ func (a *app) newBeadShowCmd() *cobra.Command {
 				if fam != nil {
 					train = fam.Train
 				}
+				var etaObj *eta.ETA
+				var lateObj *eta.Late
+				if est != nil {
+					etaObj, lateObj = est.ETA, est.Late
+				}
 				return a.out(struct {
 					*store.Bead
 					*store.Family
@@ -452,10 +471,14 @@ func (a *app) newBeadShowCmd() *cobra.Command {
 					// Routing is why the bead went to its group, or what it
 					// waits for (yardr route add --help).
 					Routing *beadRouting `json:"routing,omitempty"`
-				}{b, fam, disc, train, links, notes, routed}, nil)
+					// ETA and Late are the bead's estimate, absent when
+					// there is nothing to say.
+					ETA  *eta.ETA  `json:"eta,omitempty"`
+					Late *eta.Late `json:"late,omitempty"`
+				}{b, fam, disc, train, links, notes, routed, etaObj, lateObj}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, links...); err != nil {
+			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, est, links...); err != nil {
 				return err
 			}
 			printNotes(notes, a.mailHome())
@@ -788,8 +811,20 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 				next.StageFile = sf
 			}
+			est, err := st.Estimate(c.Context(), id)
+			if err != nil {
+				return err
+			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
 				"family": fam, "discovery": disc}
+			if est != nil {
+				if est.ETA != nil {
+					v["eta"] = est.ETA
+				}
+				if est.Late != nil {
+					v["late"] = est.Late
+				}
+			}
 			// The whole flow as a map, and the path the bead took: what comes
 			// before and after the stage, which the stage file does not say.
 			// The bead and its stage file are worth printing without it.
@@ -845,7 +880,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil)
+				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil, est)
 				if pullHead != "" {
 					fmt.Printf("\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}

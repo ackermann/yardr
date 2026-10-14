@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -149,6 +150,9 @@ func (c *Client) WriterAsks(ctx context.Context, writer string) ([]store.WriterA
 }
 func (c *Client) Bead(ctx context.Context, id string) (*store.BeadView, error) {
 	return callV[*store.BeadView](c, ctx, "Bead", id)
+}
+func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
+	return callV[*eta.Result](c, ctx, "Estimate", id)
 }
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
