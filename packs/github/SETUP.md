@@ -22,7 +22,7 @@ file's.
    umask 077
    ```
    ```sh
-   read -rs v && printf '%s' "$v" > ~/.yardr/github.secret; unset v
+   IFS= read -rs v && printf '%s' "$v" > ~/.yardr/github.secret; unset v
    ```
    ```sh
    chmod 600 ~/.yardr/github.secret
@@ -42,7 +42,7 @@ file's.
    umask 077
    ```
    ```sh
-   read -rs v && printf 'GITHUB_TOKEN=%s' "$v" > ~/.yardr/crew/<name>.env; unset v
+   IFS= read -rs v && printf 'GITHUB_TOKEN=%s' "$v" > ~/.yardr/crew/<name>.env; unset v
    ```
    ```sh
    chmod 600 ~/.yardr/crew/<name>.env

@@ -20,7 +20,7 @@ means in Linear is a flow pack's to say, not this file's.
    umask 077
    ```
    ```sh
-   read -rs v && printf '%s' "$v" > ~/.yardr/linear.secret; unset v
+   IFS= read -rs v && printf '%s' "$v" > ~/.yardr/linear.secret; unset v
    ```
    ```sh
    chmod 600 ~/.yardr/linear.secret
@@ -40,7 +40,7 @@ means in Linear is a flow pack's to say, not this file's.
    umask 077
    ```
    ```sh
-   read -rs v && printf 'LINEAR_API_KEY=%s' "$v" > ~/.yardr/crew/<name>.env; unset v
+   IFS= read -rs v && printf 'LINEAR_API_KEY=%s' "$v" > ~/.yardr/crew/<name>.env; unset v
    ```
    ```sh
    chmod 600 ~/.yardr/crew/<name>.env
