@@ -284,6 +284,50 @@ func TestMailArrives(t *testing.T) {
 	}
 }
 
+// A conversation session's positional cursor may pass mail in another
+// user's slice. Its receipt must not make that other user's sent mail read
+// in this view.
+func TestCrewMailReadReceiptStaysInConversation(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "bob", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.GetCrew(ctx, "chief")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Config = map[string]any{"kind": "claude", "for": "ada,bob", "env_for_bob": "/tmp/bob.env"}
+	if _, err := st.PutCrew(ctx, *r, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CrewStartedFor(ctx, "chief", "bob", map[string]any{"agent": "yard-chief-bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Mail(ctx, "chief", "ada's message", me); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Mail(ctx, "chief", "bob's message", "bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	v := open(t, st, "chief", 120, 24)
+	if letters := v.m.convo["chief"]; len(letters) != 1 || letters[0].Read {
+		t.Fatalf("Ada's message before Bob's ack = %+v, want unread", letters)
+	}
+	through, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AckInboxFor(ctx, "chief", "bob", through); err != nil {
+		t.Fatal(err)
+	}
+	v.stream()
+	if letters := v.m.convo["chief"]; len(letters) != 1 || letters[0].Read {
+		t.Errorf("Ada's message after Bob's ack = %+v, want unread", letters)
+	}
+}
+
 // Mail acknowledged elsewhere (yardr inbox --ack in another terminal) is
 // no longer counted, and mail from someone who is no crew member is named
 // with where to read it.

@@ -553,6 +553,31 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 	return w.event("", "mail_read", name, map[string]any{"reader": name, "through": through})
 }
 
+// crewMailRead is mailRead for one crew session's slice. A positional ack
+// can pass mail belonging to another slice, so it counts only mail this
+// session actually reads and names the session on the receipt.
+func (w *wtx) crewMailRead(r *CrewMember, session string, was, through uint64) error {
+	read := false
+	for _, k := range mailKeys(w.Tx, r.Name, was) {
+		if binary.BigEndian.Uint64([]byte(k)) > through {
+			break
+		}
+		var e Event
+		if ok, err := get(w.Tx, bEvents, k, &e); err != nil {
+			return err
+		} else if ok && mailReceiver(e) == r.Name && forSlice(r, session, e) {
+			read = true
+			break
+		}
+	}
+	if !read {
+		return nil
+	}
+	return w.event("", "mail_read", r.Name, map[string]any{
+		"reader": r.Name, "through": through, "session": session,
+	})
+}
+
 // Conversation returns the mail between a and b within this yard, both
 // directions, oldest first, with whether its receiver has read each; after
 // leaves out what is not newer than that seq. Either may be a crew member or

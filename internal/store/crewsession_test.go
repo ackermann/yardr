@@ -124,6 +124,38 @@ func TestCrewServingKeys(t *testing.T) {
 	}
 }
 
+// The serving list and per-user login paths decide whose account a daemon
+// session uses, so only the operator may change them. Unrelated crew config
+// keeps its existing actor rule when those values are left alone.
+func TestOnlyOperatorChangesConversationSettings(t *testing.T) {
+	s, ctx := sessionYard(t)
+	r, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := *r
+	def.Config = map[string]any{"for": "hal"}
+	if _, err := s.PutCrew(ctx, def, "hal"); err == nil ||
+		err.Error() != "only the operator (jo) may change for on crew member yardmaster; this is hal" {
+		t.Errorf("non-operator changing for = %v, want operator refusal", err)
+	}
+
+	def = *r
+	def.Config = map[string]any{"for": "hal", "env_for_hal": "/tmp/hal.env"}
+	if _, err := s.PutCrew(ctx, def, "jo"); err != nil {
+		t.Fatalf("operator setting conversation config: %v", err)
+	}
+	r, err = s.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def = *r
+	def.Config["prompt"] = "/tmp/role.md"
+	if _, err := s.PutCrew(ctx, def, "hal"); err != nil {
+		t.Errorf("non-operator changing unrelated config = %v, want ok", err)
+	}
+}
+
 // Serving is everyone where for= is unset or empty, else membership; a
 // conversation is a served user with its env set.
 func TestCrewServes(t *testing.T) {
@@ -231,6 +263,44 @@ func TestInboxSlices(t *testing.T) {
 	}
 	if line, err = s.Inbox(ctx, "yardmaster", 10); err != nil || line.Total != 0 {
 		t.Fatalf("line inbox = %+v, %v; want empty", line, err)
+	}
+}
+
+// A conversation ack's positional cursor can pass another user's mail.
+// Its mail_read event and the conversation's read state must stay scoped
+// to the session that acknowledged it.
+func TestMailReadReceiptStaysInSessionSlice(t *testing.T) {
+	s, ctx := sessionYard(t)
+	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
+	if err := s.CrewStartedFor(ctx, "yardmaster", "hal", map[string]any{"agent": "ym-hal"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mail(ctx, "yardmaster", "from jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mail(ctx, "yardmaster", "from hal", "hal"); err != nil {
+		t.Fatal(err)
+	}
+	through, err := s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AckInboxFor(ctx, "yardmaster", "hal", through); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.EventsSince(ctx, through, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Kind != "mail_read" || events[0].Data["session"] != "hal" {
+		t.Fatalf("ack receipt = %+v, want one mail_read for hal", events)
+	}
+	conversation, _, err := s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conversation) != 1 || conversation[0].Read {
+		t.Errorf("jo's conversation mail after hal's ack = %+v, want unread", conversation)
 	}
 }
 

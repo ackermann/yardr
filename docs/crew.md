@@ -145,6 +145,8 @@ yardr crew show yardmaster    # … for mckean2: running · yardr-yardmaster-mck
 
 `for=` names the users the crew member serves, and mail from anyone else
 is refused at write, naming whom it serves. Unset, it serves everyone.
+Only the operator may change `for=` or an `env_for_<user>` setting; those
+settings decide which account a conversation session uses.
 `env_for_<user>` names that user's env file, under the `env_file` rule (a
 file of `KEY=VALUE` lines, mode 0600, read at each start); the daemon
 keeps one conversation session per served user with its file set, on that

@@ -1020,6 +1020,12 @@ func (m *Model) event(e store.Event) tea.Cmd {
 			m.acked(through)
 			return nil
 		}
+		// A crew member's conversation reads only that user's slice. A
+		// receipt for another conversation may pass this user's mail by
+		// sequence, but it did not read it.
+		if session, _ := e.Data["session"].(string); session != "" && session != m.opt.Me {
+			return nil
+		}
 		c := m.convo[reader]
 		for i := range c {
 			if c[i].To == reader && c[i].Seq <= through {

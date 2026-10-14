@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -380,6 +381,9 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 		if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
 			return ps[0]
 		}
+		if err := checkCrewSessionSettings(ctx, w.Tx, def.Name, r.Config, def.Config, actor); err != nil {
+			return err
+		}
 		if err := checkCrewUsers(w.Tx, &def); err != nil {
 			return err
 		}
@@ -404,6 +408,39 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 		return w.event(r.Journal, "crew_defined", actor, map[string]any{"crew": r.Name, "runner": r.Runner})
 	})
 	return out, err
+}
+
+// checkCrewSessionSettings keeps the conversation logins and the serving
+// list in the operator's hands: they decide which user's login the daemon
+// starts. Other crew settings keep PutCrew's existing actor rules.
+func checkCrewSessionSettings(ctx context.Context, tx *bolt.Tx, name string, before, after map[string]any, actor string) error {
+	keys := map[string]bool{}
+	for key := range before {
+		if key == CrewForKey || IsEnvForKey(key) {
+			keys[key] = true
+		}
+	}
+	for key := range after {
+		if key == CrewForKey || IsEnvForKey(key) {
+			keys[key] = true
+		}
+	}
+	ordered := make([]string, 0, len(keys))
+	for key := range keys {
+		ordered = append(ordered, key)
+	}
+	slices.Sort(ordered)
+	for _, key := range ordered {
+		was, had := before[key]
+		is, set := after[key]
+		if had == set && reflect.DeepEqual(was, is) {
+			continue
+		}
+		if err := operatorOnly(ctx, tx, actor, fmt.Sprintf("change %s on crew member %s", key, name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkCrewUsers refuses a crew member whose for= or env_for_<user> names

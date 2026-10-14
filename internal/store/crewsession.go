@@ -224,10 +224,10 @@ func (s *Store) MarkNotifiedFor(ctx context.Context, name, user string, seq uint
 // slice leaves a conversation's unread, and acking a conversation's the
 // line's.
 func (s *Store) AckInboxFor(ctx context.Context, name, user string, through uint64) error {
-	return s.changeCrewSession(name, user, func(w *wtx, _ *CrewMember, st *CrewSession) error {
+	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		was := st.Cursor
 		st.Cursor = max(st.Cursor, through)
 		st.Notified = max(st.Notified, st.Cursor)
-		return w.mailRead(name, was, st.Cursor)
+		return w.crewMailRead(r, user, was, st.Cursor)
 	})
 }
