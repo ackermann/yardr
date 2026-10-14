@@ -35,3 +35,11 @@ the operator (for a user's own subscription or tell, the one asked) approves it
 with `yardr bead answer <id> <ask> --approve`, and it then reads `<user> approved, ran:
 <command>` with what the command printed. The queue itself is unchanged.
 It stays beads in manual stages, longest untouched first.
+
+When the stage itself asks the question (an ask template on the stage,
+[flows.md](flows.md)), the yard's ask stands first among the notes and the
+move actions under it. Answering moves the bead: a pick or words that fire
+an outcome move it in the same write. Moving it by hand takes the ask back
+instead. Later puts the question aside, Decline ends it, and the bead waits
+to be moved by hand. Only the stage's members may answer; anyone else is
+refused whole.

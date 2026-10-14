@@ -717,7 +717,7 @@ the table that the depot lacks are the ones
 | open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train) |
 | review | `yardr-reviewers` | as for any bead; the brief says it is a train and gives the range |
 | approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
-| in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: `yardr bead done <train>` means "merge it" |
+| in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: the check "Is the PR merged?"; Done, or `yardr bead done <train>` by hand, means "merge it" (to `land`) |
 | land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge) with `YARDR_PR=1` |
 | merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator tests and pushes it again |
 | decide | `decisions` | manual |
@@ -739,5 +739,9 @@ with a rebase and reports `done` to `merged`. Without the switch pr-train
 and pr-merge hold the train with a note instead, so nothing reports `done`
 in `approved` and `in-pr` is not reached. The details are
 in [line.md](line.md#trains).
+
+`in-pr` is the first stage with an ask template (above): a check, "Is the
+PR merged?", whose Done reports `done`, moving the train to `land`. Later
+is the not-yet, and reporting by hand takes the ask back.
 
 How beads actually move through these stages is in [line.md](line.md).

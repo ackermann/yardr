@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -225,6 +226,51 @@ func TestStageFileAskStripped(t *testing.T) {
 		}
 		if got := sf.Body(); got != c.body {
 			t.Errorf("%s: body = %q, want %q", c.name, got, c.body)
+		}
+	}
+}
+
+// Depot yardr's own train flow carries the first template: in-pr asks
+// whether the pull request is merged, and Done reports done, where in-pr's
+// done leads. The default flow's decide carries none, as decided: neither
+// the yardr depot's own stage file nor the starter pack's.
+func TestDepotTrainInPRTemplate(t *testing.T) {
+	flowText, err := os.ReadFile("../../.yardr/flows/yardr.train.flow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := store.ParseFlow(string(flowText))
+	if err != nil {
+		t.Fatalf("yardr.train.flow: %v", err)
+	}
+	inpr, err := os.ReadFile("../../.yardr/flows/yardr.train/in-pr.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := (&store.StageFile{Path: ".yardr/flows/yardr.train/in-pr.md", Text: string(inpr)}).Ask()
+	if err != nil {
+		t.Fatalf("in-pr: %v", err)
+	}
+	if tmpl == nil {
+		t.Fatal("in-pr has no ## Ask section")
+	}
+	if tmpl.Kind != store.AskCheck || tmpl.Move != "done" || tmpl.Question != "Is the PR merged?" {
+		t.Errorf("in-pr: kind %q move %q question %q, want a check firing done", tmpl.Kind, tmpl.Move, tmpl.Question)
+	}
+	if err := tmpl.Check(flow, "in-pr"); err != nil {
+		t.Errorf("in-pr: %v", err)
+	}
+	for _, path := range []string{"../../.yardr/flows/default/decide.md", "../../packs/starter/flows/default/decide.md"} {
+		text, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := (&store.StageFile{Path: path, Text: string(text)}).Ask()
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if tmpl != nil {
+			t.Errorf("%s carries an ## Ask section, want none", path)
 		}
 	}
 }

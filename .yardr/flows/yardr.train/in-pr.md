@@ -26,3 +26,12 @@ Outcomes:
 
 Never merge the pull request by hand from here: `land` merges the reviewed
 commit and no other.
+
+## Ask
+kind: check
+question: Is the PR merged?
+context:
+- The train's pull request is open against `main` at the reviewed commit.
+- Done means merge it: the required checks are green and nothing in the pull request speaks against landing it. The train goes to `land`, which merges the reviewed commit.
+- Not yet is Later: the ask comes back.
+move: done
