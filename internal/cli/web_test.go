@@ -551,7 +551,7 @@ func TestUnsafeWarning(t *testing.T) {
 	}{
 		{"8791", "", "", "no authentication: anyone who can reach this machine on port 8791 can read the yard"},
 		{"9000", "Jo", "", "no authentication: anyone who can reach this machine on port 9000 can read the yard and act as Jo"},
-		{"8791", "", "https://team.example.net", "open to the network: anyone who can reach this machine on port 8791 is refused without a token the gateway signed"},
+		{"8791", "", "https://team.example.net", "open to the network on port 8791: every request but /health needs a token signed by the gateway"},
 	} {
 		if got := unsafeWarning(c.port, c.as, c.issuer); got != c.want {
 			t.Errorf("unsafeWarning(%q, %q, %q) = %q, want %q", c.port, c.as, c.issuer, got, c.want)
@@ -568,7 +568,7 @@ func TestWebOpenNote(t *testing.T) {
 	jwt := plain
 	jwt.JWTFrom = "https://team.example.net"
 	if got, want := webOpenNote(jwt), "http://192.168.7.7:9001/ (pid 4242) is open to the network: it was started with --unsafe, "+
-		"and every request must carry a token the gateway signed"; got != want {
+		"and every request but /health needs a token signed by the gateway"; got != want {
 		t.Errorf("webOpenNote in JWT mode = %q, want %q", got, want)
 	}
 }

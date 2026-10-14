@@ -178,7 +178,7 @@ func webOpenNote(v webView) string {
 	_, port, _ := net.SplitHostPort(v.Addr)
 	if v.JWTFrom != "" {
 		return fmt.Sprintf("%s (pid %d) is open to the network: it was started with --unsafe, "+
-			"and every request must carry a token the gateway signed", v.URL, v.PID)
+			"and every request but /health needs a token signed by the gateway", v.URL, v.PID)
 	}
 	return fmt.Sprintf("%s (pid %d) is open to the network, no login: it was started with --unsafe, "+
 		"and anyone who can reach this machine on port %s can read the yard", v.URL, v.PID, port)

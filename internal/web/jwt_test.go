@@ -862,10 +862,9 @@ func TestJWTStreamEndsAtExpiry(t *testing.T) {
 			return "", 0, errors.New("the stream outlived the token")
 		}
 	}
-	// The end comes at the expiry, neither at once nor never: the token
-	// has two seconds, so the stream ends between half a second and the
-	// timeout above.
-	body, took, err := stream(time.Now().Add(2 * time.Second))
+	// The end comes at the expiry, neither at once nor never. Give the
+	// request enough time to verify and start the stream before that expiry.
+	body, took, err := stream(time.Now().Add(5 * time.Second))
 	must(t, err)
 	if !strings.HasPrefix(body, "retry: 500\n\n") {
 		t.Errorf("the stream sent %q, want the retry and then the end", body)

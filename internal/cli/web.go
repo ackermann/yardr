@@ -44,16 +44,16 @@ It listens on --addr, else on YARDR_WEB_ADDR when set in the command's
 environment, else on the yard's web_addr setting (yardr settings set
 web_addr <host:port>), else on 127.0.0.1:8791.
 
-There is no authentication yet, so it listens on loopback only: an address
-on any other interface is refused. A request is answered when its Host
+By default it listens on loopback only: an address on any other interface
+is refused unless --unsafe is given. A request is answered when its Host
 header is a loopback name or a name given with --host, and 421 under any
 other name.
 
 --unsafe listens on every interface (0.0.0.0:8791, on the selected
 address's port, or the --addr given, which may then be any address), to open the view from another machine on
-the same network. Outside JWT mode there is still no authentication: anyone who can reach
-this machine on that port can read the whole yard. In JWT mode every request
-must carry a token the gateway signed. A request is answered
+the same network. Outside JWT mode there is still no authentication: anyone
+who can reach this machine on that port can read the whole yard. In JWT mode
+every request but /health must carry a token the gateway signed. A request is answered
 when its Host header is an IP address, a loopback name or this machine's
 host name (with or without .local), and 421 under any other name.
 
@@ -289,7 +289,7 @@ this machine. Both answers carry Retry-After.`,
 		},
 	}
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
-	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
+	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; outside JWT mode there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
 	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+"); every interface on that port with --unsafe")
@@ -518,12 +518,10 @@ func webAnswersTo(unsafe bool, names []string) string {
 
 // unsafeWarning is what --unsafe says at start: who can reach the view on
 // port, and what reaching it lets them do — read the yard, and act as its
-// user where one stands. In JWT mode (issuer) reaching it is not reading
-// it: every request must carry a token the gateway signed.
+// user where one stands. In JWT mode only /health is open without a token.
 func unsafeWarning(port, as, issuer string) string {
 	if issuer != "" {
-		return "open to the network: anyone who can reach this machine on port " + port +
-			" is refused without a token the gateway signed"
+		return "open to the network on port " + port + ": every request but /health needs a token signed by the gateway"
 	}
 	can := "can read the yard"
 	if as != "" {

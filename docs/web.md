@@ -70,8 +70,9 @@ yardr settings set web_pages_addr 127.0.0.1:8788   # its sandbox origin
 
 ## Loopback only
 
-There is no authentication yet, so the view listens on the loopback
-interface and nowhere else, unless `--unsafe` is given (below):
+By default the view listens on the loopback interface and nowhere else;
+an address on another interface is refused unless `--unsafe` is given
+(below):
 
 - `--addr` takes `127.0.0.1`, `::1` or `localhost` with a port. Any other
   address, and one with no host (`:8791` listens on every interface), is
@@ -247,8 +248,10 @@ status` and the start line say whose tokens the view verifies (`jwt from
 `yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
-There is still no authentication: anyone who can reach this machine on that
-port can read the whole yard, and act as the user of a view that acts.
+Outside JWT mode there is still no authentication: anyone who can reach this
+machine on that port can read the whole yard, and act as the user of a view
+that acts. In JWT mode every request but `/health` needs a token the gateway
+signed.
 With none of `--as`, `YARDR_WEB_AS` and `web_as` the view stays
 read-only.
 
@@ -278,9 +281,11 @@ read-only.
   together, are limited ([The stream](#the-stream), **How many**), so a
   device on the network cannot hold streams open without end. Loopback's
   are counted apart.
-- It logs one warning when it starts:
+- Outside JWT mode it logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
   On a view that acts it says `can read the yard and act as <user>` instead.
+- In JWT mode the warning says requests other than `/health` need a token
+  signed by the gateway.
   The line after it says what the view answers to:
   `serving the yard url=http://[::]:8791/ pages=http://[::]:8789/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
