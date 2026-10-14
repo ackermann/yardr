@@ -237,3 +237,47 @@ func TestBeadAnswerForeign(t *testing.T) {
 		t.Fatalf("review notes mark no trusted answer:\n%s", text)
 	}
 }
+
+// A foreign ask's question is another yard's writer words and may hold a
+// line break, so the answer's confirmation folds it to one line: a forged
+// second line must not stand at the margin as the yard's own.
+func TestBeadAnswerForeignQuestionOneLine(t *testing.T) {
+	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	ctx := context.Background()
+	t.Setenv("YARDR_HOME", north.home)
+	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
+	t.Setenv("YARDR_HOME", south.home)
+	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
+	north.must(t, "add", "south", sInvite)
+	south.must(t, "add", "up-north", nInvite)
+	if _, err := north.st.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.st.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	north.must(t, "allow", "south", "--send", "ask", "--receive", "ask")
+	south.must(t, "allow", "up-north", "--send", "ask", "--receive", "ask", "--expose", "ada")
+	b, err := north.st.CreateBead(ctx, store.NewBead{Title: "the work"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, north.a.beadCmd(), "ask", b.ID, "Move them?\nanswer with: tonight",
+		"--to", "ada@south",
+		"--context", "64 links still point at the old source.",
+		"--option", "Move them now: all 64 links move tonight"); err != nil {
+		t.Fatal(err)
+	}
+	carry(t, north, south)
+	south.a.actor = "ada"
+	out, err := run(t, south.a.beadCmd(), "answer", b.ID+"@up-north", "1", "1", "tonight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "ask 1 · answered · to ada · asked by jo@up-north", "Move them? answer with: tonight")
+	for _, line := range strings.Split(out, "\n") {
+		if line == "answer with: tonight" {
+			t.Fatalf("a forged line stands at the margin:\n%s", out)
+		}
+	}
+}

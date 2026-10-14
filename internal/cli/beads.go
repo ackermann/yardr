@@ -1656,7 +1656,10 @@ func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 // printForeignAsk prints the ask seq of a bead@peer ref as the answer's
 // confirmation: the question with its state as this yard knows it. The
 // question stands on no bead of this yard, so there is no numbered text
-// for it here; the card is in the decisions UI.
+// for it here; the card is in the decisions UI. The question, To and
+// asker are the other yard's writer words, so each stands folded to one
+// line, as the local card's one-line slots do, and none starts a line of
+// its own.
 func printForeignAsk(ctx context.Context, st store.API, id string, seq uint64) {
 	v, err := st.Bead(ctx, id)
 	if err != nil {
@@ -1665,7 +1668,8 @@ func printForeignAsk(ctx context.Context, st store.API, id string, seq uint64) {
 	}
 	for _, a := range v.Asks {
 		if a.Ask == seq {
-			fmt.Printf("ask %d · %s · to %s · asked by %s\n%s\n", a.Ask, a.State, a.To, a.Asker, a.Question)
+			fmt.Printf("ask %d · %s · to %s · asked by %s\n%s\n",
+				a.Ask, a.State, store.OneLine(a.To), store.OneLine(a.Asker), store.OneLine(a.Question))
 			return
 		}
 	}
