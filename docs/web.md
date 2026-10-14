@@ -153,19 +153,22 @@ through the proxy is the one loopback client to the stream limits
 
 One example, with Tailscale's `tailscale serve`, which shares a port on
 loopback with the devices of your tailnet over HTTPS. Any other proxy that
-keeps to the three points above does as well.
+keeps to the three points above does as well. Run against the view on
+14 Oct 2026 (Tailscale client 1.102.4, tailscaled 1.94.1):
 
 ```sh
-yardr web serve --host adventuretime.tail5cf2e8.ts.net   # the machine's name on the tailnet
-tailscale serve --bg 8791                                # https://adventuretime.tail5cf2e8.ts.net/ -> 127.0.0.1:8791
+yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # or: yardr web serve --host adventuretime.tail5cf2e8.ts.net
+tailscale serve --bg --https=8444 http://127.0.0.1:8791                # https://adventuretime.tail5cf2e8.ts.net:8444/ -> 127.0.0.1:8791
 ```
 
-The `tailscale serve` line is as the help of Tailscale 1.102.4 gives it
-(read 12 Oct 2026) and has not been run against the view yet, and that
-help does not say which `Host` the view then sees. Start the view without
-`--host` first: if the page opens under the tailnet name, `tailscale serve`
-rewrote `Host` and no `--host` is needed; if it is 421, the text names the
-`--host` to start it with.
+`tailscale serve` passes the tailnet name through as `Host`, with the
+port: an echo server on a spare tailnet-only port saw
+`Host=adventuretime.tail5cf2e8.ts.net:8445`
+(`X-Forwarded-Host` the same, `X-Forwarded-Proto=https`). So
+`--host <tailnet name>` is required, and the view matches it with the port
+present. The `--https=8444` gives the view a tailnet-only port of its own:
+port 443 of that tailnet name is Funnel (public, the hooks), so the view
+is not served there.
 
 A proxy in front of the view forwards the sandbox origin's port too:
 run links name the view's host on the origin's port
