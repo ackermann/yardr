@@ -19,6 +19,7 @@ import (
 var (
 	shotPNG  = []byte("\x89PNG\r\n\x1a\n" + "a picture of the door")
 	shotJPEG = []byte("\xff\xd8\xff\xe0" + "another of the fence")
+	pageHTML = []byte("<!DOCTYPE html><html><body>a door</body></html>")
 )
 
 // blobFixture serves a yard whose web view reads the blobs where the yard
@@ -49,11 +50,13 @@ func TestBlobRoute(t *testing.T) {
 	must(t, err)
 	mailed, err := f.st.PutBlob(ctx, shotJPEG)
 	must(t, err)
+	page, err := f.st.PutBlob(ctx, pageHTML)
+	must(t, err)
 	if _, err := f.st.AddUser(ctx, "sam", "me"); err != nil {
 		t.Fatal(err)
 	}
 	must(t, f.st.Mail(ctx, "sam", "paint it", "me", mailed.Hash))
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", noted.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", noted.Hash, page.Hash)
 	must(t, err)
 
 	r := f.get("/blobs/" + noted.Hash)
@@ -62,6 +65,9 @@ func TestBlobRoute(t *testing.T) {
 	}
 	if etag := r.header.Get("ETag"); etag != `"`+noted.Hash+`"` {
 		t.Errorf("ETag %q, want the hash", etag)
+	}
+	if r := f.get("/blobs/" + page.Hash); r.status != 404 {
+		t.Errorf("a note's HTML page before its viewer: status %d, want 404", r.status)
 	}
 	if r := f.do("HEAD", "/blobs/"+noted.Hash); r.status != 200 || r.header.Get("Content-Type") != "image/png" || r.body != "" {
 		t.Errorf("HEAD: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))

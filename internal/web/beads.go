@@ -760,6 +760,13 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// HTML is accepted as a blob, but this route has only the yard page's
+	// general policy. Keep serving images only until the HTML viewer applies
+	// its document policy.
+	if ref.Type != "image/png" && ref.Type != "image/jpeg" {
+		http.NotFound(w, r)
+		return
+	}
 	// As the socket serves a blob: the bytes never change, so the name is
 	// all a cache needs to know.
 	w.Header().Set("Content-Type", ref.Type)
