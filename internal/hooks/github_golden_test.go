@@ -343,6 +343,9 @@ func TestGitHubPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	args := githubShimCurl(t)
 	const cred = "MARKER-z00w-token"
 	g.s.GitHubToken = cred
+	if _, err := g.dec.Reply(context.Background(), goldenGitHubIssue(), "", "answer", "reply-z00w", cred); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := g.dec.Thread(context.Background(), goldenGitHubIssue(), cred); err != nil {
 		t.Fatal(err)
 	}
