@@ -525,7 +525,9 @@ const (
 type yardAgent struct {
 	Kind string `json:"kind"` // bead crew
 	// Name is the bead, or the crew member.
-	Name  string `json:"name"`
+	Name string `json:"name"`
+	// For is the user of a crew member's conversation session.
+	For   string `json:"for,omitempty"`
 	Stage string `json:"stage,omitempty"`
 	Group string `json:"group,omitempty"`
 	// Agent is herdr's name for it; "" for a script's session.
@@ -556,9 +558,22 @@ func (g yardAgent) busy() bool {
 // String is the agent as the warning and a failure name it.
 func (g yardAgent) String() string {
 	if g.Kind == "crew" {
-		return "crew member " + g.Name
+		name := "crew member " + g.Name
+		if g.For != "" {
+			name += " for " + g.For
+		}
+		return name
 	}
 	return fmt.Sprintf("bead %s (stage %s, group %s)", g.Name, g.Stage, g.Group)
+}
+
+// key distinguishes a crew member's line session from each conversation;
+// bead session IDs are unique already.
+func (g yardAgent) key() string {
+	if g.Kind == "crew" {
+		return "crew\x00" + g.Name + "\x00" + g.For
+	}
+	return "bead\x00" + g.session
 }
 
 // downReport is the answer of yardr down.
@@ -976,14 +991,20 @@ func yardAgents(ctx context.Context, st store.API, runners map[string]dispatch.R
 	}
 	agents := []yardAgent{}
 	for _, r := range crew {
-		switch {
-		case r.Live():
-			agents = append(agents, yardAgent{Kind: "crew", Name: r.Name, runner: r.Runner, handle: r.Handle})
-		case r.Starting["tab"] != nil:
-			// A start that was underway when its daemon was stopped: the
-			// pane is open and its agent may run, and no session was
-			// recorded (found trying this in an isolated yard).
-			agents = append(agents, yardAgent{Kind: "crew", Name: r.Name, runner: r.Runner, handle: r.Starting, starting: true})
+		appendCrewSession := func(user string, session store.CrewSession) {
+			switch {
+			case session.Live():
+				agents = append(agents, yardAgent{Kind: "crew", Name: r.Name, For: user, runner: r.Runner, handle: session.Handle})
+			case session.Starting["tab"] != nil:
+				// A start that was underway when its daemon was stopped: the
+				// pane is open and its agent may run, and no session was
+				// recorded (found trying this in an isolated yard).
+				agents = append(agents, yardAgent{Kind: "crew", Name: r.Name, For: user, runner: r.Runner, handle: session.Starting, starting: true})
+			}
+		}
+		appendCrewSession("", r.CrewSession)
+		for user, session := range r.Conversations {
+			appendCrewSession(user, session)
 		}
 	}
 	for _, s := range sessions {
@@ -1068,7 +1089,7 @@ func (a *app) handoffs(ctx context.Context, st store.API, runners map[string]dis
 		// Typed and not seen to be taken is typed: the handoff says whether
 		// it was.
 		if err == nil || errors.Is(err, dispatch.ErrPromptStalled) {
-			asked[g.Name] = at
+			asked[g.key()] = at
 		}
 	}
 	if len(asked) == 0 {
@@ -1087,17 +1108,21 @@ func (a *app) handoffs(ctx context.Context, st store.API, runners map[string]dis
 	for deadline := time.Now().Add(wait); len(asked) > 0 && time.Now().Before(deadline) && ctx.Err() == nil; time.Sleep(pollEvery) {
 		for i := range agents {
 			g := &agents[i]
-			at, waiting := asked[g.Name]
+			at, waiting := asked[g.key()]
 			if g.Kind != "crew" || !waiting {
 				continue
 			}
 			r, err := st.GetCrew(ctx, g.Name)
+			var session store.CrewSession
+			if err == nil {
+				session = r.Session(g.For)
+			}
 			switch {
-			case err != nil || !r.Live():
-				delete(asked, g.Name)
-			case r.LastHandoffAt != nil && !r.LastHandoffAt.Before(at):
+			case err != nil || !session.Live():
+				delete(asked, g.key())
+			case session.LastHandoffAt != nil && !session.LastHandoffAt.Before(at):
 				g.Handoff = true
-				delete(asked, g.Name)
+				delete(asked, g.key())
 			}
 		}
 	}
@@ -1125,7 +1150,7 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 	if g.starting {
 		// Its pane is closed, so the start that was underway is over: left
 		// on the crew member it would stand for a pane of the yard's.
-		if err := st.CrewStarting(ctx, g.Name, nil); err != nil {
+		if err := st.CrewStartingFor(ctx, g.Name, g.For, nil); err != nil {
 			fail(err)
 			return
 		}
@@ -1133,7 +1158,7 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 		return
 	}
 	if g.Kind == "crew" {
-		if err := st.CrewStopped(ctx, g.Name, reason); err != nil {
+		if err := st.CrewStoppedFor(ctx, g.Name, g.For, reason); err != nil {
 			fail(err)
 			return
 		}
@@ -1200,7 +1225,7 @@ func (r *downReport) lines() {
 					if handoffs > 0 {
 						wrote = fmt.Sprintf("%d wrote a handoff", handoffs)
 					}
-					line += fmt.Sprintf("%s %s (%s)", map[bool]string{true: ";", false: ":"}[beads > 0], plural(crew, "crew member"), wrote)
+					line += fmt.Sprintf("%s %s (%s)", map[bool]string{true: ";", false: ":"}[beads > 0], plural(crew, "crew session"), wrote)
 				}
 				fmt.Printf("%-15s %s\n", "agents", line)
 			} else if p.Error == "" && !slices.ContainsFunc(r.Agents, func(g yardAgent) bool { return g.Error != "" }) {

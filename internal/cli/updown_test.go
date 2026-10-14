@@ -217,7 +217,7 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 		"  working  bead "+ids["busy"]+" (stage new, group builders)\n",
 		"  2 idle\n",
 		"daemon          was not running\n",
-		"agents          stopped 3: 2 bead sessions, back in the queue with worktree, branch and attempts as they were; 1 crew member (1 wrote a handoff)\n",
+		"agents          stopped 3: 2 bead sessions, back in the queue with worktree, branch and attempts as they were; 1 crew session (1 wrote a handoff)\n",
 		"server          stopped (pid 4711)\n",
 		"herdr's server  left running: other yards and your own panes are in it\n",
 		"The yard in "+home+" is down. Start it again: "+here("yardr up")+"\n")
@@ -238,6 +238,50 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 	out, err = run(t, a(false).rootCmd(), "down")
 	if err != nil || !strings.Contains(out, "agents          none was running\n") || len(panes.stopped) != 3 {
 		t.Fatalf("a second down: %v, stopped %v\n%s", err, panes.stopped, out)
+	}
+}
+
+// A crew member's conversation is a separate herdr agent and must stop
+// with its line session when the yard goes down.
+func TestDownStopsCrewConversationSessions(t *testing.T) {
+	_, st, panes, _, a, _ := downYard(t, map[string]string{"yardmaster": "idle", "conversation": "idle"})
+	ctx := context.Background()
+	mustAs(t, st, "Jo", "user", "add", "hal")
+	mustAs(t, st, "Jo", "crew", "set", "yardmaster", "for=Jo,hal", "env_for_hal=/tmp/hal.env")
+	if err := st.CrewStartedFor(ctx, "yardmaster", "hal", map[string]any{"agent": "conversation", "tab": "w2:t1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, a(true).rootCmd(), "down", "--yes", "--handoff-wait", "0", "--json")
+	if err != nil {
+		t.Fatalf("down: %v\n%s", err, out)
+	}
+	var rep downReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("down --json: %v\n%s", err, out)
+	}
+	if len(rep.Agents) != 2 {
+		t.Fatalf("down agents = %+v, want line and hal conversation", rep.Agents)
+	}
+	sawConversation := false
+	for _, agent := range rep.Agents {
+		if agent.Kind == "crew" && agent.For == "hal" && agent.Stopped {
+			sawConversation = true
+		}
+	}
+	if !sawConversation {
+		t.Errorf("down report omits stopped hal conversation: %+v", rep.Agents)
+	}
+	slices.Sort(panes.stopped)
+	if !slices.Equal(panes.stopped, []string{"conversation", "yardmaster"}) {
+		t.Errorf("stopped agents = %v, want both crew sessions", panes.stopped)
+	}
+	r, err := st.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Live() || r.Session("hal").Live() {
+		t.Errorf("crew sessions still running after down: line=%+v hal=%+v", r.CrewSession, r.Session("hal"))
 	}
 }
 
@@ -282,7 +326,7 @@ func TestDownDoesNotAskAboutIdleAgents(t *testing.T) {
 	if err != nil || len(panes.stopped) != 2 {
 		t.Fatalf("down: %v, stopped %v\n%s", err, panes.stopped, out)
 	}
-	wantText(t, out, "  2 idle\n", "1 crew member (none wrote a handoff)\n")
+	wantText(t, out, "  2 idle\n", "1 crew session (none wrote a handoff)\n")
 	queued(t, st, ids["quiet"])
 }
 
