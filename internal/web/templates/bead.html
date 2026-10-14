@@ -150,8 +150,11 @@
       <pre class="text">{{.Text}}</pre>
       {{- $words := .Text}}
       {{- range .Files}}
+      {{- $page := .IsPage}}
       {{- if index $.Data.Missing .Hash}}
-      <p class="faint">image {{slice .Hash 0 8}}: the yard no longer has it</p>
+      <p class="faint">{{if $page}}page{{else}}image{{end}} {{slice .Hash 0 8}}: the yard no longer has it</p>
+      {{- else if $page}}
+      <a href="/blobs/{{.Hash}}">page {{slice .Hash 0 8}}</a>
       {{- else}}
       <img src="/blobs/{{.Hash}}" alt="{{$words}}">
       {{- end}}

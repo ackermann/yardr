@@ -198,6 +198,28 @@ func TestTalkOlder(t *testing.T) {
 	}
 }
 
+// A mail's page is named, never drawn as an image: only a note's page
+// opens.
+func TestTalkNamesPages(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	ref, err := f.st.PutBlob(ctx, []byte("<!DOCTYPE html><html><body>a door</body></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	body := f.get("/talk").body
+	if strings.Contains(body, `<img src="/blobs/`+ref.Hash+`"`) {
+		t.Error("the talk page draws the mail's page as an image")
+	}
+	if want := `page ` + ref.Hash[:8] + `: pages open from notes`; !strings.Contains(body, want) {
+		t.Errorf("the talk page lacks %q", want)
+	}
+}
+
 // Mail the crew member acknowledged says read under the user's own.
 func TestTalkRead(t *testing.T) {
 	f, _ := talkFixture(t, "jo")

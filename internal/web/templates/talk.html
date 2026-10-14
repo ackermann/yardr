@@ -6,7 +6,11 @@
     {{- end}}
     {{- $words := .Text}}
     {{- range .Files}}
+    {{- if .IsPage}}
+    <p class="faint">page {{slice .Hash 0 8}}: pages open from notes</p>
+    {{- else}}
     <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+    {{- end}}
     {{- end}}
     {{- if and .Own .Read}}
     <p class="label faint">read</p>

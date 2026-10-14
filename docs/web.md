@@ -368,7 +368,7 @@ pages post to the view itself (`form-action 'self'`).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's image: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)) | |
+| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)) | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1049,8 +1049,8 @@ body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its notes, the oldest first, each with
-its images below its words; the sessions that worked it; its history. A
-closed bead has a page too. An unknown id is a 404.
+its images and pages below its words; the sessions that worked it; its
+history. A closed bead has a page too. An unknown id is a 404.
 
 On a view started with `--as <user>`, the page answers the bead's open
 asks to that user, oldest first: the question, who asked, the context, the
@@ -1063,13 +1063,23 @@ stage a manual group works, the outcomes send it on as `yardr review`
 offers them, with a note. Each write carries the revision the page was
 drawn from ([Acting as a user](#acting-as-a-user)).
 
-A note's images are what `yardr bead note --file` attached to it. Each
-shows below the note's words, with those words as its alt text; one the
-yard no longer holds is a line saying so, never a broken icon. The JSON
-names them as the notes have them. The bytes come from `/blobs/<hash>`,
-which serves only blobs a note on some bead names: any other hash, a
-mail's image included, answers as a missing blob, since the view has no
-login.
+A note's images and pages are what `yardr bead note --file` attached to
+it. Each image shows below the note's words, with those words as its alt
+text; each page stands as a link, `page <hash8>`, opening the bytes
+top-level and inert. One the yard no longer holds is a line saying so,
+never a broken icon or link. The JSON names them as the notes have them.
+The bytes come from `/blobs/<hash>`, which serves only blobs a note on
+some bead names: any other hash, a mail's file included, answers as a
+missing blob, since the view has no login.
+
+A page opens under its own policy, which replaces the yard page's for
+that response: `sandbox` with no `allow-scripts`, so scripts, forms and
+plugins are dead, and a fetch allowlist of `data:` images and inline
+styles only, so nothing loads over the network and no frame loads or
+embeds the page. The sandbox's opaque origin withholds the yard from the
+page; what survives is the reader following a link out by clicking it.
+The yard's own pages keep their policy, and the no-other-host test still
+holds: a navigation is not a fetch.
 
 ```json
 {
@@ -1140,7 +1150,9 @@ above the letters, each linking to its conversation, with a dot where the
 user has unread mail from it. Each letter reads as a note does: the sender
 with its device, the time, the words with their lines kept, the images it
 carries, and `read` under the user's own where the member acknowledged it.
-Without `--as` the page says the view does not act.
+A page the mail carries is named without a link, never drawn as an image:
+only a note's page opens. Without `--as` the page says the view does not
+act.
 
 The form posts to `/talk?with=<member>` ([Acting as a user](#acting-as-a-user)):
 mail sent, the page lands back on the conversation; mail refused stays in

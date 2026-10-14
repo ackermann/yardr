@@ -555,9 +555,10 @@ type BeadPage struct {
 	Error string `json:"error,omitempty"`
 	// Notes are the bead's notes, the oldest first.
 	Notes []store.Note `json:"notes"`
-	// Missing are the hashes of the notes' images the yard no longer
-	// holds: the page draws those as a line saying so, never a broken
-	// icon. HTML-only: the JSON names the files as the notes have them.
+	// Missing are the hashes of the notes' images and pages the yard no
+	// longer holds: the page draws those as a line saying so, never a
+	// broken icon or link. HTML-only: the JSON names the files as the
+	// notes have them.
 	Missing map[string]bool `json:"-"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
@@ -721,8 +722,9 @@ func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
-	// The page draws each note's images below its words; one the yard no
-	// longer holds is a line saying so, never a broken icon.
+	// The page draws each note's images and pages below its words; one
+	// the yard no longer holds is a line saying so, never a broken icon
+	// or link.
 	for _, n := range d.Notes {
 		for _, f := range n.Files {
 			if _, err := s.st.NoteBlob(ctx, f.Hash); err != nil {
@@ -747,12 +749,25 @@ func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
 	return d, nil
 }
 
-// handleBlob serves a note's image: the bytes of a blob a note on some
-// bead names, with their type. Anything else — a mail's image, one the
+// pagePolicy is the policy a note's page opens under: the page is bytes an
+// agent wrote, shown top-level and inert. The sandbox kills scripts, forms
+// and plugins, and the fetch allowlist kills what the sandbox alone does
+// not — the network and frames: inline styles and data: images are all
+// that render beside the markup, so a self-contained page shows whole.
+// The sandbox's opaque origin withholds the yard's API and cookies from
+// the page, and no frame embeds it; what survives is the reader following
+// a link out by clicking it. (docs/design/2026-10-14-yardr-x4t5-board.md,
+// section 3.3.)
+const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// handleBlob serves a note's image or page: the bytes of a blob a note on
+// some bead names, with their type. Anything else — a mail's file, one the
 // yard never held, a name that is no hash — answers as a missing blob:
 // the view has no login, so it serves nothing but what its bead pages
 // show. The check stands before the file: only a hash the yard holds
-// reaches the directory.
+// reaches the directory. A page opens under the page policy, inert, which
+// replaces the yard page's policy ServeHTTP set before the mux served; an
+// image keeps that policy.
 func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ref, err := s.st.NoteBlob(r.Context(), hash)
@@ -760,12 +775,8 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// HTML is accepted as a blob, but this route has only the yard page's
-	// general policy. Keep serving images only until the HTML viewer applies
-	// its document policy.
-	if ref.Type != "image/png" && ref.Type != "image/jpeg" {
-		http.NotFound(w, r)
-		return
+	if ref.IsPage() {
+		w.Header().Set("Content-Security-Policy", pagePolicy)
 	}
 	// As the socket serves a blob: the bytes never change, so the name is
 	// all a cache needs to know.

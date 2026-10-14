@@ -75,6 +75,10 @@ type BlobRef struct {
 	NotTaken string `json:"not_taken,omitempty"`
 }
 
+// IsPage is whether the blob is a page, not an image: the one BlobTypes
+// entry that is no image.
+func (f BlobRef) IsPage() bool { return f.Type == blobPage }
+
 // blobHash is what names a blob, and so all a path under BlobsDir is made
 // of.
 var blobHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -112,7 +116,7 @@ func FilesLine(home string, files []BlobRef) string {
 func filesNoun(files []BlobRef) string {
 	var images, pages int
 	for _, f := range files {
-		if f.Type == blobPage {
+		if f.IsPage() {
 			pages++
 		} else {
 			images++
