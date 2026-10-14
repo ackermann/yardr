@@ -466,13 +466,13 @@ Home as JSON:
   the bead's short id small at the row's end, and how long it has
   waited; a fault carries a red dot. An asked bead stands once: its
   fault first when it has one, then the question where the title stands,
-  the bead small, the recommendation (`1. Move them now`, or
-  `words wanted`) and the age faint, the bead's first `topic:` label
-  small where there is one. On a view that acts the oldest ask answers
+  the full bead id and age, and optionally the bead's first `topic:` label
+  small. A recommendation appears once in the labelled
+  detail below the row. On a view that acts the oldest ask answers
   under the row, with its options as buttons ([Acting as a user](#acting-as-a-user));
   otherwise the row only links to the bead. On a phone an asked row gives the
   question the row's first line whole, ending in an ellipsis, and the
-  bead, the recommendation and the age stand under it, so the question
+  bead id, optional topic and age stand under it, so the question
   never gets less room than the metadata. The reasons, the titles and
   the questions render in the proportional face; ids and ages stay
   monospace. Past five the rest stand behind `All waiting N`, to
