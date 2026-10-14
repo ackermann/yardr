@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -23,7 +24,13 @@ type Line struct {
 	// Parked are the open beads nothing stops but that no agent will move:
 	// their only reason is a stage of a manual group. In the same order.
 	Parked []Waiting `json:"parked"`
-	Open   int       `json:"open"`
+	// Late are the open beads running past their usual time, the newest
+	// change first: /line's own rows under the waits. A late bead needs
+	// nothing yet, so they stand apart from the waits and the needs
+	// count. Only the /line page reads them; the shell's column leaves
+	// them out.
+	Late []LateRow `json:"late"`
+	Open int       `json:"open"`
 	// Working counts the beads an agent's or a command's session has
 	// claimed; a manual group's claim is not work in progress.
 	Working int `json:"working"`
@@ -209,6 +216,21 @@ func (w Waiting) ShortID() string {
 // Age is how long the bead has waited, about: since its last change.
 func (w Waiting) Age() string { return age(time.Since(w.Since)) }
 
+// LateRow is one bead running past its usual time: /line lists it under
+// the waits, apart from them, since it needs nothing yet.
+type LateRow struct {
+	Bead  string `json:"bead"`
+	Title string `json:"title"`
+	Depot string `json:"depot,omitempty"`
+	Stage string `json:"stage"`
+	// Since is when the bead last changed: about when it began to wait.
+	Since time.Time `json:"since"`
+	// ETA and Late are the bead's estimate; Late is always set, ETA
+	// absent when there is nothing to say beyond the mark.
+	ETA  *eta.ETA  `json:"eta,omitempty"`
+	Late *eta.Late `json:"late,omitempty"`
+}
+
 // Alarm reports whether the reason is something gone wrong (a hold, a
 // prompt nobody answers) and not a stage that is a person's by design.
 func (r Reason) Alarm() bool { return r.Kind == "held" || r.Kind == "blocked" }
@@ -222,7 +244,7 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 			return nil, err
 		}
 	}
-	l := &Line{As: s.acting(ctx), Stages: []StageCount{}, Depots: []LineDepot{}}
+	l := &Line{As: s.acting(ctx), Late: []LateRow{}, Stages: []StageCount{}, Depots: []LineDepot{}}
 	add := func(counts []StageCount) {
 		for _, c := range counts {
 			if c.Open == 0 {
@@ -574,11 +596,52 @@ func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	l, err := s.line(r.Context(), nil)
+	ov, err := s.overview(r.Context(), nil)
 	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	l, err := s.line(r.Context(), ov)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// The late beads under the waits: the page's own rows, which the
+	// shell's column leaves out.
+	if l.Late, err = s.lateRows(r.Context(), ov.yard); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	l.Home = homeLine(r)
 	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: l, head: head})
+}
+
+// lateRows lists the open beads running past their usual time, the newest
+// change first: /line's own rows under the waits. Their estimates come
+// from one shared queue snapshot.
+func (s *Server) lateRows(ctx context.Context, y *yard) ([]LateRow, error) {
+	out := []LateRow{}
+	var ids []string
+	for i := range y.beads {
+		ids = append(ids, y.beads[i].ID)
+	}
+	ests, err := s.st.EstimateMany(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range y.beads {
+		b := &y.beads[i]
+		est := ests[b.ID]
+		if est == nil || est.Late == nil {
+			continue
+		}
+		row := LateRow{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt,
+			ETA: est.ETA, Late: est.Late}
+		if b.Depot != nil {
+			row.Depot = *b.Depot
+		}
+		out = append(out, row)
+	}
+	slices.SortStableFunc(out, func(a, b LateRow) int { return b.Since.Compare(a.Since) })
+	return out, nil
 }

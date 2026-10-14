@@ -13,6 +13,12 @@
     <p class="label"><span class="dot{{if .Hold}} held{{else if $.Data.Working}} working{{end}}"></span>{{.Type}} · stage {{.Stage}} · {{.Status}}{{with .CloseReason}}: {{.}}{{end}} · P{{.Priority}}{{if .Hold}} · <span class="held">held</span>{{end}}</p>
   </article>
   {{- end}}
+  {{- with .ETA}}
+  <p class="item eta">{{.Line}}</p>
+  {{- end}}
+  {{- with .Late}}
+  <p class="item late">⚠ {{.Line}}</p>
+  {{- end}}
   {{- range .Warnings}}
   <p class="item held">{{.}}</p>
   {{- end}}

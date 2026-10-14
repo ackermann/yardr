@@ -157,6 +157,9 @@ func (c *Client) Bead(ctx context.Context, id string) (*store.BeadView, error) {
 func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
 	return callV[*eta.Result](c, ctx, "Estimate", id)
 }
+func (c *Client) EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error) {
+	return callV[map[string]*eta.Result](c, ctx, "EstimateMany", ids)
+}
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
 }

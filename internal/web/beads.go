@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -33,6 +34,11 @@ type Card struct {
 	// Train is the train the bead is a child of, on the cards of a listing.
 	Train     string    `json:"train,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// ETA and Late are the bead's estimate, absent when there is nothing
+	// to say; the same shapes `bead show --json` carries. The card shows
+	// the late mark; the bead's own page shows the ETA sentence too.
+	ETA  *eta.ETA  `json:"eta,omitempty"`
+	Late *eta.Late `json:"late,omitempty"`
 	// Live is a card on /flows, which the stream takes out when its bead
 	// moves or closes; Placed one under its stage's heading there, which
 	// says its depot and stage already.
@@ -69,8 +75,9 @@ func working(b *store.Bead, manual map[string]bool) bool {
 }
 
 // card is b as a list shows it; manual are the manual groups' claims, which
-// the bead alone does not tell from an agent's session.
-func card(b *store.Bead, manual map[string]bool) Card {
+// the bead alone does not tell from an agent's session, and est its
+// estimate, nil where the page shows none.
+func card(b *store.Bead, manual map[string]bool, est *eta.Result) Card {
 	c := Card{ID: b.ID, Title: b.Title, Type: b.Type, Stage: b.Stage, Status: b.Status, Held: b.Hold,
 		Working: working(b, manual), Train: b.Train, UpdatedAt: b.UpdatedAt}
 	if b.Depot != nil {
@@ -78,6 +85,9 @@ func card(b *store.Bead, manual map[string]bool) Card {
 	}
 	if b.Group != nil {
 		c.Group = *b.Group
+	}
+	if est != nil {
+		c.ETA, c.Late = est.ETA, est.Late
 	}
 	return c
 }
@@ -126,13 +136,17 @@ type Flows struct {
 
 // panelMark is what colours one bead's block on the yard panel: gave up,
 // stalled, blocked on a prompt, waiting on a dependency, back on failed or
-// changes. Held and working are the card's own.
+// changes, running past its usual time. Held and working are the card's
+// own.
 type panelMark struct {
 	gaveUp     bool
 	stalled    bool
 	blocked    bool
 	dep        string // the first open blocker's full id, "" when none waits
 	failedBack bool
+	// late is the bead's stage age against the p90, "" when it is not
+	// late: an amber ring around its light, named in its title.
+	late string
 }
 
 // flowLamp is a stage's wait lamp on the yard panel.
@@ -307,7 +321,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		}
 		p := placer{depot: depot.Name, flows: rfs}
 		for _, b := range beads {
-			c := card(&b, manual)
+			c := card(&b, manual, nil)
 			dst, ok := sections[p.section(&b)]
 			if c.Live, c.Placed = true, ok; !ok {
 				dst = &fr.Elsewhere
@@ -320,7 +334,46 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		newestFirst(fr.Elsewhere)
 		out.Depots = append(out.Depots, fr)
 	}
+	// The page's estimates over one shared queue snapshot, attached
+	// after: every card on it reads the same response.
+	if err := s.estimateFlows(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// eachFlowCard calls fn on every card of the flows page: each stage's
+// beads and each depot's Elsewhere.
+func eachFlowCard(d *Flows, fn func(*Card)) {
+	for i := range d.Depots {
+		for j := range d.Depots[i].Flows {
+			for k := range d.Depots[i].Flows[j].Stages {
+				for l := range d.Depots[i].Flows[j].Stages[k].Beads {
+					fn(&d.Depots[i].Flows[j].Stages[k].Beads[l])
+				}
+			}
+		}
+		for l := range d.Depots[i].Elsewhere {
+			fn(&d.Depots[i].Elsewhere[l])
+		}
+	}
+}
+
+// estimateFlows carries every card of the flows page its estimate: one
+// EstimateMany over the page, so the queue behind them is read once.
+func (s *Server) estimateFlows(ctx context.Context, d *Flows) error {
+	var ids []string
+	eachFlowCard(d, func(c *Card) { ids = append(ids, c.ID) })
+	ests, err := s.st.EstimateMany(ctx, ids)
+	if err != nil {
+		return err
+	}
+	eachFlowCard(d, func(c *Card) {
+		if est := ests[c.ID]; est != nil {
+			c.ETA, c.Late = est.ETA, est.Late
+		}
+	})
+	return nil
 }
 
 func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
@@ -378,7 +431,10 @@ func (s *Server) place(ctx context.Context, e store.Event) (p placement, ok bool
 			manual[sess.ID] = true
 		}
 	}
-	p.Card = card(b, manual)
+	// A card the stream moves carries its estimate, as a reload would
+	// show it; one that cannot be read moves without it.
+	est, _ := s.st.Estimate(ctx, b.ID)
+	p.Card = card(b, manual, est)
 	if b.Status == "open" && b.Depot != nil && !store.NotWork[b.Type] {
 		// A depot whose flows cannot be read has every bead in Elsewhere.
 		rfs, _ := s.st.DepotFlows(ctx, *b.Depot)
@@ -438,12 +494,18 @@ type BeadRow struct {
 	Held bool `json:"held,omitempty"`
 	// Working is a bead an agent's or a command's session has claimed.
 	Working bool `json:"working"`
+	// ETA and Late are the bead's estimate, absent when there is nothing
+	// to say; the same shapes `bead show --json` carries, which
+	// signalbox's departure board reads here.
+	ETA  *eta.ETA  `json:"eta,omitempty"`
+	Late *eta.Late `json:"late,omitempty"`
 }
 
 // Card is the bead as the page shows it.
 func (r BeadRow) Card() Card {
-	c := card(&r.Bead, nil)
+	c := card(&r.Bead, nil, nil)
 	c.Working = r.Working
+	c.ETA, c.Late = r.ETA, r.Late
 	return c
 }
 
@@ -495,13 +557,31 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	manual := manualClaims(y.sessions)
+	// The rows' estimates over one shared queue snapshot: every bead on
+	// the page reads the same response. Closed beads have no estimate,
+	// so ?all=1 reads none for them.
+	var ids []string
+	for i := range beads {
+		if beads[i].Status == "open" {
+			ids = append(ids, beads[i].ID)
+		}
+	}
+	ests, err := s.st.EstimateMany(ctx, ids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	for _, b := range beads {
 		if d.Depot != "" && !in(&b, d.Depot) {
 			continue
 		}
 		d.Stages = append(d.Stages, b.Stage)
 		if d.Stage == "" || b.Stage == d.Stage {
-			d.Beads = append(d.Beads, BeadRow{Bead: b, Held: b.Hold, Working: working(&b, manual)})
+			row := BeadRow{Bead: b, Held: b.Hold, Working: working(&b, manual)}
+			if est := ests[b.ID]; est != nil {
+				row.ETA, row.Late = est.ETA, est.Late
+			}
+			d.Beads = append(d.Beads, row)
 		}
 	}
 	slices.Sort(d.Stages)
@@ -523,6 +603,11 @@ type BeadPage struct {
 	// Working says an agent's or a command's session has claimed the bead:
 	// a manual group's claim is a person's turn.
 	Working bool `json:"working"`
+	// ETA and Late are the bead's estimate, absent when there is nothing
+	// to say; the same shapes `bead show --json` carries. The page shows
+	// the ETA sentence and the late mark under the header.
+	ETA  *eta.ETA  `json:"eta,omitempty"`
+	Late *eta.Late `json:"late,omitempty"`
 	// Flow is the flow that governs the bead, absent when none does: the
 	// bead may then move to any stage.
 	Flow *BeadFlow `json:"flow,omitempty"`
@@ -666,11 +751,12 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	manual := manualClaims(sessions)
 	d.Working = working(b, manual)
 	// A card for each bead this one names; one that is gone is left out.
+	// Their estimates are attached after, over one shared snapshot.
 	cards := func(ids []string) []Card {
 		var out []Card
 		for _, id := range ids {
 			if o, err := s.st.GetBead(ctx, id); err == nil {
-				out = append(out, card(o, manual))
+				out = append(out, card(o, manual, nil))
 			}
 		}
 		return out
@@ -776,7 +862,43 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	if d.History, err = History(ctx, s.st, b.ID); err != nil {
 		return nil, err
 	}
+	// The bead's estimate and its cards', over one shared queue snapshot.
+	if err := s.estimateBeadPage(ctx, d); err != nil {
+		return nil, err
+	}
 	return d, nil
+}
+
+// estimateBeadPage carries the page's bead and the cards it names their
+// estimates: one EstimateMany over the page, so the queue behind them is
+// read once.
+func (s *Server) estimateBeadPage(ctx context.Context, d *BeadPage) error {
+	ids := []string{d.Bead.ID}
+	var cards []*Card
+	if d.Train != nil {
+		cards = append(cards, d.Train)
+	}
+	for _, list := range [][]Card{d.Children, d.Blockers, d.DiscoveredFrom, d.LedTo} {
+		for i := range list {
+			cards = append(cards, &list[i])
+		}
+	}
+	for _, c := range cards {
+		ids = append(ids, c.ID)
+	}
+	ests, err := s.st.EstimateMany(ctx, ids)
+	if err != nil {
+		return err
+	}
+	if est := ests[d.Bead.ID]; est != nil {
+		d.ETA, d.Late = est.ETA, est.Late
+	}
+	for _, c := range cards {
+		if est := ests[c.ID]; est != nil {
+			c.ETA, c.Late = est.ETA, est.Late
+		}
+	}
+	return nil
 }
 
 // pagePolicy is the policy a note's page opens under: the page is bytes an

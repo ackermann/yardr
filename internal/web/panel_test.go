@@ -351,8 +351,12 @@ func blockClass(t *testing.T, svg, id string) string {
 	t.Helper()
 	at := strings.Index(svg, "<title>"+id+"</title>")
 	if at < 0 {
-		// The title names what holds the bead after its id.
+		// The title names what holds the bead, or its lateness, after
+		// its id.
 		at = strings.Index(svg, "<title>"+id+" waits on ")
+	}
+	if at < 0 {
+		at = strings.Index(svg, "<title>"+id+"; ")
 	}
 	if at < 0 {
 		t.Fatalf("no light stands for %s", id)

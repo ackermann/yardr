@@ -65,6 +65,20 @@
     {{- range .Parked}}{{template "wait" .}}{{end}}
   </div>
   {{- end}}
+  {{- /* Late: running past their usual time, but needing nothing yet.
+         Apart from the waits and their count, as parked are. */}}
+  {{- if .Late}}
+  <h3 class="label">Late · {{len .Late}}</h3>
+  <div class="late-rows">
+    {{- range .Late}}
+    <article class="wait">
+      <header><a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a><span class="label">{{.Stage}}</span></header>
+      <p class="wait-title">{{.Title}}</p>
+      {{- with .Late}}<p class="why late">⚠ {{.Line}}</p>{{end}}
+    </article>
+    {{- end}}
+  </div>
+  {{- end}}
 </section>
 {{- end}}
 <section class="panel">

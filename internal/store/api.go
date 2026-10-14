@@ -63,6 +63,7 @@ type API interface {
 	WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string) (*BeadView, error)
 	Estimate(ctx context.Context, id string) (*eta.Result, error)
+	EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error)
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error

@@ -512,3 +512,47 @@ func TestMiniEscapes(t *testing.T) {
 		t.Error("the drawing is not stable")
 	}
 }
+
+// A bead running past its usual time keeps its light's class and gains an
+// amber ring around it, in its link, with its title naming its stage age
+// against the p90. A bead on time draws no ring.
+func TestMiniLateRing(t *testing.T) {
+	f := flow(t, "code", "backlog -> new\nnew -> merged\nmerged terminal\n")
+	d := Diagram{Flow: *f}
+	late := "late: waiting in new 6h, past the usual 2h (p90 entry-to-exit for difficulty:2 in muse-builders)"
+	s := Standing{
+		Blocks: map[string][]Block{
+			"new": {
+				{ID: "shop-late", Late: late},
+				{ID: "shop-stall", Working: true, Stalled: true, Late: late},
+				{ID: "shop-ontime", Working: true},
+			},
+		},
+		Stage: func(stage string) string { return "/flows#at/shop//" + stage },
+		Bead:  func(id string) string { return "/beads/" + id },
+	}
+	out := string(Mini(d, s))
+	// The ring stands with its light in its link, beside whatever class
+	// the light already has.
+	for id, class := range map[string]string{"shop-late": "block", "shop-stall": "block stalled"} {
+		at := strings.Index(out, "<title>"+id+"; "+late+"</title>")
+		if at < 0 {
+			t.Errorf("the late light's title does not name its age: %s", id)
+			continue
+		}
+		linkEnd := strings.Index(out[at:], "</a>")
+		link := out[at : at+linkEnd]
+		if !strings.Contains(link, `<circle class="`+class+`"`) {
+			t.Errorf("%s keeps no %s light: %s", id, class, link)
+		}
+		if !strings.Contains(link, `<circle class="late-ring"`) {
+			t.Errorf("%s draws no amber ring: %s", id, link)
+		}
+	}
+	if n := strings.Count(out, `class="late-ring"`); n != 2 {
+		t.Errorf("%d late rings, want the two late lights' alone", n)
+	}
+	if want := "<title>shop-ontime</title>"; !strings.Contains(out, want) {
+		t.Errorf("the drawing lacks %s", want)
+	}
+}

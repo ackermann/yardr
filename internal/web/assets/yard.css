@@ -25,6 +25,7 @@
   --working: var(--accent);
   --running: #6db58a;
   --held: #e0735f;
+  --late: #e8a33d;
   --done: var(--faint);
 
   /* the yard panel: every colour the panel's track uses, so the palette
@@ -67,9 +68,10 @@
     --faint: #625f54;
     --accent: #3c5777;
     --landed: #8d6830;
-    /* the dark theme's green and red, deepened until they read on paper */
+    /* the dark theme's green, red and amber, deepened until they read on paper */
     --running: #2f7d55;
     --held: #b3402c;
+    --late: #8f5e10;
     --panel-board: #f5f1e6;
     --panel-ink: #1d2420;
     --panel-dim: #5d665f;
@@ -165,6 +167,7 @@ ul, ol { list-style: none; }
 }
 .faint { color: var(--faint); }
 .held { color: var(--held); }
+.late { color: var(--late); }
 .landed { color: var(--landed); }
 .num { font-variant-numeric: tabular-nums; }
 
@@ -316,14 +319,16 @@ ul, ol { list-style: none; }
 /* Every blocked kind told apart: solid red for held, hollow red for gave
    up, hollow green for stalled, green with a red ring for blocked on a
    prompt, blue for waiting on a dependency, a red diamond for back on
-   failed or changes, red and blue wait lamps, dotted no-route sections.
-   The three state colours are the yard's own, the same on the track and
-   the home rows: lit green, fault red, person's-turn blue. */
+   failed or changes, an amber ring for running past its usual time, red
+   and blue wait lamps, dotted no-route sections. The state colours are
+   the yard's own, the same on the track and the rows: lit green, fault
+   red, person's-turn blue, late amber. */
 .panel-svg .block.held { fill: var(--held); }
 .panel-svg .block.gaveup { fill: var(--panel-board); stroke: var(--held); stroke-width: 1.5; }
 .panel-svg .block.stalled { fill: var(--panel-board); stroke: var(--running); stroke-width: 1.5; }
 .panel-svg .block.blocked { fill: var(--running); stroke: var(--held); stroke-width: 1.5; }
 .panel-svg .block.dep { fill: var(--accent); }
+.panel-svg .late-ring { fill: none; stroke: var(--late); stroke-width: 1.5; }
 .panel-svg .diamond { fill: var(--held); }
 .panel-svg .lamp.unlit { fill: none; stroke: var(--panel-dim); }
 .panel-svg .lamp.fault { fill: var(--held); }

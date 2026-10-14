@@ -271,7 +271,7 @@ func (s *Server) handleDeps(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			c := Card{ID: blocked}
 			if b := byID[blocked]; b != nil {
-				c = card(b, manual)
+				c = card(b, manual, nil)
 			}
 			i, at[blocked] = len(d.Groups), len(d.Groups)
 			d.Groups = append(d.Groups, DepGroup{Bead: c})

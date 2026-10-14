@@ -11,7 +11,8 @@ package flowdraw
 // are told apart at a glance, as on the full drawing: held is solid red,
 // gave up hollow red, stalled hollow green, blocked on a prompt green
 // with a red ring, waiting on a dependency blue, back on failed or
-// changes with a red diamond before it; a stage that waits for a person
+// changes with a red diamond before it, running past its usual time with
+// an amber ring around its light; a stage that waits for a person
 // carries a lamp, red for a fault and blue for a person's turn, and a
 // stage no route serves is dotted with the faint words "no route". No
 // bead writes anything on the plan: what a light is stands in its title,
@@ -43,6 +44,10 @@ type Block struct {
 	GaveUp  bool
 	Blocked bool
 	Stalled bool
+	// Late is a bead running past its usual time: its stage age against
+	// the p90, "" when it is not late. An amber ring stands around its
+	// light, whatever its colour, and its title names the age.
+	Late string
 	// Dep is the full id of the first open blocker holding the bead, ""
 	// when none waits: the light is blue when the bead is otherwise
 	// quiet, and its title names the bead holding it.
@@ -118,13 +123,17 @@ func (b Block) class() string {
 	return "block"
 }
 
-// titleOf is what a light's title says: its bead, and what holds it when
-// something does.
+// titleOf is what a light's title says: its bead, what holds it when
+// something does, and its stage age against the p90 when it runs late.
 func titleOf(b Block) string {
+	t := b.ID
 	if b.Dep != "" {
-		return b.ID + " waits on " + b.Dep
+		t += " waits on " + b.Dep
 	}
-	return b.ID
+	if b.Late != "" {
+		t += "; " + b.Late
+	}
+	return t
 }
 
 // beadsW is the width a stage's lights stand in: ten beads at most, a
@@ -294,9 +303,11 @@ func mini(d Diagram, s Standing) (string, int, int) {
 		c.f(`</a>`)
 	}
 	// lights stands the stage's beads on the line at ly, centred on cx: a
-	// lamp per bead, a diamond before one back on failed or changes, "+N"
-	// past ten. A lamp's title is its bead, naming what holds it when
-	// something does; tapping it opens the bead.
+	// lamp per bead, a diamond before one back on failed or changes, an
+	// amber ring around one running past its usual time, "+N" past ten.
+	// A lamp's title is its bead, naming what holds it when something
+	// does and its stage age against the p90 when it runs late; tapping
+	// it opens the bead.
 	lights := func(stage string, cx, ly int) {
 		blocks := s.Blocks[stage]
 		cursor := cx - beadsW(blocks)/2
@@ -314,6 +325,10 @@ func mini(d Diagram, s Standing) (string, int, int) {
 				}
 				c.f(`<circle class="%s" cx="%d" cy="%d" r="%d"/>`,
 					b.class(), lx+beadR, ly, beadR)
+				if b.Late != "" {
+					c.f(`<circle class="late-ring" cx="%d" cy="%d" r="%d"/>`,
+						lx+beadR, ly, beadR+2)
+				}
 			})
 			cursor = lx + beadPitch
 		}

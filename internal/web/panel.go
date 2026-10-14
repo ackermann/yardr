@@ -86,7 +86,8 @@ func (d *Flows) panelFlow(i, j int, col FlowColumn) PanelFlow {
 			m := d.marks[c.ID]
 			b := flowdraw.Block{ID: c.ID, Working: c.Working,
 				Held: c.Held, GaveUp: m.gaveUp, Blocked: m.blocked,
-				Stalled: m.stalled, Dep: m.dep, FailedBack: m.failedBack}
+				Stalled: m.stalled, Dep: m.dep, FailedBack: m.failedBack,
+				Late: m.late}
 			standing.Blocks[st.Stage] = append(standing.Blocks[st.Stage], b)
 		}
 	}
@@ -231,6 +232,11 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 		}
 		m.gaveUp = rd.gaveUp(ctx, id, c.Held)
 		m.failedBack = rd.failedBack(ctx, id)
+		// The card already carries the page's estimate, read over one
+		// shared snapshot: the ring reads it, not the store again.
+		if c.Late != nil {
+			m.late = c.Late.Line
+		}
 		if blockers, err := s.st.OpenBlockers(ctx, id); err != nil {
 			s.log.Error("web: open blockers", "bead", id, "err", err)
 		} else if len(blockers) > 0 {
