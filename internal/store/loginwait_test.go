@@ -12,6 +12,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 func loginAsk(ref string) Ask {
@@ -34,6 +36,44 @@ func TestLoginWaitReadyWaitsForRegistration(t *testing.T) {
 	cancel()
 	if err := <-waiting; !errors.Is(err, context.Canceled) {
 		t.Fatalf("the wait after cancel: %v", err)
+	}
+}
+
+// A wait registered from another crew member's pane is refused, so no agent
+// but the yardmaster can be handed what the operator types into a login
+// ask's field; the yardmaster's pane registers one.
+func TestLoginWaitOnlyFromTheYardmastersPane(t *testing.T) {
+	y, _ := secretYard(t)
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	if _, err := y.Store.PutCrew(y.ctx, CrewMember{Name: "scout", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.CrewStarted(y.ctx, "scout", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := WithCaller(y.ctx, me)
+	refused, stop := context.WithTimeout(pane, 2*time.Second)
+	defer stop()
+	if _, err := y.LoginWait(refused, "claude-phish"); err == nil || !strings.Contains(err.Error(), "this is the crew member scout") {
+		t.Fatalf("LoginWait from scout's pane = %v", err)
+	}
+	if err := y.CrewStopped(y.ctx, "scout", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(pane, 50*time.Millisecond)
+	defer cancel()
+	if _, err := y.LoginWait(ctx, "claude-led"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("LoginWait from the yardmaster's pane = %v, want it to wait", err)
 	}
 }
 
