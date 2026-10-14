@@ -207,6 +207,12 @@ func TestYardTestSelects(t *testing.T) {
 	write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
 	write("alone/p.go", "package p\n")
 	write("docs/web.md", "web\n")
+	// As packs does: it embeds starter, which the table rows to
+	// internal/pack and internal/cli, and one package imports it.
+	write("packs/p.go", "package p\n\nimport \"embed\"\n\n//go:embed starter\nvar FS embed.FS\n")
+	write("packs/starter/pack.yaml", "pack\n")
+	write("packs/starter/roles/reviewer.md", "reviewer\n")
+	write("packtop/p.go", "package packtop\n\nimport _ \"m.test/m/packs\"\n")
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -260,10 +266,16 @@ func TestYardTestSelects(t *testing.T) {
 	}{
 		{"the starter pack", []string{"packs/starter/roles/builder.md"}, []string{
 			pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
-			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+			tested + " m.test/m/internal/cli m.test/m/internal/pack m.test/m/packs m.test/m/packtop"}},
 		{"two files of the starter pack", []string{"packs/starter/roles/builder.md", "packs/starter/pack.yaml"}, []string{
 			pre + "packs/starter/pack.yaml and 1 more under packs/starter/ changed: read by the tests of internal/pack internal/cli",
-			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+			tested + " m.test/m/internal/cli m.test/m/internal/pack m.test/m/packs m.test/m/packtop"}},
+		{"a deleted embedded file under a rowed directory", []string{"-packs/starter/roles/reviewer.md"}, []string{
+			pre + "packs/starter/roles/reviewer.md changed: read by the tests of internal/pack internal/cli",
+			tested + " m.test/m/internal/cli m.test/m/internal/pack m.test/m/packs m.test/m/packtop"}},
+		{"a deleted file under no embedded directory", []string{"-docs/web.md"}, []string{
+			pre + "docs/web.md changed: read by the tests of .",
+			tested + " m.test/m"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
 			tested + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
@@ -320,10 +332,7 @@ func TestYardTestSelects(t *testing.T) {
 				pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
 				tested + " m.test/m"}},
 		{"a landing of the starter pack and what no test reads", []string{"packs/starter/roles/builder.md", ".github/a.yml"},
-			landing + "nothing compiled changed" + since, []string{
-				pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
-				pre + ".github/a.yml changed: no test reads it",
-				tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of what no test reads", []string{".github/a.yml"},
 			landing + "nothing compiled changed" + since, []string{
 				pre + ".github/a.yml changed: no test reads it",

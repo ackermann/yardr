@@ -313,7 +313,10 @@ changed=$(git diff --name-only "$from")
 # directory, the files it embeds and everything it depends on (Deps is
 # already transitive, so no walk is needed: a package is in when one of its
 # Deps changed). A package changed when a .go file in its directory did, or
-# a file it embeds, which is compiled in like one. A _test.go file is
+# a file it embeds, which is compiled in like one. A file the branch
+# deleted is in no package's list any more, so what remains under the same
+# directory stands for it: a deleted file under a directory some package
+# still embeds counts as that package's change. A _test.go file is
 # imported by nobody: it runs its own package's tests only. Any other file
 # is no package's: the table above says whose tests read it, and a file the
 # table does not know either runs every package.
@@ -325,6 +328,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 printf '%s\n' "$reads" >"$tmp/reads"
 printf '%s\n' "$changed" >"$tmp/changed"
+git diff --name-only --diff-filter=D "$from" >"$tmp/deleted"
 t0=$(date +%s)
 go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}' ./... >"$tmp/pkgs"
 # Said by listed, after the run's first line, which a landing prints only
@@ -336,7 +340,8 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
   # "p [p.test]", "p_test [p.test]" and "p.test" are all package p.
   function base(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
   FILENAME == ARGV[1] { if (split($0, w, " ") > 1) { r++; at[r] = w[1]; by[r] = w[2]; for (i = 3; i in w; i++) by[r] = by[r] " " w[i] } next }
-  FILENAME == ARGV[2] { if ($0 != "") { file[$0] = 1; order[++nf] = $0; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
+  FILENAME == ARGV[2] { if ($0 != "") gone[$0] = 1; next }
+  FILENAME == ARGV[3] { if ($0 != "") { file[$0] = 1; order[++nf] = $0; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
   {
     n++; path[n] = base($1); deps[n] = $3
     dir = substr($2, length(root) + 2); if (dir == "") dir = "."
@@ -344,7 +349,15 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
     if (dir in godir) hit[path[n]] = 1
     if (dir in testdir) run[path[n]] = 1
     m = split($4, e, ",")
-    for (i = 1; i <= m; i++) if (e[i] != "" && (f = (dir == "." ? "" : dir "/") e[i]) in file) { hit[path[n]] = 1; known[f] = 1 }
+    for (i = 1; i <= m; i++) if (e[i] != "") {
+      f = (dir == "." ? "" : dir "/") e[i]
+      if (f in file) { hit[path[n]] = 1; known[f] = 1 }
+      parent = f
+      while (sub(/\/[^\/]*$/, "", parent)) {
+        if (parent == dir) break
+        for (del in gone) if (index(del, parent "/") == 1) { hit[path[n]] = 1; known[del] = 1 }
+      }
+    }
   }
   END {
     for (k = 1; k <= n; k++) {
@@ -374,7 +387,7 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
       print "test: " first[j] (fired[j] > 1 ? " and " fired[j] - 1 " more under " at[j] : "") (by[j] == "-" ? " changed: no test reads it" : " changed: read by the tests of " by[j]) >rows
     }
     for (p in run) print p
-  }' "$tmp/reads" "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
+  }' "$tmp/reads" "$tmp/deleted" "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
 }
 if [ -n "$YARDR_LANDING" ]; then
   # A landing is the whole suite unless nothing compiled changed. What is
