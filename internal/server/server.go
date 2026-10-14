@@ -480,11 +480,18 @@ type Info struct {
 // Describe is the server that answers on the socket; false when none does.
 // It starts none.
 func Describe(ctx context.Context, c *config.Config) (Info, bool) {
+	info, err := DescribeErr(ctx, c)
+	return info, err == nil
+}
+
+// DescribeErr is Describe with the reason: the Owner error when no server
+// answers, so the upgrade check fails with why. It starts none.
+func DescribeErr(ctx context.Context, c *config.Config) (Info, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	pid, rev, err := rpc.NewClient(c.Socket()).Owner(ctx)
 	if err != nil {
-		return Info{}, false
+		return Info{}, err
 	}
 	info := Info{PID: pid, Revision: rev}
 	if named, err := readPID(c); err == nil && named == pid {
@@ -492,7 +499,7 @@ func Describe(ctx context.Context, c *config.Config) (Info, bool) {
 			info.Since = fi.ModTime()
 		}
 	}
-	return info, true
+	return info, nil
 }
 
 func ping(ctx context.Context, client *rpc.Client) bool {

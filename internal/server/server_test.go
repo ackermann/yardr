@@ -894,3 +894,21 @@ func TestDescribe(t *testing.T) {
 		t.Fatalf("ok = %v, info = %+v", ok, info)
 	}
 }
+
+// DescribeErr says why no server answers, for the upgrade check's fail
+// line, and starts none.
+func TestDescribeErr(t *testing.T) {
+	c := home(t)
+	if _, err := DescribeErr(context.Background(), c); err == nil {
+		t.Fatal("no server runs, and no error says so")
+	} else if !errors.Is(err, syscall.ENOENT) {
+		t.Fatalf("err = %v, want the missing socket", err)
+	}
+	if _, err := os.Stat(c.Socket()); err == nil {
+		t.Fatal("DescribeErr started a server")
+	}
+	start(t, &runner{c: c, rev: "abcdef123456"})
+	if info, err := DescribeErr(context.Background(), c); err != nil || info.Revision != "abcdef123456" {
+		t.Fatalf("info = %+v, err = %v", info, err)
+	}
+}

@@ -232,7 +232,7 @@ var lookPath = exec.LookPath
 // it needs the yard: for a pack given by name, and for the plan, flow
 // draw, which draws a flow file or a pack from files alone, and harness,
 // which prints what this build was made with.
-var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "up", "down", "uninstall", "version", "harness", "help", "completion",
+var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "upgrade", "up", "down", "uninstall", "version", "harness", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "pack show", "flow draw"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
