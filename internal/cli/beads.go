@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -331,15 +330,7 @@ func noteTell(n store.Note) string {
 // files line is no letter either: without that a note's words could
 // forge the line (store.NoteFilesMark).
 func noteLetters(s string) string {
-	return strings.ReplaceAll(strings.Map(func(r rune) rune {
-		switch {
-		case r == '\n', r == '\t':
-			return r
-		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
-			return -1
-		}
-		return r
-	}, strings.ToValidUTF8(s, "")), store.NoteFilesMark, "")
+	return store.Letters(s)
 }
 
 // printDiscovery adds a bead's discovered-from edges to bead show's text:

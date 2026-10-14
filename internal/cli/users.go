@@ -602,7 +602,7 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 				// The sender and the text are writers' words, shown without
 				// the mark, and the files stand under them on a marked line
 				// of their own, so no mail's words forge its files line.
-				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), store.WithoutFilesMark(from), state, store.WithoutFilesMark(l.Text))
+				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), store.Letters(from), state, store.Letters(l.Text))
 				if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
 					fmt.Printf("    %s\n", line)
 				}
@@ -732,7 +732,7 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 			}
 			// As the inbox above: the writers' words without the mark, and
 			// the files under them on a marked line of their own.
-			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.WithoutFilesMark(from), store.WithoutFilesMark(l.Text))
+			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.Letters(from), store.Letters(l.Text))
 			if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
 				fmt.Printf("    %s\n", line)
 			}

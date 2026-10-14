@@ -244,7 +244,7 @@ func (m *Model) lines(w int) []string {
 		// The sender, the addressee and the text are writers' words, shown
 		// without the mark, and the images stand under them on a marked
 		// line of their own, so no mail's words forge its files line.
-		from, text := look.member, store.WithoutFilesMark(l.Text)
+		from, text := look.member, store.Letters(l.Text)
 		switch {
 		case l.From == m.opt.Me:
 			from = look.own
@@ -256,12 +256,12 @@ func (m *Model) lines(w int) []string {
 				from = look.own
 			}
 		}
-		head := look.faint.Render(clock(l.At)) + "  " + from.Render(store.WithoutFilesMark(store.ViaMark(l.From, l.Via)))
+		head := look.faint.Render(clock(l.At)) + "  " + from.Render(store.Letters(store.ViaMark(l.From, l.Via)))
 		if l.To != m.sel && l.To != m.opt.Me {
 			// What went to a name trusted as a user of this yard, and not
 			// to the user here, says so: in that user's row, and in any
 			// row for a name trusted as the viewer.
-			head += look.faint.Render(" to " + store.WithoutFilesMark(l.To))
+			head += look.faint.Render(" to " + store.Letters(l.To))
 		}
 		out = append(out, fit(head, w))
 		if text != "" {

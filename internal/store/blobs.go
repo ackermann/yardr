@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -145,6 +146,25 @@ func NoteFilesLine(home string, files []BlobRef) string {
 // as well.
 func WithoutFilesMark(s string) string {
 	return strings.ReplaceAll(s, NoteFilesMark, "")
+}
+
+// Letters is a writer's words as a terminal is given them: without what
+// would move the cursor or turn the direction of text around (every
+// control character but the line break and the tab, and the marks of
+// direction), and without the mark (WithoutFilesMark). An escape sequence
+// is left as the letters that followed its escape: a terminal draws the
+// mark for one of them ("\x1b(0`"), so words that keep their escapes
+// forge the files line without typing the mark.
+func Letters(s string) string {
+	return WithoutFilesMark(strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n', r == '\t':
+			return r
+		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(s, "")))
 }
 
 // MailFiles are the files the mail e carries, nil for mail without any.

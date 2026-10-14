@@ -1022,8 +1022,8 @@ func printInboxEvent(e store.Event, member, home string) {
 		// The sender and the text are writers' words, shown without the
 		// mark, and the files stand under them on a marked line of their
 		// own, so no mail's words forge its files line.
-		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.WithoutFilesMark(from),
-			store.WithoutFilesMark(show(e.Data["text"])))
+		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.Letters(from),
+			store.Letters(show(e.Data["text"])))
 		if line := store.NoteFilesLine(home, store.MailFiles(e)); line != "" {
 			fmt.Printf("    %s\n", line)
 		}

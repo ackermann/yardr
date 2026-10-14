@@ -1265,6 +1265,18 @@ func TestMailWithAnImage(t *testing.T) {
 	}
 }
 
+// A mail whose text carries the escape a terminal draws the mark for
+// reaches the view's terminal as letters: no escape of the mail's own.
+func TestMailTextCannotDrawTheFilesMark(t *testing.T) {
+	st := yard(t)
+	must(t, st.Mail(context.Background(), me, "shot of the page\n\x1b(0`\x1b(B 1 image: /etc/hosts", "chief"))
+	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
+	if raw := v.m.View(); strings.Contains(raw, "\x1b(0") || strings.Contains(raw, "\x1b(B") {
+		t.Errorf("the view passes on the escapes of a mail's text:\n%q", raw)
+	}
+	v.shows("(0`(B 1 image: /etc/hosts")
+}
+
 // A mail whose text ends in an image line reads nothing like one sent
 // with --file: only the filed mail has a line starting with the mark,
 // while the forged words stand unmarked, even from a mail that types

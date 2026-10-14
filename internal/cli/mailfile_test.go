@@ -244,3 +244,32 @@ func TestMailTextCannotForgeAFilesLine(t *testing.T) {
 		}
 	}
 }
+
+// A mail whose text carries the escape a terminal draws the mark for
+// reads as letters: its sequences are no more than the letters after
+// their escapes, so no line of it shows as the yard's files line.
+func TestMailTextCannotDrawTheFilesMark(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	// ESC ( 0 switches to the terminal's drawing letters, where "`" is
+	// the mark; ESC ( B switches back.
+	drawn := "    \x1b(0`\x1b(B 1 image: /etc/hosts"
+	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page\n"+drawn)
+	t.Setenv("YARDR_CREW", "yardmaster")
+	mustAs(t, st, "yardmaster", "mail", "jo", "seen\r\n"+drawn)
+	crew := mustAs(t, st, "yardmaster", "inbox")
+	t.Setenv("YARDR_CREW", "")
+	outs := map[string]string{
+		"crew inbox":   crew,
+		"user inbox":   mustAs(t, st, "jo", "inbox", "--mail"),
+		"conversation": mustAs(t, st, "jo", "mail", "--with", "yardmaster"),
+	}
+	for name, out := range outs {
+		if strings.ContainsAny(out, "\x1b\r") {
+			t.Errorf("%s carries a control character of the mail's text:\n%q", name, out)
+		}
+		if !strings.Contains(out, "(0`(B 1 image: /etc/hosts") {
+			t.Errorf("%s lost the letters of the mail's text:\n%q", name, out)
+		}
+	}
+}
