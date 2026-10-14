@@ -218,8 +218,8 @@ move adds; the event's own text, its URL and who acted follow.
 the one with a `tracks` link to the issue or pull request, of any type,
 matched by the thread's URL. A closed bead keeps its link and is moved by
 nothing. For a pull request no open bead tracks, it is the open train its
-`train` field names: the github adapter sets it from the head branch
-`yard/<train>`, and the event must be about the pull request the train is
+`train` field names: the core derives it from the head branch
+`yard/<train>` after Normalize, and the event must be about the pull request the train is
 bound to ([line.md](line.md#trains)). Where both find a bead, the tracking
 bead wins. An event with neither is about no bead, whatever the table says;
 the hook's other table can make the bead that tracks its thread (`--makes`,
@@ -249,15 +249,17 @@ trains in the stages those lines name.
 
 A pack carries the table beside the map (`sources.<source>.says` in
 `pack.yaml`), and `yardr pack apply` sets it on the yard's hook of the
-source; it needs the hook and nothing else, since no crew member acts
+source; a table without `event=ci` lines needs the hook and nothing else,
+since no crew member acts, while one with them needs the hook's `as` crew
+member and its identity too: the reads run with that member's credential
 ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
 
 ## One form per issue
 
 `<issue>` is the issue's URL, or the seq of a hook delivery from its thread
 (the number an inbox line starts with, as `yardr reply` takes it). The
-source's adapter turns either into the issue's one fixed form, which is what
-the link stores:
+declared adapter turns either into the issue's one fixed form from the
+source's link data, which is what the link stores:
 
 | source | fixed form | left out |
 |---|---|---|
