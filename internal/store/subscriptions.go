@@ -35,12 +35,12 @@ func (r CrewMember) IsIn(source, id string) bool {
 	return known && who.is(id)
 }
 
-// botSuffix ends the login of a GitHub App's bot: the App yardr acts as
+// botSuffix ends the login of an App's bot: the App yardr acts as
 // yardr[bot].
 const botSuffix = "[bot]"
 
-// mentionedAs reports whether a mention of v is one of this identity. A
-// GitHub App is mentioned by its slug: GitHub has no mention of an App, so
+// mentionedAs reports whether a mention of v is one of this identity. An
+// App is mentioned by its slug: a source has no mention of an App, so
 // people write @yardr, as they do for a person, and the App whose bot is
 // yardr[bot] takes it as meant for it. So a key ending in [bot] is also
 // mentioned by the name before it. Only a mention is read so: the actor or
@@ -72,21 +72,11 @@ const (
 )
 
 // WhereKeys are what --where may filter on for a hook source: envelope
-// fields, then source fields an adapter may expose. Exact matches only,
+// fields, then source fields its hook.keys may expose. Exact matches only,
 // ANDed; a key with several values (WhereValues) matches any of them. The
 // yardr source has its own (YardrWhereKeys), as the peer source has
-// (PeerWhereKeys), and github adds the pull request fields its adapter
-// exposes (GitHubWhereKeys).
+// (PeerWhereKeys).
 var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
-
-// GitHubWhereKeys are what --where may filter a github subscription on
-// besides WhereKeys: the fields the github hook adapter sets, train among
-// them (the yardr train whose branch a pull request or CI run is on) and
-// association (what the author of the issue, pull request, comment or review
-// is to the repository: owner, member, collaborator, contributor,
-// first_time_contributor, first_timer or none). A field an adapter sets and neither list names fails
-// TestAdapterFieldsAreWhereKeys of internal/hooks.
-var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train", "sender", "association"}
 
 // extraWhereKeys are the keys a hook source adds to WhereKeys: the fields
 // its adapter exposes, registered by internal/hooks at init. The store
@@ -337,7 +327,7 @@ func (sub Subscription) check() error {
 	if n := len(WhereValues(sub.Where["bead"])); n > 1 {
 		return fmt.Errorf("subscribe: %d beads in one subscription: a subscription to a bead ends when the bead closes, so give each its own", n)
 	}
-	// A yardr bead is only ever filtered on becoming done; a github
+	// A yardr bead is only ever filtered on becoming done; a hook source's
 	// state is the pull request's or review's own (open, approved, ...).
 	if st, ok := sub.Where["state"]; ok && sub.Source == SourceYardr && st != StateDone {
 		return fmt.Errorf("subscribe: state %q: only %s", st, StateDone)

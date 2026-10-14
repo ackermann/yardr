@@ -35,7 +35,7 @@ var hookName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 // or a command line.
 type Hook struct {
 	Name       string `json:"name"`
-	Source     string `json:"source"` // adapter: github, token, or a declared source
+	Source     string `json:"source"` // token or a declared source
 	SecretFile string `json:"secret_file"`
 	// Blocked is why the receiver refuses this hook's deliveries (its
 	// secret file is missing or open to others), empty while it takes them.
@@ -82,7 +82,7 @@ var ThreadStates = []string{"started", "review", "done"}
 
 // ThreadLabelPrefix begins a word that is no state but a label:
 // label:<name> asks for the label <name> on the thread, in a source whose
-// threads take labels (GitHub).
+// threads take labels.
 const ThreadLabelPrefix = "label:"
 
 // ThreadLabel is the label a word asks for, and whether it is such a word:
@@ -383,8 +383,8 @@ func (h Hook) checkSays(keys []string) error {
 // checkCI refuses a hook whose table reads CI as state (an event=ci line)
 // of a declared source without what the read runs with: the source's ci
 // command, and the crew member it acts as, whose credential reads. A hook
-// of a source yardr has built in, or of one the yard does not declare,
-// reads through its adapter, as before.
+// of a source the yard does not declare is not refused here: the read
+// fails with the setup named, as every other read of it does.
 func (h Hook) checkCI(tx *bolt.Tx) error {
 	reads := false
 	for _, s := range h.Says {
@@ -751,7 +751,7 @@ func freshMentions(tx *bolt.Tx, data map[string]any) error {
 		}
 	}
 	data["new_mentions"] = fresh
-	// The entity is gone (Linear says remove, GitHub deleted): forget what
+	// The entity is gone (remove, deleted): forget what
 	// it mentioned, so nothing is held against an id that comes back.
 	if action, _ := data["action"].(string); action == "remove" || action == "deleted" {
 		return b.Delete(key)

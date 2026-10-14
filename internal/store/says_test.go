@@ -90,6 +90,7 @@ func TestParseSay(t *testing.T) {
 // them with the hook.
 func TestPutHookChecksItsTable(t *testing.T) {
 	st := storetest.New(t)
+	declareGitHubKeys(t, st, "me")
 	ctx := context.Background()
 	put := func(source string, says ...store.Say) error {
 		_, err := st.PutHook(ctx, store.Hook{Name: "h", Source: source, SecretFile: "/nonexistent/s", Says: says}, "me")
@@ -146,10 +147,9 @@ func TestPutHookChecksItsTable(t *testing.T) {
 	}
 }
 
-// A hook whose table reads CI as state (an event=ci line) of a declared
-// source is refused without what the read runs with: the source's ci
-// command, and the crew member it acts as. A hook of a source yardr has
-// built in reads through its adapter, as before.
+// A hook whose table reads CI as state (an event=ci line) of a source
+// is refused without what the read runs with: the source's ci command,
+// and the crew member it acts as.
 func TestPutHookChecksItsCIReads(t *testing.T) {
 	const hook = `
 hook:
@@ -201,12 +201,14 @@ hook:
 		SecretFile: "/nonexistent/s", As: "yardmaster", Says: []store.Say{line}}, "me"); err != nil {
 		t.Errorf("with both: %v", err)
 	}
-	// A hook of a source yardr has built in reads through its adapter,
-	// with no crew member and no command.
+	// A hook of a source the yard does not declare takes no line that
+	// filters on a declared key: its events carry the store's fields
+	// alone.
 	st = storetest.New(t)
 	if _, err := st.PutHook(context.Background(), store.Hook{Name: "gh", Source: "github",
-		SecretFile: "/nonexistent/s", Says: []store.Say{line}}, "me"); err != nil {
-		t.Errorf("builtin: %v", err)
+		SecretFile: "/nonexistent/s", Says: []store.Say{line}}, "me"); err == nil ||
+		!strings.Contains(err.Error(), `cannot filter github on "event"`) {
+		t.Errorf("undeclared: %v", err)
 	}
 }
 

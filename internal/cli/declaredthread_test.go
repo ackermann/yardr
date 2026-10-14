@@ -315,7 +315,7 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 	}
 	// A source the thread's keys do not open in is refused, naming what can.
 	if _, err := run(t, a.threadOpenCmd(), "token", "Made", "--in", "x"); err == nil ||
-		!strings.Contains(err.Error(), "yardr cannot open threads in token (it can in acme, github)") {
+		!strings.Contains(err.Error(), "yardr cannot open threads in token (it can in acme)") {
 		t.Fatalf("token: %v", err)
 	}
 	// So is one whose grant the crew member lacks.
@@ -521,7 +521,7 @@ func TestThreadOpenAssign(t *testing.T) {
 	// acme's declaration says nothing of an assignee: refused, naming the
 	// sources that take one.
 	if _, err := open("--assign", "jo"); err == nil ||
-		!strings.Contains(err.Error(), "yardr cannot assign a thread it opens in acme (it does in github): open it without --assign") {
+		!strings.Contains(err.Error(), "yardr cannot assign a thread it opens in acme (none of this yard's sources does): open it without --assign") {
 		t.Fatalf("a source that takes no assignee: %v", err)
 	}
 

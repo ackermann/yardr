@@ -30,9 +30,8 @@ source whose open takes no assignee, naming those that do. A thread that
 is already open is not assigned by running again.
 
 The rules are those of yardr reply. The call is made from this process with
-your own credential, from your environment (LINEAR_API_KEY; for GitHub a
-GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, else
-GITHUB_TOKEN, else, outside a crew member's session, gh auth token), and the
+your own credential, from your environment (the variable the source's
+declaration names, or its mint's two names where it mints one), and the
 server never sees it. Only the crew member's own
 session or the operator may speak as the crew member (--crew, default
 $YARDR_CREW).

@@ -180,11 +180,12 @@ func TestHookWhere(t *testing.T) {
 	}
 }
 
-// github subscriptions filter on the fields its adapter sets, state among
-// them; other hook sources still refuse those keys, and yardr still takes
-// only state=done.
+// github subscriptions filter on the fields its hook.keys names, state
+// among them; other hook sources still refuse those keys, and yardr still
+// takes only state=done.
 func TestGitHubWhereKeys(t *testing.T) {
 	s, own := storetest.NewOwned(t)
+	declareGitHubKeys(t, s, "me")
 	ctx := context.Background()
 	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
 		Where: map[string]string{"train": store.JoinWhere([]string{"yard-other", "yard-sv6b"}), "state": "approved"}})
@@ -217,11 +218,12 @@ func TestGitHubWhereKeys(t *testing.T) {
 	}
 }
 
-// head_repo is a github where key like the other fields the adapter sets:
-// it is what leaves out a fork's pull request, whose head branch may have
-// the name of the yard's own.
+// head_repo is a github where key like the other fields its hook.keys
+// names: it is what leaves out a fork's pull request, whose head branch may
+// have the name of the yard's own.
 func TestGitHubWhereHeadRepo(t *testing.T) {
 	s, own := storetest.NewOwned(t)
+	declareGitHubKeys(t, s, "me")
 	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
 		Where: map[string]string{"head_repo": "acme/webapp"}})
 	if err := s.AddSubscription(context.Background(), "all", store.Subscription{Source: "linear", Scope: "all",

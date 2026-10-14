@@ -709,7 +709,7 @@ func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 		if kind == KindSource {
 			r.errf(e.k, e.path, "a source of a pack of kind source is declared by a file of the pack (declaration: <file>)")
 		} else {
-			r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s): a source of another name is declared by a file of the pack (declaration: sources/%s.yaml)", e.key, strings.Join(hooks.Sources(), ", "), e.key)
+			r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s): a source of another name is declared by a file of the pack (declaration: sources/%s.yaml)", e.key, hooks.NamesOrNone(hooks.Sources(), ", "), e.key)
 		}
 		return d, false
 	}
@@ -717,7 +717,7 @@ func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 		if kind == KindSource {
 			r.errf(k.k, k.path, "a source of a pack of kind source has declaration: <file> and nothing else: hears, says and makes are the flow pack's to say of it")
 		} else {
-			r.errf(k.k, k.path, "a declared source has declaration: <file> and nothing else: a stage map is for a source yardr can set a status in (%s)", strings.Join(hooks.Forwardable(), ", "))
+			r.errf(k.k, k.path, "a declared source has declaration: <file> and nothing else: a stage map is for a source yardr can set a status in (%s)", hooks.NamesOrNone(hooks.Forwardable(), ", "))
 		}
 	}
 	if d.File = r.rel(file.v, file.path, "declaration"); d.File == "" {
@@ -836,12 +836,12 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	says := slices.ContainsFunc(keys, func(k entry) bool { return table(k.key) })
 	// A status is all there is to give such a source, besides its tables.
 	if builtin && !can && !says {
-		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
+		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, hooks.NamesOrNone(hooks.Forwardable(), ", "))
 		return m, false
 	}
 	for _, k := range keys {
 		if builtin && !can && !table(k.key) {
-			r.errf(k.k, k.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
+			r.errf(k.k, k.path, "yardr cannot set a status in %s (it can in %s)", e.key, hooks.NamesOrNone(hooks.Forwardable(), ", "))
 			continue
 		}
 		switch k.key {
@@ -898,8 +898,12 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			}
 		}
 	}
-	// A source with its tables alone sets no status: it needs neither.
-	if e.v.Kind == yaml.MappingNode && (!builtin || can) && (as || hears || !says) {
+	// A source with its tables alone sets no status: it needs neither as
+	// nor hears. as with tables but no hears acts as that crew member for
+	// the reads (an event=ci line) and sets no map.
+	tablesAlone := says && !as && !hears
+	actsAlone := says && as && !hears
+	if e.v.Kind == yaml.MappingNode && (!builtin || can) && !tablesAlone && !actsAlone {
 		if !as {
 			r.errf(e.k, join(e.path, "as"), "missing: the crew member of the pack the status is set as")
 		}
@@ -1456,7 +1460,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 				// have, and the import asks once it has it.
 				if _, builtin := hooks.Adapters[s]; builtin {
 					if _, ok := hooks.OpenerFor(s, nil, "", ""); !ok {
-						r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
+						r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, hooks.NamesOrNone(hooks.Openable(), ", "))
 						continue
 					}
 				}

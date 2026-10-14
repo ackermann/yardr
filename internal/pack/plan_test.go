@@ -72,6 +72,18 @@ func withLinear(t *testing.T, st store.API) {
 	}
 }
 
+// withGitHub declares the pack's github source in the yard.
+func withGitHub(t *testing.T, st store.API) {
+	t.Helper()
+	text, err := os.ReadFile(filepath.Join("..", "..", "packs", "github", "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "github.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func load(t *testing.T, dir string) *pack.Pack {
 	t.Helper()
 	p, err := pack.LoadDir(dir)
@@ -1098,8 +1110,8 @@ func TestPlanSaysUnusedSourcesOnceAsOptional(t *testing.T) {
 		!strings.Contains(s.Detail, "the yard has no source linear") {
 		t.Errorf("linear = %+v", s)
 	}
-	if s := optional["github"]; s.Setup != "yardr hook add github --source github --secret-file <file>" ||
-		!strings.Contains(s.Detail, "no hook receives github") {
+	if s := optional["github"]; s.Setup != "yardr pack apply github" ||
+		!strings.Contains(s.Detail, "the yard has no source github") {
 		t.Errorf("github = %+v", s)
 	}
 	// The steps still carry their needs as data; the text says them once.

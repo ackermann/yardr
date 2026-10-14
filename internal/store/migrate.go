@@ -26,8 +26,9 @@ import (
 // (gate_slots) are gone (migrateChecks). A build before it runs yardr depot
 // check, which would find a depot whose check was in the store with none.
 // Version 18 has hooks that say what their source's events say of a
-// bead (Hook.Says): until then the dispatcher's rules for github were Go. A
-// build before it would drop the table from a hook it rewrites (hook add, a
+// bead (Hook.Says): until then the dispatcher's rules for its sources were
+// Go. A build before it would drop the table from a hook it rewrites (hook
+// add, a
 // pack's import), and with it every move the events made. Nothing is
 // migrated: a hook without a table moves no bead, and says so on each event
 // about one (yardr hook add --says, or a pack's sources.<source>.says).
@@ -981,7 +982,7 @@ func depotWhereOne(where map[string]string) (map[string]string, bool) {
 
 // moveDir renames <home>/<old>, a directory of the home that had another
 // name until schema 11 or 12, to <home>/<name>, and leaves a link of the old
-// name to it: files name others by path (an env_file a GitHub App's key, a
+// name to it: files name others by path (an env_file a credential's key, a
 // worktree its repository), and so may a script of the operator's. It
 // reports whether the directory is at the new name, having moved it now or
 // on an earlier open that did not get to stamp the store. A home with both

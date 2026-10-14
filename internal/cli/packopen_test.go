@@ -216,7 +216,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	}
 	for _, want := range []string{
 		"\nopen threads, for crew member boss\n  the pack asks for linear, github\n  asks      linear: the operator is asked, and the answer without one is no\n",
-		"  optional github       no hook receives github: yardr hook add github --source github --secret-file <file>\n",
+		"  optional github       the yard has no source github (yardr pack apply github brings it)\n",
 		"\nan import would ask\n",
 		"  the operator: let boss open threads in linear (--open-threads yardmaster=linear, or =none)? [no]\n",
 	} {
@@ -355,7 +355,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		for _, want := range []string{
 			"  grants    linear: --open-threads says so\n",
 			"\ncrew member boss may now open threads in linear\n",
-			"--open-threads yardmaster=github grants nothing: the pack wants github, this yard lacks hook and credential",
+			"--open-threads yardmaster=github grants nothing: the pack wants github, this yard lacks source (yardr pack check says what to set up; the import asks once the yard has it)",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output lacks %q:\n%s", want, out)

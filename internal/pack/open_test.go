@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/pack"
-	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -116,6 +115,7 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	// Set up for linear alone: linear is a question, github still is not,
 	// and each of hook and credential is named when it alone is missing.
 	has(t, st, "boss", "linear")
+	withGitHub(t, st)
 	ot = open(t, build(t, st, load(t, dir), o), "boss")
 	if !reflect.DeepEqual(ot.Asks, []string{"linear"}) || len(ot.Lacks) != 1 || what(ot.Lacks[0]) != "github: hook,credential" {
 		t.Fatalf("set up for linear: %+v", ot)
@@ -128,13 +128,13 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	}
 
 	// A GitHub App's two names stand in for GITHUB_TOKEN: one of them alone
-	// is no credential, nor is the pair with a key file open to others, and
-	// with a key only its owner reads github is a question like linear.
+	// is no credential. The pair counts once both names are set; whether
+	// the key signs is the mint's to refuse when it runs.
 	boss, err := st.GetCrew(ctx, "boss")
 	if err != nil {
 		t.Fatal(err)
 	}
-	env, key := boss.Config["env_file"].(string), filepath.Join(t.TempDir(), "yardr.pem")
+	env := boss.Config["env_file"].(string)
 	credential := func(lines string) pack.OpenThreads {
 		t.Helper()
 		if err := os.WriteFile(env, []byte("LINEAR_API_KEY=secret-linear\n"+lines), 0o600); err != nil {
@@ -149,17 +149,8 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 		}
 	}
 	lack(credential("GITHUB_APP_ID=4242\n"), "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in crew member boss's env_file")
-	if _, err := standin.NewApp("4242", "yardr", key); err != nil {
-		t.Fatal(err)
-	}
+	key := filepath.Join(t.TempDir(), "yardr.pem")
 	pair := "GITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE=" + key + "\n"
-	if err := os.Chmod(key, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	lack(credential(pair), "open to others")
-	if err := os.Chmod(key, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if ot = credential(pair); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) || len(ot.Lacks) != 0 {
 		t.Fatalf("with a GitHub App's pair: %+v", ot)
 	}
@@ -227,6 +218,7 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 // and a source the pack asks for later is the only new question.
 func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 	st, o := yard(t)
+	withGitHub(t, st)
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	has(t, st, "boss", "linear", "github")

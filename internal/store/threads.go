@@ -116,17 +116,16 @@ type Reply struct {
 	ThreadURL string `json:"thread_url,omitempty"`
 	URL       string `json:"url,omitempty"` // of the reply
 	// Key is the id chosen for the reply before it is posted, a UUID v4:
-	// Linear takes it as the comment's own id, GitHub gets it as a marker
-	// in the body. Either way an attempt whose outcome was lost (a timeout
-	// after the source had taken the post) is found by it, not posted
-	// again.
+	// a source takes it as the comment's own id or as a marker in the
+	// body. Either way an attempt whose outcome was lost (a timeout after
+	// the source had taken the post) is found by it, not posted again.
 	Key string `json:"key,omitempty"`
 	// Seq is the delivery answered and Hash identifies the answer (its
 	// conversation and body), so a retry of the same reply gets the same
 	// key and a different reply to the same delivery a new one.
 	// A thread the crew member opened answers no delivery: its Seq is 0, In is
-	// where it was opened (a Linear team, a GitHub repository) and Hash
-	// identifies the source, the place, the title and the body.
+	// where it was opened (a team, a repository) and Hash identifies the
+	// source, the place, the title and the body.
 	Seq  uint64 `json:"seq,omitempty"`
 	Hash string `json:"hash,omitempty"`
 	In   string `json:"in,omitempty"`
@@ -257,14 +256,14 @@ func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
 }
 
 // OpenThreads is the crew member setting (a key of its config) naming the
-// sources it may open threads in: "linear,github", or a list. Unset, it
+// sources it may open threads in: "acme,forge", or a list. Unset, it
 // may open none.
 const OpenThreads = "open_threads"
 
 // MayOpen lists the sources the crew member may open threads in, sorted.
 func (r CrewMember) MayOpen() []string { return r.sources(OpenThreads) }
 
-// sources reads a setting that names sources: "linear,github", or a list.
+// sources reads a setting that names sources: "acme,forge", or a list.
 // Sorted, each once.
 func (r CrewMember) sources(setting string) []string {
 	var out []string
@@ -346,7 +345,7 @@ func openHash(source, in, title, body string) string {
 }
 
 // Opening is the crew member about to open a thread in source, in the place
-// in (a Linear team, a GitHub repository), with title and body. Like
+// in (a team, a repository), with title and body. Like
 // Replying, it returns the record for exactly that thread, a fresh one
 // with a key chosen now or the one an earlier attempt made, written before
 // anything is posted. A crew member whose definition does not allow the
@@ -398,7 +397,7 @@ func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string)
 }
 
 // SetState is the crew member setting (a key of its config) naming the sources
-// it may set the status of a thread in: "linear,github", or a list. Unset,
+// it may set the status of a thread in: "acme,forge", or a list. Unset,
 // it may set none.
 const SetState = "set_state"
 

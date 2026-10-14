@@ -340,7 +340,7 @@ func TestDepotInitSaysUnusedSourcesOnceAsOptional(t *testing.T) {
 	}
 	for _, want := range []string{
 		"  optional linear       the yard has no source linear (yardr pack apply linear brings it)\n",
-		"  optional github       no hook receives github: yardr hook add github --source github --secret-file <file>\n",
+		"  optional github       the yard has no source github (yardr pack apply github brings it)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

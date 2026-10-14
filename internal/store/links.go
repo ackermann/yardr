@@ -26,9 +26,8 @@ var (
 
 func init() { allBuckets = append(allBuckets, bLinks, bLinkBead, bLinkIssue) }
 
-// Link is a bead's link to an issue outside the yard (a Linear issue, a
-// GitHub issue). It is its own record, not an edge: an edge joins two
-// beads, and the issue is no bead.
+// Link is a bead's link to an issue outside the yard. It is its own
+// record, not an edge: an edge joins two beads, and the issue is no bead.
 type Link struct {
 	Bead   string `json:"bead"` // stored as the UUID, returned as the handle
 	Kind   string `json:"kind"`

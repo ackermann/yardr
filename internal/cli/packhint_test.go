@@ -48,34 +48,34 @@ func TestMissingSourceNamesItsPack(t *testing.T) {
 		{"hook add", func() error {
 			_, err := run(t, a.hookCmd(), "add", "lin", "--source", "linear", "--secret-file", secret)
 			return err
-		}, `--source "linear": one of github, token, or a declared source with a hook key` + hint},
+		}, `--source "linear": one of token, or a declared source with a hook key` + hint},
 		{"subscribe", func() error {
 			_, err := run(t, a.subscribeCmd(), "yardmaster", "linear")
 			return err
-		}, `--source "linear": one of github, token, or a declared source with a hook key` + hint},
+		}, `--source "linear": one of token, or a declared source with a hook key` + hint},
 		{"thread open", func() error {
 			_, err := run(t, a.threadOpenCmd(), "linear", "--in", "ENG", "T")
 			return err
-		}, `yardr cannot open threads in linear (it can in github)` + hint},
+		}, `yardr cannot open threads in linear (it can in none of the yard's sources)` + hint},
 		{"thread state", func() error {
 			if err := st.FollowThread(ctx, "yardmaster", "linear", "YRD-1", "me"); err != nil {
 				t.Fatal(err)
 			}
 			_, err := run(t, a.threadStateCmd(), "YRD-1", "done")
 			return err
-		}, `yardr cannot set the status of a thread in linear (it can in github)` + hint},
+		}, `yardr cannot set the status of a thread in linear (it can in none of the yard's sources)` + hint},
 		{"reply", func() error {
 			_, err := run(t, a.replyCmd(), strconv.FormatUint(seq, 10), "x")
 			return err
-		}, `which yardr cannot answer in (it can in github)` + hint},
+		}, `which yardr cannot answer in (it can in none of the yard's sources)` + hint},
 		{"link move", func() error {
 			_, err := run(t, a.linkCmd(), "move", "--from-source", "linear", "--to-source", "github")
 			return err
-		}, `linear is no link source (links go to github)` + hint},
+		}, `linear is no link source (links go to none of the yard's sources)` + hint},
 		{"crew set", func() error {
 			_, err := run(t, a.crewCmd(), "set", "yardmaster", "set_state=linear")
 			return err
-		}, `yardr cannot set the status of threads in "linear" (it can in github)` + hint},
+		}, `yardr cannot set the status of threads in "linear" (it can in none of the yard's sources)` + hint},
 	} {
 		if err := c.run(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)

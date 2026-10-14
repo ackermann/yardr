@@ -154,7 +154,7 @@ func TestPeerSourceCommands(t *testing.T) {
 	// No hook receives it: the link does.
 	secret := filepath.Join(t.TempDir(), "secret")
 	writeFile(t, secret, "s3cret\n")
-	refusedAs(t, st, "jo", `--source "peer": one of github, token, or a declared source with a hook key`, "hook", "add", "north", "--source", "peer", "--secret-file", secret)
+	refusedAs(t, st, "jo", `--source "peer": one of token, or a declared source with a hook key`, "hook", "add", "north", "--source", "peer", "--secret-file", secret)
 	// No file declares a source of that name.
 	decl := filepath.Join(t.TempDir(), "peer.yaml")
 	writeFile(t, decl, "name: peer\nbase: https://crm.test\ncredential: { env: CRM_TOKEN, header: Authorization, scheme: Bearer }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n")

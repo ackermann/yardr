@@ -812,7 +812,7 @@ func crewEnvSummary(ctx context.Context, r store.CrewMember, home string) ([]env
 // sourceCredential is the credential a crew member answers in a source with,
 // by kind and by the names its environment sets for it: never a value.
 type sourceCredential struct {
-	Kind  string   `json:"kind"` // GitHub App, token, API key; "none" without one
+	Kind  string   `json:"kind"` // minted, API key; "none" without one
 	Names []string `json:"names,omitempty"`
 	// Note says what is amiss: one of an App's two names without the other,
 	// or that the crew member is someone in the source and cannot answer there.

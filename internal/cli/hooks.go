@@ -41,12 +41,11 @@ is rewriting the file. It must be a regular file of mode 0600 or stricter, as
 an env_file must: a file that is not is refused here, and one that stops being
 so later blocks the hook (503 to the sender, 'blocked' in 'yardr hook list')
 until it is fixed. Sources:
-  github  the webhook's secret (X-Hub-Signature-256 HMAC); content type application/json
-  linear  the webhook's signing secret (Linear-Signature HMAC)
   token   a shared bearer token (Authorization: Bearer <token>)
 
 or a declared source with a hook key (yardr source --help): the secret its
-webhooks are signed with, verified as the file says.
+webhooks are signed with, verified as the file says. GitHub's is the
+webhook's secret (X-Hub-Signature-256 HMAC); content type application/json.
 
 A hook can also move the issues beads track (yardr link). --map
 <type>:<stage>=<state> says that when a bead of that type enters that stage,

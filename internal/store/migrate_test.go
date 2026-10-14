@@ -384,6 +384,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 			must(s.AddSubscription(ctx, who.name, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: w}, who.actor))
 		}
 	}
+	declareGitHubKeys(t, s, "me")
 	must(s.AddSubscription(ctx, "boss", store.Subscription{Source: "github", Scope: store.ScopeAll, Where: map[string]string{"train": "web-e"}}, "me"))
 	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
 		Objects: []store.PackObject{

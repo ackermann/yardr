@@ -33,12 +33,12 @@ func TestHookAddGitHub(t *testing.T) {
 		t.Fatalf("stored hook %+v %v", h, err)
 	}
 	_, err = run(t, a.hookCmd(), "add", "x", "--source", "gitlab", "--secret-file", f)
-	if err == nil || !strings.Contains(err.Error(), "github, token") {
+	if err == nil || !strings.Contains(err.Error(), "one of token, or a declared source with a hook key") {
 		t.Fatalf("unknown source err = %v", err)
 	}
 	for _, c := range a.hookCmd().Commands() {
-		if c.Name() == "add" && !strings.Contains(c.Long, "\n  github  ") {
-			t.Fatalf("hook add help does not list github:\n%s", c.Long)
+		if c.Name() == "add" && !strings.Contains(c.Long, "GitHub's is the\nwebhook's secret") {
+			t.Fatalf("hook add help does not work GitHub as the example:\n%s", c.Long)
 		}
 	}
 }
@@ -336,6 +336,7 @@ func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
 func TestHookAddSays(t *testing.T) {
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
+	declareGitHubPack(t, st, "", "", "me")
 	ctx := context.Background()
 	f := filepath.Join(t.TempDir(), "s.secret")
 	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
@@ -394,7 +395,13 @@ func TestHookAddSays(t *testing.T) {
 		t.Fatalf("refused hooks were saved: %+v", hs)
 	}
 
-	out, err := add("gh", "github",
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdentity(ctx, "yardmaster", "github", store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := add("gh", "github", "--as", "yardmaster",
 		"--says", "event=pull_request action=closed merged=true -> merged: PR merged: by hand",
 		"--says", "event=workflow_run event=check_suite conclusion=failure stage=review -> changes",
 		"--says", "event=ci conclusion=success stage=open-pr -> done",
@@ -433,6 +440,7 @@ func TestHookAddSays(t *testing.T) {
 func TestHookAddMakes(t *testing.T) {
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
+	declareGitHubPack(t, st, "", "", "me")
 	ctx := context.Background()
 	f := filepath.Join(t.TempDir(), "s.secret")
 	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {

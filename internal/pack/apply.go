@@ -602,7 +602,10 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		}
 		// The parts the pack carries; the other is the yard's.
 		if obj.Map.As != "" {
-			h.As, h.Map = obj.Map.As, obj.Map.Map
+			h.As = obj.Map.As
+			if obj.Map.Map != nil {
+				h.Map = obj.Map.Map
+			}
 		}
 		if len(obj.Map.Says) > 0 {
 			h.Says = obj.Map.Says

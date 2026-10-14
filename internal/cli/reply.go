@@ -117,13 +117,12 @@ peer, which the crew member must be allowed, and a refusal reads as that
 command's). Each run sends one mail.
 
 The call to a source is made from this process with your own credential,
-from your environment: LINEAR_API_KEY; for GitHub a GitHub App
-(GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, the reply is the App's
-bot's), else GITHUB_TOKEN. A crew member's env_file or env_command sets
-them; the server never sees them.
-With none of them a person's own shell speaks as gh is logged in (gh auth
-token); a crew member's session is refused, since that login is not its own.
-yardr only types: what is said, and whether to say it, is the crew member's.
+from your environment: the variable its declaration names (credential.env),
+or its mint's two names where it mints one (the reply is the mint's own,
+an App's bot's). A crew member's env_file or env_command sets them; the
+server never sees them. With none set the reply is refused: set your own
+credential. yardr only types: what is said, and whether to say it, is the
+crew member's.
 
 Only the crew member's own session (its pane, where yardr set YARDR_CREW
 and YARDR_ACTOR) or the operator (the yard's operator setting, else the

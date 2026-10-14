@@ -2001,7 +2001,9 @@ func (b *planner) maps() error {
 		} else {
 			mp.Needs = append(mp.Needs, Need{"identity", missing, fmt.Sprintf("crew member %s has no identity in %s, and a hook acts only as one that has: yardr crew identity %s --source %s --id <its id there>, then apply the pack again", as, sm.Source, as, sm.Source)})
 		}
-		if sm.As == "" {
+		if sm.As == "" || len(sm.Map) == 0 {
+			// The tables alone, or acts-as for the reads: no issue is
+			// moved, so nothing is granted.
 		} else if slices.Contains(r.MaySetState(), sm.Source) {
 			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "crew member " + as + " may set a status in " + sm.Source})
 		} else {
@@ -2018,10 +2020,13 @@ func (b *planner) maps() error {
 				if h.As != as {
 					changes = append(changes, Diff{"as", h.As, as})
 				}
+				had = h.As != ""
+			}
+			if len(sm.Map) > 0 {
 				if !maps.Equal(h.Map, sm.Map) {
 					changes = append(changes, Diff{"map", strings.Join(MapLines(h.Map), " "), strings.Join(MapLines(sm.Map), " ")})
 				}
-				had = h.As != "" || len(h.Map) > 0
+				had = had || len(h.Map) > 0
 			}
 			if len(sm.Says) > 0 {
 				if !store.SameSays(h.Says, sm.Says) {
@@ -2041,7 +2046,10 @@ func (b *planner) maps() error {
 			}
 			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes)}
 			if sm.As != "" {
-				op.As, op.Map = as, maps.Clone(sm.Map)
+				op.As = as
+				if len(sm.Map) > 0 {
+					op.Map = maps.Clone(sm.Map)
+				}
 			}
 			b.add(Object{Kind: "map", Name: mapName(h.Name, op.As), Action: mp.Action, Changes: changes, Map: op})
 		}

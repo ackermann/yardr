@@ -113,14 +113,16 @@ crew:
 # a failed run on its head send a train under review back to open. CI green
 # or red in in-pr is read as state and put to the same table.
 #
-# The import sets this on the yard's hook of the source too, and needs
-# nothing else for it: no crew member acts.
+# The import sets this on the yard's hook of the source too. The event=ci
+# lines read CI back through the source's ci command, which runs with a
+# crew member's credential: the hook acts as yardmaster for them.
 sources:
   linear:
     as: yardmaster
     hears:
       task: { new: started, review: review, merged: done }
   github:
+    as: yardmaster
     says:
       - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }

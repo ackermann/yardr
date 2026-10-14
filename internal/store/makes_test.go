@@ -53,6 +53,7 @@ func TestParseMake(t *testing.T) {
 // line an event matches is the one that counts.
 func TestPutHookChecksWhatItMakes(t *testing.T) {
 	st := storetest.New(t)
+	declareGitHubKeys(t, st, "me")
 	ctx := context.Background()
 	put := func(source string, makes ...store.Make) error {
 		_, err := st.PutHook(ctx, store.Hook{Name: "h", Source: source, SecretFile: "/nonexistent/s", Makes: makes}, "me")

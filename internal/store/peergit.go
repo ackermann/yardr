@@ -86,7 +86,7 @@ func IsBeadBranch(name string) bool {
 }
 
 // RemoteForm is the URL of a git remote in the one form two yards' URLs
-// are compared in: the host and the path, as in github.com/acme/web. How
+// are compared in: the host and the path, as in forge.test/acme/web. How
 // the host is reached is each yard's own and no part of it, so the scheme,
 // the login and the port are left out, with a trailing slash and .git, and
 // the host is in lower case: git@host:acme/web.git, ssh://git@host/acme/web
