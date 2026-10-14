@@ -308,6 +308,7 @@ func TestFeedRowOnPhone(t *testing.T) {
 	phone := mediaCSS(t, text, "max-width: 699px")
 	for _, want := range []string{
 		".entry-line .entry-what { flex-wrap: wrap; }",
+		".entry-line .entry-what > :first-child { flex: 1 1 0; max-width: max-content; }",
 		".entry-line .separator { display: none; }",
 		".entry-line .label { order: 1; margin-left: auto; }",
 		".entry-line .entry-title { order: 2; flex: 1 1 100%; }",
