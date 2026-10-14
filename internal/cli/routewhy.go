@@ -181,13 +181,11 @@ func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
 		groups[g.Name] = g
 	}
 	var out []string
-	if takesOperator(r) {
+	settings, settingsErr := st.Settings(ctx)
+	if settingsErr == nil && takesOperator(r, settings[store.OperatorSetting]) {
 		if g, ok := groups[r.Worker()]; ok {
 			if who := g.LoginFor(); who != "" {
-				operator := ""
-				if settings, err := st.Settings(ctx); err == nil {
-					operator = settings[store.OperatorSetting]
-				}
+				operator := settings[store.OperatorSetting]
 				if who != operator {
 					out = append(out, fmt.Sprintf("first group %s declares login_for=%s, and the route takes the operator's beads: it burns %s's login for the operator's work", g.Name, who, who))
 				}
@@ -205,9 +203,9 @@ func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
 }
 
 // takesOperator reports whether the route takes operator beads: one without
-// an originator, or with any.
-func takesOperator(r store.Route) bool {
-	return r.Originator == nil || *r.Originator == store.OriginatorAny
+// an originator, with any, or naming the operator.
+func takesOperator(r store.Route, operator string) bool {
+	return r.MatchesOriginator(operator, operator)
 }
 
 // routeNotes are doctor's notes on routes with a comparison that can never

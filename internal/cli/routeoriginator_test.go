@@ -115,6 +115,14 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		!strings.Contains(got, "burns hal's login for the operator's work") {
 		t.Errorf("route add warned %q, want the personal-login warning", got)
 	}
+	errs.Reset()
+	if _, err := run(t, a.routeCmd(), "add", "--stage", "review", "--originator", "me", "--group", "hal-builders"); err != nil {
+		t.Fatal(err)
+	}
+	if got := errs.String(); !strings.Contains(got, "hal-builders declares login_for=hal") ||
+		!strings.Contains(got, "burns hal's login for the operator's work") {
+		t.Errorf("an explicit operator route warned %q, want the personal-login warning", got)
+	}
 	rep, _ := doctorJSON(t, st)
 	joined := strings.Join(rep.State.Config, "\n")
 	if !strings.Contains(joined, "group hal-builders declares login_for=hal and names no env_file") {
