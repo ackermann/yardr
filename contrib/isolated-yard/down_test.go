@@ -68,8 +68,10 @@ func pidIn(t *testing.T, file string) int {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		b, _ := os.ReadFile(file)
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
-			return pid
+		line, _, _ := strings.Cut(string(b), "\n")
+		pid, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if n, err := strconv.Atoi(pid); err == nil && n > 0 {
+			return n
 		}
 	}
 	t.Fatalf("no pid in %s", file)

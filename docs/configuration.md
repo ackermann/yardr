@@ -498,10 +498,10 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit), or have the daemon keep dated copies ([Copies of the store](#copies-of-the-store), which says how to restore one) |
 | `backups/` | the dated copies of the store the daemon keeps once `backup_every` is set, unless `backup_dir` names another directory |
 | `yard.sock` | the server's unix socket |
-| `server.pid`, `server.log` | the running server |
+| `server.pid`, `server.pid.start`, `server.log` | the running server |
 | `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
 | `peer.key` | the yard's private key, by which the yards it is linked with know it ([peers.md](peers.md#the-key)); made by the first `yardr peer key`, `peer invite` or `peer pair`, mode 0600, and refused when it is more open |
-| `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
+| `daemon.lock` | held by the running daemon, with its pid and start time in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
 | `webviews/` | a record per running web view, held by it while it serves, which `yardr status`, `yardr doctor` and `yardr web stop` read ([web.md](web.md#where-it-runs)) |
@@ -757,8 +757,9 @@ what names the starter (`YARDR_ACTOR`, `_BEAD`, `_SESSION`, `_STAGE`,
 `_GROUP`, `_CREW`) and with `YARDR_HOME` set to the home.
 
 `yardr daemon stop` ends the daemon of the home, however it was started: it
-signals the pid in `<home>/daemon.lock` and waits (`--wait`, default 30s)
-until the lock is free, since the daemon finishes the pass it is in. The
+signals the pid in `<home>/daemon.lock` — first verifying it is still the
+daemon's, never a later process with its pid — and waits (`--wait`, default
+30s) until the lock is free, since the daemon finishes the pass it is in. The
 sessions it started carry on in herdr; nothing is dispatched until a daemon
 runs again. `yardr daemon status` says whether one runs, with its pid, and
 whether the login service is installed and loaded.
@@ -1669,8 +1670,9 @@ A flow file in a repository still called
   Clients keep retrying for 30 seconds meanwhile, longer than that drain and
   the new build's start (and its migration, if the schema moved), so a
   command issued during a replace is answered by the new build rather than
-  failed; a client that finds no answer but a live pid in `server.pid` waits
-  as long rather than starting a second server. Event and wake streams are
+  failed; a client that finds no answer but the server's pid still live in
+  `server.pid` waits as long rather than starting a second server. Event and
+  wake streams are
   ended when the drain starts, and a stream whose reader has stopped taking
   is closed once a write has waited 10 seconds, so it cannot hold the drain
   up either;

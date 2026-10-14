@@ -3,15 +3,18 @@ package cli
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/storetest"
 )
 
@@ -135,6 +138,125 @@ func TestWebStop(t *testing.T) {
 		t.Fatalf("%v, started %v", err, *started)
 	}
 	wantText(t, out, "The web view: http://127.0.0.1:8791/")
+}
+
+// sleeper starts a process that sleeps until it is signalled, and is reaped
+// when the test ends.
+func sleeper(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("sleep", "120")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Reap it when it exits, so nothing is left for the run's stray check.
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	})
+	return cmd
+}
+
+// holdLockWith holds an exclusive flock on path with content, as a daemon
+// holds its lock, and releases it when the test ends.
+func holdLockWith(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A lock file whose pid another process has reused must not get that
+// process signalled: the daemon's stop signals nothing (yardr-yz19).
+func TestDaemonStopLeavesAReusedPIDAlone(t *testing.T) {
+	if !peer.HaveStat() {
+		t.Skip("the OS reports no process start times")
+	}
+	cfg := &config.Config{Home: newHome(t)}
+	sleep := sleeper(t)
+	pid := sleep.Process.Pid
+	real, err := peer.Describe(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdLockWith(t, cfg.DaemonLock(), strconv.Itoa(pid)+" "+strconv.FormatUint(real.Start+1, 10)+"\n")
+	var signalled []int
+	stub(t, &signalStop, func(pid int) error {
+		signalled = append(signalled, pid)
+		return nil
+	})
+	if _, err := kindOf(svcDaemon).stop(cfg, 0); err == nil {
+		t.Fatal("stop passed a pid it could not verify")
+	}
+	if len(signalled) != 0 {
+		t.Fatalf("stop signalled %v", signalled)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("stop killed the decoy: %v", err)
+	}
+}
+
+// A lock file from before starts were recorded names a daemon a stop
+// cannot verify: it is refused, not signalled.
+func TestDaemonStopRefusesAPidItCannotVerify(t *testing.T) {
+	if !peer.HaveStat() {
+		t.Skip("without start times the pid is trusted, as before")
+	}
+	cfg := &config.Config{Home: newHome(t)}
+	sleep := sleeper(t)
+	pid := sleep.Process.Pid
+	holdLockWith(t, cfg.DaemonLock(), strconv.Itoa(pid)+"\n")
+	var signalled []int
+	stub(t, &signalStop, func(pid int) error {
+		signalled = append(signalled, pid)
+		return nil
+	})
+	if _, err := kindOf(svcDaemon).stop(cfg, 0); err == nil {
+		t.Fatal("stop passed a pid it could not verify")
+	}
+	if len(signalled) != 0 {
+		t.Fatalf("stop signalled %v", signalled)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("stop killed the decoy: %v", err)
+	}
+}
+
+// A stop whose signal finds the pid gone ends it there: the process died on
+// its own between the check and the signal. One refused with EPERM reached
+// nothing of ours either.
+func TestStopSkipsAPidGoneBeforeItsSignal(t *testing.T) {
+	cfg := &config.Config{Home: newHome(t)}
+	k := kindOf(svcBDP)
+	clear, err := k.announce(cfg, map[string]any{"addr": "127.0.0.1:8765"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear()
+	for _, gone := range []error{syscall.ESRCH, syscall.EPERM} {
+		stub(t, &signalStop, func(int) error { return gone })
+		if run, err := k.stop(cfg, 0); err != nil || len(run) != 0 {
+			t.Fatalf("signal %v: stopped %+v, %v", gone, run, err)
+		}
+	}
 }
 
 // A stop waits for what it signalled, and says which one did not end.

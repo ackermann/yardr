@@ -20,6 +20,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rpc"
 	runners "yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -150,6 +151,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 			// the pidfile names us.
 			if pid, err := readPID(c); err == nil && pid == os.Getpid() {
 				os.Remove(c.PIDFile())
+				os.Remove(c.PIDStart())
 				os.Remove(c.HookState())
 			}
 		case to == "":
@@ -158,6 +160,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 			// server.
 			os.Remove(c.Socket())
 			os.Remove(c.PIDFile())
+			os.Remove(c.PIDStart())
 			os.Remove(c.HookState())
 		}
 	}()
@@ -606,27 +609,57 @@ func ServerEnv(environ []string, home string) []string {
 	return append(env, config.Env("HOME", home)...)
 }
 
-// writePID records this process in the pidfile, by renaming a finished file
-// over it. The build a server execs writes the same pid over the old
-// build's file while clients in Connect read it to see whether to wait;
-// written in place, the file is empty for a moment, the client takes the
-// server for gone and starts a second one.
+// writePID records this process in the pidfile, and the start time the OS
+// reports for it beside the pidfile, by which Stop and alive tell this
+// process from a later one with its pid. Each is written by renaming a
+// finished file over it: the build a server execs writes the same pid over
+// the old build's file while clients in Connect read it to see whether to
+// wait; written in place, the file is empty for a moment, the client takes
+// the server for gone and starts a second one. The start goes first, so a
+// pidfile without one is from before starts were recorded.
 func writePID(c *config.Config) error {
-	tmp := c.PIDFile() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+	if peer.HaveStat() {
+		st, err := peer.Describe(os.Getpid())
+		if err != nil {
+			return err
+		}
+		if err := renameFile(c.PIDStart(), []byte(strconv.FormatUint(st.Start, 10)+"\n")); err != nil {
+			return err
+		}
+	}
+	return renameFile(c.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"))
+}
+
+// renameFile writes b to a finished temporary file and renames it over path.
+func renameFile(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, c.PIDFile()); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
 		return err
 	}
 	return nil
 }
 
-// alive reports whether the pidfile names a running process.
+// alive reports whether the pidfile names the running server: a live pid
+// whose start time matches the recorded one. A reused pid, and a pidfile
+// from before starts were recorded, read as no server; where the OS
+// reports no start time, any live pid is the server's, as before.
 func alive(c *config.Config) bool {
 	pid, err := readPID(c)
-	return err == nil && syscall.Kill(pid, 0) == nil
+	if err != nil {
+		return false
+	}
+	if !peer.HaveStat() {
+		return syscall.Kill(pid, 0) == nil
+	}
+	start, err := readStart(c)
+	if err != nil {
+		return false
+	}
+	return peer.Alive(pid, start)
 }
 
 func readPID(c *config.Config) (int, error) {
@@ -638,10 +671,31 @@ func readPID(c *config.Config) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("bad pidfile: %w", err)
 	}
+	if pid <= 0 {
+		return 0, fmt.Errorf("bad pidfile: pid %d names no process", pid)
+	}
 	return pid, nil
 }
 
-// Stop terminates the server recorded in the pidfile.
+// readStart is the start time writePID recorded beside the pidfile.
+func readStart(c *config.Config) (uint64, error) {
+	b, err := os.ReadFile(c.PIDStart())
+	if err != nil {
+		return 0, err
+	}
+	start, err := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("bad start file: %w", err)
+	}
+	return start, nil
+}
+
+// Stop terminates the server recorded in the pidfile. A pidfile whose pid
+// is gone, or is another process's now, is no server: Stop signals nothing
+// and reports that. A pidfile from before starts were recorded names a
+// process Stop cannot verify: a dead one is gone as well, and a live one
+// is refused, not signalled. Where the OS reports no start time the pid is
+// trusted, as before.
 func Stop(c *config.Config) error {
 	pid, err := readPID(c)
 	if errors.Is(err, os.ErrNotExist) {
@@ -649,13 +703,37 @@ func Stop(c *config.Config) error {
 	} else if err != nil {
 		return err
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	var start uint64
+	if peer.HaveStat() {
+		var serr error
+		start, serr = readStart(c)
+		if serr != nil {
+			// From before starts were recorded: a dead pid is gone
+			// either way, and another user's live one is not the
+			// server; a live one of ours may be, and is refused.
+			if syscall.Kill(pid, 0) == nil {
+				return fmt.Errorf("cannot verify pid %d is the yardr server (the pidfile predates start-time verification); not signalling it", pid)
+			}
+			return nil
+		}
+		if !peer.Alive(pid, start) {
+			return nil // gone, or the pid reused
+		}
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EPERM) {
+			return nil // gone between the check and the signal
+		}
 		return err
 	}
-	for i := 0; i < 200 && syscall.Kill(pid, 0) == nil; i++ {
+	up := func() bool { return syscall.Kill(pid, 0) == nil }
+	if peer.HaveStat() {
+		up = func() bool { return peer.Alive(pid, start) }
+	}
+	for i := 0; i < 200 && up(); i++ {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if syscall.Kill(pid, 0) == nil {
+	if up() {
 		return fmt.Errorf("yardr server (pid %d) did not stop", pid)
 	}
 	return nil

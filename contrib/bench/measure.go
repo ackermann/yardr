@@ -283,7 +283,8 @@ func (b *bench) pidOf(file string) (int, error) {
 		return 0, err
 	}
 	line, _, _ := strings.Cut(string(data), "\n")
-	return strconv.Atoi(strings.TrimSpace(line))
+	pid, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+	return strconv.Atoi(pid)
 }
 
 func procOf(pid int) (Proc, error) {

@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 )
 
 // errDaemonRunning is what a second daemon on the same home fails with.
@@ -19,10 +19,11 @@ var errDaemonRunning = errors.New("yardr daemon already running")
 
 // lockDaemon takes an exclusive flock on path, retrying for up to wait
 // (a replaced daemon's new image may race a lingering holder), and writes
-// this pid into it for the error a second daemon prints. The descriptor is
-// close-on-exec (os.OpenFile's default), so the lock never leaks into
-// runner children and is released by a self-replacing exec. unlock
-// releases it.
+// this pid and its start time into it: the pid for the error a second
+// daemon prints, both for the stop that verifies the holder before
+// signalling it. The descriptor is close-on-exec (os.OpenFile's default),
+// so the lock never leaks into runner children and is released by a
+// self-replacing exec. unlock releases it.
 func lockDaemon(path string, wait time.Duration) (unlock func(), err error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -35,21 +36,28 @@ func lockDaemon(path string, wait time.Duration) (unlock func(), err error) {
 			break
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
-			holder, _ := os.ReadFile(path)
 			f.Close()
 			if errors.Is(err, syscall.EWOULDBLOCK) {
-				pid := strings.TrimSpace(string(holder))
-				if pid == "" {
-					pid = "unknown"
+				who := "unknown"
+				if pid := config.DaemonPID(path); pid > 0 {
+					who = strconv.Itoa(pid)
 				}
-				return nil, fmt.Errorf("%w (pid %s holds %s)", errDaemonRunning, pid, path)
+				return nil, fmt.Errorf("%w (pid %s holds %s)", errDaemonRunning, who, path)
 			}
 			return nil, fmt.Errorf("lock %s: %w", path, err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	if err := f.Truncate(0); err == nil {
-		_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
+		// The pid and the start time the OS reports for it, by which a
+		// stop verifies the pid is still this daemon's before signalling
+		// it. Where the OS reports no start time the pid stands alone,
+		// as before.
+		id := strconv.Itoa(os.Getpid())
+		if st, err := peer.Describe(os.Getpid()); err == nil {
+			id += " " + strconv.FormatUint(st.Start, 10)
+		}
+		_, _ = f.WriteAt([]byte(id+"\n"), 0)
 	}
 	return func() {
 		_ = f.Truncate(0)

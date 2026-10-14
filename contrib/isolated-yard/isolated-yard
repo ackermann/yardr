@@ -179,7 +179,7 @@ down() {
   for name in daemon.lock server.pid; do
     for f in "$d"/*/"$name"; do
       [ -f "$f" ] || continue
-      pid=$(head -n 1 "$f" | tr -cd '0-9')
+      pid=$(head -n 1 "$f" | awk '{print $1}' | tr -cd '0-9')
       [ -n "$pid" ] || continue
       yard=$(yard_pids "$d") || exit 1
       if printf '%s\n' "$yard" | grep -qx "$pid"; then

@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
@@ -417,23 +418,66 @@ const stopWait = 30 * time.Second
 // none when none ran.
 func (k *longRunning) stop(cfg *config.Config, wait time.Duration) ([]instance, error) {
 	run := k.running(cfg)
+	var stopping []instance
 	for _, r := range run {
 		if r.PID <= 0 {
 			return nil, fmt.Errorf("a %s holds %s, and the file names no pid to stop", k.What, r.path)
 		}
-		if err := signalStop(r.PID); err != nil {
-			return nil, fmt.Errorf("stop the %s (pid %d): %w", k.What, r.PID, err)
+		pid := r.PID
+		if k.Lock != nil {
+			// The daemon's pid is read again and verified before it is
+			// signalled: the holder may have let go since running saw
+			// it, and the pid may be another process's now.
+			var gone bool
+			var err error
+			if pid, gone, err = verifyLock(r.path); err != nil {
+				return nil, err
+			} else if gone {
+				continue
+			}
+			r.PID = pid
 		}
+		if err := signalStop(pid); err != nil {
+			if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EPERM) {
+				continue // gone between the check and the signal
+			}
+			return nil, fmt.Errorf("stop the %s (pid %d): %w", k.What, pid, err)
+		}
+		stopping = append(stopping, r)
 	}
 	deadline := time.Now().Add(wait)
-	for _, r := range run {
+	for _, r := range stopping {
 		for ; config.DaemonRunning(r.path); time.Sleep(pollEvery / 5) {
 			if time.Now().After(deadline) {
 				return nil, fmt.Errorf("the %s (pid %d) was told to stop and still holds %s after %s", k.What, r.PID, r.path, wait)
 			}
 		}
 	}
-	return run, nil
+	return stopping, nil
+}
+
+// verifyLock reads the daemon's lock file again and returns the pid to
+// signal: the holder's, verified by its recorded start time. Gone (the lock
+// free, the pid dead or reused) is reported as such and never signalled; a
+// lock that is held but names no verifiable pid is an error, not a signal.
+func verifyLock(path string) (pid int, gone bool, err error) {
+	pid = config.DaemonPID(path)
+	start, recorded := config.DaemonStart(path)
+	if pid > 0 && (!peer.HaveStat() || (recorded && peer.Alive(pid, start))) {
+		return pid, false, nil
+	}
+	// The holder let go, or the file names another process now; tell them
+	// apart by the lock, read again.
+	if !config.DaemonRunning(path) {
+		return 0, true, nil
+	}
+	if pid <= 0 {
+		return 0, false, fmt.Errorf("a daemon holds %s, and the file names no pid to stop", path)
+	}
+	if !recorded {
+		return 0, false, fmt.Errorf("a daemon holds %s, but pid %d cannot be verified as its holder (the lock file predates start-time verification); not signalling it", path, pid)
+	}
+	return 0, false, fmt.Errorf("a daemon holds %s, but pid %d is no longer the process that recorded it; not signalling it", path, pid)
 }
 
 // stopDaemon stops the home's daemon. It returns the pid it stopped, 0 when

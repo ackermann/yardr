@@ -129,6 +129,9 @@ func TestServerThatLostItsSocketTakesItsPidfileAlong(t *testing.T) {
 	if _, err := os.Stat(c.PIDFile()); !os.IsNotExist(err) {
 		t.Fatalf("pidfile left behind: %v", err)
 	}
+	if _, err := os.Stat(c.PIDStart()); !os.IsNotExist(err) {
+		t.Fatalf("start file left behind: %v", err)
+	}
 }
 
 func TestServerKeepsRunningWhileItsHomeStands(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -302,5 +303,62 @@ func TestWithoutServerSettings(t *testing.T) {
 		if got := Getenv(name); got != "" {
 			t.Errorf("a blank %s reads as %q", name, got)
 		}
+	}
+}
+
+// DaemonPID is the pid the lock file names while it is held, and DaemonStart
+// the start time beside it; an unheld lock, and a file from before starts
+// were recorded, say none.
+func TestDaemonPIDAndStart(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "daemon.lock")
+	if DaemonRunning(lock) || DaemonPID(lock) != 0 {
+		t.Fatal("a missing lock reads as held")
+	}
+	if _, ok := DaemonStart(lock); ok {
+		t.Fatal("a missing lock reads a start time")
+	}
+	f, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	write := func(s string) {
+		t.Helper()
+		if err := f.Truncate(0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteAt([]byte(s), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("123 456\n")
+	if !DaemonRunning(lock) || DaemonPID(lock) != 123 {
+		t.Fatalf("held: running %v pid %d", DaemonRunning(lock), DaemonPID(lock))
+	}
+	if start, ok := DaemonStart(lock); !ok || start != 456 {
+		t.Fatalf("held: start %d, %v", start, ok)
+	}
+	write("123\n")
+	if DaemonPID(lock) != 123 {
+		t.Fatalf("no start recorded: pid %d", DaemonPID(lock))
+	}
+	if _, ok := DaemonStart(lock); ok {
+		t.Fatal("no start recorded: a start time reads")
+	}
+	write("123 bogus\n")
+	if _, ok := DaemonStart(lock); ok {
+		t.Fatal("a bogus start time reads")
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	if DaemonRunning(lock) || DaemonPID(lock) != 0 {
+		t.Fatal("a released lock reads as held")
+	}
+	if _, ok := DaemonStart(lock); ok {
+		t.Fatal("a released lock reads a start time")
 	}
 }

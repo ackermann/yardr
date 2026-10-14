@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	_ "yardr.dev/yardr/internal/storetest" // the tests' stores do not wait for the disk
@@ -481,6 +482,12 @@ func TestConnectWaitsForAServerBetweenBuilds(t *testing.T) {
 	if err := os.WriteFile(c.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// With our start time recorded, so the pid reads as the server's.
+	if st, err := peer.Describe(os.Getpid()); err == nil {
+		if err := os.WriteFile(c.PIDStart(), []byte(strconv.FormatUint(st.Start, 10)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// The test ends only once start has seen its server up: Connect can
 	// return on the server's first answer, and a test that ended there
 	// stopped the server before start's own ping, which then failed the
@@ -693,6 +700,9 @@ func TestStopDuringReplaceDrainIsHonoured(t *testing.T) {
 	}
 	if _, err := os.Stat(c.PIDFile()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("pidfile left behind: %v", err)
+	}
+	if _, err := os.Stat(c.PIDStart()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("start file left behind: %v", err)
 	}
 }
 

@@ -196,7 +196,13 @@ func resolve(p string) string {
 func (c *Config) DBPath() string  { return filepath.Join(c.Home, "yard.db") }
 func (c *Config) Socket() string  { return filepath.Join(c.Home, "yard.sock") }
 func (c *Config) PIDFile() string { return filepath.Join(c.Home, "server.pid") }
-func (c *Config) LogFile() string { return filepath.Join(c.Home, "server.log") }
+
+// PIDStart is the file beside the pidfile holding the start time of the
+// process it names, by which a stop tells the server from a later process
+// with its pid (see server.Stop). Compared for equality only, never read
+// as a time.
+func (c *Config) PIDStart() string { return c.PIDFile() + ".start" }
+func (c *Config) LogFile() string  { return filepath.Join(c.Home, "server.log") }
 
 // HookState is where the server says what its webhook receiver listens on
 // (see server.HookListener).
@@ -206,7 +212,8 @@ func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state"
 // know it (see internal/yardkey). It is read as a secret file is: mode 0600.
 func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }
 
-// DaemonLock is the file the daemon holds a flock on while it runs.
+// DaemonLock is the file the daemon holds a flock on while it runs. It
+// names the holder's pid and the start time it recorded (see DaemonStart).
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
 
 // DaemonRunning reports whether a process holds an exclusive flock on lock,
@@ -237,6 +244,30 @@ func DaemonPID(lock string) int {
 	var pid int
 	fmt.Sscan(string(b), &pid)
 	return pid
+}
+
+// DaemonStart is the start time the process holding lock recorded beside
+// its pid, by which a stop verifies the pid before signalling it. It is
+// false when no process holds the lock, or the holder recorded no start
+// time: a daemon from before starts were recorded, or one the OS would
+// not describe.
+func DaemonStart(lock string) (uint64, bool) {
+	if !DaemonRunning(lock) {
+		return 0, false
+	}
+	b, err := os.ReadFile(lock)
+	if err != nil {
+		return 0, false
+	}
+	f := strings.Fields(string(b))
+	if len(f) < 2 {
+		return 0, false
+	}
+	start, err := strconv.ParseUint(f[1], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return start, true
 }
 
 // DaemonPass is the file the daemon stamps with its build and the time at
