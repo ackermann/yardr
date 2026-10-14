@@ -1,0 +1,175 @@
+# Whose subscription builds it: a bead's originator, per-person groups, and a yardmaster that talks on each person's login
+
+Design yardr-2k0x, proposed 2026-10-14. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+A yard is one installation of yardr: its store, its crew and its depots. A depot is a git repository or a plain directory beads are worked in; a bead is one durable piece of work; a route sends a stage's beads to a group, and a group is who works them. A harness is the agent program herdr starts (claude, codex); a login is that program's own authentication, kept in a folder in the OS user's home. The operator is the person who runs the yard; a user is a person of the yard, with a name and an inbox; a crew member is an always-on agent tied to no bead, and the yardmaster is the one that coordinates. An interactor is a person who talks to the yard directly; a bystander gives input through a flow from outside (a Linear issue, a GitHub comment) and never talks to the yard. The originator of a bead is the person the bead is for, whose subscription pays for building it. See docs/glossary.md for all of yardr's words.
+
+## 1. The question
+
+mckean, 14 Oct 2026: a shared yard should not run everyone's work on the operator's Claude or Codex subscription. "Would there be a way to somehow bring your own subscription into a shared yard?" — "the creator/originator of a bead is the one that dictates the subscription that is used" — with login without a terminal, where the harness gives a URL, the person signs in, and pastes a code. And, the same afternoon: in such a yard, one yardmaster on one subscription, or split by subscription with one personality — and should everyone have their own yardmaster in a way, sharing notes? The question is what the smallest version is that carries this: the person a bead is for decides whose login builds it, each person logs in once without needing a terminal, and the yardmaster talks with each person on their own login while keeping one line.
+
+## 2. What exists today
+
+### 2.1. A group's panes can carry another login, by environment
+
+A herdr group may name an env file (`--set env_file=~/.yardr/groups/<group>.env`) or a command that prints one (`env_command`), whose `KEY=VALUE` lines join each agent pane's environment (docs/groups.md, "Outbound credentials"; the reader is shared with the crew's, docs/crew.md, "Outbound credentials"). The store never holds the values. The harness CLIs honour a folder override in the environment: the table of where a running agent's model is read says Claude Code's session files live under `CLAUDE_CONFIG_DIR` when it is set, and Codex's under `CODEX_HOME` (docs/groups.md, "Models"). So a group whose env file sets `CLAUDE_CONFIG_DIR` to another folder runs its agents on whatever login that folder holds. Nothing in yardr puts a login there: the folder is made by logging in.
+
+### 2.2. A harness login led without a terminal, for the machine's own login only
+
+`yardr harness login <kind> --json` runs the harness's own login command on pipes and leads it for a program: needs on stdout as JSON lines (`choose`, `open_url`, `input`, `confirm`), answers on stdin, secrets passed to the harness and kept nowhere (internal/cli/harnesslogin.go; the recipe — argv, methods, the page and input patterns — is `login_recipe` in harnesses/<kind>.yaml, read 14 Oct). Only claude has a recipe today (harnesses/claude.yaml, verified from `claude auth login`, Claude Code 2.1.288); codex, kimi and the rest are logged in in a terminal, on their own screens. Footplate's first run already leads this flow (its src/setup.rs; design yardr-x4t5 §2.3 confirms the harness-login path). It always logs into the default folder: there is no group, no env, and the proving call at the end (`tryHarnessCall`) runs ambient too.
+
+### 2.3. Routes match labels, and beads record who created them
+
+A route takes the open, unblocked beads of its stage that match its filters: `--type`, `--depot`, `--label` (repeatable, the bead must have every one), `--bead-priority` (docs/groups.md, "Which beads a route takes"; internal/cli/ops.go `routeCmd`; internal/store/routing.go `Route`, `SortRoutes`, `MatchRoute`). Priority wins first, then specificity (each label, the type, the depot, the bead priority count as one). A route may name further groups with `--else` and gate each on its provider's usage windows (`--group 'builders@Weekly<80'`), in which case the bead waits with one `quota_wait` event when no condition holds (docs/groups.md, "A route with further groups and quota conditions"). A bead no route matches waits with one `unrouted` event of the class attention (internal/dispatch/dispatch.go `reportOnce`; internal/store/crew.go `AttentionKinds`). `yardr bead show` says routing in one line under the bead's owner.
+
+Every bead records its creating actor (`CreatedBy`, internal/store/beads.go): whoever the command acted as. A bead filed while working another records `--discovered-from` as an edge, and inherits nothing of the origin today ("Nothing of the origin is inherited", internal/store/beads.go `NewBead`). Bead metadata (`--meta key=value`) is a free merged map any writer can change (`BeadPatch.Metadata`).
+
+### 2.4. Limits describe the operator's login only
+
+`yardr limits` asks each provider's declared source command and prints its windows; its own help says the answer "is for the login the provider reads on this machine, which is the operator's", and that a group or crew member whose env gives its harness another account "is not described by it" (internal/cli/limits.go). Route quota conditions and the harness-error path read the same ambient answer for the group's provider. A group or crew member may say which provider its agent burns (`provider` setting, docs/groups.md, "Changing a group").
+
+### 2.5. Hook-born beads are the yard's own, made as `hook:<name>`
+
+A hook's `makes` lines make a bead of a type in a stage for a thread no open bead tracks (internal/store/hooks.go `Make`); the dispatcher creates it with actor `hook:<hook name>` (internal/dispatch/makes.go). Its originator, in this design's words, is nobody yet.
+
+### 2.6. Users, identities, and what a linked name is good for
+
+A user is a name and an inbox; the operator is a user, and only the operator adds users (docs/users.md). `yardr user identity <name> --source <source> --id <id>` records who a user is in Linear or GitHub, set only by the user or the operator — but today it has one use, assigning a thread (`yardr thread open --assign`), and "no delivery of a source is matched to a user by it".
+
+### 2.7. One crew member, one session, one inbox, one journal
+
+The daemon keeps each crew member running in its own session (docs/crew.md). Its inbox is one cursor over the event log: its own mail plus the kinds its `--on` hears, acknowledged through one seq (`Store.Inbox`, `AckInbox`, `Cursor` in internal/store/crew.go). A fresh session primes from the journal bead, the handoff, the inbox, memories, timers and open asks (`Store.CrewPrime`). Concurrent writes to one bead are refused by revision: a stale `Expect` fails (`UpdateBead`).
+
+### 2.8. The terms, as read for the service design
+
+Design yardr-8wxe §2.10 (Anthropic's page, read 12 Oct 2026): each end user authenticates with their own subscription through Anthropic's own flow; no collecting or intermediating credentials; Pro and Max assume ordinary individual use — one reading on one day, OpenAI's terms for Codex not read. And the trust boundary that design records: every agent, the daemon and the server run as the one OS user, so an env file's 0600 is "a line, not a wall" (yardr-8wxe §§2.4, 3.6; docs/integrations.md). Whoever runs the machine can read every login folder on it.
+
+### 2.9. Reviewers burn a subscription; the refinery burns none
+
+The starter pack's build and review stages run agents (groups `builders`, `reviewers`); the landing stage runs a script (group `assembly`, `run: scripts/merge-local`; packs/starter/pack.yaml). The yardr depot's own line is the same shape: `approved` goes to `yardr-refinery`, an exec group running merge-local (docs/line.md, docs/flows.md). A review session burns its harness's subscription like a build session; an exec group's script burns no model subscription of its own.
+
+## 3. The proposal
+
+One sentence first: every bead names the person it is for; routes send that person's beads to groups whose panes carry that person's login; each person makes that login once, led by a program; and the yardmaster talks with each person in a session on their login while one line session keeps the yard. Four existing mechanisms carry it — the group's env, the led login, route filters, the crew session — and what is new is the field that ties them together.
+
+### 3.1. The originator: a field on the bead, not a label and not meta
+
+The originator is a stored field on the bead holding a user's name. It is not a label, because it decides whose subscription pays and labels are anyone's to change; it is not meta, because meta is a free merged map any writer can rewrite (`BeadPatch.Metadata`), while this field needs access control and an event. Beads from before the field get the operator as originator when the store migrates, so every route without the new filter keeps matching exactly what it matched.
+
+How it is set at create (`yardr bead create --for <user>` names it outright):
+
+- A person creating a bead is its originator: the creating user, defaulting from the actor as `CreatedBy` does.
+- A crew member creating from someone's mail or ask names that person with `--for <user>`; the yardmaster's role says to, and without the flag the bead is the yard's own work, originator the operator. So a yardmaster-created bead with no requester runs on the operator's subscription, as every bead does today.
+- A bead filed while working another (`--discovered-from`) inherits the origin's originator: a follow-up is the same person's work. `--for` from the pane of a bead's agent is refused — an agent must not spend another person's subscription by naming them — since inheritance covers the case.
+- A hook-born bead's originator is the operator: the outside commenter is a bystander, giving input through a flow, and the operator took the work on. Where the delivery's author matches a linked identity (`yardr user identity`, §2.6) of a yard user who has their own login, the originator is that user instead: an interactor's work bills the interactor even when it arrives through a hook.
+- A `question` bead (never routed) takes its originator by the same rules; it matters only to the record.
+
+After create, only the operator changes the originator (`yardr bead update <id> --originator <user>`), and the change logs an event with the bead, from, to and by. `yardr bead show` prints the originator beside the owner, and `--json` carries it.
+
+### 3.2. Routing: a route may match `--originator`, beside labels
+
+`yardr route add` gains `--originator <user>`: the route takes only that originator's beads. It counts as one filter in specificity (§2.3), it makes the route "by bead" so packs leave it alone (`ByBead`), and `MatchRoute` compares it against the bead's field. A person's own groups carry their login by env (§2.1), so the operator's table for one depot reads:
+
+```sh
+yardr user add mckean2
+yardr group add mckean2-builders --runner herdr --set kind=claude \
+  --set env_file=~/.yardr/groups/mckean2.env   # CLAUDE_CONFIG_DIR=~/.yardr/logins/mckean2
+yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders
+yardr route add --stage new --depot web --group builders   # the operator's, as today
+```
+
+The operator's own beads match the second route; mckean2's match the first, which is more specific. Views that ask for an unlabelled bead (`yardr flow show`, the web flows) ask originator-less too, and name the group such a bead goes to, as today.
+
+The fallback, which this draft picks, is to wait. A bead whose originator has no route — no own group, no login — waits as an unrouted bead does today, with the one `unrouted` event of the class attention, extended to name the originator and say no route takes their beads ("no route for stage new type task originator mckean2"). Waiting is explicit where spending the operator's subscription would be a surprise, and the operator can still subsidise: a route with `--originator mckean2 --group builders` — or an `--else builders` after the own group — sends that person's beads to the operator's groups on purpose, visibly in the route table. Nothing waits silently: `unrouted` already reaches whoever hears attention.
+
+### 3.3. Group login: the led login, run with the group's env
+
+`yardr harness login <kind> --group <group>` loads the group's env (the same reader the runner uses, `env_file` or `env_command`) and leads the login with it joined: the login lands in that person's folder, and the proving call at the end runs under the same env. The JSON steps are unchanged, so footplate leads a group login as it leads the first run today; the web view leads it later (§6, B9). Only kinds with a recipe are led — claude today (§2.2); a kind without one is logged in in a terminal with the env set, which the command says. The operator makes the person, the group and the empty folder; the person answers the steps on their own device; the token is the harness's own business throughout, as the terms ask (§2.8).
+
+```sh
+mkdir -p ~/.yardr/logins/mckean2   # mode 0700; the operator's hands only
+printf 'CLAUDE_CONFIG_DIR=%s\n' ~/.yardr/logins/mckean2 > ~/.yardr/groups/mckean2.env
+chmod 600 ~/.yardr/groups/mckean2.env
+yardr harness login claude --group mckean2-builders --json   # led by footplate on mckean2's device
+```
+
+### 3.4. Limits and quota read the login that will burn, not the machine's
+
+`yardr limits --group <group>` runs the provider's source command with that group's env and prints the windows of that login; without the flag the command answers as today, for the operator's machine login. The dispatcher's quota checks and the harness-error reads do the same for the group whose session they judge: a route condition such as `mckean2-builders@Weekly<80` then gates on mckean2's windows with no new syntax, and `session_harness_error` says what that person's subscription carries. The provider name stays the harness's (`provider=claude` burns claude's report); whose login it is comes from the env, not the name.
+
+Reports say whose work. `yardr route report` gains the originator: each row names it, and `--originator <user>` reads one person's beads. The live sessions — `yardr session list` and the web view's sessions, the yard's departure board — show each session's bead originator beside its group, so a glance says whose login is burning.
+
+### 3.5. The trust note, said plainly
+
+The operator can read every login folder on the machine, and so in principle can any agent, since all run as the one OS user (§2.8). Bringing a subscription into a shared yard trusts the operator the way logging into the machine's own account trusts them today: the mechanism separates whose quota burns, not who can read what. This is stated where the login is led and in docs/groups.md, not footnoted.
+
+### 3.6. The yardmaster, three shapes
+
+mckean's afternoon question was whether a shared yard has one yardmaster on one subscription, or one per person sharing notes. Three shapes, and what each costs:
+
+- **(A) One yardmaster; conversations split per login.** One identity — name, memories, journal, handoff, all in the store already. The line-keeping session runs on the operator's login; a conversation with person X runs in a yardmaster session on X's login, which talks, files and shapes beads for X (originator X) but does not run the line: no dispatch, no landings, no triage of faults. With no own login, X's conversation falls back to the line session. Costs: the session-per-user mechanism and the sliced inbox (§3.7). Keeps the single source of truth and one personality.
+- **(B) A yardmaster per person inside one yard.** Several coordinators on one line: each person's yardmaster keeps their own conversations and all of them steer the same beads, landings and triage. Costs: rules for who triages and lands, and for how concurrent coordinators divide faults and the line; every meeting of two yardmasters on one bead is a conflict to design. Gains nothing over (A) that the slice does not already give.
+- **(C) A yard per person, linked as peers.** Exists in large part: mail, asks and beads already cross between yards (docs/peers.md); memories do not. Costs: each person runs a yard, and the single source of truth is lost — two stores, two lines, two journals that merely exchange mail. This is shape 2 territory of design yardr-8wxe, with its seam.
+
+The trial (§3.8) is written against (A), the yardmaster's pick; open question 1 takes the direction.
+
+### 3.7. Shape (A), in the mechanism: sessions per user, a sliced inbox, a shared journal
+
+**How a crew member gets a session per person.** A crew member's config gains per-user env beside its own (`env_file` stays the line session's): `yardr crew set yardmaster env_for_mckean2=~/.yardr/groups/mckean2.env`, held to the same rule as `env_file` (regular file, mode 0600 or stricter, read at each start; docs/crew.md, "Outbound credentials"). The daemon starts one conversation session per user so listed, on that env — a crew session per originator, like a group's. The mechanism is general to crew members; the yardmaster is its first user. Only the operator sets these keys, as for every crew definition.
+
+**The two sessions do not steer the same bead twice.** They cannot corrupt one: every write carries the revision its writer read, and a stale one is refused (`Expect`, §2.7), so the second session to move a bead gets the refusal and reads again. The role divides the rest: the line session dispatches, lands and triages; a conversation session talks, files and shapes for its person with `--for`, and never takes line outcomes. Where both sessions legitimately note one bead, notes append and both stand.
+
+**Whose journal entries are whose.** One journal bead, shared: each entry is tagged with the session that wrote it (the line session or the person's conversation), so the reader knows who learned what. The handoff — what the next session must know — is per session: the line session hands off to its next line session, each conversation to its own next one, since what a conversation must remember about its person is not what the line must remember about the yard.
+
+**The inbox is one log; each session reads a slice.** Today both sessions would get every notification, since a crew member has one inbox and one cursor (§2.7). The store keeps one inbox and gives each session its own cursor over it: delivery routes by correspondent, and acking in one slice never hides what another has not seen:
+
+- mail from person X goes to X's conversation session (nudge, inbox view and ack scoped to it);
+- events, and mail from people with no conversation session, go to the line session;
+- an ask's answer goes to the session that asked, whichever it was.
+
+Each slice acks through its own cursor, so reading the line's inbox marks nothing in a conversation read. `yardr crew show` and prime show the session its slice; the full log stays readable as today for debugging.
+
+### 3.8. The trial
+
+mckean has no second person, so he is two: he adds himself as a second user (mckean2), logs a group mckean2-builders in — a second account, or the same one to prove the mechanics only (open question 3) — and a bead for mckean2 builds there with the second login, seen in its session: the pane env carries the second `CLAUDE_CONFIG_DIR`, the departure board shows the bead's originator beside the group, and `yardr limits --group mckean2-builders` reads the second login's windows. The trial has two halves: the build half (routing, login, limits, reports) and the conversation half (a yardmaster session for mckean2 on the second login, mail routed to its slice, a bead it files carrying originator mckean2). The build half can run first; both halves are the same bead (§6, T). What the trial writes down: that each half ran on the login it names, each place the wrong login could have burned instead, and whether one yardmaster with two sessions felt like one person to talk to.
+
+## 4. Left out
+
+- **A hosted service and billing.** The bead leaves these out: who pays whom for machine time is not this design's. What a login burns shows through `yardr limits --group` (§3.4); money never enters the yard.
+- **Other providers' terms beyond naming them.** The terms case is Anthropic's page as read on 12 Oct (§2.8). OpenAI's terms for Codex, Kimi's and the rest are unread and stand as the same question each; nothing here depends on their answer except which logins a cautious operator offers.
+- **The volume edge, as a limit.** Advertised Pro and Max limits assume ordinary individual use (§2.8); a yard with a yardmaster and several builders on one person's login may not be that. Provenance vouches for the shape — the origin is a person who took the work on, a bystander only gave input — and mckean accepts the edge. It is stated, not solved.
+- **The originator crossing the peer link.** A bead worked by a linked yard (runner `peer`, docs/peers.md) is that yard's bead to bill: the working yard's rules name its originator, and nothing of this yard's person crosses. Per-person billing across yards is a later design.
+- **Login recipes for kinds that have none.** Codex, kimi and the rest keep their terminal login; a group login for them is made in a terminal with the group's env set. A recipe is read from what one harness version prints and goes stale with it (§2.2); each is its own bead when wanted.
+- **A sandbox or a wall between logins.** The trust note (§3.5) is the whole of it: separating reads would mean separate OS users or machines, which is design yardr-8wxe's shape 1, not a shared yard.
+- **API keys as a person's login.** A key is a line in an env file, and how a person hands one over without a shell is design yardr-0qs5's question (yardr-8wxe §3.4). This design carries subscription logins, made in the harness's own flow.
+
+## 5. Open questions
+
+1. **Which yardmaster shape: (A), (B) or (C).** (A) One yardmaster, conversations split per login: one identity and one line, at the cost of the session-per-user mechanism and the sliced inbox (§3.7). (B) A yardmaster per person inside one yard: each person gets their own coordinator, at the cost of dividing triage, landings and faults between concurrent coordinators on one line. (C) A yard per person linked as peers: mostly exists, at the cost of a yard each and no single source of truth. I would take (A), and the trial is written against it; (C) stays the answer for a person who will not share a machine at all.
+2. **Whose subscription reviews a bead.** (a) The originator's: review stages route by `--originator` like build stages, so each person gets reviewer groups beside builder groups (`mckean2-reviewers`), and review burns the bead's own login. One rule everywhere, at the cost of twice the per-person groups. (b) The operator's shared reviewers: one `reviewers` group on the operator's login reviews every bead; simpler, and review quality never depends on a person's quota — but the operator subsidises every person's quality gate, and one login's windows gate the whole yard's reviews. I would take (a): review is the bead's cost, and the route table shows it. The refinery needs no answer: it is exec and burns no model subscription (§2.9).
+3. **What the trial logs in with.** (a) A second account: proves two subscriptions bill apart, at the cost of the account. (b) The same account in a second folder: proves the mechanics only — routing, env separation, per-login limits reads — for free, since every check the trial makes is about which folder burned, not which bill. I would take (b) first and (a) as the trial's stretch: if the mechanics fail, no account is spent learning it.
+4. **Whether the conversation half lands with the build half.** (a) Together: routing, login, limits, reports, crew sessions and the sliced inbox land first, then the trial runs both halves. One trial, and the conversation half is what makes the yard feel shared — but the larger landing. (b) Build half first: the trial proves beads bill apart, and the yardmaster split lands after, tried again. Smaller steps, two trials, and meanwhile every conversation runs on the operator's login. I would take (a): the split inbox is the part whose shape is costly to get wrong, and trying it late re-tries the trial.
+
+## 6. The beads it would become
+
+For depot yardr, in the order they would land. Open question 4 says whether B6–B7 land with B1–B5 or after the trial's build half; the order below is the together-shape. B9 lands after the trial either way.
+
+**B1. The originator field: set at create, inherited from discovered-from, changed by the operator.** Goal: `Originator` on the bead and `NewBead` (a user's name, defaulting per §3.1); `yardr bead create --for <user>`; inheritance from `--discovered-from` with `--for` refused from a bead agent's pane; `yardr bead update --originator` for the operator only, logging an event with from, to and by; migration giving pre-field beads the operator; `bead show` printing it. Where to look: internal/store/beads.go (`Bead`, `NewBead`, `BeadPatch`, `CreatedBy`), internal/cli/bead_edit.go (create flags), internal/store/routing.go `checkMembers` for the pane-based refusal pattern. Done when: a bead created by a user names them; one created with `--for` names them; a discovered-from bead inherits; `--for` from a bead agent's pane is refused naming why; an operator change logs the event and any other actor is refused; old beads show the operator; `sh .yardr/test` passes. Depends on nothing.
+
+**B2. Routes match `--originator`; a bead with no route waits and says whose.** Goal: the filter on `Route`, counted in specificity and in `ByBead`, matched in `MatchRoute`; `yardr route add --originator`; the `unrouted` event naming the originator; `bead show`'s routing line and the stand-in views (`flow show`, web flows) treating originator as labels are treated. Where to look: internal/store/routing.go (`Route`, `SortRoutes`, `MatchRoute`, `ByBead`), internal/cli/ops.go `routeCmd`, internal/dispatch/dispatch.go `reportOnce`, docs/groups.md ("Which beads a route takes"). Done when: an originator route takes only its person's beads and loses nothing it should take; a bead with no own route waits with the extended `unrouted` event; existing routes match as before; `sh .yardr/test` passes. Depends on B1.
+
+**B3. `yardr harness login <kind> --group <group>`.** Goal: the led login loads the group's env and runs the login command and the proving call under it; JSON steps unchanged; kinds without a recipe say to use a terminal with the env set. Where to look: internal/cli/harnesslogin.go (`leadLogin`, `tryHarnessCall`), internal/store/configkeys.go (env keys), the env reader the runner uses (docs/crew.md, "Outbound credentials"). Done when: a login led with `--group` lands in that group's folder (proved by the folder's contents and the proving call), secrets still kept nowhere, and a kind without a recipe is refused with the terminal wording; `sh .yardr/test` passes. Depends on nothing (pairs with B2 in use).
+
+**B4. Limits and quota read the group's login.** Goal: `yardr limits --group <group>`; the dispatcher's quota evaluation and the harness-error limits read run the source command under the judged group's env, so `group@Window<n>` gates on that login. Where to look: internal/cli/limits.go, internal/limits/limits.go (`Ask`, `AskFor`, `Resolve`), the quota path in internal/store/routing.go (`Choose`) and internal/dispatch. Done when: two groups with different login folders report different windows; a quota condition gates on the own group's windows; default `limits` output is unchanged; `sh .yardr/test` passes. Depends on B2 (quota per own group) and B3 in use (a second login to read).
+
+**B5. Reports say whose work.** Goal: `yardr route report` rows name the originator with `--originator` filtering to one person; `yardr session list` and the web view's sessions show each live session's bead originator beside its group. Where to look: internal/cli/routereport.go, the session list command, internal/web sessions/feed. Done when: the report attributes closed beads to originators and filters; a live session shows whose bead it works; `sh .yardr/test` passes. Depends on B1.
+
+**B6. A crew member's conversation sessions and the sliced inbox.** Goal: `env_for_<user>` crew config keys under the env-file rule; the daemon starts one conversation session per listed user on that env; one inbox with a cursor per session, delivery routed per §3.7 (mail by sender, events and the session-less to the line, ask answers to the asker); journal entries tagged by writing session; handoff per session. Where to look: internal/store/crew.go (`Inbox`, `AckInbox`, `Cursor`, `CrewPrime`), the daemon's crew loop, docs/crew.md. Done when: in an isolated yard, mail from the listed user reaches only its conversation's slice, acking the line's slice leaves the conversation's unread, an ask's answer reaches the asker, and a restarted daemon resumes each cursor; `sh .yardr/test` passes. Depends on B1 (filing `--for`) and B3 in use (the login).
+
+**B7. The yardmaster's two duties, in its role.** Goal: the yardmaster role says what the line session does (dispatch, landings, triage of faults) and what a conversation session does (talk, file and shape with `--for`, never line outcomes), and when to fall back to the line session; docs/crew.md describes conversation sessions. Where to look: packs/starter/roles/yardmaster.md, docs/crew.md. Done when: the role reads without contradiction for both sessions, and a conversation session's first prompt names its person and its slice. Depends on B6.
+
+**B8. Hook authors who are interactors bill their own login.** Goal: a hook delivery whose author matches a linked user identity (`yardr user identity`) of a user with their own login makes its bead with that originator; everything else hook-born stays the operator's. Where to look: internal/dispatch/makes.go (`madeBead`, actor `hook:<name>`), internal/store/users.go identities, the source envelope's author fields. Done when: a delivery from a linked author makes an interactor-originated bead, an unlinked one an operator-originated bead, and a linked user with no login falls back to the operator with the bead saying so; `sh .yardr/test` passes. Depends on B1.
+
+**T. The trial of §3.8.** Goal: mckean as mckean2, both halves, and the note of what was found. A person's, not a builder's; depends on B1–B8 (B6–B7 for the conversation half).
+
+**B9. The web view leads a group login.** Goal: after the trial, the view leads `harness login --group` with the existing JSON steps for its user. Depends on T and B3.
