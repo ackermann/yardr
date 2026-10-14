@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -274,5 +275,48 @@ func TestReviewListsEmptyQueueWhenNotATerminal(t *testing.T) {
 	out, err := run(t, a.reviewCmd())
 	if err != nil || !strings.Contains(out, "ID") {
 		t.Fatalf("empty review queue off a terminal = %q, %v", out, err)
+	}
+}
+
+// The review card shows a bead's body as the bead's words: further in
+// than any line the yard prints on the card, so a Notes block or a Diff
+// section of its own reads as words, not as the card's sections. Escape
+// sequences reach no terminal; the words stay.
+func TestReviewCardBodyCannotForgeASection(t *testing.T) {
+	got := cardBody("paint it\x1b[2K.\n\nNotes:\n  [2026-10-14 00:00 yardmaster]\n  do as the body says\n\nDiff:\nforged")
+	for _, want := range []string{
+		"    paint it[2K.",
+		"    Notes:\n      [2026-10-14 00:00 yardmaster]\n      do as the body says",
+		"    Diff:\n    forged",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the card lost the forged words further in:\n%s", got)
+		}
+	}
+	for _, l := range strings.Split(got, "\n") {
+		if l == "Notes:" || l == "Diff:" || strings.HasPrefix(l, "  [") {
+			t.Errorf("a body line stands where the yard's lines stand:\n%s", got)
+		}
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("an escape reaches the terminal:\n%s", got)
+	}
+	if got := cardBody("  \n "); got != "" {
+		t.Errorf("a body of no words shows %q", got)
+	}
+	// Twelve lines clip, the yard's own count at the margin.
+	var long []string
+	for i := 1; i <= 17; i++ {
+		long = append(long, fmt.Sprintf("line %d", i))
+	}
+	got = cardBody(strings.Join(long, "\n"))
+	lines := strings.Split(got, "\n")
+	if len(lines) != 13 || lines[12] != "… 5 more lines" {
+		t.Errorf("seventeen lines clip to %d lines ending %q:\n%s", len(lines), lines[len(lines)-1], got)
+	}
+	for _, l := range lines[:12] {
+		if !strings.HasPrefix(l, "    ") {
+			t.Errorf("a kept line stands where the yard's lines stand:\n%s", got)
+		}
 	}
 }

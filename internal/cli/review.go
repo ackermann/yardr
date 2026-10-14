@@ -354,8 +354,8 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 		if it.FlowError != "" {
 			desc += "\n\nFlow error (moves are refused until it is fixed): " + it.FlowError
 		}
-		if body := strings.TrimSpace(b.Body); body != "" {
-			desc += "\n\n" + clip(body, 12)
+		if block := cardBody(b.Body); block != "" {
+			desc += "\n\n" + block
 		}
 		if n := lastNotes(notes, 3, as, a.mailHome()); n != "" {
 			desc += "\n\nNotes:\n" + n
@@ -434,6 +434,19 @@ func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac 
 		fmt.Printf("%s → %s\n", moved.ID, moved.Stage)
 	}
 	return nil
+}
+
+// cardBody is a bead's body as the review card shows it: the writer's
+// words as letters only, standing four in, further in than any line the
+// yard prints on the card (its notes stand beside two spaces), so none
+// reads as a heading, a note or the diff. Clipped to twelve lines, the
+// yard's own count standing at the margin. "" for a body with no words.
+func cardBody(body string) string {
+	words := strings.TrimSpace(store.NoteLetters(body))
+	if words == "" {
+		return ""
+	}
+	return clip("    "+strings.ReplaceAll(words, "\n", "\n    "), 12)
 }
 
 // clip keeps the first n lines of s.

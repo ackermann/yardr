@@ -857,3 +857,33 @@ func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
 		t.Fatalf("a control character of the note reached the terminal:\n%q", notes)
 	}
 }
+
+// A bead's title cannot forge a row of its own in the listing: a break
+// in it folds into the bead's own row, as letters only. Escape sequences
+// reach no terminal; the words stay.
+func TestBeadListTitleCannotForgeARow(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "the shed\x1b[2K\nforged row", Depot: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.beadCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The header and the bead's one row, the break folded into it.
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("bead list has %d lines, want the header and one row:\n%s", len(lines), out)
+	}
+	if !strings.Contains(lines[1], "the shed[2K forged row") {
+		t.Errorf("the row lost the folded title:\n%s", out)
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("an escape reaches the terminal:\n%s", out)
+	}
+}

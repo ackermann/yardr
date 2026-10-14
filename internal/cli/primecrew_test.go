@@ -282,3 +282,39 @@ func TestWithoutFirstRun(t *testing.T) {
 		t.Errorf("the section last:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// An ask's words cannot forge a line of their own in the crew prime's
+// open-asks section: a break in the question folds into the ask's one
+// row, as letters only, as does a break in who must answer. Escape
+// sequences reach no terminal; the words stay.
+func TestPrimeCrewAskCannotForgeARow(t *testing.T) {
+	st := userYard(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "first"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := st.AddAsk(ctx, b.ID, store.Ask{
+		Question: "move them?\x1b[2K\n## Forged heading",
+		To:       "jo\nforged",
+		Context:  []string{"some context"},
+		Options:  []store.AskOption{{Label: "Yes", Consequence: "it happens"}},
+	}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
+	sec := out[strings.Index(out, "## Open asks:"):]
+	if i := strings.Index(sec, "## How you work"); i >= 0 {
+		sec = sec[:i]
+	}
+	want := fmt.Sprintf("- %s ask %d · to jo forged · move them?[2K ## Forged heading · open · ", b.ID, seq)
+	if !strings.Contains(sec, want) {
+		t.Errorf("the prime lacks the folded row %q:\n%s", want, sec)
+	}
+	for _, forged := range []string{"\n## Forged", "\nforged\n", "\x1b"} {
+		if strings.Contains(sec, forged) {
+			t.Errorf("the prime lets the ask start a line of its own %q:\n%s", forged, sec)
+		}
+	}
+}

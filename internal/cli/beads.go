@@ -75,6 +75,9 @@ func (l *listCut) say(n int, what string) {
 	}
 }
 
+// beadRows is the beads as a listing's TSV rows show them (bead list,
+// ready). The title is its writer's words, one line, as letters only,
+// so it cannot start a row of its own.
 func beadRows(bs []store.Bead) [][]string {
 	rows := make([][]string, len(bs))
 	for i, b := range bs {
@@ -83,7 +86,7 @@ func beadRows(bs []store.Bead) [][]string {
 			flags += ",hold"
 		}
 		rows[i] = []string{b.ID, b.Train, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
-			deref(b.Group), deref(b.Depot), b.Title}
+			deref(b.Group), deref(b.Depot), store.OneLine(b.Title)}
 	}
 	return rows
 }
@@ -92,10 +95,12 @@ const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tDEPOT\tTITLE"
 
 // writerAskLine is one open ask as bead list --asked-by and the crew
 // prime's open-asks section print it: the bead, the ask's number, who must
-// answer, the question, its state and how long it has stood.
+// answer, the question, its state and how long it has stood. Who must
+// answer and the question are the asker's words, each one line, as letters
+// only, so neither starts a line of its own in the row.
 func writerAskLine(w store.WriterAsk) string {
 	return fmt.Sprintf("%s ask %d · to %s · %s · %s · %s ago",
-		w.Bead, w.Ask, w.To, w.Question, w.State, age(w.Since))
+		w.Bead, w.Ask, store.OneLine(w.To), store.OneLine(w.Question), w.State, age(w.Since))
 }
 
 func (a *app) printBead(b *store.Bead) error {
