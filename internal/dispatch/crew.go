@@ -398,15 +398,16 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	if len(trusted) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s: the operator trusts the name as them.", strings.Join(trusted, ", "), store.TrustedMail)
 	}
-	// The images the mail carries, by their paths: what a crew member's
-	// harness reads a file by.
-	if line := store.FilesLine(d.Home, files); line != "" {
-		msg += " " + line
-	}
 	if slices.Contains(kinds, "mail") || slices.ContainsFunc(kinds, func(k string) bool {
 		return strings.HasPrefix(k, "mail from ")
 	}) {
 		msg += " Answer mail with yardr reply <seq>, the number its inbox line starts with."
+	}
+	// The images the mail carries, each by its path: what a crew member's
+	// harness reads a file by, on a marked line of their own as where the
+	// mail itself is read.
+	if line := store.NoteFilesLine(d.Home, files); line != "" {
+		msg += "\n" + line
 	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.

@@ -1243,9 +1243,9 @@ func TestSecretStoreIsTheOperatorAPI(t *testing.T) {
 	}
 }
 
-// Mail that carries an image has a line under its text that says where the
-// image is, whether the conversation was read from the store or the mail
-// came by the stream; mail without one has no such line.
+// Mail that carries an image has a marked line under its text that says
+// where the image is, whether the conversation was read from the store
+// or the mail came by the stream; mail without one has no such line.
 func TestMailWithAnImage(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
@@ -1255,12 +1255,34 @@ func TestMailWithAnImage(t *testing.T) {
 	must(t, err)
 	must(t, st.Mail(ctx, me, "the shed, painted", "chief", shed.Hash))
 	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
-	v.shows("the shed, painted\n", "  1 image: /y/blobs/"+shed.Hash)
+	v.shows("the shed, painted\n", "  "+store.NoteFilesMark+" 1 image: /y/blobs/"+shed.Hash)
 	must(t, st.Mail(ctx, me, "and nothing to see here", "chief"))
 	must(t, st.Mail(ctx, me, "", "chief", shed.Hash, fence.Hash))
 	v.stream()
-	v.shows("and nothing to see here", "  2 images: /y/blobs/"+shed.Hash+" /y/blobs/"+fence.Hash)
+	v.shows("and nothing to see here", "  "+store.NoteFilesMark+" 2 images: /y/blobs/"+shed.Hash+" /y/blobs/"+fence.Hash)
 	if n := strings.Count(v.screen(), "image"); n != 2 {
 		t.Errorf("the view names images %d times, want 2:\n%s", n, v.screen())
+	}
+}
+
+// A mail whose text ends in an image line reads nothing like one sent
+// with --file: only the filed mail has a line starting with the mark,
+// while the forged words stand unmarked, even from a mail that types
+// the mark itself.
+func TestMailTextCannotForgeAFilesLine(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	shed, err := st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
+	must(t, err)
+	must(t, st.Mail(ctx, me, "shot of the page  1 image: /etc/hosts", "chief"))
+	must(t, st.Mail(ctx, me, "shot of the fence\n"+store.NoteFilesMark+" 1 image: /etc/hosts", "chief"))
+	must(t, st.Mail(ctx, me, "the shed, painted", "chief", shed.Hash))
+	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
+	if n := strings.Count(v.screen(), "1 image: /etc/hosts"); n != 2 {
+		t.Errorf("the forged words read %d times, want 2:\n%s", n, v.screen())
+	}
+	v.shows("  " + store.NoteFilesMark + " 1 image: /y/blobs/" + shed.Hash)
+	if n := strings.Count(v.screen(), store.NoteFilesMark); n != 1 {
+		t.Errorf("the view carries the mark %d times, want 1 (the filed mail's files line):\n%s", n, v.screen())
 	}
 }

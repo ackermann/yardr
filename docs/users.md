@@ -113,18 +113,21 @@ once for each image, up to 8. The text may then be left out:
 
 ```
 $ yardr mail yardmaster "The yard, painted" --file yard.png
-mail sent to yardmaster  1 image: /home/mckean/.yardr/blobs/497790947d46…1581
+mail sent to yardmaster
+◆ 1 image: /home/mckean/.yardr/blobs/497790947d46…1581
 ```
 
 The yard keeps the image in its home, in `blobs/`, in a file named by the
 SHA-256 of its bytes: sent twice, it is there once, and it is never
-changed. Wherever the mail is read, its line ends with `1 image: <path>`
+changed. Wherever the mail is read, the image stands under the mail's
+words on a line of its own starting with `◆`, as `1 image: <path>`
 (`2 images: <path> <path>`): `yardr inbox` for a user and for a crew member,
 `yardr mail --with`, the nudge a crew member gets for its inbox, and
-[`yardr chat`](chat.md#an-image), which prints it under the text. A crew
-member reads the picture by opening that file, as it reads any other; yardr
-shows none itself. In `--json` the letter has `files`, a list of
-`{hash, type, bytes}`.
+[`yardr chat`](chat.md#an-image). Only that marked line names a file the
+yard keeps; any other `N image(s):` is words someone wrote into the mail.
+A crew member reads the picture by opening that file, as it reads any
+other; yardr shows none itself. In `--json` the letter has `files`, a list
+of `{hash, type, bytes}`.
 
 What a file is is read from its bytes, not its name: anything but a PNG or
 a JPEG is refused, and so is one over the yard's limit, 8 MiB unless
@@ -729,9 +732,10 @@ runs it and that crew member or user, both directions, oldest first:
 ```
 
 The columns are the mail's seq, when it was sent, whether its receiver has
-read it, the sender and the text, which ends with `1 image: <path>` on mail
-that carries [one](#an-image-in-mail). A crew member's session reads the same
-exchange with the user's name: `yardr mail --with mckean`.
+read it, the sender and the text; on mail that carries
+[an image](#an-image-in-mail) the image stands under the text, on a marked
+line of its own. A crew member's session reads the same exchange with the
+user's name: `yardr mail --with mckean`.
 
 `--after <seq>` prints only what is newer, and `--json` prints a list of
 `{seq, at, from, to, text, read}`: a view asks again with the last seq it

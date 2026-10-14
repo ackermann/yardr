@@ -1008,7 +1008,8 @@ yardr doctor and bare yardr say what waits.`,
 }
 
 // printInboxEvent prints one event of member's inbox. home is the yard's
-// home: mail that carries images ends with where they are.
+// home: mail that carries images names them under its line, on a marked
+// line of their own.
 func printInboxEvent(e store.Event, member, home string) {
 	switch e.Kind {
 	case "mail":
@@ -1018,8 +1019,14 @@ func printInboxEvent(e store.Event, member, home string) {
 		if store.FromOutside(e) && store.SpeaksAs(e) == "" {
 			from += " (" + store.OutsideMail + ")"
 		}
-		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from,
-			store.WithFiles(show(e.Data["text"]), home, store.MailFiles(e)))
+		// The sender and the text are writers' words, shown without the
+		// mark, and the files stand under them on a marked line of their
+		// own, so no mail's words forge its files line.
+		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.WithoutFilesMark(from),
+			store.WithoutFilesMark(show(e.Data["text"])))
+		if line := store.NoteFilesLine(home, store.MailFiles(e)); line != "" {
+			fmt.Printf("    %s\n", line)
+		}
 	case "hook":
 		printHookDelivery(e, member)
 	case "timer":
@@ -1049,8 +1056,9 @@ inbox.
 more than once (up to ` + strconv.Itoa(store.MaxMailFiles) + `); the text may then be left out. The yard keeps the
 image in its home, in blobs/ under the SHA-256 of its bytes, once however often
 it is sent, and where the mail is read (yardr inbox, a crew member's nudge,
-yardr chat) the line ends with "1 image: <path>": a crew member reads the file
-there. What the bytes are is what counts, not the file's name; one over the
+yardr chat) it stands under the mail's words, on a line of its own starting
+with "◆", as "1 image: <path>": a crew member reads the file there. What the
+bytes are is what counts, not the file's name; one over the
 yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused.
 
 --file with <name>@<peer> sends the image to the linked yard with the mail,
@@ -1163,7 +1171,10 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 					sent["files"] = refs
 				}
 				return a.out(sent, func() {
-					fmt.Println(store.WithFiles("mail sent to "+to, a.mailHome(), refs))
+					fmt.Println("mail sent to " + to)
+					if line := store.NoteFilesLine(a.mailHome(), refs); line != "" {
+						fmt.Println(line)
+					}
 				})
 			}
 			refs, err := putFiles(ctx, st, files)
@@ -1183,7 +1194,10 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				queued["files"] = refs
 			}
 			return a.out(queued, func() {
-				fmt.Println(store.WithFiles(fmt.Sprintf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits", to, peer, peer), a.mailHome(), refs))
+				fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", to, peer, peer)
+				if line := store.NoteFilesLine(a.mailHome(), refs); line != "" {
+					fmt.Println(line)
+				}
 			})
 		},
 	}
@@ -1194,7 +1208,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 }
 
 // mailHome is the yard's home where mail is shown: the images it carries
-// are named by their paths in it (store.FilesLine).
+// are named by their paths in it (store.NoteFilesLine).
 func (a *app) mailHome() string {
 	cfg, err := a.config()
 	if err != nil {

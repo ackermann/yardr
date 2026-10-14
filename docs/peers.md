@@ -1110,7 +1110,8 @@ the kind `file` as well as `mail`:
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
 yardr mail yardmaster@north "The yard, painted" --file yard.png
-mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits  1 image: /home/me/.yardr/blobs/5f2c…
+mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
+◆ 1 image: /home/me/.yardr/blobs/5f2c…
 ```
 
 Each image is one message of kind `file` (`peer show` lists it, `waiting:
@@ -1119,8 +1120,9 @@ order, so the image is in the other yard when its mail arrives. That yard
 checks the bytes against the hash they came under, reads the type from the
 bytes as it does for an image put there, and keeps the file in its own
 `blobs` under the same hash; one it holds already is not written again.
-The mail's line then ends with `1 image: <path>` in that yard's home, in
-`yardr inbox`, the nudge, `yardr mail --with` and `yardr chat`. From then on
+The mail then names `1 image: <path>` in that yard's home, on a marked line
+of its own under its words, in `yardr inbox`, the nudge, `yardr mail --with`
+and `yardr chat`. From then on
 it is an image of that yard like any other: kept while mail the yard still
 has names it, and removed by the prune after.
 
@@ -1150,7 +1152,8 @@ The mail that names it is delivered all the same, and there too, where the
 image's path would be, it says why there is none:
 
 ```text
-    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted  1 image: not taken: the link does not take files
+    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted
+    ◆ 1 image: not taken: the link does not take files
 ```
 
 | `not taken:` | when |

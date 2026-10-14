@@ -700,7 +700,7 @@ shows no picture: under the mail's text it prints, dim, where each is,
 ```
 10-05 13:20  yardmaster
   the yard, painted
-  1 image: /home/ada/.yardr/blobs/497790947d46…1581
+  ◆ 1 image: /home/ada/.yardr/blobs/497790947d46…1581
 ```
 
 with the whole path, for a terminal or another program to open. Mail that

@@ -117,18 +117,18 @@ func WithFiles(text, home string, files []BlobRef) string {
 	return text + "  " + line
 }
 
-// NoteFilesMark starts the line that names the images a note carries
-// where a note is shown (NoteFilesLine): a note's words end where the
+// NoteFilesMark starts the line that names the images a note or a mail
+// carries where it is shown (NoteFilesLine): its words end where the
 // line begins, so nothing its writer typed stands for a file the yard
-// keeps. Every renderer of notes keeps the mark out of the note's own
-// words (WithoutFilesMark, and the terminal's noteLetters), so a line
-// starting with it is the yard's, and any other "N image(s):" is words.
+// keeps. Every renderer of notes and mail keeps the mark out of the
+// writers' own words (WithoutFilesMark, and the terminal's noteLetters
+// for notes), so a line starting with it is the yard's, and any other
+// "N image(s):" is words.
 const NoteFilesMark = "◆"
 
-// NoteFilesLine is the files of a note where the note is shown: the
-// mail line (FilesLine) on a line of its own, starting with the mark
-// no note's words can carry (NoteFilesMark). "" for a note without
-// files.
+// NoteFilesLine is the files of a note or a mail where it is shown: the
+// files line (FilesLine) on a line of its own, starting with the mark
+// no writer's words can carry (NoteFilesMark). "" for one without files.
 func NoteFilesLine(home string, files []BlobRef) string {
 	if line := FilesLine(home, files); line != "" {
 		return NoteFilesMark + " " + line
@@ -136,11 +136,13 @@ func NoteFilesLine(home string, files []BlobRef) string {
 	return ""
 }
 
-// WithoutFilesMark is s without the mark that starts a note's files
-// line: what a note's own words are shown as, so a writer cannot forge
-// the line by typing the mark (NoteFilesMark). A bead's title and body
-// are shown so too, where they stand in the same output as its notes
-// (bead show, prime, the brief): they are a writer's words as well.
+// WithoutFilesMark is s without the mark that starts a note's or a mail's
+// files line: what a writer's own words are shown as, so a writer cannot
+// forge the line by typing the mark (NoteFilesMark). A bead's title and
+// body are shown so too, where they stand in the same output as its notes
+// (bead show, prime, the brief), and a mail's sender where it stands on
+// the mail's line (inbox, conversation, chat): they are writers' words
+// as well.
 func WithoutFilesMark(s string) string {
 	return strings.ReplaceAll(s, NoteFilesMark, "")
 }

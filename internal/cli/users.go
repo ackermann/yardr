@@ -599,7 +599,13 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 					from += " (as " + l.As + ")"
 				}
 				from = store.ViaMark(from, l.Via)
-				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), from, state, store.WithFiles(l.Text, a.mailHome(), l.Files))
+				// The sender and the text are writers' words, shown without
+				// the mark, and the files stand under them on a marked line
+				// of their own, so no mail's words forge its files line.
+				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), store.WithoutFilesMark(from), state, store.WithoutFilesMark(l.Text))
+				if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
+					fmt.Printf("    %s\n", line)
+				}
 			}
 			partFoot(box.Unread-acked["mail"], acked["mail"], ack)
 		}
@@ -724,7 +730,12 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 			if l.To != with && l.To != me {
 				from += " to " + l.To
 			}
-			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, from, store.WithFiles(l.Text, a.mailHome(), l.Files))
+			// As the inbox above: the writers' words without the mark, and
+			// the files under them on a marked line of their own.
+			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.WithoutFilesMark(from), store.WithoutFilesMark(l.Text))
+			if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
+				fmt.Printf("    %s\n", line)
+			}
 		}
 	})
 }

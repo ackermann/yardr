@@ -1348,20 +1348,22 @@ func TestCrewStatusIsRecorded(t *testing.T) {
 	}
 }
 
-// The nudge for mail that carries images ends with where they are, so the
-// crew member reads them as it reads any file; one for mail without any
-// says nothing of images.
+// The nudge for mail that carries images names them under its words, on
+// a marked line of their own, so the crew member reads them as it reads
+// any file; one for mail without any says nothing of images, whatever
+// its text ends with.
 func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	s, f, d := crewSetup(t, store.CrewMember{})
 	d.Home = "/y"
 	ctx := context.Background()
+	answer := " Answer mail with yardr reply <seq>, the number its inbox line starts with."
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	f.set(agentOf(t, s), "idle")
-	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze  1 image: /etc/hosts", "chris"))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 1 || strings.Contains(f.nudges[0], "image") ||
-		!strings.HasSuffix(f.nudges[0], " Answer mail with yardr reply <seq>, the number its inbox line starts with.") {
+		!strings.HasSuffix(f.nudges[0], answer) {
 		t.Fatalf("nudges for mail without an image = %q", f.nudges)
 	}
 	shed, err := s.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
@@ -1370,14 +1372,14 @@ func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	must(t, err)
 	must(t, s.Mail(ctx, "yardmaster", "the shed", "chris", shed.Hash))
 	must(t, d.Reconcile(ctx))
-	if want := " 1 image: /y/blobs/" + shed.Hash; len(f.nudges) != 2 || !strings.Contains(f.nudges[1], want) ||
-		!strings.HasSuffix(f.nudges[1], " Answer mail with yardr reply <seq>, the number its inbox line starts with.") {
-		t.Fatalf("nudges = %q, want the last to name %q and end with how to answer it", f.nudges, want)
+	if want := "\n" + store.NoteFilesMark + " 1 image: /y/blobs/" + shed.Hash; len(f.nudges) != 2 ||
+		!strings.HasSuffix(f.nudges[1], want) || !strings.Contains(f.nudges[1], answer) {
+		t.Fatalf("nudges = %q, want the last to tell how to answer it and end with %q", f.nudges, want)
 	}
 	must(t, s.Mail(ctx, "yardmaster", "", "chris", fence.Hash))
 	must(t, d.Reconcile(ctx))
-	if want := " 2 images: /y/blobs/" + shed.Hash + " /y/blobs/" + fence.Hash; len(f.nudges) != 3 || !strings.Contains(f.nudges[2], want) ||
-		!strings.HasSuffix(f.nudges[2], " Answer mail with yardr reply <seq>, the number its inbox line starts with.") {
-		t.Fatalf("nudges = %q, want the last to name %q and end with how to answer it", f.nudges, want)
+	if want := "\n" + store.NoteFilesMark + " 2 images: /y/blobs/" + shed.Hash + " /y/blobs/" + fence.Hash; len(f.nudges) != 3 ||
+		!strings.HasSuffix(f.nudges[2], want) || !strings.Contains(f.nudges[2], answer) {
+		t.Fatalf("nudges = %q, want the last to tell how to answer it and end with %q", f.nudges, want)
 	}
 }

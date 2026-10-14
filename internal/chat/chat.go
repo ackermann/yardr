@@ -64,7 +64,7 @@ type Options struct {
 	// Yardr is the command's name in the hints the view gives.
 	Yardr string
 	// Home is the yard's home: where the images mail carries are, which
-	// the view names by their paths (store.FilesLine).
+	// the view names by their paths (store.NoteFilesLine).
 	Home string
 	// InHerdr says the view runs in a pane of herdr, where Focus brings
 	// the pane of the agent named to the front. Anywhere else the key for

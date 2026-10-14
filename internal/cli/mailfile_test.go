@@ -16,10 +16,10 @@ import (
 
 // yardr mail --file puts the image in the yard, once however often it is
 // sent, and sends mail that names it; the inbox of a crew member and of a
-// user and the conversation end the mail's line with where the image is,
-// and say nothing more of mail without one. A GIF and a file over the
-// yard's limit are refused with nothing stored and nothing sent, and so is
-// an image for another yard.
+// user and the conversation name the image under the mail's line, on a
+// marked line of their own, and say nothing more of mail without one. A
+// GIF and a file over the yard's limit are refused with nothing stored
+// and nothing sent, and so is an image for another yard.
 func TestMailFile(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
@@ -37,13 +37,14 @@ func TestMailFile(t *testing.T) {
 	png := file("pic.txt", "\x89PNG\r\n\x1a\n the shed")
 	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the shed"))
 	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	marked := store.NoteFilesMark + " " + image
 	stored := func() []string {
 		t.Helper()
 		names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
 		return names
 	}
 
-	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the shed", "--file", png); out != "mail sent to yardmaster  "+image+"\n" {
+	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the shed", "--file", png); out != "mail sent to yardmaster\n"+marked+"\n" {
 		t.Fatalf("mail --file = %q", out)
 	}
 	if got := stored(); len(got) != 1 || got[0] != s.BlobPath(hex.EncodeToString(sum[:])) {
@@ -71,7 +72,7 @@ func TestMailFile(t *testing.T) {
 
 	t.Setenv("YARDR_CREW", "yardmaster")
 	inbox := mustAs(t, st, "yardmaster", "inbox")
-	for _, want := range []string{"mail from jo: the shed  " + image + "\n", "mail from jo: " + image + "\n", "mail from jo: no picture\n"} {
+	for _, want := range []string{"mail from jo: the shed\n    " + marked + "\n", "mail from jo: \n    " + marked + "\n", "mail from jo: no picture\n"} {
 		if !strings.Contains(inbox, want) {
 			t.Errorf("the yardmaster's inbox has no %q:\n%s", want, inbox)
 		}
@@ -83,12 +84,12 @@ func TestMailFile(t *testing.T) {
 	mustAs(t, st, "yardmaster", "mail", "jo", "plain")
 	t.Setenv("YARDR_CREW", "")
 	inbox = mustAs(t, st, "jo", "inbox", "--mail")
-	if !strings.Contains(inbox, "mail from yardmaster: seen, and this one?  "+image+"\n") || !strings.Contains(inbox, "mail from yardmaster: plain\n") ||
+	if !strings.Contains(inbox, "mail from yardmaster: seen, and this one?\n    "+marked+"\n") || !strings.Contains(inbox, "mail from yardmaster: plain\n") ||
 		strings.Count(inbox, "image") != 1 {
 		t.Errorf("jo's inbox:\n%s", inbox)
 	}
 	with := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
-	if !strings.Contains(with, "jo: the shed  "+image+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
+	if !strings.Contains(with, "jo: the shed\n    "+marked+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
 		t.Errorf("mail --with:\n%s", with)
 	}
 }
@@ -146,17 +147,100 @@ func TestMailFileToAPeer(t *testing.T) {
 	if part, _ := peerPart(ctx, cfg, st); strings.Contains(strings.Join(part.Notes, "\n"), "file") {
 		t.Fatalf("doctor's peers still say %+v", part.Notes)
 	}
-	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the shed", "--file", png); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "  "+image+"\n") {
+	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the shed", "--file", png); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "\n"+store.NoteFilesMark+" "+image+"\n") {
 		t.Fatalf("mail --file to a peer = %q", out)
 	}
 	waiting, err := api.PeerOutbox(ctx, "north", 0)
 	if err != nil || len(waiting) != 2 || waiting[0].Kind != store.PeerFile || waiting[1].Kind != store.PeerMail {
 		t.Fatalf("north's outbox = %+v, %v", waiting, err)
 	}
-	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the shed  "+image+"\n") {
+	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the shed\n    "+store.NoteFilesMark+" "+image+"\n") {
 		t.Errorf("mail --with yardmaster@north:\n%s", with)
 	}
 	if show := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(show, "file") || strings.Contains(show, "iVBOR") {
 		t.Errorf("peer show:\n%s", show)
+	}
+}
+
+// A mail whose text ends in an image line reads nothing like one sent
+// with --file: in the inbox of a user and of a crew member and in the
+// conversation, only the filed mail has a line starting with the mark,
+// naming the blob the yard keeps, while the forged words stand unmarked.
+// The sent confirmation names the file on a marked line of its own too.
+func TestMailFilesLineNotForgeable(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	png := filepath.Join(t.TempDir(), "shed.png")
+	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n the shed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page  1 image: /etc/hosts")
+	sent := mustAs(t, st, "jo", "mail", "yardmaster", "the shed, painted", "--file", png)
+	t.Setenv("YARDR_CREW", "yardmaster")
+	mustAs(t, st, "yardmaster", "mail", "jo", "seen  1 image: /etc/hosts")
+	mustAs(t, st, "yardmaster", "mail", "jo", "seen, painted", "--file", png)
+	crew := mustAs(t, st, "yardmaster", "inbox")
+	t.Setenv("YARDR_CREW", "")
+	marked := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hashOfFile(t, png))
+	if sent != "mail sent to yardmaster\n"+marked+"\n" {
+		t.Errorf("mail --file = %q", sent)
+	}
+	outs := map[string]string{
+		"crew inbox":   crew,
+		"user inbox":   mustAs(t, st, "jo", "inbox", "--mail"),
+		"conversation": mustAs(t, st, "jo", "mail", "--with", "yardmaster"),
+	}
+	for name, out := range outs {
+		if !strings.Contains(out, "1 image: /etc/hosts") {
+			t.Errorf("%s lost the forged words:\n%s", name, out)
+		}
+		var lines []string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), store.NoteFilesMark) {
+				lines = append(lines, strings.TrimSpace(line))
+			}
+		}
+		want := []string{marked}
+		if name == "conversation" {
+			want = []string{marked, marked}
+		}
+		if len(lines) != len(want) {
+			t.Errorf("%s: marked lines = %q, want %q:\n%s", name, lines, want, out)
+			continue
+		}
+		for _, line := range lines {
+			if line != marked {
+				t.Errorf("%s: marked lines = %q, want %q:\n%s", name, lines, want, out)
+			}
+		}
+	}
+}
+
+// A mail whose text types the mark reads with its words intact and no
+// marked line: the mark is kept out of the mail's words everywhere the
+// mail is shown with its files, so only the yard's files line starts
+// with it.
+func TestMailTextCannotForgeAFilesLine(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
+	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page\n"+forged)
+	t.Setenv("YARDR_CREW", "yardmaster")
+	mustAs(t, st, "yardmaster", "mail", "jo", "seen\n"+forged)
+	crew := mustAs(t, st, "yardmaster", "inbox")
+	t.Setenv("YARDR_CREW", "")
+	outs := map[string]string{
+		"crew inbox":   crew,
+		"user inbox":   mustAs(t, st, "jo", "inbox", "--mail"),
+		"conversation": mustAs(t, st, "jo", "mail", "--with", "yardmaster"),
+	}
+	for name, out := range outs {
+		if strings.Contains(out, store.NoteFilesMark) {
+			t.Errorf("%s carries the mark of a mail's files line:\n%s", name, out)
+		}
+		if !strings.Contains(out, "1 image: /etc/hosts") {
+			t.Errorf("%s lost the forged words:\n%s", name, out)
+		}
 	}
 }
