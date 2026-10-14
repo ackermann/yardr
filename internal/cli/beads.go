@@ -769,7 +769,7 @@ one would block again once reopened. Other kinds are never refused for it.`
 }
 
 func (a *app) primeCmd() *cobra.Command {
-	var id, member string
+	var id, member, forUser string
 	cmd := &cobra.Command{
 		Use:   "prime",
 		Short: "Print everything an agent needs to work a bead, or to run as a crew member",
@@ -783,7 +783,7 @@ func (a *app) primeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return a.primeCrew(c.Context(), st, member)
+				return a.primeCrew(c.Context(), st, member, crewSession(forUser))
 			}
 			if id == "" {
 				id = a.identity().bead
@@ -971,6 +971,7 @@ func (a *app) primeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARDR_BEAD)")
 	cmd.Flags().StringVar(&member, "crew", "", "crew member name (default $YARDR_CREW)")
+	cmd.Flags().StringVar(&forUser, "for", "", "a crew member's conversation session for this user (default $YARDR_CREW_FOR, else the line session)")
 	return cmd
 }
 

@@ -294,13 +294,13 @@ func standsAfter(tail, line, prompt string) bool {
 	return at < 0 || strings.LastIndex(text, squash(line)) > at
 }
 
-// crewReset is the wake of the crew member r, idle with total unread in its
+// crewReset is the wake of the crew session, idle with total unread in its
 // inbox (the newest of them last), whose usage limit's window was to reset:
-// see the comment at the head of this file. It reports whether r was
+// see the comment at the head of this file. It reports whether it was
 // prompted, with its inbox's count in the line as a nudge has it, so the
 // pass types no nudge after it.
-func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.CrewMember, total int, last uint64) (prompted bool, err error) {
-	due, waits := handleTime(r.Handle, harnessResetAt)
+func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, s *memberSession, total int, last uint64) (prompted bool, err error) {
+	due, waits := handleTime(s.st.Handle, harnessResetAt)
 	if !waits {
 		return false, nil
 	}
@@ -308,31 +308,31 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		d.lookAt(due)
 		return false, nil
 	}
-	told, _ := r.Handle[HarnessErrorKey].(string)
+	told, _ := s.st.Handle[HarnessErrorKey].(string)
 	t, ok := runner.(Tailer)
 	if !ok {
-		d.markCrewHarnessError(ctx, r, told, nil)
+		d.markCrewHarnessError(ctx, s, told, nil)
 		return false, nil
 	}
-	tail, err := t.Tail(ctx, r.Handle, stallTail)
+	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
 	if err != nil {
 		return false, nil // a pane that cannot be read says nothing: looked at again next pass
 	}
-	kind := harnessKind(r.Config)
-	provider, _ := r.Config["provider"].(string)
+	kind := harnessKind(s.member.Config)
+	provider, _ := s.member.Config["provider"].(string)
 	reason, line, _ := HarnessError(kind, tail)
-	tries := handleInt(r.Handle[harnessRetries])
-	if reason != ReasonRateLimited || !mayType(runner, r.Handle) || tries >= HarnessRetries {
+	tries := handleInt(s.st.Handle[harnessRetries])
+	if reason != ReasonRateLimited || !mayType(runner, s.st.Handle) || tries >= HarnessRetries {
 		// The wait is over; what the pane says now is crewHarnessError's.
-		d.markCrewHarnessError(ctx, r, told, nil)
+		d.markCrewHarnessError(ctx, s, told, nil)
 		return false, nil
 	}
-	key := "crew:" + r.Name
-	if held, why := d.inputHeld(ctx, runner, key, r.Handle); held {
+	key := s.key()
+	if held, why := d.inputHeld(ctx, runner, key, s.st.Handle); held {
 		// Someone's text: the prompt stays due, and the provider is not
 		// asked on every pass of the wait.
 		if why.tells() {
-			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the prompt at its usage limit's reset", why)
+			d.nudgeHeld(ctx, s.member.Journal, s.who(map[string]any{}), s.st.Handle, "the prompt at its usage limit's reset", why)
 		}
 		return false, nil
 	}
@@ -342,94 +342,94 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		}
 		// Told again as at the stop, with what the provider says now: the
 		// mark goes, and crewHarnessError reads the pane on this pass.
-		h := maps.Clone(r.Handle)
+		h := maps.Clone(s.st.Handle)
 		for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessResetWindow} {
 			delete(h, key)
 		}
-		r.Handle = h
-		d.crewHarnessLook(*r)
+		s.st.Handle = h
+		d.crewHarnessLook(s)
 		return false, nil
 	}
-	window, _ := r.Handle[harnessResetWindow].(string)
+	window, _ := s.st.Handle[harnessResetWindow].(string)
 	prompt := resetLine(kind, window) + fmt.Sprintf(" %d new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled.", total)
-	typed, err := d.nudge(ctx, runner, r, prompt)
+	typed, err := d.nudge(ctx, runner, s, prompt)
 	if err != nil || !typed {
 		return false, err
 	}
 	tries++
 	next := d.now().Add(harnessLook)
-	h := maps.Clone(r.Handle)
+	h := maps.Clone(s.st.Handle)
 	delete(h, harnessResetAt)
 	delete(h, harnessResetWindow)
 	h[harnessRetries], h[harnessRetryAt], h[harnessPrompted] = tries, next.UTC().Format(time.RFC3339Nano), prompt
-	d.setCrewHandle(ctx, r, h)
+	d.setCrewHandle(ctx, s, h)
 	d.lookAt(next)
-	d.Log.Warn("crew member's usage limit has reset: prompted", "crew", r.Name, "try", tries, "of", HarnessRetries)
-	data := map[string]any{"crew": r.Name, "kind": kind, "reason": reason, "line": line,
-		"try": tries, "of": HarnessRetries, "prompted": prompt}
+	d.Log.Warn("crew session's usage limit has reset: prompted", "crew", s.member.Name, "session", s.label(), "try", tries, "of", HarnessRetries)
+	data := s.who(map[string]any{"kind": kind, "reason": reason, "line": line,
+		"try": tries, "of": HarnessRetries, "prompted": prompt})
 	if window != "" {
 		data["window"] = window
 	}
-	if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_retry", actor, data); err != nil {
-		d.Log.Warn("session_harness_retry event", "crew", r.Name, "err", err)
+	if err := d.Store.LogDispatch(ctx, s.member.Journal, "session_harness_retry", actor, data); err != nil {
+		d.Log.Warn("session_harness_retry event", "crew", s.member.Name, "session", s.label(), "err", err)
 	}
-	return true, d.Store.MarkNotified(ctx, r.Name, last)
+	return true, d.Store.MarkNotifiedFor(ctx, s.member.Name, s.user, last)
 }
 
-// crewPromptTaken looks at what the prompt yardr gave the crew member r at
+// crewPromptTaken looks at what the prompt yardr gave the crew session at
 // a reset did, once harnessLook after it; status is what the runtime says
-// of r now. Until it is known that r took the prompt, the prompt stays on
-// r's handle and nothing else is typed into its pane (see nudge).
+// of it now. Until it is known that it took the prompt, the prompt stays on
+// its handle and nothing else is typed into its pane (see nudge).
 //
 // An agent that is working took it. Otherwise the pane says: a prompt that
 // does not show there was not taken, which is told once, and the watch goes
 // on until it shows or the agent works. One that shows was taken; a harness
 // error below it stands again, so the mark of the old one goes and
 // crewHarnessError tells of it as of any.
-func (d *Dispatcher) crewPromptTaken(ctx context.Context, runner Runner, r *store.CrewMember, status string) {
-	prompt, ok := r.Handle[harnessPrompted].(string)
+func (d *Dispatcher) crewPromptTaken(ctx context.Context, runner Runner, s *memberSession, status string) {
+	prompt, ok := s.st.Handle[harnessPrompted].(string)
 	if !ok {
 		return
 	}
-	due, looks := handleTime(r.Handle, harnessRetryAt)
+	due, looks := handleTime(s.st.Handle, harnessRetryAt)
 	if looks && d.now().Before(due) {
 		d.lookAt(due)
 		return
 	}
-	h := maps.Clone(r.Handle)
+	h := maps.Clone(s.st.Handle)
 	delete(h, harnessPrompted)
 	delete(h, harnessRetryAt)
 	if status == "working" {
 		if looks {
 			delete(h, HarnessErrorKey) // what it stops on next is told
 		}
-		d.setCrewHandle(ctx, r, h)
+		d.setCrewHandle(ctx, s, h)
 		return
 	}
-	kind := harnessKind(r.Config)
+	kind := harnessKind(s.member.Config)
 	tail := ""
 	if t, ok := runner.(Tailer); ok {
-		tail, _ = t.Tail(ctx, r.Handle, stallTail)
+		tail, _ = t.Tail(ctx, s.st.Handle, stallTail)
 	}
-	if shown, known := promptShown(ctx, runner, r.Handle, prompt); known && !shown {
+	if shown, known := promptShown(ctx, runner, s.st.Handle, prompt); known && !shown {
 		if !looks {
 			return // told already
 		}
-		data := map[string]any{"crew": r.Name,
-			"hint": notTakenHint(kind) + "start a fresh session with `yardr crew restart " + r.Name + "`. Its nudges wait until the prompt shows or it works"}
-		d.Log.Warn("crew member prompted at its usage limit's reset has not taken the prompt", "crew", r.Name)
-		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, notTaken(data, kind, prompt, tail, r.Handle)); err != nil {
-			d.Log.Warn("session_harness_error event", "crew", r.Name, "err", err)
+		data := s.who(map[string]any{
+			"hint": notTakenHint(kind) + "start a fresh session with `" + s.restartCmd() + "`. Its nudges wait until the prompt shows or it works"})
+		d.Log.Warn("crew session prompted at its usage limit's reset has not taken the prompt", "crew", s.member.Name, "session", s.label())
+		if err := d.Store.LogDispatch(ctx, s.member.Journal, "session_harness_error", actor, notTaken(data, kind, prompt, tail, s.st.Handle)); err != nil {
+			d.Log.Warn("session_harness_error event", "crew", s.member.Name, "session", s.label(), "err", err)
 		}
 		h[harnessPrompted], h[HarnessErrorKey] = prompt, ReasonRateLimited
-		d.setCrewHandle(ctx, r, h)
+		d.setCrewHandle(ctx, s, h)
 		return
 	}
 	if _, line, found := HarnessError(kind, tail); looks && found && standsAfter(tail, line, prompt) {
 		delete(h, HarnessErrorKey)
-		d.crewHarnessLook(*r)
+		d.crewHarnessLook(s)
 	}
-	d.setCrewHandle(ctx, r, h)
+	d.setCrewHandle(ctx, s, h)
 }
 
 // ResetWait is what a session's handle says of the wait for the window of a

@@ -13,7 +13,9 @@ import (
 
 // CrewRunner starts always-on sessions that are not tied to a bead.
 type CrewRunner interface {
-	StartCrew(ctx context.Context, r store.CrewMember) (handle map[string]any, err error)
+	// StartCrew starts the line session ("") or the conversation session
+	// for user of r, on that session's env.
+	StartCrew(ctx context.Context, r store.CrewMember, user string) (handle map[string]any, err error)
 }
 
 // LiveAgent is an agent a runtime lists: its name there and the pane it
@@ -25,9 +27,10 @@ type LiveAgent struct{ Name, Pane string }
 // the crew member's name) already is a crew member. One without an agent list
 // does not implement it, which reads as "none".
 type CrewFinder interface {
-	// LiveCrew is a live agent that already is r without being the
-	// session r.Handle names, nil when there is none.
-	LiveCrew(ctx context.Context, r store.CrewMember) (*LiveAgent, error)
+	// LiveCrew is a live agent that already is the line session ("") or
+	// the conversation session for user of r without being the session
+	// its handle names, nil when there is none.
+	LiveCrew(ctx context.Context, r store.CrewMember, user string) (*LiveAgent, error)
 }
 
 // CrewCloser is a CrewRunner in whose runtime a session that ends
@@ -88,6 +91,66 @@ func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 	return nil
 }
 
+// memberSession is one session of a crew member on a daemon pass: the
+// member's definition with the user of the session ("": the line session)
+// and a pass-local mirror of that session's runtime state.
+type memberSession struct {
+	member store.CrewMember
+	user   string
+	st     store.CrewSession
+}
+
+func newMemberSession(member store.CrewMember, user string) memberSession {
+	return memberSession{member: member, user: user, st: member.Session(user)}
+}
+
+// key is the session in the daemon's per-session maps (d.status and the
+// rest): "crew:<name>" for the line session, "crew:<name>:<user>" for a
+// conversation.
+func (s memberSession) key() string {
+	if s.user == "" {
+		return "crew:" + s.member.Name
+	}
+	return "crew:" + s.member.Name + ":" + s.user
+}
+
+// label names the session in logs: the crew member, and the user of a
+// conversation.
+func (s memberSession) label() string {
+	if s.user == "" {
+		return s.member.Name
+	}
+	return s.member.Name + " for " + s.user
+}
+
+// what says which session this is in a message: the line session, or the
+// conversation for its user.
+func (s memberSession) what() string {
+	if s.user == "" {
+		return "line session"
+	}
+	return "conversation session for " + s.user
+}
+
+// who names the session in event data: the crew member, and the user of a
+// conversation session.
+func (s memberSession) who(data map[string]any) map[string]any {
+	data["crew"] = s.member.Name
+	if s.user != "" {
+		data["user"] = s.user
+	}
+	return data
+}
+
+// restartCmd is the command that restarts this session: crew restart,
+// naming the user of a conversation.
+func (s memberSession) restartCmd() string {
+	if s.user == "" {
+		return "yardr crew restart " + s.member.Name
+	}
+	return "yardr crew restart " + s.member.Name + " --for " + s.user
+}
+
 func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool) error {
 	runner := d.Runners[r.Runner]
 	starter, ok := runner.(CrewRunner)
@@ -95,100 +158,151 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool
 		d.reportCrew(r.Name, "runner "+r.Runner+" cannot run crew members")
 		return nil
 	}
-	if r.Live() {
-		status, err := d.crewStatus(ctx, runner, r)
+	// The line session runs where the operator is served; a conversation
+	// session for each served user with its env set.
+	operator := d.operatorName(ctx)
+	var sessions []memberSession
+	if r.Serves(operator) {
+		sessions = append(sessions, newMemberSession(r, ""))
+	}
+	for _, user := range r.ConversationUsers() {
+		sessions = append(sessions, newMemberSession(r, user))
+	}
+	for i := range sessions {
+		if err := d.keepSession(ctx, runner, starter, &sessions[i], paused); err != nil {
+			d.Log.Error("crew", "crew", r.Name, "session", sessions[i].label(), "err", err)
+		}
+	}
+	if paused {
+		return nil
+	}
+	// Sessions the crew member no longer keeps stop: the line's where the
+	// operator is not served, and a conversation the config no longer
+	// declares. Its row lingers, unread by every slice.
+	if !r.Serves(operator) && (r.Live() || len(r.Handle) > 0) {
+		s := newMemberSession(r, "")
+		if err := d.stopCrew(ctx, runner, &s, "the crew member no longer serves the operator"); err != nil {
+			d.Log.Error("crew", "crew", r.Name, "session", s.label(), "err", err)
+		}
+	}
+	for user, cs := range r.Conversations {
+		if !r.HasConversation(user) && (cs.Live() || len(cs.Handle) > 0) {
+			s := newMemberSession(r, user)
+			if err := d.stopCrew(ctx, runner, &s, "the crew member no longer keeps a conversation session for "+user); err != nil {
+				d.Log.Error("crew", "crew", r.Name, "session", s.label(), "err", err)
+			}
+		}
+	}
+	return nil
+}
+
+// operatorName is the yard's operator setting, "" where unset: the line
+// session runs where the crew member serves them.
+func (d *Dispatcher) operatorName(ctx context.Context) string {
+	settings, err := d.Store.Settings(ctx)
+	if err != nil {
+		return ""
+	}
+	return settings[store.OperatorSetting]
+}
+
+func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter CrewRunner, s *memberSession, paused bool) error {
+	def := s.member
+	if s.st.Live() {
+		status, err := d.crewStatus(ctx, runner, s)
 		if err != nil {
 			return nil // runtime unreachable: unknown, leave it be
 		}
 		idle := status == "idle" || status == "done"
-		d.crewSeen(ctx, r, status)
-		grace := durationOr(r.HandoffGrace, defaultHandoffGrace)
+		d.crewSeen(ctx, s, status)
+		grace := durationOr(def.HandoffGrace, defaultHandoffGrace)
 		// A session that has lived MinSessionLife started for good, running
 		// still or gone since: the starts that failed before it are over.
 		lived, early := time.Duration(0), false
-		if r.StartedAt != nil {
-			lived = d.now().Sub(*r.StartedAt)
+		if s.st.StartedAt != nil {
+			lived = d.now().Sub(*s.st.StartedAt)
 			early = lived < store.MinSessionLife
 		}
-		if r.Failures > 0 && !early {
-			if err := d.Store.CrewSettled(ctx, r.Name); err != nil {
+		if s.st.Failures > 0 && !early {
+			if err := d.Store.CrewSettledFor(ctx, def.Name, s.user); err != nil {
 				return err
 			}
-			r.Failures = 0
+			s.st.Failures = 0
 		}
 		switch {
-		case !r.Enabled:
+		case !def.Enabled:
 			if paused {
 				// The upgrade gate pauses dispatch without stopping an
 				// already-running crew member. Apply the disable after it lifts.
 				return nil
 			}
-			return d.stopCrew(ctx, runner, r, "disabled")
+			return d.stopCrew(ctx, runner, s, "disabled")
 		case status == "":
 			// Nothing is closed here: the pane it leaves shows what the
 			// harness printed before it exited, the only place the reason
 			// can be read. The handle is kept instead, where the runtime
 			// has something to close later (see closeLeft).
-			gone := d.Store.CrewStopped
+			gone := d.Store.CrewStoppedFor
 			if _, ok := runner.(CrewCloser); ok {
-				gone = d.Store.CrewGone
-				if len(r.Handle) > 0 {
-					r.Left = append(r.Left, r.Handle)
+				gone = d.Store.CrewGoneFor
+				if len(s.st.Handle) > 0 {
+					s.st.Left = append(s.st.Left, s.st.Handle)
 				}
 			}
-			if err := gone(ctx, r.Name, "the session is gone"); err != nil {
+			if err := gone(ctx, def.Name, s.user, "the session is gone"); err != nil {
 				return err
 			}
-			r.State = "stopped"
-			if early && r.RestartRequested == "" {
+			s.st.State = "stopped"
+			if early && s.st.RestartRequested == "" {
 				// Its harness exits at once (a broken install, a bad flag, an
 				// expired login): started again on this pass it would do the
 				// same every few seconds, forever. An ending that was asked
 				// for (a handoff, a rotation, a restart) is not one of these.
-				return d.crewStartFailed(ctx, runner, r, nil, fmt.Errorf(
+				return d.crewStartFailed(ctx, runner, s, nil, fmt.Errorf(
 					"the session ended %s after its start (gone within %s counts as a failed start)",
 					lived.Round(time.Second), store.MinSessionLife))
 			}
-		case r.RestartRequested != "" &&
-			(idle || (r.RestartRequestedAt != nil && time.Since(*r.RestartRequestedAt) > grace)):
+		case s.st.RestartRequested != "" &&
+			(idle || (s.st.RestartRequestedAt != nil && time.Since(*s.st.RestartRequestedAt) > grace)):
 			if paused {
 				// Keep the running agent through the upgrade; perform its
 				// requested restart after the gate lifts.
 				return nil
 			}
-			if err := d.stopCrew(ctx, runner, r, "restart: "+r.RestartRequested); err != nil {
+			if err := d.stopCrew(ctx, runner, s, "restart: "+s.st.RestartRequested); err != nil {
 				return err
 			}
-			r.State = "stopped"
-		case r.RestartRequested != "":
+			s.st.State = "stopped"
+		case s.st.RestartRequested != "":
 			return nil // let it finish its handoff turn
 		default:
-			return d.crewRunning(ctx, runner, r, status, grace)
+			return d.crewRunning(ctx, runner, s, status, grace)
 		}
 	}
-	if !r.Enabled || r.State == "failed" {
+	if !def.Enabled || s.st.State == "failed" {
 		return nil
 	}
-	if r.RetryAfter != nil && d.now().Before(*r.RetryAfter) {
+	if s.st.RetryAfter != nil && d.now().Before(*s.st.RetryAfter) {
 		return nil
 	}
 	if finder, ok := runner.(CrewFinder); ok {
-		other, err := finder.LiveCrew(ctx, r)
+		other, err := finder.LiveCrew(ctx, def, s.user)
 		if err != nil {
-			return d.crewStartFailed(ctx, runner, r, nil, err)
+			return d.crewStartFailed(ctx, runner, s, nil, err)
 		}
 		if other != nil {
 			// A second session under one name: both would act as the
 			// crew member and neither would know of the other. Nothing is
 			// started and nothing counted as a failure, so the next pass
 			// starts it once a human has ended the other.
-			reason := fmt.Sprintf("agent %q in pane %s already is this crew member; end it and the crew member starts",
-				other.Name, other.Pane)
-			if d.status["crew:"+r.Name] != "blocked: "+reason {
-				d.status["crew:"+r.Name] = "blocked: " + reason
-				d.Log.Warn("crew member not started", "crew", r.Name, "reason", reason)
-				_ = d.Store.LogDispatch(ctx, r.Journal, "crew_blocked", actor, map[string]any{
-					"crew": r.Name, "reason": reason, "agent": other.Name, "pane": other.Pane})
+			reason := fmt.Sprintf("agent %q in pane %s already is this crew member's %s; end it and the session starts",
+				other.Name, other.Pane, s.what())
+			key := s.key()
+			if d.status[key] != "blocked: "+reason {
+				d.status[key] = "blocked: " + reason
+				d.Log.Warn("crew session not started", "crew", def.Name, "session", s.label(), "reason", reason)
+				_ = d.Store.LogDispatch(ctx, def.Journal, "crew_blocked", actor, s.who(map[string]any{
+					"reason": reason, "agent": other.Name, "pane": other.Pane}))
 			}
 			return nil
 		}
@@ -196,26 +310,27 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool
 	if paused {
 		// The upgrade gate: start nothing. Not a failed start:
 		// nothing is counted and no wait is set.
-		d.Log.Info("would start, paused by the upgrade gate", "crew", r.Name)
+		d.Log.Info("would start, paused by the upgrade gate", "crew", def.Name, "session", s.label())
 		return nil
 	}
-	handle, err := starter.StartCrew(ctx, r)
+	handle, err := starter.StartCrew(ctx, def, s.user)
 	if err != nil {
-		return d.crewStartFailed(ctx, runner, r, handle, err)
+		return d.crewStartFailed(ctx, runner, s, handle, err)
 	}
-	d.Log.Info("crew member started", "crew", r.Name)
-	delete(d.status, "crew:"+r.Name)
-	delete(d.promptIdle, "crew:"+r.Name)
-	delete(d.idleSince, "crew:"+r.Name)
-	delete(d.drafts, "crew:"+r.Name)
-	delete(d.dialogs, "crew:"+r.Name)
-	delete(d.logins, "crew:"+r.Name)
-	delete(d.nudged, "crew:"+r.Name)
-	delete(d.unsent, "crew:"+r.Name)
-	if err := d.Store.CrewStarted(ctx, r.Name, handle); err != nil {
+	d.Log.Info("crew session started", "crew", def.Name, "session", s.label())
+	key := s.key()
+	delete(d.status, key)
+	delete(d.promptIdle, key)
+	delete(d.idleSince, key)
+	delete(d.drafts, key)
+	delete(d.dialogs, key)
+	delete(d.logins, key)
+	delete(d.nudged, key)
+	delete(d.unsent, key)
+	if err := d.Store.CrewStartedFor(ctx, def.Name, s.user, handle); err != nil {
 		return err
 	}
-	return d.closeLeft(ctx, runner, r)
+	return d.closeLeft(ctx, runner, s)
 }
 
 // closeLeft closes what r's sessions that were gone left open in the
@@ -225,35 +340,35 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool
 // one. Only handles yardr recorded are closed, never what merely carries
 // the crew member's label; one the runner keeps or cannot close stays listed
 // for the next start.
-func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, r store.CrewMember) error {
+func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSession) error {
 	closer, ok := runner.(CrewCloser)
-	if !ok || len(r.Left) < 2 {
+	if !ok || len(s.st.Left) < 2 {
 		return nil
 	}
-	latest := len(r.Left) - 1
+	latest := len(s.st.Left) - 1
 	left := make([]map[string]any, 0, 1)
-	for _, h := range r.Left[:latest] {
-		kept, err := closer.CloseLeft(ctx, r, h)
+	for _, h := range s.st.Left[:latest] {
+		kept, err := closer.CloseLeft(ctx, s.member, h)
 		if err != nil {
-			d.Log.Warn("crew: closing what a gone session left", "crew", r.Name, "err", err)
+			d.Log.Warn("crew: closing what a gone session left", "crew", s.member.Name, "session", s.label(), "err", err)
 			kept = true
 		}
 		if kept {
 			left = append(left, h)
 		}
 	}
-	left = append(left, r.Left[latest])
-	if len(left) == len(r.Left) {
+	left = append(left, s.st.Left[latest])
+	if len(left) == len(s.st.Left) {
 		return nil
 	}
-	return d.Store.CrewLeft(ctx, r.Name, left)
+	return d.Store.CrewLeftFor(ctx, s.member.Name, s.user, left)
 }
 
-// crewSeen records what the runtime says r's session is doing, so that
+// crewSeen records what the runtime says the session is doing, so that
 // who looks at the crew (yardr chat) reads it from the store and its
 // event stream and asks no runtime. The store writes a change only. A
 // session that is gone is recorded by CrewStopped, not here.
-func (d *Dispatcher) crewSeen(ctx context.Context, r store.CrewMember, status string) {
+func (d *Dispatcher) crewSeen(ctx context.Context, s *memberSession, status string) {
 	switch status {
 	case "":
 		return
@@ -263,135 +378,138 @@ func (d *Dispatcher) crewSeen(ctx context.Context, r store.CrewMember, status st
 	default:
 		status = "unknown"
 	}
-	if status == r.Status {
+	if status == s.st.Status {
 		return
 	}
-	if err := d.Store.CrewStatus(ctx, r.Name, status); err != nil {
-		d.Log.Warn("crew member status", "crew", r.Name, "err", err)
+	if err := d.Store.CrewStatusFor(ctx, s.member.Name, s.user, status); err != nil {
+		d.Log.Warn("crew member status", "crew", s.member.Name, "session", s.label(), "err", err)
 	}
 }
 
 // crewStartFailed counts a start that did not happen, or whose session
-// was gone at once, against the crew member and backs it off; handle is what
+// was gone at once, against the session and backs it off; handle is what
 // the runner left behind.
-func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, r store.CrewMember, handle map[string]any, err error) error {
-	backoff := min(30*time.Second<<min(r.Failures, 5), 10*time.Minute)
-	if r.Failures+1 >= store.MaxStartFails {
-		d.Log.Error("crew member given up", "crew", r.Name, "err", err, "failures", r.Failures+1)
+func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memberSession, handle map[string]any, err error) error {
+	backoff := min(30*time.Second<<min(s.st.Failures, 5), 10*time.Minute)
+	if s.st.Failures+1 >= store.MaxStartFails {
+		d.Log.Error("crew session given up", "crew", s.member.Name, "session", s.label(), "err", err, "failures", s.st.Failures+1)
 	} else {
-		d.Log.Warn("crew start failed", "crew", r.Name, "err", err, "failures", r.Failures+1, "retry_in", backoff)
+		d.Log.Warn("crew start failed", "crew", s.member.Name, "session", s.label(), "err", err, "failures", s.st.Failures+1, "retry_in", backoff)
 	}
-	if IsBlocked(err) && d.status["crew:"+r.Name] != "blocked: "+err.Error() {
-		// Its configuration refuses it (an env_file missing or open to
+	key := s.key()
+	if IsBlocked(err) && d.status[key] != "blocked: "+err.Error() {
+		// Its configuration refuses it (an env file missing or open to
 		// others): a human has to act, so say so, once per reason.
-		d.status["crew:"+r.Name] = "blocked: " + err.Error()
-		_ = d.Store.LogDispatch(ctx, r.Journal, "crew_blocked", actor, map[string]any{
-			"crew": r.Name, "reason": err.Error()})
+		d.status[key] = "blocked: " + err.Error()
+		_ = d.Store.LogDispatch(ctx, s.member.Journal, "crew_blocked", actor, s.who(map[string]any{
+			"reason": err.Error()}))
 	}
 	if len(handle) > 0 {
 		_ = runner.Stop(ctx, handle)
 	}
-	return d.Store.CrewStartFailed(ctx, r.Name, err.Error(), backoff)
+	return d.Store.CrewStartFailedFor(ctx, s.member.Name, s.user, err.Error(), backoff)
 }
 
 // crewRunning handles a healthy session: a first prompt still to
 // deliver, text of yardr's own left in its input, then rotation, then the
 // inbox.
-func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.CrewMember, status string, grace time.Duration) error {
+func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSession, status string, grace time.Duration) error {
+	def := s.member
+	key := s.key()
 	idle := status == "idle" || status == "done"
-	if _, pending := r.Handle[store.PendingPrompt]; !pending {
+	if _, pending := s.st.Handle[store.PendingPrompt]; !pending {
 		// A login screen is a crew state even when there is no inbox nudge
 		// due. In particular, Claude's selected login option can make the
 		// runtime report idle, so do not wait for a nudge to read the pane.
-		if at, why := d.loginAt(ctx, runner, "crew:"+r.Name, r.Handle); at {
-			if line := d.logins["crew:"+r.Name]; line != "" {
-				d.markCrewLogin(ctx, &r, line)
+		if at, why := d.loginAt(ctx, runner, key, s.st.Handle); at {
+			if line := d.logins[key]; line != "" {
+				d.markCrewLogin(ctx, s, line)
 			}
 			if why.tells() {
-				d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", why)
+				d.nudgeHeld(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, "a nudge", why)
 			}
 			return nil
 		}
 	}
-	if p, ok := r.Handle[store.PendingPrompt].(string); ok {
-		pass := d.pendingPrompt(ctx, runner, "crew:"+r.Name, r.Handle, p, status)
+	if p, ok := s.st.Handle[store.PendingPrompt].(string); ok {
+		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status)
 		if pass.handle != nil {
-			if err := d.Store.SetCrewHandle(ctx, r.Name, pass.handle); err != nil {
+			if err := d.Store.SetCrewHandleFor(ctx, def.Name, s.user, pass.handle); err != nil {
 				return err
 			}
 		}
-		d.promptEvents(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, p, pass)
+		d.promptEvents(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, p, pass)
 		if pass.arrived {
 			// An agent working on its first prompt does not wait for a human.
-			delete(d.status, "crew:"+r.Name)
+			delete(d.status, key)
 			return nil
 		}
 		if !idle {
 			// At its login screen it waits on no human answer but a login:
 			// that is said instead, from the login's own memory.
-			if at, why := d.loginAt(ctx, runner, "crew:"+r.Name, r.Handle); at {
-				if line := d.logins["crew:"+r.Name]; line != "" {
-					d.markCrewLogin(ctx, &r, line)
+			if at, why := d.loginAt(ctx, runner, key, s.st.Handle); at {
+				if line := d.logins[key]; line != "" {
+					d.markCrewLogin(ctx, s, line)
 				}
 				if why.tells() {
-					d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the first prompt", why)
+					d.nudgeHeld(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, "the first prompt", why)
 				}
 				return nil
 			}
 			// Waiting on a human (e.g. a trust prompt): say so once.
-			if d.status["crew:"+r.Name] != "waiting" {
-				d.status["crew:"+r.Name] = "waiting"
-				d.Log.Warn("crew member waiting for a human before it can start", "crew", r.Name)
-				_ = d.Store.LogDispatch(ctx, r.Journal, "crew_blocked", actor, map[string]any{
-					"crew": r.Name, "reason": "not ready at startup; answer it in its pane"})
+			if d.status[key] != "waiting" {
+				d.status[key] = "waiting"
+				d.Log.Warn("crew session waiting for a human before it can start", "crew", def.Name, "session", s.label())
+				_ = d.Store.LogDispatch(ctx, def.Journal, "crew_blocked", actor, s.who(map[string]any{
+					"reason": "not ready at startup; answer it in its pane"}))
 			}
 		}
 		return nil
 	}
-	d.crewPromptTaken(ctx, runner, &r, status)
-	if d.ownInput(ctx, runner, "crew:"+r.Name, r.Journal, map[string]any{"crew": r.Name}, r.Handle, status) {
+	d.crewPromptTaken(ctx, runner, s, status)
+	if d.ownInput(ctx, runner, key, def.Journal, s.who(map[string]any{}), s.st.Handle, status) {
 		return nil // Enter went into its pane: nothing else does on this pass
 	}
-	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
+	if maxAge := durationOr(def.MaxAge, 0); maxAge > 0 && s.st.StartedAt != nil && time.Since(*s.st.StartedAt) > maxAge {
 		switch {
-		case r.RotationAskedAt == nil && idle:
-			typed, err := d.nudge(ctx, runner, &r, fmt.Sprintf(
+		case s.st.RotationAskedAt == nil && idle:
+			typed, err := d.nudge(ctx, runner, s, fmt.Sprintf(
 				"Your session is due for rotation. Write your handoff now: yardr crew handoff %s \"<what you are doing, what is next, what to watch>\". "+
-					"yardr then starts your next session from it.", r.Name))
+					"yardr then starts your next session from it.", def.Name))
 			if err != nil || !typed {
 				return err // not asked yet: the grace runs from the asking
 			}
-			return d.Store.MarkRotationAsked(ctx, r.Name)
-		case r.RotationAskedAt != nil && time.Since(*r.RotationAskedAt) > grace:
-			return d.Store.RequestRestart(ctx, r.Name, "rotation (no handoff within grace)", "", "yard")
+			return d.Store.MarkRotationAskedFor(ctx, def.Name, s.user)
+		case s.st.RotationAskedAt != nil && time.Since(*s.st.RotationAskedAt) > grace:
+			return d.Store.RequestRestartFor(ctx, def.Name, s.user, "rotation (no handoff within grace)", "", "yard")
 		}
 	}
 	if !idle {
-		delete(d.drafts, "crew:"+r.Name) // what was in its input was sent
-		delete(d.dialogs, "crew:"+r.Name)
+		delete(d.drafts, key) // what was in its input was sent
+		delete(d.dialogs, key)
 		if status == "working" {
 			// Working: past any login screen seen before. A login
 			// screen may read as blocked, so that status keeps the mark.
-			d.markCrewLogin(ctx, &r, "")
+			d.markCrewLogin(ctx, s, "")
 		}
-		d.crewHarnessOver(ctx, &r, false)
+		d.crewHarnessOver(ctx, s, false)
 		return nil
 	}
-	page, err := d.Store.Inbox(ctx, r.Name, 5)
+	page, err := d.Store.InboxFor(ctx, def.Name, s.user, 5)
 	// Idle with something unread is where a harness stopped on an error
 	// sits (harness.go), nudged already or not.
 	if err == nil && page.Total > 0 {
-		if prompted, err := d.crewReset(ctx, runner, &r, page.Total, page.Last); prompted || err != nil {
+		if prompted, err := d.crewReset(ctx, runner, s, page.Total, page.Last); prompted || err != nil {
 			return err
 		}
-		d.crewHarnessError(ctx, runner, &r)
+		d.crewHarnessError(ctx, runner, s)
 	} else if err == nil {
-		d.crewHarnessOver(ctx, &r, true)
+		d.crewHarnessOver(ctx, s, true)
 	}
-	if err != nil || page.Total == 0 || page.Last <= r.Notified {
+	if err != nil || page.Total == 0 || page.Last <= s.st.Notified {
 		// Nothing to type: text in the input holds nothing back, and a
 		// wait on it is over.
-		delete(d.drafts, "crew:"+r.Name)
+		delete(d.drafts, key)
 		return err
 	}
 	// Mail from another yard is named with its sender, <name>@<peer>, and
@@ -443,66 +561,66 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.
-	typed, err := d.nudge(ctx, runner, &r, msg)
+	typed, err := d.nudge(ctx, runner, s, msg)
 	if err != nil || !typed {
 		return err
 	}
-	d.crewHarnessLook(r)
-	return d.Store.MarkNotified(ctx, r.Name, page.Last)
+	d.crewHarnessLook(s)
+	return d.Store.MarkNotifiedFor(ctx, def.Name, s.user, page.Last)
 }
 
-func (d *Dispatcher) crewStatus(ctx context.Context, runner Runner, r store.CrewMember) (string, error) {
+func (d *Dispatcher) crewStatus(ctx context.Context, runner Runner, s *memberSession) (string, error) {
 	if st, ok := runner.(Statuser); ok {
-		return st.Status(ctx, r.Handle)
+		return st.Status(ctx, s.st.Handle)
 	}
-	alive, err := runner.Alive(ctx, r.Handle)
+	alive, err := runner.Alive(ctx, s.st.Handle)
 	if err != nil || !alive {
 		return "", err
 	}
 	return "idle", nil
 }
 
-// nudge types text into r's session as its next prompt. typed is false
+// nudge types text into the session as its next prompt. typed is false
 // when it did not, because the input holds text (see inputHeld): the nudge
 // is then still due, and the caller records nothing as said. So it is while
 // a prompt given at a usage limit's reset has not shown. A runner that
 // cannot nudge has nothing to wait for.
-func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r *store.CrewMember, text string) (typed bool, err error) {
+func (d *Dispatcher) nudge(ctx context.Context, runner Runner, s *memberSession, text string) (typed bool, err error) {
 	n, ok := runner.(Nudger)
 	if !ok {
 		return true, nil
 	}
-	if r.Handle[harnessPrompted] != nil {
+	if s.st.Handle[harnessPrompted] != nil {
 		// The prompt yardr gave at a usage limit's reset is not known to be
 		// taken: the harness may be asking something first, and a nudge's
 		// Enter would answer it (see crewPromptTaken).
 		return false, nil
 	}
-	key := "crew:" + r.Name
-	if held, why := d.inputHeld(ctx, runner, key, r.Handle); held {
+	key := s.key()
+	if held, why := d.inputHeld(ctx, runner, key, s.st.Handle); held {
 		// At the login screen, told or not: inputHeld looks for it
 		// first, so the memory is this pass's.
 		if line := d.logins[key]; line != "" {
-			d.markCrewLogin(ctx, r, line)
+			d.markCrewLogin(ctx, s, line)
 		}
 		if why.tells() {
-			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", why)
+			d.nudgeHeld(ctx, s.member.Journal, s.who(map[string]any{}), s.st.Handle, "a nudge", why)
 		}
 		return false, nil
 	}
-	stalled, err := typeText(ctx, n, r.Handle, text)
+	stalled, err := typeText(ctx, n, s.st.Handle, text)
 	if errors.Is(err, ErrAgentBlocked) {
 		// At a dialog a nudge's Enter would answer: held like one behind
 		// someone's text, and said once for as long as nothing is typed.
 		if d.status[key] != nudgeAtDialog {
 			d.status[key] = nudgeAtDialog
-			data := map[string]any{"crew": r.Name, "reason": "the agent is at a dialog, so a nudge is not typed there: " +
-				"its Enter would answer the dialog. It is typed once the dialog is gone. Answer it in its pane"}
-			if pane, _ := r.Handle["pane"].(string); pane != "" {
+			data := s.who(map[string]any{"reason": "the agent is at a dialog, so a nudge is not typed there: " +
+				"its Enter would answer the dialog. It is typed once the dialog is gone. Answer it in its pane"})
+			if pane, _ := s.st.Handle["pane"].(string); pane != "" {
 				data["pane"] = pane
 			}
-			d.Log.Warn("a dialog in the agent's pane holds back a nudge", "crew", r.Name)
-			_ = d.Store.LogDispatch(ctx, r.Journal, "nudge_held", actor, data)
+			d.Log.Warn("a dialog in the agent's pane holds back a nudge", "crew", s.member.Name, "session", s.label())
+			_ = d.Store.LogDispatch(ctx, s.member.Journal, "nudge_held", actor, data)
 		}
 		return false, nil
 	}
@@ -511,7 +629,7 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r *store.CrewMemb
 	}
 	// Typed: past any login screen seen before. A look that failed says
 	// nothing either way; the next look that finds it marks it again.
-	d.markCrewLogin(ctx, r, "")
+	d.markCrewLogin(ctx, s, "")
 	if d.status[key] == nudgeAtDialog {
 		delete(d.status, key)
 	}
@@ -525,13 +643,13 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r *store.CrewMemb
 		// and ownInput looks now. An agent the runner saw neither working
 		// nor at a dialog is idle to it.
 		d.unsent[key] = &unsent{text: squash(text), since: now.Add(-d.PromptSettle)}
-		d.ownInput(ctx, runner, key, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "idle")
+		d.ownInput(ctx, runner, key, s.member.Journal, s.who(map[string]any{}), s.st.Handle, "idle")
 		// Or the harness answered the nudge with a question of its own and
 		// keeps it until that is answered (a dialog of its file, harnesses/).
 		// The nudge is typed and counts as said, so no later pass has
 		// anything to type that would find the dialog: it is told of here.
-		if _, why := d.dialogAt(ctx, runner, key, r.Handle); why.tells() {
-			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the nudge yardr typed", why)
+		if _, why := d.dialogAt(ctx, runner, key, s.st.Handle); why.tells() {
+			d.nudgeHeld(ctx, s.member.Journal, s.who(map[string]any{}), s.st.Handle, "the nudge yardr typed", why)
 		}
 	}
 	return true, nil
@@ -541,14 +659,14 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r *store.CrewMemb
 // back by a dialog its agent is at (see nudge).
 const nudgeAtDialog = "nudge held: at a dialog"
 
-func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, r store.CrewMember, reason string) error {
-	if len(r.Handle) > 0 {
-		if err := runner.Stop(ctx, r.Handle); err != nil {
-			d.Log.Warn("crew stop", "crew", r.Name, "err", err)
+func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSession, reason string) error {
+	if len(s.st.Handle) > 0 {
+		if err := runner.Stop(ctx, s.st.Handle); err != nil {
+			d.Log.Warn("crew stop", "crew", s.member.Name, "session", s.label(), "err", err)
 		}
 	}
-	d.Log.Info("crew member stopped", "crew", r.Name, "reason", reason)
-	return d.Store.CrewStopped(ctx, r.Name, reason)
+	d.Log.Info("crew session stopped", "crew", s.member.Name, "session", s.label(), "reason", reason)
+	return d.Store.CrewStoppedFor(ctx, s.member.Name, s.user, reason)
 }
 
 func (d *Dispatcher) reportCrew(name, msg string) {

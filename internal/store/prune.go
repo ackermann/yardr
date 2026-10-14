@@ -163,22 +163,82 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 // that is not older than bound (a zero bound is no bound): what it has
 // left unread longer than that no longer holds the log back. Only inbox
 // events count: the cursor of a crew member nothing was sent to does not
-// move, and must not pin the log.
+// move, and must not pin the log. With one cursor per session, it is the
+// oldest unread of the live sessions' slices.
 func firstUnread(tx *bolt.Tx, r *CrewMember, bound time.Time) (uint64, bool, error) {
-	for _, k := range inboxKeys(tx, r) {
-		var e Event
-		if ok, err := get(tx, bEvents, k, &e); err != nil {
-			return 0, false, err
-		} else if !ok || e.At.Before(bound) {
-			continue
-		}
-		evs := []Event{e}
-		named(tx, evs)
-		if forCrew(r, evs[0]) {
-			return e.Seq, true, nil
+	seq, found := uint64(0), false
+	for _, sc := range liveSlices(r) {
+		for _, k := range inboxKeysFrom(tx, r, sc.cursor) {
+			var e Event
+			if ok, err := get(tx, bEvents, k, &e); err != nil {
+				return 0, false, err
+			} else if !ok || e.At.Before(bound) {
+				continue
+			}
+			evs := []Event{e}
+			named(tx, evs)
+			if forSlice(r, sc.user, evs[0]) {
+				if !found || e.Seq < seq {
+					seq, found = e.Seq, true
+				}
+				break // keys are in seq order: the first unread pins
+			}
 		}
 	}
-	return 0, false, nil
+	return seq, found, nil
+}
+
+// sliceCursorAt is one session's inbox position: the user ("": the line
+// session's) with the cursor its slice reads at.
+type sliceCursorAt struct {
+	user   string
+	cursor uint64
+}
+
+// liveSlices are the inbox positions of r's live sessions: the line
+// session's where it runs, and each live conversation's.
+func liveSlices(r *CrewMember) []sliceCursorAt {
+	var out []sliceCursorAt
+	if r.CrewSession.Live() {
+		out = append(out, sliceCursorAt{cursor: r.Cursor})
+	}
+	for _, user := range r.ConversationUsers() {
+		if cs := r.Conversations[user]; cs.Live() {
+			out = append(out, sliceCursorAt{user: user, cursor: cs.Cursor})
+		}
+	}
+	return out
+}
+
+// slicesAll are the inbox positions of every session that may hold unread:
+// the line session's and each conversation's, live or not.
+func slicesAll(r *CrewMember) []sliceCursorAt {
+	out := []sliceCursorAt{{cursor: r.Cursor}}
+	for _, user := range r.ConversationUsers() {
+		cursor := r.Cursor
+		if cs, ok := r.Conversations[user]; ok {
+			cursor = cs.Cursor
+		}
+		out = append(out, sliceCursorAt{user: user, cursor: cursor})
+	}
+	return out
+}
+
+// liveSessions are the runtime states of r's live sessions: the line
+// session's where it runs, and each live conversation's. A row whose
+// conversation the config no longer declares reads as no session: the
+// daemon stops it on its next pass.
+func liveSessions(r *CrewMember) []CrewSession {
+	var out []CrewSession
+	if r.CrewSession.Live() {
+		out = append(out, r.CrewSession)
+	}
+	for _, user := range r.ConversationUsers() {
+		if cs := r.Conversations[user]; cs.Live() {
+			out = append(out, cs)
+		}
+	}
+	return out
 }
 
 // pruneFloor works out what Prune must keep: every event from seq floor on,
@@ -199,7 +259,7 @@ func (s *Store) pruneFloor(cutoff, unreadBound time.Time) (floor uint64, _ time.
 		}
 		floor = binary.BigEndian.Uint64(k) // the head stays
 		if err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
-			if !r.Live() {
+			if len(liveSlices(r)) == 0 {
 				return nil
 			}
 			if seq, ok, err := firstUnread(tx, r, unreadBound); err != nil {
@@ -207,8 +267,10 @@ func (s *Store) pruneFloor(cutoff, unreadBound time.Time) (floor uint64, _ time.
 			} else if ok && seq < floor {
 				floor, held = seq, "crew member "+r.Name+" has not read event "+fmt.Sprint(seq)
 			}
-			if r.StartedAt != nil && r.StartedAt.Before(cutoff) {
-				cutoff, held = *r.StartedAt, "crew member "+r.Name+" has run since "+r.StartedAt.Format(time.RFC3339)
+			for _, st := range liveSessions(r) {
+				if st.StartedAt != nil && st.StartedAt.Before(cutoff) {
+					cutoff, held = *st.StartedAt, "crew member "+r.Name+" has run since "+st.StartedAt.Format(time.RFC3339)
+				}
 			}
 			return nil
 		}); err != nil {
@@ -243,9 +305,9 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 	var counted map[string]int
 	err = s.write(func(w *wtx) error {
 		n, more, counted = 0, false, map[string]int{} // a batched write may run this twice
-		cursors := map[string]uint64{}
+		members := map[string]*CrewMember{}
 		if err := each(w.Tx, bCrew, "", func(_ []byte, r *CrewMember) error {
-			cursors[r.Name] = r.Cursor
+			members[r.Name] = r
 			return nil
 		}); err != nil {
 			return err
@@ -279,8 +341,19 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 			}
 			for _, name := range inboxOf(e) {
 				del = append(del, entry{bInbox, join(name, k)})
-				if cursor, ok := cursors[name]; ok && e.Seq > cursor {
-					counted[name]++
+				// Unread in the slice it belongs to: an event is in one
+				// slice, so it counts once.
+				if r, ok := members[name]; ok {
+					evs := []Event{e}
+					named(w.Tx, evs) // forSlice compares handles
+					for _, sc := range slicesAll(r) {
+						if forSlice(r, sc.user, evs[0]) {
+							if e.Seq > sc.cursor {
+								counted[name]++
+							}
+							break
+						}
+					}
 				}
 			}
 			for _, d := range del {

@@ -85,7 +85,7 @@ func checkEnvStart(t *testing.T, calls, paneCall, actor string, handle map[strin
 func TestStartCrewLoadsEnvFile(t *testing.T) {
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFileT(t, 0o600)}}
-	handle, err := h.StartCrew(context.Background(), r)
+	handle, err := h.StartCrew(context.Background(), r, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 		"missing": missing, "directory": t.TempDir()} {
 		h, calls, logs := envHerdr(t, "")
 		cfg := map[string]any{"env_file": path}
-		_, rerr := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg})
+		_, rerr := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg}, "")
 		_, gerr := h.Start(context.Background(), dispatch.Job{Bead: store.Bead{ID: "yard-13", Stage: "new"},
 			Group: store.Group{Name: "g", Config: cfg}, Depot: &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"}})
 		for who, err := range map[string]error{"crew": rerr, "group": gerr} {
@@ -166,7 +166,7 @@ case "$1 $2" in
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 		}
-		handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
+		handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,7 +243,7 @@ func TestLiveCrew(t *testing.T) {
 	} {
 		h, calls, agents := listHerdr(t)
 		setAgents(t, agents, tc.agents...)
-		got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir, Handle: tc.handle})
+		got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir, Handle: tc.handle}, "")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -262,12 +262,12 @@ func TestLiveCrew(t *testing.T) {
 	h, _, agents := listHerdr(t)
 	h.YardHome = dir
 	setAgents(t, agents, "yardmaster "+real+" w3:p1")
-	if got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster"}); err != nil || got == nil {
+	if got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster"}, ""); err != nil || got == nil {
 		t.Errorf("bare name in the yard's home: %v %v", got, err)
 	}
 	// herdr down: an error, never "none".
 	down := &Herdr{Bin: fakeHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
-	if got, err := down.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir}); got != nil || !dispatch.IsRuntime(err) {
+	if got, err := down.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir}, ""); got != nil || !dispatch.IsRuntime(err) {
 		t.Errorf("herdr down: %v %v, want a runtime error", got, err)
 	}
 }
@@ -370,7 +370,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 
 	h, calls, _ = envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFile}}
-	if _, err := h.StartCrew(context.Background(), r); err != nil {
+	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
 		t.Fatal(err)
 	}
 	check(readCalls(t, calls), "workspace.create")
@@ -544,7 +544,7 @@ case "$1 $2" in
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
-	handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
+	handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ esac`)
 		t.Fatalf("the shell was asked for after the agent started:\n%s", got)
 	}
 	plain, _, _ := envHerdr(t, "")
-	if handle, err := plain.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}); err != nil || handle["shell_pid"] != nil {
+	if handle, err := plain.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, ""); err != nil || handle["shell_pid"] != nil {
 		t.Fatalf("a herdr that tells no shell: handle %v, %v", handle, err)
 	}
 }

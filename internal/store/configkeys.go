@@ -76,6 +76,7 @@ var ConfigKeys = []ConfigKey{
 	{"env_file", ConfigString, []string{"exec"}, GroupConfig, "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},
 	{"login_for", ConfigString, []string{"herdr"}, GroupConfig, "the user whose login the group's env_file carries; unset: the operator's"},
 	{"env_command", ConfigWords, []string{"herdr"}, CrewConfig, "a command that prints KEY=VALUE lines for the session's environment, run at each start"},
+	{CrewForKey, ConfigNames, nil, CrewConfig, "the users the crew member serves; unset: everyone"},
 	{"trust", ConfigBool, []string{"herdr"}, "", "false: a claude agent is not told to trust the directory it starts in"},
 	{"label", ConfigString, []string{"herdr"}, GroupConfig, "the label of the herdr workspace the group's sessions open in"},
 	{"greet", ConfigString, []string{"herdr"}, CrewConfig, "the user the crew member's first session greets"},
@@ -160,6 +161,21 @@ func configProblems(of ConfigOf, name, runner string, cfg, old map[string]any) [
 	for _, key := range sortedConfig(cfg) {
 		v := cfg[key]
 		if was, kept := old[key]; kept && reflect.DeepEqual(was, v) {
+			continue
+		}
+		// env_for_<user> is one key per user, not one row of the table: a
+		// herdr crew member's per-user env, held to the env_file rule's
+		// type (ReadEnvFile holds it to the rest at each start).
+		if user := EnvForUser(key); user != "" && of == CrewConfig {
+			if runner != "herdr" {
+				unknown = append(unknown, fmt.Errorf("%s: %w %q: a %s crew member's sessions start with no env of their own; it is read from a herdr one",
+					subject, ErrUnknownConfigKey, key, runner))
+				continue
+			}
+			if _, isString := v.(string); !isString {
+				typed = append(typed, fmt.Errorf("%s: herdr runner needs config.%s as %s, got the JSON %s; write --set '%s=%s'",
+					subject, key, ConfigString, jsonKind(v), key, quoted(v)))
+			}
 			continue
 		}
 		i := slices.IndexFunc(ConfigKeys, func(k ConfigKey) bool { return k.Key == key && k.reads(of, runner) })

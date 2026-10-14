@@ -493,12 +493,12 @@ func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, rea
 // The one thing yardr does for a crew member is prompt it when the window of
 // a usage limit has reset (harness_reset.go); at capacity it has no first
 // prompt to be given again.
-func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *store.CrewMember) {
+func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, s *memberSession) {
 	t, ok := runner.(Tailer)
 	if !ok {
 		return
 	}
-	key := "crew:" + r.Name
+	key := s.key()
 	since, ok := d.idleSince[key]
 	if !ok {
 		since = d.now()
@@ -507,76 +507,77 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 	if d.now().Sub(since) > harnessLook {
 		return
 	}
-	tail, err := t.Tail(ctx, r.Handle, stallTail)
+	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
 	if err != nil {
 		return // a pane that cannot be read says nothing either way
 	}
-	kind := harnessKind(r.Config)
-	provider, _ := r.Config["provider"].(string)
+	kind := harnessKind(s.member.Config)
+	provider, _ := s.member.Config["provider"].(string)
 	reason, line, _ := HarnessError(kind, tail)
-	if told, _ := r.Handle[HarnessErrorKey].(string); reason == told {
+	if told, _ := s.st.Handle[HarnessErrorKey].(string); reason == told {
 		return
 	}
 	var wake map[string]any
 	if reason != "" {
-		d.Log.Warn("crew member's harness stopped on an error", "crew", r.Name, "kind", kind, "reason", reason, "line", line)
-		data := map[string]any{"crew": r.Name, "kind": kind, "reason": reason, "line": line, "tail": tail,
+		d.Log.Warn("crew session's harness stopped on an error", "crew", s.member.Name, "session", s.label(), "kind", kind, "reason", reason, "line", line)
+		data := s.who(map[string]any{"kind": kind, "reason": reason, "line": line, "tail": tail,
 			"hint": "the crew member's harness stopped on an error and sits idle with its inbox unread; the line is " +
 				"in line, its pane's last lines in tail. It is left as it is: get the agent going in its pane, or " +
-				"start a fresh session with `yardr crew restart " + r.Name + "`"}
+				"start a fresh session with `" + s.restartCmd() + "`"})
 		if reason == ReasonRateLimited {
 			// A crew member's error reads the machine's login: no group
 			// judges it, so no group's env is joined.
 			said, w := d.harnessLimits(ctx, kind, provider, nil, data)
 			var wakes string
-			wake, wakes = d.resetWake(runner, r.Handle, w, data)
+			wake, wakes = d.resetWake(runner, s.st.Handle, w, data)
 			data["hint"] = said + wakes + data["hint"].(string)
-			if tries := handleInt(r.Handle[harnessRetries]); tries > 0 {
+			if tries := handleInt(s.st.Handle[harnessRetries]); tries > 0 {
 				data["tries"] = tries
 				data["hint"] = fmt.Sprintf("yardr has prompted the agent again %d times in this session; ", tries) + data["hint"].(string)
 			}
 		}
-		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, data); err != nil {
-			d.Log.Warn("session_harness_error event", "crew", r.Name, "err", err)
+		if err := d.Store.LogDispatch(ctx, s.member.Journal, "session_harness_error", actor, data); err != nil {
+			d.Log.Warn("session_harness_error event", "crew", s.member.Name, "session", s.label(), "err", err)
 		}
 	}
-	d.markCrewHarnessError(ctx, r, reason, wake)
+	d.markCrewHarnessError(ctx, s, reason, wake)
 }
 
-// crewHarnessLook starts the time r's pane is read in anew: something was
-// typed there, and a harness that is stopped says so again under it.
-func (d *Dispatcher) crewHarnessLook(r store.CrewMember) {
-	d.idleSince["crew:"+r.Name] = d.now()
+// crewHarnessLook starts the time the session's pane is read in anew:
+// something was typed there, and a harness that is stopped says so again
+// under it.
+func (d *Dispatcher) crewHarnessLook(s *memberSession) {
+	d.idleSince[s.key()] = d.now()
 }
 
-// crewHarnessOver ends the spell r's pane was read in: r's agent works, or
-// is idle with nothing unread. With its inbox empty the error told of is
-// over as well, since an agent that handled its inbox is not stopped: so
-// is what yardr still watched of a prompt it gave at a reset.
-func (d *Dispatcher) crewHarnessOver(ctx context.Context, r *store.CrewMember, handled bool) {
-	delete(d.idleSince, "crew:"+r.Name)
+// crewHarnessOver ends the spell the session's pane was read in: its agent
+// works, or is idle with nothing unread. With its inbox empty the error
+// told of is over as well, since an agent that handled its inbox is not
+// stopped: so is what yardr still watched of a prompt it gave at a reset.
+func (d *Dispatcher) crewHarnessOver(ctx context.Context, s *memberSession, handled bool) {
+	delete(d.idleSince, s.key())
 	if !handled {
 		return
 	}
 	for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessPrompted} {
-		if r.Handle[key] != nil {
-			h := maps.Clone(r.Handle)
+		if s.st.Handle[key] != nil {
+			h := maps.Clone(s.st.Handle)
 			for _, key := range []string{HarnessErrorKey, harnessRetryAt, harnessResetAt, harnessResetWindow, harnessPrompted} {
 				delete(h, key)
 			}
-			d.setCrewHandle(ctx, r, h)
+			d.setCrewHandle(ctx, s, h)
 			return
 		}
 	}
 }
 
-// markCrewLogin keeps line as the login screen r sits at on r's handle, or
-// takes the mark off for "". It writes only what changed.
-func (d *Dispatcher) markCrewLogin(ctx context.Context, r *store.CrewMember, line string) {
-	if cur, _ := r.Handle[HarnessLoginKey].(string); cur == line {
+// markCrewLogin keeps line as the login screen the session sits at on its
+// handle, or takes the mark off for "". It writes only what changed.
+func (d *Dispatcher) markCrewLogin(ctx context.Context, s *memberSession, line string) {
+	if cur, _ := s.st.Handle[HarnessLoginKey].(string); cur == line {
 		return
 	}
-	h := maps.Clone(r.Handle)
+	h := maps.Clone(s.st.Handle)
 	if h == nil {
 		h = map[string]any{}
 	}
@@ -585,15 +586,15 @@ func (d *Dispatcher) markCrewLogin(ctx context.Context, r *store.CrewMember, lin
 	} else {
 		h[HarnessLoginKey] = line
 	}
-	d.setCrewHandle(ctx, r, h)
+	d.setCrewHandle(ctx, s, h)
 }
 
-// markCrewHarnessError keeps reason on r's handle, or takes the mark off
-// for "". Either ends a wait for a reset; wake is the one that begins with
-// the mark (see resetWake), nil for none. What is kept of a prompt given at
-// a reset stays: crewPromptTaken ends that.
-func (d *Dispatcher) markCrewHarnessError(ctx context.Context, r *store.CrewMember, reason string, wake map[string]any) {
-	h := maps.Clone(r.Handle)
+// markCrewHarnessError keeps reason on the session's handle, or takes the
+// mark off for "". Either ends a wait for a reset; wake is the one that
+// begins with the mark (see resetWake), nil for none. What is kept of a
+// prompt given at a reset stays: crewPromptTaken ends that.
+func (d *Dispatcher) markCrewHarnessError(ctx context.Context, s *memberSession, reason string, wake map[string]any) {
+	h := maps.Clone(s.st.Handle)
 	if h == nil {
 		h = map[string]any{}
 	}
@@ -605,14 +606,14 @@ func (d *Dispatcher) markCrewHarnessError(ctx context.Context, r *store.CrewMemb
 	} else {
 		h[HarnessErrorKey] = reason
 	}
-	d.setCrewHandle(ctx, r, h)
+	d.setCrewHandle(ctx, s, h)
 }
 
-// setCrewHandle stores h as r's handle.
-func (d *Dispatcher) setCrewHandle(ctx context.Context, r *store.CrewMember, h map[string]any) {
-	if err := d.Store.SetCrewHandle(ctx, r.Name, h); err != nil {
-		d.Log.Warn("mark crew member's handle", "crew", r.Name, "err", err)
+// setCrewHandle stores h as the session's handle.
+func (d *Dispatcher) setCrewHandle(ctx context.Context, s *memberSession, h map[string]any) {
+	if err := d.Store.SetCrewHandleFor(ctx, s.member.Name, s.user, h); err != nil {
+		d.Log.Warn("mark crew session's handle", "crew", s.member.Name, "session", s.label(), "err", err)
 		return
 	}
-	r.Handle = h
+	s.st.Handle = h
 }

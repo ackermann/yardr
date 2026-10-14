@@ -131,6 +131,42 @@ yardr doctor --try           # one real call to each harness: does it answer at 
 When the crew member that gave up is the yardmaster itself, nobody is told: `yardr
 doctor` and bare `yardr` say it.
 
+## Conversation sessions
+
+A crew member is usually one session: the line session, which keeps the
+yard. With conversation sessions it also talks with users, each in its
+own session, on that user's env: a forwarded login answers as the user,
+a local one bills them.
+
+```sh
+yardr crew set yardmaster for=mckean2 env_for_mckean2=~/.yardr/crew/mckean2.env
+yardr crew show yardmaster    # … for mckean2: running · yardr-yardmaster-mckean2 · inbox 1 unread
+```
+
+`for=` names the users the crew member serves, and mail from anyone else
+is refused at write, naming whom it serves. Unset, it serves everyone.
+`env_for_<user>` names that user's env file, under the `env_file` rule (a
+file of `KEY=VALUE` lines, mode 0600, read at each start); the daemon
+keeps one conversation session per served user with its file set, on that
+env alone, besides the line session. The line session runs only where the
+operator is served: a `for=` that leaves the operator unnamed runs no
+line session, and its events and session-less mail wait unread in the
+log. Mail for a conversation waits in its slice until the session reads
+it: with the env file missing the session is blocked, and the mail waits
+until the file exists.
+
+One inbox, one cursor per session: mail from a user with a conversation
+goes to that slice alone, an ask's answer to the session that asked,
+and events and mail from people with no conversation to the line. Each
+slice acks through its own cursor, so acking the line's leaves a
+conversation's unread. The journal is one and shared, each entry tagged
+with the session that wrote it; the handoff is per session, read back by
+the session that wrote it. `yardr inbox`, `yardr prime --crew` and
+`yardr crew show` take `--for <user>` for a conversation's slice (a
+session reads its own from `$YARDR_CREW_FOR`), and `yardr crew restart
+--for <user>` restarts it. In herdr a conversation's agent is
+`<yard>-<name>-<user>` and its workspace `<yard> <name> for <user>`.
+
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts. A mail counts as read, where

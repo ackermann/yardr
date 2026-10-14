@@ -118,7 +118,22 @@ type CrewMember struct {
 	Identities    map[string]Identity `json:"identities,omitempty"`
 	Subscriptions []Subscription      `json:"subscriptions,omitempty"`
 
-	// Runtime, maintained by the daemon.
+	// Runtime of the line session, maintained by the daemon.
+	CrewSession
+
+	// Conversations is the runtime of each conversation session, by user:
+	// one session per served user whose env_for_<user> is set, on that
+	// env. The daemon makes each row when it first keeps the session,
+	// starting its cursors at the line session's.
+	Conversations map[string]CrewSession `json:"conversations,omitempty"`
+}
+
+// CrewSession is the runtime state of one session of a crew member: the
+// line session's lives in the CrewMember itself, and each conversation
+// session's under Conversations by its user. Every session has its own
+// inbox slice (Cursor), nudge position (Notified) and handoff, over the
+// one inbox and the one journal.
+type CrewSession struct {
 	State string `json:"state"` // stopped running failed
 	// Status is what the running session is doing, as the daemon last saw
 	// it (CrewStatus): working, idle, blocked (it waits at a prompt
@@ -138,8 +153,8 @@ type CrewMember struct {
 	RestartRequestedAt *time.Time     `json:"restart_requested_at,omitempty"`
 	RotationAskedAt    *time.Time     `json:"rotation_asked_at,omitempty"`
 	LastHandoffAt      *time.Time     `json:"last_handoff_at,omitempty"`
-	Cursor             uint64         `json:"cursor"`   // inbox acknowledged through this event seq
-	Notified           uint64         `json:"notified"` // nudged about events through this seq
+	Cursor             uint64         `json:"cursor"`   // inbox slice acknowledged through this event seq
+	Notified           uint64         `json:"notified"` // slice nudged about events through this seq
 
 	// Left are the handles of sessions that were gone when the daemon
 	// looked (CrewGone), oldest first: what they ran in is still open
@@ -148,7 +163,141 @@ type CrewMember struct {
 	Left []map[string]any `json:"left,omitempty"`
 }
 
-func (r CrewMember) Live() bool { return r.State == "running" }
+func (s CrewSession) Live() bool { return s.State == "running" }
+
+// CrewForKey is the crew config key naming the users a crew member serves;
+// EnvForPrefix starts the per-user env keys (env_for_<user>).
+const (
+	CrewForKey   = "for"
+	EnvForPrefix = "env_for_"
+)
+
+// EnvForUser is the user an env_for_<user> config key carries the env of,
+// "" for any other key.
+func EnvForUser(key string) string {
+	if !IsEnvForKey(key) {
+		return ""
+	}
+	return strings.TrimPrefix(key, EnvForPrefix)
+}
+
+// IsEnvForKey reports whether key is an env_for_<user> config key.
+func IsEnvForKey(key string) bool {
+	return len(key) > len(EnvForPrefix) && strings.HasPrefix(key, EnvForPrefix)
+}
+
+// Serves reports whether r serves user: everyone when its for= is unset
+// or empty, else the users it names.
+func (r CrewMember) Serves(user string) bool {
+	return configServes(r.Config, user)
+}
+
+// configServes is Serves of a config: everyone when for= is unset or
+// empty, else membership. The read receipt (readers.letter) asks it of a
+// config it decoded for cursors alone.
+func configServes(cfg map[string]any, user string) bool {
+	list := servedList(cfg)
+	return len(list) == 0 || slices.Contains(list, user)
+}
+
+// servedList is the users r's for= names, sorted, nil when unset or empty.
+func servedList(cfg map[string]any) []string {
+	v, ok := cfg[CrewForKey]
+	if !ok {
+		return nil
+	}
+	var out []string
+	switch v := v.(type) {
+	case string:
+		for _, u := range strings.Split(v, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				out = append(out, u)
+			}
+		}
+	case []string:
+		for _, u := range v {
+			if u = strings.TrimSpace(u); u != "" {
+				out = append(out, u)
+			}
+		}
+	case []any:
+		for _, x := range v {
+			if u, ok := x.(string); ok {
+				if u = strings.TrimSpace(u); u != "" {
+					out = append(out, u)
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// Served is the users r serves explicitly, sorted: nil when it serves
+// everyone. It is how a refusal names whom the crew member serves.
+func (r CrewMember) Served() []string { return servedList(r.Config) }
+
+// EnvFor is the env file carrying user's conversation session: the
+// env_for_<user> setting, "" where it names none.
+func (r CrewMember) EnvFor(user string) string {
+	path, _ := r.Config[EnvForPrefix+user].(string)
+	return path
+}
+
+// HasConversation reports whether r keeps a conversation session for
+// user: served, with its env_for_ key set.
+func (r CrewMember) HasConversation(user string) bool {
+	return user != "" && r.Serves(user) && r.EnvFor(user) != ""
+}
+
+// sliced reports whether r reads a slice for user: a conversation the
+// config declares whose row the daemon made. Until the row exists the
+// user's mail falls back to the line slice, which holds it: the line's
+// positional ack would otherwise strand it before the slice is made.
+func (r CrewMember) sliced(user string) bool {
+	if !r.HasConversation(user) {
+		return false
+	}
+	_, ok := r.Conversations[user]
+	return ok
+}
+
+// ConversationUsers are the users r keeps a conversation session for,
+// sorted.
+func (r CrewMember) ConversationUsers() []string {
+	var out []string
+	for key := range r.Config {
+		if user := EnvForUser(key); user != "" && r.Serves(user) && r.EnvFor(user) != "" {
+			out = append(out, user)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Session is the runtime state of the line session ("") or of the
+// conversation session for user. A user with no conversation reads zero.
+func (r CrewMember) Session(user string) CrewSession {
+	if user == "" {
+		return r.CrewSession
+	}
+	return r.Conversations[user]
+}
+
+// ensureConversation makes the row for user's conversation session where
+// missing, starting its cursors at the line session's, and answers it.
+// The caller stores back what it changes.
+func (r *CrewMember) ensureConversation(user string) CrewSession {
+	if cs, ok := r.Conversations[user]; ok {
+		return cs
+	}
+	cs := CrewSession{Cursor: r.Cursor, Notified: r.Notified}
+	if r.Conversations == nil {
+		r.Conversations = map[string]CrewSession{}
+	}
+	r.Conversations[user] = cs
+	return cs
+}
 
 func journalID(name string) string {
 	return strings.NewReplacer("/", "-", " ", "-").Replace(name) + "-journal"
@@ -231,6 +380,9 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 		if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
 			return ps[0]
 		}
+		if err := checkCrewUsers(w.Tx, &def); err != nil {
+			return err
+		}
 		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
 			def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
 		r.On = def.On
@@ -252,6 +404,30 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 		return w.event(r.Journal, "crew_defined", actor, map[string]any{"crew": r.Name, "runner": r.Runner})
 	})
 	return out, err
+}
+
+// checkCrewUsers refuses a crew member whose for= or env_for_<user> names
+// no user that exists, in the style of checkLoginFor: a serving list or a
+// conversation env for a typo'd name would strand the session silently.
+func checkCrewUsers(tx *bolt.Tx, def *CrewMember) error {
+	for _, who := range def.Served() {
+		if _, err := getUser(tx, who); err != nil {
+			return fmt.Errorf("crew member %s: for %s: %w", def.Name, who, err)
+		}
+	}
+	var envFor []string
+	for key := range def.Config {
+		if user := EnvForUser(key); user != "" {
+			envFor = append(envFor, user)
+		}
+	}
+	slices.Sort(envFor)
+	for _, who := range envFor {
+		if _, err := getUser(tx, who); err != nil {
+			return fmt.Errorf("crew member %s: env_for_%s: %w", def.Name, who, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Crew(ctx context.Context) ([]CrewMember, error) {
@@ -345,8 +521,8 @@ func checkCrewRev(name, have, want string) error {
 }
 
 // SetCrewEnabled starts (true) or stops (false) keeping it alive. Enabling
-// also clears a failure streak. A rev other than "" must be the crew member's
-// current revision.
+// also clears every session's failure streak. A rev other than "" must be
+// the crew member's current revision.
 func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
 		r.Enabled = enabled
@@ -354,6 +530,13 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 			r.Failures, r.RetryAfter = 0, nil
 			if r.State == "failed" {
 				r.State = "stopped"
+			}
+			for user, cs := range r.Conversations {
+				cs.Failures, cs.RetryAfter = 0, nil
+				if cs.State == "failed" {
+					cs.State = "stopped"
+				}
+				r.Conversations[user] = cs
 			}
 		}
 		kind := map[bool]string{true: "crew_enabled", false: "crew_disabled"}[enabled]
@@ -369,37 +552,19 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 // recorded start takes it off again; after a failed one it stays while its
 // shell runs (CrewStartFailed).
 func (s *Store) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
-	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
-		r.Starting = handle
-		return nil
-	})
+	return s.CrewStartingFor(ctx, name, "", handle)
 }
 
 // CrewStarted records a fresh session. The failure streak stays: only a
 // session that lives (CrewSettled) ends it.
 func (s *Store) CrewStarted(ctx context.Context, name string, handle map[string]any) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		t := now()
-		r.Starting = nil
-		r.PrevStartedAt, r.StartedAt = r.StartedAt, &t
-		r.State, r.Status, r.Handle, r.RetryAfter = "running", "", handle, nil
-		r.RestartRequested, r.RestartRequestedAt, r.RotationAskedAt = "", nil, nil
-		// The new session sees its unread inbox in its prime; only events
-		// after this point warrant a nudge.
-		if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
-			r.Notified = max(r.Notified, binary.BigEndian.Uint64(k))
-		}
-		return w.event(r.Journal, "crew_started", "yard", map[string]any{"crew": name, "handle": handle})
-	})
+	return s.CrewStartedFor(ctx, name, "", handle)
 }
 
 // CrewSettled ends the failure streak: the session has lived
 // MinSessionLife, so its start worked.
 func (s *Store) CrewSettled(ctx context.Context, name string) error {
-	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
-		r.Failures = 0
-		return nil
-	})
+	return s.CrewSettledFor(ctx, name, "")
 }
 
 // CrewStatuses are what CrewStatus takes: a runtime's word for
@@ -412,128 +577,61 @@ var CrewStatuses = []string{"working", "idle", "blocked", "unknown"}
 // from the stream; the same status again writes nothing. The event is on
 // no bead: a session's turns are not its journal's history.
 func (s *Store) CrewStatus(ctx context.Context, name, status string) error {
-	if !slices.Contains(CrewStatuses, status) {
-		return fmt.Errorf("crew member status %q: it is one of %s", status, strings.Join(CrewStatuses, ", "))
-	}
-	var r CrewMember
-	if err := s.read(func(tx *bolt.Tx) error {
-		_, err := get(tx, bCrew, name, &r)
-		return err
-	}); err != nil {
-		return err
-	}
-	if r.Status == status {
-		return nil // no write, and no new revision, for what did not change
-	}
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if r.State != "running" || r.Status == status {
-			return nil
-		}
-		was := r.Status
-		r.Status = status
-		return w.event("", "crew_status", "yard", map[string]any{"crew": name, "status": status, "was": was})
-	})
+	return s.CrewStatusFor(ctx, name, "", status)
 }
 
 // SetCrewHandle replaces the running session's handle (e.g. once its
 // pending first prompt was delivered).
 func (s *Store) SetCrewHandle(ctx context.Context, name string, handle map[string]any) error {
-	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
-		r.Handle = handle
-		return nil
-	})
+	return s.SetCrewHandleFor(ctx, name, "", handle)
 }
 
 // CrewStopped records that the session ended (stopped by yard, or died).
 func (s *Store) CrewStopped(ctx context.Context, name, reason string) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if r.State != "running" {
-			return nil
-		}
-		r.State, r.Status, r.Handle = "stopped", "", nil
-		return w.event(r.Journal, "crew_stopped", "yard", map[string]any{"crew": name, "reason": reason})
-	})
+	return s.CrewStoppedFor(ctx, name, "", reason)
 }
 
 // CrewGone is CrewStopped for a session that ended by itself in a
 // runtime that keeps what it ran in open: its handle goes to the end of
 // Left, in the same write, so no session's leavings are lost track of.
 func (s *Store) CrewGone(ctx context.Context, name, reason string) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if r.State != "running" {
-			return nil
-		}
-		if len(r.Handle) > 0 {
-			r.Left = append(r.Left, r.Handle)
-		}
-		r.State, r.Status, r.Handle = "stopped", "", nil
-		return w.event(r.Journal, "crew_stopped", "yard", map[string]any{"crew": name, "reason": reason})
-	})
+	return s.CrewGoneFor(ctx, name, "", reason)
 }
 
 // CrewLeft replaces Left, once the daemon has closed some of what it
 // lists.
 func (s *Store) CrewLeft(ctx context.Context, name string, left []map[string]any) error {
-	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
-		r.Left = left
-		return nil
-	})
+	return s.CrewLeftFor(ctx, name, "", left)
 }
 
 // CrewStartFailed counts a failed start (one that did not happen, or a
 // session gone within MinSessionLife); after MaxStartFails in a row the
 // crew member is parked (state failed) until someone starts it again.
 func (s *Store) CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		r.Failures++
-		// What the failed start opened, the daemon has closed as far as it
-		// could: a pane it could not close may still hold the agent, and is
-		// the crew member's for as long as its shell runs (paneCrew). A
-		// shell without a start time cannot be told from a later process
-		// with its pid, so that one is taken off.
-		if _, known := uintIn(r.Starting["shell_start"]); !known {
-			r.Starting = nil
-		}
-		retry := now().Add(backoff)
-		r.RetryAfter, r.State = &retry, "stopped"
-		kind := "crew_start_failed"
-		if r.Failures >= MaxStartFails {
-			r.State, kind = "failed", "crew_gave_up"
-		}
-		return w.event(r.Journal, kind, "yard", map[string]any{"crew": name, "reason": reason, "failures": r.Failures})
-	})
+	return s.CrewStartFailedFor(ctx, name, "", reason, backoff)
 }
 
 // RequestRestart asks the daemon for a fresh session once the current one
 // is idle (or the handoff grace has passed). A rev other than "" must be
 // the crew member's current revision.
 func (s *Store) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
-	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
-		t := now()
-		r.RestartRequested, r.RestartRequestedAt = reason, &t
-		return w.event(r.Journal, "crew_restart_requested", actor, map[string]any{"crew": name, "reason": reason})
-	})
+	return s.RequestRestartFor(ctx, name, "", reason, rev, actor)
 }
 
 // MarkRotationAsked records that the crew member was asked to hand off.
 func (s *Store) MarkRotationAsked(ctx context.Context, name string) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		t := now()
-		r.RotationAskedAt = &t
-		return w.event(r.Journal, "crew_rotation_asked", "yard", map[string]any{"crew": name})
-	})
+	return s.MarkRotationAskedFor(ctx, name, "")
 }
 
 // MarkNotified records that the crew member was nudged about events through seq.
 func (s *Store) MarkNotified(ctx context.Context, name string, seq uint64) error {
-	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
-		r.Notified = max(r.Notified, seq)
-		return nil
-	})
+	return s.MarkNotifiedFor(ctx, name, "", seq)
 }
 
 // Journal writes an entry on the crew member's journal bead. A handoff also
-// requests a fresh session.
+// requests a fresh session. The entry is tagged with the crew session that
+// wrote it (paneCrewSession), so each session reads back its own handoff;
+// a write from no crew pane is the line's.
 func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) error {
 	limit := map[string]int{NoteJournal: MaxJournalBytes, NoteHandoff: MaxHandoffBytes}[kind]
 	if limit == 0 {
@@ -546,13 +644,27 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 		return fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := w.addNote(r.Journal, kind, text, actor); err != nil {
+		// The entry is tagged with the session that wrote it: the handoff
+		// is per session, and the journal shared. A write from no crew
+		// pane is the line's, as every entry was before sessions.
+		_, session, err := paneCrewSession(w.Tx, callerOf(ctx))
+		if err != nil {
+			return err
+		}
+		if err := w.addNoteSession(r.Journal, kind, text, actor, session); err != nil {
 			return err
 		}
 		if kind == NoteHandoff {
 			t := now()
-			r.LastHandoffAt = &t
-			r.RestartRequested, r.RestartRequestedAt = "handoff", &t
+			if session == "" {
+				r.LastHandoffAt = &t
+				r.RestartRequested, r.RestartRequestedAt = "handoff", &t
+				return nil
+			}
+			cs := r.ensureConversation(session)
+			cs.LastHandoffAt = &t
+			cs.RestartRequested, cs.RestartRequestedAt = "handoff", &t
+			r.Conversations[session] = cs
 		}
 		return nil
 	})
@@ -576,6 +688,16 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...strin
 		}
 		switch {
 		case w.Bucket(bCrew).Get([]byte(to)) != nil:
+			var r CrewMember
+			if ok, err := get(w.Tx, bCrew, to, &r); err != nil {
+				return err
+			} else if ok && w.Bucket(bUsers).Get([]byte(actor)) != nil && !r.Serves(actor) {
+				// Mail from a user it does not serve is refused at write,
+				// naming whom it serves; anything else (the yard, another
+				// crew member, a bead's agent) still lands, for the line
+				// slice, or waits in the log where no line session runs.
+				return fmt.Errorf("mail to %s from %s: %s serves %s", to, actor, to, strings.Join(r.Served(), ", "))
+			}
 		case w.Bucket(bUsers).Get([]byte(to)) != nil:
 			data["to_user"] = true
 		default:
@@ -662,6 +784,13 @@ type InboxPage struct {
 // reads only the crew member's own index entries and those of its --on kinds
 // after its cursor, never the rest of the log.
 func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, error) {
+	return s.InboxFor(ctx, name, "", limit)
+}
+
+// InboxFor is Inbox for one session's slice: the line session's ("") or
+// the conversation session's for user. A user with no conversation is
+// refused: its mail falls back to the line slice, which reads it.
+func (s *Store) InboxFor(ctx context.Context, name, user string, limit int) (*InboxPage, error) {
 	page := &InboxPage{Events: []Event{}}
 	err := s.read(func(tx *bolt.Tx) error {
 		r := new(CrewMember)
@@ -670,8 +799,12 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 		} else if !ok {
 			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
+		cursor, err := sliceCursor(r, user)
+		if err != nil {
+			return err
+		}
 		var evs []Event
-		for _, k := range inboxKeys(tx, r) {
+		for _, k := range inboxKeysFrom(tx, r, cursor) {
 			var e Event
 			if ok, err := get(tx, bEvents, k, &e); err != nil {
 				return err
@@ -685,7 +818,7 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 			return err
 		}
 		for _, e := range evs {
-			if forCrew(r, e) {
+			if forSlice(r, user, e) {
 				page.Total++
 				page.Last = e.Seq
 				if limit <= 0 || len(page.Events) < limit {
@@ -701,11 +834,70 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 	return page, nil
 }
 
+// sliceCursor is the inbox position of the slice user ("": the line
+// session's). A conversation whose row the daemon has not made yet reads
+// at the line cursor: the position its slice starts at when made.
+func sliceCursor(r *CrewMember, user string) (uint64, error) {
+	if user == "" {
+		return r.Cursor, nil
+	}
+	if !r.HasConversation(user) {
+		return 0, fmt.Errorf("crew member %s has no conversation session for %s", r.Name, user)
+	}
+	if cs, ok := r.Conversations[user]; ok {
+		return cs.Cursor, nil
+	}
+	return r.Cursor, nil
+}
+
+// AskSessionOf is the crew session that asked the ask an answer event
+// answers: the ask_session the answer was logged with, "" for the line's
+// and for every answer from before sessions.
+func AskSessionOf(e Event) string {
+	who, _ := e.Data["ask_session"].(string)
+	return who
+}
+
+// forSlice reports whether e belongs in the inbox slice of session user
+// ("": the line session's) of r's one inbox. Mail from a user with a
+// conversation goes to that slice alone; an ask's answer to the session
+// that asked, falling back to the line where that conversation is gone
+// or its row not made yet; everything else (events, mail from people
+// with no conversation) to the line. Acking in one slice never hides
+// what another has not seen: each slice acks through its own cursor.
+func forSlice(r *CrewMember, user string, e Event) bool {
+	if !forCrew(r, e) {
+		return false
+	}
+	switch {
+	case e.Kind == "mail":
+		who := ""
+		if r.sliced(e.Actor) {
+			who = e.Actor
+		}
+		return user == who
+	case Reason(e, r.Name) == ReasonAnswered:
+		who := AskSessionOf(e)
+		if !r.sliced(who) {
+			who = ""
+		}
+		return user == who
+	default:
+		return user == ""
+	}
+}
+
 // inboxKeys are the event keys after r's cursor that may be in its inbox,
 // in seq order: its inbox index entries and those of the kinds it hears of
 // through --on.
 func inboxKeys(tx *bolt.Tx, r *CrewMember) []string {
-	from := seqKey(r.Cursor + 1)
+	return inboxKeysFrom(tx, r, r.Cursor)
+}
+
+// inboxKeysFrom is inboxKeys after cursor: one session's slice of the
+// same index entries.
+func inboxKeysFrom(tx *bolt.Tx, r *CrewMember, cursor uint64) []string {
+	from := seqKey(cursor + 1)
 	seen := map[string]bool{}
 	var out []string
 	scan := func(b []byte, prefix string) {
@@ -733,17 +925,15 @@ func inboxKeys(tx *bolt.Tx, r *CrewMember) []string {
 
 // AckInbox marks the inbox read through seq.
 func (s *Store) AckInbox(ctx context.Context, name string, through uint64) error {
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		was := r.Cursor
-		r.Cursor = max(r.Cursor, through)
-		r.Notified = max(r.Notified, r.Cursor)
-		return w.mailRead(name, was, r.Cursor)
-	})
+	return s.AckInboxFor(ctx, name, "", through)
 }
 
 // Prime is what a fresh crew member session reads first, bounded in size.
 type Prime struct {
-	CrewMember      CrewMember     `json:"crew"`
+	CrewMember CrewMember `json:"crew"`
+	// Session is the user of the conversation session primed, "" for the
+	// line session's.
+	Session         string         `json:"session,omitempty"`
 	Handoff         *Note          `json:"handoff,omitempty"`
 	Since           []Note         `json:"since"`   // journal entries after the handoff, newest last
 	Omitted         int            `json:"omitted"` // entries after the handoff not shown
@@ -761,18 +951,32 @@ type Prime struct {
 
 // CrewPrime gathers what the next session needs, and only that.
 func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
+	return s.CrewPrimeFor(ctx, name, "")
+}
+
+// CrewPrimeFor is CrewPrime for one session: the line session ("") or the
+// conversation session for user. The handoff, the asks and the inbox are
+// the session's own; the journal entries since, the memories and the
+// timers are shared. A user with no conversation is refused.
+func (s *Store) CrewPrimeFor(ctx context.Context, name, user string) (*Prime, error) {
 	r, err := s.GetCrew(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	p := &Prime{CrewMember: *r, Since: []Note{}}
+	if user != "" && !r.HasConversation(user) {
+		return nil, fmt.Errorf("crew member %s has no conversation session for %s", name, user)
+	}
+	st := r.Session(user)
+	p := &Prime{CrewMember: *r, Session: user, Since: []Note{}}
 	notes, err := s.Notes(ctx, r.Journal)
 	if err != nil {
 		return nil, err
 	}
 	var after []Note
 	for i := len(notes) - 1; i >= 0; i-- {
-		if notes[i].Kind == NoteHandoff {
+		// The handoff is per session, over the one shared journal: each
+		// session reads back the latest its own session wrote.
+		if notes[i].Kind == NoteHandoff && notes[i].Session == user {
 			h := notes[i]
 			p.Handoff, after = &h, notes[i+1:]
 			break
@@ -786,7 +990,7 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 	}
 	p.Since = append(p.Since, after...)
 
-	inbox, err := s.Inbox(ctx, name, PrimeInbox)
+	inbox, err := s.InboxFor(ctx, name, user, PrimeInbox)
 	if err != nil {
 		return nil, err
 	}
@@ -810,8 +1014,17 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 	// What it still waits on from people, from the yard's records, so its
 	// handoff need not carry that list as prose: the oldest first, and how
 	// many the prime leaves out (bead list --asked-by lists them).
-	if p.Asks, err = s.WriterAsks(ctx, name); err != nil {
+	asks, err := s.WriterAsks(ctx, name)
+	if err != nil {
 		return nil, err
+	}
+	// An ask's answer goes to the session that asked: each session primes
+	// with the asks its own session wrote.
+	p.Asks = []WriterAsk{}
+	for _, a := range asks {
+		if a.Session == user {
+			p.Asks = append(p.Asks, a)
+		}
 	}
 	if len(p.Asks) > PrimeAsks {
 		p.AsksOmitted, p.Asks = len(p.Asks)-PrimeAsks, p.Asks[:PrimeAsks]
@@ -820,10 +1033,10 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 	// The previous session ended without writing a handoff (it crashed, or
 	// was rotated by force): summarize what happened since the last handoff,
 	// or since that session started, so the new one can reconstruct.
-	if prev := r.PrevStartedAt; prev != nil && (r.LastHandoffAt == nil || r.LastHandoffAt.Before(*prev)) {
+	if prev := st.PrevStartedAt; prev != nil && (st.LastHandoffAt == nil || st.LastHandoffAt.Before(*prev)) {
 		from := *prev
-		if r.LastHandoffAt != nil {
-			from = *r.LastHandoffAt
+		if st.LastHandoffAt != nil {
+			from = *st.LastHandoffAt
 		}
 		p.NoHandoff, p.EventCounts = true, map[string]int{}
 		// Newest first, back to where that session began: the log before

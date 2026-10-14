@@ -781,6 +781,12 @@ func tryHint(yardr, kind string) string {
 // lastStartFailure is the reason of the crew member's latest failed start, ""
 // when none is logged.
 func lastStartFailure(ctx context.Context, st store.API, r store.CrewMember) string {
+	return lastSessionFailure(ctx, st, r, "")
+}
+
+// lastSessionFailure is lastStartFailure for one session: the line
+// session's ("") or the conversation's for user.
+func lastSessionFailure(ctx context.Context, st store.API, r store.CrewMember, user string) string {
 	evs, err := st.Events(ctx, r.Journal, 50)
 	if err != nil {
 		return ""
@@ -790,6 +796,10 @@ func lastStartFailure(ctx context.Context, st store.API, r store.CrewMember) str
 	for _, e := range evs {
 		switch store.EventKind(e.Kind) {
 		case "crew_start_failed", "crew_gave_up", "crew_blocked":
+			who, _ := e.Data["user"].(string)
+			if who != user {
+				continue
+			}
 			if s, _ := e.Data["reason"].(string); s != "" && e.Seq >= seq {
 				seq, reason = e.Seq, s
 			}

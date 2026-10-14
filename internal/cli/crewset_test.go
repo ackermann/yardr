@@ -407,7 +407,7 @@ func TestCrewKeepsAKeyNothingReadsAndNeverPrintsIt(t *testing.T) {
 	}
 	for _, set := range []string{"api_token=hunter3", "modle=opus"} {
 		key, _, _ := strings.Cut(set, "=")
-		refusedAs(t, st, "jo", `crew member clerk: unknown config key "`+key+`": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, provider, set_state, trust`,
+		refusedAs(t, st, "jo", `crew member clerk: unknown config key "`+key+`": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, for, greet, kind, model, open_threads, peers, prompt, provider, set_state, trust`,
 			"crew", "set", "clerk", set)
 	}
 	refusedAs(t, st, "jo", `crew member y: unknown config key "max_age"`, "crew", "add", "y", "--set", "max_age=6h")

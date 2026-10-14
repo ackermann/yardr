@@ -754,6 +754,11 @@ type Note struct {
 	// any. Only a plain note written with files has any (yardr bead note
 	// --file, or AddNote over the wire).
 	Files []BlobRef `json:"files,omitempty"`
+	// Session is the crew session that wrote a journal, handoff or ask
+	// note: the user of a conversation session, "" for the line session
+	// and for every note written elsewhere. A handoff is read back by
+	// the session that wrote it, and an ask's answer routed to it.
+	Session string `json:"session,omitempty"`
 }
 
 // AddNote puts a plain note on the bead without telling its live session,
@@ -1000,17 +1005,31 @@ func (s *Store) refuseForeignNote(bead, peer string) error {
 }
 
 func (w *wtx) addNote(id, kind, text, actor string) error {
+	return w.addNoteSession(id, kind, text, actor, "")
+}
+
+// addNoteSession is addNote tagging the note with the crew session that
+// wrote it: the user of a conversation session, "" for the line session
+// and for every other write. Only journal, handoff and ask notes are
+// ever tagged; anything else reads the tag as "".
+func (w *wtx) addNoteSession(id, kind, text, actor, session string) error {
 	row, err := w.loadBead(id)
 	if err != nil {
 		return err
 	}
-	_, err = w.addNoted(row, kind, text, actor)
+	_, err = w.addNotedSession(row, kind, text, actor, session)
 	return err
 }
 
 // addNoted adds the note to the bead row and answers it, seq and all.
 func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
-	return w.addNotedNotify(row, kind, text, actor, "", nil)
+	return w.addNotedSession(row, kind, text, actor, "")
+}
+
+// addNotedSession is addNoted tagging the note with the crew session that
+// wrote it (addNoteSession).
+func (w *wtx) addNotedSession(row *beadRow, kind, text, actor, session string) (*Note, error) {
+	return w.addNotedNotifySession(row, kind, text, actor, "", nil, session)
 }
 
 // addNotedNotify is addNoted that names the session a plain note is for:
@@ -1018,14 +1037,23 @@ func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
 // for any kind but a plain note. files are the images the note carries, as
 // PutBlob answered them, and only a plain note has any.
 func (w *wtx) addNotedNotify(row *beadRow, kind, text, actor, notify string, files []BlobRef) (*Note, error) {
+	return w.addNotedNotifySession(row, kind, text, actor, notify, files, "")
+}
+
+// addNotedNotifySession is addNotedNotify tagging the note with the crew
+// session that wrote it (addNoteSession).
+func (w *wtx) addNotedNotifySession(row *beadRow, kind, text, actor, notify string, files []BlobRef, session string) (*Note, error) {
 	if kind != NoteNote {
 		notify, files = "", nil
+	}
+	if kind != NoteJournal && kind != NoteHandoff && kind != NoteAsk {
+		session = ""
 	}
 	seq, err := w.Bucket(bNotes).NextSequence()
 	if err != nil {
 		return nil, err
 	}
-	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor), Notify: notify, Files: files}
+	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor), Notify: notify, Files: files, Session: session}
 	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 		return nil, err
 	}

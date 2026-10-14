@@ -48,14 +48,15 @@ func (h *Herdr) crewDir(r store.CrewMember) string {
 	return h.YardHome
 }
 
-// LiveCrew looks through herdr's agents for one that already is r
-// without being the session yardr recorded for it (see
-// dispatch.CrewFinder): an agent under the crew member's herdr name
-// (CrewAgentName), or one under its bare name in its directory, which
-// is what a pane started by hand before the crew member was defined looks
-// like. The recorded session itself (r.Handle's agent, in its pane) is not
-// counted: after a stop for a handoff herdr may list it a moment longer.
-func (h *Herdr) LiveCrew(ctx context.Context, r store.CrewMember) (*dispatch.LiveAgent, error) {
+// LiveCrew looks through herdr's agents for one that already is the line
+// session ("") or the conversation session for user of r without being
+// the session yardr recorded for it (see dispatch.CrewFinder): an agent
+// under the session's herdr name, or one under its bare name in its
+// directory, which is what a pane started by hand before the crew member
+// was defined looks like. The recorded session itself (its handle's agent,
+// in its pane) is not counted: after a stop for a handoff herdr may list
+// it a moment longer.
+func (h *Herdr) LiveCrew(ctx context.Context, r store.CrewMember, user string) (*dispatch.LiveAgent, error) {
 	raw, err := h.run(ctx, "agent", "list")
 	if err != nil {
 		return nil, err
@@ -70,10 +71,15 @@ func (h *Herdr) LiveCrew(ctx context.Context, r store.CrewMember) (*dispatch.Liv
 	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, fmt.Errorf("agent list: %w", err)
 	}
-	full, bare := CrewAgentName(h.yardName(ctx), r.Name), agentName(r.Name)
+	yard := h.yardName(ctx)
+	full, bare := CrewAgentName(yard, r.Name), agentName(r.Name)
+	if user != "" {
+		full, bare = CrewConversationAgentName(yard, r.Name, user), agentName(r.Name+"-"+user)
+	}
 	dir := realPath(h.crewDir(r))
-	own, _ := r.Handle["agent"].(string)
-	ownPane, _ := r.Handle["pane"].(string)
+	st := r.Session(user)
+	own, _ := st.Handle["agent"].(string)
+	ownPane, _ := st.Handle["pane"].(string)
 	for _, a := range list.Agents {
 		if a.Name == "" || (a.Name == own && a.Pane == ownPane) {
 			continue
@@ -130,38 +136,50 @@ func Greeted(r store.CrewMember) bool {
 }
 
 // crewPrompt is a crew member's first prompt: who it is and where its
-// prime is, and for a session that greets (Greets) whom to write to first.
-// It begins and ends as every crew member's does: the start is what a pane is
-// searched for to tell that the prompt arrived (showsPrompt), the end what
-// the agent's answer is looked for after.
-func crewPrompt(yardr string, r store.CrewMember) string {
+// prime is, and for a line session that greets (Greets) whom to write to
+// first. A conversation session never greets: its user talks first, and the
+// greeting is the setup's. It begins and ends as every crew member's does:
+// the start is what a pane is searched for to tell that the prompt arrived
+// (showsPrompt), the end what the agent's answer is looked for after.
+func crewPrompt(yardr string, r store.CrewMember, user string) string {
 	run := "Run"
-	if user := Greets(r); user != "" {
-		run = fmt.Sprintf("%s set this yard up a moment ago and waits for your first message in `%s chat`, which shows "+
-			"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s \"<text>\"` and say "+
-			"what you need from them for the next setup step; go on with them by mail. First run", user, yardr, yardr, user)
+	if user == "" {
+		if who := Greets(r); who != "" {
+			run = fmt.Sprintf("%s set this yard up a moment ago and waits for your first message in `%s chat`, which shows "+
+				"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s \"<text>\"` and say "+
+				"what you need from them for the next setup step; go on with them by mail. First run", who, yardr, yardr, who)
+		}
 	}
 	return fmt.Sprintf(CrewPromptLead+" %q. %s `%s prime --crew %s` "+CrewPromptEnd, r.Name, run, yardr, r.Name)
 }
 
 // StartCrew opens a herdr workspace in the crew member's directory, with
 // its identity in the environment, starts its agent and points it at its
-// prime. The agent and the workspace are named after the yard and the
-// crew member (CrewAgentName).
-func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]any, error) {
+// prime: the line session ("") or the conversation session for user, on
+// that session's env. The agent and the workspace are named after the yard
+// and the crew member (CrewAgentName), with the user for a conversation.
+func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) (map[string]any, error) {
 	dir := h.crewDir(r)
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("crew member directory %q does not exist", dir)
 	}
-	secrets, err := h.crewEnv(ctx, r, dir)
+	secrets, err := h.crewSessionEnv(ctx, r, dir, user)
 	if err != nil {
 		return nil, err
 	}
 	yard := h.yardName(ctx)
-	name := CrewAgentName(yard, r.Name)
+	name, label := CrewAgentName(yard, r.Name), CrewLabel(yard, r.Name)
+	if user != "" {
+		name, label = CrewConversationAgentName(yard, r.Name, user), CrewConversationLabel(yard, r.Name, user)
+	}
 	// The settings of the yard's server are blanked, as for a bead's agent
 	// (agentEnv).
 	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
+	if user != "" {
+		// How the session's commands read their slice: prime, inbox and
+		// the rest resolve the session from it.
+		env = append(env, config.Env(CrewForEnv, user)...)
+	}
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
@@ -173,12 +191,12 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// could not close is the crew member's while its shell runs
 	// (store.paneCrew), also when this start opens none.
 	if h.Store != nil {
-		starting := maps.Clone(r.Starting)
+		starting := maps.Clone(r.Session(user).Starting)
 		if starting == nil {
 			starting = map[string]any{}
 		}
 		starting[store.HandleHerdrSession] = ""
-		if err := h.Store.CrewStarting(ctx, r.Name, starting); err != nil {
+		if err := h.Store.CrewStartingFor(ctx, r.Name, user, starting); err != nil {
 			return nil, err
 		}
 	}
@@ -186,7 +204,7 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// call). The workspace is not focused: a crew member starts in the
 	// background, under the daemon, not in front of whoever is at herdr.
 	raw, err := h.call(ctx, "workspace.create", map[string]any{
-		"cwd": dir, "label": CrewLabel(yard, r.Name), "focus": false,
+		"cwd": dir, "label": label, "focus": false,
 		"env": envMap(withEnvFile(env, secrets)),
 	})
 	if err != nil {
@@ -198,13 +216,16 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	}
 	handle := map[string]any{"agent": name, "workspace": ws.Workspace.ID, "tab": ws.Tab.ID,
 		"pane": ws.RootPane.ID, "dir": dir}
+	if user != "" {
+		handle["for"] = user
+	}
 	// As for a bead's session: the store then knows a command run in the
 	// crew member's pane as the crew member's, whatever actor it names, which is
 	// what keeps a crew member from releasing a peer's bead as a user
 	// (store.paneCrew).
 	h.shellOn(ctx, ws.RootPane.ID, handle)
 	if err := h.shellKnown(handle, func(handle map[string]any) error {
-		return h.Store.CrewStarting(ctx, r.Name, handle)
+		return h.Store.CrewStartingFor(ctx, r.Name, user, handle)
 	}); err != nil {
 		return handle, err
 	}
@@ -215,9 +236,34 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	if extra := agentArgs(r.Config, "", h.YardHome, dir); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	prompt := crewPrompt(h.yard(), r)
+	prompt := crewPrompt(h.yard(), r, user)
 	handle[firstPrompt] = prompt
 	return h.startAgent(ctx, start, name, prompt, handle, trusts(r.Config))
+}
+
+// CrewForEnv is the pane env name (YARDR_CREW_FOR) carrying the user of a
+// conversation session: how its commands read their slice.
+const CrewForEnv = "CREW_FOR"
+
+// crewSessionEnv is what the session's settings add to its pane
+// environment: the line session's env_file and env_command (crewEnv), or a
+// conversation session's env_for_ file alone, held to the env_file rule. A
+// conversation never inherits the line's env: its file carries its user's
+// login, and the line's command output winning over it could burn the
+// wrong login. Either source refused is Blocked, as a group's env_file is.
+func (h *Herdr) crewSessionEnv(ctx context.Context, r store.CrewMember, dir, user string) ([]string, error) {
+	if user == "" {
+		return h.crewEnv(ctx, r, dir)
+	}
+	who := "crew member " + r.Name + " for " + user
+	f, err := config.ReadEnvFile(r.EnvFor(user))
+	if err != nil {
+		return nil, dispatch.Blocked(fmt.Errorf("%s: %w", who, err))
+	}
+	if h.Log != nil {
+		h.Log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
+	}
+	return f.Env, nil
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of

@@ -64,7 +64,7 @@ func TestInboxMailFromRemovedPeer(t *testing.T) {
 			t.Fatalf("%s: a's yardmaster's inbox =\n%s", when, out)
 		}
 		var err error
-		prime := capture(t, func() { err = a.a.primeCrew(ctx, a.st, "yardmaster") })
+		prime := capture(t, func() { err = a.a.primeCrew(ctx, a.st, "yardmaster", "") })
 		if err != nil || strings.Contains(prime, "yardmaster@b"+mark+"one") || !strings.Contains(prime, unlinked) {
 			t.Fatalf("%s: a's yardmaster's prime: %v\n%s", when, err, prime)
 		}

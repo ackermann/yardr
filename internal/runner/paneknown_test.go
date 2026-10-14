@@ -37,16 +37,16 @@ func (p *paneStore) SetHandle(_ context.Context, id string, handle map[string]an
 	return p.record(id, handle)
 }
 
-func (p *paneStore) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
+func (p *paneStore) CrewStartingFor(ctx context.Context, name, user string, handle map[string]any) error {
 	if _, pane := handle["pane"]; !pane && p.firstStart == nil {
 		p.firstStart = handle
 		p.startBefore = readCalls(p.t, p.calls)
-		return p.API.CrewStarting(ctx, name, handle)
+		return p.API.CrewStartingFor(ctx, name, user, handle)
 	}
 	if err := p.record(name, handle); err != nil {
 		return err
 	}
-	return p.API.CrewStarting(ctx, name, handle)
+	return p.API.CrewStartingFor(ctx, name, user, handle)
 }
 
 // shellHerdr is envHerdr whose panes tell their shell: this process.
@@ -74,7 +74,7 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}); err != nil {
+	if _, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if st.firstStart == nil || st.firstStart[store.HandleHerdrSession] != "" || st.startBefore != "" {
@@ -96,7 +96,7 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.refuse = errors.New("the store is away")
-	handle, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
+	handle, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, "")
 	if err == nil || !strings.Contains(err.Error(), "the store is away") || strings.Contains(readCalls(t, st.calls), "agent start") {
 		t.Fatalf("a pane the store did not take: %v, calls:\n%s", err, readCalls(t, st.calls))
 	}
@@ -146,7 +146,7 @@ case "$1 $2" in
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
-	_, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
+	_, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}, "")
 	calls := readCalls(t, st.calls)
 	if err == nil || !strings.Contains(err.Error(), "did not report the pane shell") || strings.Contains(calls, "agent start") {
 		t.Errorf("crew start without a recorded pane = %v, calls:\n%s", err, calls)
@@ -218,7 +218,7 @@ esac`)
 		t.Fatal(err)
 	}
 	r.Dir = t.TempDir()
-	if _, err := h.StartCrew(ctx, *r); err == nil {
+	if _, err := h.StartCrew(ctx, *r, ""); err == nil {
 		t.Fatal("a start whose pane told no shell succeeded")
 	}
 	if err := st.CrewStartFailed(ctx, "yardmaster", "no shell", 0); err != nil {

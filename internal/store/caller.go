@@ -98,11 +98,22 @@ func paneOf(tx *bolt.Tx, p int) (*pane, error) {
 // recorded. nil when pid is 0, and for a crew member whose runner recorded
 // no shell: that one is known by the actor its commands name alone.
 func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
+	r, _, err := paneCrewSession(tx, pid)
+	return r, err
+}
+
+// paneCrewSession is paneCrew with the session: the crew member whose pane
+// the process pid runs in, and the user of the conversation session whose
+// pane it is ("" for the line session's). A journal, handoff or ask note
+// written from a conversation's pane is tagged with it, so the handoff is
+// read back, and the ask's answer routed, by that session.
+func paneCrewSession(tx *bolt.Tx, pid int) (*CrewMember, string, error) {
 	if pid <= 0 {
-		return nil, nil
+		return nil, "", nil
 	}
 	type crewPane struct {
 		r      *CrewMember
+		user   string
 		handle map[string]any
 	}
 	// Two records may name one pid: a shell that is gone, and the shell
@@ -111,37 +122,46 @@ func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
 	panes := map[int][]crewPane{}
 	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if p, ok := pidIn(r.Handle["shell_pid"]); ok && r.Live() {
-			panes[p] = append(panes[p], crewPane{r, r.Handle})
+			panes[p] = append(panes[p], crewPane{r, "", r.Handle})
 		}
 		if p, ok := pidIn(r.Starting["shell_pid"]); ok {
-			panes[p] = append(panes[p], crewPane{r, r.Starting})
+			panes[p] = append(panes[p], crewPane{r, "", r.Starting})
+		}
+		for user, cs := range r.Conversations {
+			if p, ok := pidIn(cs.Handle["shell_pid"]); ok && cs.Live() {
+				panes[p] = append(panes[p], crewPane{r, user, cs.Handle})
+			}
+			if p, ok := pidIn(cs.Starting["shell_pid"]); ok {
+				panes[p] = append(panes[p], crewPane{r, user, cs.Starting})
+			}
 		}
 		return nil
 	})
 	if err != nil || len(panes) == 0 {
-		return nil, err
+		return nil, "", err
 	}
 	for _, p := range peer.Ancestors(pid) {
 		// A shell whose start time matches wins over one recorded
 		// without, which is trusted by its pid alone.
-		var unverified *CrewMember
+		var unverified *crewPane
 		for _, cp := range panes[p] {
 			start, known := uintIn(cp.handle["shell_start"])
 			if !known {
 				if unverified == nil {
-					unverified = cp.r
+					cp := cp
+					unverified = &cp
 				}
 				continue
 			}
 			if peer.Alive(p, start) {
-				return cp.r, nil
+				return cp.r, cp.user, nil
 			}
 		}
 		if unverified != nil {
-			return unverified, nil
+			return unverified.r, unverified.user, nil
 		}
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 // pidIn reads a pid from a handle, which JSON may have made a float.

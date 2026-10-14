@@ -42,7 +42,7 @@ func TestStartCrewLoadsEnvCommand(t *testing.T) {
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_command": cmd + " --env"}}
 	for range 2 {
-		handle, err := h.StartCrew(context.Background(), r)
+		handle, err := h.StartCrew(context.Background(), r, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +66,7 @@ func TestStartCrewEnvCommandWinsOverEnvFile(t *testing.T) {
 	cmd, _ := providerT(t, `echo "LINEAR_API_KEY=`+envSecret+`"`)
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": file, "env_command": cmd}}
-	handle, err := h.StartCrew(context.Background(), r)
+	handle, err := h.StartCrew(context.Background(), r, "")
 	if err != nil {
 		t.Fatal(err)
 	}

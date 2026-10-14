@@ -20,6 +20,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -84,6 +85,7 @@ func (a *app) crewCmd() *cobra.Command {
 	var def store.CrewMember
 	var sets []string
 	var replace bool
+	var restartFor, showFor string
 	add := &cobra.Command{
 		Use:   "add [<name>]",
 		Short: "Create a crew member, or replace one's whole definition (no name: an interactive form)",
@@ -107,6 +109,16 @@ word with a space in it) at each start, and the crew member does not start
 when it fails. With both, the command's value wins for a key in both. The
 command line is stored and shown (yardr crew show): never put a secret
 in it. docs/crew.md has both.
+
+--set for=jo,mckean2 serves those users alone: mail from anyone else is
+refused at write, and the line session runs only where the operator is
+served. Unset, it serves everyone. --set env_for_mckean2=<path> names a
+file of KEY=VALUE lines (mode 0600) for that user's conversation session,
+under the env_file rule: the daemon keeps one session per served user
+with its file set, on that env, besides the line session. Each session
+reads its own slice of the one inbox (mail from its user, and an ask's
+answer to the session that asked) and its own handoff, over the one
+shared journal. docs/crew.md has the sessions.
 
 --set open_threads=linear,github lets the crew member open threads of its own
 in those sources (yardr thread open). It is off unless set, and only the
@@ -194,7 +206,7 @@ for its links (yardr peer list).`,
 	f := add.Flags()
 	f.BoolVar(&replace, "replace", false, "the crew member exists: save this definition in its place without asking (settings left out are dropped)")
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, for, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the crew member works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is), or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -229,6 +241,9 @@ for its links (yardr peer list).`,
 					if f := startFailures(r, time.Now()); f != "" {
 						state += " (" + f + ")"
 					}
+					for _, u := range r.ConversationUsers() {
+						state += fmt.Sprintf(" (for %s: %s)", u, or(r.Session(u).State, "stopped"))
+					}
 					rows = append(rows, []string{r.Name, state, up, crewAgent(r), r.Journal})
 				}
 				table("NAME\tSTATE\tUP\tAGENT\tJOURNAL", rows)
@@ -237,7 +252,7 @@ for its links (yardr peer list).`,
 	}
 
 	show := &cobra.Command{
-		Use: "show <name>", Short: "Show a crew member, its inbox and recent journal", Args: cobra.ExactArgs(1),
+		Use: "show <name>", Short: "Show a crew member, its sessions, its inbox and recent journal", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -247,9 +262,20 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
-			inbox, err := st.Inbox(c.Context(), r.Name, 0)
+			user := crewSession(showFor)
+			inbox, err := st.InboxFor(c.Context(), r.Name, user, 0)
 			if err != nil {
 				return err
+			}
+			// Each conversation's slice, for the session lines below; the
+			// line's own count is the inbox read above when no --for.
+			unread := map[string]int{}
+			for _, u := range r.ConversationUsers() {
+				page, err := st.InboxFor(c.Context(), r.Name, u, 0)
+				if err != nil {
+					return err
+				}
+				unread[u] = page.Total
 			}
 			notes, err := st.Notes(c.Context(), r.Journal)
 			if err != nil {
@@ -265,6 +291,12 @@ for its links (yardr peer list).`,
 			}
 			mayCall := grantedTo(grants, store.Grantee{Crew: r.Name})
 			out := map[string]any{"crew": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
+			if user != "" {
+				out["session"] = user
+			}
+			if len(unread) > 0 {
+				out["slices"] = unread
+			}
 			if len(mayCall) > 0 {
 				out["calls"] = mayCall
 			}
@@ -289,6 +321,17 @@ for its links (yardr peer list).`,
 					// whether the harness works: doctor can ask it.
 					if r.Runner == "herdr" {
 						fmt.Println("  yardr doctor --try asks its harness for one real answer (a model call), yardr doctor for the rest")
+					}
+				}
+				for _, u := range r.ConversationUsers() {
+					cs := r.Session(u)
+					fmt.Printf("  for %s: %s · %s · inbox %d unread\n", u, or(cs.State, "stopped"), sessionAgent(cs.Handle), unread[u])
+					if f := sessionFailures(r.Name, r.Enabled, u, cs, time.Now()); f != "" {
+						fmt.Printf("  for %s: %s", u, f)
+						if reason := lastSessionFailure(c.Context(), st, *r, u); reason != "" {
+							fmt.Printf(", the last with: %s", reason)
+						}
+						fmt.Println()
 					}
 				}
 				for _, e := range env {
@@ -317,7 +360,11 @@ for its links (yardr peer list).`,
 					}
 					fmt.Printf("  config %s\n", fmtSets(shown))
 				}
-				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
+				if user == "" {
+					fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
+				} else {
+					fmt.Printf("  inbox %d unread for %s · on %s\n", inbox.Total, user, strings.Join(r.On, ","))
+				}
 				if may := r.MayOpen(); len(may) > 0 {
 					fmt.Printf("  may open threads in %s\n", strings.Join(may, ", "))
 				}
@@ -344,7 +391,7 @@ for its links (yardr peer list).`,
 				printTimers(timers, r.Name, "  ")
 				fmt.Printf("  journal %s (%d entries)\n", r.Journal, len(notes))
 				for _, n := range notes[max(0, len(notes)-5):] {
-					fmt.Printf("    [%s %s %s] %s\n", n.At.Local().Format("01-02 15:04"), or(n.Kind, "note"), n.Author,
+					fmt.Printf("    [%s %s %s] %s\n", n.At.Local().Format("01-02 15:04"), or(n.Kind, "note"), noteAuthor(n),
 						firstLine(n.Text))
 				}
 			})
@@ -380,8 +427,10 @@ for its links (yardr peer list).`,
 		return st.SetCrewEnabled(ctx, n, false, rev, a.who())
 	})
 	restart := simple("restart", "Start a fresh session once the current one is idle", func(ctx context.Context, st store.API, n string) error {
-		return st.RequestRestart(ctx, n, "requested by "+a.who(), rev, a.who())
+		return st.RequestRestartFor(ctx, n, crewSession(restartFor), "requested by "+a.who(), rev, a.who())
 	})
+	restart.Flags().StringVar(&restartFor, "for", "", "restart the conversation session for this user instead of the line session")
+	show.Flags().StringVar(&showFor, "for", "", "show the inbox slice of the conversation session for this user (default $YARDR_CREW_FOR, else the line session)")
 	for _, c := range []*cobra.Command{rm, start, stop, restart} {
 		c.Flags().StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 	}
@@ -428,9 +477,9 @@ func (a *app) crewSetCmd() *cobra.Command {
 		Short: "Change some settings of a crew member and keep the rest",
 		Long: `Changes the settings named and keeps the rest of the crew member's definition.
 key=value is a runner config key, as --set on yardr crew add takes it
-(kind, model, args, prompt, env_file, env_command, open_threads, set_state,
-peers); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
-change what the same flags of add set.
+(kind, model, args, prompt, env_file, env_command, for, open_threads,
+set_state, peers); --unset <key> removes one. --dir, --on, --max-age and
+--handoff-grace change what the same flags of add set.
 
 It prints each setting changed, as it was and as it is. The value of a key
 named like a secret (token, secret, password, key) is not printed.
@@ -440,11 +489,11 @@ operator (the yard's operator setting, else the user running the command)
 may allow a crew member a source or a peer it was not allowed before. Narrowing
 one, or removing it with --unset, is anyone's.
 
-A running crew member keeps its session. What it may do (open_threads,
-set_state, peers), --on and --max-age hold from the next time they are
-looked at; what a session starts with (kind, model, args, prompt, its
-environment, --dir) is read when the next one starts: yardr crew
-restart <name>.`,
+A running crew member keeps its sessions. What it may do (open_threads,
+set_state, peers), whom it serves (for), --on and --max-age hold from the
+next time they are looked at; what a session starts with (kind, model,
+args, prompt, its environment, --dir) is read when the next one starts:
+yardr crew restart <name>, or --for <user> for a conversation session.`,
 		Example: `  yardr crew set yardmaster set_state=linear
   yardr crew set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
   yardr crew set yardmaster --unset open_threads`,
@@ -763,6 +812,15 @@ func crewAgent(r store.CrewMember) string {
 	return strings.Join(parts, " · ")
 }
 
+// sessionAgent is the herdr agent name of the session running in handle,
+// "-" where none runs.
+func sessionAgent(handle map[string]any) string {
+	if agent, _ := handle["agent"].(string); agent != "" {
+		return agent
+	}
+	return "-"
+}
+
 // envSource is one place a crew member's environment comes from, as crew member
 // show says it: the setting, the path or command line it names, the key
 // names it sets, or why the runner would refuse it. Never a value.
@@ -805,6 +863,25 @@ func crewEnvSummary(ctx context.Context, r store.CrewMember, home string) ([]env
 	}
 	if env.Command != "" {
 		out = append(out, envSource{"env_command", env.Command, env.CommandKeys, text(env.CommandErr)})
+	}
+	// Each conversation's env file, read for its keys as the line's is: a
+	// missing file is why its session is blocked. Served or not: what is
+	// set shows.
+	var envFor []string
+	for key := range r.Config {
+		if user := store.EnvForUser(key); user != "" && r.EnvFor(user) != "" {
+			envFor = append(envFor, user)
+		}
+	}
+	slices.Sort(envFor)
+	for _, user := range envFor {
+		path := r.EnvFor(user)
+		var keys []string
+		f, err := config.ReadEnvFile(path)
+		if err == nil {
+			keys = f.Keys()
+		}
+		out = append(out, envSource{"env_for_" + user, path, keys, text(err)})
 	}
 	return out, slices.Concat(env.FileKeys, env.CommandKeys)
 }
@@ -919,15 +996,38 @@ func currentCrew(flag string) (string, error) {
 	return "", fmt.Errorf("--crew is required (or set YARDR_CREW)")
 }
 
+// crewSession is the crew session --for names: the flag, else
+// $YARDR_CREW_FOR (set in a conversation session's pane), else the line
+// session ("").
+func crewSession(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	return config.Getenv(runner.CrewForEnv)
+}
+
+// noteAuthor is who wrote a journal note, with the conversation session
+// where one did: the journal is shared, and the tag says who learned what.
+func noteAuthor(n store.Note) string {
+	if n.Session == "" {
+		return n.Author
+	}
+	return n.Author + " for " + n.Session
+}
+
 func (a *app) inboxCmd() *cobra.Command {
 	var member string
 	var ack, mail, notes bool
 	var limit int
+	var forUser string
 	cmd := &cobra.Command{
 		Use:   "inbox",
 		Short: "Unread events and mail: a crew member's, or your own as a user",
 		Long: `Show a crew member's unacknowledged events, oldest first. --ack marks everything shown as handled.
 Answer mail with yardr reply <seq>, the number its line starts with.
+A crew member with conversation sessions has one slice per session: --for
+shows a conversation's, else the line session's (a session reads its own
+from $YARDR_CREW_FOR).
 
 Run as a user (your actor is a user's name, and neither --crew nor
 $YARDR_CREW names a crew member) it shows your inbox in two parts, each
@@ -973,12 +1073,13 @@ yardr doctor and bare yardr say what waits.`,
 			if err != nil {
 				return err
 			}
-			page, err := st.Inbox(c.Context(), name, limit)
+			user := crewSession(forUser)
+			page, err := st.InboxFor(c.Context(), name, user, limit)
 			if err != nil {
 				return err
 			}
 			if ack && len(page.Events) > 0 {
-				if err := st.AckInbox(c.Context(), name, page.Events[len(page.Events)-1].Seq); err != nil {
+				if err := st.AckInboxFor(c.Context(), name, user, page.Events[len(page.Events)-1].Seq); err != nil {
 					return err
 				}
 			}
@@ -1000,6 +1101,7 @@ yardr doctor and bare yardr say what waits.`,
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "crew member (default $YARDR_CREW)")
+	cmd.Flags().StringVar(&forUser, "for", "", "a crew member's conversation session for this user (default $YARDR_CREW_FOR, else the line session)")
 	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's: the unread shown as read, in the parts shown)")
 	cmd.Flags().BoolVar(&mail, "mail", false, "a user's inbox: the mail only")
 	cmd.Flags().BoolVar(&notes, "notifications", false, "a user's inbox: the notifications only")
@@ -1370,8 +1472,8 @@ func parseSince(s string) (time.Time, error) {
 }
 
 // primeCrew prints what a fresh crew member session starts from.
-func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
-	p, err := st.CrewPrime(ctx, name)
+func (a *app) primeCrew(ctx context.Context, st store.API, name, user string) error {
+	p, err := st.CrewPrimeFor(ctx, name, user)
 	if err != nil {
 		return err
 	}
@@ -1438,6 +1540,10 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 		fmt.Printf("# yardr crew member: %s\n\n", name)
 		fmt.Printf("You are `%s`, an always-on crew member of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
 		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)
+		if user != "" {
+			fmt.Printf("This session talks with `%s`; the inbox below is your conversation with them, and "+
+				"`yardr inbox --ack` marks only it as handled.\n\n", user)
+		}
 		if role != "" {
 			fmt.Printf("## Your role\n\n%s\n\n", role)
 		}
@@ -1460,7 +1566,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 		}
 		if p.Handoff != nil {
 			fmt.Printf("## Your last handoff (%s, by %s)\n\n%s\n\n", p.Handoff.At.Local().Format("2006-01-02 15:04"),
-				p.Handoff.Author, strings.TrimSpace(p.Handoff.Text))
+				noteAuthor(*p.Handoff), strings.TrimSpace(p.Handoff.Text))
 		} else {
 			fmt.Print("## No handoff yet\n\nThis is your first session, or none was ever written.\n\n")
 		}
@@ -1471,7 +1577,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 			}
 			fmt.Print(")\n\n")
 			for _, n := range p.Since {
-				fmt.Printf("- [%s %s] %s\n", n.At.Local().Format("01-02 15:04"), n.Author, strings.TrimSpace(n.Text))
+				fmt.Printf("- [%s %s] %s\n", n.At.Local().Format("01-02 15:04"), noteAuthor(n), strings.TrimSpace(n.Text))
 			}
 			fmt.Println()
 		}
@@ -1745,21 +1851,31 @@ func yardSkew() string {
 // store.MinSessionLife is one) and when the daemon tries next, or that it
 // gave up. "" when none failed or a session runs.
 func startFailures(r store.CrewMember, now time.Time) string {
-	n := fmt.Sprintf("%d failed starts", r.Failures)
-	if r.Failures == 1 {
+	return sessionFailures(r.Name, r.Enabled, "", r.CrewSession, now)
+}
+
+// sessionFailures is startFailures for one session: the line session's
+// ("") or the conversation's for user.
+func sessionFailures(name string, enabled bool, user string, st store.CrewSession, now time.Time) string {
+	n := fmt.Sprintf("%d failed starts", st.Failures)
+	if st.Failures == 1 {
 		n = "1 failed start"
 	}
+	try := "yardr crew start " + name + " tries again"
+	if user != "" {
+		try = "yardr crew restart " + name + " --for " + user + " tries again"
+	}
 	switch {
-	case r.State == "failed":
-		return fmt.Sprintf("gave up after %s; yardr crew start %s tries again", n, r.Name)
-	case r.Live() || r.Failures == 0:
+	case st.State == "failed":
+		return fmt.Sprintf("gave up after %s; %s", n, try)
+	case st.Live() || st.Failures == 0:
 		return ""
-	case !r.Enabled || r.RetryAfter == nil:
+	case !enabled || st.RetryAfter == nil:
 		return n
-	case !r.RetryAfter.After(now):
+	case !st.RetryAfter.After(now):
 		return n + ", next try on the daemon's next pass"
 	}
-	return fmt.Sprintf("%s, next try in %s", n, r.RetryAfter.Sub(now).Round(time.Second))
+	return fmt.Sprintf("%s, next try in %s", n, st.RetryAfter.Sub(now).Round(time.Second))
 }
 
 // grantedTo are the grants of declared sources' calls that are to's.

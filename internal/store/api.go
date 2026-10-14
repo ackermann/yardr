@@ -141,11 +141,25 @@ type API interface {
 	RequestRestart(ctx context.Context, name, reason, rev, actor string) error
 	MarkRotationAsked(ctx context.Context, name string) error
 	MarkNotified(ctx context.Context, name string, seq uint64) error
+	CrewStartingFor(ctx context.Context, name, user string, handle map[string]any) error
+	CrewStartedFor(ctx context.Context, name, user string, handle map[string]any) error
+	CrewSettledFor(ctx context.Context, name, user string) error
+	CrewStoppedFor(ctx context.Context, name, user, reason string) error
+	CrewGoneFor(ctx context.Context, name, user, reason string) error
+	CrewLeftFor(ctx context.Context, name, user string, left []map[string]any) error
+	CrewStatusFor(ctx context.Context, name, user, status string) error
+	SetCrewHandleFor(ctx context.Context, name, user string, handle map[string]any) error
+	CrewStartFailedFor(ctx context.Context, name, user, reason string, backoff time.Duration) error
+	RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error
+	MarkRotationAskedFor(ctx context.Context, name, user string) error
+	MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error
 	Journal(ctx context.Context, name, kind, text, actor string) error
 	Mail(ctx context.Context, to, text, actor string, files ...string) error
 	PutBlob(ctx context.Context, data []byte) (*BlobRef, error)
 	Inbox(ctx context.Context, name string, limit int) (*InboxPage, error)
 	AckInbox(ctx context.Context, name string, through uint64) error
+	InboxFor(ctx context.Context, name, user string, limit int) (*InboxPage, error)
+	AckInboxFor(ctx context.Context, name, user string, through uint64) error
 	AddUser(ctx context.Context, name, actor string) (*User, error)
 	Users(ctx context.Context) ([]User, error)
 	GetUser(ctx context.Context, name string) (*User, error)
@@ -166,6 +180,7 @@ type API interface {
 	RemoveTimer(ctx context.Context, id, actor string) (*Timer, error)
 	FireTimers(ctx context.Context, at time.Time) (*TimerPass, error)
 	CrewPrime(ctx context.Context, name string) (*Prime, error)
+	CrewPrimeFor(ctx context.Context, name, user string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)
 	RecallJournal(ctx context.Context, scope, query string) ([]JournalHit, error)

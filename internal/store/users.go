@@ -415,20 +415,40 @@ type readers struct {
 
 func (rd *readers) letter(e Event) (Letter, error) {
 	to := mailReceiver(e)
-	key, bucket := "r\x00"+to, bCrew
+	key, bucket, toCrew := "r\x00"+to, bCrew, true
 	if toUser(e) {
-		key, bucket = "u\x00"+to, bUsers
+		key, bucket, toCrew = "u\x00"+to, bUsers, false
+	} else {
+		// Mail to a crew member is read in the sender's slice, so the
+		// cursor that says read depends on who sent it.
+		key += "\x00" + e.Actor
 	}
 	cursor, ok := rd.cursors[key]
 	if !ok {
 		// CrewMember and User both keep it as "cursor".
 		var c struct {
-			Cursor uint64 `json:"cursor"`
+			Cursor        uint64         `json:"cursor"`
+			Config        map[string]any `json:"config"`
+			Conversations map[string]struct {
+				Cursor uint64 `json:"cursor"`
+			} `json:"conversations"`
 		}
 		if _, err := get(rd.tx, bucket, to, &c); err != nil {
 			return Letter{}, err
 		}
 		cursor = c.Cursor
+		// Mail to a crew member from a user with a conversation is read
+		// in that slice: its cursor says whether it was read, not the
+		// line's, which acks past it without seeing it. A conversation
+		// whose row the daemon has not made yet reads at the line cursor,
+		// as its slice does.
+		if toCrew && configServes(c.Config, e.Actor) {
+			if path, _ := c.Config[EnvForPrefix+e.Actor].(string); path != "" {
+				if cs, ok := c.Conversations[e.Actor]; ok {
+					cursor = cs.Cursor
+				}
+			}
+		}
 		if rd.cursors == nil {
 			rd.cursors = map[string]uint64{}
 		}

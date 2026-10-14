@@ -203,14 +203,14 @@ func TestShowsPrompt(t *testing.T) {
 // the pane is searched for, and a later session is asked for no greeting.
 func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
-	got := crewPrompt("yardr --home /y", r)
+	got := crewPrompt("yardr --home /y", r, "")
 	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
 		"`yardr --home /y prime --crew yardmaster` " + CrewPromptEnd} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, got)
 		}
 	}
-	plain := crewPrompt("yardr", store.CrewMember{Name: "yardmaster"})
+	plain := crewPrompt("yardr", store.CrewMember{Name: "yardmaster"}, "")
 	if plain != "You are the yardr crew member \"yardmaster\". Run `yardr prime --crew yardmaster` and follow it." {
 		t.Errorf("a crew member that greets nobody got %q", plain)
 	}
@@ -220,7 +220,7 @@ func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 	}
 	now := time.Now()
 	r.StartedAt = &now
-	if again := crewPrompt("yardr", r); again != plain {
+	if again := crewPrompt("yardr", r, ""); again != plain {
 		t.Errorf("a session after the first is asked to greet again:\n%s", again)
 	}
 	if Greets(r) != "" || Greeted(r) {

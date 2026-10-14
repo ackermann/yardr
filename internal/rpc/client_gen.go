@@ -377,6 +377,42 @@ func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
 func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) error {
 	return c.call(ctx, "MarkNotified", nil, name, seq)
 }
+func (c *Client) CrewStartingFor(ctx context.Context, name, user string, handle map[string]any) error {
+	return c.call(ctx, "CrewStartingFor", nil, name, user, handle)
+}
+func (c *Client) CrewStartedFor(ctx context.Context, name, user string, handle map[string]any) error {
+	return c.call(ctx, "CrewStartedFor", nil, name, user, handle)
+}
+func (c *Client) CrewSettledFor(ctx context.Context, name, user string) error {
+	return c.call(ctx, "CrewSettledFor", nil, name, user)
+}
+func (c *Client) CrewStoppedFor(ctx context.Context, name, user, reason string) error {
+	return c.call(ctx, "CrewStoppedFor", nil, name, user, reason)
+}
+func (c *Client) CrewGoneFor(ctx context.Context, name, user, reason string) error {
+	return c.call(ctx, "CrewGoneFor", nil, name, user, reason)
+}
+func (c *Client) CrewLeftFor(ctx context.Context, name, user string, left []map[string]any) error {
+	return c.call(ctx, "CrewLeftFor", nil, name, user, left)
+}
+func (c *Client) CrewStatusFor(ctx context.Context, name, user, status string) error {
+	return c.call(ctx, "CrewStatusFor", nil, name, user, status)
+}
+func (c *Client) SetCrewHandleFor(ctx context.Context, name, user string, handle map[string]any) error {
+	return c.call(ctx, "SetCrewHandleFor", nil, name, user, handle)
+}
+func (c *Client) CrewStartFailedFor(ctx context.Context, name, user, reason string, backoff time.Duration) error {
+	return c.call(ctx, "CrewStartFailedFor", nil, name, user, reason, backoff)
+}
+func (c *Client) RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error {
+	return c.call(ctx, "RequestRestartFor", nil, name, user, reason, rev, actor)
+}
+func (c *Client) MarkRotationAskedFor(ctx context.Context, name, user string) error {
+	return c.call(ctx, "MarkRotationAskedFor", nil, name, user)
+}
+func (c *Client) MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error {
+	return c.call(ctx, "MarkNotifiedFor", nil, name, user, seq)
+}
 func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
 	return c.call(ctx, "Journal", nil, name, kind, text, actor)
 }
@@ -391,6 +427,12 @@ func (c *Client) Inbox(ctx context.Context, name string, limit int) (*store.Inbo
 }
 func (c *Client) AckInbox(ctx context.Context, name string, through uint64) error {
 	return c.call(ctx, "AckInbox", nil, name, through)
+}
+func (c *Client) InboxFor(ctx context.Context, name, user string, limit int) (*store.InboxPage, error) {
+	return callV[*store.InboxPage](c, ctx, "InboxFor", name, user, limit)
+}
+func (c *Client) AckInboxFor(ctx context.Context, name, user string, through uint64) error {
+	return c.call(ctx, "AckInboxFor", nil, name, user, through)
 }
 func (c *Client) AddUser(ctx context.Context, name, actor string) (*store.User, error) {
 	return callV[*store.User](c, ctx, "AddUser", name, actor)
@@ -449,6 +491,9 @@ func (c *Client) FireTimers(ctx context.Context, at time.Time) (*store.TimerPass
 }
 func (c *Client) CrewPrime(ctx context.Context, name string) (*store.Prime, error) {
 	return callV[*store.Prime](c, ctx, "CrewPrime", name)
+}
+func (c *Client) CrewPrimeFor(ctx context.Context, name, user string) (*store.Prime, error) {
+	return callV[*store.Prime](c, ctx, "CrewPrimeFor", name, user)
 }
 func (c *Client) Remember(ctx context.Context, m store.NewMemory, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Remember", m, actor)

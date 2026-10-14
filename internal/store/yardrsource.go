@@ -152,6 +152,12 @@ func (w *wtx) deliver(e *Event) error {
 	// mentions was already read, so it cannot match a name in it.
 	if ans := answerOf(w.Tx, row, e); ans != nil {
 		e.Data["answer"] = ans.line
+		// The session that asked, so the answer is routed to its slice;
+		// "" (the line's, and every answer from before sessions) is left
+		// out, as an unset key reads.
+		if ans.session != "" {
+			e.Data["ask_session"] = ans.session
+		}
 		if ans.asker != e.Actor {
 			if w.Bucket(bCrew).Get([]byte(ans.asker)) != nil {
 				prev, _ := out[ans.asker].(string)
@@ -247,8 +253,9 @@ func (w *wtx) deliverBeadless(e *Event) error {
 // answeredAsk is an answer event read whole: who asked, and the line it
 // reads as in an inbox.
 type answeredAsk struct {
-	asker string
-	line  string
+	asker   string
+	session string // the crew session that asked, "" for the line's
+	line    string
 }
 
 // answerOf reads the answer the noted event e added, with its ask and the
@@ -305,7 +312,7 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 			}
 		}
 	}
-	return &answeredAsk{asker: askNote.Author, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev)}
+	return &answeredAsk{asker: askNote.Author, session: askNote.Session, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev)}
 }
 
 // answerSentence is an answer as one line of an inbox: who, which bead and

@@ -44,7 +44,13 @@ func (h *Herdr) CloseLeft(ctx context.Context, r store.CrewMember, handle map[st
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return false, fmt.Errorf("workspace get: %w", err)
 	}
-	if info.Workspace.Label != CrewLabel(h.yardName(ctx), r.Name) {
+	// The handle says which session left it: a conversation's workspace
+	// carries its own label.
+	want := CrewLabel(h.yardName(ctx), r.Name)
+	if user, _ := handle["for"].(string); user != "" {
+		want = CrewConversationLabel(h.yardName(ctx), r.Name, user)
+	}
+	if info.Workspace.Label != want {
 		return false, nil
 	}
 	if raw, err = h.run(ctx, "pane", "list"); err != nil {

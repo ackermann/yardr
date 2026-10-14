@@ -152,13 +152,13 @@ func (f *crewRunner) PromptShown(context.Context, map[string]any, string) (bool,
 	return f.shown, nil
 }
 
-func (f *crewRunner) LiveCrew(context.Context, store.CrewMember) (*dispatch.LiveAgent, error) {
+func (f *crewRunner) LiveCrew(context.Context, store.CrewMember, string) (*dispatch.LiveAgent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.foreign, f.findErr
 }
 
-func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember) (map[string]any, error) {
+func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember, user string) (map[string]any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.failNext; err != nil {
@@ -167,6 +167,9 @@ func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember) (map[strin
 	}
 	f.n++
 	agent := fmt.Sprintf("%s-%d", r.Name, f.n)
+	if user != "" {
+		agent = fmt.Sprintf("%s-%s-%d", r.Name, user, f.n)
+	}
 	f.status[agent] = "idle"
 	f.open = append(f.open, agent)
 	if f.blocked {

@@ -39,6 +39,19 @@ func CrewLabel(yard, member string) string {
 	return strings.TrimSpace(yard + " " + member)
 }
 
+// CrewConversationAgentName is the herdr agent name of a crew member's
+// conversation session for user: the line session's with the user, so the
+// two sessions are two agents.
+func CrewConversationAgentName(yard, member, user string) string {
+	return agentName(yard + "-" + member + "-" + user)
+}
+
+// CrewConversationLabel is the herdr label of its workspace, "<yard>
+// <crew member> for <user>".
+func CrewConversationLabel(yard, member, user string) string {
+	return strings.TrimSpace(yard + " " + member + " for " + user)
+}
+
 // agentName is raw as a herdr agent name.
 func agentName(raw string) string {
 	n := nameUnsafe.ReplaceAllString(strings.ToLower(raw), "-")

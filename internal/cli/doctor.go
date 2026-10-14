@@ -125,6 +125,7 @@ type yardmasterState struct {
 // failingCrew is a crew member whose starts fail.
 type failingCrew struct {
 	Name     string `json:"name"`
+	For      string `json:"for,omitempty"` // the conversation's user, "" for the line session's
 	State    string `json:"state"`
 	Failures int    `json:"failures"`
 	Reason   string `json:"reason,omitempty"`
@@ -134,6 +135,7 @@ type failingCrew struct {
 // on and the line of the screen the daemon saw.
 type loginCrew struct {
 	Name string `json:"name"`
+	For  string `json:"for,omitempty"` // the conversation's user, "" for the line session's
 	Kind string `json:"kind"`
 	Line string `json:"line"`
 }
@@ -385,11 +387,34 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 	def := defaultKind(ctx, st)
 	state.Yardmaster = &yardmasterState{Name: yardmaster}
 	for _, r := range crew {
-		// At its login screen with a session that runs: the yardmaster's
-		// own line says it runs, and this one says its harness is not
-		// logged in.
-		if line, _ := r.Handle[dispatch.HarnessLoginKey].(string); r.Live() && line != "" {
-			state.Login = append(state.Login, loginCrew{Name: r.Name, Kind: loginKindOf(def, r), Line: line})
+		login := func(user string, cs store.CrewSession) {
+			// At its login screen with a session that runs: the
+			// yardmaster's own line says it runs, and this one says its
+			// harness is not logged in.
+			if line, _ := cs.Handle[dispatch.HarnessLoginKey].(string); cs.Live() && line != "" {
+				state.Login = append(state.Login, loginCrew{Name: r.Name, For: user, Kind: loginKindOf(def, r), Line: line})
+			}
+		}
+		login("", r.CrewSession)
+		running, agent := r.Live(), ""
+		if running {
+			agent = show(r.Handle["agent"])
+		}
+		for _, u := range r.ConversationUsers() {
+			cs := r.Session(u)
+			login(u, cs)
+			if cs.Live() {
+				running = true
+				if agent == "" {
+					agent = show(cs.Handle["agent"])
+				}
+			}
+			// Each failing conversation is named, the yardmaster's own
+			// with the rest: its own line covers only the line session.
+			if cs.State == "failed" || (r.Enabled && !cs.Live() && cs.Failures > 0) {
+				state.Failing = append(state.Failing, failingCrew{Name: r.Name, For: u, State: cs.State,
+					Failures: cs.Failures, Reason: lastSessionFailure(ctx, st, r, u)})
+			}
 		}
 		reason := ""
 		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
@@ -397,13 +422,13 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 			reason = lastStartFailure(ctx, st, r)
 		}
 		if r.Name == yardmaster {
-			state.Yardmaster = &yardmasterState{Name: yardmaster, CrewMember: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
-				Agent: show(r.Handle["agent"]), Failures: r.Failures, Reason: reason}
-			if !r.Live() {
+			state.Yardmaster = &yardmasterState{Name: yardmaster, CrewMember: true, Enabled: r.Enabled, Running: running, State: r.State,
+				Agent: agent, Failures: r.Failures, Reason: reason}
+			if !running {
 				state.Yardmaster.Agent = ""
 			}
 		} else if failing {
-			state.Failing = append(state.Failing, failingCrew{r.Name, r.State, r.Failures, reason})
+			state.Failing = append(state.Failing, failingCrew{Name: r.Name, State: r.State, Failures: r.Failures, Reason: reason})
 		}
 		// Not run here: it may ask a vault to unlock. Only whether its
 		// program is there, as this command finds it; the daemon's PATH is
@@ -749,16 +774,27 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s crew list)", m.Name, yardr)})
 	}
 	for _, f := range s.Failing {
+		name := f.Name
+		if f.For != "" {
+			name += " for " + f.For
+		}
+		// crew start clears every session's streak, a conversation's with
+		// the line's.
 		out = append(out, docLine{tagFault, "crew", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s crew start %s",
-			f.Name, failed(f.State, f.Failures, f.Reason), yardr, f.Name)})
+			name, failed(f.State, f.Failures, f.Reason), yardr, f.Name)})
 	}
 	if len(s.Failing) == 0 {
 		out = append(out, docLine{tagOK, "crew", fmt.Sprintf("%d, none failing to start", s.Crew)})
 	}
 	for _, l := range s.Login {
+		name, restart := l.Name, "crew restart "+l.Name
+		if l.For != "" {
+			name += " for " + l.For
+			restart += " --for " + l.For
+		}
 		out = append(out, docLine{tagFault, "crew", fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
-			"then answer the login in its pane or start it fresh (%s crew restart %s)",
-			l.Name, agents.Executable(l.Kind), yardr, l.Name)})
+			"then answer the login in its pane or start it fresh (%s %s)",
+			name, agents.Executable(l.Kind), yardr, restart)})
 	}
 	if len(s.Held) == 0 {
 		out = append(out, docLine{tagOK, "held", "no bead is held"})

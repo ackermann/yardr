@@ -382,7 +382,14 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		if err != nil {
 			return 0, err
 		}
-		n, err := w.addNoted(row, NoteAsk, string(text), actor)
+		// The ask is tagged with the crew session that asked it, so its
+		// answer is routed to that session's slice; an ask from no crew
+		// pane is the line's, as every ask was before sessions.
+		_, session, err := paneCrewSession(w.Tx, callerOf(ctx))
+		if err != nil {
+			return 0, err
+		}
+		n, err := w.addNotedSession(row, NoteAsk, string(text), actor, session)
 		if err != nil {
 			return 0, err
 		}
@@ -974,6 +981,9 @@ type WriterAsk struct {
 	Question string    `json:"question"`
 	State    string    `json:"state"` // open, or put aside
 	Since    time.Time `json:"since"`
+	// Session is the crew session that asked: the user of a conversation
+	// session, "" for the line's and for every ask written elsewhere.
+	Session string `json:"session,omitempty"`
 }
 
 // WriterAsks reads the writer's open asks: every ask they wrote that still
@@ -1003,6 +1013,7 @@ func (s *Store) WriterAsks(ctx context.Context, writer string) ([]WriterAsk, err
 			out = append(out, WriterAsk{
 				Bead: b.ID, Ask: r.Note.Seq, To: r.Ask.To,
 				Question: r.Ask.Question, State: r.State.String(), Since: r.Note.At,
+				Session: r.Note.Session,
 			})
 		}
 	}
