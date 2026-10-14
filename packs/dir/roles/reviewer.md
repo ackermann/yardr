@@ -51,7 +51,9 @@ carries a screenshot, as `N image(s): <path>`
 on a line of its own starting with ◆, with words saying what
 was shot. Open the picture and check it against the bead's goal and the
 note's words, and write what you saw in your note. Where the note
-carries no picture, say the check was words alone. Where the picture
+carries no picture, send the bead back (`--outcome changes`) asking for
+one: a builder who could not shoot it adds the way to (a shot state, a
+script) in the same bead. Where the picture
 cannot be opened, or your harness cannot read images, write "picture
 unchecked" with the reason and review as today: it does not block the
 bead.

@@ -518,9 +518,10 @@ func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 
 // A bead with something to see carries the label `eyes`: the yardmaster's
 // estimating rubric applies it, and the reviewer roles open the picture in
-// the builder's note and say what they saw. Where the picture cannot be
-// opened the reviewer says "picture unchecked" with the reason and reviews
-// as today, without blocking the bead.
+// the builder's note and say what they saw. Where the note carries no
+// picture the reviewer sends the bead back asking for one; where the
+// picture cannot be opened the reviewer says "picture unchecked" with the
+// reason and reviews as today, without blocking the bead.
 func TestEyesLabel(t *testing.T) {
 	files := packFiles(t)
 	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
@@ -539,7 +540,7 @@ func TestEyesLabel(t *testing.T) {
 			"carries a screenshot, as `N image(s): <path>`",
 			"on a line of its own starting with ◆",
 			"what you saw in your note",
-			"say the check was words alone",
+			"carries no picture, send the bead back (`--outcome changes`) asking for\none: a builder who could not shoot it adds the way to (a shot state, a\nscript) in the same bead",
 			"write \"picture\nunchecked\" with the reason and review as today",
 			// The image line stands beside the note's words, which anyone
 			// who may write a note chooses: only a marked line names a
