@@ -100,10 +100,22 @@ var upgradeHTTP = &http.Client{Timeout: 5 * time.Second}
 func (a *app) upgradeCmd() *cobra.Command {
 	var check bool
 	var since string
+	var noRestore bool
+	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Assert the yard runs this build (--check), read-only",
-		Long: `Assert the yard runs this build, read-only: the install gate, by hand.
+		Short: "Install the depot's build, verified, or roll back",
+		Long: `Install the depot's build, verified, or roll back.
+
+Without --check it does the hand step whole: from the checkout of the
+depot the upgrade_from setting names it runs go install ., checks every
+covered yard runs it, and otherwise puts the previous build back. The
+covered yards are this yard plus every yard registered on this machine
+whose login service runs the shared binary. A yard without the setting
+is untouched.
+
+With --check it asserts the yard runs this build, read-only: the
+install gate, by hand.
 
   server     answers on this build, the build of the yardr that was asked
   daemon     holds its lock on this build, and completed a pass on it
@@ -116,16 +128,21 @@ the views. A view on a build from before GET /health (it 404s /health and
 answers /) is skipped with an old: line naming the restart, not failed: a
 view is a read-only client, and the install did not break it.
 
-It changes nothing: it starts no server (one that does not answer fails
-the server part with why), stores nothing, and a view it probes keeps
-serving. The exit status is 1 when any part fails, 0 otherwise.
+The check changes nothing: it starts no server (one that does not answer
+fails the server part with why), stores nothing, and a view it probes
+keeps serving. The exit status is 1 when any part fails, 0 otherwise.
 docs/upgrade.md says every line.`,
 		Example: `  yardr upgrade --check
-  yardr upgrade --check --since 30m --json | jq .ok`,
+  yardr upgrade --check --since 30m --json | jq .ok
+  yardr upgrade`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if !check {
-				return fmt.Errorf("only yardr upgrade --check exists yet; without --check it will install the depot's build, verified, or roll back")
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				return a.upgradeRun(c.Context(), cfg, timeout, noRestore)
 			}
 			cutoff, err := upgradeSince(since)
 			if err != nil {
@@ -150,6 +167,8 @@ docs/upgrade.md says every line.`,
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "assert the yard runs this build, read-only, and report part by part")
 	cmd.Flags().StringVar(&since, "since", "10m", "the daemon's last pass on this build must be this fresh: a duration back from now (10m, 90s) or a time as RFC3339")
+	cmd.Flags().BoolVar(&noRestore, "no-restore", false, "do not restore the pre-install store copies on failure: refused stores stay down for a person to restore")
+	cmd.Flags().DurationVar(&timeout, "timeout", upgradeDefaultTimeout, "how long the whole multi-yard gate may take")
 	return cmd
 }
 

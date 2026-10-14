@@ -239,6 +239,17 @@ func (c *Config) DaemonPass() string { return filepath.Join(c.Home, "daemon.pass
 // passes claim nothing and start no agent.
 func (c *Config) UpgradeGate() string { return filepath.Join(c.Home, "upgrade.gate") }
 
+// UpgradeFailed is the file a failed upgrade leaves when the yard is down
+// (see UpgradeFailed), until the next successful upgrade clears it.
+func (c *Config) UpgradeFailed() string { return filepath.Join(c.Home, "upgrade.failed") }
+
+// BeforeInstallBackup is the pre-install copy an upgrade takes of the
+// yard's store: in backups, where the daemon's pruning never touches it,
+// so a rollback never depends on backup_dir.
+func (c *Config) BeforeInstallBackup() string {
+	return filepath.Join(c.Home, "backups", "yard.db.before-install")
+}
+
 // DaemonLog is where a daemon started in the background (the onboarding,
 // yardr init --start) writes what one in a pane of its own prints there.
 func (c *Config) DaemonLog() string { return filepath.Join(c.Home, "daemon.log") }

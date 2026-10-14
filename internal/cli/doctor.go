@@ -693,6 +693,9 @@ func (r *doctorReport) machineLines() []docLine {
 func (s *yardState) lines(home string) []docLine {
 	yardr := yardrAt(home)
 	var out []docLine
+	if line, ok := upgradeFailedLine(home); ok {
+		out = append(out, line)
+	}
 	switch s.Server {
 	case serverUnreachable:
 		return append(out, docLine{tagFault, "server", "cannot be reached: " + s.ServerError})
@@ -776,6 +779,21 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, docLine{tagNote, "codex", n})
 	}
 	return out
+}
+
+// upgradeFailedLine is the FAULT a failed upgrade leaves in the home: the
+// marker the command wrote when the yard was left down. Doctor reads the
+// home without the server, so the fault is loud while the yard is dead,
+// until the next successful upgrade clears it or it is removed by hand.
+func upgradeFailedLine(home string) (docLine, bool) {
+	m, err := config.ReadUpgradeFailed(home)
+	if err != nil {
+		return docLine{}, false
+	}
+	yardr := yardrAt(home)
+	text := fmt.Sprintf("upgrade to %s failed at %s: %s; the yard is down — fix it and run %s upgrade, or remove %s",
+		m.Revision, m.Stage, m.Reason, yardr, config.At(home).UpgradeFailed())
+	return docLine{tagFault, "upgrade", text}, true
 }
 
 // configNotes are what yardr doctor notes about the yard's stored config:

@@ -420,11 +420,17 @@ func TestDialAddr(t *testing.T) {
 	}
 }
 
-// Without --check the command says only --check exists yet, and changes nothing.
+// Without --check the command installs: on a home with no yard it says so,
+// and on a yard without the setting it refuses and installs nothing.
 func TestUpgradeWithoutCheck(t *testing.T) {
 	newHome(t)
 	out, err := run(t, (&app{actor: "me"}).rootCmd(), "upgrade")
-	if err == nil || !strings.Contains(err.Error(), "only yardr upgrade --check exists yet") {
+	if err == nil || !strings.Contains(err.Error(), "no yard in") {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	_, _, a := upgradeYard(t)
+	out, err = run(t, a().rootCmd(), "upgrade")
+	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 }

@@ -192,6 +192,7 @@ Not printed on a home with no yard.
 | `ok server running` | |
 | `note server not running (yardr server start, or any command but status and doctor, starts it)` | no fault. Doctor starts none ([above](#a-server-that-is-not-running)): the daemon's line follows, then `note yardmaster skipped: the server is not running` and the same for `crew` and `held`, and the block ends |
 | `FAULT server cannot be reached: <error>` | nothing else of the yard can be read; the block ends here and there are no steps |
+| `FAULT upgrade upgrade to <rev> failed at <stage>: <reason>; the yard is down — fix it and run yardr upgrade, or remove <home>/upgrade.failed` | a failed upgrade left the yard down ([upgrade.md](upgrade.md)). The marker is read from the home without the server, so the fault is loud while the yard is dead, until the next successful upgrade logs the failure event and clears it, or it is removed by hand |
 | `ok daemon running` | a daemon holds the home's lock |
 | `FAULT daemon not running: no bead is dispatched and no crew member starts. Start it in a pane of its own (yardr daemon) or in the background (yardr init --start)` | |
 | `ok yardmaster <name> is running (herdr agent <agent>)` | the crew member named by the `yardmaster` setting has a session |

@@ -55,3 +55,32 @@ func TestBadUpgradeGate(t *testing.T) {
 		}
 	}
 }
+
+// A failure marker round-trips through its file, and AllTold is only when
+// every direct send succeeded.
+func TestUpgradeFailedRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	at := time.Now().Truncate(time.Second).UTC()
+	m := UpgradeFailed{Kind: "rolled_back", Revision: "1904417", Stage: "health", Reason: "daemon wedged",
+		Yards: []UpgradeYardOutcome{{Home: home, Outcome: "back on 1904410", Restored: true}},
+		Beads: []string{"yardr-1"}, Sends: []UpgradeSend{{User: "jo", Source: "pushover", Status: 200, OK: true}}, At: at}
+	if err := WriteUpgradeFailed(home, m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadUpgradeFailed(home)
+	if err != nil || got.Kind != m.Kind || got.Revision != m.Revision || len(got.Yards) != 1 || len(got.Sends) != 1 || !got.At.Equal(at) {
+		t.Fatalf("marker = %+v, %v", got, err)
+	}
+	if !got.AllTold() {
+		t.Fatalf("AllTold with one ok send = false, want true")
+	}
+	empty := t.TempDir()
+	if _, err := ReadUpgradeFailed(empty); !os.IsNotExist(err) {
+		t.Fatalf("a home with no marker: %v, want a missing file", err)
+	}
+	for _, sends := range [][]UpgradeSend{nil, {}, {{User: "jo", OK: false}}, {{User: "jo", OK: true}, {User: "al", OK: false}}} {
+		if (UpgradeFailed{Sends: sends}).AllTold() {
+			t.Fatalf("AllTold with %+v = true, want false", sends)
+		}
+	}
+}

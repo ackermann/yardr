@@ -59,6 +59,10 @@ const (
 	// UpgradeFromSetting names the depot whose landed build the yard
 	// installs itself after the assembly lands on it (yardr upgrade).
 	UpgradeFromSetting = "upgrade_from"
+	// UpgradeRestoreSetting says whether a failed upgrade restores the
+	// pre-install store copies (yardr upgrade): on by default, off stops
+	// and tells instead.
+	UpgradeRestoreSetting = "upgrade_restore"
 )
 
 // DefaultWebAddr and DefaultBDPAddr are where the web view and the BDP
@@ -232,6 +236,13 @@ var KnownSettings = []Setting{
 		}},
 	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, nothing is installed",
 		Check: func(v string) error { return checkName("depot name", v) }},
+	{Key: UpgradeRestoreSetting, Help: "whether a failed yardr upgrade restores the pre-install store copies (true) or leaves refused stores down for a person to restore (false); default: true",
+		Default: "true", Env: "UPGRADE_RESTORE", Check: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("%s %q: true or false", UpgradeRestoreSetting, v)
+			}
+			return nil
+		}},
 }
 
 // SettingOf is the setting key names.
