@@ -40,11 +40,22 @@ only ever by fast-forward, and never in a dirty checkout (it holds
 instead); a branch that moved while the tests ran reports `failed` with
 both commits, so nothing untested lands. With `YARDR_PUSH` set it pushes the base,
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
+Where the yard's `upgrade_from` setting names the bead's depot it then runs
+the installed yardr's `upgrade`, and the landing note says how the install
+went (`merged 6a07178, tested with the base's copy of .yardr/test in 355 s;
+install ok in 24 s`), with the install's seconds in the log line; a failed
+install where the yard still answers still merges, like a failed push. Where
+the installed yardr predates the command the note says to install the new
+yardr once by hand first. When the install leaves the yard dead no advance
+is possible, and the bead fails its session toward a hold. The step activates
+only once the operator reinstalls this script from `main` and sets
+`upgrade_from` (docs/upgrade.md, "The assembly step").
 Finally it advances the bead to `merged` with `merged <sha>`, what tested
-it and the seconds the tests took (`merged 6a07178, tested with the base's
-copy of .yardr/test in 355 s`). Before the outcome, whichever it is, one
+it, the seconds the tests took, and how the install went where it ran
+(`merged 6a07178, tested with the base's copy of .yardr/test in 355 s`).
+Before the outcome, whichever it is, one
 line of the log has the seconds of each step that ran (`== <bead> took:
-rebase 1 s, the tests 355 s, push 2 s`); where the steps of the test command
+rebase 1 s, the tests 355 s, push 2 s, upgrade 24 s`); where the steps of the test command
 went is the command's to print, as depot yardr's does after each of them
 (`test: go vet ./... took 14 s`).
 

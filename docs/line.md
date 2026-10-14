@@ -344,12 +344,24 @@ the session and the daemon stops the script, so it is the script's last step.
    forced). A failed push leaves the bead merged; the next landing's push
    carries it, and `YARDR_NOTIFY` (default the yard's `yardmaster` setting, else
    `yardmaster`) is mailed;
-5. advances to the terminal stage `merged` with the note `merged <sha>`,
-   what tested it and the seconds the tests took, which closes the bead; in
-   a flow without `merged` it closes the bead with that reason. Before the
-   outcome, this one or any other, a line of the group's log has the seconds
-   of each step that ran: `== <bead> took: rebase 1 s, the tests 355 s, push
-   2 s`.
+5. installs the landed build if the yard's `upgrade_from` setting names the
+   bead's depot: it runs the installed yardr's `upgrade` and folds its
+   one-line summary into the landing note and its seconds into the log line.
+   Like a failed push, a failed install where the yard still answers still
+   merges, with a note saying what failed and what was put back; where the
+   installed yardr predates the command the note says to install the new
+   yardr once by hand first. When the install leaves the yard dead no
+   advance is possible, and the bead fails its session toward a hold. A
+   wagon never installs: it lands on its train's branch while the install
+   builds the depot's checkout. The step activates only once the operator
+   reinstalls the script from `main` and sets `upgrade_from`
+   ([upgrade.md](upgrade.md#the-assembly-step));
+6. advances to the terminal stage `merged` with the note `merged <sha>`,
+   what tested it, the seconds the tests took, and how the install went
+   where it ran, which closes the bead; in a flow without `merged` it closes
+   the bead with that reason. Before the outcome, this one or any other, a
+   line of the group's log has the seconds of each step that ran:
+   `== <bead> took: rebase 1 s, the tests 355 s, push 2 s, upgrade 24 s`.
 
 It never forces, and a base that is not a local branch (`origin/main`) is
 held: merge-local lands only on local branches.
@@ -377,7 +389,7 @@ merged terminal
 ```
 
 **A PR-based variant** is the same group and route with another script. In
-place of steps 3 to 5, it pushes the branch and opens (or updates) a PR, and
+place of steps 3 to 6, it pushes the branch and opens (or updates) a PR, and
 parks the bead until the PR is merged:
 
 ```sh

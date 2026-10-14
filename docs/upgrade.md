@@ -19,6 +19,36 @@ health    ok in 24 s
 One line per step, exit 1 when the install fails, 0 when every covered
 yard runs the new build.
 
+## The assembly step
+
+`contrib/assembly/merge-local` — and the identical copies the packs
+carry — calls it after the push and before the advance: when
+`upgrade_from` names the landed bead's depot, it runs the installed
+yardr's `upgrade` and folds the one-line summary into the landing note
+and the seconds into the group's log line.
+
+```sh
+merged 6a07178, tested with the base's copy of .yardr/test in 355 s; install ok in 24 s
+```
+
+The code has landed, so a failed install where the yard still answers
+never sends the bead back: the bead still merges, with a note saying
+what failed and what was put back, as a failed push does. Where the
+installed yardr predates the command, the note says to install the new
+yardr once by hand first. When the install leaves the yard dead, no
+advance is possible: the bead fails its session toward a hold, with the
+`<home>/upgrade.failed` marker and the session log as the record. A
+wagon never installs: it lands on its train's branch, not the depot's
+base, while the install builds the depot's checkout.
+
+The step activates only once the operator reinstalls the script from
+`main` and sets `upgrade_from` — the assembly runs the installed copy,
+so landing the step changes nothing by itself. In order, the four
+activations are: name a notify source (setting `upgrade_from` is
+refused without one), install a build that has the command (one
+`go install .` by hand from `main`), reinstall the script from `main`,
+then set `upgrade_from` to the depot.
+
 ## What it covers
 
 The covered yards are this yard, always, plus every yard registered on
