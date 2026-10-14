@@ -545,7 +545,8 @@ func TestStatusStaleWebView(t *testing.T) {
 }
 
 // On a home with no yard status says so as any command does without a
-// terminal, in one too: exit 2, naming init, no onboarding and no store.
+// terminal, in one too: exit 2, naming init, no onboarding, no store, and,
+// being read-only, not even the home directory. --json takes the same path.
 func TestStatusNoYard(t *testing.T) {
 	home := newHome(t)
 	for _, terminal := range []bool{false, true} {
@@ -564,6 +565,17 @@ func TestStatusNoYard(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
 		t.Fatal("status created a store")
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("status created the home directory")
+	}
+	var code int
+	out := capture(t, func() { code = execute(&app{}, []string{"status", "--json"}) })
+	if code != 2 || !strings.Contains(out, "no yard in "+home+" yet") {
+		t.Fatalf("json: exit %d:\n%s", code, out)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("status --json created the home directory")
 	}
 }
 

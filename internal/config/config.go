@@ -132,8 +132,9 @@ func Load() (*Config, error) {
 
 // LoadReadOnly resolves the home as Load does but creates nothing: for
 // commands that must leave a home with no yard as they found it (doctor,
-// which says that it creates nothing). A home whose socket path would not
-// fit a unix socket is refused, as by Load.
+// which says that it creates nothing, and status, which says that it is
+// read-only). A home whose socket path would not fit a unix socket is
+// refused, as by Load.
 func LoadReadOnly() (*Config, error) {
 	home := Getenv("HOME")
 	if home == "" {
