@@ -866,10 +866,12 @@ percentage or, for a condition on the target, no target, and for a
 comparison on a source no source of the name that answers for itself)
 holds, and the claimed event says the limits were not known.
 
-Two groups of a route that burn one provider read the same windows, so a
-further group with no condition that burns the provider of a group before
-it takes the beads that group was passed over for: route add warns of it
-and adds the route. A route with --else or a condition otherwise names only
+Two groups of a route that burn one provider on one login read the same
+windows, so a further group with no condition that burns the provider of a
+group before it takes the beads that group was passed over for: route add
+warns of it and adds the route. Two groups on different logins read each
+their own, and a personal group failing over to the operator's warns of
+nothing. A route with --else or a condition otherwise names only
 groups that start agents, or gates one exec group alone on the windows of
 sources, as refinery@machine.load<80. yardr bead show says which route gave
 a bead to its group and which groups it passed over, or what a waiting bead

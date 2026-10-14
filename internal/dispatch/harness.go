@@ -293,7 +293,7 @@ func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Sessio
 	tries := handleInt(s.Handle[harnessRetries])
 	var wake map[string]any
 	if reason == ReasonRateLimited {
-		said, w := d.harnessLimits(ctx, kind, provider, data)
+		said, w := d.sessionLimits(ctx, g, kind, provider, data)
 		var wakes string
 		wake, wakes = d.resetWake(r, s.Handle, w, data)
 		if wake != nil {
@@ -525,7 +525,9 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 				"in line, its pane's last lines in tail. It is left as it is: get the agent going in its pane, or " +
 				"start a fresh session with `yardr crew restart " + r.Name + "`"}
 		if reason == ReasonRateLimited {
-			said, w := d.harnessLimits(ctx, kind, provider, data)
+			// A crew member's error reads the machine's login: no group
+			// judges it, so no group's env is joined.
+			said, w := d.harnessLimits(ctx, kind, provider, nil, "", data)
 			var wakes string
 			wake, wakes = d.resetWake(runner, r.Handle, w, data)
 			data["hint"] = said + wakes + data["hint"].(string)

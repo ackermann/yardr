@@ -38,6 +38,28 @@ func groupLoginEnv(ctx context.Context, st store.API, name string) ([]string, st
 	return f.Env, file, nil
 }
 
+// groupReadEnv is the env_file entries of the group name, the environment
+// its sessions burn under, for a limits read of its login. A group that
+// names none reads as nil: its panes run with the ambient environment, so
+// the machine's login is its login too. A group there is none of, or one
+// whose file cannot be read, is refused naming why: what the group burns
+// cannot be known then.
+func groupReadEnv(ctx context.Context, st store.API, name string) ([]string, store.Group, error) {
+	g, err := st.GetGroup(ctx, name)
+	if err != nil {
+		return nil, store.Group{}, err
+	}
+	file, _ := g.Config["env_file"].(string)
+	if file == "" {
+		return nil, *g, nil
+	}
+	f, err := config.ReadEnvFile(file)
+	if err != nil {
+		return nil, store.Group{}, fmt.Errorf("group %s: %w", name, err)
+	}
+	return f.Env, *g, nil
+}
+
 // groupFolderAccount is the account the folder a group's env_file names
 // holds a login for, "" where none can be read: no env_file, one that
 // cannot be read, an env that names no folder, or a folder with no login

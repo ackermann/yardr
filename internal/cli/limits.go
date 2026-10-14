@@ -19,6 +19,9 @@ import (
 // report and what the yard reads from it, or why nothing is known.
 type kindLimits struct {
 	Kind string `json:"kind"`
+	// Group is the group whose login was read, with --group; "" reads the
+	// machine's.
+	Group string `json:"group,omitempty"`
 	// Limits is the report; nil when nothing is known.
 	Limits *limits.Report `json:"limits,omitempty"`
 	// Window and ResetsAt are the window an agent of the kind waits for,
@@ -90,6 +93,9 @@ func askProvider(ctx context.Context, g providerGroup) providerLimits {
 // nothing is known.
 type sourceLimits struct {
 	Source string `json:"source"`
+	// Group is the group whose env the source was asked under, with
+	// --group; "" asks with the caller's.
+	Group string `json:"group,omitempty"`
 	// Limits is the report; nil when nothing is known.
 	Limits *limits.Report `json:"limits,omitempty"`
 	// Window and ResetsAt are the window that is used up and resets last,
@@ -116,7 +122,8 @@ func askSource(ctx context.Context, a limits.Answerer) sourceLimits {
 }
 
 func (a *app) limitsCmd() *cobra.Command {
-	return &cobra.Command{
+	var group string
+	cmd := &cobra.Command{
 		Use:   "limits [kind|source]",
 		Short: "What the subscriptions the yard burns still carry, and what its sources say of themselves",
 		Long: `Asks the source of the yard that says limits (a declared source with a
@@ -126,7 +133,9 @@ used, when it resets and in how long, and whether it is used up. With a
 kind it asks for that one; without, every kind a group, a crew member or
 the yard's default_kind names is resolved to its provider — its provider
 setting where one is set, else the kinds table's mapping of the kind — and
-each provider is asked once, naming who burns it.
+each provider is asked once, naming who burns it. With --group and no kind
+it asks for that group's own: its kind through its provider setting, as a
+route's condition reads it.
 
   yardr limits kimi
   kimi  aiquokka says (provider Kimi):
@@ -159,9 +168,12 @@ Nothing is remembered between two runs. A provider may be slow and may be
 bounded in how often it answers, so this is a command for when you want to
 know, not one to run in a loop.
 
-The answer is for the login the provider reads on this machine, which is
-the operator's. A group or crew member whose env_file gives its harness
-another account is not described by it.
+With --group the command runs with that group's env, as its agents run,
+and the answer is for the login the group burns: two groups on different
+logins report different windows. Without it the answer is for the login
+the provider reads on this machine, which is the operator's; a group whose
+env gives its harness another account is not described by it, nor is a
+crew member on another login.
 
 A provider is "not known", with the reason, when no source of the yard
 names it or when its command gave no answer: another exit status than 0,
@@ -174,6 +186,7 @@ window and resets_at, or the reason under limits_unknown.`,
 		Example: `  yardr limits
   yardr limits kimi
   yardr limits machine
+  yardr limits --group mckean2-builders
   yardr limits kimi --json | jq -r '.limits[0].resets_at'`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -186,6 +199,13 @@ window and resets_at, or the reason under limits_unknown.`,
 			if err != nil {
 				return err
 			}
+			var env []string
+			var g store.Group
+			if group != "" {
+				if env, g, err = groupReadEnv(ctx, st, group); err != nil {
+					return err
+				}
+			}
 			if len(args) == 1 {
 				as, err := limits.Answerers(ctx, st, cfg.Home)
 				if err != nil {
@@ -195,7 +215,9 @@ window and resets_at, or the reason under limits_unknown.`,
 					if self, ok := limits.SelfAnswerer(as, args[0]); ok {
 						// No source lists the kind: the name is a source
 						// that answers for itself.
+						self.Env = env
 						own := []sourceLimits{askSource(ctx, self)}
+						own[0].Group = group
 						if err := a.out(map[string]any{"limits": []kindLimits{}, "sources": own, "unmapped": []string{}}, func() {
 							now := time.Now()
 							for _, l := range own[0].lines(now) {
@@ -211,8 +233,34 @@ window and resets_at, or the reason under limits_unknown.`,
 					}
 				}
 				asked := []kindLimits{askLimits(ctx, func(ctx context.Context, kind string) (*limits.Report, error) {
-					return limits.Ask(ctx, st, cfg.Home, kind)
+					return askKind(ctx, st, cfg.Home, kind, env)
 				}, args[0])}
+				asked[0].Group = group
+				if err := a.out(map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func() {
+					now := time.Now()
+					for _, k := range asked {
+						for _, l := range k.lines(now) {
+							fmt.Println(l)
+						}
+					}
+				}); err != nil {
+					return err
+				}
+				if asked[0].Unknown != "" {
+					return errCheckFailed // the line said which and why
+				}
+				return nil
+			}
+			if group != "" {
+				kind := g.Kind(defaultKind(ctx, st))
+				if kind == "" {
+					return fmt.Errorf("group %s starts no agents, so no subscription burns for it: nothing has windows to read", group)
+				}
+				provider, _ := g.Config["provider"].(string)
+				asked := []kindLimits{askLimits(ctx, func(ctx context.Context, kind string) (*limits.Report, error) {
+					return askKindFor(ctx, st, cfg.Home, kind, provider, env)
+				}, kind)}
+				asked[0].Group = group
 				if err := a.out(map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func() {
 					now := time.Now()
 					for _, k := range asked {
@@ -292,6 +340,48 @@ window and resets_at, or the reason under limits_unknown.`,
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&group, "group", "", "read the login the group burns: its kind, with its env")
+	return cmd
+}
+
+// askKind asks for kind under env, as limits.Ask does with the caller's
+// environment: env are the entries of the group whose login is read, nil
+// for the machine's.
+func askKind(ctx context.Context, st store.API, home, kind string, env []string) (*limits.Report, error) {
+	as, err := limits.Answerers(ctx, st, home)
+	if err != nil {
+		return nil, err
+	}
+	for i := range as {
+		if _, ok := as[i].Limits.Kinds[kind]; ok {
+			as[i].Env = env
+			return as[i].Ask(ctx, kind)
+		}
+	}
+	return nil, &limits.NoSource{Kind: kind}
+}
+
+// askKindFor asks for kind with the provider setting under env, as
+// limits.AskFor does with the caller's environment: with the setting the
+// first source naming the provider is asked for it, without it the kind
+// resolves through the kinds table.
+func askKindFor(ctx context.Context, st store.API, home, kind, provider string, env []string) (*limits.Report, error) {
+	as, err := limits.Answerers(ctx, st, home)
+	if err != nil {
+		return nil, err
+	}
+	a, name, ok := limits.Resolve(as, kind, provider)
+	if !ok {
+		if provider != "" {
+			return nil, &limits.NoSource{Provider: provider}
+		}
+		return nil, &limits.NoSource{Kind: kind}
+	}
+	a.Env = env
+	if provider != "" {
+		return a.AskName(ctx, name)
+	}
+	return a.Ask(ctx, kind)
 }
 
 // limitUse is one place the yard burns quota: a harness kind with its
@@ -426,7 +516,11 @@ func (k kindLimits) lines(now time.Time) []string {
 	if r.Plan != "" {
 		head += ", plan " + r.Plan
 	}
-	return append([]string{head + "):"}, append(windowLines(r, now), "  "+k.summary(now))...)
+	head += ")"
+	if k.Group != "" {
+		head += ", for group " + k.Group
+	}
+	return append([]string{head + ":"}, append(windowLines(r, now), "  "+k.summary(now))...)
 }
 
 // summary says in a line what the report means for an agent of the kind.
@@ -484,7 +578,11 @@ func (s sourceLimits) lines(now time.Time) []string {
 	if r.Plan != "" {
 		head += ", plan " + r.Plan
 	}
-	return append([]string{head + "):"}, append(windowLines(r, now), "  "+s.summary(now))...)
+	head += ")"
+	if s.Group != "" {
+		head += ", for group " + s.Group
+	}
+	return append([]string{head + ":"}, append(windowLines(r, now), "  "+s.summary(now))...)
 }
 
 // summary says in a line what the report means: which window is used up,

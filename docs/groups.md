@@ -172,7 +172,10 @@ always holds. `yardr route list` prints them as
   report has. yardr compares two numbers and knows no provider's windows;
   the threshold is yours, and no pack brings one. Whose windows are meant
   follows from the group's `kind` and its `provider` setting, as for a
-  harness that stopped on a limit. A comparison may name a source for the
+  harness that stopped on a limit, and the command runs with the group's
+  env, so a group on its own login gates on its own windows
+  (`yardr limits --group <group>` reads the same). A comparison may name
+  a source for the
   window instead: `machine.load<80` reads the window labelled `load` of
   what the source `machine` says of itself, whatever the group's provider
   is (`machine.<80` is every window it reports), and the two forms mix
@@ -239,10 +242,12 @@ always holds. `yardr route list` prints them as
     waits since 14:02 for a group of route qp3f… whose condition holds: builders passed over (Claude's Weekly window is 83% used, the route asks under 80); the first of those windows resets Sat 17 Oct 09:00 (in 3d 2h)
   ```
 - **Conditions that cannot work are said, and none is refused.**
-  Groups that burn one provider read the same windows, so a further group
-  with no condition that burns the provider of a conditioned group before
-  it takes every bead that group was passed over for, as used up as it is:
-  `yardr route add` warns of it on stderr and adds the route. A condition
+  Groups that burn one provider on one login read the same windows, so a
+  further group with no condition that burns the provider of a conditioned
+  group before it takes every bead that group was passed over for, as used
+  up as it is: `yardr route add` warns of it on stderr and adds the route.
+  Two groups on different logins read each their own, so a personal group
+  failing over to the operator's warns of nothing. A condition
   on a group no limits source answers for holds whatever is used, as a
   comparison that names a source with no limits of its own does: `yardr
   doctor` notes each such route under `limits`.
@@ -256,8 +261,9 @@ always holds. `yardr route list` prints them as
   asks for the limits.
 - **How often the limits command runs for this.** Only for a ready bead
   whose route has a condition, when one of the route's groups could start
-  it, and at most once in five minutes for a provider or a source, a
-  failed run included. A group can so start a session or two after its
+  it, and at most once in five minutes for a provider read under one
+  group's env, or for a source, a failed run included. A group can so
+  start a session or two after its
   window crossed the threshold, which a threshold below 100 leaves room
   for. The condition is a margin, not a forecast: sessions started under
   it can still fill the window, and then the harness stops and
@@ -651,9 +657,10 @@ harness hit is then one the provider does not report, another account's, one
 model's or a short rate limit, and the yardmaster reads the pane as before.
 With `limits_unknown` the hint is what it was.
 
-The answer is for the login the provider reads on this machine, the
-operator's: for a group or crew member whose `env_file` gives its harness
-another account it is the wrong subscription's.
+A session's answer is for the login its group burns, read with the group's
+env (`yardr limits --group <group>` reads the same); a crew member's is for
+the login the provider reads on this machine, the operator's, whatever its
+own env gives its harness.
 
 **When the source is asked.** A provider is slow and is not to be leaned
 on, so the daemon runs the source's command in two places. One is while it
@@ -666,8 +673,9 @@ its pane no longer ends in the limit or its input holds text, and not on
 the passes of the wait. A pass that finds nothing stopped on a usage limit
 asks nothing, and neither does a start, a timer or any other reason. What the
 provider said, or that it failed, is kept for 60 seconds in the daemon's
-memory, by the provider's name in the source's file, so five sessions of
-one kind that stop in the same minute are one run of the command; nothing
+memory, by the provider's name in the source's file and the login read, so
+five sessions of one kind on one login that stop in the same minute are one
+run of the command; nothing
 of it is stored, and a daemon that replaced itself knows nothing. The
 command runs inside the dispatcher's pass, so one that hangs holds that
 pass for up to 30 seconds, once in a minute. The 60 seconds are fixed; no

@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -153,6 +154,11 @@ type Answerer struct {
 	Limits *source.Limits
 	// Home is the yard's home, where the command runs.
 	Home string
+	// Env, when set, joins the command's environment over the caller's:
+	// the env_file entries of the group whose login is read, so the
+	// provider reads that login instead of the machine's. nil runs with
+	// the caller's environment, as before.
+	Env []string
 }
 
 // Answerers are the sources of the yard that say limits, by name. home is
@@ -327,15 +333,20 @@ func (c command) askName(ctx context.Context, name string) (*Report, error) {
 }
 
 // run runs argv: without a shell, its stdin closed, in the yard's home, with
-// the caller's environment and nothing added, in a process group of its own
-// that is killed whole at Timeout. A program with no / at its start is the
-// file the declaration brought, run from its copy.
+// the caller's environment and nothing added — or with Env joined over it
+// where the answerer names a group's — in a process group of its own that
+// is killed whole at Timeout. A program with no / at its start is the file
+// the declaration brought, run from its copy.
 func (c command) run(ctx context.Context, argv []string) (*Report, error) {
 	what := "limits command " + strings.Join(argv, " ")
 	argv[0] = source.Command{Key: "limits.command", Argv: argv}.Program(c.Home, c.Source)
+	var env []string
+	if c.Env != nil {
+		env = append(os.Environ(), c.Env...)
+	}
 	asked := time.Now()
 	var r *Report
-	err := source.Run(ctx, what, argv, nil, nil, c.Home, Timeout, func(out []byte) error {
+	err := source.Run(ctx, what, argv, nil, env, c.Home, Timeout, func(out []byte) error {
 		var err error
 		r, err = read(out)
 		return err

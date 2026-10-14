@@ -74,6 +74,73 @@ func claimedBy(t *testing.T, s store.API, id string) (string, map[string]any) {
 	return *b.Group, evs[0].Data
 }
 
+// A quota condition gates on the conditioned group's own login: two groups
+// of one kind on different logins read different windows, and the bead goes
+// by the first group's, not the ambient answer. Each login is asked once,
+// whatever the other reads.
+func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("YARDR_TEST_LOGIN", "operator")
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
+	now := noon()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5,
+		Config: map[string]any{"kind": "kimi", "env_file": loginEnv(t, "a-login")}}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Limit: 5,
+		Config: map[string]any{"kind": "kimi", "env_file": loginEnv(t, "b-login")}}, "me"))
+	p := newLoginStandIn(t, s)
+	p.sayAs("a-login", weekly(85, 10))
+	p.sayAs("b-login", weekly(10, 10))
+	p.sayAs("operator", weekly(10, 10))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80",
+		Else: []store.RouteGroup{{Name: "b", When: "Weekly<80"}}}, "me")
+	must(t, err)
+
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	group, data := claimedBy(t, s, b.ID)
+	if group != "b" {
+		t.Fatalf("claimed by %q with %v, want b: a's own login is past the threshold", group, data)
+	}
+	passed, _ := data["passed"].([]any)
+	if len(passed) != 1 {
+		t.Fatalf("passed = %v, want the one group", data["passed"])
+	}
+	if one, _ := passed[0].(map[string]any); one["group"] != "a" ||
+		one["reason"] != "Kimi's Weekly window is 85% used, the route asks under 80" {
+		t.Fatalf("passed = %v, want a passed over on its own 85%%", one)
+	}
+	if got, want := p.asks(), []string{"moonshot a-login", "moonshot b-login"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("asks = %v, want %v: each login read once, the ambient answer never", got, want)
+	}
+
+	// Within the five minutes the answers are kept, per login: a bead
+	// more asks nothing.
+	b = newBead(t, s, "y")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "b" {
+		t.Fatalf("claimed by %q, want b", group)
+	}
+	if got := p.asks(); len(got) != 2 {
+		t.Fatalf("asks = %v, want no further run within the five minutes", got)
+	}
+
+	// After them a's windows open again, and the bead goes to a on its
+	// own answer, read once more.
+	now = now.Add(6 * time.Minute)
+	p.sayAs("a-login", weekly(10, 10))
+	b = newBead(t, s, "z")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "a" {
+		t.Fatalf("claimed by %q, want a", group)
+	}
+	if got, want := p.asks(), []string{"moonshot a-login", "moonshot b-login", "moonshot a-login"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("asks = %v, want %v", got, want)
+	}
+}
+
 // A group whose provider's window is past the route's threshold is passed
 // over for the next group of the route, and the claimed event says by
 // which route and why; under the threshold the first group takes the bead.

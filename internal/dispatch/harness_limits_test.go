@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,51 @@ func (p *standIn) asks() []string {
 	}
 	must(p.t, err)
 	return strings.Fields(string(b))
+}
+
+// loginStandIn is a provider of limits that answers per login: the yard's
+// source "quokka" for kimi and codex, whose script answers with the report
+// sayAs set for $YARDR_TEST_LOGIN. asks tells whom each run was for and
+// under which login, one "provider login" line per run.
+type loginStandIn struct {
+	t   *testing.T
+	dir string
+}
+
+func newLoginStandIn(t *testing.T, s store.API) *loginStandIn {
+	t.Helper()
+	p := &loginStandIn{t: t, dir: t.TempDir()}
+	script := filepath.Join(p.dir, "provider")
+	scripttest.Write(t, script, "#!/bin/sh\ncd "+p.dir+"\necho \"$1 $YARDR_TEST_LOGIN\" >>asked\n"+
+		"cat answer-$YARDR_TEST_LOGIN\n")
+	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
+		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai }\n", "me")
+	must(t, err)
+	return p
+}
+
+func (p *loginStandIn) sayAs(login, report string) {
+	p.t.Helper()
+	must(p.t, os.WriteFile(filepath.Join(p.dir, "answer-"+login), []byte(report), 0o600))
+}
+
+func (p *loginStandIn) asks() []string {
+	p.t.Helper()
+	b, err := os.ReadFile(filepath.Join(p.dir, "asked"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	must(p.t, err)
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// loginEnv is an env_file naming the login: its one entry sets the login
+// the loginStandIn source answers for.
+func loginEnv(t *testing.T, login string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "group.env")
+	must(t, os.WriteFile(p, []byte("YARDR_TEST_LOGIN="+login+"\n"), 0o600))
+	return p
 }
 
 // noon is a time of day at which 42 minutes on is the same day, wherever
@@ -113,6 +159,35 @@ func TestSessionAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	must(t, d.Reconcile(context.Background()))
 	if asks := p.asks(); len(asks) != 1 {
 		t.Fatalf("the provider was run %d times for one error, want 1", len(asks))
+	}
+}
+
+// A session whose harness stopped on a usage limit is told of with its own
+// group's windows: the source runs under the group's env, not the ambient
+// answer.
+func TestSessionAtItsUsageLimitReadsTheGroupsLogin(t *testing.T) {
+	t.Setenv("YARDR_TEST_LOGIN", "operator")
+	s, r, d, b := harnessSetup(t, "kimi", map[string]any{"env_file": loginEnv(t, "g-login")})
+	now := noon()
+	dispatch.SetClock(d, func() time.Time { return now })
+	p := newLoginStandIn(t, s)
+	resets := now.Add(42 * time.Minute)
+	p.sayAs("g-login", kimiUsed(resets))
+	p.sayAs("operator", `{"provider":"Kimi","windows":[]}`)
+
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %v, want one", evs)
+	}
+	data := evs[0].Data
+	if data["reason"] != dispatch.ReasonRateLimited || data["window"] != "5h" ||
+		data["resets_at"] != resets.UTC().Format(time.RFC3339) || data["limits_unknown"] != nil {
+		t.Fatalf("data = %v, want rate_limited with the group's 5h window and its reset", data)
+	}
+	if got, want := p.asks(), []string{"moonshot g-login"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("asks = %v, want %v", got, want)
 	}
 }
 

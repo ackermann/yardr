@@ -126,11 +126,20 @@ func groupProvider(as []limits.Answerer, g store.Group, def string) (name, kind 
 	return name, kind, ok
 }
 
+// groupEnvFile is the env_file setting of g, "" where it names none. Two
+// groups naming one file read one login's windows; two naming different
+// files read each their own.
+func groupEnvFile(g store.Group) string {
+	file, _ := g.Config["env_file"].(string)
+	return file
+}
+
 // sameProvider are the warnings for a route that falls through to a group
 // as used up as the one it passed over: a group with no condition that
-// burns the provider of a conditioned group before it. The windows are the
-// provider's and the dispatcher's memory is by provider, so the two read
-// one answer.
+// burns the provider of a conditioned group before it, on the same login.
+// Two groups on one login's windows read one answer; two on different
+// logins read each their own, so a personal group failing over to the
+// operator's warns of nothing.
 func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.Route, def string) []string {
 	var out []string
 	gated := map[string]string{} // provider -> the first conditioned group burning it
@@ -156,7 +165,7 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 			}
 			continue
 		}
-		if first, same := gated[name]; same {
+		if first, same := gated[name]; same && groupEnvFile(groups[first]) == groupEnvFile(groups[rg.Name]) {
 			out = append(out, fmt.Sprintf("%s burns provider %s, as %s does, and has no condition: a bead that passes over %s goes on to %s "+
 				"however far the same windows are used. Give it a condition of its own (%s@<window><<percent>) or name a group of another provider",
 				rg.Name, name, first, first, rg.Name, rg.Name))

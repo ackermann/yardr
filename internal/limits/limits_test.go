@@ -106,6 +106,48 @@ func TestAsk(t *testing.T) {
 	}
 }
 
+// A read of a group's login runs the command with the group's entries
+// joined over the caller's environment, so the provider reads that login:
+// an entry wins over the ambient environment, and the rest of it runs as
+// before. With no entries the caller's environment runs unchanged.
+func TestAnswererEnv(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	seen := filepath.Join(t.TempDir(), "seen")
+	p := standIn(t, `{ echo "login: $QUOKKA_LOGIN"; echo "other: $QUOKKA_OTHER"; } >`+seen+`; echo '`+kimi+`'`)
+	t.Setenv("QUOKKA_LOGIN", "from the caller")
+	t.Setenv("QUOKKA_OTHER", "from the caller")
+
+	as, err := Answerers(ctx, yard(p), home)
+	if err != nil || len(as) != 1 {
+		t.Fatalf("Answerers = %+v, %v", as, err)
+	}
+	as[0].Env = []string{"QUOKKA_LOGIN=from the group"}
+	r, err := as[0].Ask(ctx, "kimi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Provider != "Kimi" {
+		t.Fatalf("report = %+v", r)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "login: from the group\nother: from the caller\n" {
+		t.Fatalf("the command saw\n%s\nwant the group's entry over the caller's environment", got)
+	}
+
+	// Asked for the provider by name, the entries join the same way.
+	os.Remove(seen)
+	r, err = as[0].AskName(ctx, "moonshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "login: from the group\nother: from the caller\n" {
+		t.Fatalf("the command saw\n%s\nwant the group's entry over the caller's environment", got)
+	}
+	if r.Provider != "Kimi" {
+		t.Fatalf("report = %+v", r)
+	}
+}
+
 // A source whose limits key names no kinds answers for itself: AskSource
 // runs its command as the file has it, with no provider substituted, and
 // the report is what it printed. A source with kinds, or no source of the

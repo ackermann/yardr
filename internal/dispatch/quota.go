@@ -82,17 +82,23 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 
 // routeQuota is what the yard's limits source says of the provider the
 // agents of g burn, as a route's condition reads it: the group's kind and
-// provider setting resolve it, as they do for a harness that stopped. The
-// kind is the one Claim gives the group's sessions (store.Group.Kind, def
-// being the yard's default_kind), so the windows read are those the session
-// burns; a group that starts no agents is asked for as before.
+// provider setting resolve it, as they do for a harness that stopped, and
+// the command runs under the group's env, so the condition gates on that
+// login's windows. The kind is the one Claim gives the group's sessions
+// (store.Group.Kind, def being the yard's default_kind), so the windows
+// read are those the session burns; a group that starts no agents is asked
+// for as before.
 func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) store.Quota {
 	kind := g.Kind(def)
 	if kind == "" {
 		kind = agents.DefaultKind
 	}
 	provider, _ := g.Config["provider"].(string)
-	r, err := d.askLimits(ctx, kind, provider, routeLimitsMemory)
+	env, err := groupEnv(g)
+	if err != nil {
+		return store.Quota{Unknown: err.Error()}
+	}
+	r, err := d.askLimits(ctx, kind, provider, routeLimitsMemory, env, "group "+g.Name)
 	if err != nil {
 		return store.Quota{Unknown: err.Error()}
 	}

@@ -223,6 +223,57 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 	}
 }
 
+// route add warns of a further group on the same provider only when the two
+// read one login: a personal group failing over to the operator's, on
+// different logins, warns of nothing, while two groups on one file warn as
+// before.
+func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
+	a, st, ran := quotaCLI(t)
+	ctx := context.Background()
+	for _, g := range []store.Group{
+		{Name: "own", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/own.env"}},
+		{Name: "spare", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/spare.env"}},
+		{Name: "twin", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": "/logins/own.env"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		warn string // the group warned of, "" for none
+	}{
+		// Different logins read different windows: the failover is real.
+		{[]string{"--group", "own@Weekly<80", "--else", "spare"}, ""},
+		// A personal group failing over to the operator's ambient login.
+		{[]string{"--group", "own@Weekly<80", "--else", "a"}, ""},
+		// One file is one login: the bead goes on as used up as it is.
+		{[]string{"--group", "own@Weekly<80", "--else", "twin"}, "twin"},
+	} {
+		errs := captureStderr(t)
+		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...)
+		if err != nil {
+			t.Fatalf("route add %v: %v", tc.args, err)
+		}
+		id = strings.TrimSpace(id)
+		got := errs.String()
+		if tc.warn == "" {
+			if got != "" {
+				t.Errorf("route add %v warned: %s", tc.args, got)
+			}
+			continue
+		}
+		want := "warning: route " + id + ": " + tc.warn + " burns provider anthropic, as own does, and has no condition: " +
+			"a bead that passes over own goes on to " + tc.warn + " however far the same windows are used."
+		if !strings.HasPrefix(got, want) || strings.Count(got, "\n") != 1 {
+			t.Errorf("route add %v warned %q, want one line beginning %q", tc.args, got, want)
+		}
+	}
+	if ran() {
+		t.Error("route add ran the limits command")
+	}
+}
+
 // doctor notes a route whose condition is on a group no source answers
 // for, with a limits source in the yard and with none.
 func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {

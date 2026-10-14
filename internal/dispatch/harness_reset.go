@@ -107,17 +107,30 @@ func resetLine(kind, window string) string {
 }
 
 // windowOpen asks the yard's source once more whether an agent of kind with
-// the provider setting can work: false while a window is used up that
-// resets later, or at a time the provider does not say. It is the one place
+// the provider setting can work, read under env: false while a window is
+// used up that resets later, or at a time the provider does not say. scope
+// names whose login is read, as askLimits asks. It is the one place
 // besides harnessLimits where the dispatcher runs the source's command, and
 // it is reached only at the wake of an agent that is about to be prompted.
-func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string) bool {
-	r, err := d.askLimits(ctx, kind, provider, limitsMemory)
+func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string, scope string) bool {
+	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env, scope)
 	if err != nil {
 		return ctx.Err() == nil
 	}
 	w := r.UsedUp()
 	return w == nil || w.ResetsAt != nil && !w.ResetsAt.After(d.now())
+}
+
+// sessionWindowOpen is windowOpen for a session of g: the subscription
+// read under the group's env, the login the stop was told of. A group
+// whose env_file cannot be read holds the prompt back no more than a
+// provider that gives no answer.
+func (d *Dispatcher) sessionWindowOpen(ctx context.Context, g store.Group, kind, provider string) bool {
+	env, err := groupEnv(g)
+	if err != nil {
+		return ctx.Err() == nil
+	}
+	return d.windowOpen(ctx, kind, provider, env, "group "+g.Name)
 }
 
 // harnessReset is the wake of the idle session s, whose usage limit's window
@@ -155,7 +168,7 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		d.markHarnessError(ctx, s, reason, nil)
 		return
 	}
-	if !d.windowOpen(ctx, kind, provider) {
+	if !d.sessionWindowOpen(ctx, g, kind, provider) {
 		if ctx.Err() != nil {
 			return
 		}
@@ -322,7 +335,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		}
 		return false, nil
 	}
-	if !d.windowOpen(ctx, kind, provider) {
+	if !d.windowOpen(ctx, kind, provider, nil, "") {
 		if ctx.Err() != nil {
 			return false, nil
 		}

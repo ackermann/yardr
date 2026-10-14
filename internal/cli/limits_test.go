@@ -150,6 +150,129 @@ func TestLimitsOfAKind(t *testing.T) {
 	}
 }
 
+// With --group the command runs with the group's env and the answer is for
+// the login the group burns: two groups on different logins report
+// different windows, and neither is the ambient answer. Without the flag
+// the machine's login is read as before.
+func TestLimitsGroupReadsTheGroupsLogin(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "jo"}
+	t.Setenv("QUOKKA_LOGIN", "operator")
+	file, _ := limitsStandIn(t, `case "$QUOKKA_LOGIN" in
+first) echo '{"provider":"Kimi","plan":"First","windows":[{"label":"Weekly","used_percent":10}]}';;
+second) echo '{"provider":"Kimi","plan":"Second","windows":[{"label":"Weekly","used_percent":90}]}';;
+*) echo '{"provider":"Kimi","plan":"Ambient","windows":[{"label":"Weekly","used_percent":50}]}';;
+esac`)
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	env := func(login string) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "group.env")
+		if err := os.WriteFile(p, []byte("QUOKKA_LOGIN="+login+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	putGroup := func(name, kind, provider, login string) {
+		t.Helper()
+		cfg := map[string]any{"kind": kind}
+		if provider != "" {
+			cfg["provider"] = provider
+		}
+		if login != "" {
+			cfg["env_file"] = env(login)
+		}
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: cfg}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	putGroup("builders", "kimi", "", "first")
+	putGroup("mckean2-builders", "kimi", "", "second")
+
+	out, err := run(t, a.limitsCmd(), "--group", "mckean2-builders")
+	if err != nil {
+		t.Fatalf("limits --group mckean2-builders: %q %v", out, err)
+	}
+	for _, want := range []string{
+		"kimi  quokka says (provider Kimi, plan Second), for group mckean2-builders:\n",
+		"Weekly  90% used",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("limits --group mckean2-builders printed no %q:\n%s", want, out)
+		}
+	}
+	out, err = run(t, a.limitsCmd(), "--group", "builders")
+	if err != nil || !strings.Contains(out, "kimi  quokka says (provider Kimi, plan First), for group builders:\n") ||
+		!strings.Contains(out, "Weekly  10% used") {
+		t.Fatalf("limits --group builders: %q %v", out, err)
+	}
+	// The flag's read is the group's, not the ambient answer: the operator
+	// reads Ambient.
+	out, err = run(t, a.limitsCmd(), "kimi")
+	if err != nil || !strings.Contains(out, "kimi  quokka says (provider Kimi, plan Ambient):\n") {
+		t.Fatalf("limits kimi: %q %v", out, err)
+	}
+	// --json carries whose login was read.
+	a.json = true
+	out, err = run(t, a.limitsCmd(), "--group", "mckean2-builders")
+	a.json = false
+	var res struct {
+		Limits []struct {
+			Kind   string `json:"kind"`
+			Group  string `json:"group"`
+			Limits struct {
+				Plan string `json:"plan"`
+			} `json:"limits"`
+		} `json:"limits"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 1 {
+		t.Fatalf("limits --group mckean2-builders --json: %q %v", out, err)
+	}
+	if k := res.Limits[0]; k.Kind != "kimi" || k.Group != "mckean2-builders" || k.Limits.Plan != "Second" {
+		t.Fatalf("limits --group mckean2-builders --json = %+v", k)
+	}
+	// A named kind is asked under the group's env the same way.
+	out, err = run(t, a.limitsCmd(), "kimi", "--group", "mckean2-builders")
+	if err != nil || !strings.Contains(out, "plan Second), for group mckean2-builders:\n") {
+		t.Fatalf("limits kimi --group mckean2-builders: %q %v", out, err)
+	}
+
+	// A group with the provider setting is asked as the provider, though
+	// no table lists its kind.
+	putGroup("zap", "codex", "moonshot", "second")
+	out, err = run(t, a.limitsCmd(), "--group", "zap")
+	if err != nil || !strings.Contains(out, "codex  quokka says (provider Kimi, plan Second), for group zap:\n") {
+		t.Fatalf("limits --group zap: %q %v", out, err)
+	}
+	// A group with no env_file reads the machine's login, as its panes do.
+	putGroup("bare", "kimi", "", "")
+	out, err = run(t, a.limitsCmd(), "--group", "bare")
+	if err != nil || !strings.Contains(out, "plan Ambient), for group bare:\n") {
+		t.Fatalf("limits --group bare: %q %v", out, err)
+	}
+	// A group there is none of, one whose file cannot be read, and one
+	// that starts no agents are refused naming why, and ask nothing.
+	if _, err := run(t, a.limitsCmd(), "--group", "ghost"); err == nil || !strings.Contains(err.Error(), "group ghost") {
+		t.Fatalf("limits --group ghost: %v", err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "broken", Runner: "herdr",
+		Config: map[string]any{"kind": "kimi", "env_file": filepath.Join(t.TempDir(), "gone.env")}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.limitsCmd(), "--group", "broken"); err == nil || !strings.Contains(err.Error(), "group broken") {
+		t.Fatalf("limits --group broken: %v", err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "bench", Runner: "manual", Config: map[string]any{}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.limitsCmd(), "--group", "bench"); err == nil ||
+		!strings.Contains(err.Error(), "group bench starts no agents") {
+		t.Fatalf("limits --group bench: %v", err)
+	}
+}
+
 // A window whose provider says what share of it has passed shows the
 // target beside the used figure, and one burned past it is marked over
 // target; --json carries the share.

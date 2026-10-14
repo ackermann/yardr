@@ -550,9 +550,13 @@ they have no answer, and `source check` fails for them.
   known*, with a reason in one line that ends with the last lines the
   command printed on stderr, never what it printed on stdout. `yardr limits`
   prints it and exits 1; `--json` has it as `limits_unknown`.
-- **Whose subscription.** The answer is for the login the provider reads on
-  this machine, the operator's. A group or crew member whose `env_file`
-  gives its harness another account is not described by it.
+- **Whose subscription.** With `yardr limits --group <group>` the command
+  runs with that group's env, and the answer is for the login the group
+  burns; the daemon's quota and harness-error reads run under the judged
+  group's env the same way. Otherwise the answer is for the login the
+  provider reads on this machine, the operator's: a group whose env gives
+  its harness another account is not described by it, nor is a crew member
+  on another login.
 - **When it is asked.** A provider is slow next to everything else here,
   may itself be bounded in how often it answers, and may renew a stored
   login as it reads one (aiquokka does, and writes the new one back where
@@ -563,8 +567,10 @@ they have no answer, and `source check` fails for them.
   --try`; none of them remembers an answer. The fourth is the daemon, **when a
   harness has stopped on a usage limit**: while it raises a
   `session_harness_error` of reason `rate_limited`, for a session or a crew
-  member, it asks for that harness's kind, and keeps what the provider said
-  for 60 seconds in its memory, so agents that stop together are one run
+  member, it asks for that harness's kind — under the session's group's env
+  for a session — and keeps what the provider said for 60 seconds in its
+  memory, by provider and login, so agents that stop together on one login
+  are one run
   ([groups.md](groups.md#a-usage-limit-says-its-window-and-when-it-resets)).
   The fifth is the daemon again, **at the reset that event told of**: for
   an agent whose window was to reset within six hours it asks once more,
@@ -575,10 +581,11 @@ they have no answer, and `source check` fails for them.
   condition on a group**
   ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
   at the moment one of the route's groups could start the bead it asks for
-  the group's provider, and for each source the condition names for the
-  source itself, and for this it keeps what each said for
-  five minutes, a failed run included. So that is at most twelve runs an
-  hour for a provider or a source however many beads are ready, none while no ready
+  the group's provider under the group's env, and for each source the
+  condition names for the source itself, and for this it keeps what each
+  said for five minutes, a failed run included. So that is at most twelve
+  runs an hour for a provider read under one group's env, or for a source,
+  however many beads are ready, none while no ready
   bead meets a condition, and a pass that asks holds for at most the
   command's 30 seconds.
   The seventh is the server, **for the web view at /limits**
