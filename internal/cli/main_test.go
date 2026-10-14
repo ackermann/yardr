@@ -35,7 +35,7 @@ var askHerdrServer func(context.Context, string) serverCheck
 
 // realTry is tryHarnessCall as yardr has it, for a test that gives it a
 // stand-in harness to call.
-var realTry func(context.Context, string, string) tryCheck
+var realTry func(context.Context, string, string, []string) tryCheck
 
 // realAnswers is answers as yardr has it, for a test whose listener is real.
 var realAnswers func(string) bool
@@ -127,7 +127,7 @@ func TestMain(m *testing.M) {
 	// Nor does a test call a harness that is somebody's own, and costs
 	// them a model call: a test of the call puts it back (realTry).
 	realTry = tryHarnessCall
-	tryHarnessCall = func(context.Context, string, string) tryCheck {
+	tryHarnessCall = func(context.Context, string, string, []string) tryCheck {
 		return tryCheck{State: tryNotTried, Output: "tests call no harness"}
 	}
 	// Nor does a test take over the terminal with the chat's view: a test

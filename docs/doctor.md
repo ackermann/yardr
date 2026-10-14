@@ -456,6 +456,7 @@ whose file has a login recipe, a program leads the login:
 ```sh
 yardr harness login claude          # says what to run in a terminal; starts nothing
 yardr harness login claude --json   # for a program: needs on stdout, answers on stdin
+yardr harness login claude --group hal-builders --json   # into that group's folder
 ```
 
 With `--json` yardr starts the harness's own login command (`claude auth
@@ -463,6 +464,14 @@ login`), in an empty directory, on pipes it holds, and prints what the login
 needs next, one JSON object a line. The program shows each to the person and
 answers on stdin, one JSON object a line, with the one field of the need it
 answers.
+
+With `--group` the login command and the proving call run with that group's
+env: its `env_file` is read as the runner reads it for the group's
+sessions, and the login lands in the folder the env names
+(`CLAUDE_CONFIG_DIR` for Claude Code). The JSON steps are unchanged. A
+login made for a group sits in a folder on this machine, which whoever
+runs the machine can read: bringing a subscription trusts the operator the
+way the machine's own login does.
 
 | line on stdout | what the program does | answer on stdin |
 |---|---|---|
@@ -520,10 +529,12 @@ builder logs in, and the recipe goes by the command's exit status there.
 Only Claude Code has a recipe. For every other kind `yardr harness login
 <kind> --json` ends with an `error` that says so, the item of doctor's JSON
 has no `harness_login`, and the person logs in once in a terminal, on the
-harness's own screen. Without `--json` the command prints what to run there.
+harness's own screen — with the group's env set, where `--group` names
+one. Without `--json` the command prints what to run there.
 
 The login needs no yard, no server and no herdr: it runs on a home with no
-yard, before one is created.
+yard, before one is created. With `--group` it reads the yard for the
+group's env, so that run needs one.
 
 ## yardr status
 

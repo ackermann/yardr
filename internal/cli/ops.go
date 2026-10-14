@@ -611,6 +611,11 @@ yardmaster):
 			}
 			mayCall := grantedTo(grants, store.Grantee{Group: g.Name})
 			out := map[string]any{"group": g, "routes": routes}
+			if g.LoginFor() != "" {
+				if account := groupFolderAccount(*g); account != "" {
+					out["folder_login"] = account
+				}
+			}
 			kind, _ := g.Config["kind"].(string)
 			if h, ok := agents.Lookup(kind); ok {
 				out["harness"] = map[string]any{"kind": kind, "always": h.Flags.Always}
@@ -636,7 +641,17 @@ yardmaster):
 					if secretSetting(k) {
 						v = hidden(true)
 					}
-					fmt.Printf("  %s\n", fmtSets(map[string]any{k: v}))
+					line := fmtSets(map[string]any{k: v})
+					// login_for is a declaration and the folder is what
+					// burns: beside it, the account the folder's login
+					// names where the harness writes one, so a mismatch
+					// shows to the eye. Nothing enforces it.
+					if k == "login_for" {
+						if account := groupFolderAccount(*g); account != "" {
+							line += " (folder login: " + account + ")"
+						}
+					}
+					fmt.Printf("  %s\n", line)
 				}
 				for _, r := range routes {
 					line := "stage " + r.Stage

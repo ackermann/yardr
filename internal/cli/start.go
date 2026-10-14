@@ -290,7 +290,7 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 	}
 	for ctx.Err() == nil {
 		fmt.Printf("Asking %s for one answer (up to %s).\n", kind, tryTimeout)
-		t := tryHarnessCall(ctx, kind, path)
+		t := tryHarnessCall(ctx, kind, path, nil)
 		switch t.State {
 		case tryOK:
 			fmt.Printf("%s answers (%s).\n\n", kind, or(t.Output, "no output"))
@@ -754,7 +754,7 @@ func tryAfterFailure(ctx context.Context, kind string) (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	switch t := tryHarnessCall(ctx, kind, path); t.State {
+	switch t := tryHarnessCall(ctx, kind, path, nil); t.State {
 	case tryOK:
 		return fmt.Sprintf("one real call to %s outside a pane answered (%s)", kind, or(t.Output, "no output")), ""
 	case tryFails:

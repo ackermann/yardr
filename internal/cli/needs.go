@@ -315,7 +315,7 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 				v := probe(ctx, n.Harness, n.Path)
 				n.Version = &v
 				if try {
-					t := tryHarnessCall(ctx, n.Harness, n.Path)
+					t := tryHarnessCall(ctx, n.Harness, n.Path, nil)
 					n.Try = &t
 				}
 			}()
@@ -481,9 +481,11 @@ const tryPrompt = "Reply with the one word ok and nothing else."
 // version that lacks what it is started with, and a session started on it
 // then sits at a screen nobody sees. This costs a model call, so doctor
 // makes it only when asked (--try), and the onboarding only on a yes
-// (askHarness). A kind with no one-shot form known is not run. A variable
-// so that no test makes the call unasked: a test of it puts it back.
-var tryHarnessCall = func(ctx context.Context, kind, path string) tryCheck {
+// (askHarness). A kind with no one-shot form known is not run. env, when
+// given, joins the call's environment over the process's own: the proving
+// call of a login led for a group. A variable so that no test makes the
+// call unasked: a test of it puts it back.
+var tryHarnessCall = func(ctx context.Context, kind, path string, env []string) tryCheck {
 	args := agents.OneShotArgs(kind, tryPrompt)
 	if args == nil {
 		return tryCheck{State: tryNotTried, Output: "yardr knows no one-shot call for " + kind}
@@ -497,6 +499,9 @@ var tryHarnessCall = func(ctx context.Context, kind, path string) tryCheck {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	ownGroup(cmd)
 	// The answer is what it prints on stdout; what went wrong can be on
 	// either, so a failure shows the end of both as they came.

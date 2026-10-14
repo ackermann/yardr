@@ -101,7 +101,8 @@ type loginDone struct {
 }
 
 func (a *app) harnessLoginCmd() *cobra.Command {
-	return &cobra.Command{
+	var group string
+	cmd := &cobra.Command{
 		Use: "login <kind>", Short: "Lead a harness's login for a program, as JSON lines (--json)", Args: cobra.ExactArgs(1),
 		Long: `A harness is logged in with its own login, in a terminal. For a person
 who has none, a program (a window such as footplate) leads the login with
@@ -126,9 +127,19 @@ login command. What is put in is passed to the harness and kept nowhere.
 
 Without --json it says what to run in a terminal. Only a kind whose file has
 a recipe is led: the recipe is read from what one version of the harness
-printed, and may stop matching when the harness prints something else.`,
+printed, and may stop matching when the harness prints something else.
+
+With --group the login is led with that group's env: its env_file is read
+as the runner reads it for the group's sessions, and the login command and
+the proving call run with its entries joined, so the login lands in the
+folder the group's env names (CLAUDE_CONFIG_DIR for Claude Code). A kind
+with no recipe is logged in in a terminal with the group's env set
+instead. A login made for a group sits in a folder on this machine, which
+whoever runs the machine can read: bringing a subscription trusts the
+operator the way the machine's own login does.`,
 		Example: `  yardr harness login claude          # what to run in a terminal
-  yardr harness login claude --json   # for a program: needs on stdout, answers on stdin`,
+  yardr harness login claude --json   # for a program: needs on stdout, answers on stdin
+  yardr harness login claude --group hal-builders --json   # into that group's folder`,
 		RunE: func(c *cobra.Command, args []string) error {
 			h, ok := agents.Lookup(args[0])
 			if !ok {
@@ -137,26 +148,49 @@ printed, and may stop matching when the harness prints something else.`,
 				}
 				h.Kind, h.Label = args[0], args[0]
 			}
+			var env []string
+			var file string
+			if group != "" {
+				st, err := a.store(c.Context())
+				if err != nil {
+					return err
+				}
+				if env, file, err = groupLoginEnv(c.Context(), st, group); err != nil {
+					return err
+				}
+			}
 			exe := agents.Executable(h.Kind)
 			if !a.json {
 				if r := h.LoginRecipe; r == nil {
-					fmt.Printf("yardr knows no login command of %s: start %s in a terminal and log in on its own screen.\n", h.Label, exe)
+					if group != "" {
+						fmt.Printf("yardr knows no login command of %s: log it in in a terminal with group %s's env set (%s).\n", h.Label, group, file)
+					} else {
+						fmt.Printf("yardr knows no login command of %s: start %s in a terminal and log in on its own screen.\n", h.Label, exe)
+					}
 				} else {
 					fmt.Printf("%s is logged in with its own command, in a terminal:\n  %s %s\n", h.Label, exe, strings.Join(r.Argv, " "))
 					fmt.Printf("A program leads the same login for a person without one: yardr harness login %s --json\n", h.Kind)
+					if group != "" {
+						fmt.Printf("With --group %s the same login is led with that group's env, so it lands in the folder its env names.\n", group)
+					}
 				}
 				return nil
 			}
 			if h.LoginRecipe == nil {
+				if group != "" {
+					return fmt.Errorf("yardr has no login recipe for %s: log it in in a terminal with group %s's env set (%s)", h.Kind, group, file)
+				}
 				return fmt.Errorf("yardr has no login recipe for %s: it is logged in in a terminal, on its own screen", h.Kind)
 			}
 			path, err := lookPath(exe)
 			if err != nil {
 				return fmt.Errorf("%s is not on PATH, so there is nothing to log in: %s", exe, agents.InstallHint(h.Kind))
 			}
-			return leadLogin(c.Context(), h, path, stdin, os.Stdout)
+			return leadLogin(c.Context(), h, path, stdin, os.Stdout, env)
 		},
 	}
+	cmd.Flags().StringVar(&group, "group", "", "lead the login with the group's env, so it lands in that group's folder")
+	return cmd
 }
 
 // leadLogin plays h's login recipe with the harness at path: it starts the
@@ -165,8 +199,10 @@ printed, and may stop matching when the harness prints something else.`,
 // command ends. Then, on a yes, it makes the one real call that proves the
 // login (tryHarnessCall) and prints the end. An answer to a need that was
 // not asked, or is over, is passed by: the login may end in the browser
-// while the person still types.
-func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer) error {
+// while the person still types. env, when given, joins the environment of
+// both the login command and the proving call, over the process's own: a
+// login led for a group lands in the folder its env names.
+func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string) error {
 	r := h.LoginRecipe
 	enc := json.NewEncoder(out)
 	// An address is printed as it is, not with its & written as \u0026.
@@ -233,6 +269,9 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	defer stop()
 	cmd := exec.CommandContext(loginCtx, path, args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	ownGroup(cmd)
 	typed, err := cmd.StdinPipe()
 	if err != nil {
@@ -302,7 +341,7 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 			continue
 		}
 		if try.Output = "the check was declined"; *ans.Confirm {
-			try = tryHarnessCall(ctx, h.Kind, path)
+			try = tryHarnessCall(ctx, h.Kind, path, env)
 		}
 		break
 	}

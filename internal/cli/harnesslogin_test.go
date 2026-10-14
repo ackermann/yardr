@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // loginStandIn is a claude that plays what `claude auth login` of Claude
@@ -70,10 +73,18 @@ type ledLogin struct {
 // one real call is the stand-in's own.
 func leadStandIn(t *testing.T) *ledLogin {
 	t.Helper()
+	return leadStandInAs(t, &app{}, loginStandIn, "harness", "login", "claude", "--json")
+}
+
+// leadStandInAs starts the run of args on a, on a home with no yard and no
+// terminal, with script as the claude it logs in: a run that needs a yard
+// passes an app with one. The one real call is the stand-in's own.
+func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogin {
+	t.Helper()
 	noHome(t)
 	setInteractive(t, false)
 	stub(t, &tryHarnessCall, realTry)
-	l := &ledLogin{t: t, dir: fakeTools(t, map[string]string{"claude": loginStandIn}), lines: make(chan string, 16), exit: make(chan int, 1)}
+	l := &ledLogin{t: t, dir: fakeTools(t, map[string]string{"claude": script}), lines: make(chan string, 16), exit: make(chan int, 1)}
 	in, answers := io.Pipe()
 	l.answers = answers
 	stub(t, &stdin, io.Reader(in))
@@ -90,7 +101,7 @@ func leadStandIn(t *testing.T) *ledLogin {
 		}
 	}()
 	go func() {
-		l.exit <- execute(&app{}, []string{"harness", "login", "claude", "--json"})
+		l.exit <- execute(a, args)
 		w.Close()
 	}()
 	t.Cleanup(func() {
@@ -468,4 +479,110 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 		t.Errorf("show kimi names a login it has no recipe for:\n%s", out)
 	}
 	wantText(t, capture(t, func() { execute(&app{}, []string{"harness", "list"}) }), "a fetch for a Mac, a login a program leads\n")
+}
+
+// loginStandInGroup is the stand-in that also writes down the login folder
+// it was started with, for a login led for a group.
+var loginStandInGroup = strings.Replace(loginStandIn, "dir=${0%/*}\n",
+	"dir=${0%/*}\necho \"$CLAUDE_CONFIG_DIR\" >> \"$dir/envseen\"\n", 1)
+
+// heldStore is a store execute must not close: the test's own store, which
+// its cleanup closes after the run.
+type heldStore struct{ store.API }
+
+func (heldStore) Close(context.Context) error { return nil }
+
+// A login led with --group runs the login command and the proving call with
+// the group's env joined, over the process's own: both land in the folder
+// the group's env names, and what was put in is still printed nowhere.
+func TestHarnessLoginGroupLandsInGroupFolder(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	login := t.TempDir()
+	env := filepath.Join(t.TempDir(), "hal.env")
+	if err := os.WriteFile(env, []byte("CLAUDE_CONFIG_DIR="+login+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "env_file": env}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// An ambient folder the group's env must win over.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandInGroup,
+		"harness", "login", "claude", "--group", "hal-builders", "--json")
+	l.need("choose")
+	l.answer(`{"choose":"Claude subscription"}`)
+	l.need("open_url")
+	l.need("input")
+	l.answer(`{"input":"good#s1"}`)
+	l.need("confirm")
+	l.answer(`{"confirm":true}`)
+	done := l.next()
+	try, _ := done["try"].(map[string]any)
+	if done["done"] != true || done["kind"] != "claude" || done["proved"] != true || try["state"] != tryOK {
+		t.Fatalf("done: %v", done)
+	}
+	if code := l.ends(); code != 0 {
+		t.Errorf("exit %d, want 0", code)
+	}
+	if got, want := l.wrote("envseen"), login+"\n"+login+"\n"; got != want {
+		t.Errorf("the folders the login command and the proving call saw: %q, want both %q", got, login)
+	}
+	if strings.Contains(l.printed.String(), "good#s1") {
+		t.Errorf("what was put in is printed:\n%s", l.printed.String())
+	}
+}
+
+// A group login for a group there is none of, or one with no env_file, is
+// refused naming why; a kind with no recipe says to log in in a terminal
+// with the group's env set, with --json and without.
+func TestHarnessLoginGroupRefusals(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	env := filepath.Join(t.TempDir(), "hal.env")
+	if err := os.WriteFile(env, []byte("CLAUDE_CONFIG_DIR="+t.TempDir()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []store.Group{
+		{Name: "hal-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "env_file": env}},
+		{Name: "bare", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+	noHome(t)
+	setInteractive(t, false)
+	dir := fakeTools(t, map[string]string{"claude": loginStandIn})
+	ask := func(args ...string) (string, error) {
+		t.Helper()
+		return run(t, a.rootCmd(), args...)
+	}
+	if _, err := ask("harness", "login", "claude", "--group", "ghost", "--json"); err == nil ||
+		!strings.Contains(err.Error(), "group ghost: not found") {
+		t.Errorf("an unknown group: %v", err)
+	}
+	if _, err := ask("harness", "login", "claude", "--group", "bare", "--json"); err == nil ||
+		!strings.Contains(err.Error(), "group bare names no env_file") {
+		t.Errorf("a group with no env_file: %v", err)
+	}
+	if _, err := ask("harness", "login", "kimi", "--group", "hal-builders", "--json"); err == nil ||
+		!strings.Contains(err.Error(), "yardr has no login recipe for kimi: log it in in a terminal with group hal-builders's env set ("+env+")") {
+		t.Errorf("a kind with no recipe: %v", err)
+	}
+	out, err := ask("harness", "login", "kimi", "--group", "hal-builders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "log it in in a terminal with group hal-builders's env set ("+env+")")
+	out, err = ask("harness", "login", "claude", "--group", "hal-builders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "With --group hal-builders the same login is led with that group's env")
+	if _, err := os.Stat(filepath.Join(dir, "logins")); err == nil {
+		t.Error("the login command was started without --json")
+	}
 }

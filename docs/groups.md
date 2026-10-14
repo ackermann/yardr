@@ -110,6 +110,21 @@ or subsidy by its first group: personal when that group declares
 stderr when a route taking operator beads names a personal-login group
 first, since it burns that person's login for the operator's work.
 
+`login_for` is a declaration and the folder is what burns: nothing
+enforces that the group's env file points at the declared user's login, so
+`yardr group show` prints, beside `login_for`, the account the folder's
+login names where the harness writes one (Claude's folder does), and a
+mismatch shows to the eye. A group without `login_for` whose folder's
+login names an account that is not the operator's is named by `yardr
+doctor`: its sessions burn that account while routing attributes them to
+the operator. The login itself is made with `yardr harness login <kind>
+--group <group>`
+([doctor.md](doctor.md#a-harnesss-login-led-by-a-program)), which leads
+the login with the group's env so it lands in the folder the env names. A
+login made for a group sits in a folder on this machine, which whoever
+runs the machine can read: bringing a subscription trusts the operator the
+way the machine's own login does.
+
 Of the routes that match a bead, the one with the highest `--priority`
 takes it; among routes of one priority, the one that asks for more, where
 the type, the depot, the bead priority, each label and a named originator

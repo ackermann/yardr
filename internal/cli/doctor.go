@@ -809,6 +809,7 @@ func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, gro
 		return nil, err
 	}
 	operator := all[store.OperatorSetting]
+	mine := defaultClaudeAccount()
 	for _, g := range groups {
 		for _, err := range store.ConfigProblems(store.GroupConfig, g.Name, g.Runner, g.Config) {
 			notes = append(notes, fmt.Sprintf("%v. Change it: %s group set %s <key>=<value>, or --unset <key>", err, yardr, g.Name))
@@ -816,6 +817,16 @@ func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, gro
 		if who := g.LoginFor(); who != "" && who != operator {
 			if file, _ := g.Config["env_file"].(string); file == "" {
 				notes = append(notes, fmt.Sprintf("group %s declares login_for=%s and names no env_file, so nothing carries the login it declares. Carry it: %s group set %s env_file=<file>", g.Name, who, yardr, g.Name))
+			}
+		}
+		// Absence of login_for declares routing attribution only: a file
+		// already pointing at another login keeps burning it. The folder
+		// is what burns, so a group the operator's for routing whose
+		// folder's login names another account is said, for the eye that
+		// group show's folder login is for.
+		if operator != "" && g.EffectiveLogin(operator) == operator && mine != "" {
+			if theirs := groupFolderAccount(g); theirs != "" && theirs != mine {
+				notes = append(notes, fmt.Sprintf("group %s is the operator's for routing and its folder's login names %s, not the operator's (%s): its sessions burn that account. Declare whose: %s group set %s login_for=<user>", g.Name, theirs, mine, yardr, g.Name))
 			}
 		}
 	}
