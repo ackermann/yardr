@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"time"
@@ -13,41 +12,6 @@ import (
 // hookNow is the time hook listings judge quiet at; tests set it to put
 // deliveries in the past.
 var hookNow = time.Now
-
-// quietGaps judges each hook that accepted a delivery before and is neither
-// blocked nor last refused: whether it delivered nothing for longer than
-// its usual gap (store.Quiet), from its accepted deliveries in the log. It
-// returns the usual gap by hook name for the quiet ones. The log is read
-// once for all hooks.
-func quietGaps(ctx context.Context, st store.API, hs []store.Hook, now time.Time) (map[string]time.Duration, error) {
-	quiet := map[string]time.Duration{}
-	var journal []store.Hook
-	for _, h := range hs {
-		if h.Accepted != nil && h.Blocked == "" && !h.LastRefused() {
-			journal = append(journal, h)
-		}
-	}
-	if len(journal) == 0 {
-		return quiet, nil
-	}
-	evs, err := st.EventsOfKind(ctx, "hook", store.QuietRead)
-	if err != nil {
-		return nil, err
-	}
-	at := map[string][]time.Time{}
-	for _, e := range evs {
-		name, _ := e.Data["hook"].(string)
-		if name != "" {
-			at[name] = append(at[name], e.At)
-		}
-	}
-	for _, h := range journal {
-		if is, gap := store.Quiet(h.Accepted, at[h.Name], now); is {
-			quiet[h.Name] = gap
-		}
-	}
-	return quiet, nil
-}
 
 // hookRow is one hook as yardr hook list carries it: the hook, and how
 // quiet it is, for one that delivered nothing for longer than its usual

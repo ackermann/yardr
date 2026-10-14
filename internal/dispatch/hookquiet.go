@@ -11,18 +11,14 @@ import (
 // gap floors at an hour, so looking more often finds nothing sooner.
 const HookQuietEvery = time.Hour
 
-// quietTold caps the hook_quiet events one look reads to tell whether the
-// spell was told of: one is logged per spell, so a hundred spells back is
-// far enough.
-const quietTold = 100
-
 // quietHooks logs hook_quiet for each hook that used to deliver and has
-// delivered nothing for longer than its usual gap (store.Quiet): the
+// delivered nothing for longer than its usual gap (store.QuietGaps): the
 // webhook is off at the source, or cannot reach this yard. It is its own
 // memory, as a waited bead's stay is: a hook_quiet logged since the hook
 // last accepted a delivery means the spell was told of, so a daemon that
 // replaces itself does not tell again, and a hook that delivers and goes
-// quiet again is told of anew.
+// quiet again is told of anew. Tells are read per hook, so one hook's many
+// tells never crowd another's out.
 func (d *Dispatcher) quietHooks(ctx context.Context) {
 	now := d.now()
 	if !d.quietChecked.IsZero() && now.Sub(d.quietChecked) < HookQuietEvery {
@@ -33,47 +29,36 @@ func (d *Dispatcher) quietHooks(ctx context.Context) {
 		d.Log.Warn("quiet hooks", "err", err)
 		return
 	}
-	var journal []store.Hook
-	for _, h := range hooks {
-		if h.Accepted != nil && h.Blocked == "" && !h.LastRefused() {
-			journal = append(journal, h)
-		}
+	gaps, err := store.QuietGaps(ctx, d.Store, hooks, now)
+	if err != nil {
+		d.Log.Warn("quiet hooks", "err", err)
+		return
 	}
-	if len(journal) == 0 {
+	if len(gaps) == 0 {
 		d.quietChecked = now
 		return
 	}
-	delivered, err := d.Store.EventsOfKind(ctx, "hook", store.QuietRead)
-	if err != nil {
-		d.Log.Warn("quiet hooks", "err", err)
-		return
-	}
-	at := map[string][]time.Time{}
-	for _, e := range delivered {
-		if name, _ := e.Data["hook"].(string); name != "" {
-			at[name] = append(at[name], e.At)
-		}
-	}
-	told, err := d.Store.EventsOfKind(ctx, store.HookQuiet, quietTold)
-	if err != nil {
-		d.Log.Warn("quiet hooks", "err", err)
-		return
-	}
-	heard := map[string]time.Time{}
-	for _, e := range told {
-		if name, _ := e.Data["hook"].(string); name != "" {
-			if was, ok := heard[name]; !ok || e.At.After(was) {
-				heard[name] = e.At
-			}
-		}
+	byName := map[string]store.Hook{}
+	for _, h := range hooks {
+		byName[h.Name] = h
 	}
 	failed := false
-	for _, h := range journal {
-		is, gap := store.Quiet(h.Accepted, at[h.Name], now)
-		if !is {
+	for name, gap := range gaps {
+		h := byName[name]
+		told, err := d.Store.EventsOfHook(ctx, store.HookQuiet, name, 1)
+		if err != nil {
+			d.Log.Warn("quiet hooks", "hook", name, "err", err)
+			failed = true
 			continue
 		}
-		if was, ok := heard[h.Name]; ok && !was.Before(*h.Accepted) {
+		if !told.Complete {
+			// The walk did not reach the hook's tells: unknown whether
+			// the spell was told of. Skip this pass and retry the next,
+			// rather than tell twice.
+			failed = true
+			continue
+		}
+		if len(told.Events) == 1 && !told.Events[0].At.Before(*h.Accepted) {
 			continue
 		}
 		d.Log.Warn("hook quiet", "hook", h.Name, "source", h.Source,

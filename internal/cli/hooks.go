@@ -199,7 +199,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 				return err
 			}
 			now := hookNow()
-			quiet, err := quietGaps(c.Context(), st, hs, now)
+			quiet, err := store.QuietGaps(c.Context(), st, hs, now)
 			if err != nil {
 				return err
 			}

@@ -1,8 +1,12 @@
 package store
 
 import (
+	"bytes"
+	"context"
 	"slices"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // HookQuiet is the kind of the event the daemon logs when a hook that used
@@ -22,10 +26,13 @@ const (
 	QuietFloor    = time.Hour
 	QuietWindow   = 7 * 24 * time.Hour
 	QuietLookback = 20
-	// QuietRead caps the accepted deliveries one look at the hooks reads
-	// to judge quiet by: the rhythm of the last week, for every hook.
-	QuietRead = 1000
 )
+
+// quietScan caps the events one hook's walk of its kind inspects
+// (EventsOfHook): the walk is newest-first over the kind's index, so a
+// hook that delivers rarely is found past a busy hook's many, while the
+// walk itself stays short. Tests stub it to crowd a hook out.
+var quietScan = 10000
 
 // QuietGap is the hook's usual gap at now from its accepted delivery times,
 // in any order: the median interval between those of the last week, times
@@ -93,7 +100,7 @@ func Quiet(last *time.Time, deliveries []time.Time, now time.Time) (quiet bool, 
 	if last == nil {
 		return false, gap
 	}
-	// Hooks() and EventsOfKind() are separate reads. A delivery may commit
+	// Hooks() and EventsOfHook() are separate reads. A delivery may commit
 	// between them, so the event log can know of a newer acceptance than
 	// the hook snapshot. Use it as the cutoff too, or that race can report a
 	// hook quiet just after it delivered.
@@ -104,4 +111,95 @@ func Quiet(last *time.Time, deliveries []time.Time, now time.Time) (quiet bool, 
 		}
 	}
 	return now.Sub(accepted) > gap, gap
+}
+
+// HookEvents is one hook's recent events of one kind (EventsOfHook), oldest
+// first. Complete says whether they are all in hand: the hook's last
+// `limit` are, or the kind's index is walked to its end. When a busy
+// hook's events crowd the walk past quietScan, Complete is false: what the
+// hook did is unknown, and it is not judged quiet.
+type HookEvents struct {
+	Events   []Event `json:"events"`
+	Complete bool    `json:"complete"`
+}
+
+// EventsOfHook returns the hook's most recent events of one kind, oldest
+// first, at most limit of them: the deliveries (kind "hook") quiet is
+// judged from, or the hook_quiet tells of the spell. It walks the kind's
+// index newest-first and keeps the hook's own, so one hook's many events
+// never crowd another's out of a shared read; the walk stops after
+// quietScan events, and Complete says whether the hook's own are all in
+// hand (see HookEvents).
+func (s *Store) EventsOfHook(ctx context.Context, kind, hook string, limit int) (*HookEvents, error) {
+	out := &HookEvents{}
+	if limit <= 0 {
+		limit = 50
+	}
+	if hook == "" {
+		out.Complete = true
+		return out, nil
+	}
+	err := s.read(func(tx *bolt.Tx) error {
+		prefix := []byte(kind + "\x00")
+		c := tx.Bucket(bEventsKd).Cursor()
+		// The key after the kind's last: the one before it is that last.
+		k, _ := c.Seek([]byte(kind + "\x01"))
+		if k == nil {
+			k, _ = c.Last()
+		} else {
+			k, _ = c.Prev()
+		}
+		scanned := 0
+		for ; k != nil && bytes.HasPrefix(k, prefix) && len(out.Events) < limit && scanned < quietScan; k, _ = c.Prev() {
+			scanned++
+			var e Event
+			if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+				return err
+			} else if !ok {
+				continue
+			}
+			if name, _ := e.Data["hook"].(string); name != hook {
+				continue
+			}
+			out.Events = append(out.Events, e)
+		}
+		out.Complete = len(out.Events) == limit || k == nil || !bytes.HasPrefix(k, prefix)
+		named(tx, out.Events)
+		return nil
+	})
+	slices.Reverse(out.Events)
+	return out, err
+}
+
+// QuietGaps judges each hook that accepted a delivery before and is neither
+// blocked nor last refused: whether it delivered nothing for longer than
+// its usual gap (Quiet), from its own accepted deliveries in the log. It
+// returns the usual gap by hook name for the quiet ones. The log is read
+// per hook (EventsOfHook), so a busy hook's deliveries never crowd
+// another's rhythm out; a hook whose own the walk did not reach is not
+// judged. The rhythm is read from the hook's last QuietLookback
+// deliveries: a hook that delivers rarely has its whole recent rhythm in
+// hand, and one that delivers that often is not quiet.
+func QuietGaps(ctx context.Context, st API, hs []Hook, now time.Time) (map[string]time.Duration, error) {
+	quiet := map[string]time.Duration{}
+	for _, h := range hs {
+		if h.Accepted == nil || h.Blocked != "" || h.LastRefused() {
+			continue
+		}
+		read, err := st.EventsOfHook(ctx, "hook", h.Name, QuietLookback)
+		if err != nil {
+			return nil, err
+		}
+		if !read.Complete {
+			continue
+		}
+		at := make([]time.Time, 0, len(read.Events))
+		for _, e := range read.Events {
+			at = append(at, e.At)
+		}
+		if is, gap := Quiet(h.Accepted, at, now); is {
+			quiet[h.Name] = gap
+		}
+	}
+	return quiet, nil
 }

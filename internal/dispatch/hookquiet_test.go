@@ -16,12 +16,12 @@ type failHookEventsOnce struct {
 	failed bool
 }
 
-func (s *failHookEventsOnce) EventsOfKind(ctx context.Context, kind string, limit int) ([]store.Event, error) {
-	if kind == "hook" && !s.failed {
+func (s *failHookEventsOnce) EventsOfHook(ctx context.Context, kind, hook string, limit int) (*store.HookEvents, error) {
+	if !s.failed {
 		s.failed = true
 		return nil, errors.New("temporary event read failure")
 	}
-	return s.API.EventsOfKind(ctx, kind, limit)
+	return s.API.EventsOfHook(ctx, kind, hook, limit)
 }
 
 // A hook that delivered and then nothing for longer than its usual gap logs
@@ -133,6 +133,50 @@ func TestQuietHookLogsHookQuietOnce(t *testing.T) {
 		if e.Data["hook"] != "linear" {
 			t.Fatalf("hook_quiet for %v, want linear's alone", e.Data["hook"])
 		}
+	}
+}
+
+// Hooks that go quiet together are each told of once: one's tell never
+// crowds another's out of the read.
+func TestQuietHooksTellEachOnce(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	f := &crewRunner{status: map[string]string{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+	for _, name := range []string{"linear", "gh"} {
+		if _, err := s.PutHook(ctx, store.Hook{Name: name, Source: "token", SecretFile: "/x"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 3; i++ {
+			if _, _, err := own.RecordHook(ctx, name, map[string]any{"source": "token"}, []byte("{}"), nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	quiets := func() []store.Event {
+		t.Helper()
+		evs, err := s.EventsOfKind(ctx, store.HookQuiet, 10)
+		must(t, err)
+		return evs
+	}
+	told := func() map[string]int {
+		t.Helper()
+		seen := map[string]int{}
+		for _, e := range quiets() {
+			seen[e.Data["hook"].(string)]++
+		}
+		return seen
+	}
+	now := time.Now().Add(7 * time.Hour)
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, d.Reconcile(ctx))
+	if seen := told(); len(quiets()) != 2 || seen["linear"] != 1 || seen["gh"] != 1 {
+		t.Fatalf("hook_quiet told of %v, want linear and gh once each", seen)
+	}
+	now = now.Add(dispatch.HookQuietEvery + time.Minute)
+	must(t, d.Reconcile(ctx))
+	if n := len(quiets()); n != 2 {
+		t.Fatalf("hook_quiet logged %d times an hour later, want the 2", n)
 	}
 }
 

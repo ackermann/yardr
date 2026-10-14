@@ -189,6 +189,7 @@ type API interface {
 	GetHook(ctx context.Context, name string) (*Hook, error)
 	DeleteHook(ctx context.Context, name, actor string) error
 	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
+	EventsOfHook(ctx context.Context, kind, hook string, limit int) (*HookEvents, error)
 	PutSource(ctx context.Context, file, text, actor string) (*Source, error)
 	Sources(ctx context.Context) ([]Source, error)
 	GetSource(ctx context.Context, name string) (*Source, error)

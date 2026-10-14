@@ -517,6 +517,9 @@ func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
 func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
 	return callV[[]byte](c, ctx, "HookPayload", seq)
 }
+func (c *Client) EventsOfHook(ctx context.Context, kind, hook string, limit int) (*store.HookEvents, error) {
+	return callV[*store.HookEvents](c, ctx, "EventsOfHook", kind, hook, limit)
+}
 func (c *Client) PutSource(ctx context.Context, file, text, actor string) (*store.Source, error) {
 	return callV[*store.Source](c, ctx, "PutSource", file, text, actor)
 }

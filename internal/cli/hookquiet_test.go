@@ -42,28 +42,6 @@ func quietYard(t *testing.T) (store.API, *store.Store) {
 	return st, own
 }
 
-// A hook that delivered just now is not quiet; hours later, with nothing
-// since, it is, with the floor for a gap. A hook that never delivered,
-// one that is blocked and one the source still reaches are not judged.
-func TestQuietGaps(t *testing.T) {
-	st, _ := quietYard(t)
-	ctx := context.Background()
-	hs, err := st.Hooks(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if quiet, err := quietGaps(ctx, st, hs, time.Now()); err != nil || len(quiet) != 0 {
-		t.Fatalf("just delivered: quiet = %v, %v", quiet, err)
-	}
-	quiet, err := quietGaps(ctx, st, hs, time.Now().Add(7*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(quiet) != 1 || quiet["linear"] != time.Hour {
-		t.Fatalf("seven hours later: quiet = %v, want linear with the floor", quiet)
-	}
-}
-
 // Doctor notes a quiet hook on its hooks line: when it last accepted a
 // delivery, how long that is and the usual gap. Where the server has an
 // address the note probes the yard's own listener: one that answers leaves

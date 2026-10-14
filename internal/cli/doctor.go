@@ -473,7 +473,7 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 		}
 		hook.Configured, hook.Detail = true, strings.Join(names, ", ")
 		now := hookNow()
-		quiet, err := quietGaps(ctx, st, hs, now)
+		quiet, err := store.QuietGaps(ctx, st, hs, now)
 		if err != nil {
 			return nil, err
 		}
