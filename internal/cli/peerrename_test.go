@@ -163,6 +163,21 @@ func TestPeerRenameCommand(t *testing.T) {
 	}
 }
 
+// The release crew setting went with the arrival hold (yardr-evd6): the
+// store refuses it, and RenamePeer rewrites the peers setting only. The
+// rename help must not still promise that a crew member with one keeps it
+// (yardr-74fz).
+func TestPeerRenameHelpNamesNoReleaseSetting(t *testing.T) {
+	cmd := (&app{}).peerCmd()
+	rename, _, err := cmd.Find([]string{"rename"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rename.Long, "release") {
+		t.Errorf("peer rename help names release, which is no crew setting any more:\n%s", rename.Long)
+	}
+}
+
 // A ping that waits for its pong while the peer is renamed takes the pong
 // that comes under the new name.
 func TestPingFollowsARename(t *testing.T) {

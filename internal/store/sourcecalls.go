@@ -22,7 +22,7 @@ var (
 	// bSourceGrants holds who may make which calls of a declared source,
 	// <source>\x00group|crew\x00<name>. A grant is a record of its own and
 	// deliberately no key of a group's or a crew member's config, as
-	// open_threads, set_state, peers and release are: a group's definition
+	// open_threads, set_state and peers are: a group's definition
 	// is replaced whole by `group add` and written by a pack's import, so a
 	// grant kept there would be dropped by the one and could be carried in
 	// by the other.

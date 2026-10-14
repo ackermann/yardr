@@ -319,8 +319,7 @@ Everything that names the peer follows, in the same write:
   - mail that waits for it is delivered, and what was taken from it is still
     known as taken;
   - a crew member that may mail it (its peers setting) may still, under the new
-    name, and is told of it by mail from the yard; one that may release its
-    beads (its release setting) may still;
+    name, and is told of it by mail from the yard;
   - a bead it sent says it came from <new> (yardr bead show), and an open
     one is labelled from-<new>;
   - yardr inbox shows mail it sent before as from <name>@<new>, and yardr mail
