@@ -22,7 +22,7 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	}
 	for want, err := range map[string]error{
 		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, login_for, max_age, model, prompt, provider, stall, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
-		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, worktrees`:                                   put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
+		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, worktrees`:                                              put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
 		// A key of another runner, or of a crew member, is read by nothing here.
 		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`: put("manual", map[string]any{"kind": "claude"}),
 		`group g: unknown config key "greet"`:       put("herdr", map[string]any{"greet": "jo"}),
