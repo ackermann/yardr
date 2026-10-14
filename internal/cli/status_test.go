@@ -55,9 +55,9 @@ func statusJSON(t *testing.T, a *app) statusReport {
 }
 
 // announce records a web view of the home as web serve does, for the test.
-func announce(t *testing.T, home, addr string, unsafe bool) {
+func announce(t *testing.T, home, addr string, unsafe bool, as string) {
 	t.Helper()
-	clear, err := announceWeb(&config.Config{Home: home}, addr, unsafe)
+	clear, err := announceWeb(&config.Config{Home: home}, addr, unsafe, as)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +130,8 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	})
 	stub(t, &machineAddr, func() string { return "192.168.7.7" })
 	holdDaemon(t, home)
-	announce(t, home, "127.0.0.1:9000", false)
-	announce(t, home, "0.0.0.0:9001", true)
+	announce(t, home, "127.0.0.1:9000", false, "")
+	announce(t, home, "0.0.0.0:9001", true, "")
 	before, err := os.ReadDir(home)
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestStatusBackupsWhenServerIsStopped(t *testing.T) {
 // another.
 func TestStatusWebViewBuild(t *testing.T) {
 	home, _, a := statusYard(t, "")
-	announce(t, home, "127.0.0.1:9000", false)
+	announce(t, home, "127.0.0.1:9000", false, "")
 	out, _ := run(t, a().rootCmd(), "status")
 	wantText(t, out, "web view   http://127.0.0.1:9000/  pid "+strconv.Itoa(os.Getpid())+"  build unknown  this machine only\n")
 	if strings.Contains(out, "this yardr is build") {
@@ -251,7 +251,7 @@ func TestStatusWebViewBuild(t *testing.T) {
 	}
 
 	stub(t, &viewRevision, func() string { return "0123456789ab" })
-	announce(t, home, "127.0.0.1:9001", false)
+	announce(t, home, "127.0.0.1:9001", false, "")
 	out, _ = run(t, a().rootCmd(), "status")
 	wantText(t, out,
 		"           http://127.0.0.1:9001/  pid "+strconv.Itoa(os.Getpid())+"  build 0123456789ab  this machine only\n",
@@ -279,10 +279,10 @@ func TestStatusRunningYard(t *testing.T) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "assembly", Enabled: true}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	announce(t, home, "127.0.0.1:9000", false)
-	announce(t, home, "0.0.0.0:9001", true)
+	announce(t, home, "127.0.0.1:9000", false, "")
+	announce(t, home, "0.0.0.0:9001", true, "")
 	// --unsafe on a loopback address opens nothing to the network.
-	announce(t, home, "[::1]:9002", true)
+	announce(t, home, "[::1]:9002", true, "")
 
 	if _, err := st.PutHook(ctx, store.Hook{Name: "tickets", Source: "linear", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
@@ -488,7 +488,7 @@ func TestStatusWorkLine(t *testing.T) {
 func TestStatusStaleWebView(t *testing.T) {
 	home, _, a := statusYard(t, "abcdef123456")
 	cfg := &config.Config{Home: home}
-	clear, err := announceWeb(cfg, "127.0.0.1:9000", false)
+	clear, err := announceWeb(cfg, "127.0.0.1:9000", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestStatusStaleWebView(t *testing.T) {
 	if _, err := os.Stat(stale); err != nil {
 		t.Fatalf("status is read-only, and the record is gone: %v", err)
 	}
-	announce(t, home, "127.0.0.1:9003", false)
+	announce(t, home, "127.0.0.1:9003", false, "")
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the next view left the stale record: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestStatusNoYard(t *testing.T) {
 func TestStatusUnreachableServer(t *testing.T) {
 	home := newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
-	announce(t, home, "127.0.0.1:9000", false)
+	announce(t, home, "127.0.0.1:9000", false, "")
 	// It answers on its socket, and nothing it is asked comes back.
 	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
 	out, err := run(t, (&app{st: brokenStore{storetest.New(t)}, actor: "me"}).rootCmd(), "status")
@@ -637,7 +637,7 @@ func TestDoctorWebView(t *testing.T) {
 
 	// A view started by hand, no service: what misled before (yardr-t68z),
 	// when the line was about the service alone and read as "no view".
-	clear, err := announceWeb(&config.Config{Home: home}, "127.0.0.1:9000", false)
+	clear, err := announceWeb(&config.Config{Home: home}, "127.0.0.1:9000", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,7 +652,7 @@ func TestDoctorWebView(t *testing.T) {
 	}
 
 	// And one open to the network: a note.
-	announce(t, home, "0.0.0.0:9001", true)
+	announce(t, home, "0.0.0.0:9001", true, "")
 	out, part = web()
 	wantText(t, out, "http://192.168.7.7:9001/ (pid "+me+", open to the network (--unsafe), no login); nothing keeps it running",
 		"note            web view: http://192.168.7.7:9001/ (pid "+me+") is open to the network, no login: it was started with --unsafe, "+
@@ -740,6 +740,52 @@ func TestWebServeRecordsItself(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(webViewsDir(cfg)); len(left) != 0 {
 		t.Fatalf("record left after it stopped: %v", left)
+	}
+}
+
+// web serve --as records the user it acts as, for yardr status.
+func TestWebServeAsRecordsItself(t *testing.T) {
+	home, st, _ := statusYard(t, "abcdef123456")
+	cfg := &config.Config{Home: home}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+	cmd.SetArgs([]string{"web", "serve", "--addr", "127.0.0.1:0", "--as", "Jo"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	done := make(chan error, 1)
+	go func() { done <- cmd.ExecuteContext(ctx) }()
+	var views []webView
+	for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("web serve recorded nothing")
+		}
+		views = webViews(cfg)
+	}
+	if views[0].As != "Jo" {
+		t.Fatalf("view: %+v", views[0])
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("web serve did not stop")
+	}
+}
+
+// A view started with --as records whom it acts as, and status says so
+// beside who can open it, in words and in JSON.
+func TestStatusWebViewAs(t *testing.T) {
+	home, _, a := statusYard(t, "")
+	announce(t, home, "127.0.0.1:9000", false, "Jo")
+	out, err := run(t, a().rootCmd(), "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "web view   http://127.0.0.1:9000/  pid "+strconv.Itoa(os.Getpid())+"  build unknown  this machine only, acts as Jo\n")
+	if v := statusJSON(t, a()).Web.Views; len(v) != 1 || v[0].As != "Jo" {
+		t.Fatalf("views: %+v", v)
 	}
 }
 

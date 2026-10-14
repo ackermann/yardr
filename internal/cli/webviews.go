@@ -25,7 +25,9 @@ type webView struct {
 	Addr string `json:"addr"`
 	PID  int    `json:"pid"`
 	// Unsafe is whether it was started with --unsafe.
-	Unsafe  bool      `json:"unsafe"`
+	Unsafe bool `json:"unsafe"`
+	// As is the user it acts as (--as), "" when it acts as none.
+	As      string    `json:"as,omitempty"`
 	Started time.Time `json:"started"`
 	// Revision is the build it runs, as it recorded it: a view does not
 	// replace itself when a new yardr is installed, as the server and the
@@ -46,9 +48,9 @@ type webView struct {
 func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr, until clear is called.
-func announceWeb(cfg *config.Config, addr string, unsafe bool) (clear func(), err error) {
-	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe})
+// addr, acting as the user as (--as, "" for none), until clear is called.
+func announceWeb(cfg *config.Config, addr string, unsafe bool, as string) (clear func(), err error) {
+	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe, "as": as})
 }
 
 // webViews are the home's running web views, oldest first. A record nobody
@@ -68,12 +70,16 @@ func webViews(cfg *config.Config) []webView {
 	return views
 }
 
-// reach is the view in words: who can open it.
+// reach is the view in words: who can open it, and whom it acts as.
 func (v webView) reach() string {
+	reach := "this machine only"
 	if v.Open {
-		return "open to the network (--unsafe), no login"
+		reach = "open to the network (--unsafe), no login"
 	}
-	return "this machine only"
+	if v.As != "" {
+		reach += ", acts as " + v.As
+	}
+	return reach
 }
 
 // loopbackOnly reports whether addr is on the loopback interface, where

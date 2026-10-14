@@ -89,7 +89,7 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host", "as"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
 		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback},
 	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr", Setting: store.BDPAddrSetting, EnvAddr: func(c *config.Config) string { return c.BDPAddr },
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv},

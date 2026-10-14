@@ -369,6 +369,28 @@ ul, ol { list-style: none; }
 .note .text, .note p { margin-top: 4px; }
 /* A note's pictures, each below its words, never wider than the column. */
 .note img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
+/* The talk page: the crew to talk to, one letter per mail, the form that
+   sends. A letter reads as a note does; the sender's line is the note's
+   head. */
+.peers { padding: 12px var(--gap); border-bottom: 1px solid var(--hairline); }
+.peers ul { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.peers li a { display: block; padding: 4px 0; color: var(--dim); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+.peers li a:hover { color: var(--accent); }
+.peers li a[aria-current="page"] { color: var(--ink); }
+.dot.unread { background: var(--accent); }
+.letter { padding: var(--gap); border-bottom: 1px solid var(--hairline); }
+.letter .text { margin-top: 4px; }
+.letter img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
+.letter .label { margin-top: 4px; }
+/* The form stands outside the live part, so what is typed survives what
+   arrives. Its text is 16px: smaller, a phone enlarges the field on focus
+   and the page with it. */
+#send { display: flex; flex-direction: column; gap: 8px; padding: var(--gap); }
+#send textarea { width: 100%; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); resize: vertical; }
+#send button { align-self: flex-end; padding: 8px 16px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+#send button:hover { color: var(--accent); border-color: var(--accent); }
+/* Why a mail was not sent, above the form that keeps its words. */
+.error { color: var(--held); }
 .outcomes li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 3px 0; }
 code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 

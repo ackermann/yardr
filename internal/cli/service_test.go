@@ -666,6 +666,58 @@ func TestWebStartHost(t *testing.T) {
 	}
 }
 
+// yardr web install --as writes the user into the service, and the view
+// it starts acts as them.
+func TestWebInstallAs(t *testing.T) {
+	home := newHome(t)
+	st := storetest.New(t)
+	a := func() *app { return &app{st: st, actor: "me"} }
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		system, file string
+		want         []string
+	}{
+		{"darwin", "dev.yardr.web." + homeID(home) + ".plist", []string{"<string>--as</string>\n\t\t<string>Jo</string>"}},
+		{"linux", "yardr-web-" + homeID(home) + ".service", []string{`"--as" "Jo"`}},
+	} {
+		dir, _ := stubServices(t, c.system)
+		out, err := run(t, a().rootCmd(), "web", "install", "--as", "Jo", "--file-only")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := os.ReadFile(filepath.Join(dir, c.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantText(t, string(body), c.want...)
+		wantText(t, out, "--as Jo")
+	}
+}
+
+// yardr web start --as hands the user on to yardr web serve.
+func TestWebStartAs(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	a := func() *app { return &app{st: st, actor: "me"} }
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	var started [][]string
+	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		started = append(started, append(k.command(), args...))
+		return 4242, nil, func() error { return nil }, nil
+	})
+	stub(t, &answers, func(string) bool { return len(started) > 0 })
+	out, err := run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:9000", "--as", "Jo")
+	want := []string{"web", "serve", "--addr", "127.0.0.1:9000", "--as", "Jo"}
+	if err != nil || len(started) != 1 || !slices.Equal(started[0], want) {
+		t.Fatalf("%v, started %q, want %q", err, started, want)
+	}
+	wantText(t, out, "The web view: http://127.0.0.1:9000/")
+}
+
 // stubWeb replaces the web view's start: it records the addresses started,
 // and the view listens from then on.
 func stubWeb(t *testing.T) *[]string {

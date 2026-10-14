@@ -649,14 +649,14 @@ func TestLine(t *testing.T) {
 func TestMenuPages(t *testing.T) {
 	f := newFixture(t)
 	links := regexp.MustCompile(`<li[^>]*><a href="([^"]+)"`).FindAllStringSubmatch(f.get("/").body, -1)
-	if len(links) != 8 {
-		t.Fatalf("the menu has %d entries, want 8: %v", len(links), links)
+	if len(links) != 9 {
+		t.Fatalf("the menu has %d entries, want 9: %v", len(links), links)
 	}
 	for _, l := range links {
 		path := l[1]
 		r := f.get(path)
 		switch path {
-		case "/", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/config":
+		case "/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/config":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}
@@ -695,11 +695,12 @@ func TestNotFound(t *testing.T) {
 	}
 }
 
-// The view reads the yard and changes nothing: no page takes a write.
+// Without --as the view reads the yard and changes nothing: no route takes
+// a write, the talk page's included.
 func TestReadOnly(t *testing.T) {
 	f := newFixture(t)
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		for _, path := range []string{"/", "/line", "/beads", "/assets/yard.css", "/nowhere"} {
+		for _, path := range []string{"/", "/talk", "/line", "/beads", "/assets/yard.css", "/nowhere"} {
 			if r := f.do(method, path); r.status != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: status %d, want 405", method, path, r.status)
 			}
@@ -1040,7 +1041,7 @@ func TestNoOtherHost(t *testing.T) {
 	}
 	// The walk must have reached what it is there to check: every page of
 	// the menu, a bead's own page, the error page.
-	for _, path := range []string{"/", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew",
+	for _, path := range []string{"/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew",
 		"/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
 		if !seen[path] {
 			t.Errorf("the walk did not reach %s: %v", path, seen)

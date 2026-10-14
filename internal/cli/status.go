@@ -194,9 +194,9 @@ func (a *app) statusCmd() *cobra.Command {
   crew       each with what it is doing, as yardr chat lists it, and its
              herdr agent
   web view   each view that runs: the URL to open, its pid, the build it
-             runs, and whether it is open to the network (--unsafe, no login)
-             or to this machine only; the build of this yardr when that is
-             another; its login service
+             runs, whether it is open to the network (--unsafe, no login)
+             or to this machine only, and whom it acts as (--as); the
+             build of this yardr when that is another; its login service
   hooks      the address the server takes webhooks on, each hook and its URL
   peers      each linked yard and where it is called
   work       how many sessions run in each group, how many beads wait for

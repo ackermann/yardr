@@ -1,0 +1,63 @@
+{{define "letter"}}
+  <article class="letter">
+    <header class="entry-head"><span class="label">{{.Sender}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
+    {{- if .Text}}
+    <pre class="text">{{.Text}}</pre>
+    {{- end}}
+    {{- $words := .Text}}
+    {{- range .Files}}
+    <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+    {{- end}}
+    {{- if and .Own .Read}}
+    <p class="label faint">read</p>
+    {{- end}}
+  </article>
+{{end}}
+{{define "content"}}
+<div id="talk">
+  {{- if not .Data.As}}
+  {{- /* The view does not act: no user to show a conversation of. */}}
+  <p class="item">This view does not act. Start it with <code>--as &lt;user&gt;</code>, a user of the yard, and this page holds that user's conversation with a crew member, with the form that writes to it.</p>
+  {{- else if not .Data.With}}
+  <p class="item">The yard has no crew: <code>yardr crew add</code> makes its first member.</p>
+  {{- else}}
+  {{- /* The crew to talk to, the one in conversation marked. */}}
+  <nav class="peers" aria-label="Crew">
+    <ul>
+      {{- range .Data.Crew}}
+      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
+      {{- end}}
+    </ul>
+  </nav>
+  {{- /* Every event of the stream reads the newest page again and puts the
+         letters in place: mail sent and mail read arrive with an event. An
+         older page is a snapshot, read undisturbed. */}}
+  <div id="live"{{if eq .Data.Before 0}} hx-get="/talk?with={{.Data.With}}" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
+    {{- if ne .Data.Before 0}}
+    <p class="item"><a href="/talk?with={{.Data.With}}">Newest</a></p>
+    {{- end}}
+    {{- if and .Data.More .Data.Letters}}
+    {{- with index .Data.Letters 0}}
+    <p class="item"><a href="/talk?with={{$.Data.With}}&amp;before={{.Seq}}">Older mail</a></p>
+    {{- end}}
+    {{- end}}
+    {{- range .Data.Letters}}{{template "letter" .}}
+    {{- else}}
+    <p class="item faint">No mail between {{$.Data.As}} and {{$.Data.With}} yet.</p>
+    {{- end}}
+  </div>
+  {{- if .Data.Error}}
+  <p class="item error">{{.Data.Error}}</p>
+  {{- end}}
+  {{- /* The form posts and puts the page's answer in place of the talk,
+         letters and an emptied form alike; without scripts it posts and
+         loads the conversation it lands on. It stands outside the live
+         part, so what is typed survives what arrives. */}}
+  <form id="send" method="post" action="/talk?with={{.Data.With}}" hx-post="/talk?with={{.Data.With}}" hx-target="#talk" hx-select="#talk > *" hx-swap="innerHTML ignoreTitle:true">
+    <label class="label" for="text">Mail to {{.Data.With}} as {{.Data.As}}</label>
+    <textarea id="text" name="text" rows="3" required maxlength="{{.Data.MaxMail}}" placeholder="Write to {{.Data.With}}…">{{.Data.Draft}}</textarea>
+    <button type="submit">Send</button>
+  </form>
+  {{- end}}
+</div>
+{{end}}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -132,9 +133,20 @@ func TestWebHosts(t *testing.T) {
 	}
 }
 
-// The start line says what the view answers to beyond the loopback names:
-// nothing on a loopback view with no names, the names given on one with,
-// and any IP address only under --unsafe.
+// --as with a name no user of the yard has is refused, naming the flag
+// and where the users are; with a user's it gets on to serving.
+func TestWebServeAsRefused(t *testing.T) {
+	_, st, a := statusYard(t, "abcdef123456")
+	_, err := run(t, a().webCmd(), "serve", "--as", "nosuch", "--addr", "127.0.0.1:0")
+	if err == nil || !strings.Contains(err.Error(), "--as") || !strings.Contains(err.Error(), "refused") ||
+		!strings.Contains(err.Error(), "no user") || !strings.Contains(err.Error(), "yardr user list") {
+		t.Fatalf("--as nosuch: %v, want a refusal that names the flag and the users", err)
+	}
+	if _, err := st.GetUser(context.Background(), "Jo"); err != nil {
+		t.Fatalf("the yard's user: %v", err)
+	}
+}
+
 func TestWebAnswersTo(t *testing.T) {
 	for _, c := range []struct {
 		unsafe bool

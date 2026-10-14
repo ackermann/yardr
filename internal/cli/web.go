@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -22,12 +23,13 @@ func (a *app) webCmd() *cobra.Command {
 	var addr string
 	var unsafe bool
 	var hosts []string
+	var as string
 	serve := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve a read-only view of the yard over HTTP",
+		Short: "Serve a view of the yard over HTTP",
 		Long: `Serve the yard as web pages: a feed of what happens, the flows of its
 depots with the beads in each stage, every bead, what waits for a person, the
-running sessions and the crew, live. The view reads the yard and
+running sessions and the crew, live. Without --as the view reads the yard and
 changes nothing. Every page answers a request with "Accept:
 application/json" with the data it shows, and /events streams the yard's
 events as server-sent events.
@@ -62,6 +64,13 @@ loopback. Name only names whose resolution you control: a page under a
 name someone else controls could read the yard through a visitor's browser
 (docs/web.md, "Behind a proxy").
 
+--as <user> makes the view act as that user, who must be a user of the
+yard (yardr user list): the talk page then holds the user's conversation
+with a crew member, live, with the form that sends it mail as them. The
+form's POST is taken only from the view's own pages, and every other
+route stays GET. Without --as the talk page says the view does not act,
+and the view changes nothing.
+
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
 loopback, counted apart, so the network cannot take a stream from a page on
@@ -69,6 +78,7 @@ this machine. Both answers carry Retry-After.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
   yardr web serve --host yard.example.net  # on loopback, for a proxy that forwards that name
+  yardr web serve --as mckean              # the talk page sends mail as mckean
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
   yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
@@ -91,6 +101,11 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			if as != "" {
+				if _, err := st.GetUser(ctx, as); err != nil {
+					return webAsRefused(as)
+				}
+			}
 			// The yard's web_addr, where no --addr was given: checked when
 			// it was set, and by web.Listen below.
 			if err := a.addrFromSetting(ctx, a.cfg, kindOf(svcWeb), c.Flags()); err != nil {
@@ -105,6 +120,9 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			if as != "" {
+				srv.ActAs(as)
+			}
 			ln, err := web.Listen(addr, unsafe)
 			if err != nil {
 				return err
@@ -114,7 +132,11 @@ this machine. Both answers carry Retry-After.`,
 				hostname, _ := os.Hostname()
 				srv.AllowNetwork(hostname, hosts...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
-				log.Warn("no authentication: anyone who can reach this machine on port " + port + " can read the yard")
+				can := "can read the yard"
+				if as != "" {
+					can = "can read the yard and send mail as " + as
+				}
+				log.Warn("no authentication: anyone who can reach this machine on port " + port + " " + can)
 			} else if len(hosts) > 0 {
 				srv.AllowHosts(hosts...)
 			}
@@ -130,12 +152,15 @@ this machine. Both answers carry Retry-After.`,
 			}()
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
-			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe); err != nil {
+			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as); err != nil {
 				log.Warn("yardr status will not list this view: it could not be recorded", "err", err)
 			} else {
 				defer clear()
 			}
 			at := []any{"url", "http://" + ln.Addr().String() + "/"}
+			if as != "" {
+				at = append(at, "acts_as", as)
+			}
 			if to := webAnswersTo(unsafe, srv.Names()); to != "" {
 				at = append(at, "answers_to", to)
 			}
@@ -149,11 +174,13 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
+	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: the talk page sends its mail as them")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
+		c.Flags().Lookup("as").Usage = "act as this user of the yard: the talk page sends its mail as them"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
 	v.start.Long = `Start yardr web serve detached from this terminal, logging to
@@ -163,9 +190,12 @@ running from login on instead.
 
 It listens on loopback only: there is no --unsafe here. --host is handed on
 to yardr web serve, and names what the view answers to on loopback besides
-the loopback names (docs/web.md, "Behind a proxy").`
+the loopback names (docs/web.md, "Behind a proxy"). --as is handed on too:
+the view acts as that user, and refuses to start when no user of the yard
+has the name (docs/web.md, "Acting as a user").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
-  yardr web start --host yard.example.net  # the same, for a proxy that forwards that name`
+  yardr web start --host yard.example.net  # the same, for a proxy that forwards that name
+  yardr web start --as mckean              # the talk page sends mail as mckean`
 	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
 (yardr web serve in a terminal, yardr web start, or the service that starts
 when you log in), and wait
@@ -183,7 +213,8 @@ now and at every login. It prints the view's address and logs to
 A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
 with a port, and there is no --unsafe here. --host is written into the
 service and handed on to yardr web serve: the view answers to the names
-given besides the loopback names, and still listens on loopback only. To
+given besides the loopback names, and still listens on loopback only. --as
+is written into the service too: the view acts as that user. To
 reach the view from another machine, forward the port over ssh or put a
 proxy of yours in front of it (docs/web.md, "Behind a proxy").
 
@@ -191,8 +222,14 @@ proxy of yours in front of it (docs/web.md, "Behind a proxy").
 	v.install.Example = `  yardr web install                       # http://127.0.0.1:8791/
   yardr web install --addr 127.0.0.1:9000
   yardr web install --host yard.example.net   # for a proxy that forwards that name
+  yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean
   yardr web uninstall`
 	return cmd
+}
+
+// webAsRefused is the refusal of --as with a name no user of the yard has.
+func webAsRefused(as string) error {
+	return fmt.Errorf("--as %s refused: the yard has no user of that name (yardr user list)", as)
 }
 
 // webAddr is the address web serve listens on: addr, which is --addr when

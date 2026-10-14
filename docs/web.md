@@ -1,12 +1,16 @@
 # The web view
 
 `yardr web serve` shows the yard in a browser. It is a client of the yardr
-server, as `yardr bdp serve` is, and it reads only: no page takes a write,
-and every route refuses any method but GET and HEAD.
+server, as `yardr bdp serve` is. Without `--as` it reads only: no page
+takes a write, and every route refuses any method but GET and HEAD. With
+`--as <user>` it acts as that user too: the talk page sends its mail as
+them ([Acting as a user](#acting-as-a-user)), and nothing else takes a
+write.
 
 ```sh
 yardr web serve                          # http://127.0.0.1:8791/
 yardr web serve --addr 127.0.0.1:9000
+yardr web serve --as mckean              # the talk page sends mail as mckean
 curl -s localhost:8791/                                  # the page
 curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ```
@@ -130,7 +134,8 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 There is still no authentication: anyone who can reach this machine on that
-port can read the whole yard. The view stays read-only.
+port can read the whole yard, and with `--as` send mail as its user. The
+view stays read-only without `--as`.
 
 - With `--unsafe`, `--addr` takes any address: `:9000`, `0.0.0.0:9000`, or
   one LAN address (`192.168.178.90:9000`) to listen on that interface only.
@@ -160,8 +165,50 @@ port can read the whole yard. The view stays read-only.
   are counted apart.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
+  With `--as` it says `can read the yard and send mail as <user>` instead.
   The line after it says what the view answers to:
   `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
+
+## Acting as a user
+
+`yardr web serve --as <user>` acts as that user, who must be a user of the
+yard (`yardr user list`): with any other name it refuses to start. The talk
+page ([Talk](#talk)) then holds the user's conversation with a crew member,
+live, with the form that sends it mail as them through the socket's `Mail`
+([api.md](api.md#mail)), as that user. Every other route stays GET, and
+without `--as` every route is GET as before: the talk page then says the
+view does not act, and a test holds the view to it.
+
+```sh
+yardr web serve --as mckean
+yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # behind tailscale serve, for a phone
+```
+
+The form's POST is taken only from the view's own pages: a page on another
+site cannot make a visitor's browser send mail as the view's user. What is
+compared is the request's `Origin` header, and this is how it is matched:
+
+- The scheme is `http` or `https`: `https` where an edge stands in front
+  and ends TLS there, `http` to the view itself. Anything else is refused,
+  and so is a missing `Origin`.
+- The host is one the view answers to: a loopback name or a name given with
+  `--host` ([Behind a proxy](#behind-a-proxy)), in any case. An IP address
+  off loopback is refused, even with `--unsafe`: the view answers requests
+  at any address then, but serves no page from one.
+- The port is not compared: it is the edge's where one stands in front
+  (`https://adventuretime.tail5cf2e8.ts.net/`, or its port where it serves
+  one), and need not be the view's own.
+
+Anything else is answered 403 and sends nothing. `Origin` is the browser's
+own header: a client that is no browser sends none, so `curl` posts with
+one of its own (`-H 'Origin: http://127.0.0.1:8791'`).
+
+The view still has no login: whoever reaches it acts as its user, and who
+reaches it is the edge's to say — the private network's membership, a login
+of its own — as who reads the yard is ([Behind a proxy](#behind-a-proxy)).
+The edge is what stands in front. `yardr status` says whom a view acts as
+(`this machine only, acts as mckean`), and the start line carries it too
+(`serving the yard url=http://127.0.0.1:8791/ acts_as=mckean`).
 
 ## Keeping it running
 
@@ -177,6 +224,7 @@ yardr web status                 # the views that run, and whether a service sta
 yardr web install                # starts now, and at every login
 yardr web install --addr 127.0.0.1:9000
 yardr web install --host yard.example.net   # answers to that name too, for a proxy of yours
+yardr web install --as mckean               # the talk page sends mail as mckean
 yardr web uninstall
 ```
 
@@ -191,6 +239,13 @@ scheme or a port, an IP address off loopback. `yardr web install` writes
 each name into the service's file as a `--host` of its own, so the view the
 service starts at every login answers to them; to change the names, run
 `yardr web install` again with the ones you want.
+
+Both take `--as` as `yardr web serve` does
+([Acting as a user](#acting-as-a-user)): the view acts as that user.
+`yardr web install` writes it into the service's file beside the names. The
+view refuses to start when no user of the yard has the name; `yardr web
+start` then ends at once and names the log the reason is in, and the
+service's view logs it at every login.
 
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
@@ -226,10 +281,11 @@ service is installed, with its address.
 ## Where it runs
 
 `yardr status` lists every web view that runs on the yard, however it was
-started: the URL to open, its pid, the build it runs, and who can open it.
+started: the URL to open, its pid, the build it runs, who can open it, and
+whom it acts as.
 
 ```
-web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
+web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only, acts as mckean
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
            service that starts at login: not installed (yardr web install)
 ```
@@ -253,7 +309,8 @@ a `note` for a view that is open to the network.
 - The views are read from the home, not from the server, so status lists
   them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its
-  address, its pid, `--unsafe` or not, when it started, the build it runs)
+  address, its pid, `--unsafe` or not, the user it acts as, when it started,
+  the build it runs)
   and holds a lock on it. It removes the record when it stops. One that ended without doing so
   (`kill -9`, a reboot) holds the lock no longer, so its record is not
   listed, whatever its pid has become since; the next view to start removes
@@ -276,7 +333,9 @@ URL that names another host, and every response carries
 `Content-Security-Policy: default-src 'self'`, under which the browser
 itself refuses to load or call anything else. The policy also refuses
 inline `<script>`, inline `<style>` and `style=` attributes, so a page has
-none: scripts and styles live in the asset files.
+none: scripts and styles live in the asset files. It refuses every form
+target (`form-action 'none'`) but on a view that acts, whose talk page
+posts to the view itself (`form-action 'self'`).
 
 ## Pages
 
@@ -284,6 +343,9 @@ none: scripts and styles live in the asset files.
 |---|---|---|
 | `/` | Home: the overview — the answer line with one row per wait, then the Running, Yard and Closed rows — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
+| `/talk` | with `--as`: the user's conversation with a crew member, live, and the form that sends it mail as them; without, that the view does not act ([Talk](#talk)) | `Talk` |
+| `/talk?with=<member>` | the conversation with that member; without `?with=` the yardmaster's, else the first member's | `Talk` |
+| `/talk?with=<member>&before=<seq>` | an older page of the conversation: the 50 letters under that seq, a snapshot | `Talk` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
 | `/line?home=1` | the home mode: the line panel alone, what home's aside shows and re-reads ([The right column](#the-right-column)) | `Line` |
@@ -308,7 +370,8 @@ none: scripts and styles live in the asset files.
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions,
-the crew and the depot, group, route, peer, edge and quota lists are live
+the crew, the talk page's newest letters and the depot, group, route, peer,
+edge and quota lists are live
 ([Live pages](#live-pages)). The overview above the feed is a snapshot:
 reload the page to see it change.
 
@@ -719,8 +782,9 @@ right column listens for. These hang on the stream:
   event arrives, and goes when it is unheld. Home's column reads
   `/line?home=1` instead, so an event never brings the waits back beside
   the centre that lists them;
-- `/sessions`, `/crew`, `/beads`, a bead's page and the depot, group,
-  route, peer, edge and quota lists read themselves again the same way;
+- `/sessions`, `/crew`, `/beads`, a bead's page, the talk page's newest
+  letters and the depot, group, route, peer, edge and quota lists read
+  themselves again the same way;
 - on `/flows` each card and each section listens for the message named
   after it ([Flows](#flows));
 - the yard panel (`/flows?panel=1`) reads itself again on every event, as
@@ -1040,6 +1104,52 @@ written, in the small size, and scrolls sideways inside its block where
 the column is narrower than they are; the page itself never does. `TestBeadEscapes` feeds one through the title, the body, a note, a
 note's author and a stage file, on every page and in the card stream.
 
+## Talk
+
+On a view started with `--as <user>`, `/talk` is that user's conversation
+with a crew member — the web's `yardr chat` for one member at a time — with
+the form that sends it mail as them. `?with=` names the member; without it
+the page opens on the yardmaster, else on the first member. The crew stand
+above the letters, each linking to its conversation, with a dot where the
+user has unread mail from it. Each letter reads as a note does: the sender
+with its device, the time, the words with their lines kept, the images it
+carries, and `read` under the user's own where the member acknowledged it.
+Without `--as` the page says the view does not act.
+
+The form posts to `/talk?with=<member>` ([Acting as a user](#acting-as-a-user)):
+mail sent, the page lands back on the conversation; mail refused stays in
+the form with the reason. The newest 50 letters are live: each event of
+the yard reads them again, so an answer shows without a reload. Past them
+an "Older mail" link reads the next 50 under `?before=`, a snapshot read
+undisturbed, with the way back beside it.
+
+As JSON:
+
+```json
+{
+  "as": "mckean",
+  "with": "yardmaster",
+  "crew": [
+    {"name": "yardmaster", "unread": true},
+    {"name": "scribe", "unread": false}
+  ],
+  "letters": [
+    {"seq": 13, "at": "2026-10-08T09:30:00Z", "from": "mckean", "to": "yardmaster",
+     "text": "Paint the shed.", "read": true, "own": true, "sender": "mckean"},
+    {"seq": 35, "at": "2026-10-08T09:30:00Z", "from": "yardmaster", "to": "mckean",
+     "text": "It is painted.", "read": false, "own": false, "sender": "yardmaster"}
+  ],
+  "head": 35,
+  "max_mail": 4096
+}
+```
+
+`letters` are the socket's [`Conversation`](api.md#conversation) newest
+page, each with `own` (whether the view's user wrote it) and `sender` (who
+the page names for it) beside them, and `more` beside them where older mail
+was left out. `error` and `draft` stand only on a POST that sent nothing:
+why, and the words back in the form.
+
 ## The stream
 
 `GET /events` is the yard's event log as server-sent events: one per
@@ -1252,7 +1362,9 @@ of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
-and one stage of it), `.filters`, `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
+and one stage of it), `.peers` (the crew to talk to), `.letter` (one mail
+of the talk page, as a `.note` reads), `.error` (why a mail was not sent),
+`.filters`, `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),
 `.num`, `.faint`, `.held`, `.landed`, `.dot`, `.diagram` (one drawing of
