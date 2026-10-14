@@ -1,0 +1,87 @@
+# Web view identity from a gateway's signed JWT, mapped to yard users
+
+Design yardr-scpj, proposed 2026-10-14. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+Design for bead yardr-scpj (flow `design.design`, stage `draft`). The web view is `yardr web serve`, the browser view of the yard (docs/web.md). A yard is one installation of yardr; the operator is the person who runs it; a user is a person of the yard, a name and an inbox; the edge is whatever stands in front of the view. See docs/glossary.md for all of yardr's words. A JWT is a signed token: claims plus a signature that proves the claims came from the key holder. A gateway here is an auth proxy — Cloudflare Access, oauth2-proxy, Pomerium — that logs the visitor in and forwards each request upstream with a signed JWT proving who they are. JWKS is the JSON Web Key Set: the HTTPS endpoint where an issuer publishes the public keys that verify its tokens, so rotation needs no config change.
+
+## 1. The question
+
+mckean, 14 Oct 2026 (mail 28767, 28782): put an auth gateway in front of the web view that passes identity along; "for now we can just set a default one, later we can let the jwt be passed". In other words, keep today's single fixed identity as the default, and later let each request's identity come from a JWT the gateway signed.
+
+## 2. What exists today
+
+**The view, and who it acts as.** `yardr web serve` (internal/cli/web.go) shows the yard in a browser; without `--as` it only reads, and with `--as <user>` the talk page sends mail as that user and a bead's page answers its asks and moves it (docs/web.md, "Acting as a user"). `--as` is a flag only (web.go:178): the command checks the name against the yard's users before it listens and refuses anything else with one sentence (webAsRefused, web.go:232), then `Server.ActAs` (internal/web/server.go:491) records it and registers the two POST routes — without it the mux answers every POST with 405, so a read-only view cannot be talked into a write. Every write path reads `s.as`: the talk post sends mail as them (internal/web/talk.go:186), asks are answered and beads moved as them (internal/web/acts.go), a form's POST is taken only from the view's own pages (`ownOrigin`, talk.go:236), and the CSP opens `form-action 'self'` only when acting (server.go:227). The record under `<home>/webviews/` carries the user, and `yardr status` prints `acts as <user>` (internal/cli/webviews.go).
+
+**Loopback, hosts, and no proxy headers.** With no authentication the view listens on loopback only (`web.Listen`, server.go:434); `--host` names hosts a proxy on this machine forwards to it, and any other `Host` is answered 421 (`knownHost`, server.go:537). docs/web.md ("Behind a proxy") states the rule this design narrows: the view "reads no header a proxy adds (`X-Forwarded-Host`, `X-Forwarded-For`, a user's name)". Why that rule exists still holds for bare headers: anything on loopback — any local process, any agent — can set a header, so an unsigned `X-Forwarded-Email` or Tailscale's `Tailscale-User-Login` proves nothing. A signed JWT is different: only the gateway's key could have made it.
+
+**The setting mechanism the proposal reuses.** The view's address already resolves in three layers — `--addr`, else `YARDR_WEB_ADDR`, else the yard's `web_addr` setting, else the default (web.go's Long text; `addrFromSetting` in internal/cli) — and settings live in one table with help, default, env var and a check (`KnownSettings` in internal/store/settings.go:110; a key that is not there is read by nothing and refused). `web_addr`'s check holds the setting to loopback addresses, as `--addr` without `--unsafe` is held.
+
+**Users, and the one per-call authentication.** A user is a record with a name, inbox, subscriptions and per-source identities (`store.User`, internal/store/users.go:37; `Identities` maps a source to who the user is there, "and nothing else: no delivery is matched to a user by it"). The one per-call authentication yardr has today is devices: an outside program carries a token the yard gave it, resolved per call to a user (`ResolveDevice`, internal/store/devices.go:310, asked by internal/rpc/user.go:163). The JWT proposal is that shape turned around: the token comes from the gateway, not from the yard, and it maps by email claim, not by issued token.
+
+**What the gateways send (checked 14 Oct 2026).** Cloudflare Access injects `Cf-Access-Jwt-Assertion` on every upstream request, signed with the team's keys published at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, with `iss` the team URL, `aud` the application's AUD tag and an `email` claim; it also mirrors the token as a `CF_Authorization` cookie, but its own guidance treats the header as authoritative. oauth2-proxy passes the OIDC ID token upstream as `Authorization: Bearer <id_token>` (`--pass-authorization-header`), or the access token as `X-Forwarded-Access-Token` (`--pass-access-token`); the ID token is the JWT, verified against the provider's issuer and `jwks_uri` with the OAuth client id as audience, while an access token is only sometimes a JWT at all — and its `X-Forwarded-User` and `X-Forwarded-Email` are headers the view cannot verify, so they stay untrusted like Tailscale's. Pomerium mints its own JWT per request into `X-Pomerium-Jwt-Assertion`, verified against its authenticate service's published keys ([getting-users-identity](https://www.pomerium.com/docs/topics/getting-users-identity)). All three put the token on every upstream request — pages, POSTs and the `/events` stream alike — so the browser needs no new capability: it logs in to the gateway, and the gateway speaks to the view.
+
+**No JWT code yet.** go.mod carries no JWT or JWKS library, and nothing in the tree fetches or verifies one. `GET /health` is the one machine route: liveness facts "for a monitor, a proxy or footplate", where "[n]othing it says is a secret" (internal/web/health.go) — whether it stays open in JWT mode is open question 2.
+
+## 3. The proposal
+
+Two parts, landing in order: first the default identity as a setting (mckean's "for now"), then JWT mode (mckean's "later"). The existing mechanisms carry both: the three-layer flag/env/setting resolution, the start-time user check with its refusal sentence, and per-call identity resolution as devices do. What is new is the settings, the verify-and-map step per request, and the per-request user where `s.as` is read today.
+
+**Part 1: `web_as`, the default identity.** A new yard setting `web_as` names the user the view acts as when no `--as` is given, resolved exactly as the address is: `--as`, else `YARDR_WEB_AS`, else `web_as`, else no one (read-only). An unknown name in the setting refuses at start with the existing sentence, naming the setting as the source (open question 4). `yardr web start` and `yardr web install` keep handing `--as` on as today; installed without it, the view follows the setting, and no machine's name is baked into any service file. What a person types:
+
+```sh
+yardr settings set web_as mckean
+yardr web install --host yard.example.net   # acts as mckean, from the setting
+yardr web serve --as friend                 # one view, another user
+```
+
+**Part 2: JWT mode.** JWT mode is on when the yard sets `web_jwt_issuer`, and off otherwise — today's single-user view stays the default, unchanged. Five settings shape it, all in `KnownSettings`, each checked when set:
+
+- `web_jwt_issuer`: the expected `iss`, e.g. `https://team.cloudflareaccess.com`. Setting it turns JWT mode on.
+- `web_jwt_audience`: the expected `aud`, e.g. the Access application's AUD tag. Required in JWT mode: without it a token minted for another application would be accepted.
+- `web_jwt_jwks`: the JWKS URL the keys are fetched from, e.g. `https://team.cloudflareaccess.com/cdn-cgi/access/certs`. Required and explicit: issuers publish keys at different paths (Cloudflare's is not the OIDC `/.well-known/` one), so deriving it would be one special case per gateway.
+- `web_jwt_header`: the header carrying the token, any header name, default `Cf-Access-Jwt-Assertion`. A `Bearer ` prefix is stripped on `Authorization` only. docs/web.md carries the per-gateway table (header, issuer shape, JWKS URL shape, audience shape) so each gateway is one row, not one code path — including `X-Forwarded-Access-Token` for providers whose access tokens are JWTs, with that caveat stated.
+- `web_jwt_users`: the email-to-user table, `email=user` pairs separated by commas, each user a user of the yard (open question 3 weighs this against per-user identities).
+
+**The request path.** In JWT mode every request but `/health` (open question 2) is verified in `ServeHTTP`, after the host check and before the mux: read the configured header (missing → 401); parse the JWT; verify the signature against the cached JWKS, fetching on an unknown key id; check `iss`, `aud`, expiry and not-before with a minute of leeway; take the `email` claim and map it through `web_jwt_users` (unknown email → 403: the token is valid but the yard has no one for it). The resolved user rides the request's context, and the handlers read it where they read `s.as` today — talk, asks, moves, and the `As` fields of the JSON (internal/web/talk.go, acts.go, beads.go:622, home.go:140, waits.go) — so two visitors act as themselves on one view. The `Origin`/CSRF checks stay exactly as they are: the gateway changes who the browser proved itself to, not which page may post. Keys are cached in memory, refreshed hourly and on an unknown key id; while no keys are reachable the view refuses with 503 and logs why — fail closed, never open. Whether the first fetch happens at start or on the first request is open question 5.
+
+**Exclusion.** With JWT mode on, `--as`, `YARDR_WEB_AS` and `web_as` are refused at start, each refusal naming the other (open question 1): no request is ever served as the default user, and no flag silently does nothing. The start line and `yardr status` show the mode in place of `acts as <user>`: `jwt from <issuer as set>`. The webviews record carries the issuer instead of a user.
+
+What a person types, with Cloudflare Access in front and the view still on loopback:
+
+```sh
+yardr settings set web_jwt_issuer https://team.cloudflareaccess.com
+yardr settings set web_jwt_audience <the application's AUD tag>
+yardr settings set web_jwt_jwks https://team.cloudflareaccess.com/cdn-cgi/access/certs
+yardr settings set web_jwt_users mckean@example.net=mckean
+yardr web install --host yard.example.net
+# a visitor the gateway does not know never reaches the view;
+# one it knows, with an unmapped email, is refused with why
+```
+
+docs/web.md gains "Behind an auth gateway" beside "Behind a proxy", and the "reads no header a proxy adds" sentence is narrowed to name the one configured exception, by mckean's call.
+
+## 4. Left out
+
+- Login pages, sessions, signing tokens ourselves: the gateway logs the visitor in and mints the token; the view only verifies. (From the bead.)
+- Bare identity headers — `X-Forwarded-Email`, `X-Forwarded-User`, Tailscale's `Tailscale-User-Login`: unsigned on loopback, where any local process can set them, so they prove nothing. (From the bead: verified JWTs only.)
+- Cookies (`CF_Authorization`): Cloudflare mirrors the token there but treats the header as authoritative; reading both is two carriers for one identity. Revisit if a gateway offers no header.
+- A static public key setting: JWKS URLs cover all three gateways and rotate without config; a second key source is a second mechanism for no new gateway.
+- A configurable claim: `email` is what all three gateways carry (Cloudflare and Pomerium by default, OIDC with the `email` scope); a knob for it serves no gateway on the table.
+- The BDP server (`yardr bdp serve`): it has no `--as` and no acting user, so there is no identity to vary per request.
+- Per-route gating beyond `/health`: in JWT mode every other route — pages, JSON and the stream alike — requires a valid token. The stream needs no exception: the gateway attaches the header to its long request as to any other.
+
+## 5. Open questions
+
+1. **How do `--as` and JWT mode exclude each other?** Options: (a) refuse at start when both are configured; (b) JWT mode wins silently; (c) `--as` wins silently. (b) and (c) leave a setting that looks live but does nothing — the misconfiguration that serves the wrong identity. (a) costs one check and matches how the view already refuses (an unknown `--as` user, an off-loopback address). I would take (a).
+2. **Does `/health` stay open in JWT mode?** Options: (a) stay open — its contract is monitors and proxies, "nothing it says is a secret", and a gateway's own health check carries no user token; (b) require a token like every route — uniform, but the gateway's health check must then mint one. I would take (a).
+3. **Where does the email-to-user table live?** Options: (a) one setting, `web_jwt_users`, `email=user` pairs — one place to audit, checked when set, unknown users refused as `web_as` is; (b) each user's `Identities` (internal/store/users.go:37), a `jwt` source holding their email — reuses the identity mechanism, but that map's contract is "who the user is in a source ... and nothing else: no delivery is matched to a user by it", and auth matching would be a second, security-critical reader. I would take (a).
+4. **What does an unknown user in `web_as` do?** Options: (a) refuse at start, as `--as` does now; (b) start read-only. (b) silently downgrades a view the operator meant to act — a talk page that "does not act" with no reason at the terminal. I would take (a), as the bead's note suggests.
+5. **When are the JWKS keys first fetched?** Options: (a) at start, refusing to start while unreachable — fail fast like every other start-time check, and the login service starts the view again after a failure; (b) on the first request, refusing with 503 until then — the view starts without network, but a mistyped `web_jwt_jwks` surfaces at the first visitor instead of the terminal that started it. I would take (a).
+
+## 6. The beads it would become
+
+In the order they would land, each whole. The bead parks implementation behind PWA plus web push for the web view (not yet filed); the yardmaster orders these against that when it files it.
+
+1. **`web_as`: the default identity as a setting.** Goal: `yardr settings set web_as <user>` names the view's acting user; `--as`, else `YARDR_WEB_AS`, else `web_as`, else read-only, as the address resolves. Where to look: `KnownSettings` in internal/store/settings.go (new entry with `Env: "WEB_AS"`, beside `web_addr`); the view-start check in internal/cli/web.go:105, which already refuses unknown users — extend it to the setting's value and name the setting in the refusal; `yardr web start`/`install` need no change (no `--as` already means no flag, and the view then reads the setting). Done when: the set/flag/env matrix resolves in that order, an unknown user in the setting refuses at start, docs/web.md documents `web_as` beside the address, and tests cover the precedence and the refusal. Depends on: the decision on open question 4.
+2. **JWT verification in the view.** Goal: the `web_jwt_*` settings, JWKS fetch and cache, and per-request verification in `ServeHTTP` with the decided codes. Where to look: internal/web/server.go (`ServeHTTP`, after the `knownHost` check, before the mux); a new small file for verify-plus-JWKS (pick the smallest JWT/JWKS library that verifies RS256/ES256 with `iss`, `aud`, expiry and not-before — none is in go.mod today); the settings table as in bead 1. Done when: a view in JWT mode serves a request with a token signed by a test key, refuses a missing, bad, expired, wrong-issuer, wrong-audience or unmapped-email token with the decided codes, refetches on an unknown key id, refuses to start with `--as` alongside, and the docs table lists all three gateways with the header, issuer, JWKS and audience shapes from section 2. Depends on: bead 1, and the decisions on open questions 1, 2, 3 and 5.
+3. **Per-request identity through talk, asks and moves.** Goal: the verified user, not the start-time one, acts. Where to look: every `s.as` read threaded from the request's context instead (internal/web/talk.go, acts.go, beads.go:622, home.go:140, waits.go); the start line, the webviews record and `yardr status`, which show `jwt from <issuer>` in place of `acts as <user>`; docs/web.md, which gains "Behind an auth gateway" and narrows the "reads no header a proxy adds" sentence for the one configured header, by mckean's call. Done when: two tokens with two mapped emails act as their own users on one view (talk sends as each; each answers only the asks to them), status shows the issuer, and the `Origin`/CSRF tests pass unchanged. Depends on: bead 2.
