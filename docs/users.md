@@ -50,9 +50,11 @@ goes to whom it names. It has two uses: `yardr thread open <source>
 --assign <name>` opens a thread assigned to them
 ([integrations.md](integrations.md#reply-open-a-thread-set-a-threads-status)),
 by the id in Linear and by the key, the login, in GitHub; and a hook
-delivery whose author matches bills that user's login when they have one
-of their own, else the operator's, since a bystander needs no
-subscription. A user is still reached by a subscription of scope `all`
+delivery whose author uniquely matches bills that user's login when a
+herdr group and a route for the made bead use that login, else the
+operator's, since a bystander needs no subscription. An author linked to
+more than one user stays the operator's because the yard cannot tell whose
+login to bill. A user is still reached by a subscription of scope `all`
 alone. Anyone who may write to the yard sets it, as a crew member's.
 
 **The operator is a user.** `yardr init` and the onboarding add the user

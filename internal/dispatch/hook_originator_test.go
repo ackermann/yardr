@@ -244,3 +244,25 @@ func TestHookOperatorAuthorStaysOperators(t *testing.T) {
 		t.Fatalf("hook_rule of the operator's own bead records a fallback: %v", data)
 	}
 }
+
+// If two users link the same source identity, the author cannot safely name
+// either one to bill, even when one of them has a personal route.
+func TestHookAmbiguousAuthorStaysOperators(t *testing.T) {
+	r := hookYard(t)
+	linkHal(t, r)
+	if _, err := r.api.AddUser(context.Background(), "hal2", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.api.SetIdentity(context.Background(), "hal2", "github", store.Identity{Key: "jane-doe"}, "jo"))
+	halGroup(t, r, writeEnv(t))
+	halRoute(t, r, "triage", "hal-builders")
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	r.pass(t)
+	b := r.made(t, issue23)
+	if b.Originator != "jo" {
+		t.Fatalf("ambiguous author made %s for %q, want jo", b.ID, b.Originator)
+	}
+	if data := makeEvent(t, r, b.ID); data["originator_rule"] != nil || data["linked_author"] != nil {
+		t.Fatalf("hook_rule of an ambiguous author records a fallback: %v", data)
+	}
+}

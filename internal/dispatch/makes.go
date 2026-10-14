@@ -260,9 +260,9 @@ func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, dec
 // It returns the bead's For and, when a linked author falls back to the
 // operator, what the hook_rule event records of it: the linked author and
 // which check failed (no_personal_group, or no_personal_route with the
-// matched route and worker where there is one). An unlinked author, the
-// operator themself, and anything the store cannot answer bill the
-// operator's as every hook bead does, with nothing recorded.
+// matched route and worker where there is one). An unlinked or ambiguous
+// author, the operator themself, and anything the store cannot answer bill
+// the operator's as every hook bead does, with nothing recorded.
 func (d *Dispatcher) hookOriginator(ctx context.Context, ev ruleEvent, line *store.Make, depot string) (string, map[string]any) {
 	if ev.actor == "" {
 		return "", nil
@@ -274,10 +274,15 @@ func (d *Dispatcher) hookOriginator(ctx context.Context, ev ruleEvent, line *sto
 	}
 	linked := ""
 	for _, u := range users {
-		if u.IsIn(ev.source, ev.actor) {
-			linked = u.Name
-			break
+		if !u.IsIn(ev.source, ev.actor) {
+			continue
 		}
+		// Identity links are not unique across users. If more than one
+		// user names this author, there is no safe originator to bill.
+		if linked != "" {
+			return "", nil
+		}
+		linked = u.Name
 	}
 	if linked == "" {
 		return "", nil
