@@ -1557,11 +1557,19 @@ A line from the phone, sent to the isolated yard, was recorded as
 
 ## Adding a service
 
-What someone writes today to make yardr carry a new service: a pack of
-kind source — a declaration, the scripts it names, and setup notes — and
-no Go. [A declared source](#a-declared-source) with `notify`, `hook`,
-`thread` and `link` keys receives, replies, opens, sets, moves and links,
-as `packs/github/github.yaml` does for GitHub and
+What someone writes to make yardr carry a new service is a pack of kind
+source — a declaration, the scripts it names, and setup notes — and no
+Go. A new one starts from the template, `packs/template`: copy the
+directory, rename its service (the skeleton calls it `acme`) in the
+files' names and text, and drop the keys the service does not need. The
+skeleton names every key a declaration in a pack of kind source may
+bring, each with when it stays; its command stubs show each stdin and
+stdout shape; its setup notes are the checklist to fill for the service.
+A test holds it to the reader — it copies the template, renames it, and
+applies the copy in a scratch yard — so what the skeleton shows is what
+the reader takes. [A declared source](#a-declared-source) with `notify`,
+`hook`, `thread` and `link` keys receives, replies, opens, sets, moves
+and links, as `packs/github/github.yaml` does for GitHub and
 `packs/linear/linear.yaml` does for Linear. What is still Go, in yardr's
 own repository, is `token`, yardr's own source, which receives and nothing
 else.
@@ -1585,6 +1593,67 @@ will be given in; `thread.id` the same for every delivery of one issue;
 | `yardr thread open` | the `thread.open`, `thread.opened` and `thread.place` keys | nothing |
 | `yardr thread state` | the `thread.state` command and `thread.states`: what `started`, `review` and `done` mean there | nothing |
 | a stage map | the status keys and the `link` key | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
+| `yardr source check` making its check call | the `check` key, naming a read call that takes no required parameter | nothing: `source check` reads the declaration (below) |
+| telling a user through the service | the `notify` key: the update call that tells, and which of its parameters take the address, title, text and link | an update call with a string parameter for each |
+| hearing only told addresses back | the `hear` key | the `notify` and `hook` keys, and the field under `hook.keys` |
+| reading a pull request and its CI back | the `events` key: the run and head types, and the `pr` and `ci` commands | nothing: the daemon reads a train's pull request and CI through them, and the brief carries the snapshot |
+
+**The envelope a normalize command prints.** Its stdin is
+`{"headers": {...}, "body": ...}`: the delivery's headers, each with its
+values, and the body as JSON, or as text when it is none. With scheme
+`secret` the header that holds the secret is taken out first. Its stdout
+is one JSON object, the envelope, at most 64 KB, exit 0, within 30
+seconds; anything else is a failure, and the delivery is refused with
+400. Of the object only `type` is required; the core sets `source` and
+`delivery` itself, collapses whitespace in `text` and cuts it to 500
+characters, gives `mentions` an empty list where none was printed, and
+derives `train` from `head_branch` where the branch is a train's branch
+and the envelope carries no train. What `fields` may carry is the
+file's `hook.keys`, which `--where` may then name:
+
+```json
+{
+  "type": "issue",
+  "action": "create",
+  "actor": {"id": "u-1", "name": "Jane"},
+  "thread": {"id": "acme-1", "title": "An issue", "url": "https://acme.example.com/acme/issue/acme-1"},
+  "mentions": ["u-2"],
+  "assignee": "u-3",
+  "text": "an issue was created",
+  "url": "https://acme.example.com/acme/issue/acme-1",
+  "message": "m-1",
+  "parent": "m-0",
+  "entity": "acme-1",
+  "fields": {"team": ["acme"]}
+}
+```
+
+`type` is what happened to what, by convention lowercase; `action` what
+of it happened. `actor.id` is what an identity is matched against.
+`thread` is what the delivery belongs to, empty for what belongs to
+nothing. `mentions` are the ids or keys the text mentions, in the form
+an identity takes. `message` is the comment the delivery is, and
+`parent` the comment it answers, so a reply lands in the same
+conversation. `entity` is what the text belongs to where the service
+sends that text again with every change. What the skeleton's stub
+prints is this shape with fixed values.
+
+**The check a source declares.** `check` names the call `yardr source
+check <name>` makes: a read call that takes no required parameter.
+What the command does, in order: it reads the source's own env file as
+a call would and reports the credential — the names set and missing,
+and with a mint whether a mint command is set; it mints where the file
+sets the mint's names and makes the check call with the credential, and
+fails unless the service answers 2xx; it says of every command the file
+names beside the check call — thread's, hook's, events' — whether its
+program is there and can be run, and fails when one cannot, running
+none. A file that names no check call is sent
+nothing: its credential is looked at and that is all. With `--user` the
+command tells that user through the source instead: one real test
+message. So a new source declares a `check` with a ping-like read call
+behind it, and ships every command's program in the pack; `source
+check` then passes before the first delivery, and says which program or
+name does not hold when it does not.
 
 Two more places know sources by name: `internal/standin`, the stand-in for
 the services' APIs that the tests and an isolated yard use, and the docs.
@@ -1599,7 +1668,10 @@ against the where keys (`TestGitHubPackFieldsAreWhereKeys`); and in
 `internal/dispatch` the moves (`TestIssueFollowsItsBead`,
 `TestIssueOnlyMovesForward`, `TestIssueNeedsSetState`). The yard's own
 (`token`) has `TestTokenSource` and
-`TestTokenDedupesOnDeliveryIDOnly`.
+`TestTokenDedupesOnDeliveryIDOnly`. The skeleton a new pack starts from
+has its own in `internal/pack`: the template test copies
+`packs/template`, renames it, and applies the copy in a scratch yard,
+and runs each stub in shape.
 
 The outbound tests run against the stand-in the test starts, reached
 through `YARDR_SOURCE_BASE`.

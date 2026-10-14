@@ -1388,6 +1388,16 @@ test: each is one service with the `notify` key that tells a user, and no
 commands, so one apply with `--notify` and the two keys set it up whole,
 and `yardr user list` shows the user told through it.
 
+A new source pack starts from the template, `packs/template`: a skeleton
+pack for a fictional service, with every key a declaration may bring,
+command stubs showing each stdin and stdout shape, and setup notes. Copy
+the directory, rename the service, and drop the keys the service does
+not need; [integrations.md](integrations.md#adding-a-service) walks the
+rest, with the envelope and check contracts. A test holds the skeleton
+to the reader: it copies the template, renames it, and applies the copy
+in a scratch yard, so the skeleton cannot drift from what the reader
+takes.
+
 Its declaration may name the commands the yard runs (`hook`, `thread`,
 `link`), which a pack for a depot may not; `limits` stays refused, as
 there. Each file a command names by a relative program stands beside the
