@@ -197,9 +197,10 @@ compared is the request's `Origin` header, and this is how it is matched:
   `--unsafe`, it may also be an IP address. Other names the view answers to
   are still different origins, so a page at `localhost` cannot post to a
   request addressed as `yard.example.net`.
-- The port is not compared: it is the edge's where one stands in front
-  (`https://adventuretime.tail5cf2e8.ts.net/`, or its port where it serves
-  one), and need not be the view's own.
+- The explicit port must match the request's `Host`. A proxy in front
+  forwards that host unchanged, so its external port is checked here; it
+  need not be the view's own listening port. The scheme is not compared:
+  the edge may end TLS and forward the request to the view over HTTP.
 
 Anything else is answered 403 and sends nothing. `Origin` is the browser's
 own header: a client that is no browser sends none, so `curl` posts with

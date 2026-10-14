@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -226,12 +227,12 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 }
 
 // ownOrigin reports whether origin is this request's own: an http or
-// https URL whose host is the one the request used, with any port. The
-// request's host was checked by ServeHTTP against the names the view
-// answers to. Other names that the view also answers to are distinct
-// origins: a page on one cannot send mail through a request to another.
-// The scheme and port may belong to an edge in front (https on its port,
-// behind tailscale serve) or to the view itself, so neither is compared.
+// https URL whose host and explicit port are the request's. The request's
+// host was checked by ServeHTTP against the names the view answers to.
+// Other names and ports are distinct origins: a page on one cannot send
+// mail through a request addressed to another. The scheme may belong to
+// an edge in front (https, behind tailscale serve) or to the view itself,
+// so it is not compared.
 func ownOrigin(origin, requestHost string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
@@ -243,7 +244,15 @@ func ownOrigin(origin, requestHost string) bool {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
-	return host != "" && host == strings.ToLower(hostOf(requestHost))
+	if host == "" || host != strings.ToLower(hostOf(requestHost)) {
+		return false
+	}
+	_, port, err := net.SplitHostPort(requestHost)
+	if err != nil {
+		// Both omit a port, as when the edge serves on a default port.
+		return u.Port() == ""
+	}
+	return u.Port() == port
 }
 
 // quoted is origin as the refusal names it: what a request without one

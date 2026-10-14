@@ -275,10 +275,10 @@ func TestTalkPostInvalid(t *testing.T) {
 	}
 }
 
-// The origin a POST is taken from: the view's own, http or https, on any
-// port. Behind a proxy that is the name --host gave; an address off
-// the request's host, including an IP under --unsafe. Other hosts that the
-// view also answers to are distinct origins.
+// The origin a POST is taken from: the request's host and explicit port,
+// over http or https. Behind a proxy that is the name --host gave; an
+// address off loopback is the request's host, including an IP under
+// --unsafe. Other hosts and ports the view answers to are distinct origins.
 func TestTalkPostOrigin(t *testing.T) {
 	form := url.Values{"text": {"and the fence"}}
 	post := func(t *testing.T, f *fixture, requestHost, origin string) int {
@@ -315,6 +315,7 @@ func TestTalkPostOrigin(t *testing.T) {
 		{"localhost", nil, "localhost:8791", func(f *fixture) string { return "http://localhost:8791" }, http.StatusSeeOther},
 		{"loopback v6", nil, "[::1]:8791", func(f *fixture) string { return "http://[::1]:8791" }, http.StatusSeeOther},
 		{"another port", nil, "127.0.0.1:9000", func(f *fixture) string { return "http://127.0.0.1:9000" }, http.StatusSeeOther},
+		{"different port", nil, "127.0.0.1:8791", func(f *fixture) string { return "http://127.0.0.1:9000" }, http.StatusForbidden},
 		{"absent", nil, "", func(f *fixture) string { return "absent" }, http.StatusForbidden},
 		{"empty", nil, "", func(f *fixture) string { return "" }, http.StatusForbidden},
 		{"another site", nil, "", func(f *fixture) string { return "http://evil.example/" }, http.StatusForbidden},
@@ -331,6 +332,8 @@ func TestTalkPostOrigin(t *testing.T) {
 			func(f *fixture) string { return "https://YARD.EXAMPLE.NET" }, http.StatusSeeOther},
 		{"not that host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
 			func(f *fixture) string { return "https://other.example.net" }, http.StatusForbidden},
+		{"different host port", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net:8443",
+			func(f *fixture) string { return "https://yard.example.net:9443" }, http.StatusForbidden},
 		{"another allowed host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
 			func(f *fixture) string { return "http://localhost:8791" }, http.StatusForbidden},
 		{"the machine", func(srv *web.Server) { srv.AllowNetwork("myhost") }, "myhost:8791",
