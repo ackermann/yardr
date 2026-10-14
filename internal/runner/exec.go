@@ -266,8 +266,11 @@ func (e *Exec) Stop(_ context.Context, h map[string]any) error {
 	}
 	if e.canStat() {
 		st, err := e.statOf(pid)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil // gone: the pid names no process
+		}
+		if err != nil {
+			return err // identity is unknown: let teardown retry
 		}
 		if !owns(h, st) {
 			return nil // reused: another process has the pid now

@@ -283,6 +283,25 @@ func TestExecStopSignalsOnlyAVerifiedLeader(t *testing.T) {
 	}
 }
 
+func TestExecStopRetriesWhenProcessIdentityIsUnknown(t *testing.T) {
+	wantErr := errors.New("process table unavailable")
+	var signals []int
+	e := &Exec{
+		describe: func(int) (stat, error) { return stat{}, wantErr },
+		kill: func(pid int, _ syscall.Signal) error {
+			signals = append(signals, pid)
+			return nil
+		},
+	}
+	err := e.Stop(context.Background(), map[string]any{"pid": 424242, "start": 7})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Stop = %v, want %v so teardown can retry", err, wantErr)
+	}
+	if len(signals) != 0 {
+		t.Fatalf("signals = %v, want none while identity is unknown", signals)
+	}
+}
+
 // A live session whose process is gone ends, and its stop signals nothing
 // and is not retried: the next pass has nothing left to stop.
 func TestExecStaleSessionEndsAndStopsOnce(t *testing.T) {

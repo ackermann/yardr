@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -72,5 +74,52 @@ func TestOwnGroupCancelWhileRunningKillsTheGroup(t *testing.T) {
 	}
 	if len(kills) != 2 {
 		t.Fatalf("kills = %v, want the gone pid signalled too", kills)
+	}
+}
+
+func TestOwnGroupCancelDoesNotSignalWhenIdentityIsUnknown(t *testing.T) {
+	oldKill, oldDescribe := ownGroupKill, ownGroupDescribe
+	wantErr := errors.New("process table unavailable")
+	var kills []int
+	ownGroupKill = func(pid int, sig syscall.Signal) error {
+		kills = append(kills, pid)
+		return nil
+	}
+	ownGroupDescribe = func(int) (peer.Stat, error) { return peer.Stat{}, wantErr }
+	t.Cleanup(func() { ownGroupKill, ownGroupDescribe = oldKill, oldDescribe })
+
+	cmd := exec.CommandContext(context.Background(), "true")
+	ownGroup(cmd)
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Cancel(); !errors.Is(err, wantErr) {
+		t.Fatalf("Cancel = %v, want %v", err, wantErr)
+	}
+	if len(kills) != 0 {
+		t.Fatalf("kills = %v, want none while identity is unknown", kills)
+	}
+}
+
+func TestOwnGroupCancelStillCleansAGroupWithoutItsLeader(t *testing.T) {
+	oldKill, oldDescribe := ownGroupKill, ownGroupDescribe
+	var kills []int
+	ownGroupKill = func(pid int, sig syscall.Signal) error {
+		kills = append(kills, pid)
+		return nil
+	}
+	ownGroupDescribe = func(int) (peer.Stat, error) { return peer.Stat{}, fs.ErrNotExist }
+	t.Cleanup(func() { ownGroupKill, ownGroupDescribe = oldKill, oldDescribe })
+
+	cmd := exec.CommandContext(context.Background(), "true")
+	ownGroup(cmd)
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	if len(kills) != 1 || kills[0] != -cmd.Process.Pid {
+		t.Fatalf("kills = %v, want the process group for its surviving children", kills)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/server"
 )
 
@@ -143,13 +144,13 @@ func TestNoCommandReachesTheMachinesYard(t *testing.T) {
 // killStray ends only a process that is still this run's child: a pid
 // freed and reused since the listing is left alone. (yardr-4wfs.)
 func TestKillStrayLeavesAReusedPidAlone(t *testing.T) {
-	old := strayKill
+	old, oldDescribe := strayKill, strayDescribe
 	var kills []int
 	strayKill = func(pid int, sig syscall.Signal) error {
 		kills = append(kills, pid)
 		return nil
 	}
-	t.Cleanup(func() { strayKill = old })
+	t.Cleanup(func() { strayKill, strayDescribe = old, oldDescribe })
 
 	killStray(1) // another process's, never ours
 	finished := exec.Command("true")
@@ -160,6 +161,12 @@ func TestKillStrayLeavesAReusedPidAlone(t *testing.T) {
 	if len(kills) != 0 {
 		t.Fatalf("kills = %v, want none", kills)
 	}
+	strayDescribe = func(int) (peer.Stat, error) { return peer.Stat{}, errors.ErrUnsupported }
+	killStray(424242) // unsupported process table: identity cannot be checked
+	if len(kills) != 0 {
+		t.Fatalf("kills = %v, want none while identity is unknown", kills)
+	}
+	strayDescribe = oldDescribe
 
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {

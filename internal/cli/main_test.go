@@ -182,6 +182,8 @@ func TestMain(m *testing.M) {
 // strayKill signals a stray test process; tests replace it.
 var strayKill = syscall.Kill
 
+var strayDescribe = peer.Describe
+
 // killStray ends one stray process, but only while it is still this
 // run's child: between the listing and the signal its pid may have been
 // freed and reused by an unrelated process, which must never be killed.
@@ -193,13 +195,10 @@ func killStray(pid int) {
 }
 
 // stillOurs reports whether pid is still this process's running child.
-// Where the OS tells nothing of processes, the listing is trusted, as
-// before: there is nothing to verify against.
+// When the OS cannot identify it, the process listing is not enough to
+// risk signalling a pid that may have been reused.
 func stillOurs(pid int) bool {
-	st, err := peer.Describe(pid)
-	if errors.Is(err, errors.ErrUnsupported) {
-		return true
-	}
+	st, err := strayDescribe(pid)
 	return err == nil && st.PPID == os.Getpid() && st.State != 'Z'
 }
 

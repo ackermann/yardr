@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -445,8 +446,12 @@ func ownGroup(cmd *exec.Cmd) {
 		if cmd.Process == nil {
 			return nil
 		}
-		if st, err := ownGroupDescribe(cmd.Process.Pid); err == nil && st.PPID != os.Getpid() {
-			return nil
+		st, err := ownGroupDescribe(cmd.Process.Pid)
+		if err == nil && st.PPID != os.Getpid() {
+			return nil // reused: another process owns this pid
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err // identity is unknown: do not signal the group
 		}
 		return ownGroupKill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

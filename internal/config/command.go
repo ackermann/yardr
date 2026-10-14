@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -91,8 +92,12 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 		if !known {
 			return nil
 		}
-		if st, err := c.statOf(cmd.Process.Pid); err == nil && st.Start != start {
-			return nil
+		st, err := c.statOf(cmd.Process.Pid)
+		if err == nil && st.Start != start {
+			return nil // reused: another process has the pid now
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err // identity is unknown: do not signal the group
 		}
 		return c.signal(-cmd.Process.Pid, syscall.SIGKILL)
 	}

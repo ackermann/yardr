@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"strings"
 	"syscall"
@@ -27,6 +28,12 @@ func TestCommandTimeoutSignalsOnlyItsOwnGroup(t *testing.T) {
 			name:      "a pid another process reused is never signalled",
 			baseline:  func() (peer.Stat, error) { return peer.Stat{State: 'R', Start: 7}, nil },
 			current:   func() (peer.Stat, error) { return peer.Stat{State: 'R', Start: 8}, nil },
+			wantKills: 0,
+		},
+		{
+			name:      "an unreadable process table is not a missing leader",
+			baseline:  func() (peer.Stat, error) { return peer.Stat{State: 'R', Start: 7}, nil },
+			current:   func() (peer.Stat, error) { return peer.Stat{}, errors.New("process table unavailable") },
 			wantKills: 0,
 		},
 		{
