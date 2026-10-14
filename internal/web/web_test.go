@@ -649,11 +649,20 @@ func TestLine(t *testing.T) {
 func TestMenuPages(t *testing.T) {
 	f := newFixture(t)
 	links := regexp.MustCompile(`<li[^>]*><a href="([^"]+)"`).FindAllStringSubmatch(f.get("/").body, -1)
-	if len(links) != 9 {
-		t.Fatalf("the menu has %d entries, want 9: %v", len(links), links)
-	}
+	// The phone's More entry repeats the entries the bottom bar hides,
+	// so each of those appears twice; the menu itself has nine.
+	var paths []string
+	seen := map[string]bool{}
 	for _, l := range links {
-		path := l[1]
+		if !seen[l[1]] {
+			seen[l[1]] = true
+			paths = append(paths, l[1])
+		}
+	}
+	if len(paths) != 9 {
+		t.Fatalf("the menu has %d entries, want 9: %v", len(paths), paths)
+	}
+	for _, path := range paths {
 		r := f.get(path)
 		switch path {
 		case "/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/config":

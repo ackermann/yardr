@@ -35,23 +35,38 @@ var templateFS embed.FS
 
 // menu is the left menu, in order. The line entry is the phone's way to
 // the right column, which has no room there; the stylesheet shows it only
-// where that column is hidden.
+// where that column is hidden. Phone marks the entries the phone's bottom
+// bar shows; the rest open under its More entry, in the same order.
 var menu = []menuItem{
-	{Name: "home", Label: "Home", Path: "/"},
-	{Name: "talk", Label: "Talk", Path: "/talk"},
+	{Name: "home", Label: "Home", Path: "/", Phone: true},
+	{Name: "talk", Label: "Talk", Path: "/talk", Phone: true},
 	{Name: "yard", Label: "Yard", Path: "/flows?panel=1"},
 	{Name: "flows", Label: "Flows", Path: "/flows"},
-	{Name: "beads", Label: "Beads", Path: "/beads"},
+	{Name: "beads", Label: "Beads", Path: "/beads", Phone: true},
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
 	{Name: "crew", Label: "Crew", Path: "/crew"},
 	{Name: "config", Label: "Config", Path: "/config"},
-	{Name: "line", Label: "Line", Path: "/line", Aside: true},
+	{Name: "line", Label: "Line", Path: "/line", Aside: true, Phone: true},
 }
 
 type menuItem struct {
 	Name, Label, Path string
 	// Aside marks the entry that stands in for the right column.
 	Aside bool
+	// Phone marks an entry the phone's bottom bar shows itself; the
+	// rest open under its More entry.
+	Phone bool
+}
+
+// moreCurrent is whether name is a menu entry the phone's bottom bar
+// hides: its More entry then stands for the current page.
+func moreCurrent(name string) bool {
+	for _, m := range menu {
+		if m.Name == name {
+			return !m.Phone
+		}
+	}
+	return false
 }
 
 // unbuilt are the menu's pages no child of the train has built yet: each
@@ -296,6 +311,9 @@ type view struct {
 	Head uint64
 	// Stream is the stream's ?format=, "" for the feed's entries.
 	Stream string
+	// MoreCurrent is whether the phone's More entry stands for the
+	// current page: one the bottom bar hides.
+	MoreCurrent bool
 }
 
 // respond answers r with p, as JSON or as HTML (see wantsJSON). Every
@@ -319,7 +337,7 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 		return
 	}
 	// The shell shows the yard's name and the line on every page.
-	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream}
+	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream, MoreCurrent: moreCurrent(p.Menu)}
 	if v.Aside == nil {
 		var err error
 		// A handler's own head stands: it is from before the handler read
@@ -387,7 +405,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	var buf bytes.Buffer
-	if terr := s.pages[p.Template].ExecuteTemplate(&buf, "shell.html", view{Page: p, Entries: menu, Yard: s.yardName(r.Context())}); terr != nil {
+	if terr := s.pages[p.Template].ExecuteTemplate(&buf, "shell.html", view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu)}); terr != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}

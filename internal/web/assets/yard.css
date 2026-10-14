@@ -126,6 +126,9 @@ ul, ol { list-style: none; }
 .menu li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
 /* The entry that stands in for the right column shows only without it. */
 .menu .aside-entry { display: none; }
+/* The phone's More entry shows below 700 px only, where the bottom bar
+   has no room for the whole menu. */
+.menu .more { display: none; }
 
 .centre {
   border-left: 1px solid var(--hairline);
@@ -450,7 +453,9 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 }
 
 /* A phone: the centre column alone, the menu a bar at the bottom. The bar
-   stays in view while the page scrolls, as the menu does on a wide window. */
+   stays in view while the page scrolls, as the menu does on a wide window.
+   It shows the phone entries and More alone, five targets of about 78 px
+   at 390 px, none cut; the rest open under More, above the bar. */
 @media (max-width: 699px) {
   .shell { display: flex; flex-direction: column; }
   /* min-width: 0, as the grids' minmax(0, ...) above: what is wider than
@@ -465,10 +470,41 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
     padding: 0 0 env(safe-area-inset-bottom);
     background: var(--panel);
     border-top: 1px solid var(--hairline-strong);
+    /* Visible, as the desktop's hidden is not: More opens above the bar. */
+    overflow: visible;
   }
   .menu .yard { display: none; }
   .menu ul { display: flex; }
   .menu li { flex: 1 1 0; min-width: 0; }
   .menu li a { padding: 14px 2px; text-align: center; font-size: 10px; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; }
   .menu li a[aria-current="page"] { padding-left: 2px; box-shadow: inset 0 2px 0 var(--accent); }
+  .menu li.phone-more { display: none; }
+  .menu .more { display: block; }
+  .menu .more summary {
+    display: block;
+    padding: 14px 2px;
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+    cursor: pointer;
+    list-style: none;
+  }
+  .menu .more summary::-webkit-details-marker { display: none; }
+  .menu .more summary::marker { content: ""; }
+  .menu .more summary:hover { color: var(--accent); }
+  .menu .more summary[aria-current="page"] { color: var(--ink); box-shadow: inset 0 2px 0 var(--accent); }
+  .menu .more ul {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    display: block;
+    background: var(--panel);
+    border-top: 1px solid var(--hairline-strong);
+  }
+  .menu .more li + li { border-top: 1px solid var(--hairline); }
+  .menu .more li a { padding: 14px var(--gap); text-align: left; font-size: var(--small); letter-spacing: var(--label-spacing); min-height: 44px; }
+  .menu .more li a[aria-current="page"] { padding-left: var(--gap); box-shadow: inset 2px 0 0 var(--accent); }
 }

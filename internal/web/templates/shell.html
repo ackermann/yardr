@@ -22,8 +22,12 @@
     <a class="yard" href="/">{{.Yard}}</a>
     <ul>
       {{- range .Entries}}
-      <li{{if .Aside}} class="aside-entry"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
+      <li{{if .Aside}} class="aside-entry"{{else if not .Phone}} class="phone-more"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
       {{- end}}
+      {{- /* The phone's bottom bar shows the phone entries alone; the
+             rest open under More, in the menu's order. The stylesheet
+             shows it below 700 px only. */}}
+      <li class="more"><details><summary{{if .MoreCurrent}} aria-current="page"{{end}}>More</summary><ul>{{range .Entries}}{{if not .Phone}}<li><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
     </ul>
   </nav>
   <main class="centre" id="centre">

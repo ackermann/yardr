@@ -209,6 +209,94 @@ func TestRoutesCompactRows(t *testing.T) {
 	}
 }
 
+// On a phone the menu is a bottom bar of the phone entries and More: five
+// targets of about 78 px at 390 px, none cut. More opens the rest above
+// the bar, in the menu's order, and stands for the current page when it is
+// one the bar hides. The desktop menu shows all nine, as before. What the
+// pixels do is the bead's screenshots.
+func TestPhoneBarMore(t *testing.T) {
+	f := newFixture(t)
+	body := f.get("/").body
+	// The bar's entries carry no phone-more class; the entries More opens
+	// carry it on the main list. Line keeps its aside-entry alone.
+	for _, path := range []string{"/", "/talk", "/beads", "/line"} {
+		if strings.Contains(body, `phone-more"><a href="`+path+`"`) {
+			t.Errorf("the bar hides %s under More", path)
+		}
+	}
+	for _, path := range []string{"/flows?panel=1", "/flows", "/sessions", "/crew", "/config"} {
+		if !strings.Contains(body, `<li class="phone-more"><a href="`+path+`"`) {
+			t.Errorf("%s is not marked for More", path)
+		}
+	}
+	if !strings.Contains(body, `<li class="aside-entry"><a href="/line"`) {
+		t.Error("Line lost its aside-entry")
+	}
+	// More stands last, after Line, and holds the rest in the menu's
+	// order, under their own names.
+	more := strings.Index(body, `<li class="more">`)
+	if more < 0 {
+		t.Fatal("the menu has no More entry")
+	}
+	if line := strings.Index(body, `<a href="/line"`); line < 0 || line > more {
+		t.Error("More does not stand after Line")
+	}
+	want := `<li><a href="/flows?panel=1">Yard</a></li>` +
+		`<li><a href="/flows">Flows</a></li>` +
+		`<li><a href="/sessions">Sessions</a></li>` +
+		`<li><a href="/crew">Crew</a></li>` +
+		`<li><a href="/config">Config</a></li>`
+	if !strings.Contains(body[more:], want) {
+		t.Errorf("More does not hold the rest in order: %s", body[more:])
+	}
+	// On a page the bar shows, More is plain; on one it hides, More
+	// stands for the current page, and both copies mark it.
+	if !strings.Contains(body, `<summary>More</summary>`) {
+		t.Error("/ leaves More marked current")
+	}
+	flows := f.get("/flows").body
+	if !strings.Contains(flows, `<summary aria-current="page">More</summary>`) {
+		t.Error("/flows leaves More unmarked")
+	}
+	if n := strings.Count(flows, `<a href="/flows" aria-current="page">`); n != 2 {
+		t.Errorf("/flows marks %d copies of itself, want 2 (the bar's and More's)", n)
+	}
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	text := string(css)
+	// The desktop menu shows all nine: More shows below 700 px only.
+	if more := cssRule(t, ".menu .more"); !strings.Contains(more, "display: none;") {
+		t.Errorf(".menu .more stands on a wide window too: %s", more)
+	}
+	if n := strings.Count(text, "phone-more"); n != 1 {
+		t.Errorf("phone-more is named %d times in the stylesheet, want once (below 700 px)", n)
+	}
+	phone := mediaCSS(t, text, "max-width: 699px")
+	for _, want := range []string{
+		".menu li.phone-more { display: none; }",
+		".menu .more { display: block; }",
+		".menu .more summary::-webkit-details-marker { display: none; }",
+		`.menu .more summary::marker { content: ""; }`,
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+	// More opens upward, a full-width list above the bar, each row tall
+	// enough to tap; the bar keeps its overflow for the popup.
+	for _, want := range []string{"position: absolute;", "bottom: 100%;", "left: 0;", "right: 0;", "display: block;"} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("More's list lacks %s", want)
+		}
+	}
+	if !strings.Contains(phone, "overflow: visible;") {
+		t.Error("the phone bar clips More's list")
+	}
+	if !strings.Contains(phone, "min-height: 44px;") {
+		t.Error("More's rows are not tall enough to tap")
+	}
+}
+
 // On a phone an ask's row gives the question the row's first line whole,
 // ending in an ellipsis, and the bead, the pick and the age stand under it.
 // At 1100 px and wider the row is one line, as today. What the pixels do is
