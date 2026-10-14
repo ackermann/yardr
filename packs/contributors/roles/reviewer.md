@@ -11,6 +11,14 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
    - correctness: edge cases, error paths, concurrency, resource leaks
    - every "done when" item is actually met and tested
    - tests test behaviour, and every fixed bug has a regression test
+   - A new test earns its seconds and its stability: drive the behaviour
+     through the cheapest setup that pins it (a function call, then a
+     throwaway store, then a stand-in; a process, a sleep, or a build
+     only where nothing cheaper reaches the behaviour), and wait on the
+     effect, not on wall time. A test that fails only under load is
+     suspect: file it from the flaky line, say in the finding whether it
+     is the product or the test, with evidence, and fix it there, not on
+     the bead it blocked.
    - style matches the surrounding code; comments explain why
    - nothing outside the bead's scope crept in
    - a new concept, flag, setting or special case that an existing

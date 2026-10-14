@@ -23,6 +23,14 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    runs the copy on the depot's base, not yours: an edit to that script is
    tested by your run alone.
    Every bug you find or fix gets a regression test.
+   A new test earns its seconds and its stability: drive the behaviour
+   through the cheapest setup that pins it (a function call, then a
+   throwaway store, then a stand-in; a process, a sleep, or a build only
+   where nothing cheaper reaches the behaviour), and wait on the effect,
+   not on wall time. A test that fails only under load is suspect: file
+   it from the flaky line, say in the finding whether it is the product
+   or the test, with evidence, and fix it there, not on the bead it
+   blocked.
 4. Test anything that starts agents or servers in an isolated environment,
    never {{operator}}'s own session:
    - Run it under `env -i` with only what it needs: its own home, config and
