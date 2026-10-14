@@ -187,6 +187,10 @@ func TestMergeLocalOldBinaryNotesBootstrap(t *testing.T) {
 	y.commit(y.wt, "b.txt", "bead\n")
 	y.upgradeFrom("r")
 	y.bin = writeScript(t, t.TempDir(), "yardr", `#!/bin/sh
+if [ "$1" = "upgrade" ] && [ "$2" = "--help" ]; then
+  printf '%s\n' 'Usage:' '  yardr [flags]' '  yardr [command]'
+  exit 0
+fi
 if [ "$1" = "upgrade" ]; then echo 'yardr: unknown command "upgrade" for "yardr"' >&2; exit 1; fi
 exec `+shellQuote(yardrBin)+` "$@"
 `)

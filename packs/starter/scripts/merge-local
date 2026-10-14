@@ -376,7 +376,10 @@ upgrade_note=
 if [ -n "$LANDING" ]; then
   from=$("$Y" settings get upgrade_from 2>/dev/null) || from=
   if [ "$from" = "$DEPOT" ]; then
-    if ! "$Y" upgrade --help >/dev/null 2>&1; then
+    # Cobra may return success and print the root help for an unknown
+    # subcommand when it receives --help, so require upgrade's own usage.
+    upgrade_help=$("$Y" upgrade --help 2>&1) || upgrade_help=
+    if ! printf '%s\n' "$upgrade_help" | grep -q '^  yardr upgrade \[flags\]$'; then
       upgrade_note="; install skipped: the installed yardr knows no upgrade (install the new yardr once by hand first)"
       echo "== $BEAD install skipped: the installed yardr knows no upgrade"
     else
