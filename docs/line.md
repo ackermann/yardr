@@ -579,17 +579,19 @@ total, so every surface says "usual", never "by".
 Each stage is timed for its primary group: the first group of the route
 that would take the bead there. Which quota fallback takes it is chosen
 when it is claimed, so the estimate names the primary group and costs
-what that group's cell says. A stage whose cell holds fewer than 10
-durations is unclocked and named (`review: too new to time`); a stage
-that waits for a person contributes no time and is named too (`approved
-after your decision`). The walk follows the flow's `done` outcomes from
+what that group's cell says. The ETA needs at least 10 claim-to-exit
+durations in that group's cell to time a stage; below that it is
+unclocked and named (`review: too new to time`). A stage that waits for
+a person contributes no time and is named too (`approved after your
+decision`). The walk follows the flow's `done` outcomes from
 the bead's stage, counting at most the flow's stages and one step past,
 so a loop is not walked forever; where it stops short of arrival it says
 so (`then review or decide`, `then deploy on yard north`, `then review,
 unrouted`, `unclocked after review`). A claimed bead's current stage
 contributes what is left of its range: both ends less the run's age so
-far, floored at zero. A bead with nothing clocked ahead keeps today's
-header: the line, and the JSON, stay absent.
+far, floored at zero. With no clocked machine stage and no clocked
+queue wait, there is no ETA line or `eta` object; late is evaluated
+independently and may still appear.
 
 What the ETA leaves out it names where it can: people's stages, the
 yard's cap, and wherever the walk stops. The quota's choice among a
@@ -610,8 +612,12 @@ the queue part. Where the queue cannot be numbered it is named instead:
 a bead the dispatcher cannot claim now names nothing, a yard at
 `max_sessions` is `behind the yard's cap`, and an unclocked bead ahead
 leaves it `behind 4 beads, too new to time`. A live session whose cell
-is below the floor still shows its number beside clocked stages, but
-never triggers the line alone.
+is below the floor still contributes its median remainder as a guess
+when a clocked stage lets the ETA show; it cannot time the ETA by
+itself.
+
+For a page, the dispatchable order and live sessions are one shared
+queue snapshot for all of its bead estimates.
 
 The cells are kept as stages end
 ([groups.md](groups.md#what-a-groups-beads-cost-the-estimate-cells)); a
@@ -620,8 +626,7 @@ open stays start their clocks then: a waiting bead counts its stage age
 from the upgrade, while a running bead's clock is its live session's
 start.
 
-A bead past its stage's slow time carries a late mark beside the ETA,
-not instead of it:
+A bead past its stage's slow time carries a late mark:
 
 ```text
   late: waiting in new 6h, past the usual 2h (p90 entry-to-exit for difficulty:2 in muse-builders)
@@ -630,11 +635,16 @@ not instead of it:
 A bead no group holds is waiting-late past its whole-stay p90; one a
 group holds is running-late past its claimed-run p90. Like is compared
 with like: waiting time against whole stays, run time against claimed
-runs. Held beads, people's stages, peer stages and unrouted stages are
-never late. Stalled means the agent stopped — its first prompt idle
-past the stall limit, told once as `session_stalled`; late means it
-takes long. A bead can be either, both, or neither, and late tells no
-one: there is no event for it, only the mark.
+runs. Waiting uses the primary group's entry-to-exit ring; running uses
+the holding group's claim-to-exit ring. Each late clock needs 10 samples
+in its matching ring. A waiting late mark can be available before the
+claim-to-exit ring can time the ETA; a running mark may use a quota
+fallback's cell while the ETA uses the primary group's. Thus either can
+appear without the other. Held beads, people's stages, peer stages and
+unrouted stages are never late. Stalled means the agent stopped — its
+first prompt idle past the stall limit, told once as `session_stalled`;
+late means it takes long. A bead can be either, both, or neither, and
+late tells no one: there is no event for it, only the mark.
 
 ## Working a bead
 

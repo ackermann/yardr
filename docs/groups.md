@@ -340,10 +340,16 @@ reached from one it reached later; it is counted at the stage left, in
 the cell of the group that worked that stay. Each stage's ETA
 contribution is stretched by one plus its cell's send-back share.
 
-No stage is timed from a cell below 10 durations: it is unclocked, and
-the ETA names it (`review: too new to time`) instead of borrowing
-another cell's number. Early on most stages are unclocked, and the ETAs
-fill in as stages end.
+The ETA needs 10 claim-to-exit durations in a stage's primary group's
+cell before it can time that stage; below that it is unclocked, and the
+ETA names it (`review: too new to time`) instead of borrowing another
+cell's number. The waiting late clock uses the separate entry-to-exit
+ring, with the same 10-sample floor; the running late clock uses the
+claim-to-exit ring for the group holding the bead. A waiting late mark
+can therefore be available before the claim-to-exit ring can time the
+ETA; a quota fallback can also give a running late mark a different
+cell from the ETA's primary group. Early on most stages are unclocked,
+and the ETAs fill in as stages end.
 
 A yard from before the cells seeds them by replaying its retained log
 once, pairing claims with exits the way the route report does. Open
