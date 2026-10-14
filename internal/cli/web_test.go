@@ -370,6 +370,10 @@ func TestWebServeJWTRefusals(t *testing.T) {
 	set(store.WebJWTJWKSSetting, "")
 	refused(serve(), "web_jwt_jwks is unset")
 	set(store.WebJWTJWKSSetting, closed.URL)
+	// JWT mode with no mappings could only refuse every visitor at request
+	// time, so make the missing table a start-time error too.
+	set(store.WebJWTUsersSetting, "")
+	refused(serve(), "web_jwt_users is unset")
 	// A users table naming no user of the yard, before any fetch: the
 	// keys' URL answers nothing, and still the refusal names the user.
 	set(store.WebJWTUsersSetting, "stranger@example.net=nosuch")
