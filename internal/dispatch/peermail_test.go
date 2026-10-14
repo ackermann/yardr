@@ -2,8 +2,10 @@ package dispatch_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -101,6 +103,57 @@ func TestPeerMailBetweenYardmasters(t *testing.T) {
 			}
 			if p, err := b.api.GetPeer(ctx, "a"); err != nil || len(p.Refused) != 0 {
 				t.Fatalf("b still has a refusal to tell: %+v, %v", p, err)
+			}
+		})
+	}
+}
+
+// Mail over a peer's hour comes back to its writer with the hour: the
+// refusal carries what the link takes and when it ends, whether the mail
+// was posted or asked for, and the mail from the yard names the hour's end.
+func TestPeerMailLimitTellsTheHour(t *testing.T) {
+	for name, bReachable := range map[string]bool{"push": true, "b asks": false} {
+		t.Run(name, func(t *testing.T) {
+			clock := newClock()
+			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+			link(t, a, b, bReachable, true)
+			a.yardmaster(t, "b")
+			b.yardmaster(t, "a")
+			ctx := context.Background()
+			for i := 0; i < store.PeerMailLimit+1; i++ {
+				_, err := a.api.MailPeer(ctx, "yardmaster", "b", fmt.Sprintf("letter %d", i+1), "yardmaster")
+				must(t, err)
+			}
+			for i := 0; i < 6; i++ {
+				a.pass(t)
+				b.pass(t)
+			}
+			if got := a.waiting(t, "b"); len(got) != 0 {
+				t.Fatalf("a still has %d waiting for b", len(got))
+			}
+			failed := a.events(t, "peer_message_failed")
+			if len(failed) != 1 {
+				t.Fatalf("a's peer_message_failed = %+v", failed)
+			}
+			pb, err := b.api.GetPeer(ctx, "a")
+			must(t, err)
+			end := pb.MailSince.Add(store.PeerMailWindow)
+			want := "it takes 30 mails an hour from this yard; send again after " + end.Local().Format("15:04")
+			if reason, _ := failed[0].Data["reason"].(string); !strings.HasSuffix(reason, want) {
+				t.Fatalf("the failed message says %q, want suffix %q", reason, want)
+			}
+			back := a.mails(t)
+			if len(back) != 1 || back[0].Actor != "yard" || back[0].Data["limit"] != float64(store.PeerMailLimit) {
+				t.Fatalf("a's yardmaster's inbox = %+v", back)
+			}
+			text, _ := back[0].Data["text"].(string)
+			if !strings.HasSuffix(text, " was not delivered: refused by the peer: "+want) {
+				t.Fatalf("the writer is told %q", text)
+			}
+			// Asked for, the hour's end crossed as unix seconds.
+			kept, err := time.Parse(time.RFC3339Nano, back[0].Data["until"].(string))
+			if err != nil || kept.Unix() != end.Unix() {
+				t.Fatalf("the mail event keeps until = %v, %v; want %s", back[0].Data["until"], err, end)
 			}
 		})
 	}

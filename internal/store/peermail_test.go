@@ -207,7 +207,7 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if p.Pulled != 4 || len(p.Refused) != 1 || p.Refused[4] != store.RefusedNotExposed {
+	if p.Pulled != 4 || len(p.Refused) != 1 || p.Refused[4].Reason != store.RefusedNotExposed {
 		t.Fatalf("after the pull: %+v", p)
 	}
 	if got := y.inbox(t, "yardmaster"); len(got) != 1 || got[0].Actor != "yardmaster@north" {
@@ -248,7 +248,7 @@ func TestPeerMailUndelivered(t *testing.T) {
 	}
 	// North has the first two, and did not take the second. A reason this
 	// yard does not know is not repeated.
-	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]string{seqs[1]: store.RefusedNoCrew, 99: "x"}); err != nil {
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]store.Refusal{seqs[1]: {Reason: store.RefusedNoCrew}, 99: {Reason: "x"}}); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
@@ -333,7 +333,7 @@ func TestMailPeerAsUser(t *testing.T) {
 	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]string{seqs[1]: store.RefusedNotExposed}); err != nil {
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]store.Refusal{seqs[1]: {Reason: store.RefusedNotExposed}}); err != nil {
 		t.Fatal(err)
 	}
 	y.take(t, mail("m1", "ada", "yardmaster", "hello ada"))

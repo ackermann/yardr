@@ -288,3 +288,243 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 		t.Fatalf("the link set back = %+v, %v", p, err)
 	}
 }
+
+// mailLinked are two stores, a and b, linked both ways with mail allowed
+// each way and each exposing its user mckean to the other. key holds each
+// yard's private key, to sign as it does.
+func mailLinked(t *testing.T) (a, b *linked, key map[string][]byte) {
+	t.Helper()
+	ctx := context.Background()
+	key = map[string][]byte{}
+	open := func(name string) *linked {
+		s, err := Open(filepath.Join(t.TempDir(), name+".db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.Close(context.Background()) })
+		k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		key[name] = k
+		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AddUser(ctx, "mckean", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return &linked{Store: s, name: name, key: yardkey.Public(k)}
+	}
+	a, b = open("a"), open("b")
+	for _, l := range [][2]*linked{{a, b}, {b, a}} {
+		if _, err := l[0].AddPeer(ctx, Peer{Name: l[1].name, Key: l[1].key}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l[0].AllowPeer(ctx, l[1].name, PeerAllow{Send: []string{PeerMail}, Receive: []string{PeerMail}, Expose: []string{"mckean"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return a, b, key
+}
+
+// yardMail is the yard's mail to who in the yard's events: what it told of
+// mail that was not delivered.
+func yardMail(t *testing.T, s *Store, who string) []Event {
+	t.Helper()
+	evs, err := s.Events(context.Background(), "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Event
+	for _, e := range evs {
+		if e.Kind == "mail" && e.Actor == "yard" && e.Data["to"] == who {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Mail over a peer's hour is refused with the hour's limit and when it
+// ends, and the sender is told both: its yard gives the mail up with the
+// refusal's hour, the writer's mail from the yard names the hour's end,
+// and its event keeps them.
+func TestPeerMailLimitReachesSender(t *testing.T) {
+	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
+	clock = func() time.Time { return at }
+	t.Cleanup(func() { clock = time.Now })
+	a, b, _ := mailLinked(t)
+	ctx := context.Background()
+	until := at.Add(PeerMailWindow)
+	for i := 0; i < PeerMailLimit+1; i++ {
+		if _, err := a.MailPeer(ctx, "mckean", "b", fmt.Sprintf("letter %d", i+1), "mckean"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := a.PeerOutbox(ctx, "b", 0)
+	if err != nil || len(out) != PeerMailLimit+1 {
+		t.Fatalf("a's outbox = %d messages, %v", len(out), err)
+	}
+	for i, m := range out {
+		got, err := b.PeerReceive(ctx, "a", a.key, []PeerMessage{m.PeerMessage})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i < PeerMailLimit {
+			if got[0].Refused != "" {
+				t.Fatalf("mail %d of the hour = %+v", i+1, got[0])
+			}
+			if err := a.PeerDelivered(ctx, "b", m.Seq); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if got[0].Refused != RefusedRate || got[0].Limit != PeerMailLimit || got[0].Until == nil || !got[0].Until.Equal(until) {
+			t.Fatalf("mail 31 of the hour = %+v, want rate_limited with %d until %s", got[0], PeerMailLimit, until)
+		}
+		if err := a.PeerRefusedRate(ctx, "b", m.Seq, got[0].Limit, *got[0].Until); err != nil {
+			t.Fatal(err)
+		}
+	}
+	end := until.Local().Format("15:04")
+	evs, err := a.Events(ctx, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed []Event
+	for _, e := range evs {
+		if e.Kind == "peer_message_failed" {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) != 1 || failed[0].Data["reason"] != "peer b: refused by the peer: it takes 30 mails an hour from this yard; send again after "+end {
+		t.Fatalf("the failed message = %+v", failed)
+	}
+	back := yardMail(t, a.Store, "mckean")
+	if len(back) != 1 || back[0].Data["undelivered"] != out[PeerMailLimit].ID || back[0].Data["limit"] != float64(PeerMailLimit) {
+		t.Fatalf("the yard's mail to the writer = %+v", back)
+	}
+	text, _ := back[0].Data["text"].(string)
+	if !strings.HasSuffix(text, " was not delivered: refused by the peer: it takes 30 mails an hour from this yard; send again after "+end) {
+		t.Fatalf("the writer is told %q", text)
+	}
+	kept, err := time.Parse(time.RFC3339Nano, back[0].Data["until"].(string))
+	if err != nil || !kept.Equal(until) {
+		t.Fatalf("the mail event keeps until = %v, %v; want %s", back[0].Data["until"], err, until)
+	}
+	if box, err := a.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 1 || box.Mail[0].Text != text {
+		t.Fatalf("mckean's inbox = %+v, %v", box, err)
+	}
+}
+
+// Mail over a peer's hour where the peer asked for its mail: what it did
+// not take is told with the next question, with the hour, and the sender's
+// yard gives it up the same way.
+func TestPeerMailLimitReachesSenderByPull(t *testing.T) {
+	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
+	clock = func() time.Time { return at }
+	t.Cleanup(func() { clock = time.Now })
+	a, b, key := mailLinked(t)
+	ctx := context.Background()
+	until := at.Add(PeerMailWindow)
+	for i := 0; i < PeerMailLimit+1; i++ {
+		if _, err := a.MailPeer(ctx, "mckean", "b", fmt.Sprintf("letter %d", i+1), "mckean"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := a.PeerHandOver(ctx, "b", b.key, 0, nil)
+	if err != nil || len(page.Messages) != PeerMailLimit+1 {
+		t.Fatalf("the handover = %d messages, %v", len(page.Messages), err)
+	}
+	body, err := json.Marshal(PeerPage{Messages: page.Messages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.PeerPulled(ctx, "a", PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(key["a"], 200, "req-1", body), Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taken := res.Taken[PeerMailLimit]; taken.Refused != RefusedRate || taken.Limit != PeerMailLimit || taken.Until == nil || !taken.Until.Equal(until) {
+		t.Fatalf("mail 31 of the hour = %+v, want rate_limited with %d until %s", taken, PeerMailLimit, until)
+	}
+	last := page.Messages[PeerMailLimit].Seq
+	p, err := b.GetPeer(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if no := p.Refused[last]; no.Reason != RefusedRate || no.Limit != PeerMailLimit || no.Until == nil || !no.Until.Equal(until) {
+		t.Fatalf("what b tells a = %+v, want rate_limited with %d until %s", no, PeerMailLimit, until)
+	}
+	// b asks again, telling a what it did not take.
+	if _, err := a.PeerHandOver(ctx, "b", b.key, last, p.Refused); err != nil {
+		t.Fatal(err)
+	}
+	end := until.Local().Format("15:04")
+	back := yardMail(t, a.Store, "mckean")
+	if len(back) != 1 || back[0].Data["undelivered"] != page.Messages[PeerMailLimit].ID || back[0].Data["limit"] != float64(PeerMailLimit) {
+		t.Fatalf("the yard's mail to the writer = %+v", back)
+	}
+	text, _ := back[0].Data["text"].(string)
+	if !strings.HasSuffix(text, " was not delivered: refused by the peer: it takes 30 mails an hour from this yard; send again after "+end) {
+		t.Fatalf("the writer is told %q", text)
+	}
+	kept, err := time.Parse(time.RFC3339Nano, back[0].Data["until"].(string))
+	if err != nil || !kept.Equal(until) {
+		t.Fatalf("the mail event keeps until = %v, %v; want %s", back[0].Data["until"], err, until)
+	}
+}
+
+// A yard upgraded with a refusal still untold reads the reason it stored,
+// from before one over the hour carried its limit and when it ends, and
+// telling it stores the refusal as now.
+func TestPeerRefusedReadsABareReason(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	ctx := context.Background()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	err = s.write(func(w *wtx) error {
+		var p Peer
+		if ok, err := get(w.Tx, bPeers, "north", &p); err != nil || !ok {
+			return err
+		}
+		raw, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return err
+		}
+		m["refused"] = map[string]string{"4": RefusedRate}
+		raw, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		return w.Bucket(bPeers).Put([]byte("north"), raw)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPeer(ctx, "north")
+	if err != nil || len(p.Refused) != 1 || p.Refused[4].Reason != RefusedRate || p.Refused[4].Limit != 0 || p.Refused[4].Until != nil {
+		t.Fatalf("the peer with a bare reason = %+v, %v", p.Refused, err)
+	}
+	body, err := json.Marshal(PeerPage{Messages: []PeerMessage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PeerPulled(ctx, "north", PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(k, 200, "req-1", body), Body: body, Told: []uint64{4}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.GetPeer(ctx, "north"); err != nil || len(p.Refused) != 0 {
+		t.Fatalf("after it was told: %+v, %v", p.Refused, err)
+	}
+}

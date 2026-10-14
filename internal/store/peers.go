@@ -235,9 +235,9 @@ type Peer struct {
 	// has taken by asking, which its next question starts after.
 	Pulled uint64 `json:"pulled,omitempty"`
 	// Refused are the messages taken by asking that this yard did not
-	// take, by their sequence number in the peer's outbox, with the reason:
-	// the next question tells the peer, which has no other way to know.
-	Refused map[uint64]string `json:"refused,omitempty"`
+	// take, by their sequence number in the peer's outbox, with why: the
+	// next question tells the peer, which has no other way to know.
+	Refused map[uint64]Refusal `json:"refused,omitempty"`
 	// MailLimit is how much mail the yard takes from the peer in an hour,
 	// where the operator set it (PeerAllow.MailLimit); 0 on a link that
 	// takes PeerMailLimit. Read it as MailsAnHour.
@@ -395,6 +395,38 @@ type PeerTaken struct {
 	// it this way (RefusedKind), or one of the reasons mail (peermail.go),
 	// a bead (peerbeads.go) or an ask (peerasks.go) is refused for.
 	Refused string `json:"refused,omitempty"`
+	// Limit and Until are the hour's, for mail refused over it
+	// (RefusedRate): what the link takes and when the hour ends, which the
+	// sender is told with the refusal.
+	Limit int        `json:"limit,omitempty"`
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// A Refusal is why a message that came in was not taken: the reason, and
+// for mail over the peer's hour (RefusedRate) the hour's limit and when it
+// ends, which the sender is told with it.
+type Refusal struct {
+	Reason string     `json:"reason"`
+	Limit  int        `json:"limit,omitempty"`
+	Until  *time.Time `json:"until,omitempty"`
+}
+
+// UnmarshalJSON reads a refusal stored as a bare reason, from before one
+// over the hour carried its limit and when it ends: a yard upgraded with a
+// refusal still untold reads the whole of what it stored.
+func (no *Refusal) UnmarshalJSON(raw []byte) error {
+	var reason string
+	if err := json.Unmarshal(raw, &reason); err == nil {
+		no.Reason, no.Limit, no.Until = reason, 0, nil
+		return nil
+	}
+	type refusal Refusal
+	var v refusal
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	*no = Refusal(v)
+	return nil
 }
 
 var (
@@ -1044,7 +1076,7 @@ func (s *Store) PeerSendFailed(ctx context.Context, name string, seq uint64, rea
 		if !final {
 			return false, nil
 		}
-		return false, m.giveUp(w, reason, nil, false)
+		return false, m.giveUp(w, reason, nil, false, 0, nil)
 	})
 }
 
@@ -1059,7 +1091,26 @@ func (s *Store) PeerRefused(ctx context.Context, name string, seq uint64, reason
 			return false, nil
 		}
 		m.Attempts++
-		return false, m.giveUp(w, reason, nil, true)
+		return false, m.giveUp(w, reason, nil, true, 0, nil)
+	})
+}
+
+// PeerRefusedRate gives the outbox message seq for name up because the peer
+// takes no more mail this hour: its refusal over the link's limit, with
+// what the link takes and when the hour ends. The writer is told both, by
+// mail from the yard naming the hour's end, and the mail event keeps them
+// (undelivered). A message of another kind is given up with the peer's
+// reason in this yard's words, and the hour dropped: it is none of mail's.
+func (s *Store) PeerRefusedRate(ctx context.Context, name string, seq uint64, limit int, until time.Time) error {
+	return s.changePeerOut(name, seq, func(w *wtx, m *PeerOut) (bool, error) {
+		if m.Failed != nil {
+			return false, nil
+		}
+		m.Attempts++
+		if m.Kind != PeerMail {
+			return false, m.giveUp(w, "peer "+name+": refused by the peer: "+PeerRefusal(name, m.Kind, RefusedRate), nil, true, 0, nil)
+		}
+		return false, m.giveUp(w, "peer "+name+": refused by the peer: "+PeerRefusalRate(limit, until), nil, true, limit, &until)
 	})
 }
 
@@ -1083,7 +1134,7 @@ func (s *Store) PeerSendDisallowed(ctx context.Context, name string, seq uint64)
 			return false, nil
 		}
 		dropped = true
-		return false, m.giveUp(w, notCarriedReason(name, m.Kind), nil, false)
+		return false, m.giveUp(w, notCarriedReason(name, m.Kind), nil, false, 0, nil)
 	})
 	return dropped, err
 }
@@ -1107,11 +1158,12 @@ func notCarriedReason(peer, kind string) string {
 // (undelivered), a bead ends its stage (sentGivenUp), an ask's asker or
 // an answer's person is told (askGivenUp), and so is whoever asked to read
 // a bead (readGivenUp) or wrote a note on one (noteGivenUp). refused says the
-// peer refused it, where otherwise it was not reached. A file stays
-// without its bytes: nothing sends it again. The mail it was for goes on
-// without it, so its event names that mail and the file's hash, and the
-// mail's sender is told of the file.
-func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bool) error {
+// peer refused it, where otherwise it was not reached. limit and until are
+// the hour's, for mail refused over it: the event of the mail that was not
+// delivered keeps them. A file stays without its bytes: nothing sends it
+// again. The mail it was for goes on without it, so its event names that
+// mail and the file's hash, and the mail's sender is told of the file.
+func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bool, limit int, until *time.Time) error {
 	gone := now()
 	m.Failed, m.RetryAt, m.Error = &gone, nil, reason
 	data := map[string]any{"attempts": m.Attempts, "reason": reason}
@@ -1140,7 +1192,7 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 	if err := w.noteGivenUp(m, reason); err != nil {
 		return err
 	}
-	return w.undelivered(told, image, reason)
+	return w.undelivered(told, image, reason, limit, until)
 }
 
 // PeerHandOver answers a pull by the peer name, whose question was signed
@@ -1150,9 +1202,10 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 // it is posted to: one message would otherwise cross twice.
 //
 // refused names, by sequence number, what the peer got and did not take,
-// with its reason: such a message is given up, not sent, as one a post was
+// with why: such a message is given up, not sent, as one a post was
 // answered 403 for is. The reason is the peer's word, and only one this
-// yard knows is repeated (PeerRefusal).
+// yard knows is repeated (PeerRefusal). Mail refused over the hour carries
+// its limit and when it ends, which the writer is told with it.
 //
 // What waits of a kind the link no longer sends is handed over to nobody:
 // it is dropped, logged as peer_message_failed with why, and never tried
@@ -1163,7 +1216,7 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 //
 // It is not on the API: only the receiver, which has checked the peer's
 // signature on the question, may end a message as sent by pull.
-func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*PeerPage, error) {
+func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]Refusal) (*PeerPage, error) {
 	var page *PeerPage
 	var taken, dropped []PeerOut
 	hand := func(tx *bolt.Tx) error {
@@ -1202,8 +1255,12 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 		}
 		for _, m := range taken {
 			key := join(name, seqKey(m.Seq))
-			if reason, no := refused[m.Seq]; no {
-				if err := m.giveUp(w, "refused by the peer: "+PeerRefusal(m.Peer, m.Kind, reason), map[string]any{"way": PeerPull}, true); err != nil {
+			if no, is := refused[m.Seq]; is {
+				reason, limit, until := "refused by the peer: "+PeerRefusal(m.Peer, m.Kind, no.Reason), 0, (*time.Time)(nil)
+				if m.Kind == PeerMail && no.Reason == RefusedRate && no.Limit > 0 && no.Until != nil {
+					reason, limit, until = "refused by the peer: "+PeerRefusalRate(no.Limit, *no.Until), no.Limit, no.Until
+				}
+				if err := m.giveUp(w, reason, map[string]any{"way": PeerPull}, true, limit, until); err != nil {
 					return err
 				}
 				if err := put(w.Tx, bPeerOut, key, m); err != nil {
@@ -1219,7 +1276,7 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 			}
 		}
 		for _, m := range dropped {
-			if err := m.giveUp(w, notCarriedReason(name, m.Kind), map[string]any{"way": PeerPull}, false); err != nil {
+			if err := m.giveUp(w, notCarriedReason(name, m.Kind), map[string]any{"way": PeerPull}, false, 0, nil); err != nil {
 				return err
 			}
 			if err := put(w.Tx, bPeerOut, join(name, seqKey(m.Seq)), m); err != nil {
@@ -1314,10 +1371,12 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 			var mail *peerMail
 			var bead *arrival
 			var ask *peerAsk
+			var no Refusal
 			var err error
 			switch m.Kind {
 			case PeerMail:
-				mail, t.Refused, err = w.checkMail(p, m, way)
+				mail, no, err = w.checkMail(p, m, way)
+				t.Refused, t.Limit, t.Until = no.Reason, no.Limit, no.Until
 			case PeerFile:
 				t.Refused, err = w.checkFile(p, m, way, fl)
 			case PeerBead:
@@ -1492,7 +1551,7 @@ func (s *Store) PeerPostAnswered(ctx context.Context, name string, answer PeerAn
 // highest sequence number taken. It returns what became of each message,
 // and whether the peer posts instead.
 //
-// What was not taken is kept with its reason (Peer.Refused) for the next
+// What was not taken is kept with why (Peer.Refused) for the next
 // question to tell the peer, and what b says the peer has been told of is
 // forgotten.
 //
@@ -1560,11 +1619,11 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		}
 		for i, m := range page.Messages {
 			p.Pulled = max(p.Pulled, m.Seq)
-			if no := res.Taken[i].Refused; no != "" && m.Seq > 0 {
+			if t := res.Taken[i]; t.Refused != "" && m.Seq > 0 {
 				if p.Refused == nil {
-					p.Refused = map[uint64]string{}
+					p.Refused = map[uint64]Refusal{}
 				}
-				p.Refused[m.Seq] = no
+				p.Refused[m.Seq] = Refusal{Reason: t.Refused, Limit: t.Limit, Until: t.Until}
 			}
 		}
 		if len(p.Refused) == 0 {

@@ -30,9 +30,10 @@ import (
 
 // Path is where a yard takes its peers' requests: POST for a message, GET
 // with ?after=<seq> for what waits for the asker. A GET may add
-// &refused=<seq>:<reason>,... for what the asker got and did not take, and
-// &wait=<seconds> to have the answer held until there is something to hand
-// over (see hold).
+// &refused=<seq>:<reason>,... for what the asker got and did not take (a
+// refusal over the hour adds its limit and when it ends, as unix seconds:
+// <seq>:rate_limited:<limit>:<until>), and &wait=<seconds> to have the
+// answer held until there is something to hand over (see hold).
 //
 // Each request, and each signed answer, also says what the build of the
 // yard it is from understands (store.PeerSays): "says" beside a posted
@@ -103,7 +104,7 @@ type Store interface {
 	PeerByKey(ctx context.Context, key string) (*store.Peer, error)
 	PeerHeard(ctx context.Context, name, key string, says *store.PeerSays) error
 	PeerReceive(ctx context.Context, name, key string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
-	PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
+	PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]store.Refusal) (*store.PeerPage, error)
 	// PeerWake's channel receives when a message was put in the outbox of
 	// the peer with key, and closes with ctx.
 	PeerWake(ctx context.Context, key string) (<-chan struct{}, error)
@@ -294,7 +295,11 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 		rc.answer(w, f, "store", http.StatusInternalServerError, map[string]any{"error": "not kept"})
 	case taken[0].Refused != "":
 		rc.log.Warn("peer message refused", "peer", f.peer.Name, "kind", m.Kind, "id", m.ID, "reason", taken[0].Refused)
-		rc.answer(w, f, "refused", http.StatusForbidden, map[string]any{"refused": taken[0].Refused})
+		body := map[string]any{"refused": taken[0].Refused}
+		if taken[0].Limit > 0 && taken[0].Until != nil {
+			body["limit"], body["until"] = taken[0].Limit, taken[0].Until
+		}
+		rc.answer(w, f, "refused", http.StatusForbidden, body)
 	case taken[0].Duplicate:
 		rc.log.Info("peer message dropped as duplicate", "peer", f.peer.Name, "id", m.ID)
 		rc.answer(w, f, "duplicate", http.StatusOK, map[string]any{"duplicate": true})
@@ -465,20 +470,45 @@ func (rc *Receiver) Held() int {
 // refusals reads what a question says its asker did not take. What is not
 // a sequence number with a reason is passed by: the message it meant is
 // then ended as sent, as before there were refusals.
-func refusals(q string) map[uint64]string {
-	var out map[uint64]string
+func refusals(q string) map[uint64]store.Refusal {
+	var out map[uint64]store.Refusal
 	for _, part := range strings.Split(q, ",") {
-		seq, reason, ok := strings.Cut(part, ":")
+		seq, rest, ok := strings.Cut(part, ":")
 		n, err := strconv.ParseUint(seq, 10, 64)
 		if !ok || err != nil || len(out) >= maxRefusals {
 			continue
 		}
 		if out == nil {
-			out = map[uint64]string{}
+			out = map[uint64]store.Refusal{}
 		}
-		out[n] = reason
+		out[n] = parseRefusal(rest)
 	}
 	return out
+}
+
+// parseRefusal reads one refusal: the reason, with the hour's limit and end
+// after it for one over the hour (`rate_limited:30:1790000000`, the end as
+// unix seconds). One a limit and an end do not follow reads as the whole of
+// it, as before.
+func parseRefusal(rest string) store.Refusal {
+	no := store.Refusal{Reason: rest}
+	end := strings.LastIndex(rest, ":")
+	if end < 0 {
+		return no
+	}
+	hour := strings.LastIndex(rest[:end], ":")
+	if hour < 0 {
+		return no
+	}
+	limit, err := strconv.Atoi(rest[hour+1 : end])
+	until, err2 := strconv.ParseInt(rest[end+1:], 10, 64)
+	if err != nil || err2 != nil || limit <= 0 || until <= 0 {
+		return no
+	}
+	no.Reason, no.Limit = rest[:hour], limit
+	at := time.Unix(until, 0)
+	no.Until = &at
+	return no
 }
 
 // answer writes a signed answer to a peer's request, and counts it under

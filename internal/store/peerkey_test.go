@@ -94,7 +94,7 @@ func TestPeerHandOverUnderANameThatIsAnothersNow(t *testing.T) {
 		"a first question":       func() (*store.PeerPage, error) { return y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil) },
 		"a question that has it": func() (*store.PeerPage, error) { return y.own.PeerHandOver(y.ctx, "north", y.key, forNorth.Seq, nil) },
 		"a question that refused it": func() (*store.PeerPage, error) {
-			return y.own.PeerHandOver(y.ctx, "north", y.key, forNorth.Seq, map[uint64]string{forNorth.Seq: store.RefusedKind})
+			return y.own.PeerHandOver(y.ctx, "north", y.key, forNorth.Seq, map[uint64]store.Refusal{forNorth.Seq: {Reason: store.RefusedKind}})
 		},
 		"a question by no peer's key": func() (*store.PeerPage, error) {
 			return y.own.PeerHandOver(y.ctx, "north", otherKey(t), forNorth.Seq, nil)

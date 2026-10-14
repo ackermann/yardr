@@ -76,7 +76,13 @@ func (y *yard) post(t *testing.T, p store.Peer) {
 				t.Fatal(err)
 			}
 		case errors.Is(err, yards.ErrRefused):
-			if err := y.api.PeerRefused(ctx, p.Name, m.Seq, err.Error()); err != nil {
+			var over *yards.Refused
+			if errors.As(err, &over) {
+				err = y.api.PeerRefusedRate(ctx, p.Name, m.Seq, over.Limit, over.Until)
+			} else {
+				err = y.api.PeerRefused(ctx, p.Name, m.Seq, err.Error())
+			}
+			if err != nil {
 				t.Fatal(err)
 			}
 		default:

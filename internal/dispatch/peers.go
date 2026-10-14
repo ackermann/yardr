@@ -330,7 +330,13 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		case errors.Is(err, yards.ErrRefused):
 			// The peer's own word, signed: no try will change it.
 			d.Log.Warn("message refused by peer", "peer", p.Name, "kind", m.Kind, "id", m.ID, "err", err)
-			if err := d.Store.PeerRefused(ctx, m.Peer, m.Seq, err.Error()); err != nil && !errors.Is(err, store.ErrNotFound) {
+			var over *yards.Refused
+			if errors.As(err, &over) {
+				err = d.Store.PeerRefusedRate(ctx, m.Peer, m.Seq, over.Limit, over.Until)
+			} else {
+				err = d.Store.PeerRefused(ctx, m.Peer, m.Seq, err.Error())
+			}
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
 				d.Log.Warn("peer message: recording the refusal", "peer", m.Peer, "id", m.ID, "err", err)
 			}
 		default:

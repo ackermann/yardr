@@ -30,6 +30,21 @@ const maxAnswer = store.MaxPeerFileBody + 1<<20
 // (store.PeerRefusal). Trying again changes nothing.
 var ErrRefused = errors.New("refused by the peer")
 
+// Refused is the peer's signed word that it takes no more mail this hour:
+// its refusal over the link's limit, with what the link takes and when the
+// hour ends. Trying again changes nothing; the sender is told both with it.
+type Refused struct {
+	Peer  string
+	Limit int
+	Until time.Time
+}
+
+func (e *Refused) Error() string {
+	return fmt.Sprintf("peer %s: %s: %s", e.Peer, ErrRefused, store.PeerRefusalRate(e.Limit, e.Until))
+}
+
+func (e *Refused) Is(target error) bool { return target == ErrRefused }
+
 // ErrUnsigned is an answer that is not signed with the key of the yard that
 // was asked: what it says is anyone's.
 var ErrUnsigned = errors.New("not signed with its key")
@@ -121,10 +136,16 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 		return nil
 	case status == http.StatusForbidden:
 		// The reason is the peer's text: only one this yard knows is said.
+		// Mail refused over the hour carries its limit and when it ends.
 		var no struct {
-			Refused string `json:"refused"`
+			Refused string     `json:"refused"`
+			Limit   int        `json:"limit"`
+			Until   *time.Time `json:"until"`
 		}
 		_ = json.Unmarshal(answer, &no)
+		if m.Kind == store.PeerMail && no.Refused == store.RefusedRate && no.Limit > 0 && no.Until != nil {
+			return &Refused{Peer: p.Name, Limit: no.Limit, Until: *no.Until}
+		}
 		return fmt.Errorf("peer %s: %w: %s", p.Name, ErrRefused, store.PeerRefusal(p.Name, m.Kind, no.Refused))
 	case status == http.StatusBadRequest:
 		return fmt.Errorf("peer %s: %w: it does not read the message", p.Name, ErrRefused)
@@ -162,7 +183,12 @@ func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64, wait time
 	told := slices.Sorted(maps.Keys(p.Refused))
 	told = told[:min(len(told), maxRefusals)]
 	for i, seq := range told {
-		path += map[bool]string{true: "&refused=", false: ","}[i == 0] + strconv.FormatUint(seq, 10) + ":" + url.QueryEscape(p.Refused[seq])
+		no := p.Refused[seq]
+		refused := url.QueryEscape(no.Reason)
+		if no.Limit > 0 && no.Until != nil {
+			refused += fmt.Sprintf(":%d:%d", no.Limit, no.Until.Unix())
+		}
+		path += map[bool]string{true: "&refused=", false: ","}[i == 0] + strconv.FormatUint(seq, 10) + ":" + refused
 	}
 	status, answer, reqSig, sig, err := c.do(ctx, p, http.MethodGet, path, nil)
 	if err != nil {

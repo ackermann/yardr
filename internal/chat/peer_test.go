@@ -219,7 +219,7 @@ func TestWriteToALinkedYard(t *testing.T) {
 	}
 	_, err = own.PeerHandOver(ctx, "north", key, 0, nil)
 	must(t, err)
-	_, err = own.PeerHandOver(ctx, "north", key, out[0].Seq, map[uint64]string{out[0].Seq: store.RefusedNotExposed})
+	_, err = own.PeerHandOver(ctx, "north", key, out[0].Seq, map[uint64]store.Refusal{out[0].Seq: {Reason: store.RefusedNotExposed}})
 	must(t, err)
 	v.stream()
 	v.shows("anyone else?", "· not delivered: yardr inbox says why",
@@ -370,10 +370,10 @@ func carry(t *testing.T, from *store.Store, to, key string, into *store.Store, a
 	}
 	taken, err := into.PeerReceive(ctx, as, fromKey, page.Messages)
 	must(t, err)
-	refused := map[uint64]string{}
+	refused := map[uint64]store.Refusal{}
 	for i, got := range taken {
 		if got.Refused != "" {
-			refused[page.Messages[i].Seq] = got.Refused
+			refused[page.Messages[i].Seq] = store.Refusal{Reason: got.Refused}
 		}
 	}
 	if len(refused) > 0 {

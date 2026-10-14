@@ -626,6 +626,9 @@ func (c *Client) PeerSendFailed(ctx context.Context, name string, seq uint64, re
 func (c *Client) PeerRefused(ctx context.Context, name string, seq uint64, reason string) error {
 	return c.call(ctx, "PeerRefused", nil, name, seq, reason)
 }
+func (c *Client) PeerRefusedRate(ctx context.Context, name string, seq uint64, limit int, until time.Time) error {
+	return c.call(ctx, "PeerRefusedRate", nil, name, seq, limit, until)
+}
 func (c *Client) PeerSendDisallowed(ctx context.Context, name string, seq uint64) (bool, error) {
 	return callV[bool](c, ctx, "PeerSendDisallowed", name, seq)
 }

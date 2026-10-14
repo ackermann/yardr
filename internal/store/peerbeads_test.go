@@ -867,7 +867,7 @@ func TestPeerBeadPulled(t *testing.T) {
 	if ev := peerEvents(t, y.api, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["way"] != "pull" {
 		t.Fatalf("peer_bead_arrived = %+v", ev)
 	}
-	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Refused[5] != "already_here" || p.Pulled != 5 {
+	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Refused[5].Reason != "already_here" || p.Pulled != 5 {
 		t.Fatalf("the peer after the pull = %+v", p)
 	}
 }

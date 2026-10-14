@@ -209,6 +209,13 @@ func PeerRefusal(peer, kind, reason string) string {
 	return "it does not say why in words this yard knows"
 }
 
+// PeerRefusalRate says in this yard's words why the peer took no more mail
+// this hour: what its link takes and when the hour ends, which its refusal
+// carried. The writer is told this with the mail that was not delivered.
+func PeerRefusalRate(limit int, until time.Time) string {
+	return fmt.Sprintf("it takes %d mails an hour from this yard; send again after %s", limit, until.Local().Format("15:04"))
+}
+
 // peerMail is the body of a message of kind PeerMail. From is who the
 // sending yard says wrote it. Files names the blobs the mail carries,
 // which crossed before it as messages of kind PeerFile, or did not
@@ -338,56 +345,60 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 // or why not. Every mail that comes counts toward the peer's hour, the
 // refused too, so a yard that is refused cannot keep asking who lives
 // here. A refusal is logged as peer_message_refused, but of those over the
-// limit only the first of the hour: the rest say nothing new. Whom mail
-// over the limit was for is told as well, once in the hour (mailRefused).
+// limit only the first of the hour: the rest say nothing new, though every
+// one carries the hour's limit and when it ends back to the sender. Whom
+// mail over the limit was for is told as well, once in the hour
+// (mailRefused).
 //
 // The names the link exposes to p (Peer.Expose) are the only ones mail
 // reaches, crew member or user: any other is refused as not exposed
 // whether or not someone here has it, so the answer tells nothing of who
 // does.
-func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, error) {
+func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, Refusal, error) {
 	p.hour(now())
 	p.Mails++
 	extra := map[string]any{"direction": "in", "way": way}
 	var mail peerMail
-	reason := ""
+	no := Refusal{}
 	switch err := json.Unmarshal(m.Body, &mail); {
 	case p.Mails > p.MailsAnHour():
-		reason = RefusedRate
+		no.Reason = RefusedRate
+		until := p.MailSince.Add(PeerMailWindow)
+		no.Limit, no.Until = p.MailsAnHour(), &until
 		if err == nil {
 			if err := w.mailRefused(p, mail); err != nil {
-				return nil, "", err
+				return nil, Refusal{}, err
 			}
 		}
 		if p.MailLimited {
-			return nil, reason, nil
+			return nil, no, nil
 		}
 		p.MailLimited = true
 		extra["limit"], extra["until"] = p.MailsAnHour(), p.MailSince.Add(PeerMailWindow)
 	case err != nil || !peerMailName.MatchString(mail.From) || strings.TrimSpace(mail.Text) == "" && len(mail.Files) == 0 || !filesNamed(mail.Files):
-		reason = RefusedNotMail
+		no.Reason = RefusedNotMail
 	case len(mail.Text) > MaxPeerMailBytes:
-		reason = RefusedTooLarge
+		no.Reason = RefusedTooLarge
 	case !peerMailName.MatchString(mail.To) || !slices.Contains(p.Expose, mail.To):
-		reason = RefusedNotExposed
+		no.Reason = RefusedNotExposed
 		// Whom it asked for is the operator's to see, when it is a name.
 		if peerMailName.MatchString(mail.To) {
 			extra["to"] = mail.To
 		}
 	case w.Bucket(bCrew).Get([]byte(mail.To)) != nil:
 		mail.as = p.speaksAs(w.Tx, mail.From)
-		return &mail, "", nil
+		return &mail, Refusal{}, nil
 	case w.Bucket(bUsers).Get([]byte(mail.To)) != nil:
 		mail.toUser, mail.as = true, p.speaksAs(w.Tx, mail.From)
-		return &mail, "", nil
+		return &mail, Refusal{}, nil
 	default:
 		// Exposed and gone since, which unexpose sees to for one removed
 		// by name: said as before there was a roster.
-		reason = RefusedNoCrew
+		no.Reason = RefusedNoCrew
 		extra["to"] = mail.To
 	}
-	extra["reason"] = reason
-	return nil, reason, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
+	extra["reason"] = no.Reason
+	return nil, no, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
 }
 
 // mailRefused tells the crew member or user that mail from p was for that
@@ -459,7 +470,11 @@ func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail, fl *filing) er
 // With image, the hash of a file of the mail, it is that file's message
 // which was given up (carrier): the mail goes on without it, and its
 // writer is told that.
-func (w *wtx) undelivered(m *PeerOut, image, reason string) error {
+//
+// With limit and until, the mail was refused over the peer's hour, and
+// the event keeps them: what the link takes and when the hour ends, which
+// its text names.
+func (w *wtx) undelivered(m *PeerOut, image, reason string, limit int, until *time.Time) error {
 	if m == nil || m.Kind != PeerMail {
 		return nil
 	}
@@ -483,6 +498,8 @@ func (w *wtx) undelivered(m *PeerOut, image, reason string) error {
 			which = fmt.Sprintf("%s %d of %d", noun, 1+at, n)
 		}
 		data = map[string]any{"to": mail.From, "not_taken": image, "of": m.ID, "text": which + " of " + of + " was not taken: " + reason}
+	} else if limit > 0 && until != nil {
+		data["limit"], data["until"] = limit, *until
 	}
 	switch {
 	case w.Bucket(bCrew).Get([]byte(mail.From)) != nil:

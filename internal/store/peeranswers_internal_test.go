@@ -678,7 +678,7 @@ func TestForeignAnswerRefusedByPull(t *testing.T) {
 		if _, err := y.PeerHandOver(y.ctx, "north", y.key, 0, nil); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := y.PeerHandOver(y.ctx, "north", y.key, out[0].Seq, map[uint64]string{out[0].Seq: reason}); err != nil {
+		if _, err := y.PeerHandOver(y.ctx, "north", y.key, out[0].Seq, map[uint64]Refusal{out[0].Seq: {Reason: reason}}); err != nil {
 			t.Fatal(err)
 		}
 		q := y.queue(t)

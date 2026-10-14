@@ -1102,6 +1102,16 @@ show` counts it, and the crew member or user who wrote it gets mail from
 So does one whose mail was given up after 24 tries. A user reads it with
 `yardr inbox`, and `yardr chat` says `not delivered` under the mail.
 
+A refusal over the hour carries the hour with it: the 403 answers the
+reason with what the link takes and when the hour ends, and the next
+question refuses with `&refused=<seq>:rate_limited:<limit>:<until>`. The
+mail from `yard` names the hour's end, and its event keeps both as `limit`
+and `until` beside `undelivered`:
+
+```text
+    58 10-12 20:31  mail from yard: your mail to mckean@airy of 10-12 20:31 was not delivered: refused by the peer: it takes 30 mails an hour from this yard; send again after 21:00
+```
+
 **Where a mail's text is.** In the sender's outbox for the peer until the
 peer has it (a mail given up stays there, marked, until `yardr peer rm` or
 until [the prune](#what-a-link-forgets) takes it),

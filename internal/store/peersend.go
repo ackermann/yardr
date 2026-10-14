@@ -784,7 +784,7 @@ func (w *wtx) unsendPeerBeads(p *Peer, why string, gone bool) (int, error) {
 			return n, err
 		}
 		for _, m := range waiting {
-			if err := m.giveUp(w, why, nil, false); err != nil {
+			if err := m.giveUp(w, why, nil, false, 0, nil); err != nil {
 				return n, err
 			}
 			if err := put(w.Tx, bPeerOut, join(p.Name, seqKey(m.Seq)), m); err != nil {

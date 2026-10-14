@@ -43,7 +43,7 @@ func TestPeerUnknownKind(t *testing.T) {
 	}
 	// The next question tells north, by the message's place in its outbox.
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if !reflect.DeepEqual(p.Refused, map[uint64]string{2: "kind_unknown"}) || p.Pulled != 3 || p.Waiting != 2 {
+	if !reflect.DeepEqual(p.Refused, map[uint64]store.Refusal{2: {Reason: "kind_unknown"}}) || p.Pulled != 3 || p.Waiting != 2 {
 		t.Fatalf("after the page: refused %v, pulled %d, %d pongs wait", p.Refused, p.Pulled, p.Waiting)
 	}
 
@@ -78,7 +78,7 @@ func TestPeerUnknownKindToldToTheSender(t *testing.T) {
 	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, m.Seq, map[uint64]string{m.Seq: "kind_unknown"}); err != nil {
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, m.Seq, map[uint64]store.Refusal{m.Seq: {Reason: "kind_unknown"}}); err != nil {
 		t.Fatal(err)
 	}
 	failed := peerEvents(t, y.api, "peer_message_failed")
