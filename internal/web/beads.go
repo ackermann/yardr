@@ -510,6 +510,9 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 // BeadPage is /beads/<id>: what `yardr prime --bead <id>` knows, for a
 // person.
 type BeadPage struct {
+	// As is the user the view acts as, "" when it does not act: its asks
+	// then answer with buttons, and its moves send the bead on.
+	As   string      `json:"as,omitempty"`
 	Bead *store.Bead `json:"bead"`
 	// Working says an agent's or a command's session has claimed the bead:
 	// a manual group's claim is a person's turn.
@@ -539,6 +542,17 @@ type BeadPage struct {
 	Outcomes []BeadOutcome `json:"outcomes,omitempty"`
 	Next     []string      `json:"next,omitempty"`
 	Terminal []string      `json:"terminal,omitempty"`
+	// Asks are the bead's open asks to the user the view acts as, oldest
+	// first, as the socket's Bead reads them: the page answers them with
+	// buttons. Empty without --as.
+	Asks []store.BeadAsk `json:"asks,omitempty"`
+	// Moves are what the user the view acts as may do with the bead, as
+	// `yardr review` offers them: the outcomes its flow names for the
+	// stage, else the stages it allows next. Empty without --as, and
+	// when the bead waits for no manual group the user belongs to.
+	Moves []MoveAction `json:"moves,omitempty"`
+	// Error is why a POST did not write, back on the redrawn page.
+	Error string `json:"error,omitempty"`
 	// Notes are the bead's notes, the oldest first.
 	Notes []store.Note `json:"notes"`
 	// Missing are the hashes of the notes' images the yard no longer
@@ -575,18 +589,44 @@ type BeadOutcome struct {
 	Command string `json:"command"`
 }
 
+// MoveAction is one way the view's user may send the bead on, as `yardr
+// review` offers it: an outcome the flow names (done), or a stage it
+// allows next (advance).
+type MoveAction struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	// Outcome is the outcome a done action reports; To the stage either
+	// enters.
+	Outcome string `json:"outcome,omitempty"`
+	To      string `json:"to"`
+	// NoteRequired: sending a bead back needs a note saying what to
+	// change, or whoever picks it up next has nothing to go on.
+	NoteRequired bool `json:"note_required,omitempty"`
+	// Terminal is a stage that closes the bead entering it.
+	Terminal bool `json:"terminal,omitempty"`
+}
+
 func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	d := BeadPage{Notes: []store.Note{}, Sessions: []store.Session{}}
-	var err error
-	if d.Head, err = s.st.Head(ctx); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	b, err := s.st.GetBead(ctx, r.PathValue("id"))
+	d, err := s.beadPage(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	s.respond(w, r, Page{Template: "bead", Title: d.Bead.ID, Menu: "beads", Data: d, head: d.Head, stream: "seq"})
+}
+
+// beadPage reads the bead's page: what `yardr prime --bead <id>` knows,
+// for a person. The POST that wrote nothing reads it again with the
+// reason, so the two never show different beads.
+func (s *Server) beadPage(ctx context.Context, id string) (*BeadPage, error) {
+	d := &BeadPage{As: s.as, Notes: []store.Note{}, Sessions: []store.Session{}}
+	var err error
+	if d.Head, err = s.st.Head(ctx); err != nil {
+		return nil, err
+	}
+	b, err := s.st.GetBead(ctx, id)
+	if err != nil {
+		return nil, err
 	}
 	d.Bead = b
 	// The live sessions: the manual groups' claims among them say which
@@ -595,8 +635,7 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	// every other bead the yard keeps.
 	sessions, err := s.st.Sessions(ctx, false)
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
 	manual := manualClaims(sessions)
 	d.Working = working(b, manual)
@@ -620,8 +659,9 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 			d.Train = &train[0]
 		}
 	}
-	if next, err := s.st.NextStages(ctx, b.ID); err != nil {
-		d.Warnings = append(d.Warnings, "no move is allowed until the flow is fixed: "+err.Error())
+	next, nerr := s.st.NextStages(ctx, b.ID)
+	if nerr != nil {
+		d.Warnings = append(d.Warnings, "no move is allowed until the flow is fixed: "+nerr.Error())
 	} else if next.Flow != nil {
 		d.Flow = &BeadFlow{Name: next.Flow.Name, Source: next.Source.String()}
 		d.Next, d.Terminal, d.StageFile = next.Stages, next.Terminal, next.StageFile
@@ -640,15 +680,28 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.To, Command: cmd})
 		}
 	}
+	if s.as != "" && nerr == nil {
+		// What the view's user may do with the bead, as `yardr review`
+		// offers it; none when it waits for no manual group they belong
+		// to, or its flow names no move.
+		if moves, err := s.moveActions(ctx, b, next); err != nil {
+			return nil, err
+		} else {
+			d.Moves = moves
+		}
+		if asks, err := s.openBeadAsks(ctx, b.ID); err != nil {
+			return nil, err
+		} else {
+			d.Asks = asks
+		}
+	}
 	blockers, err := s.st.OpenBlockers(ctx, b.ID)
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
 	d.Blockers = cards(blockers)
 	if d.Deps, err = s.st.Deps(ctx, b.ID); err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
 	for _, e := range d.Deps {
 		if e.Kind != store.DepDiscoveredFrom {
@@ -662,8 +715,7 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	}
 	notes, err := s.st.Notes(ctx, b.ID)
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
@@ -673,8 +725,7 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		for _, f := range n.Files {
 			if _, err := s.st.NoteBlob(ctx, f.Hash); err != nil {
 				if !errors.Is(err, store.ErrNotFound) {
-					s.fail(w, r, err)
-					return
+					return nil, err
 				}
 				if d.Missing == nil {
 					d.Missing = map[string]bool{}
@@ -685,15 +736,13 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	}
 	own, err := s.st.ListSessions(ctx, store.SessionFilter{All: true, Bead: b.ID})
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
 	d.Sessions = append(d.Sessions, own...)
 	if d.History, err = History(ctx, s.st, b.ID); err != nil {
-		s.fail(w, r, err)
-		return
+		return nil, err
 	}
-	s.respond(w, r, Page{Template: "bead", Title: b.ID, Menu: "beads", Data: d, head: d.Head, stream: "seq"})
+	return d, nil
 }
 
 // handleBlob serves a note's image: the bytes of a blob a note on some
@@ -715,6 +764,10 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", `"`+ref.Hash+`"`)
 	http.ServeFile(w, r, store.BlobPath(s.home, hash))
 }
+
+// inc is one more than i: an ask's options are numbered from one, and the
+// template ranges them from zero.
+func inc(i int) int { return i + 1 }
 
 // clock is a time as the pages show it: the time alone today, with the day
 // before that. It is this machine's time, which is the reader's: the view

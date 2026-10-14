@@ -391,6 +391,24 @@ ul, ol { list-style: none; }
 #send button:hover { color: var(--accent); border-color: var(--accent); }
 /* Why a mail was not sent, above the form that keeps its words. */
 .error { color: var(--held); }
+/* An ask's answer, under a needs row, a wait's reason or its bead: the
+   options as buttons, with Later and Decline. The buttons wrap instead of
+   widening the page, and each is large enough to tap. Its text is 16px:
+   smaller, a phone enlarges the field on focus and the page with it. */
+.need-answer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; white-space: normal; }
+.need-answer input[type="text"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
+.need-answer button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
+.need-answer button:hover { color: var(--accent); border-color: var(--accent); }
+/* A needs row keeps one line for its link; the answer stands under it. */
+.needs li .need-answer { margin: 4px 0 8px; }
+/* A move, on the bead's page: the note with the buttons that send it on. */
+.move-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.move-form input[type="text"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
+.move-form button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
+.move-form button:hover { color: var(--accent); border-color: var(--accent); }
+/* An ask's options, numbered as the buttons number them. */
+.options { margin-top: 8px; }
+.options li { padding: 2px 0; overflow-wrap: anywhere; }
 .outcomes li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 3px 0; }
 code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 

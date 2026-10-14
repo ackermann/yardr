@@ -357,7 +357,7 @@ func TestTalkPostOrigin(t *testing.T) {
 	}
 }
 
-// With --as the talk page's is the only route that takes a write.
+// With --as the talk and bead pages take writes; no other route does.
 func TestTalkOnlyWrite(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)

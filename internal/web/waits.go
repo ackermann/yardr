@@ -14,6 +14,9 @@ import (
 // Line is the right column, the same on every page: the beads that wait for
 // a person, and under them the line in numbers.
 type Line struct {
+	// As is the user the view acts as, "" when it does not act: an asked
+	// row then answers with buttons, and no other row takes a write.
+	As string `json:"as,omitempty"`
 	// Waits are the open beads something stops: held, blocked on a prompt
 	// or stranded. The one that began to wait last comes first.
 	Waits []Waiting `json:"waits"`
@@ -68,6 +71,14 @@ type Waiting struct {
 	// for "topic:web-view"), "" when it has none. The home row shows it
 	// small beside an ask; HTML-only, as the panel's marks are.
 	Topic string `json:"-"`
+	// Revision is the bead's revision when the row was read, for the
+	// forms that answer its asks: a write from another revision is
+	// refused. HTML-only: the JSON carries why, and the socket's Bead
+	// carries the revision.
+	Revision string `json:"-"`
+	// As is the user the view acts as, "" when it does not act: the row's
+	// asks then answer with buttons. HTML-only, as the revision is.
+	As string `json:"-"`
 }
 
 // Reason is one cause a bead waits for a person.
@@ -92,6 +103,17 @@ type Reason struct {
 	// ask recommends nothing. The home row shows it faint; HTML-only: the
 	// JSON carries the question and the context.
 	Recommend string `json:"-"`
+	// Ask is the ask's seq on its bead, 0 when the reason is no ask: what
+	// an answer names. Options are the ask's options in order, none for
+	// an ask that wants words, a secret or a command's approval.
+	// SecretLine is what a secret ask asks for, in the yard's words, ""
+	// otherwise; RunCommand the command a run ask proposes, whole, ""
+	// otherwise. HTML-only, as the recommendation is: the row's buttons
+	// answer from them.
+	Ask        uint64            `json:"-"`
+	Options    []store.AskOption `json:"-"`
+	SecretLine string            `json:"-"`
+	RunCommand string            `json:"-"`
 }
 
 // Reasons are why the bead waits, in one line.
@@ -148,6 +170,18 @@ func (w Waiting) AskRecommend() string {
 	return ""
 }
 
+// FirstAsk is the oldest open ask's reason, for the home row's buttons:
+// the question the row shows is the one they answer. Nil when the bead
+// carries no ask.
+func (w Waiting) FirstAsk() *Reason {
+	for i := range w.Why {
+		if w.Why[i].Kind == "ask" {
+			return &w.Why[i]
+		}
+	}
+	return nil
+}
+
 // Fault reports whether the bead waits on something gone wrong (a hold, a
 // prompt nobody answers) and not a stage that is a person's by design.
 func (w Waiting) Fault() bool {
@@ -179,7 +213,7 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 			return nil, err
 		}
 	}
-	l := &Line{Stages: []StageCount{}, Depots: []LineDepot{}}
+	l := &Line{As: s.as, Stages: []StageCount{}, Depots: []LineDepot{}}
 	add := func(counts []StageCount) {
 		for _, c := range counts {
 			if c.Open == 0 {
@@ -298,7 +332,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		if len(why) == 0 {
 			continue
 		}
-		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why}
+		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why, Revision: b.Revision, As: s.as}
 		if b.Depot != nil {
 			w.Depot = *b.Depot
 		}
@@ -320,25 +354,29 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 	return waits, parked, nil
 }
 
-// openAsks reads the operator's open asks on the yard's open beads, oldest
-// first per bead: the queue UserAsks keeps, joined to the rows the waits
-// join. A question from another yard (bead@peer) stands in no row: it has
-// no bead here and no stage for a lamp. A yard that names no operator, or
-// whose queue cannot be read, waits without asks, as a depot whose beads
-// cannot be told stranded does.
+// openAsks reads the open asks on the yard's open beads, oldest first per
+// bead: the queue UserAsks keeps, joined to the rows the waits join. A
+// view that acts reads the user it acts as; one that does not reads the
+// operator. A question from another yard (bead@peer) stands in no row: it
+// has no bead here and no stage for a lamp. A yard that names no one to
+// read, or whose queue cannot be read, waits without asks, as a depot
+// whose beads cannot be told stranded does.
 func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, error) {
 	out := map[string][]Reason{}
-	all, err := s.st.Settings(ctx)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, err
-		}
-		s.log.Error("web: settings for asks", "err", err)
-		return out, nil
-	}
-	op := all[store.OperatorSetting]
+	op := s.as
 	if op == "" {
-		return out, nil
+		all, err := s.st.Settings(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			s.log.Error("web: settings for asks", "err", err)
+			return out, nil
+		}
+		op = all[store.OperatorSetting]
+		if op == "" {
+			return out, nil
+		}
 	}
 	q, err := s.st.UserAsks(ctx, op)
 	if err != nil {
@@ -398,14 +436,17 @@ func askReason(r store.ResolvedAsk) Reason {
 	for i, line := range r.Ask.Context {
 		context[i] = store.OneLine(line)
 	}
-	out := Reason{Kind: "ask", Text: store.OneLine(r.Ask.Question), Note: short(strings.Join(context, "\n"))}
+	out := Reason{Kind: "ask", Text: store.OneLine(r.Ask.Question), Note: short(strings.Join(context, "\n")),
+		Ask: r.Note.Seq, Options: r.Ask.Options}
 	switch {
 	case r.Ask.Run != nil:
 		// The yard's own, and never shortened: the command as it would run.
 		out.Recommend = "to approve: " + r.Ask.Run.Command()
+		out.RunCommand = r.Ask.Run.Command()
 	case r.Ask.Secret != nil:
 		// The yard's line, never the asker's words: what is asked for.
 		out.Recommend = r.Ask.Secret.Line()
+		out.SecretLine = r.Ask.Secret.Line()
 	case len(r.Ask.Options) == 0:
 		out.Recommend = "words wanted"
 	case r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options):

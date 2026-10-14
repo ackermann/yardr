@@ -4,13 +4,14 @@
 server, as `yardr bdp serve` is. Without `--as` it reads only: no page
 takes a write, and every route refuses any method but GET and HEAD. With
 `--as <user>` it acts as that user too: the talk page sends its mail as
-them ([Acting as a user](#acting-as-a-user)), and nothing else takes a
+them, and a bead's page answers its asks and sends the bead on
+([Acting as a user](#acting-as-a-user)), and nothing else takes a
 write.
 
 ```sh
 yardr web serve                          # http://127.0.0.1:8791/
 yardr web serve --addr 127.0.0.1:9000
-yardr web serve --as mckean              # the talk page sends mail as mckean
+yardr web serve --as mckean              # acts as mckean: talk, asks, moves
 curl -s localhost:8791/                                  # the page
 curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ```
@@ -134,7 +135,7 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 There is still no authentication: anyone who can reach this machine on that
-port can read the whole yard, and with `--as` send mail as its user. The
+port can read the whole yard, and with `--as` act as its user. The
 view stays read-only without `--as`.
 
 - With `--unsafe`, `--addr` takes any address: `:9000`, `0.0.0.0:9000`, or
@@ -165,7 +166,7 @@ view stays read-only without `--as`.
   are counted apart.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
-  With `--as` it says `can read the yard and send mail as <user>` instead.
+  With `--as` it says `can read the yard and act as <user>` instead.
   The line after it says what the view answers to:
   `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
@@ -175,17 +176,26 @@ view stays read-only without `--as`.
 yard (`yardr user list`): with any other name it refuses to start. The talk
 page ([Talk](#talk)) then holds the user's conversation with a crew member,
 live, with the form that sends it mail as them through the socket's `Mail`
-([api.md](api.md#mail)), as that user. Every other route stays GET, and
-without `--as` every route is GET as before: the talk page then says the
-view does not act, and a test holds the view to it.
+([api.md](api.md#mail)), as that user. An ask to the user answers with
+buttons, on the needs rows and on its bead's page, through the socket's
+`AnswerAsk`, `DeferAsk` and `DeclineAsk`; a bead in a stage that waits for
+the user sends on as `yardr review` offers it, with a note
+([One bead](#one-bead)). Every other route stays GET, and without `--as`
+every route is GET as before: the talk page then says the view does not
+act, and a test holds the view to it.
 
 ```sh
 yardr web serve --as mckean
 yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # behind tailscale serve, for a phone
 ```
 
-The form's POST is taken only from the view's own pages: a page on another
-site cannot make a visitor's browser send mail as the view's user. What is
+Each write carries the revision the page was drawn from: one from a page
+the bead has since left behind is refused, and the page comes back redrawn
+with why, so two tabs answering the same ask leave one answer and one
+refusal.
+
+A form's POST is taken only from the view's own pages: a page on another
+site cannot make a visitor's browser act as the view's user. What is
 compared is the request's `Origin` header, and this is how it is matched:
 
 - The scheme is `http` or `https`: `https` where an edge stands in front
@@ -227,7 +237,7 @@ yardr web status                 # the views that run, and whether a service sta
 yardr web install                # starts now, and at every login
 yardr web install --addr 127.0.0.1:9000
 yardr web install --host yard.example.net   # answers to that name too, for a proxy of yours
-yardr web install --as mckean               # the talk page sends mail as mckean
+yardr web install --as mckean               # acts as mckean: talk, asks, moves
 yardr web uninstall
 ```
 
@@ -337,8 +347,8 @@ URL that names another host, and every response carries
 itself refuses to load or call anything else. The policy also refuses
 inline `<script>`, inline `<style>` and `style=` attributes, so a page has
 none: scripts and styles live in the asset files. It refuses every form
-target (`form-action 'none'`) but on a view that acts, whose talk page
-posts to the view itself (`form-action 'self'`).
+target (`form-action 'none'`) but on a view that acts, whose talk and bead
+pages post to the view itself (`form-action 'self'`).
 
 ## Pages
 
@@ -444,10 +454,10 @@ Home as JSON:
 
 - `attention` are the open beads that wait for a person: everything
   something stops (held, blocked on a prompt, stranded), the beads with
-  an open ask to the operator, and the parked beads past their flow's
-  first, in the line's order, faults first. A bead parked where it starts
-  (a backlog) is on `/line` only, unless an ask names the operator in
-  particular.
+  an open ask to the operator — to the view's user, on a view started
+  with `--as` — and the parked beads past their flow's first, in the
+  line's order, faults first. A bead parked where it starts (a backlog)
+  is on `/line` only, unless an ask names the reader in particular.
 - On the page they stand under the answer line: `Nothing needs you.`
   with `All clear.` under it when none waits, else `N need you.` with
   the faults counted apart (`2 need you. 1 fault.`). Each wait is one
@@ -458,8 +468,9 @@ Home as JSON:
   fault first when it has one, then the question where the title stands,
   the bead small, the recommendation (`1. Move them now`, or
   `words wanted`) and the age faint, the bead's first `topic:` label
-  small where there is one. The answer is picked where writing lives;
-  the row only links to the bead. On a phone an asked row gives the
+  small where there is one. On a view that acts the oldest ask answers
+  under the row, with its options as buttons ([Acting as a user](#acting-as-a-user));
+  otherwise the row only links to the bead. On a phone an asked row gives the
   question the row's first line whole, ending in an ellipsis, and the
   bead, the recommendation and the age stand under it, so the question
   never gets less room than the metadata. The reasons, the titles and
@@ -1039,6 +1050,17 @@ stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its notes, the oldest first, each with
 its images below its words; the sessions that worked it; its history. A
 closed bead has a page too. An unknown id is a 404.
+
+On a view started with `--as <user>`, the page answers the bead's open
+asks to that user, oldest first: the question, who asked, the context, the
+options numbered with what each does, the recommendation, and for a secret
+what it asks for, for a run the command with what it changes and the way
+back. Each answers under itself, with its options as buttons, with Later
+and Decline; a secret is given, and a run approved, with `yardr bead
+answer` beside, as the page says. Where the bead waits for the user in a
+stage a manual group works, the outcomes send it on as `yardr review`
+offers them, with a note. Each write carries the revision the page was
+drawn from ([Acting as a user](#acting-as-a-user)).
 
 A note's images are what `yardr bead note --file` attached to it. Each
 shows below the note's words, with those words as its alt text; one the

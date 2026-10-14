@@ -25,6 +25,13 @@ func answerSection(t *testing.T, text string) string {
 // shortID is a bead id as the needs rows show it.
 func shortID(id string) string { return web.Waiting{Bead: id}.ShortID() }
 
+// sameReason reports whether two reasons say the same in the JSON: kind,
+// text and note. The struct itself is not comparable, since an ask carries
+// its options.
+func sameReason(a, b web.Reason) bool {
+	return a.Kind == b.Kind && a.Text == b.Text && a.Note == b.Note
+}
+
 // The top of / answers whether anything needs the person: nothing, one need,
 // or needs with the faults counted apart. One waiting bead counts once.
 func TestHomeAnswer(t *testing.T) {
@@ -250,10 +257,10 @@ func TestHomeNeedsGaveUp(t *testing.T) {
 	must(t, f.st.LogDispatch(ctx, b.ID, "gave_up", "yard", map[string]any{"stage": "review", "failures": 3}))
 
 	want := web.Reason{Kind: "held", Text: "gave up after 3 failures in review"}
-	if got := waiting(lineJSON(t, f)); len(got) != 1 || len(got[0].Why) != 1 || got[0].Why[0] != want {
+	if got := waiting(lineJSON(t, f)); len(got) != 1 || len(got[0].Why) != 1 || !sameReason(got[0].Why[0], want) {
 		t.Errorf("/line waits %+v, want the give-up named", got)
 	}
-	if h := homeJSON(t, f, "/"); len(h.Attention) != 1 || len(h.Attention[0].Why) != 1 || h.Attention[0].Why[0] != want {
+	if h := homeJSON(t, f, "/"); len(h.Attention) != 1 || len(h.Attention[0].Why) != 1 || !sameReason(h.Attention[0].Why[0], want) {
 		t.Errorf("attention %+v, want the give-up named", h.Attention)
 	}
 	// No new field: the reason's JSON is kind and text, as before.
@@ -291,7 +298,7 @@ func TestHomeNeedsGaveUp(t *testing.T) {
 	_, err = f.st.SetHold(ctx, b.ID, true, store.Expect{}, "me")
 	must(t, err)
 	if got := waiting(lineJSON(t, f)); len(got) != 1 || len(got[0].Why) != 1 ||
-		got[0].Why[0] != (web.Reason{Kind: "held", Text: "held by me"}) {
+		!sameReason(got[0].Why[0], web.Reason{Kind: "held", Text: "held by me"}) {
 		t.Errorf("held again %+v, want a plain hold", got)
 	}
 	if s := answerSection(t, f.get("/").body); !strings.Contains(s, `<span class="held">held</span>`) {

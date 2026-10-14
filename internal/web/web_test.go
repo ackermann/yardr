@@ -696,11 +696,11 @@ func TestNotFound(t *testing.T) {
 }
 
 // Without --as the view reads the yard and changes nothing: no route takes
-// a write, the talk page's included.
+// a write, the talk and bead pages' included.
 func TestReadOnly(t *testing.T) {
 	f := newFixture(t)
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		for _, path := range []string{"/", "/talk", "/line", "/beads", "/assets/yard.css", "/nowhere"} {
+		for _, path := range []string{"/", "/talk", "/line", "/beads", "/beads/abc", "/assets/yard.css", "/nowhere"} {
 			if r := f.do(method, path); r.status != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: status %d, want 405", method, path, r.status)
 			}

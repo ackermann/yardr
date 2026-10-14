@@ -1,7 +1,8 @@
 // Package web serves a view of the yard for a browser: HTML rendered here
 // with html/template, and the same data as JSON to whoever asks for it.
 // Without --as it only reads the yard; with --as <user> the talk page
-// sends mail as that user, and nothing else takes a write.
+// sends mail as that user, and a bead's page answers its asks and sends
+// the bead on, and nothing else takes a write.
 //
 // A page is one template in templates/ and one handler that builds the
 // page's data once and hands it to respond; docs/web.md says how to add one.
@@ -95,8 +96,8 @@ type Server struct {
 	limitsBy    map[string]*limitsEntry
 	limitsEvery time.Duration
 	// as is the user the view acts as (--as), "" when it acts as none:
-	// the talk page sends its mail as them, and no other page takes a
-	// write.
+	// the talk page sends its mail as them, and a bead's page answers its
+	// asks and sends it on; no other page takes a write.
 	as string
 }
 
@@ -126,7 +127,7 @@ var partial = []string{"shell", "aside", "entry", "card"}
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock}
+	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock, "inc": inc}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")
@@ -160,8 +161,8 @@ func (s *Server) loadPages() (map[string]*template.Template, error) {
 }
 
 // routes registers every page. Patterns name GET, so the mux refuses every
-// other method itself: without --as the view changes nothing. The one
-// route that takes a write is registered by ActAs, with --as only.
+// other method itself: without --as the view changes nothing. The routes
+// that take a write are registered by ActAs, with --as only.
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.handleHome)
 	s.mux.HandleFunc("GET /talk", s.handleTalk)
@@ -201,8 +202,9 @@ func (s *Server) routes() {
 // policy lets the browser load and reach this server only, so a page that
 // names another host by mistake fails where it is seen instead of calling
 // out. The page has no inline script or style, and nothing may frame it.
-// A view that acts has the talk page's form, which posts to the view
-// itself; one that does not act has no form, and the policy says so.
+// A view that acts has the talk page's form and the beads' own, which post
+// to the view itself; one that does not act has no form, and the policy
+// says so.
 func (s *Server) policy() string {
 	form := "form-action 'none'"
 	if s.as != "" {
@@ -461,12 +463,13 @@ func (s *Server) AllowHosts(hosts ...string) {
 }
 
 // ActAs is --as: the view acts as user, whom the caller has read from the
-// yard's users. It registers the talk page's POST route, which without it
-// does not exist: the mux answers a POST as it answers every other
-// method. Call it before the server serves.
+// yard's users. It registers the POST routes, which without it do not
+// exist: the mux answers a POST as it answers every other method. Call it
+// before the server serves.
 func (s *Server) ActAs(user string) {
 	s.as = user
 	s.mux.HandleFunc("POST /talk", s.handleTalkPost)
+	s.mux.HandleFunc("POST /beads/{id}", s.handleBeadPost)
 }
 
 // As is the user the view acts as, "" when it acts as none.

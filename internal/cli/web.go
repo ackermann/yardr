@@ -66,10 +66,11 @@ name someone else controls could read the yard through a visitor's browser
 
 --as <user> makes the view act as that user, who must be a user of the
 yard (yardr user list): the talk page then holds the user's conversation
-with a crew member, live, with the form that sends it mail as them. The
-form's POST is taken only from the view's own pages, and every other
-route stays GET. Without --as the talk page says the view does not act,
-and the view changes nothing.
+with a crew member, live, with the form that sends it mail as them, and a
+bead's page answers its asks to the user and sends the bead on where it
+waits for them, as yardr review offers it. A form's POST is taken only
+from the view's own pages, and every other route stays GET. Without --as
+the talk page says the view does not act, and the view changes nothing.
 
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
@@ -78,7 +79,7 @@ this machine. Both answers carry Retry-After.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
   yardr web serve --host yard.example.net  # on loopback, for a proxy that forwards that name
-  yardr web serve --as mckean              # the talk page sends mail as mckean
+  yardr web serve --as mckean              # acts as mckean: talk, asks, moves
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
   yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
@@ -134,7 +135,7 @@ this machine. Both answers carry Retry-After.`,
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
 				can := "can read the yard"
 				if as != "" {
-					can = "can read the yard and send mail as " + as
+					can = "can read the yard and act as " + as
 				}
 				log.Warn("no authentication: anyone who can reach this machine on port " + port + " " + can)
 			} else if len(hosts) > 0 {
@@ -174,13 +175,13 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
-	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: the talk page sends its mail as them")
+	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
-		c.Flags().Lookup("as").Usage = "act as this user of the yard: the talk page sends its mail as them"
+		c.Flags().Lookup("as").Usage = "act as this user of the yard: talk, asks, moves"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
 	v.start.Long = `Start yardr web serve detached from this terminal, logging to
@@ -195,7 +196,7 @@ the view acts as that user, and refuses to start when no user of the yard
 has the name (docs/web.md, "Acting as a user").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
   yardr web start --host yard.example.net  # the same, for a proxy that forwards that name
-  yardr web start --as mckean              # the talk page sends mail as mckean`
+  yardr web start --as mckean              # acts as mckean: talk, asks, moves`
 	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
 (yardr web serve in a terminal, yardr web start, or the service that starts
 when you log in), and wait

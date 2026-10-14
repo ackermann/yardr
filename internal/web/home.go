@@ -16,7 +16,10 @@ import (
 // Home is the yard's home page: the overview (what waits for a person, what
 // runs now, the depots, what closed today) above the feed of what happened.
 type Home struct {
-	Yard   string      `json:"yard"`
+	Yard string `json:"yard"`
+	// As is the user the view acts as, "" when it does not act: an asked
+	// need then answers with buttons.
+	As     string      `json:"as,omitempty"`
 	Depots []HomeDepot `json:"depots"`
 	// Attention are the open beads that wait for a person: those something
 	// stops (held, blocked on a prompt, stranded) and those parked in a
@@ -134,7 +137,7 @@ func (s *Server) overview(ctx context.Context, y *yard) (*Home, error) {
 			return nil, err
 		}
 	}
-	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{},
+	out := &Home{Yard: s.yardName(ctx), As: s.as, Depots: []HomeDepot{},
 		Attention: []Waiting{}, Running: []SessionRow{}, Closed: []HomeClosed{}, yard: y}
 	manual := manualClaims(y.sessions)
 	byDepot := map[string][]*store.Bead{}
