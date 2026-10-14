@@ -510,3 +510,59 @@ func TestUnsubscribeSameNameGroupAndCrew(t *testing.T) {
 		t.Fatalf("subscribe reviewers as user = %v, want not found", err)
 	}
 }
+
+// A failed removal on either side of a shared name must not be hidden by a
+// no-match on the other side or by removing that other side.
+func TestUnsubscribeSharedNamePropagatesRemovalErrors(t *testing.T) {
+	blocked := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+		Where: map[string]string{"kind": store.InstallFailed}}
+	allowed := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+		Where: map[string]string{"kind": store.KindAttention}}
+
+	for _, tc := range []struct {
+		name  string
+		crew  []store.Subscription
+		group []store.Subscription
+	}{
+		{name: "group guard is not hidden by crew no-match", group: []store.Subscription{blocked}},
+		{name: "crew guard does not allow group removal", crew: []store.Subscription{blocked}, group: []store.Subscription{allowed}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := storetest.New(t)
+			ctx := context.Background()
+			operatorWithNotify(t, st, "jo")
+			if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "jo"); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.PutCrew(ctx, store.CrewMember{Name: "reviewers", Runner: "herdr"}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			for _, sub := range tc.crew {
+				if err := st.AddSubscriptionKind(ctx, "reviewers", "crew", sub, "jo"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, sub := range tc.group {
+				if err := st.AddSubscriptionKind(ctx, "reviewers", "group", sub, "jo"); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if _, err := st.RemoveSubscriptions(ctx, "reviewers", store.SourceYardr, "", nil, "jo"); err == nil ||
+				!strings.Contains(err.Error(), store.UpgradeFromSetting) {
+				t.Fatalf("unsubscribe shared name = %v; want the %s guard", err, store.UpgradeFromSetting)
+			}
+			r, err := st.GetCrew(ctx, "reviewers")
+			if err != nil || len(r.Subscriptions) != len(tc.crew) {
+				t.Fatalf("crew subscriptions = %v, %v; want %v", r, err, tc.crew)
+			}
+			g, err := st.GetGroup(ctx, "reviewers")
+			if err != nil || len(g.Subscriptions) != len(tc.group) {
+				t.Fatalf("group subscriptions = %v, %v; want %v", g, err, tc.group)
+			}
+		})
+	}
+}

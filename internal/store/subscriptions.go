@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -557,6 +558,15 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 func (w *wtx) changeSharedSubscriptions(name, actor string, r CrewMember, g Group, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	crewSubs, crewKind, crewData, crewErr := fn(r.Subscriptions)
 	groupSubs, groupKind, groupData, groupErr := fn(g.Subscriptions)
+	// A failed removal on either side must not be hidden by the other side's
+	// no-match or successful removal. In particular, the upgrade guard can
+	// refuse one matching list while the other has no matching subscription.
+	if crewErr != nil && !errors.Is(crewErr, ErrNotFound) {
+		return crewErr
+	}
+	if groupErr != nil && !errors.Is(groupErr, ErrNotFound) {
+		return groupErr
+	}
 	switch {
 	case crewErr == nil && groupErr == nil:
 		if crewKind != "" && groupKind != "" &&
