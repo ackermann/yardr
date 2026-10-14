@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +82,27 @@ func revOf(t *testing.T, f *fixture, id string) string {
 	b, err := f.st.GetBead(context.Background(), id)
 	must(t, err)
 	return b.Revision
+}
+
+const secretActSource = "name: crm\nbase: https://crm.example.com/api\ncredential: { env: CRM_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+
+// secretActYard is a yard with the depot home and the source crm, acting as
+// its operator mckean, with a bead carrying an open secret ask to mckean.
+// It answers the bead and the ask's seq.
+func secretActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
+	t.Helper()
+	f, _ := talkFixture(t, "mckean")
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
+	must(t, f.st.SetSetting(ctx, "operator", "mckean", "mckean"))
+	_, err := f.st.PutSource(ctx, "crm.yaml", secretActSource, "mckean")
+	must(t, err)
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the key", Stage: "new", Depot: "home"}, "mckean")
+	must(t, err)
+	seq, err := f.st.AddAsk(ctx, b.ID, store.Ask{Question: "The API key for the CRM", To: "mckean",
+		Context: []string{"Create one in its settings."}, Secret: &store.AskSecret{Source: "crm"}}, "yardmaster")
+	must(t, err)
+	return f, b, seq
 }
 
 // An asked bead's page, with --as, answers with buttons: the options, an
@@ -477,5 +499,102 @@ func TestNeedsAnswerButtons(t *testing.T) {
 	}
 	if r := f2.get("/line"); strings.Contains(r.body, "need-answer") {
 		t.Error("without --as /line answers")
+	}
+}
+
+// A secret ask on the bead's page, with --as, shows a field that does not
+// echo for each name it asks for, with a Give button beside Later and
+// Decline, and still names the terminal command.
+func TestBeadSecretField(t *testing.T) {
+	f, b, seq := secretActYard(t)
+	r := f.get("/beads/" + b.ID)
+	for _, want := range []string{
+		`<h3 class="label">asks for mckean</h3>`,
+		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
+		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
+		`<input type="password" name="secret-CRM_TOKEN"`,
+		`<button type="submit" name="action" value="give">Give</button>`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	// A secret ask takes no words: the store refuses them, so the page
+	// offers no field they could be typed into by mistake.
+	if strings.Contains(r.body, `name="words"`) {
+		t.Errorf("the secret ask offers a words field:\n%s", r.body)
+	}
+}
+
+// Giving through the bead's form lands as the view's user: the value is in
+// the file the source's credential is read from, and the answer on the bead
+// holds the names that were given and never the value.
+func TestBeadSecretGivePost(t *testing.T) {
+	f, b, seq := secretActYard(t)
+	ctx := context.Background()
+	rev := revOf(t, f, b.ID)
+	const value = "the-crm-key"
+	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)},
+		"secret-CRM_TOKEN": {value}, "action": {"give"}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+		t.Fatalf("status %d, location %q, want 303 to the bead:\n%s", r.status, r.header.Get("Location"), r.body)
+	}
+	src, err := f.st.GetSource(ctx, "crm")
+	must(t, err)
+	file, err := os.ReadFile(src.EnvFile)
+	must(t, err)
+	if !strings.Contains(string(file), value) {
+		t.Errorf("the credential file holds %q, want the given value", file)
+	}
+	notes, err := f.st.Notes(ctx, b.ID)
+	must(t, err)
+	for _, n := range notes {
+		if strings.Contains(n.Text, value) {
+			t.Errorf("note %d holds the value: %q", n.Seq, n.Text)
+		}
+	}
+	last := notes[len(notes)-1]
+	if last.Author != "mckean" || last.Kind != store.NoteAnswer {
+		t.Errorf("the last note is %+v, want mckean's answer", last)
+	}
+	if !strings.Contains(last.Text, "CRM_TOKEN") {
+		t.Errorf("the answer holds %q, want the names that were given", last.Text)
+	}
+	v, err := f.st.Bead(ctx, b.ID)
+	must(t, err)
+	if len(v.Asks) != 1 || len(v.Asks[0].Given) != 1 || v.Asks[0].Given[0] != "CRM_TOKEN" {
+		t.Fatalf("the ask: %+v, want it given CRM_TOKEN", v.Asks)
+	}
+}
+
+// A giving with no value, and one to an ask that asks for no secret, are
+// refused with the page redrawn, and write nothing.
+func TestBeadSecretGiveRefused(t *testing.T) {
+	f, b, seq := secretActYard(t)
+	ctx := context.Background()
+	rev := revOf(t, f, b.ID)
+	ask := strconv.FormatUint(seq, 10)
+	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "action": {"give"}}, "Origin", f.ts.URL)
+	if r.status != 200 || !strings.Contains(r.body, "CRM_TOKEN was not given") {
+		t.Errorf("no value: status %d, want the redrawn page with why:\n%s", r.status, r.body)
+	}
+	v, err := f.st.Bead(ctx, b.ID)
+	must(t, err)
+	if v.Asks[0].State != "open" {
+		t.Errorf("no value: the ask is %s", v.Asks[0].State)
+	}
+	f2, _ := talkFixture(t, "jo")
+	b2, seq2 := actYard(t, f2, pickAsk())
+	rev2 := revOf(t, f2, b2.ID)
+	r = f2.postForm("/beads/"+b2.ID, url.Values{"rev": {rev2}, "ask": {strconv.FormatUint(seq2, 10)}, "action": {"give"}}, "Origin", f2.ts.URL)
+	if r.status != 200 || !strings.Contains(r.body, "asks for no secret") {
+		t.Errorf("no secret: status %d, want a refusal:\n%s", r.status, r.body)
+	}
+	v, err = f2.st.Bead(ctx, b2.ID)
+	must(t, err)
+	if v.Asks[0].State != "open" {
+		t.Errorf("no secret: the ask is %s", v.Asks[0].State)
 	}
 }

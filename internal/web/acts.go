@@ -204,7 +204,8 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 		s.fail(w, r, err)
 		return
 	}
-	if !slices.ContainsFunc(asks, func(a store.BeadAsk) bool { return a.Ask == seq }) {
+	i := slices.IndexFunc(asks, func(a store.BeadAsk) bool { return a.Ask == seq })
+	if i < 0 {
 		s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d on bead %s is answered already, or asked of another; read it again", seq, b.ID))
 		return
 	}
@@ -224,12 +225,43 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 			answer.Later = true
 		case "decline":
 			answer.Decline = true
+		case "give":
+			s.beadGiveSecret(w, r, b, asks[i])
+			return
 		default:
 			s.beadAgain(w, r, b.ID, "pick an option, answer with words, put it aside with Later, or decline it")
 			return
 		}
 	}
 	if err := s.st.AddAnswerExpected(ctx, b.ID, answer, s.acting(ctx), rev); err != nil {
+		s.beadAgain(w, r, b.ID, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/beads/"+url.PathEscape(b.ID), http.StatusSeeOther)
+}
+
+// beadGiveSecret gives the secret ask asks for through GiveSecret, as the
+// request's user: each name the ask asks for is read from its own field,
+// which does not echo. The values land in the file the source's credential
+// is read from, and the answer on the bead holds the names that were given
+// and never a value, as a terminal giving does. An ask that asks for no
+// secret, and a name with no value, are refused with the page redrawn, and
+// neither refusal repeats a value that was sent.
+func (s *Server) beadGiveSecret(w http.ResponseWriter, r *http.Request, b *store.Bead, ask store.BeadAsk) {
+	ctx := r.Context()
+	if ask.Secret == nil {
+		s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d asks for no secret: pick an option, answer with words, put it aside with Later, or decline it", ask.Ask))
+		return
+	}
+	values := make(map[string]string, len(ask.Secret.Env))
+	for _, name := range ask.Secret.Env {
+		values[name] = r.PostFormValue("secret-" + name)
+		if values[name] == "" {
+			s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d asks for %s: %s was not given", ask.Ask, strings.Join(ask.Secret.Env, " and "), name))
+			return
+		}
+	}
+	if _, err := s.st.GiveSecret(ctx, b.ID, ask.Ask, values, s.acting(ctx)); err != nil {
 		s.beadAgain(w, r, b.ID, err.Error())
 		return
 	}

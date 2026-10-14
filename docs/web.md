@@ -304,7 +304,9 @@ page ([Talk](#talk)) then holds the user's conversation with a crew member,
 live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
-`AnswerAsk`, `DeferAsk` and `DeclineAsk`; a bead in a stage that waits for
+`AnswerAsk`, `DeferAsk` and `DeclineAsk`; a secret ask on its bead's page
+answers with a field that does not echo, through the socket's `GiveSecret`,
+and its value is in no note, as a terminal giving; a bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). Every other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
@@ -1236,11 +1238,13 @@ oldest first: the question, who asked, the context, the
 options numbered with what each does, the recommendation, and for a secret
 what it asks for, for a run the command with what it changes and the way
 back. Each answers under itself, with its options as buttons, with Later
-and Decline; a secret is given, and a run approved, with `yardr bead
-answer` beside, as the page says. Where the bead waits for the user in a
-stage a manual group works, the outcomes send it on as `yardr review`
-offers them, with a note. Each write carries the revision the page was
-drawn from ([Acting as a user](#acting-as-a-user)).
+and Decline; a secret ask shows a field that does not echo for each name
+it asks for, given through `GiveSecret` with the names recorded and the
+value in no note, and still names the terminal command beside, as does a
+run ask, which is approved with `yardr bead answer`. Where the bead waits
+for the user in a stage a manual group works, the outcomes send it on as
+`yardr review` offers them, with a note. Each write carries the revision
+the page was drawn from ([Acting as a user](#acting-as-a-user)).
 
 A note's images and pages are what `yardr bead note --file` attached to
 it. Each image shows below the note's words, with those words as its alt
