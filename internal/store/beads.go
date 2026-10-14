@@ -53,6 +53,9 @@ type Bead struct {
 	// stored on the bead, and nil on a bead returned by a write. From and
 	// Away say which it is.
 	Peer *BeadPeer `json:"peer,omitempty"`
+	// Notify is set on the result of UpdateBead when that write left a note
+	// for the bead's live session. It is transient: it is not bead state.
+	Notify string `json:"notify,omitempty"`
 }
 
 // beadRow is what the beads bucket holds: the bead plus bookkeeping that is
@@ -1069,6 +1072,7 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			return err
 		}
 		result = &row.Bead
+		result.Notify = *row.Session
 		return nil
 	})
 	return result, err

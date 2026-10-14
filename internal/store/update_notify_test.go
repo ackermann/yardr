@@ -52,8 +52,19 @@ func TestUpdateBodyTellsTheLiveSession(t *testing.T) {
 	}
 
 	body := "paint it red"
-	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Body: &body}, store.Expect{}, "yardmaster"); err != nil {
+	updated, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Body: &body}, store.Expect{}, "yardmaster")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if updated.Notify != sess.ID {
+		t.Fatalf("UpdateBead notify = %q, want %s", updated.Notify, sess.ID)
+	}
+	stored, err := s.GetBead(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Notify != "" {
+		t.Fatalf("stored bead notify = %q, want transient result only", stored.Notify)
 	}
 	ns := notes()
 	if len(ns) != 1 {

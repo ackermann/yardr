@@ -113,10 +113,6 @@ priority, metadata, type, depot) tells nothing.`,
 			if err != nil {
 				return err
 			}
-			old, err := st.GetBead(c.Context(), args[0])
-			if err != nil {
-				return err
-			}
 			var p store.BeadPatch
 			fl := c.Flags()
 			if fl.Changed("title") {
@@ -149,29 +145,11 @@ priority, metadata, type, depot) tells nothing.`,
 			if err != nil {
 				return err
 			}
-			// The store leaves a note for the live session when the body
-			// or the title changed under anyone but it, so the session
-			// reads the bead again. A patch that names them but changes
-			// neither tells nothing.
-			told := ""
-			if b.Session != nil && *b.Session != a.identity().session {
-				bodyChanged := p.Body != nil && *p.Body != old.Body
-				titleChanged := p.Title != nil && *p.Title != old.Title
-				if bodyChanged || titleChanged {
-					told = *b.Session
-				}
-			}
-			if a.json {
-				return a.out(struct {
-					*store.Bead
-					Notify string `json:"notify,omitempty"`
-				}{b, told}, nil)
-			}
 			if err := a.printBead(b); err != nil {
 				return err
 			}
-			if told != "" {
-				fmt.Printf("(session %s will be told)\n", told)
+			if !a.json && b.Notify != "" {
+				fmt.Printf("(session %s will be told)\n", b.Notify)
 			}
 			return nil
 		},
