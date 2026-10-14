@@ -83,16 +83,32 @@ trap 'rm -rf "${prof:?}"' EXIT INT TERM HUP
 # Chrome runs in the background under a watchdog: past SHOT_TIMEOUT seconds
 # the watchdog stops it, first politely and then with force, so the shot
 # fails instead of hanging. The watchdog's touch says the deadline passed:
-# without it a Chrome that failed on its own keeps its own reason. The
-# watchdog holds no pipe of the caller's, so a sleep it leaves behind keeps
-# nothing open.
+# without it a Chrome that failed on its own keeps its own reason. If Chrome
+# finishes first, the watchdog stops and reaps its timer instead of leaving
+# a sleeper behind.
 "$chrome" --headless --disable-gpu --user-data-dir="$prof" \
   --screenshot="$out" --window-size=1280,800 "$url" </dev/null &
 pid=$!
-( sleep "$SHOT_TIMEOUT"
+( timer=
+  stop_timer() {
+    trap - TERM INT HUP
+    if [ -n "$timer" ]; then
+      kill "$timer" 2>/dev/null
+      wait "$timer" 2>/dev/null
+    fi
+    exit 0
+  }
+  trap 'stop_timer' TERM INT HUP
+  sleep "$SHOT_TIMEOUT" &
+  timer=$!
+  wait "$timer"
+  timer=
   touch "$prof/timedout"
   kill -TERM "$pid" 2>/dev/null
-  sleep 5
+  sleep 5 &
+  timer=$!
+  wait "$timer"
+  timer=
   kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
 watcher=$!
 wait "$pid"

@@ -402,12 +402,16 @@ func sleeper(t *testing.T, line string, child bool) (env []string, pids string) 
 // dead fails the test unless every PID in pids is gone: the kill the
 // timeout promises, waited on, not slept for.
 func dead(t *testing.T, pids string) {
+	deadWithin(t, pids, 10*time.Second)
+}
+
+func deadWithin(t *testing.T, pids string, within time.Duration) {
 	t.Helper()
 	raw, err := os.ReadFile(pids)
 	if err != nil {
 		t.Fatal(err)
 	}
-	giveUp := time.Now().Add(10 * time.Second)
+	giveUp := time.Now().Add(within)
 	for _, field := range strings.Fields(string(raw)) {
 		pid, err := strconv.Atoi(field)
 		if err != nil || pid <= 0 {
@@ -415,11 +419,54 @@ func dead(t *testing.T, pids string) {
 		}
 		for syscall.Kill(pid, 0) == nil {
 			if time.Now().After(giveUp) {
-				t.Fatalf("process %d is still alive 10 s after the timeout killed it", pid)
+				t.Fatalf("process %d is still alive after %s", pid, within)
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+}
+
+// A Chrome that finishes promptly must not leave the watchdog's sleep
+// running for the whole timeout.
+func TestShotStopsItsWatchdogAfterChromeExits(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	realSleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep: the shot watchdog uses it")
+	}
+	s := page(t)
+	env, argsFile := standin(t, "png", 0)
+	realChrome := strings.TrimPrefix(env[0], "SHOT_CHROME=")
+	dir := t.TempDir()
+	chrome := filepath.Join(dir, "chrome")
+	script := "#!/bin/sh\n\"$SHOT_REAL_SLEEP\" 0.2\nexec \"$SHOT_REAL_CHROME\" \"$@\"\n"
+	if err := os.WriteFile(chrome, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	traceDir := t.TempDir()
+	sleepPIDs := filepath.Join(t.TempDir(), "sleep-pids")
+	sleepScript := "#!/bin/sh\necho $$ >>\"$SHOT_SLEEP_PIDS\"\nexec \"$SHOT_REAL_SLEEP\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(traceDir, "sleep"), []byte(sleepScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env = append(env,
+		"SHOT_CHROME="+chrome,
+		"SHOT_REAL_CHROME="+realChrome,
+		"SHOT_REAL_SLEEP="+realSleep,
+		"SHOT_SLEEP_PIDS="+sleepPIDs,
+		"SHOT_TIMEOUT=60",
+		"PATH="+traceDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", filepath.Join(t.TempDir(), "shot.png")}, env...)
+	if rc != 0 {
+		t.Fatalf("shot: exit %d: %s", rc, text)
+	}
+	if _, err := os.Stat(argsFile); err != nil {
+		t.Fatal(err)
+	}
+	deadWithin(t, sleepPIDs, time.Second)
 }
 
 // A Chrome that sleeps past its deadline is killed, and the shot fails with
