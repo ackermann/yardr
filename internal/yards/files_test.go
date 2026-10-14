@@ -175,8 +175,8 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 // the other yard's blobs, under the same hash and the type its bytes say,
 // and its line names the page there; the conversation shows it. The type
 // the sender claimed is not trusted: bytes that say HTML land as a page
-// whatever they came under, so the receiver's sandbox shows them as its
-// own pages.
+// whatever they came under. Nothing here opens it: a mailed page stays
+// unopenable until mail viewing is decided (yardr-k5j6).
 func TestMailWithAPageCrosses(t *testing.T) {
 	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
 	ctx := context.Background()

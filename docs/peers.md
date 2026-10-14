@@ -1114,8 +1114,10 @@ Not carried: files that are no image or page, beads, memories, mail to a group.
 and `--file page.html` the page, as [`--file` does in one
 yard](users.md#an-image-in-mail), when the link carries the kind `file` as
 well as `mail`. Pages cross as files: under the same kind, within the same
-caps, and inert — the receiving yard keeps the bytes and shows them under
-its own sandbox, as it does its own pages:
+caps, and inert — the receiving yard keeps the bytes as files of its own,
+named on the mail as in one yard. A page that arrives on mail stays
+unopenable until mail viewing is decided: the web view serves only note
+files, so only note pages open:
 
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
