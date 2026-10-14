@@ -124,10 +124,14 @@ func printLinks(ls []store.Link) {
 func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, links ...store.Link) error {
 	return a.out(b, func() {
 		// The title, the body and the reason it closed are a writer's
-		// words, and stand in the output its notes stand in: without
-		// the mark of a note's files line (store.NoteFilesMark), so a
-		// line starting with it is a note's files and nothing else.
-		fmt.Printf("%s  %s\n", b.ID, store.WithoutFilesMark(b.Title))
+		// words, and stand in the output its notes stand in. The title
+		// and the reason are one line each, as letters only, so neither
+		// starts a line of its own; the body stands further in than any
+		// line the yard prints, so no line of it reads as a heading, an
+		// author line or a note. Without the mark of a note's files
+		// line (store.NoteFilesMark), so a line starting with it is a
+		// note's files and nothing else.
+		fmt.Printf("%s  %s\n", b.ID, store.OneLine(b.Title))
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
 		if b.Hold {
 			fmt.Print(" · HELD")
@@ -165,10 +169,10 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 			fmt.Printf("  labels %s\n", strings.Join(b.Labels, ", "))
 		}
 		if b.CloseReason != nil {
-			fmt.Printf("  closed: %s\n", store.WithoutFilesMark(*b.CloseReason))
+			fmt.Printf("  closed: %s\n", store.OneLine(*b.CloseReason))
 		}
 		if b.Body != "" {
-			fmt.Printf("\n%s\n", store.WithoutFilesMark(b.Body))
+			fmt.Printf("\n      %s\n", strings.ReplaceAll(store.NoteLetters(b.Body), "\n", "\n      "))
 		}
 	})
 }
@@ -287,15 +291,15 @@ func printBlockedBy(ds []store.Dep) {
 // listener, and says nothing of who wrote it: the line of author and time
 // does. So the text stands further in than that line, where no line of it
 // can be taken for the start of another note, and it reaches the terminal
-// as letters only (noteLetters).
+// as letters only (store.NoteLetters).
 func printNotes(notes []store.Note, home string) {
 	if len(notes) == 0 {
 		return
 	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
-		fmt.Printf("  %s %s (note %d)%s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
-		fmt.Printf("    %s\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
+		fmt.Printf("  %s %s (note %d)%s\n", store.OneLine(n.Author), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
+		fmt.Printf("    %s\n", strings.ReplaceAll(store.NoteLetters(n.Text), "\n", "\n    "))
 		if line := store.NoteFilesLine(home, n.Files); line != "" {
 			fmt.Printf("    %s\n", line)
 		}
@@ -323,28 +327,19 @@ func noteTell(n store.Note) string {
 	}
 }
 
-// noteLetters is a note's text without what would move the cursor or turn
-// the direction of text around: every control character but the line break
-// and the tab, and the marks of direction. An escape sequence is left as
-// the letters that followed its escape. The mark that starts a note's
-// files line is no letter either: without that a note's words could
-// forge the line (store.NoteFilesMark).
-func noteLetters(s string) string {
-	return store.Letters(s)
-}
-
 // printDiscovery adds a bead's discovered-from edges to bead show's text:
 // the bead it was found from, and each bead found from it, closed ones too.
+// Their titles are their writers' words, one line each, as letters only.
 func printDiscovery(d *store.Discovery) {
 	for _, o := range d.From {
-		fmt.Printf("  discovered from %s %s\n", o.ID, store.WithoutFilesMark(o.Title))
+		fmt.Printf("  discovered from %s %s\n", o.ID, store.OneLine(o.Title))
 	}
 	for _, f := range d.LedTo {
 		closed := ""
 		if f.Status == "closed" {
 			closed = " (closed)"
 		}
-		fmt.Printf("  led to: %s %s%s\n", f.ID, store.WithoutFilesMark(f.Title), closed)
+		fmt.Printf("  led to: %s %s%s\n", f.ID, store.OneLine(f.Title), closed)
 	}
 }
 

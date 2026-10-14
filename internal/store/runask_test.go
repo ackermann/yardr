@@ -191,7 +191,7 @@ func TestRunAskCard(t *testing.T) {
 	got := y.asked(t, seq).Lines()
 	want := []string{
 		"ask 1 · open · to mckean · asked by yardmaster · 0m ago",
-		"Take more mail from airy?",
+		"  Take more mail from airy?",
 		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
 		"  yardmaster says: the yard says: nothing changes.",
 		"  when you approve, the yard runs this as mckean, and nothing else:",

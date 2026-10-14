@@ -122,9 +122,9 @@ func WithFiles(text, home string, files []BlobRef) string {
 // carries where it is shown (NoteFilesLine): its words end where the
 // line begins, so nothing its writer typed stands for a file the yard
 // keeps. Every renderer of notes and mail keeps the mark out of the
-// writers' own words (WithoutFilesMark, and the terminal's noteLetters
-// for notes), so a line starting with it is the yard's, and any other
-// "N image(s):" is words.
+// writers' own words (WithoutFilesMark, and Letters where control
+// characters go too), so a line starting with it is the yard's, and any
+// other "N image(s):" is words.
 const NoteFilesMark = "◆"
 
 // NoteFilesLine is the files of a note or a mail where it is shown: the
@@ -165,6 +165,20 @@ func Letters(s string) string {
 		}
 		return r
 	}, strings.ToValidUTF8(s, "")))
+}
+
+// NoteLetters is a writer's words where a note stands: Letters, under the
+// name the bead, note and ask renderers use.
+func NoteLetters(s string) string {
+	return Letters(s)
+}
+
+// OneLine is a writer's words where a single line of the yard's stands
+// for them: a note's author, a bead's title, an ask's short fields. As
+// letters only (NoteLetters), and without the line break, so the words
+// cannot start a line of their own where they are shown.
+func OneLine(s string) string {
+	return NoteLetters(strings.ReplaceAll(s, "\n", " "))
 }
 
 // MailFiles are the files the mail e carries, nil for mail without any.

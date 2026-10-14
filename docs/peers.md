@@ -693,7 +693,7 @@ $ yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --option "Keep depot: nothing changes" \
     --option "Rename it: every command, page and document changes once"
 ask 2611 · open · to mckean · asked by yardmaster · 0m ago
-Rename 'depot'?
+  Rename 'depot'?
   The glossary keeps it as the yard's word for a repository.
   1. Keep depot - nothing changes
   2. Rename it - every command, page and document changes once

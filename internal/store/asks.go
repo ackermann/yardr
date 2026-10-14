@@ -669,18 +669,20 @@ func boolCount(b bool) int {
 }
 
 // declinedLine is a declined ask's end as every view shows it. Only a
-// secret ask is declined without words.
+// secret ask is declined without words. Who and why are one line, as
+// letters only, so neither starts a line of its own where it is shown.
 func declinedLine(a ResolvedAnswer) string {
 	if a.Answer.Words == "" {
-		return fmt.Sprintf("%s declined to give it", a.Note.Author)
+		return fmt.Sprintf("%s declined to give it", OneLine(a.Note.Author))
 	}
-	return fmt.Sprintf("%s declined to decide this: %s", a.Note.Author, a.Answer.Words)
+	return fmt.Sprintf("%s declined to decide this: %s", OneLine(a.Note.Author), OneLine(a.Answer.Words))
 }
 
 // takenBackLine is a taken-back ask's end as every view shows it: who took
-// it back and why, never as an answer of the person asked.
+// it back and why, never as an answer of the person asked. One line, as
+// letters only, so neither starts a line of its own where it is shown.
 func takenBackLine(a ResolvedAnswer) string {
-	return fmt.Sprintf("taken back by %s: %s", a.Note.Author, a.Answer.Words)
+	return fmt.Sprintf("taken back by %s: %s", OneLine(a.Note.Author), OneLine(a.Answer.Words))
 }
 
 // TakeBackAsk ends the ask seq on the bead id as asked no more, with the
@@ -978,27 +980,32 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		state = "approved"
 	}
 	head := fmt.Sprintf("ask %d · %s · to %s · asked by %s · %s ago",
-		r.Note.Seq, state, r.Ask.To, r.Note.Author, askAge(r.Note.At, r.now))
+		r.Note.Seq, state, OneLine(r.Ask.To), OneLine(r.Note.Author), askAge(r.Note.At, r.now))
 	if r.State == AskAside {
 		head = fmt.Sprintf("ask %d · put aside until %s · to %s · asked by %s · %s ago",
-			r.Note.Seq, r.ReturnAt.Local().Format("2006-01-02 15:04"), r.Ask.To, r.Note.Author, askAge(r.Note.At, r.now))
+			r.Note.Seq, r.ReturnAt.Local().Format("2006-01-02 15:04"), OneLine(r.Ask.To), OneLine(r.Note.Author), askAge(r.Note.At, r.now))
 	}
-	out := []string{head, r.Ask.Question}
+	// The question is the asker's words, and stands in the list its
+	// answers stand in: further in than the card's head, as a note's
+	// text stands further in than its author line, so no line of it
+	// reads as another note.
+	out := []string{head, "  " + strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n  ")}
 	for _, line := range r.Ask.Context {
+		line = NoteLetters(line)
 		if r.Ask.Run != nil {
-			line = r.Note.Author + " says: " + line
+			line = OneLine(r.Note.Author) + " says: " + line
 		}
-		out = append(out, "  "+line)
+		out = append(out, "  "+strings.ReplaceAll(line, "\n", "\n  "))
 	}
 	switch {
 	case r.Ask.Run != nil && r.State == AskAnswered:
 	case r.Ask.Run != nil:
-		out = append(out, fmt.Sprintf("  when you approve, the yard runs this as %s, and nothing else:", r.Ask.To),
-			"      "+r.Ask.Run.Command())
+		out = append(out, fmt.Sprintf("  when you approve, the yard runs this as %s, and nothing else:", OneLine(r.Ask.To)),
+			"      "+strings.ReplaceAll(NoteLetters(r.Ask.Run.Command()), "\n", "\n      "))
 		for _, does := range r.Ask.Run.Does {
 			out = append(out, "  the yard says: "+does)
 		}
-		out = append(out, "  "+r.Ask.Run.TakenBack())
+		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 	case r.Ask.Secret != nil:
 		out = append(out, "  "+r.Ask.Secret.Line(),
 			"  it goes to a file only the yard's server reads; no agent is shown it")
@@ -1006,15 +1013,15 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		out = append(out, "  words wanted: answer with words")
 	default:
 		for i, o := range r.Ask.Options {
-			line := fmt.Sprintf("  %d. %s - %s", i+1, o.Label, o.Consequence)
+			line := fmt.Sprintf("  %d. %s - %s", i+1, OneLine(o.Label), OneLine(o.Consequence))
 			if i+1 == r.Ask.Recommend {
-				line += fmt.Sprintf(" (recommended: %s)", r.Ask.Why)
+				line += fmt.Sprintf(" (recommended: %s)", OneLine(r.Ask.Why))
 			}
 			out = append(out, line)
 		}
 	}
 	if len(r.Ask.About) > 0 {
-		out = append(out, "  about "+strings.Join(r.Ask.About, ", "))
+		out = append(out, "  about "+OneLine(strings.Join(r.Ask.About, ", ")))
 	}
 	who := func(a string) string {
 		if mark == nil {
@@ -1025,18 +1032,19 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch r.State {
 	case AskAnswered:
 		c := *r.Current
+		by := OneLine(ViaMark(who(c.Note.Author), c.Note.Via))
 		switch {
 		case r.Ask.Run != nil && c.Answer.Ran != nil:
-			out = append(out, fmt.Sprintf("  %s approved, ran: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Ran.Command()))
+			out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
 			// A command that changed several things printed a line for each.
 			for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
-				out = append(out, "      "+line)
+				out = append(out, "      "+NoteLetters(line))
 			}
-			out = append(out, "  "+r.Ask.Run.TakenBack())
+			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 		case r.Ask.Secret != nil:
-			out = append(out, fmt.Sprintf("  %s gave %s", ViaMark(who(c.Note.Author), c.Note.Via), strings.Join(c.Answer.Given, " and ")))
+			out = append(out, fmt.Sprintf("  %s gave %s", by, OneLine(strings.Join(c.Answer.Given, " and "))))
 		case len(r.Ask.Options) == 0:
-			out = append(out, fmt.Sprintf("  %s answered: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Words))
+			out = append(out, fmt.Sprintf("  %s answered: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n  ")))
 		default:
 			prev := 0
 			for _, a := range r.Answers {
@@ -1054,16 +1062,16 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 			label := ""
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
-				label = " (" + r.Ask.Options[c.Answer.Option-1].Label + ")"
+				label = " (" + OneLine(r.Ask.Options[c.Answer.Option-1].Label) + ")"
 			}
-			line := fmt.Sprintf("  %s picked %d%s%s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Option, was, label)
+			line := fmt.Sprintf("  %s picked %d%s%s", by, c.Answer.Option, was, label)
 			if c.Answer.Words != "" {
-				line += ": " + c.Answer.Words
+				line += ": " + strings.ReplaceAll(NoteLetters(c.Answer.Words), "\n", "\n  ")
 			}
 			out = append(out, line)
 		}
 	case AskAside:
-		out = append(out, fmt.Sprintf("  back sooner if %s writes", r.Note.Author))
+		out = append(out, fmt.Sprintf("  back sooner if %s writes", OneLine(r.Note.Author)))
 	case AskDeclined:
 		c := *r.Current
 		c.Note.Author = ViaMark(who(c.Note.Author), c.Note.Via)
@@ -1096,6 +1104,12 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 // (NoteFilesLine), each image by its path in the yard at home; the
 // mark is kept out of every word a note's writer chose, so only that
 // line names a file the yard keeps.
+//
+// A note's text may come from another yard, or from a device on the
+// listener, and says nothing of who wrote it: the head line does. So in
+// every block the head stands alone at the margin and the writer's
+// words stand further in, as letters only (NoteLetters), where no line
+// of them can be taken for the start of another note.
 func NoteBlocks(notes []Note, now time.Time, home string) []string {
 	return blocks(notes, now, home, nil)
 }
@@ -1130,20 +1144,21 @@ func blocks(notes []Note, now time.Time, home string, mark func(string) string) 
 		}
 		if r, ok := byAsk[n.Seq]; ok {
 			// An ask carries no files; its question, context and
-			// answers are the writers' words, shown without the mark
-			// a note's files line starts with, so none forges one.
-			out = append(out, WithoutFilesMark(strings.Join(r.lines(mark), "\n")))
+			// answers are the writers' words, shown as letters only,
+			// so none forges the marked line a note's files stand on.
+			out = append(out, NoteLetters(strings.Join(r.lines(mark), "\n")))
 			continue
 		}
 		if n.Kind == NoteAnswer {
-			out = append(out, WithoutFilesMark(fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
-				n.At.Local().Format("2006-01-02 15:04"), who(n.Author), n.Seq)))
+			out = append(out, NoteLetters(fmt.Sprintf("[%s %s]\n  answer %d names no ask of this bead",
+				n.At.Local().Format("2006-01-02 15:04"), OneLine(who(n.Author)), n.Seq)))
 			continue
 		}
-		block := WithoutFilesMark(fmt.Sprintf("[%s %s]\n%s",
-			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), strings.TrimSpace(n.Text)))
+		text := strings.ReplaceAll(strings.TrimSpace(NoteLetters(n.Text)), "\n", "\n  ")
+		block := NoteLetters(fmt.Sprintf("[%s %s]\n  %s",
+			n.At.Local().Format("2006-01-02 15:04"), OneLine(ViaMark(who(n.Author), n.Via)), text))
 		if line := NoteFilesLine(home, n.Files); line != "" {
-			block += "\n" + line
+			block += "\n  " + line
 		}
 		out = append(out, block)
 	}

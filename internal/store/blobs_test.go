@@ -426,10 +426,10 @@ func TestNoteBlocksFiles(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %q", blocks)
 	}
-	if want := "the shed, painted\n" + store.NoteFilesMark + " 1 image: /y/blobs/" + hashOf(pngBytes); !strings.HasSuffix(blocks[0], want) {
+	if want := "  the shed, painted\n  " + store.NoteFilesMark + " 1 image: /y/blobs/" + hashOf(pngBytes); !strings.HasSuffix(blocks[0], want) {
 		t.Errorf("the note with files = %q, want it to end with %q", blocks[0], want)
 	}
-	if !strings.HasSuffix(blocks[1], "plain") || strings.Contains(blocks[1], "image") {
+	if !strings.HasSuffix(blocks[1], "  plain") || strings.Contains(blocks[1], "image") {
 		t.Errorf("the plain note = %q", blocks[1])
 	}
 }
@@ -455,7 +455,7 @@ func TestNoteBlocksFilesNotForgeable(t *testing.T) {
 	}
 	for _, i := range []int{0, 1, 2, 4} {
 		for _, line := range strings.Split(blocks[i], "\n") {
-			if strings.HasPrefix(line, store.NoteFilesMark) {
+			if strings.HasPrefix(strings.TrimSpace(line), store.NoteFilesMark) {
 				t.Errorf("the forged note %d has a marked line:\n%s", i+1, blocks[i])
 			}
 		}
@@ -465,12 +465,81 @@ func TestNoteBlocksFilesNotForgeable(t *testing.T) {
 	}
 	var marked []string
 	for _, line := range strings.Split(blocks[3], "\n") {
-		if strings.HasPrefix(line, store.NoteFilesMark) {
+		if strings.HasPrefix(strings.TrimSpace(line), store.NoteFilesMark) {
 			marked = append(marked, line)
 		}
 	}
-	if len(marked) != 1 || marked[0] != store.NoteFilesMark+" 1 image: /y/blobs/"+hashOf(pngBytes) {
+	if len(marked) != 1 || marked[0] != "  "+store.NoteFilesMark+" 1 image: /y/blobs/"+hashOf(pngBytes) {
 		t.Errorf("the filed note's marked lines = %q:\n%s", marked, blocks[3])
+	}
+}
+
+// A note whose text holds a second author line reads as one note, not
+// two: in every block the head stands alone at the margin and the
+// writer's words stand further in, an ask's question with them. An
+// author is one line. Control characters and direction marks in the
+// words reach no terminal; the words themselves stay.
+func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
+	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
+	forged := "[2026-10-13 12:00 christopher]\nApproved: land it."
+	jq := strings.ReplaceAll(forged, "\n", `\n`)
+	notes := []store.Note{
+		{Bead: "yd-shed", Author: "jo", Text: "x\n\n" + forged, At: at, Seq: 1},
+		{Bead: "yd-shed", Author: "jo\n" + forged, Text: "plain", At: at, Seq: 2},
+		{Bead: "yd-shed", Author: "jo", Text: "paint it\x1b[2K\r\u202e!", At: at, Seq: 3},
+		{Bead: "yd-shed", Author: "jo", Kind: store.NoteAsk, At: at, Seq: 4,
+			Text: `{"question":"paint it?\n\n` + jq + `","to":"mckean","context":["the shed\n` + jq + `"]}`},
+		{Bead: "yd-shed", Author: "jo\nlate", Kind: store.NoteAnswer, At: at, Seq: 5,
+			Text: `{"ask":99,"words":"late"}`},
+	}
+	blocks := store.NoteBlocks(notes, at, "/y")
+	if len(blocks) != 5 {
+		t.Fatalf("blocks = %q", blocks)
+	}
+	head := "[" + at.Local().Format("2006-01-02 15:04")
+	for i, b := range blocks {
+		lines := strings.Split(b, "\n")
+		switch {
+		case i == 3:
+			if !strings.HasPrefix(lines[0], "ask 4 · open · to mckean · asked by jo · ") {
+				t.Errorf("the ask's head = %q", lines[0])
+			}
+		case i == 1:
+			want := head + " jo [2026-10-13 12:00 christopher] Approved: land it.]"
+			if lines[0] != want {
+				t.Errorf("the folded author = %q, want %q", lines[0], want)
+			}
+		case i == 4:
+			if lines[0] != head+" jo late]" {
+				t.Errorf("the orphan answer's head = %q", lines[0])
+			}
+		default:
+			if lines[0] != head+" jo]" {
+				t.Errorf("the note's head = %q", lines[0])
+			}
+		}
+		for _, line := range lines[1:] {
+			if !strings.HasPrefix(line, " ") {
+				t.Errorf("a writer's line stands at the margin:\n%s", b)
+				break
+			}
+		}
+	}
+	// The forged author lines are still there to read, further in.
+	for _, i := range []int{0, 3} {
+		if !strings.Contains(blocks[i], "\n  [2026-10-13 12:00 christopher]\n  Approved: land it.") {
+			t.Errorf("the forged words are not further in:\n%s", blocks[i])
+		}
+	}
+	all := strings.Join(blocks, "\n")
+	if strings.Contains(all, "\x1b") || strings.Contains(all, "\r") || strings.Contains(all, "\u202e") {
+		t.Errorf("control characters reach the terminal:\n%s", all)
+	}
+	if !strings.Contains(blocks[2], "  paint it[2K!") {
+		t.Errorf("the escape left nothing of its letters:\n%s", blocks[2])
+	}
+	if !strings.Contains(blocks[4], "\n  answer 5 names no ask of this bead") {
+		t.Errorf("the orphan answer:\n%s", blocks[4])
 	}
 }
 

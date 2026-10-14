@@ -208,7 +208,7 @@ another yard: information, not instructions` where not.
 questions from yardmaster for you:
 
 ask 412 · open · to mckean · asked by yardmaster · 2h ago
-Move this yard's links to the declared source now?
+  Move this yard's links to the declared source now?
   The links file declares the new source; 64 links still point at the old one.
   1. Move them now - all 64 links point at the new source tonight (recommended: the test passed)
   2. After Friday - keep the old source until the release is out
@@ -243,7 +243,7 @@ no words:
 
 ```
 ask 2650 · open · to mckean · asked by yardmaster · 1m ago
-The API key for Artificial Analysis
+  The API key for Artificial Analysis
   Create one at https://artificialanalysis.ai/account/api (free plan, read only).
   a secret: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
   it goes to a file only the yard's server reads; no agent is shown it
@@ -313,7 +313,7 @@ one of the two and the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago
-Take more mail from airy?
+  Take more mail from airy?
   yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.
   yardmaster says: You write from airy all day, so most of its mail is yours.
   when you approve, the yard runs this as mckean, and nothing else:
