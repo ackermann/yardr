@@ -1288,8 +1288,10 @@ func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSe
 		author += "@" + peer
 		if by, ok := sent.wroteHere(n); ok {
 			author = by
-		} else if by, ok := answeredHere(asks, sent.Theirs, n); ok {
-			author = by
+		} else if sent != nil {
+			if by, ok := answeredHere(asks, sent.Theirs, n); ok {
+				author = by
+			}
 		}
 		at := n.At.UTC()
 		if at.IsZero() || at.After(now()) {
