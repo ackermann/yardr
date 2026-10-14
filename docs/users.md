@@ -108,8 +108,8 @@ its inbox line starts with: the reply is mail to that mail's sender.
 
 ### An image in mail
 
-`--file <path>` sends an image with the mail, a PNG or a JPEG, and is given
-once for each image, up to 8. The text may then be left out:
+`--file <path>` sends an image (a PNG or a JPEG) or a page (HTML) with the
+mail, and is given once for each file, up to 8. The text may then be left out:
 
 ```
 $ yardr mail yardmaster "The yard, painted" --file yard.png
@@ -117,22 +117,24 @@ mail sent to yardmaster
 ◆ 1 image: /home/mckean/.yardr/blobs/497790947d46…1581
 ```
 
-The yard keeps the image in its home, in `blobs/`, in a file named by the
+The yard keeps the file in its home, in `blobs/`, in a file named by the
 SHA-256 of its bytes: sent twice, it is there once, and it is never
-changed. Wherever the mail is read, the image stands under the mail's
-words on a line of its own starting with `◆`, as `1 image: <path>`
-(`2 images: <path> <path>`): `yardr inbox` for a user and for a crew member,
+changed. Wherever the mail is read, the file stands under the mail's
+words on a line of its own starting with `◆`, as `1 image: <path>` or
+`1 page: <path>` (`2 images: <path> <path>`, `1 image, 1 page: <path>
+<path>`): `yardr inbox` for a user and for a crew member,
 `yardr mail --with`, the nudge a crew member gets for its inbox, and
 [`yardr chat`](chat.md#an-image). Only that marked line names a file the
-yard keeps; any other `N image(s):` is words someone wrote into the mail.
-A crew member reads the picture by opening that file, as it reads any
+yard keeps; any other `N image(s):` or `N page(s):` is words someone wrote
+into the mail. A crew member reads the file by opening it, as it reads any
 other; yardr shows none itself. In `--json` the letter has `files`, a list
 of `{hash, type, bytes}`.
 
-What a file is is read from its bytes, not its name: anything but a PNG or
-a JPEG is refused, and so is one over the yard's limit, 8 MiB unless
-`yardr settings set blob_max_bytes <bytes>` says otherwise. Nothing is
-stored then, and the mail is not sent.
+What a file is is read from its bytes, not its name: anything but a PNG, a
+JPEG or HTML is refused, and so is one over the yard's limit, 8 MiB unless
+`yardr settings set blob_max_bytes <bytes>` says otherwise. Prose saved as
+`.html` is refused, and so is an SVG file, which the yard reads as text.
+Nothing is stored then, and the mail is not sent.
 
 **To a linked yard** an image goes with `yardr mail <name>@<peer> --file`
 when the link carries the kind `file` (`yardr peer allow <peer> --send
@@ -141,7 +143,7 @@ Where the other yard does not take it the mail still arrives, with `1 image:
 not taken: <reason>` in place of the path
 ([peers.md](peers.md#an-image-with-the-mail)).
 
-An image is removed by `yardr store prune`, and by the daemon's hourly
+A file is removed by `yardr store prune`, and by the daemon's hourly
 prune, once no mail the yard still has names it
 ([configuration.md](configuration.md#retention-keeping-yarddb-bounded)).
 Nothing else deletes one.
@@ -733,7 +735,7 @@ runs it and that crew member or user, both directions, oldest first:
 
 The columns are the mail's seq, when it was sent, whether its receiver has
 read it, the sender and the text; on mail that carries
-[an image](#an-image-in-mail) the image stands under the text, on a marked
+[a file](#an-image-in-mail) it stands under the text, on a marked
 line of its own. A crew member's session reads the same exchange with the
 user's name: `yardr mail --with mckean`.
 

@@ -50,7 +50,7 @@ func TestBlobsOverTheSocket(t *testing.T) {
 	}
 
 	for _, c := range []struct{ method, body, want string }{
-		{"PutBlob", `{"data":"` + base64.StdEncoding.EncodeToString([]byte("GIF89a it moves")) + `"}`, `"message":"the file is image/gif: the yard keeps only image/png and image/jpeg"`},
+		{"PutBlob", `{"data":"` + base64.StdEncoding.EncodeToString([]byte("GIF89a it moves")) + `"}`, `"message":"the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8"`},
 		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + hash + `"]}`, `{}`},
 		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + unknown + `"]}`,
 			`{"error":{"code":"not-found","message":"mail to yardmaster: image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr mail --file)"}}`},

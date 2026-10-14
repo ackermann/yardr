@@ -1042,7 +1042,7 @@ func (a *app) mailCmd() *cobra.Command {
 	var after uint64
 	var files []string
 	cmd := &cobra.Command{
-		Use:   "mail <name>[@<peer>] <text|-> [--file <image>]...",
+		Use:   "mail <name>[@<peer>] <text|-> [--file <path>]...",
 		Short: "Send a message to the inbox of a crew member or a user, or read a conversation back (--with)",
 		Long: `Sends a message to the inbox of a crew member or of a user (up to 4 KB; yardr chat
 sends a longer text as several mails).
@@ -1052,12 +1052,12 @@ A crew member's session and a user mail a user; an agent working a bead does
 not, its channel is the bead. Nothing nudges a person: they read with yardr
 inbox.
 
---file <path> sends an image with the mail, a PNG or a JPEG, and may be given
-more than once (up to ` + strconv.Itoa(store.MaxMailFiles) + `); the text may then be left out. The yard keeps the
-image in its home, in blobs/ under the SHA-256 of its bytes, once however often
+--file <path> sends an image (a PNG or a JPEG) or a page (HTML) with the
+mail, and may be given more than once (up to ` + strconv.Itoa(store.MaxMailFiles) + `); the text may then be left out. The yard keeps the
+file in its home, in blobs/ under the SHA-256 of its bytes, once however often
 it is sent, and where the mail is read (yardr inbox, a crew member's nudge,
 yardr chat) it stands under the mail's words, on a line of its own starting
-with "◆", as "1 image: <path>": a crew member reads the file there. What the
+with "◆", as "1 image: <path>" or "1 page: <path>": a crew member reads the file there. What the
 bytes are is what counts, not the file's name; one over the
 yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused.
 
@@ -1074,7 +1074,7 @@ the reason where the image's path would be.
 or user, both directions, oldest first: seq, time, whether its receiver has
 read it (acknowledged it with yardr inbox --ack), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
-{seq, at, from, to, text, read}, with files on mail that carries images. --with <name>@<peer> prints the mail
+{seq, at, from, to, text, read}, with files on mail that carries any. --with <name>@<peer> prints the mail
 between you and a crew member or person of a linked yard; what you wrote says queued,
 sent or failed (delivery in --json) instead, since the other yard does not
 say what was read. It goes by the link, so a peer renamed since (yardr peer
@@ -1203,7 +1203,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 	}
 	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <name>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
-	cmd.Flags().StringArrayVar(&files, "file", nil, "an image the mail carries, a PNG or a JPEG (repeatable)")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "an image (a PNG or a JPEG) or a page (HTML) the mail carries (repeatable)")
 	return cmd
 }
 

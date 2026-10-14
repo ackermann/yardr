@@ -57,7 +57,7 @@ func TestMailFile(t *testing.T) {
 		t.Fatalf("after a second send the yard holds %v", got)
 	}
 
-	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
+	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608", "mail", "yardmaster", "big", "--file",
 		file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
 	refusedAs(t, st, "jo", "no such file", "mail", "yardmaster", "gone", "--file", filepath.Join(dir, "none.png"))
@@ -92,6 +92,41 @@ func TestMailFile(t *testing.T) {
 	if !strings.Contains(with, "jo: the shed\n    "+marked+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
 		t.Errorf("mail --with:\n%s", with)
 	}
+}
+
+// yardr mail --file sends a page as it sends an image, with no new flag:
+// the sent mail names "1 page", and the inbox shows it under the mail's
+// words. Prose named .html is refused, since what the bytes are is what
+// counts.
+func TestMailPage(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	dir := t.TempDir()
+	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
+	page := filepath.Join(dir, "page.html")
+	if err := os.WriteFile(page, []byte(html), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(html))
+	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the shed, mocked up", "--file", page); out != "mail sent to yardmaster\n"+marked+"\n" {
+		t.Fatalf("mail --file page.html = %q", out)
+	}
+	prose := filepath.Join(dir, "prose.html")
+	if err := os.WriteFile(prose, []byte("just some prose"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refusedAs(t, st, "jo", "prose.html: the file is text/plain; charset=utf-8: the yard keeps only", "mail", "yardmaster", "prose", "--file", prose)
+	if names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*")); len(names) != 1 {
+		t.Fatalf("what was refused was stored: %v", names)
+	}
+	t.Setenv("YARDR_CREW", "yardmaster")
+	inbox := mustAs(t, st, "yardmaster", "inbox")
+	if !strings.Contains(inbox, "mail from jo: the shed, mocked up\n    "+marked+"\n") {
+		t.Errorf("the yardmaster's inbox:\n%s", inbox)
+	}
+	t.Setenv("YARDR_CREW", "")
 }
 
 // yardr mail <name>@<peer> --file sends the image with the mail when the

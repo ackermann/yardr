@@ -76,7 +76,7 @@ func TestBeadNoteFile(t *testing.T) {
 	refusedAs(t, st, "jo", "a note with --file needs words: say what the picture shows",
 		"bead", "note", b.ID, " \n\t ", "--file", file("blank.png", "\x89PNG\r\n\x1a\n no words"))
 
-	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg",
+	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8",
 		"bead", "note", b.ID, "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608",
 		"bead", "note", b.ID, "big", "--file", file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
@@ -90,6 +90,62 @@ func TestBeadNoteFile(t *testing.T) {
 	names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
 	if len(names) != 1 {
 		t.Errorf("what was refused was stored: %v", names)
+	}
+}
+
+// yardr bead note --file attaches a page as it attaches an image, with no
+// new flag: the note names "1 page", and --json carries the HTML type. A
+// mixed note counts each kind apart. Prose named .html and an SVG file are
+// refused, since what the bytes are is what counts.
+func TestBeadNotePage(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	file := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
+	page := file("page.html", html)
+	want := "1 page: " + store.BlobPath(home, hashOfFile(t, page))
+
+	out := mustAs(t, st, "jo", "bead", "note", b.ID, "the shed, mocked up", "--file", page)
+	if suffix := " on " + b.ID + "  " + want + "\n"; !strings.HasPrefix(out, "note ") || !strings.HasSuffix(out, suffix) {
+		t.Fatalf("bead note --file page.html = %q", out)
+	}
+	show := mustAs(t, st, "jo", "bead", "show", b.ID)
+	if !strings.Contains(show, "    the shed, mocked up\n    "+store.NoteFilesMark+" "+want+"\n") {
+		t.Errorf("bead show:\n%s", show)
+	}
+	var shown struct {
+		Notes []store.Note `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "bead", "show", b.ID, "--json")), &shown); err != nil ||
+		len(shown.Notes) != 1 || len(shown.Notes[0].Files) != 1 || shown.Notes[0].Files[0].Type != "text/html; charset=utf-8" {
+		t.Fatalf("bead show --json = %+v, %v", shown, err)
+	}
+	// A mixed note counts each kind apart.
+	png := file("shot.png", "\x89PNG\r\n\x1a\n the shed")
+	if out := mustAs(t, st, "jo", "bead", "note", b.ID, "both", "--file", png, "--file", page); !strings.Contains(out, "1 image, 1 page: ") {
+		t.Errorf("bead note --file png --file html = %q", out)
+	}
+	// What the bytes are is what counts, not the .html name.
+	refusedAs(t, st, "jo", "prose.html: the file is text/plain; charset=utf-8: the yard keeps only",
+		"bead", "note", b.ID, "prose", "--file", file("prose.html", "just some prose"))
+	refusedAs(t, st, "jo", "diagram.svg: the file is text/plain; charset=utf-8: the yard keeps only",
+		"bead", "note", b.ID, "a diagram", "--file", file("diagram.svg", `<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>`))
+	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 2 {
+		t.Errorf("what was refused was written: %+v, %v", notes, err)
 	}
 }
 

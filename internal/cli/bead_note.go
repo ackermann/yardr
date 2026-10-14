@@ -14,18 +14,18 @@ func (a *app) newBeadNoteCmd() *cobra.Command {
 	var ackSeq uint64
 	var noteFiles []string
 	note := &cobra.Command{
-		Use:   "note <id> <text> [--file <image>]... | note <id> --ack <seq>",
+		Use:   "note <id> <text> [--file <path>]... | note <id> --ack <seq>",
 		Short: "Attach a note (evidence) to a bead",
 		Long: `Attaches a note (evidence) to a bead: what was done, seen or decided, in
 words. The bead's live session is told of it, unless the writer is that
 session itself.
 
---file <path> attaches an image to the note, a PNG or a JPEG, and may be
-given more than once (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the image in its
+--file <path> attaches an image (a PNG or a JPEG) or a page (HTML) to the
+note, and may be given more than once (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the file in its
 home, in blobs/ under the SHA-256 of its bytes, once however often it is
 attached, and where the note is read (yardr prime, yardr review, yardr bead
 show) it stands under the note's words, on a line of its own starting with
-"◆", as "1 image: <path>". The note still needs its words:
+"◆", as "1 image: <path>" or "1 page: <path>". The note still needs its words:
 say what the picture shows. What the bytes are is what counts, not the
 file's name; one over the yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB
 unless set) is refused.
@@ -117,6 +117,6 @@ and takes no text and no --file.`,
 		},
 	}
 	note.Flags().Uint64Var(&ackSeq, "ack", 0, "record that this session read note <seq>, instead of writing one")
-	note.Flags().StringArrayVar(&noteFiles, "file", nil, "an image the note carries, a PNG or a JPEG (repeatable)")
+	note.Flags().StringArrayVar(&noteFiles, "file", nil, "an image (a PNG or a JPEG) or a page (HTML) the note carries (repeatable)")
 	return note
 }

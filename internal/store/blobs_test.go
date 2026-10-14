@@ -23,6 +23,9 @@ var (
 	pngBytes  = []byte("\x89PNG\r\n\x1a\n" + "a picture of the shed")
 	jpegBytes = []byte("\xff\xd8\xff\xe0" + "another of the fence")
 	gifBytes  = []byte("GIF89a" + "one that moves")
+	htmlBytes = []byte("<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>")
+	svgBytes  = []byte(`<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>`)
+	textBytes = []byte("just some prose, saved as page.html")
 )
 
 func hashOf(data []byte) string {
@@ -83,7 +86,7 @@ func TestPutBlob(t *testing.T) {
 	if ref, err := api.PutBlob(ctx, jpegBytes); err != nil || ref.Type != "image/jpeg" {
 		t.Errorf("a JPEG = %+v, %v", ref, err)
 	}
-	if _, err := api.PutBlob(ctx, gifBytes); err == nil || !strings.Contains(err.Error(), "the file is image/gif: the yard keeps only image/png and image/jpeg") {
+	if _, err := api.PutBlob(ctx, gifBytes); err == nil || !strings.Contains(err.Error(), "the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8") {
 		t.Errorf("a GIF = %v", err)
 	}
 	big := append(bytes.Clone(pngBytes), make([]byte, 9<<20)...)
@@ -106,6 +109,88 @@ func TestPutBlob(t *testing.T) {
 	}
 	if err := api.SetSetting(ctx, store.BlobMaxSetting, "0", "jo"); err == nil {
 		t.Error("a cap of 0 was taken")
+	}
+}
+
+// A page is HTML bytes put as a blob, with the type the bytes say; what
+// is not HTML is refused as images are, whatever its name. An SVG file is
+// refused: the yard reads it as text. Caps and dedup are the images'.
+func TestPutBlobPage(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	ref, err := api.PutBlob(ctx, htmlBytes)
+	if err != nil || *ref != (store.BlobRef{Hash: hashOf(htmlBytes), Type: "text/html; charset=utf-8", Bytes: int64(len(htmlBytes))}) {
+		t.Fatalf("a page = %+v, %v", ref, err)
+	}
+	if got, err := os.ReadFile(s.BlobPath(ref.Hash)); err != nil || !bytes.Equal(got, htmlBytes) {
+		t.Fatalf("the blob's file = %q, %v", got, err)
+	}
+	if got, err := s.Blob(ref.Hash); err != nil || *got != *ref {
+		t.Errorf("Blob = %+v, %v", got, err)
+	}
+	// Not written again.
+	again, err := api.PutBlob(ctx, htmlBytes)
+	if err != nil || *again != *ref || len(blobFiles(t, s)) != 1 {
+		t.Fatalf("the second put = %+v, %v; files %v", again, err, blobFiles(t, s))
+	}
+	if _, err := api.PutBlob(ctx, textBytes); err == nil || !strings.Contains(err.Error(), "the file is text/plain; charset=utf-8: the yard keeps only") {
+		t.Errorf("prose named .html = %v", err)
+	}
+	if _, err := api.PutBlob(ctx, svgBytes); err == nil || !strings.Contains(err.Error(), "the file is text/plain; charset=utf-8: the yard keeps only") {
+		t.Errorf("an SVG file = %v", err)
+	}
+	big := append(bytes.Clone(htmlBytes), make([]byte, 9<<20)...)
+	if _, err := api.PutBlob(ctx, big); err == nil || !strings.Contains(err.Error(), "over the yard's limit of 8388608") {
+		t.Errorf("9 MiB of HTML = %v", err)
+	}
+	if got := blobFiles(t, s); len(got) != 1 {
+		t.Errorf("what was refused was stored: %v", got)
+	}
+}
+
+// A page counts toward the note and mail bounds as an image does, and a
+// named one survives the prune past its grace.
+func TestPageBoundsAndPrune(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := api.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := api.PutBlob(ctx, htmlBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eight := make([]string, store.MaxNoteFiles)
+	nine := make([]string, store.MaxNoteFiles+1)
+	for i := range eight {
+		eight[i], nine[i] = page.Hash, page.Hash
+	}
+	nine[store.MaxNoteFiles] = page.Hash
+	if _, err := api.AddNotedAs(ctx, b.ID, "eight pages", "jo", "", eight...); err != nil {
+		t.Fatalf("a note with 8 pages = %v", err)
+	}
+	if err := api.Mail(ctx, "ada", "eight pages", "jo", eight...); err != nil {
+		t.Fatalf("mail with 8 pages = %v", err)
+	}
+	if _, err := api.AddNotedAs(ctx, b.ID, "nine", "jo", "", nine...); err == nil || !strings.Contains(err.Error(), "carries at most 8") {
+		t.Errorf("a note with 9 pages = %v", err)
+	}
+	if err := api.Mail(ctx, "ada", "nine", "jo", nine...); err == nil || !strings.Contains(err.Error(), "carries at most 8") {
+		t.Errorf("mail with 9 pages = %v", err)
+	}
+	old := time.Now().Add(-2 * store.BlobGrace)
+	if err := os.Chtimes(s.BlobPath(page.Hash), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := api.Prune(ctx, store.Retention{}, "jo"); err != nil || res.Blobs != 0 {
+		t.Errorf("prune of a named page = %+v, %v", res, err)
+	}
+	if _, err := s.Blob(page.Hash); err != nil {
+		t.Errorf("the named page is gone: %v", err)
 	}
 }
 
@@ -237,8 +322,12 @@ func slicesOf(s string, n int) []string {
 func TestFilesLineNotTaken(t *testing.T) {
 	held := store.BlobRef{Hash: hashOf(pngBytes), Type: "image/png", Bytes: 7}
 	gone := store.BlobRef{Hash: hashOf(jpegBytes), NotTaken: "the link does not take files"}
+	untook := store.BlobRef{Hash: hashOf(htmlBytes), Type: "text/html; charset=utf-8", NotTaken: "the link does not take files"}
 	if got := store.FilesLine("/y", []store.BlobRef{gone}); got != "1 image: not taken: the link does not take files" {
 		t.Errorf("one not taken = %q", got)
+	}
+	if got := store.FilesLine("/y", []store.BlobRef{untook}); got != "1 page: not taken: the link does not take files" {
+		t.Errorf("one page not taken = %q", got)
 	}
 	if got, want := store.FilesLine("/y", []store.BlobRef{held, gone}), "2 images: "+store.BlobPath("/y", held.Hash)+"; not taken: the link does not take files"; got != want {
 		t.Errorf("one of two not taken = %q, want %q", got, want)
@@ -617,16 +706,24 @@ func TestNoteBlob(t *testing.T) {
 }
 
 // The lines mail is shown with name each image by its path in the home,
-// and say nothing of mail without one.
+// and say nothing of mail without one. Pages stand apart from images,
+// counted on their own; one of no known type counts as an image.
 func TestFilesLine(t *testing.T) {
 	a, b := store.BlobRef{Hash: "aa"}, store.BlobRef{Hash: "bb"}
+	p := store.BlobRef{Hash: "cc", Type: "text/html; charset=utf-8"}
+	q := store.BlobRef{Hash: "dd", Type: "text/html; charset=utf-8"}
 	for want, got := range map[string]string{
 		"":                                  store.FilesLine("/y", nil),
 		"1 image: /y/blobs/aa":              store.FilesLine("/y", []store.BlobRef{a}),
 		"2 images: /y/blobs/aa /y/blobs/bb": store.FilesLine("/y", []store.BlobRef{a, b}),
-		"hello":                             store.WithFiles("hello", "/y", nil),
-		"hello  1 image: /y/blobs/aa":       store.WithFiles("hello", "/y", []store.BlobRef{a}),
-		"1 image: /y/blobs/bb":              store.WithFiles("", "/y", []store.BlobRef{b}),
+		"1 page: /y/blobs/cc":               store.FilesLine("/y", []store.BlobRef{p}),
+		"2 pages: /y/blobs/cc /y/blobs/dd":  store.FilesLine("/y", []store.BlobRef{p, q}),
+		"1 image, 1 page: /y/blobs/aa /y/blobs/cc": store.FilesLine("/y", []store.BlobRef{a, p}),
+		"1 image, 1 page: /y/blobs/cc /y/blobs/aa": store.FilesLine("/y", []store.BlobRef{p, a}),
+		"hello":                       store.WithFiles("hello", "/y", nil),
+		"hello  1 image: /y/blobs/aa": store.WithFiles("hello", "/y", []store.BlobRef{a}),
+		"1 image: /y/blobs/bb":        store.WithFiles("", "/y", []store.BlobRef{b}),
+		"hello  1 page: /y/blobs/cc":  store.WithFiles("hello", "/y", []store.BlobRef{p}),
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)

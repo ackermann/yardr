@@ -22,7 +22,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// A blob is a file mail or a bead's note carries: an image, for now. The
+// A blob is a file mail or a bead's note carries: an image or a page. The
 // yard keeps it in its home under BlobsDir, in a file named by the SHA-256
 // of its bytes, so the same picture sent twice is one file and a letter
 // names it by what it is. A blob is written once and never changed. The
@@ -53,7 +53,11 @@ const (
 )
 
 // BlobTypes are the types a blob may have, as its bytes say.
-var BlobTypes = []string{"image/png", "image/jpeg"}
+var BlobTypes = []string{"image/png", "image/jpeg", "text/html; charset=utf-8"}
+
+// blobPage is the type of a page: the one BlobTypes entry that is no image.
+// FilesLine counts it apart.
+const blobPage = "text/html; charset=utf-8"
 
 // BlobRef names a blob where a letter carries it: the SHA-256 of its bytes
 // in hex, which is its file's name, the type its bytes say, and how many
@@ -84,8 +88,10 @@ func (s *Store) BlobPath(hash string) string { return BlobPath(s.home, hash) }
 // FilesLine says the files of a letter or a note where it is shown, each
 // by the path of its blob in the yard at home, so a crew member reads the
 // picture with what its harness reads any file with: "1 image: <path>".
-// One the yard did not take has its reason where its path would be:
-// "1 image: not taken: <reason>". "" for one without files.
+// Pages stand apart from images: "1 page: <path>", and "1 image, 1 page:
+// <path> <path>" for both. One the yard did not take has its reason where
+// its path would be: "1 image: not taken: <reason>". "" for one without
+// files.
 func FilesLine(home string, files []BlobRef) string {
 	if len(files) == 0 {
 		return ""
@@ -98,11 +104,36 @@ func FilesLine(home string, files []BlobRef) string {
 			paths[i], between = "not taken: "+f.NotTaken, "; "
 		}
 	}
-	noun := "image"
-	if len(files) > 1 {
-		noun = "images"
+	return fmt.Sprintf("%s: %s", filesNoun(files), strings.Join(paths, between))
+}
+
+// filesNoun counts the files by kind, images first: "2 images", "1 page",
+// "1 image, 1 page". One of no known type counts as an image.
+func filesNoun(files []BlobRef) string {
+	var images, pages int
+	for _, f := range files {
+		if f.Type == blobPage {
+			pages++
+		} else {
+			images++
+		}
 	}
-	return fmt.Sprintf("%d %s: %s", len(files), noun, strings.Join(paths, between))
+	var parts []string
+	if images > 0 {
+		noun := "image"
+		if images > 1 {
+			noun = "images"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", images, noun))
+	}
+	if pages > 0 {
+		noun := "page"
+		if pages > 1 {
+			noun = "pages"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", pages, noun))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // WithFiles is the text of a letter or a note as one line shows it: the
