@@ -250,3 +250,17 @@ func TestBeadAskAndAnswerAUsersAddress(t *testing.T) {
 		t.Fatalf("prime after the giving (%v):\n%s", err, out)
 	}
 }
+
+// A server that dies during the giving: user key says the words every
+// client says of one, never the transport's error and never the value.
+func TestUserKeyWithoutAnAnswer(t *testing.T) {
+	st, _, _ := addressYard(t, "https://example.invalid")
+	a := &app{st: dyingClient(t, st.(*store.Store), "KeyUser"), actor: "ada"}
+	out, err := userKeyFrom(t, a, "PUSHOVER_USER=u9f2k4xq71ab03cd55ef8gh2ij6kl9\n", "ada", "pushover")
+	if err == nil || err.Error() != store.SecretNoAnswer {
+		t.Fatalf("key = %q, err = %v, want the words %q", out, err, store.SecretNoAnswer)
+	}
+	if out != "" || strings.Contains(out+err.Error(), "u9f2k4xq71ab03cd55ef8gh2ij6kl9") {
+		t.Fatalf("key printed %q with the value in it", out)
+	}
+}

@@ -328,7 +328,7 @@ again, and it ends as one giving that worked.`,
 			}
 			keyed, err := st.KeyUser(c.Context(), args[0], d.Name, values, a.who())
 			if err != nil {
-				return err
+				return secretErr(err)
 			}
 			return a.out(keyed, func() {
 				fmt.Printf("user %s: %s\n", keyed.User, keyed.State)
