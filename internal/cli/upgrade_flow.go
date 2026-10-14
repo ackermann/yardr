@@ -204,6 +204,16 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 		}
 	}
 
+	// Each yard's web view where it runs as a login service is restarted
+	// on the new build, so the view serves what the install wrote. A
+	// restart that fails is a warning here: the gate fails it with the
+	// build it still answers on.
+	for _, w := range was {
+		if err := upgradeRestartViews(ctx, config.At(w.home)); err != nil {
+			fmt.Fprintf(stderr, "warn: the web view in %s could not be restarted: %v\n", w.home, err)
+		}
+	}
+
 	since := installStarted.Format(time.RFC3339Nano)
 	homes := make([]string, len(was))
 	for i, w := range was {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -399,4 +400,42 @@ func upgradeRestoreOn(stored map[string]string, noRestore bool) bool {
 	}
 	v, _ := set.Effective(stored)
 	return v != "false"
+}
+
+// webRestartWait is how long a restarted web view gets to answer /health
+// before the upgrade goes on to the gate, which fails it there.
+var webRestartWait = 30 * time.Second
+
+// upgradeRestartViews restarts the yard's web view where it runs as a
+// login service, so the view serves the build the install just wrote, and
+// waits until /health answers. With no service installed there is nothing
+// to restart: a view started by hand is the operator's to restart, and the
+// check names it. Tests replace serviceCtl and serve /health.
+func upgradeRestartViews(ctx context.Context, cfg *config.Config) error {
+	if !serviceInstalled(cfg, svcWeb) {
+		return nil
+	}
+	manager, name, _, err := unitFile(cfg, svcWeb)
+	if err != nil {
+		return nil
+	}
+	if err := ctl(ctx, (&unit{Manager: manager, Name: name}).restartCommand()); err != nil {
+		return err
+	}
+	addr := serviceAddr(cfg, svcWeb)
+	if addr == "" {
+		return nil
+	}
+	health := "http://" + dialAddr(addr) + "/health"
+	for deadline := time.Now().Add(webRestartWait); time.Now().Before(deadline); {
+		if code, err := getStatus(health); err == nil && code != http.StatusNotFound {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollEvery / 5):
+		}
+	}
+	return fmt.Errorf("the web view did not answer %s within %s after the restart", health, webRestartWait)
 }

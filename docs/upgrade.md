@@ -95,8 +95,12 @@ does not grow with the number of yards. Each sample runs the installed
 binary, so the predicate always runs in the build it asserts, and each
 sample also proves the new binary starts as a CLI. A stopped server is
 started first, per yard, so there is always a server to verify, and
-left running what was started; nothing else is started. A yard the gate
-cannot check fails it and is named in the marker and the message.
+left running what was started; nothing else is started. Before the poll
+each yard's web view where it runs as a login service is restarted on
+the new build (`launchctl kickstart -k` on macOS, `systemctl --user
+restart` on Linux), waiting for `/health`, so the view serves what the
+install wrote. A yard the gate cannot check fails it and is named in
+the marker and the message.
 
 `yardr upgrade --check` is the gate by hand: it asserts the yard runs
 this build — the build of the `yardr` that was asked — read-only.
@@ -105,7 +109,7 @@ this build — the build of the `yardr` that was asked — read-only.
 $ yardr upgrade --check
 server    ok: answers on 1904417, this build
 daemon    ok: holds the lock on 1904417, this build, pass 12 s ago
-views     ok: 1 answers (http://127.0.0.1:8791/); 1 old: restart it (yardr web stop, then yardr web start) (http://127.0.0.1:8792/)
+views     ok: 1 answers on 1904417; 1 old: restart it (yardr web stop, then yardr web start) (http://127.0.0.1:8792/)
 ```
 
 One line per check, exit 1 when any part fails, 0 otherwise. The check
@@ -136,14 +140,18 @@ back from now (`10m`, `90s`, the default `10m`) or the install's start
 as an RFC3339 time, which the gate passes. A yard with no daemon
 running skips the part instead of failing it.
 
-`views` probes every recorded web view with one GET of `/health`. A
-view that answers — whatever the status — runs, and passes: views do
-not replace themselves, so this checks that they answer, not that they
-run anything new. A view that 404s `/health` but answers `/` is on a
-build from before the route: it is skipped with an `old:` line naming
-the restart (`yardr web stop`, then `yardr web start`), not failed. A
-view that answers nothing fails with a line naming its URL. A yard with
-no web view skips the part.
+`views` probes every recorded web view with one GET of `/health`, and
+counts each with the build it answers on. A view that answers on this
+build passes; one that answers on another build fails where the yard
+keeps its view as a login service, since the upgrade restarts that
+service before the gate. Where the view was started by hand the line
+names the restart instead (`view on <build>, started by hand: yardr web
+stop && yardr web start`), and fails nothing: the upgrade leaves a
+hand-started view alone. A view that 404s `/health` but answers `/` is
+on a build from before the route: it is skipped with an `old:` line
+naming the restart (`yardr web stop`, then `yardr web start`), not
+failed. A view that answers nothing fails with a line naming its URL. A
+yard with no web view skips the part.
 
 ## JSON
 
@@ -158,7 +166,7 @@ part's `verdict` (`ok`, `fail`, `skip`) with the words after it as
   "ok": true,
   "server": {"verdict": "ok", "detail": "answers on 1904417, this build", "running": true},
   "daemon": {"verdict": "ok", "detail": "holds the lock on 1904417, this build, pass 12 s ago", "running": true},
-  "views": {"verdict": "ok", "detail": "1 answers (http://127.0.0.1:8791/)", "views": [
+  "views": {"verdict": "ok", "detail": "1 answers on 1904417", "views": [
     {"url": "http://127.0.0.1:8791/", "state": "answers", "build": "1904417"}
   ]}
 }

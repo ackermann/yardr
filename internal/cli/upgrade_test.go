@@ -62,14 +62,22 @@ func stampPass(t *testing.T, home, build string, at time.Time) {
 }
 
 // serveView starts a test web view answering /health with health and / with
-// root, and announces it on the home as web serve does.
+// root, and announces it on the home as web serve does. /health answers on
+// this build, as a view the test binary started would.
 func serveView(t *testing.T, home string, health, root int) string {
+	t.Helper()
+	return serveViewOn(t, home, version.Current(), health, root)
+}
+
+// serveViewOn starts a test web view answering /health on build, and
+// announces it on the home as web serve does.
+func serveViewOn(t *testing.T, home, build string, health, root int) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health":
 			w.WriteHeader(health)
-			fmt.Fprintln(w, `{}`)
+			fmt.Fprintf(w, `{"view":{"build":%q}}`, build)
 		default:
 			w.WriteHeader(root)
 			fmt.Fprintln(w, "home")
@@ -99,7 +107,7 @@ func TestUpgradeCheckAllOK(t *testing.T) {
 	holdDaemon(t, home)
 	logDaemonStart(t, st, "daemon_started", version.Show(version.Current()))
 	stampPass(t, home, version.Show(version.Current()), time.Now())
-	url := serveView(t, home, http.StatusOK, http.StatusOK)
+	serveView(t, home, http.StatusOK, http.StatusOK)
 
 	out, err := run(t, a().rootCmd(), "upgrade", "--check")
 	if err != nil {
@@ -109,7 +117,7 @@ func TestUpgradeCheckAllOK(t *testing.T) {
 		"server     ok: answers on unknown, this build\n",
 		"daemon     ok: holds the lock on unknown, this build, pass ",
 		" ago\n",
-		"views      ok: 1 answers ("+url+")\n")
+		"views      ok: 1 answers on unknown\n")
 	if rep, err := upgradeJSON(t, a()); err != nil || !rep.OK ||
 		rep.Server.Verdict != checkOK || rep.Daemon.Verdict != checkOK || rep.Views.Verdict != checkOK {
 		t.Fatalf("json: %+v %v", rep, err)
@@ -368,13 +376,13 @@ func TestUpgradeCheckOldView(t *testing.T) {
 func TestUpgradeCheckViewAnswersOn500(t *testing.T) {
 	home, _, a := upgradeYard(t)
 	stubServer(t, "", nil)
-	url := serveView(t, home, http.StatusInternalServerError, http.StatusOK)
+	serveView(t, home, http.StatusInternalServerError, http.StatusOK)
 
 	out, err := run(t, a().rootCmd(), "upgrade", "--check")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "views      ok: 1 answers ("+url+")\n")
+	wantText(t, out, "views      ok: 1 answers on unknown\n")
 }
 
 // A view that answers nothing fails with a line naming it.
@@ -401,16 +409,72 @@ func TestUpgradeCheckMixedViews(t *testing.T) {
 	home, _, a := upgradeYard(t)
 	stubServer(t, "", nil)
 	old := serveView(t, home, http.StatusNotFound, http.StatusOK)
-	answers := serveView(t, home, http.StatusOK, http.StatusOK)
+	serveView(t, home, http.StatusOK, http.StatusOK)
 
 	out, err := run(t, a().rootCmd(), "upgrade", "--check")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "views      ok: 1 answers ("+answers+"); 1 old: restart it (")
+	wantText(t, out, "views      ok: 1 answers on unknown; 1 old: restart it (")
 	if !strings.Contains(out, old+")") {
 		t.Fatalf("the old view's URL is missing:\n%s", out)
 	}
+}
+
+// A view answering /health on another build fails where the yard keeps its
+// view as a login service: the upgrade restarts that service, so an old
+// build after the restart means the restart failed. The line names the build.
+func TestUpgradeCheckViewOtherBuildFails(t *testing.T) {
+	home, _, a := upgradeYard(t)
+	stubServer(t, "", nil)
+	stub(t, &webService, func(*config.Config) bool { return true })
+	url := serveViewOn(t, home, "bbbbbbbbbbbb", http.StatusOK, http.StatusOK)
+
+	out, err := run(t, a().rootCmd(), "upgrade", "--check")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v, want check failed\n%s", err, out)
+	}
+	wantText(t, out, "views      fail: 1 answers on bbbbbbbbbbbb, not this build (unknown) ("+url+")\n")
+	if rep, _ := upgradeJSON(t, a()); rep.OK || rep.Views.Verdict != checkFail ||
+		len(rep.Views.Views) != 1 || rep.Views.Views[0].Build != "bbbbbbbbbbbb" {
+		t.Fatalf("json: %+v", rep)
+	}
+}
+
+// A view answering /health on another build where no login service keeps
+// one was started by hand, which the upgrade leaves alone: the line names
+// the build and the restart, and fails nothing.
+func TestUpgradeCheckViewOtherBuildByHand(t *testing.T) {
+	home, _, a := upgradeYard(t)
+	stubServer(t, "", nil)
+	serveViewOn(t, home, "bbbbbbbbbbbb", http.StatusOK, http.StatusOK)
+
+	out, err := run(t, a().rootCmd(), "upgrade", "--check")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "views      ok: view on bbbbbbbbbbbb, started by hand: "+
+		here("yardr web stop")+" && "+here("yardr web start")+"\n")
+	if rep, _ := upgradeJSON(t, a()); !rep.OK || rep.Views.Verdict != checkOK ||
+		len(rep.Views.Views) != 1 || rep.Views.Views[0].Build != "bbbbbbbbbbbb" {
+		t.Fatalf("json: %+v", rep)
+	}
+}
+
+// A view answering /health on this build where the yard keeps its view as
+// a login service passes, and the line names the build: the service
+// restarted (stubbed) and the new build answers.
+func TestUpgradeCheckViewServiceCurrent(t *testing.T) {
+	home, _, a := upgradeYard(t)
+	stubServer(t, "", nil)
+	stub(t, &webService, func(*config.Config) bool { return true })
+	serveView(t, home, http.StatusOK, http.StatusOK)
+
+	out, err := run(t, a().rootCmd(), "upgrade", "--check")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "views      ok: 1 answers on unknown\n")
 }
 
 // dialAddr asks a view that listens on every interface on loopback.

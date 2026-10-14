@@ -358,8 +358,9 @@ failure. It prints the address. The file, its name, `--file-only` and
 ([configuration.md](configuration.md#login-services)). Stop a view started
 with `yardr web start` before installing one on the same address: the
 service's cannot listen while the other does, and is tried again every 10
-seconds. The service keeps running the build it was started from; after an
-upgrade, `yardr web install` again restarts it on the new one.
+seconds. `yardr upgrade` restarts the service on the build it installs, so
+the view serves the new pages without a reinstall; a `go install` by hand
+leaves the running view on its build until the service is restarted.
 
 The onboarding offers both once the yard runs: "Start the web view now?"
 and, on a yes, "And at login?", each starting at no.
@@ -390,10 +391,11 @@ a `note` for a view that is open to the network.
   loopback. `--unsafe --addr 127.0.0.1:9000` is `this machine only`.
 - A view does not replace itself when a new yardr is installed, as the
   server and the daemon do: it runs the build it was started on until it is
-  started again. When that is another build than the yardr that was asked,
-  a line under the views says so (`this yardr is build <build>: ...`); stop
-  the view and start it again to have the new one (`yardr web install`
-  again, for the service that starts when you log in).
+  started again. `yardr upgrade` restarts the service that starts when you
+  log in on the new build; a view started by hand stays on its build until
+  it is stopped and started again. When that is another build than the
+  yardr that was asked, a line under the views says so (`this yardr is
+  build <build>: ...`).
 - The views are read from the home, not from the server, so status lists
   them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its

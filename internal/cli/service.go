@@ -327,6 +327,15 @@ func (u *unit) unloadCommand() []string {
 	return []string{"systemctl", "--user", "disable", "--now", u.Name}
 }
 
+// restartCommand is the manager's command line that restarts the unit
+// where it runs: the view on the newly installed build, after an upgrade.
+func (u *unit) restartCommand() []string {
+	if u.Manager == launchd {
+		return []string{"launchctl", "kickstart", "-k", domain() + "/" + u.Name}
+	}
+	return []string{"systemctl", "--user", "restart", u.Name}
+}
+
 func shellLine(args []string) string {
 	words := make([]string, len(args))
 	for i, a := range args {

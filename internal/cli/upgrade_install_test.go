@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -355,4 +357,96 @@ func TestUpgradeBeadsSince(t *testing.T) {
 		t.Fatalf("window = %v, want the one bead", got)
 	}
 	_ = b
+}
+
+// The upgrade restarts the web view's login service and waits for /health:
+// launchctl kickstart -k on macOS, systemctl --user restart on Linux. With
+// no service there is nothing to restart.
+func TestUpgradeRestartViews(t *testing.T) {
+	for _, system := range []string{"darwin", "linux"} {
+		t.Run(system, func(t *testing.T) {
+			home := newHome(t)
+			cfg := config.At(home)
+			// A view answering /health on the service's address.
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintln(w, `{"view":{"build":"new"}}`)
+			}))
+			t.Cleanup(srv.Close)
+			addr := srv.Listener.Addr().String()
+			dir, m := stubServices(t, system)
+			_ = m
+			var calls []string
+			stub(t, &serviceCtl, func(_ context.Context, name string, args ...string) (string, error) {
+				calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+				return "", nil
+			})
+			_, name, path, err := unitFile(cfg, svcWeb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			u := &unit{Kind: svcWeb, Manager: managerOf(), Name: name, Path: path, Home: home,
+				Program: "/opt/yardr/bin/yardr", Args: []string{"web", "serve", "--addr", addr}}
+			if err := os.WriteFile(path, []byte(u.render()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := upgradeRestartViews(context.Background(), cfg); err != nil {
+				t.Fatalf("restart = %v", err)
+			}
+			if len(calls) != 1 {
+				t.Fatalf("manager calls = %q, want the one restart", calls)
+			}
+			if system == "darwin" {
+				if !strings.HasPrefix(calls[0], "launchctl kickstart -k gui/") || !strings.HasSuffix(calls[0], "/"+name) {
+					t.Fatalf("manager call = %q, want launchctl kickstart -k gui/<uid>/%s", calls[0], name)
+				}
+			} else if calls[0] != "systemctl --user restart "+name {
+				t.Fatalf("manager call = %q, want systemctl --user restart %s", calls[0], name)
+			}
+		})
+	}
+	// With no service installed, nothing is restarted and the manager is
+	// not asked.
+	home := newHome(t)
+	stubServices(t, "darwin")
+	calls := 0
+	stub(t, &serviceCtl, func(context.Context, string, ...string) (string, error) {
+		calls++
+		return "", nil
+	})
+	if err := upgradeRestartViews(context.Background(), config.At(home)); err != nil {
+		t.Fatalf("no service: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("the manager was asked %d times with no service", calls)
+	}
+}
+
+// A restart the manager refuses fails, so the upgrade warns and the gate
+// fails the view on its old build.
+func TestUpgradeRestartViewsRefused(t *testing.T) {
+	home := newHome(t)
+	cfg := config.At(home)
+	dir, _ := stubServices(t, "linux")
+	stub(t, &serviceCtl, func(context.Context, string, ...string) (string, error) {
+		return "unit not loaded", fmt.Errorf("exit 1")
+	})
+	_, name, path, err := unitFile(cfg, svcWeb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	u := &unit{Kind: svcWeb, Manager: managerOf(), Name: name, Path: path, Home: home,
+		Program: "/opt/yardr/bin/yardr", Args: []string{"web", "serve", "--addr", "127.0.0.1:8791"}}
+	if err := os.WriteFile(path, []byte(u.render()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeRestartViews(context.Background(), cfg); err == nil ||
+		!strings.Contains(err.Error(), "systemctl --user restart") {
+		t.Fatalf("refused restart = %v, want the command named", err)
+	}
 }

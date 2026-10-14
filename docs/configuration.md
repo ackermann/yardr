@@ -1682,9 +1682,10 @@ launchd and systemd see one process that never ended, and start nothing. The
 service's file names the binary by its path, which `go install` writes the
 new build to, so the next login starts the new build too. When the `exec`
 fails, the daemon logs it and runs on as the old build, as it does without
-a service. The web view does not replace itself, service
-or not: it is a client of the server and keeps running the build it was
-started from until it is restarted (`yardr web install` again does that).
+a service. The web view does not replace itself: it is a client of the
+server and keeps running the build it was started from until it is
+restarted. `yardr upgrade` restarts the service on the build it installs;
+a `go install` by hand leaves it until the service is restarted.
 
 On macOS an upgrade can cost the service its access to `~/Desktop`,
 `~/Documents` and `~/Downloads`. A yardr from `go install` is signed ad hoc

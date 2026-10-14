@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -108,7 +109,8 @@ func (a *app) upgradeCmd() *cobra.Command {
 		Long: `Install the depot's build, verified, or roll back.
 
 Without --check it does the hand step whole: from the checkout of the
-depot the upgrade_from setting names it runs go install ., checks every
+depot the upgrade_from setting names it runs go install ., restarts each
+covered yard's web view where it runs as a login service, checks every
 covered yard runs it, and otherwise puts the previous build back. The
 covered yards are this yard plus every yard registered on this machine
 whose login service runs the shared binary. A yard without the setting
@@ -120,13 +122,15 @@ install gate, by hand.
   server     answers on this build, the build of the yardr that was asked
   daemon     holds its lock on this build, and completed a pass on it
              since --since
-  views      every recorded web view answers
+  views      every recorded web view answers on this build
 
 A part the yard does not run is skipped and reported, not failed: a yard
 with no daemon running skips the daemon check, one with no web view skips
 the views. A view on a build from before GET /health (it 404s /health and
-answers /) is skipped with an old: line naming the restart, not failed: a
-view is a read-only client, and the install did not break it.
+answers /) is skipped with an old: line naming the restart, not failed.
+A view on another build fails where the yard keeps its view as a login
+service, which yardr upgrade restarts; where the view was started by hand
+the line names the restart instead, and fails nothing.
 
 The check changes nothing: it starts no server (one that does not answer
 fails the server part with why), stores nothing, and a view it probes
@@ -350,11 +354,14 @@ func ago(d time.Duration) string {
 	}
 }
 
-// checkViews is the views part: every recorded web view answers. A view
-// that 404s /health but answers / is on a build from before the route and
-// is skipped with an old: line, not failed; views do not replace
-// themselves, so this checks that they answer, not that they run anything
-// new. With no view at all the part is skipped.
+// checkViews is the views part: every recorded web view answers on this
+// build. A view that 404s /health but answers / is on a build from before
+// the route and is skipped with an old: line, not failed. A view that
+// answers /health on another build fails when the yard keeps its view as a
+// login service — yardr upgrade restarts that service, so an old build
+// after the restart means the restart failed — and is told with the
+// restart when the view was started by hand, which the upgrade leaves
+// alone. With no view at all the part is skipped.
 func checkViews(cfg *config.Config) upgradeCheckViews {
 	out := upgradeCheckViews{Verdict: checkOK, Views: []upgradeCheckView{}}
 	views := webViews(cfg)
@@ -362,13 +369,28 @@ func checkViews(cfg *config.Config) upgradeCheckViews {
 		out.Verdict, out.Detail = checkSkip, "no web view runs"
 		return out
 	}
-	var answers, olds, deads []string
+	this := version.Current()
+	service := webService(cfg)
+	var current int
+	var stale, byHand []viewBuild
+	var olds, deads []string
 	for _, v := range views {
-		state := probeView(v.Addr)
-		out.Views = append(out.Views, upgradeCheckView{URL: v.URL, State: state, Build: version.Show(v.Revision)})
+		state, build := probeView(v.Addr)
+		if build == "" {
+			build = v.Revision
+		}
+		out.Views = append(out.Views, upgradeCheckView{URL: v.URL, State: state, Build: version.Show(build)})
 		switch state {
 		case viewAnswers:
-			answers = append(answers, v.URL)
+			if build == this {
+				current++
+				continue
+			}
+			if service {
+				stale = append(stale, viewBuild{URL: v.URL, Build: build})
+			} else {
+				byHand = append(byHand, viewBuild{URL: v.URL, Build: build})
+			}
 		case viewOld:
 			olds = append(olds, v.URL)
 		default:
@@ -376,8 +398,15 @@ func checkViews(cfg *config.Config) upgradeCheckViews {
 		}
 	}
 	parts := []string{}
-	if len(answers) > 0 {
-		parts = append(parts, answeredViews(answers))
+	if current > 0 {
+		parts = append(parts, answeredViews(current, this))
+	}
+	if len(stale) > 0 {
+		out.Verdict = checkFail
+		parts = append(parts, staleViews(stale, this))
+	}
+	if len(byHand) > 0 {
+		parts = append(parts, handViews(byHand, yardrAt(cfg.Home)))
 	}
 	if len(olds) > 0 {
 		parts = append(parts, oldViews(olds, yardrAt(cfg.Home)))
@@ -390,12 +419,62 @@ func checkViews(cfg *config.Config) upgradeCheckViews {
 	return out
 }
 
-// answeredViews is the views that answer /health, in words.
-func answeredViews(urls []string) string {
-	if len(urls) == 1 {
-		return "1 answers (" + urls[0] + ")"
+// viewBuild is a recorded web view that answers /health on another build
+// than the yardr that was asked.
+type viewBuild struct {
+	URL   string
+	Build string // raw revision, as /health answered it
+}
+
+// answeredViews is the views that answer /health on this build, in words.
+func answeredViews(n int, build string) string {
+	on := " on " + version.Show(build)
+	if n == 1 {
+		return "1 answers" + on
 	}
-	return fmt.Sprintf("%d answer (%s)", len(urls), strings.Join(urls, ", "))
+	return fmt.Sprintf("%d answer%s", n, on)
+}
+
+// staleViews is the views that answer /health on another build where the
+// yard keeps its view as a login service, in words: they fail the part,
+// since the upgrade restarts that service.
+func staleViews(views []viewBuild, this string) string {
+	builds := viewBuilds(views)
+	want := ", not this build (" + version.Show(this) + ")"
+	if len(views) == 1 {
+		return "1 answers on " + builds + want + " (" + views[0].URL + ")"
+	}
+	urls := make([]string, len(views))
+	for i, v := range views {
+		urls[i] = v.URL
+	}
+	return fmt.Sprintf("%d answer on %s%s (%s)", len(views), builds, want, strings.Join(urls, ", "))
+}
+
+// handViews is the views that answer /health on another build where no
+// login service keeps one: started by hand, which the upgrade leaves
+// alone, with the restart named so the operator sees it. They fail
+// nothing.
+func handViews(views []viewBuild, yardr string) string {
+	restart := fmt.Sprintf("%s web stop && %s web start", yardr, yardr)
+	builds := viewBuilds(views)
+	if len(views) == 1 {
+		return "view on " + builds + ", started by hand: " + restart
+	}
+	return fmt.Sprintf("%d views on %s, started by hand: %s", len(views), builds, restart)
+}
+
+// viewBuilds are the distinct builds the views answer on, for people.
+func viewBuilds(views []viewBuild) string {
+	var builds []string
+	seen := map[string]bool{}
+	for _, v := range views {
+		if !seen[v.Build] {
+			seen[v.Build] = true
+			builds = append(builds, version.Show(v.Build))
+		}
+	}
+	return strings.Join(builds, ", ")
 }
 
 // oldViews is the views from before GET /health, in words: skipped, with
@@ -417,30 +496,55 @@ func deadViews(urls []string) string {
 }
 
 // probeView is what one recorded web view comes to: answers when GET
-// /health says anything but 404, old when /health 404s and / answers, dead
-// when nothing answers.
-func probeView(addr string) string {
+// /health says anything but 404, with the build it answers on; old when
+// /health 404s and / answers; dead when nothing answers. The build is ""
+// when /health answers what carries none.
+func probeView(addr string) (state, build string) {
 	base := "http://" + dialAddr(addr)
-	if code, err := getStatus(base + "/health"); err == nil {
+	if code, body, err := getHealth(base + "/health"); err == nil {
 		if code != http.StatusNotFound {
-			return viewAnswers
+			return viewAnswers, viewBuildOf(body)
 		}
 		if _, err := getStatus(base + "/"); err == nil {
-			return viewOld
+			return viewOld, ""
 		}
 	}
-	return viewDead
+	return viewDead, ""
+}
+
+// viewBuildOf is the build a /health body answers on: its view.build, ""
+// when the body carries none.
+func viewBuildOf(body []byte) string {
+	var health struct {
+		View struct {
+			Build string `json:"build"`
+		} `json:"view"`
+	}
+	if err := json.Unmarshal(body, &health); err != nil {
+		return ""
+	}
+	return health.View.Build
+}
+
+// getHealth is the status and body GET url answers with, the body capped:
+// /health is small, and a view that answers megabytes is not one.
+func getHealth(url string) (int, []byte, error) {
+	resp, err := upgradeHTTP.Get(url)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, nil, err
+	}
+	return resp.StatusCode, body, nil
 }
 
 // getStatus is the status GET url answers with.
 func getStatus(url string) (int, error) {
-	resp, err := upgradeHTTP.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	code, _, err := getHealth(url)
+	return code, err
 }
 
 // dialAddr is addr as the check reaches it: a view that listens on every
