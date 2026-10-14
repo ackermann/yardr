@@ -129,7 +129,6 @@ func giveLogin(t *testing.T, y *askYard, seq uint64, value, actor string) *Sourc
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	return nil
 }
 
 // GiveSecret hands a login input to the login that waits for it: the waiter
