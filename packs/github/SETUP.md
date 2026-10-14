@@ -14,26 +14,40 @@ file's.
    The yard reads those deliveries; anything else it cannot use.
 2. **The hook and its secret.** The webhook's secret goes in a file, mode
    0600, which the hook names. A new file takes its mode from the
-   shell's umask, so narrow it first:
+   shell's umask, so narrow it first. The secret is never a command's
+   word: that line would stay in the shell's history. Each command below
+   is one thing to type, in a block of its own; run the second, type or
+   paste the secret blind and press Enter:
    ```sh
    umask 077
    ```
    ```sh
-   printf '%s' '<secret>' > ~/.yardr/github.secret
+   read -rs v && printf '%s' "$v" > ~/.yardr/github.secret; unset v
+   ```
+   ```sh
    chmod 600 ~/.yardr/github.secret
+   ```
+   ```sh
    yardr hook add gh --source github --secret-file ~/.yardr/github.secret
    # hook gh saved: POST /hooks/gh (github)
    ```
    One hook serves every crew member.
 3. **The crew member's credential.** A token in an env file of the crew
    member's own, mode 0600, never in the store. A new file takes its
-   mode from the shell's umask, so narrow it first:
+   mode from the shell's umask, so narrow it first. The token is never
+   a command's word: that line would stay in the shell's history. Each
+   command below is one thing to type, in a block of its own; run the
+   second, type or paste the token blind and press Enter:
    ```sh
    umask 077
    ```
    ```sh
-   printf '%s' 'GITHUB_TOKEN=<token>' > ~/.yardr/crew/<name>.env
+   read -rs v && printf 'GITHUB_TOKEN=%s' "$v" > ~/.yardr/crew/<name>.env; unset v
+   ```
+   ```sh
    chmod 600 ~/.yardr/crew/<name>.env
+   ```
+   ```sh
    yardr crew set <name> env_file=~/.yardr/crew/<name>.env
    ```
    The token reads and writes the repository's issues and pull requests;
@@ -41,7 +55,9 @@ file's.
    after changing the file. Or the member speaks as a GitHub App: the
    App's id and key file beside the token's place, and the yard mints an
    installation token narrowed to each repository from them, with the
-   umask narrowed first as above:
+   umask narrowed first as above. The id and the key file's path are
+   typed as usual: they are no secret, and the key itself is never
+   typed:
    ```sh
    umask 077
    ```

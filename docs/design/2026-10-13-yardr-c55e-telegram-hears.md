@@ -151,8 +151,7 @@ chmod 600 <that file>        # the crew member does not start unless its env fil
 yardr crew set yardmaster env_file=<that file>   # only when it had none
 yardr crew restart yardmaster
 yardr subscribe yardmaster telegram --scope all --where type=message --where chat=<his chat id>
-curl https://api.telegram.org/bot<token>/setWebhook -d url=https://<his host>/hooks/telegram \
-  -d secret_token="$(cat ~/.yardr/telegram.secret)" -d allowed_updates='["message"]'
+printf 'url = "https://api.telegram.org/bot%s/setWebhook"\ndata = "secret_token=%s"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" "$(cat ~/.yardr/telegram.secret)" | curl -K - -d url=https://<his host>/hooks/telegram -d allowed_updates='["message"]'
 ```
 
 SETUP.md says where each value comes from: the chat id as today, the host as his GitHub and Linear webhooks have it, on a port Telegram takes (443, 80, 88, 8443). `getWebhookInfo` verifies the registration; `deleteWebhook` ends hearing while leaving telling as it was. The test is a line from the phone, the inbox line of section 3.3, and `yardr reply <seq>` answered in the chat. Secrets travel as the pack takes them today: the token and the chat id by `yardr source key` and `yardr user key` or a secret ask, the webhook secret in a 0600 file by hand as a Linear signing secret is.

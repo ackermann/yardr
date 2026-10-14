@@ -735,6 +735,8 @@ func TestLinearPack(t *testing.T) {
 		"yardr hook add linear --source linear --secret-file",
 		"umask 077",
 		"LINEAR_API_KEY",
+		`read -rs v && printf '%s' "$v" > ~/.yardr/linear.secret; unset v`,
+		`read -rs v && printf 'LINEAR_API_KEY=%s' "$v" > ~/.yardr/crew/<name>.env; unset v`,
 		"yardr crew identity <name> --source linear --id <user id> --key <handle>",
 		"open_threads=linear set_state=linear",
 		"yardr thread open linear",
@@ -742,6 +744,74 @@ func TestLinearPack(t *testing.T) {
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	// The secret and the token are typed unseen, never as a command's
+	// word: that line would stay in the shell's history.
+	for _, not := range []string{"printf '%s' '<signing secret>'", "printf '%s' 'LINEAR_API_KEY=<token>'"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes type a secret as a command's word: %q", not)
+		}
+	}
+}
+
+// The github pack is GitHub as an integration: of kind source, one declared
+// source with the commands the yard runs for it and the pull request and CI
+// reads. The source is named github; while its Go adapter is still compiled
+// in, the declared one wins every lookup when the yard has it.
+func TestGitHubPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.GitHub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "github" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	var keys []string
+	for _, c := range p.Declared[0].Declaration.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if want := []string{"thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "hook.normalize", "events.pr", "events.ci"}; !slices.Equal(keys, want) {
+		t.Fatalf("commands = %v, want %v", keys, want)
+	}
+	// Its setup notes: where the webhook is made, the hook and its
+	// secret, the crew member's credential and identity, the grants, how
+	// to test. The secret and the token are typed unseen, never as a
+	// command's word, since that line would stay in the shell's history;
+	// the App's id and key file path are typed as usual, being no secret.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"Settings → Webhooks",
+		"/hooks/<hook name>",
+		"application/json",
+		"yardr hook add gh --source github --secret-file",
+		"umask 077",
+		"GITHUB_TOKEN",
+		`read -rs v && printf '%s' "$v" > ~/.yardr/github.secret; unset v`,
+		`read -rs v && printf 'GITHUB_TOKEN=%s' "$v" > ~/.yardr/crew/<name>.env; unset v`,
+		"GITHUB_APP_ID",
+		"they are no secret, and the key itself is never",
+		"yardr crew identity <name> --source github --key <login>",
+		"open_threads=github set_state=github",
+		"yardr thread open github",
+		"yardr thread state <owner>/<repo>#<n> started",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	for _, not := range []string{"printf '%s' '<secret>'", "printf '%s' 'GITHUB_TOKEN=<token>'"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes type a secret as a command's word: %q", not)
 		}
 	}
 }
