@@ -1195,6 +1195,55 @@ func TestRunAskSourceSetUsesItsStoreCheck(t *testing.T) {
 	}
 }
 
+// A peer allow that widens mail and exposes a name is alone as a whole.
+// The direct command and its run row share the same permission check.
+func TestRunAskPeerAllowUsesItsStoreCheck(t *testing.T) {
+	y, _ := runYard(t)
+	c, argv, err := parseRun([]string{"peer allow airy --send mail --expose ada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rowErr error
+	if err := y.write(func(w *wtx) error {
+		rowErr = c.check(y.ctx, w, argv, "yardmaster")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, directErr := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerMail}, Expose: []string{"ada"}}, "yardmaster")
+	if rowErr == nil || directErr == nil || rowErr.Error() != directErr.Error() {
+		t.Fatalf("run row check = %v, direct peer allow = %v", rowErr, directErr)
+	}
+	if class, ok := IsOperatorOnly(rowErr); !ok || class != Alone {
+		t.Fatalf("peer allow refusal = %v; operator-only class is %v, %v", rowErr, class, ok)
+	}
+}
+
+// A timer's owner and recipient are checked the same way by RemoveTimer
+// and by the run-ask row that proposes removing someone else's timer.
+func TestRunAskTimerRmUsesItsStoreCheck(t *testing.T) {
+	y, _ := runYard(t)
+	id := y.timer(t, "ada", "ada")
+	c, argv, err := parseRun([]string{"timer rm " + id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rowErr error
+	if err := y.write(func(w *wtx) error {
+		rowErr = c.check(y.ctx, w, argv, "yardmaster")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, directErr := y.RemoveTimer(y.ctx, id, "yardmaster")
+	if rowErr == nil || directErr == nil || rowErr.Error() != directErr.Error() {
+		t.Fatalf("run row check = %v, direct timer removal = %v", rowErr, directErr)
+	}
+	if class, ok := IsOperatorOnly(rowErr); !ok || class != Askable {
+		t.Fatalf("timer removal refusal = %v; operator-only class is %v, %v", rowErr, class, ok)
+	}
+}
+
 // timer sets an hourly timer of to's by actor, and answers its id.
 func (y *askYard) timer(t *testing.T, to, actor string) string {
 	t.Helper()

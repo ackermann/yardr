@@ -524,34 +524,16 @@ func parsePeerAllow(rest []string) ([]string, error) {
 	return out, nil
 }
 
-// checkPeerAllow is the peer allow's own checks as the asker, in the
-// order that refuses first what is the operator's alone: who the peer
-// sees and is trusted and reached as, then the kinds, then the limit.
-// allowPeer refuses the kinds first, but an ask that would widen trust
-// on the back of mail is refused whole.
+// checkPeerAllow is the peer allow's own checks as the asker, shared with
+// AllowPeer so the same command has the same operator-only refusal.
 func checkPeerAllow(ctx context.Context, w *wtx, argv []string, actor string) error {
 	al := peerAllowOf(argv)
-	switch {
-	case len(al.expose) > 0:
-		return w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone)
-	case len(al.trust) > 0:
-		return w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone)
-	case len(al.reach) > 0:
-		return w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone)
-	}
-	if len(al.send)+len(al.receive) > 0 {
-		return w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(al.send, al.receive))
-	}
-	if al.hasLimit {
-		p, err := loadPeer(w.Tx, al.name)
-		if err != nil {
-			return err
-		}
-		if al.limit > p.MailsAnHour() {
-			return w.operatorOnly(ctx, actor, "take more mail from a peer", Askable)
-		}
-	}
-	return nil
+	_, err := w.checkAllowPeer(ctx, al.name, peerAllowPermission{
+		send: al.send, receive: al.receive,
+		expose: len(al.expose) > 0, trust: len(al.trust) > 0, reach: len(al.reach) > 0,
+		mailLimit: al.limit,
+	}, actor)
+	return err
 }
 
 // peerAs names the peer as the yard knows it, with what it calls itself

@@ -768,6 +768,50 @@ func allowKindsAsk(send, receive []string) AskClass {
 	return Askable
 }
 
+type peerAllowPermission struct {
+	send, receive []string
+	expose, trust bool
+	reach         bool
+	mailLimit     int
+}
+
+// checkAllowPeer is the permission and link check for AllowPeer. A run
+// ask uses this same check for the asker's and operator's legs, so the
+// class of a mixed change cannot differ between the row and the command.
+func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPermission, actor string) (*Peer, error) {
+	// The parts that expose or trust names stay alone even when this same
+	// command also widens a mail or ping kind.
+	switch {
+	case check.expose:
+		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone); err != nil {
+			return nil, err
+		}
+	case check.trust:
+		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone); err != nil {
+			return nil, err
+		}
+	case check.reach:
+		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone); err != nil {
+			return nil, err
+		}
+	}
+	if len(check.send)+len(check.receive) > 0 {
+		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(check.send, check.receive)); err != nil {
+			return nil, err
+		}
+	}
+	p, err := loadPeer(w.Tx, name)
+	if err != nil {
+		return nil, err
+	}
+	if check.mailLimit > p.MailsAnHour() {
+		if err := w.operatorOnly(ctx, actor, "take more mail from a peer", Askable); err != nil {
+			return nil, err
+		}
+	}
+	return p, nil
+}
+
 // allowPeer is AllowPeer inside the transaction, so that an approved run
 // ask makes the change in the write that records its approval (ApproveAsk):
 // by is then the ask it was approved on, which the event carries.
@@ -778,6 +822,14 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 	if ch.MailLimit < 0 || ch.MailLimit > MaxPeerMailLimit {
 		return nil, fmt.Errorf("peer %s: a link takes 1 to %d mails an hour, not %d", name, MaxPeerMailLimit, ch.MailLimit)
 	}
+	p, err = w.checkAllowPeer(ctx, name, peerAllowPermission{
+		send: ch.Send, receive: ch.Receive,
+		expose: len(ch.Expose) > 0, trust: len(ch.Trust) > 0, reach: len(ch.Reach) > 0,
+		mailLimit: ch.MailLimit,
+	}, actor)
+	if err != nil {
+		return nil, err
+	}
 	change := func(have, add, drop []string) []string {
 		out := []string{}
 		for _, k := range append(slices.Clone(have), add...) {
@@ -787,34 +839,6 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 		}
 		slices.Sort(out)
 		return out
-	}
-	if len(ch.Send)+len(ch.Receive) > 0 {
-		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(ch.Send, ch.Receive)); err != nil {
-			return nil, err
-		}
-	}
-	if len(ch.Expose) > 0 {
-		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone); err != nil {
-			return nil, err
-		}
-	}
-	if len(ch.Trust) > 0 {
-		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone); err != nil {
-			return nil, err
-		}
-	}
-	if len(ch.Reach) > 0 {
-		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone); err != nil {
-			return nil, err
-		}
-	}
-	if p, err = loadPeer(w.Tx, name); err != nil {
-		return nil, err
-	}
-	if ch.MailLimit > p.MailsAnHour() {
-		if err := w.operatorOnly(ctx, actor, "take more mail from a peer", Askable); err != nil {
-			return nil, err
-		}
 	}
 	if ch.MailLimit > 0 && ch.MailLimit != p.MailsAnHour() {
 		// The default is kept as no setting, so it is the default's
