@@ -193,10 +193,40 @@ func TestReplacedDaemonLogsIt(t *testing.T) {
 	if len(got) != 1 || got[0].Data["from"] != "old" || got[0].Data["to"] != "new" {
 		t.Fatalf("daemon_replaced events = %+v", got)
 	}
+	if started := eventsOf(t, s, "daemon_started"); len(started) != 0 {
+		t.Fatalf("daemon_started events after a replace = %+v, want none", started)
+	}
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "YARDR_REPLACED_FROM=") {
 			t.Fatal("YARDR_REPLACED_FROM left set; agents the daemon starts would inherit it")
 		}
+	}
+}
+
+// A fresh start logs daemon_started with the build it runs, and no
+// daemon_replaced.
+func TestFreshDaemonLogsStarted(t *testing.T) {
+	s, _, d := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bin, _ := fakeBinary(t, "new", func([]string) error { return nil })
+	d.Binary = bin
+	d.Interval = time.Hour
+	t.Setenv("YARDR_REPLACED_FROM", "")
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+
+	var got []store.Event
+	for deadline := time.Now().Add(3 * time.Second); len(got) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		got = eventsOf(t, s, "daemon_started")
+	}
+	cancel()
+	must(t, <-done)
+	if len(got) != 1 || got[0].Data["to"] != "new" {
+		t.Fatalf("daemon_started events = %+v", got)
+	}
+	if replaced := eventsOf(t, s, "daemon_replaced"); len(replaced) != 0 {
+		t.Fatalf("daemon_replaced events on a fresh start = %+v, want none", replaced)
 	}
 }
 

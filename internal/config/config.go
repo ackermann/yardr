@@ -199,6 +199,15 @@ func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }
 // DaemonLock is the file the daemon holds a flock on while it runs.
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
 
+// DaemonPass is the file the daemon stamps with its build and the time at
+// the end of every completed pass (see PassStamp).
+func (c *Config) DaemonPass() string { return filepath.Join(c.Home, "daemon.pass") }
+
+// UpgradeGate is the file an upgrade writes while it checks the build it
+// installed (see UpgradeGate). While it names a live process the daemon's
+// passes claim nothing and start no agent.
+func (c *Config) UpgradeGate() string { return filepath.Join(c.Home, "upgrade.gate") }
+
 // DaemonLog is where a daemon started in the background (the onboarding,
 // yardr init --start) writes what one in a pane of its own prints there.
 func (c *Config) DaemonLog() string { return filepath.Join(c.Home, "daemon.log") }

@@ -585,7 +585,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			go forward(ch)
 		}
 	}
-	d.noteReplaced(ctx)
+	d.noteStart(ctx)
 	var check <-chan time.Time
 	if d.Binary != nil {
 		t := time.NewTicker(d.CheckBinary)
@@ -712,22 +712,28 @@ func (d *Dispatcher) replace(ctx context.Context) bool {
 	return true
 }
 
-// noteReplaced logs daemon_replaced when this process is the build a
-// previous daemon exec'd.
-func (d *Dispatcher) noteReplaced(ctx context.Context) {
-	from := config.Getenv("REPLACED_FROM")
-	if from == "" {
-		return
-	}
-	config.Unsetenv("REPLACED_FROM")
+// noteStart logs which start this process is: daemon_replaced when a
+// previous daemon exec'd this build, daemon_started on a fresh start, each
+// with the build it runs, so the health check names the daemon's build
+// without guessing.
+func (d *Dispatcher) noteStart(ctx context.Context) {
 	to := ""
 	if d.Binary != nil {
 		to = d.Binary.Running
 	}
-	d.Log.Info("yardr daemon replaced", "from", from, "to", version.Show(to))
-	if err := d.Store.LogDispatch(ctx, "", "daemon_replaced", actor,
-		map[string]any{"from": from, "to": version.Show(to)}); err != nil {
-		d.Log.Warn("daemon_replaced event", "err", err)
+	if from := config.Getenv("REPLACED_FROM"); from != "" {
+		config.Unsetenv("REPLACED_FROM")
+		d.Log.Info("yardr daemon replaced", "from", from, "to", version.Show(to))
+		if err := d.Store.LogDispatch(ctx, "", "daemon_replaced", actor,
+			map[string]any{"from": from, "to": version.Show(to)}); err != nil {
+			d.Log.Warn("daemon_replaced event", "err", err)
+		}
+		return
+	}
+	d.Log.Info("yardr daemon started", "build", version.Show(to))
+	if err := d.Store.LogDispatch(ctx, "", "daemon_started", actor,
+		map[string]any{"to": version.Show(to)}); err != nil {
+		d.Log.Warn("daemon_started event", "err", err)
 	}
 }
 
@@ -765,7 +771,10 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.timers(ctx)
 	// By the same clock, and before the crew for the same reason.
 	d.waits(ctx, byName)
-	if err := d.crew(ctx); err != nil {
+	// While the upgrade gate pauses dispatch the pass still reconciles,
+	// and still stamps, but the crew and the route below start nothing.
+	paused := d.gatePaused()
+	if err := d.crew(ctx, paused); err != nil {
 		return err
 	}
 	// Before routing, so a train the rules move to land is dispatched to
@@ -785,7 +794,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// Before anything is started: what a bead from a peer starts from is
 	// kept by its ref when its worktree is made.
 	d.bases(ctx)
-	if err := d.route(ctx, byName, active); err != nil {
+	if err := d.route(ctx, byName, active, paused); err != nil {
 		return err
 	}
 	// After the work is started: a copy of a large store takes a while.
@@ -795,6 +804,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// is fetched in it.
 	err = d.peers(ctx)
 	d.fetches(ctx)
+	// The pass ran: stamp it, whatever the peers said.
+	d.stampPass()
 	return err
 }
 
@@ -1098,7 +1109,7 @@ func (d *Dispatcher) cleanup(ctx context.Context, groups map[string]store.Group)
 	return nil
 }
 
-func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, active map[string]int) error {
+func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, active map[string]int, paused bool) error {
 	ready, err := d.Store.Dispatchable(ctx)
 	if err != nil {
 		return err
@@ -1277,6 +1288,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			pull = d.pullOf(ctx, links)
 		}
 
+		if paused {
+			// The upgrade gate: say what would be dispatched, and
+			// claim nothing.
+			d.Log.Info("would dispatch, paused by the upgrade gate",
+				"bead", b.ID, "stage", b.Stage, "group", g.Name)
+			continue
+		}
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor,
 			store.Routed{Route: r.ID, Passed: choice.Passed, Unknown: choice.Unknown})
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {

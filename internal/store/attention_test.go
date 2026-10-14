@@ -57,6 +57,25 @@ func TestNudgeHeldReachesWhoHearsTheClass(t *testing.T) {
 	}
 }
 
+// install_failed and rolled_back are dispatch kinds of the class attention
+// (yardr-x6s0): a crew member that hears the class has them in its inbox.
+// daemon_started is a dispatch kind but a routine start, so of no class.
+func TestInstallKindsAreDispatchKindsOfTheClass(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", On: []string{store.KindAttention}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"install_failed", "rolled_back", "daemon_started"} {
+		if err := s.LogDispatch(ctx, "", kind, "yard", map[string]any{"to": "1904417"}); err != nil {
+			t.Fatalf("LogDispatch(%s): %v", kind, err)
+		}
+	}
+	if got := inboxKinds(t, s, "yardmaster"); got != "install_failed,rolled_back" {
+		t.Errorf("the yardmaster hears %q, want the failure kinds and not the routine start", got)
+	}
+}
+
 // A crew member that hears the class by its name hears a kind that joins the
 // class after the member was made. One with a copy of the list as it was
 // does not: that was every crew member until the class (yardr-qcm2).

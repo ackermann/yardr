@@ -55,8 +55,9 @@ type Nudger interface {
 const defaultHandoffGrace = 15 * time.Minute
 
 // crew members keeps every enabled crew member running, delivers its inbox when
-// it is idle, and rotates it through handoffs. One pass, idempotent.
-func (d *Dispatcher) crew(ctx context.Context) error {
+// it is idle, and rotates it through handoffs. One pass, idempotent. While
+// paused by the upgrade gate it keeps them and tells them, but starts none.
+func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 	if _, err := d.Store.ExpireMemories(ctx); err != nil {
 		d.Log.Warn("expire memories", "err", err)
 	}
@@ -65,14 +66,14 @@ func (d *Dispatcher) crew(ctx context.Context) error {
 		return err
 	}
 	for _, r := range rs {
-		if err := d.member(ctx, r); err != nil {
+		if err := d.member(ctx, r, paused); err != nil {
 			d.Log.Error("crew", "crew", r.Name, "err", err)
 		}
 	}
 	return nil
 }
 
-func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
+func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool) error {
 	runner := d.Runners[r.Runner]
 	starter, ok := runner.(CrewRunner)
 	if !ok {
@@ -166,6 +167,12 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
 			}
 			return nil
 		}
+	}
+	if paused {
+		// The upgrade gate: start nothing. Not a failed start:
+		// nothing is counted and no wait is set.
+		d.Log.Info("would start, paused by the upgrade gate", "crew", r.Name)
+		return nil
 	}
 	handle, err := starter.StartCrew(ctx, r)
 	if err != nil {

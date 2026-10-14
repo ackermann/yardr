@@ -152,11 +152,11 @@ func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map
 // move_refused is the store's own (see Store.refused) and is here as what
 // it is: a report on a session that changes nothing.
 var DispatchKinds = []string{
-	"daemon_replaced", "replace_skipped",
+	"daemon_replaced", "daemon_started", "replace_skipped",
 	"session_prompted", "session_harness_starting", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_aged", "session_stalled", "session_harness_error", "session_harness_retry", "session_model_mismatch",
 	"move_refused",
 	"runtime_down", "runtime_up",
-	"backup_failed",
+	"backup_failed", "install_failed", "rolled_back",
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "capped", "quota_wait", "unrouted", "no_runner", "bad_depot", "bad_flow", "stranded",
 	"crew_blocked", "nudge_held", "human_notified", "waited",
