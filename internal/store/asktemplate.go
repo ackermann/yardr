@@ -83,13 +83,7 @@ func (sf *StageFile) Ask() (*AskTemplate, error) {
 		return nil, nil
 	}
 	lines := strings.Split(sf.Text, "\n")
-	at := -1
-	for i, line := range lines {
-		if isAskHeading(line) {
-			at = i
-			break
-		}
-	}
+	_, at := askSectionStart(sf.Text)
 	if at < 0 {
 		return nil, nil
 	}
@@ -99,19 +93,84 @@ func (sf *StageFile) Ask() (*AskTemplate, error) {
 // isAskHeading reports whether the line opens a stage file's ask template:
 // a heading that reads ## Ask.
 func isAskHeading(line string) bool {
-	return strings.Join(strings.Fields(line), " ") == "## Ask"
+	i := 0
+	for i < len(line) && line[i] == ' ' {
+		i++
+	}
+	if i > 3 || (i == 0 && strings.HasPrefix(line, "\t")) {
+		return false
+	}
+	return strings.Join(strings.Fields(line[i:]), " ") == "## Ask"
+}
+
+// askSectionStart finds the ## Ask heading outside a fenced code block. Stage
+// files are markdown, so an example of the template in a code fence is prose,
+// not the section that controls the stage. It returns the byte offset and
+// zero-based line number, or -1 for each when there is no section.
+func askSectionStart(text string) (offset, lineNumber int) {
+	var fence byte
+	fenceWidth := 0
+	for i, line := range strings.SplitAfter(text, "\n") {
+		content := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if fence != 0 {
+			if closesMarkdownFence(content, fence, fenceWidth) {
+				fence, fenceWidth = 0, 0
+			}
+		} else if mark, width, ok := opensMarkdownFence(content); ok {
+			fence, fenceWidth = mark, width
+		} else if isAskHeading(content) {
+			return offset, i
+		}
+		offset += len(line)
+	}
+	return -1, -1
+}
+
+// opensMarkdownFence recognizes a CommonMark-style backtick or tilde fence.
+func opensMarkdownFence(line string) (mark byte, width int, ok bool) {
+	i := 0
+	for i < len(line) && i < 3 && line[i] == ' ' {
+		i++
+	}
+	if i == len(line) || (line[i] != '`' && line[i] != '~') {
+		return 0, 0, false
+	}
+	mark = line[i]
+	for i+width < len(line) && line[i+width] == mark {
+		width++
+	}
+	if width < 3 {
+		return 0, 0, false
+	}
+	// CommonMark does not allow backticks in a backtick fence's info string.
+	if mark == '`' && strings.Contains(line[i+width:], "`") {
+		return 0, 0, false
+	}
+	return mark, width, true
+}
+
+func closesMarkdownFence(line string, mark byte, width int) bool {
+	i := 0
+	for i < len(line) && i < 3 && line[i] == ' ' {
+		i++
+	}
+	if i == len(line) || line[i] != mark {
+		return false
+	}
+	count := 0
+	for i+count < len(line) && line[i+count] == mark {
+		count++
+	}
+	return count >= width && strings.TrimSpace(line[i+count:]) == ""
 }
 
 // cutAskSection cuts a stage file's text at its ## Ask section, which the
 // brief, prime and the web view leave out as they leave out the summary:
 // line. Text without the section is unchanged.
 func cutAskSection(text string) string {
-	start := 0
-	for _, line := range strings.SplitAfter(text, "\n") {
-		if isAskHeading(line) {
-			return strings.TrimRight(text[:start], " \t\r\n")
-		}
-		start += len(line)
+	start, _ := askSectionStart(text)
+	if start >= 0 {
+		return strings.TrimRight(text[:start], " \t\r\n")
 	}
 	return text
 }

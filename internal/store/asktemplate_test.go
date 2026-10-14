@@ -83,6 +83,35 @@ backlog: The bead goes back to be reshaped by the yardmaster.
 	}
 }
 
+// A fenced example may show the ## Ask syntax without defining a template.
+func TestAskTemplateIgnoresFencedExamples(t *testing.T) {
+	text := "Use this syntax:\n\n```md\n## Ask\nkind: input\nquestion: Example?\ncontext:\n- Only an example.\n```\n\n~~~\n## Ask\nkind: check\nquestion: Also an example?\ncontext:\n- Still prose.\n~~~\n\n    ## Ask\n    kind: input\n    question: Indented example?\n\nFor this stage:\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The stage is waiting.\n"
+	sf := &store.StageFile{Text: text}
+	tmpl, err := sf.Ask()
+	if err != nil {
+		t.Fatalf("parse actual template: %v", err)
+	}
+	if tmpl == nil || tmpl.Question != "What was decided?" {
+		t.Fatalf("template = %+v, want the section after both examples", tmpl)
+	}
+	body := sf.Body()
+	if !strings.Contains(body, "## Ask\nkind: input\nquestion: Example?") ||
+		!strings.Contains(body, "## Ask\nkind: check\nquestion: Also an example?") ||
+		!strings.Contains(body, "    ## Ask\n    kind: input\n    question: Indented example?") ||
+		strings.Contains(body, "What was decided?") {
+		t.Errorf("body did not retain examples and strip the template:\n%s", body)
+	}
+
+	exampleOnly := "Example:\n\n```md\n## Ask\nkind: input\nquestion: Example?\ncontext:\n- Only an example.\n```\n"
+	sf = &store.StageFile{Text: exampleOnly}
+	if tmpl, err := sf.Ask(); err != nil || tmpl != nil {
+		t.Errorf("example-only file: template %+v, %v", tmpl, err)
+	}
+	if got := sf.Body(); got != exampleOnly {
+		t.Errorf("example-only body changed: %q", got)
+	}
+}
+
 // A section that is present must parse fully: every malformed section is
 // refused naming its line.
 func TestAskTemplateMalformed(t *testing.T) {
