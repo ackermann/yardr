@@ -116,10 +116,17 @@ func TestHomeNeedsAsk(t *testing.T) {
 	}
 	want := `<a href="/beads/` + b.ID + `" class="ask"><span class="entry-title ask-q">Move the links now?</span>` +
 		`<span class="separator" aria-hidden="true">·</span>` +
-		`<span class="ask-meta"><span class="label">` + shortID(b.ID) + `</span>` +
-		`<span class="faint"> 1. Move them now</span></span><span class="faint">`
+		`<span class="ask-meta"><span class="label">` + b.ID + `</span>` +
+		`<span class="separator" aria-hidden="true">·</span><span class="faint">`
 	if !strings.Contains(s, want) {
 		t.Errorf("the row lacks %q", want)
+	}
+	if !strings.Contains(s, " ago</span></span>") {
+		t.Error("the ask row's age lacks its unit of time")
+	}
+	row, _, _ := strings.Cut(s, `<div class="need-ask">`)
+	if strings.Contains(row, "1. Move them now") {
+		t.Error("the ask row repeats the recommendation shown in its detail")
 	}
 	for _, not := range []string{"dot", "held", "a door", "All waiting"} {
 		if strings.Contains(s, not) {
@@ -219,8 +226,8 @@ func TestLineAskContext(t *testing.T) {
 	}
 }
 
-// An ask with no options reads as words wanted; one with options but no
-// recommendation names none.
+// The row does not duplicate recommendations. An ask with no options and
+// one with options but no recommendation both leave the detail to speak.
 func TestHomeNeedsAskRecommend(t *testing.T) {
 	f := askFixture(t)
 	words := askBead(t, f, "words", "new")
@@ -237,8 +244,8 @@ func TestHomeNeedsAskRecommend(t *testing.T) {
 		},
 	})
 	s := answerSection(t, f.get("/").body)
-	if !strings.Contains(s, `<span class="faint"> words wanted</span>`) {
-		t.Error("the words-wanted ask names no words wanted")
+	if strings.Contains(s, "words wanted") {
+		t.Error("the ask row repeats the words-wanted detail")
 	}
 	// The plain ask's row carries no recommendation, but its options
 	// stand with their consequences.
@@ -274,7 +281,7 @@ func TestHomeNeedsAskTopic(t *testing.T) {
 	b := askBead(t, f, "a door", "new", "topic:linear-out", "area:web")
 	askOn(t, f, b.ID, pickAsk())
 	s := answerSection(t, f.get("/").body)
-	want := `<span class="ask-meta"><span class="label">` + shortID(b.ID) + `</span><span class="label"> linear-out</span>`
+	want := `<span class="ask-meta"><span class="label">` + b.ID + `</span><span class="label"> linear-out</span>`
 	if !strings.Contains(s, want) {
 		t.Errorf("the row lacks %q", want)
 	}
@@ -496,8 +503,13 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	if !strings.Contains(s, `<span class="entry-title ask-q">`+want+`</span>`) {
 		t.Errorf("the home row lacks the folded question")
 	}
-	if !strings.Contains(s, `<span class="faint"> to approve: yardr peer allow airy --mail-limit 300</span>`) {
-		t.Errorf("the home row lacks the yard's command")
+	command := "to approve: yardr peer allow airy --mail-limit 300"
+	if !strings.Contains(s, `<p class="entry-note">`+command+`</p>`) {
+		t.Errorf("the home ask detail lacks the yard's command")
+	}
+	row, _, _ := strings.Cut(s, `<div class="need-ask">`)
+	if strings.Contains(row, command) {
+		t.Error("the home ask row repeats the command shown in its detail")
 	}
 	text := squash(f.get("/line").body)
 	if !strings.Contains(text, `<p class="why">`+want+`</p>`) {

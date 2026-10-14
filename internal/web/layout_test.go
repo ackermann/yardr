@@ -352,7 +352,7 @@ func TestMoreBackdrop(t *testing.T) {
 }
 
 // On a phone an ask's row gives the question the row's first line whole,
-// ending in an ellipsis, and the bead, the pick and the age stand under it.
+// ending in an ellipsis, and the bead and age stand under it.
 // At 1100 px and wider the row is one line, as today. What the pixels do is
 // the bead's screenshot.
 func TestAskRowOnPhone(t *testing.T) {
@@ -363,7 +363,7 @@ func TestAskRowOnPhone(t *testing.T) {
 	for _, want := range []string{
 		".needs a.ask { display: flex; flex-wrap: wrap; }",
 		".needs a.ask .ask-q { order: -1; flex: 1 1 100%; }",
-		".needs a.ask .separator { display: none; }",
+		".needs a.ask > .separator { display: none; }",
 	} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone rules lack %s", want)
@@ -383,9 +383,15 @@ func TestAskRowOnPhone(t *testing.T) {
 	}
 	// The wide row is one grid line, as today.
 	wide := cssRule(t, ".needs a.ask")
-	for _, want := range []string{"display: grid;", "grid-template-columns: minmax(0, 1fr) auto auto auto;"} {
+	for _, want := range []string{"display: grid;", "grid-template-columns: minmax(0, 1fr) auto auto;"} {
 		if !strings.Contains(wide, want) {
 			t.Errorf(".needs a.ask lacks %s: %s", want, wide)
+		}
+	}
+	meta := cssRule(t, ".needs .ask-meta")
+	for _, want := range []string{"display: flex;", "white-space: nowrap;"} {
+		if !strings.Contains(meta, want) {
+			t.Errorf(".needs .ask-meta lacks %s: %s", want, meta)
 		}
 	}
 }

@@ -232,29 +232,25 @@ ul, ol { list-style: none; }
 .needs .label, .needs .faint { font-family: var(--mono); }
 .needs .stage { font-family: var(--mono); }
 .needs .entry-title { display: block; flex: 1 1 0; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* An ask's bead, topic and recommendation ride in one capped span, ending
-   in an ellipsis, so the age after them keeps its own at 390 px; the
-   question gives way first. */
-.needs .ask-meta { flex: 0 0 auto; max-width: 20ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* An asked row's question may give way altogether: the bead, the topic,
-   the recommendation and the age after it never do. */
+/* An ask's bead, topic and age ride together after the question; the
+   recommendation is in the detail below, where it is labelled. */
+.needs .ask-meta { display: flex; align-items: baseline; gap: 6px; flex: 0 0 auto; white-space: nowrap; }
+/* An asked row's question gives way first to the bead and age. */
 .needs .entry-title.ask-q { min-width: 0; }
-/* An asked row lays out as a grid: the question takes what the bead, the
-   topic, the recommendation and the age leave, ending in an ellipsis. The
-   phone rules below come after it, so they win where they match. */
-.needs a.ask { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; }
-.needs a.ask.fault { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; }
+/* An asked row lays out as a grid: the question takes what the bead and
+   age leave, ending in an ellipsis. The phone rules below come after it. */
+.needs a.ask { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
+.needs a.ask.fault { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; }
 /* On the phone the row sizes from the viewport, not its parent's width:
    a flex row sized by percent lets its question crowd out the bead and
    the age it shares the row with. */
 @media (max-width: 699px) {
   .needs li > a { width: calc(100vw - 32px); }
   /* An asked row: the question takes the first line whole, ending in an
-     ellipsis, and the bead, the pick and the age stand under it, so the
-     question never gets less room than the metadata. */
+     ellipsis, and the bead and age stand under it. */
   .needs a.ask { display: flex; flex-wrap: wrap; }
   .needs a.ask .ask-q { order: -1; flex: 1 1 100%; }
-  .needs a.ask .separator { display: none; }
+  .needs a.ask > .separator { display: none; }
 }
 
 /* A bead as a list shows it. */
