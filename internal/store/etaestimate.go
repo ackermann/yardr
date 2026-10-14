@@ -77,24 +77,37 @@ func (s *Store) EstimateMany(ctx context.Context, ids []string) (map[string]*eta
 		return out
 	}
 	now := now()
+	// A response's beads follow a handful of flows: each is resolved
+	// once per depot, type and pin, as stranded resolves them. Each
+	// resolution may shell to git for the depot's checkout, which cost
+	// a page an invocation per bead.
+	flows := map[flowAsk]*eta.Flow{}
 	for _, id := range ids {
 		b, err := s.GetBead(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		// A flow that does not resolve governs nothing: the estimate
-		// counts the current stage, and the rest is unclocked past it.
-		var flow *eta.Flow
-		if next, _ := s.NextStages(ctx, id); next != nil && next.Flow != nil {
-			f := next.Flow
-			outs := make(map[string][]eta.Outcome, len(f.Outcomes))
-			for stage, os := range f.Outcomes {
-				for _, o := range os {
-					outs[stage] = append(outs[stage], eta.Outcome{Name: o.Name, To: o.To})
+		ask := flowAsk{typ: b.Type, pin: PinnedFlow(b)}
+		if b.Depot != nil {
+			ask.depot, ask.hasDepot = *b.Depot, true
+		}
+		flow, ok := flows[ask]
+		if !ok {
+			// A flow that does not resolve governs nothing: the
+			// estimate counts the current stage, and the rest is
+			// unclocked past it.
+			if next, _ := s.NextStages(ctx, id); next != nil && next.Flow != nil {
+				f := next.Flow
+				outs := make(map[string][]eta.Outcome, len(f.Outcomes))
+				for stage, os := range f.Outcomes {
+					for _, o := range os {
+						outs[stage] = append(outs[stage], eta.Outcome{Name: o.Name, To: o.To})
+					}
 				}
+				flow = &eta.Flow{Stages: slices.Clone(f.Stages), Outcomes: outs,
+					Transitions: maps.Clone(f.Transitions), Terminal: slices.Clone(f.Terminal)}
 			}
-			flow = &eta.Flow{Stages: slices.Clone(f.Stages), Outcomes: outs,
-				Transitions: maps.Clone(f.Transitions), Terminal: slices.Clone(f.Terminal)}
+			flows[ask] = flow
 		}
 		eb, err := s.etaBead(ctx, b)
 		if err != nil {
