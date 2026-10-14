@@ -161,6 +161,7 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 // the stand-in. A line importing a Go module (github.com/...) cannot go.
 func TestNoGoCodeNamesGitHub(t *testing.T) {
 	name := regexp.MustCompile(`(?i)github`)
+	credential := regexp.MustCompile(`\bGITHUB_(?:TOKEN|APP_ID|APP_PRIVATE_KEY_FILE)\b`)
 	kept := []string{
 		"contrib/isolated-yard/sources/main.go",
 		"internal/bdp/server.go",
@@ -203,10 +204,13 @@ func TestNoGoCodeNamesGitHub(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if slices.Contains(kept, path) {
-			return nil
-		}
 		for i, line := range strings.Split(string(body), "\n") {
+			if credential.MatchString(line) {
+				t.Errorf("%s:%d names a GitHub credential: credentials belong to a source pack, not Go code: %s", path, i+1, strings.TrimSpace(line))
+			}
+			if slices.Contains(kept, path) {
+				continue
+			}
 			if isImport.MatchString(line) {
 				continue
 			}

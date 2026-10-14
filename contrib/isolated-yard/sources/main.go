@@ -6,25 +6,21 @@
 //	go build -o D/bin/sources ./contrib/isolated-yard/sources
 //	D/e sources -state D/issues.json &        # prints the address it took, A
 //
-// and start the yard's daemon with YARDR_GITHUB_API=http://A. A source the
-// yard declares with base http://A hears Linear through it: the pack's
-// commands call the stand-in. Without -addr it takes a free port on the
-// loopback. Give it one only after checking that nothing listens on the port
-// on any address: a listener on 127.0.0.1 takes the loopback's traffic from
-// one on all addresses, which is how a stand-in on 8791 once stood in front
-// of a real yard's web view. The issues are kept in -state, so the stand-in
-// can be stopped and started again, on the same -addr, as a source that was
-// down.
+// and start the yard's daemon after pointing the declared source's base at
+// http://A. The pack's commands call the stand-in. Without -addr it takes a
+// free port on the loopback. Give it one only after checking that nothing
+// listens on the port on any address: a listener on 127.0.0.1 takes the
+// loopback's traffic from one on all addresses, which is how a stand-in on
+// 8791 once stood in front of a real yard's web view. The issues are kept in
+// -state, so the stand-in can be stopped and started again, on the same
+// -addr, as a source that was down.
 //
 // With -github-app-key the stand-in knows a GitHub App too: it makes a
 // throwaway key, writes the private half to the file named (mode 0600),
 // and takes JWTs signed with it from the App -github-app-id, installed on
-// -github-app-repos. A crew member answers as the App with
-//
-//	GITHUB_APP_ID=<the -github-app-id>
-//	GITHUB_APP_PRIVATE_KEY_FILE=<the -github-app-key>
-//
-// in its env_file, and its comments are by <-github-app-slug>[bot].
+// -github-app-repos. A crew member answers as the App with the variables
+// named by the source declaration's credential.mint, and its comments are
+// by <-github-app-slug>[bot].
 //
 // It also takes messages for a person, for a declared source whose file
 // has `base: http://A/1`, a call that POSTs
