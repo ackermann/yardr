@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,9 @@ import (
 // What a type is read from is the first bytes, so this is an image as far
 // as a yard asks.
 var shedPNG = []byte("\x89PNG\r\n\x1a\n" + "a picture of the shed")
+
+// And this is a page: HTML bytes, which cross as files do.
+var shedPage = []byte("<!DOCTYPE html><html><head><title>the shed</title></head><body><p>the shed, painted</p></body></html>")
 
 func hashOf(data []byte) string {
 	sum := sha256.Sum256(data)
@@ -167,6 +171,222 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 	}
 }
 
+// With file allowed both ways, mail with a page arrives with the blob in
+// the other yard's blobs, under the same hash and the type its bytes say,
+// and its line names the page there; the conversation shows it. The type
+// the sender claimed is not trusted: bytes that say HTML land as a page
+// whatever they came under, so the receiver's sandbox shows them as its
+// own pages.
+func TestMailWithAPageCrosses(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	ref, err := south.api.PutBlob(ctx, shedPage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Type != "text/html; charset=utf-8" || !ref.IsPage() {
+		t.Fatalf("south's blob = %+v", ref)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed, mocked up", "jo", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := south.api.PeerOutbox(ctx, "north", 0)
+	if len(out) != 2 || out[0].Kind != "file" || out[1].Kind != "mail" {
+		t.Fatalf("south's outbox = %+v", out)
+	}
+	south.post(t, toNorth)
+
+	path := north.own.BlobPath(ref.Hash)
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, shedPage) {
+		t.Fatalf("north's blob = %q, %v", got, err)
+	}
+	e, files := mailed(t, north)
+	if len(files) != 1 || files[0] != *ref || e.Data["text"] != "the shed, mocked up" || e.Actor != "jo@south" {
+		t.Fatalf("north's mail = %+v, files %+v", e, files)
+	}
+	home := filepath.Dir(filepath.Dir(path))
+	if line := store.FilesLine(home, files); line != "1 page: "+path {
+		t.Fatalf("the file line = %q", line)
+	}
+	talk, _, err := north.api.Conversation(ctx, "yardmaster", "jo@south", 0, 0, 0)
+	if err != nil || len(talk) != 1 || len(talk[0].Files) != 1 || talk[0].Files[0] != *ref {
+		t.Fatalf("north's conversation = %+v, %v", talk, err)
+	}
+
+	// The receiver reads the type itself, as for a file put there: page
+	// bytes claimed as an image land as a page.
+	if err := north.api.AckInbox(ctx, "yardmaster", e.Seq); err != nil {
+		t.Fatal(err)
+	}
+	other := append(bytes.Clone(shedPage), "\n<!-- again -->"...)
+	claimed := store.BlobRef{Hash: hashOf(other), Type: "image/png", Bytes: int64(len(other))}
+	fileBody, _ := json.Marshal(peerFileForTest(claimed, other))
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "f9", Kind: "file", Body: fileBody}); err != nil {
+		t.Fatal(err)
+	}
+	mailBody, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "again", "files": []store.BlobRef{claimed}})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m9", Kind: "mail", Body: mailBody}); err != nil {
+		t.Fatal(err)
+	}
+	if _, files := mailed(t, north); len(files) != 1 || !files[0].IsPage() || files[0].Type != "text/html; charset=utf-8" {
+		t.Fatalf("mail that claims an image of page bytes has %+v", files)
+	}
+}
+
+// A yard from before pages takes file but knows no HTML: a page to it is
+// refused as no file, nothing of it is kept, and the mail that names it
+// still arrives, saying it did not arrive, with its text intact.
+func TestPageToAYardFromBeforePages(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	old := store.BlobTypes
+	store.BlobTypes = []string{"image/png", "image/jpeg"}
+	t.Cleanup(func() { store.BlobTypes = old })
+
+	page := hashOf(shedPage)
+	body, _ := json.Marshal(peerFileForTest(store.BlobRef{Hash: page, Type: "text/html; charset=utf-8", Bytes: int64(len(shedPage))}, shedPage))
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "f1", Kind: "file", Body: body}); !errors.Is(err, yards.ErrRefused) ||
+		!strings.HasSuffix(err.Error(), "it does not read the file, or its bytes are not what it was named by") {
+		t.Fatalf("a page to a yard from before pages = %v", err)
+	}
+	if got := blobs(t, north); len(got) != 0 {
+		t.Fatalf("north stored what it refused: %v", got)
+	}
+	refused := north.events(t, "peer_message_refused")
+	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedNotFile {
+		t.Fatalf("north's peer_message_refused = %+v", refused)
+	}
+	mailBody, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "look",
+		"files": []store.BlobRef{{Hash: page, Type: "text/html; charset=utf-8", Bytes: int64(len(shedPage))}}})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m1", Kind: "mail", Body: mailBody}); err != nil {
+		t.Fatal(err)
+	}
+	e, files := mailed(t, north)
+	if len(files) != 1 || files[0].NotTaken != "it did not arrive" || files[0].Type != "" ||
+		e.Data["text"] != "look" || e.Actor != "jo@south" {
+		t.Fatalf("north's mail = %+v, files %+v", e, files)
+	}
+	// A type the yard does not know counts as an image on the line.
+	if line := store.FilesLine("/home", files); line != "1 image: not taken: it did not arrive" {
+		t.Fatalf("the file line = %q", line)
+	}
+}
+
+// A page over the receiver's cap for a peer's file is refused with the
+// size, as an image is, and the mail says it.
+func TestPageRefusedForWhatItIs(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	if err := north.api.SetSetting(ctx, store.PeerFileMaxSetting, "64", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := south.api.PutBlob(ctx, shedPage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+	_, files := mailed(t, north)
+	want := fmt.Sprintf("it is %d bytes, over this yard's limit of 64 for a file from another yard", len(shedPage))
+	if len(files) != 1 || files[0].NotTaken != want {
+		t.Fatalf("north's mail has %+v", files)
+	}
+	if line := store.FilesLine("/home", files); line != "1 page: not taken: "+want {
+		t.Fatalf("the file line = %q", line)
+	}
+	refused := north.events(t, "peer_message_refused")
+	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedTooLarge || refused[0].Data["bytes"] != float64(len(shedPage)) || refused[0].Data["limit"] != float64(64) {
+		t.Fatalf("north's peer_message_refused = %+v", refused)
+	}
+	if failed := south.events(t, "peer_message_failed"); len(failed) != 1 || !strings.HasSuffix(failed[0].Data["reason"].(string), "the file is larger than it takes from another yard") {
+		t.Fatalf("south's peer_message_failed = %+v", failed)
+	}
+}
+
+// Who wrote mail with a page the other yard refused is told so by mail
+// from the yard, naming the page, and their conversation shows it as not
+// taken where the mail itself was delivered. A second mail with an image
+// and a page, of which the link then takes the image but not the page,
+// names each by kind.
+func TestWriterIsToldOfARefusedPage(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, []string{"mail"})
+	ctx := context.Background()
+	if _, err := south.api.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := south.api.PutBlob(ctx, shedPage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+
+	const why = "refused by the peer: its link does not carry file in"
+	box, err := south.api.UserInbox(ctx, "jo", 0)
+	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" ||
+		!strings.HasPrefix(box.Mail[0].Text, "the page of your mail to yardmaster@north of ") || !strings.HasSuffix(box.Mail[0].Text, " was not taken: "+why) {
+		t.Fatalf("jo's mail = %+v, %v", box, err)
+	}
+	talk, _, err := south.api.Conversation(ctx, "jo", "yardmaster@north", 0, 0, 0)
+	if err != nil || len(talk) != 1 || talk[0].Delivery != store.MailSent || len(talk[0].Files) != 1 || talk[0].Files[0].NotTaken != why {
+		t.Fatalf("south's conversation = %+v, %v", talk, err)
+	}
+	if line := store.FilesLine("/home", talk[0].Files); line != "1 page: not taken: "+why {
+		t.Fatalf("the file line = %q", line)
+	}
+	first, files := mailed(t, north)
+	if len(files) != 1 || files[0].NotTaken != "the link does not take files" {
+		t.Fatalf("north's mail has %+v", files)
+	}
+	if err := north.api.AckInbox(ctx, "yardmaster", first.Seq); err != nil {
+		t.Fatal(err)
+	}
+
+	// The link takes files now, but within a cap the image meets and the
+	// page does not.
+	if _, err := north.api.AllowPeer(ctx, "south", store.PeerAllow{Receive: []string{"file"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := north.api.SetSetting(ctx, store.PeerFileMaxSetting, "64", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	image, err := south.api.PutBlob(ctx, shedPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "both", "jo", image.Hash, ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+	_, files = mailed(t, north)
+	over := fmt.Sprintf("it is %d bytes, over this yard's limit of 64 for a file from another yard", len(shedPage))
+	if len(files) != 2 || files[0] != *image || files[1].NotTaken != over {
+		t.Fatalf("north's second mail has %+v", files)
+	}
+	home := filepath.Dir(filepath.Dir(north.own.BlobPath(image.Hash)))
+	if line := store.FilesLine(home, files); line != "1 image, 1 page: "+north.own.BlobPath(image.Hash)+"; not taken: "+over {
+		t.Fatalf("the file line = %q", line)
+	}
+	box, err = south.api.UserInbox(ctx, "jo", 0)
+	if err != nil || len(box.Mail) != 2 {
+		t.Fatalf("jo's mail = %+v, %v", box, err)
+	}
+	var told string
+	for _, m := range box.Mail {
+		if strings.Contains(m.Text, "page 2 of 2") {
+			told = m.Text
+		}
+	}
+	if !strings.HasPrefix(told, "page 2 of 2 of your mail to yardmaster@north of ") ||
+		!strings.HasSuffix(told, " was not taken: refused by the peer: the file is larger than it takes from another yard") {
+		t.Fatalf("jo's mail = %+v", box.Mail)
+	}
+}
+
 // A yard whose link does not take files takes no bytes: the file is
 // refused 403 with the reason and logged, the sender gives it up and logs
 // that, and the mail still arrives, saying so where the path would be.
@@ -304,7 +524,7 @@ func TestMailWithAnImageRefusedBeforeItIsQueued(t *testing.T) {
 			t.Fatalf("refused mail was queued: %+v", p)
 		}
 	}
-	refused("the link does not carry file out, so mail to it carries no image: the operator allows it with yardr peer allow north --send file")
+	refused("the link does not carry file out, so mail to it carries no file: the operator allows it with yardr peer allow north --send file")
 	if _, err := south.api.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"file"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +533,7 @@ func TestMailWithAnImageRefusedBeforeItIsQueued(t *testing.T) {
 	if err := south.own.PeerHeard(ctx, "north", north.pub(), old); err != nil {
 		t.Fatal(err)
 	}
-	refused("peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no image until it is upgraded")
+	refused("peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no file until it is upgraded")
 	if err := south.own.PeerHeard(ctx, "north", north.pub(), nil); err != nil {
 		t.Fatal(err)
 	}

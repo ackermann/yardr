@@ -433,17 +433,17 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 		// The value before the options: they are ticked from it.
 		huh.NewMultiSelect[string]().Key("pair_carry").Title("What may this link carry?").
 			Description(fmt.Sprintf("Each in both directions: what this yard sends %s, and what it takes from it. The other\n"+
-				"operator is asked the same, and mail or an image crosses only when both of you tick it.", calls)).
+				"operator is asked the same, and mail, an image or a page crosses only when both of you tick it.", calls)).
 			Value(&carry).Options(
 			huh.NewOption("ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link", store.PeerPing),
 			huh.NewOption(fmt.Sprintf("mail between crew members: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
-			huh.NewOption(fmt.Sprintf("file: images in mail cross the link, kept within %s", store.PeerFileMaxSetting), store.PeerFile),
+			huh.NewOption(fmt.Sprintf("file: images and pages in mail cross the link, kept within %s", store.PeerFileMaxSetting), store.PeerFile),
 		).Validate(func(picked []string) error {
 			if !slices.Contains(picked, store.PeerPing) {
 				return errors.New("ping stays ticked: without it the link cannot be proved")
 			}
 			if slices.Contains(picked, store.PeerFile) && !slices.Contains(picked, store.PeerMail) {
-				return errors.New("file goes with mail, which carries the images: tick mail too, or untick file")
+				return errors.New("file goes with mail, which carries the images and pages: tick mail too, or untick file")
 			}
 			return nil
 		}),
@@ -697,7 +697,7 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 			"docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
 	}
 	if opt.form.file {
-		fmt.Printf("\nAn image goes with the mail (`--file <png or jpeg>`), once the other operator ticked file too.\n")
+		fmt.Printf("\nAn image or a page goes with the mail (`--file <image or page>`), once the other operator ticked file too.\n")
 	}
 	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil

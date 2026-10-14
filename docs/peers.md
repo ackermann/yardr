@@ -71,8 +71,9 @@ through a tunnel or proxy of your own. There is no relay.
 operators run it, and it asks what the commands below take as arguments:
 whether to show a code or enter one, the check, what the link may carry
 (`ping`, which the page does not let go, mail between crew members, and
-`file`, [the images mail carries](#an-image-with-the-mail), which is not
-ticked and goes only with mail, each for both directions on this yard), whom of this yard the other may
+`file`, [the images and pages mail carries](#an-image-with-the-mail), which
+is not ticked and goes only with mail, each for both directions on this
+yard), whom of this yard the other may
 write to ([`--expose`](#the-roster-whom-a-peer-may-see-and-write-to), the
 yardmaster ticked), the name this yard saves the other under, and, once the
 link is proved, whom to [trust](#trusting-a-name-as-a-person-of-this-yard)
@@ -86,10 +87,10 @@ known of why).
 # on laptop, after the check
 ┃ What may this link carry?
 ┃ Each in both directions: what this yard sends north, and what it takes from it. The other
-┃ operator is asked the same, and mail or an image crosses only when both of you tick it.
+┃ operator is asked the same, and mail, an image or a page crosses only when both of you tick it.
 ┃ > ✓ ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link
 ┃   ✓ mail between crew members: this yard's may write to north's, and north's to this yard's
-┃   • file: images in mail cross the link, kept within peer_file_max_bytes
+┃   • file: images and pages in mail cross the link, kept within peer_file_max_bytes
 
 The two yards are linked. This one knows the other as north, and the link carries ping and mail, each way.
 ```
@@ -836,7 +837,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
 | `mail` | `yardr mail <name>@<peer>`: [mail between crew members](#mail-between-crew-members), and between the people of the two yards. `--send` lets this yard's crew and users write to whom the peer exposes, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
-| `file` | `yardr mail <name>@<peer> --file`: [the images mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
+| `file` | `yardr mail <name>@<peer> --file`: [the images and pages mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images and pages, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 | `ask` | `yardr bead ask <id> "<question>" --to <person>@<peer>`: a question asked of a person of the other yard, which stands among their decisions there; their pick comes back onto the bead. `--send` lets this yard's crew and users ask (each crew member needs the peer in its `peers` setting too), `--receive` lets the peer's asks stand among this yard's decisions. The answer is a message of kind `ask` too, so each yard allows the kind both ways |
 | `thread` | [what a yard says of a bead it works for the other while the bead is there](#while-a-bead-is-at-the-other-yard). `--send` lets this yard tell the peer how the beads it took from it stand; `--receive` lets this yard keep what the peer says of this yard's beads there. The word is the kind of no message itself. It covers the message `bead-event`, which goes the way the word is allowed, and the message `bead-read`, [a read of the other yard's bead](#reading-the-other-yards-bead) and its answer, which needs the word both ways on both sides, and the message `bead-note`, [a note on the other yard's bead](#answering-on-the-other-yards-bead), which goes against the events: the yard whose bead is away sends it, the yard that works the bead receives it |
@@ -880,6 +881,12 @@ nothing has crossed yet:
   messages handed over with it are taken, and the link carries on. It is not
   remembered as taken either, so the same message is taken once the yard is
   upgraded.
+- **A type the receiver's yardr does not know** is refused the way bytes of
+  the wrong hash are: a page to a yardr from before pages, over a link that
+  carries `file`, is refused as `not_file` and never lands as bytes served
+  under a claimed type. The mail that names it still arrives, saying `it
+  did not arrive` ([below](#an-image-with-the-mail)), and is whole once the
+  yard is upgraded and the page sent again.
 - **The older of two builds** ignores the statement, which is one more field
   where it reads the ones it knows, and says nothing itself. The two still
   exchange every kind both know: `ping` and `mail` cross between a yard on
@@ -1099,13 +1106,16 @@ and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
 
-Not carried: files that are no image, beads, memories, mail to a group.
+Not carried: files that are no image or page, beads, memories, mail to a group.
 
 ### An image with the mail
 
-`yardr mail <name>@<peer> --file yard.png` sends the image with the mail, as
-[`--file` does in one yard](users.md#an-image-in-mail), when the link carries
-the kind `file` as well as `mail`:
+`yardr mail <name>@<peer> --file yard.png` sends the image with the mail,
+and `--file page.html` the page, as [`--file` does in one
+yard](users.md#an-image-in-mail), when the link carries the kind `file` as
+well as `mail`. Pages cross as files: under the same kind, within the same
+caps, and inert — the receiving yard keeps the bytes and shows them under
+its own sandbox, as it does its own pages:
 
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
@@ -1114,23 +1124,23 @@ mail for yardmaster@north queued; the daemon delivers it, and yardr peer show no
 ◆ 1 image: /home/me/.yardr/blobs/5f2c…
 ```
 
-Each image is one message of kind `file` (`peer show` lists it, `waiting:
+Each file is one message of kind `file` (`peer show` lists it, `waiting:
 file <id>`), queued before the mail that names it. The outbox keeps its
-order, so the image is in the other yard when its mail arrives. That yard
+order, so the file is in the other yard when its mail arrives. That yard
 checks the bytes against the hash they came under, reads the type from the
-bytes as it does for an image put there, and keeps the file in its own
+bytes as it does for a file put there, and keeps the file in its own
 `blobs` under the same hash; one it holds already is not written again.
-The mail then names `1 image: <path>` in that yard's home, on a marked line
-of its own under its words, in `yardr inbox`, the nudge, `yardr mail --with`
-and `yardr chat`. From then on
-it is an image of that yard like any other: kept while mail the yard still
+The mail then names `1 image: <path>` or `1 page: <path>` in that yard's
+home, on a marked line of its own under its words, in `yardr inbox`, the
+nudge, `yardr mail --with` and `yardr chat`. From then on
+it is a file of that yard like any other: kept while mail the yard still
 has names it, and removed by the prune after.
 
-**Refused before anything is queued.** Mail with an image to a peer is
-refused, and no image is put, when the link does not carry `file` out, and
+**Refused before anything is queued.** Mail with a file to a peer is
+refused, and no file is put, when the link does not carry `file` out, and
 when the peer's yardr has not said it understands `file` (`yardr peer show`,
 [above](#two-yards-on-different-builds)): an older yardr would take the mail
-and pass the image by. It is refused too when an image is over this yard's
+and pass the file by. It is refused too when a file is over this yard's
 `peer_file_max_bytes` ([configuration.md](configuration.md#settings)).
 `yardr doctor` notes a link that sends files to a peer that does not
 understand them.
@@ -1142,14 +1152,15 @@ from a peer whose link does not `--receive file`. The file is answered 403
 gives it up. Whoever wrote the mail gets mail from `yard` that says so, as
 for mail that was not delivered, and their conversation with the other yard
 (`yardr mail --with`, `yardr chat`) has `not taken:` and that yard's reason
-where the image's path was:
+where the file's path was:
 
 ```text
     58 10-08 15:02  mail from yard: the image of your mail to yardmaster@north of 10-08 15:02 was not taken: refused by the peer: its link does not carry file in
 ```
 
-The mail that names it is delivered all the same, and there too, where the
-image's path would be, it says why there is none:
+For a page the line says `the page of your mail …` instead. The mail that
+names it is delivered all the same, and there too, where the file's path
+would be, it says why there is none:
 
 ```text
     41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted
@@ -1159,8 +1170,8 @@ image's path would be, it says why there is none:
 | `not taken:` | when |
 |---|---|
 | `the link does not take files` | this yard's link does not carry `file` in |
-| `it is <n> bytes, over this yard's limit of <m> for a file from another yard` | the image is over this yard's `peer_file_max_bytes` |
-| `it did not arrive` | anything else: the bytes were not those of the hash, or no PNG or JPEG, or the sender gave the file up before it crossed |
+| `it is <n> bytes, over this yard's limit of <m> for a file from another yard` | the file is over this yard's `peer_file_max_bytes` |
+| `it did not arrive` | anything else: the bytes were not those of the hash, or were of no type the yard keeps, or the sender gave the file up before it crossed |
 
 Nothing waits for a file that did not come, and none is asked for later. In
 `--json` such a file has `not_taken` with the reason beside the sender's
@@ -2727,8 +2738,8 @@ reply`), and the store refuses them to anything else on its socket.
 Each yard keeps an outbox for each peer. Every message in it has a sequence
 number, an id the sender minted, a kind and a JSON body of up to 256 KB. A
 [`file`](#an-image-with-the-mail) is the one kind with a larger body: the
-image in base64, up to the yard's `peer_file_max_bytes` (at most 32 MiB of
-image). It is one message like any other, never cut in parts: a post of it
+file in base64, up to the yard's `peer_file_max_bytes` (at most 32 MiB of
+file). It is one message like any other, never cut in parts: a post of it
 is one request of that size, which a proxy in front of the yard has to let
 through, and a pull hands a message larger than a page (1 MiB of bodies) over
 on its own.
@@ -2839,7 +2850,7 @@ other](#the-roster-whom-a-peer-may-see-and-write-to):
 `[{"name", "kind": "crew"|"user", "role", "mail": true|false}]`.
 
 A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`,
-with `"files": [{"hash", "type", "bytes"}]` when it carries images, at most 8.
+with `"files": [{"hash", "type", "bytes"}]` when it carries files, at most 8.
 A file's body is `{"hash": "<sha256 of the bytes, hex>", "type", "bytes",
 "data": "<the bytes, base64>"}`: only the hash is held to, the type is read
 from the bytes.

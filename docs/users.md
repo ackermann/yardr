@@ -136,11 +136,12 @@ JPEG or HTML is refused, and so is one over the yard's limit, 8 MiB unless
 `.html` is refused, and so is an SVG file, which the yard reads as text.
 Nothing is stored then, and the mail is not sent.
 
-**To a linked yard** an image goes with `yardr mail <name>@<peer> --file`
-when the link carries the kind `file` (`yardr peer allow <peer> --send
-file`), and one comes in when this yard's link takes it (`--receive file`).
+**To a linked yard** an image or a page goes with `yardr mail
+<name>@<peer> --file` when the link carries the kind `file` (`yardr peer
+allow <peer> --send file`), and one comes in when this yard's link takes it
+(`--receive file`). Pages cross as files, under the same kind and caps.
 Where the other yard does not take it the mail still arrives, with `1 image:
-not taken: <reason>` in place of the path
+not taken: <reason>` or `1 page: not taken: <reason>` in place of the path
 ([peers.md](peers.md#an-image-with-the-mail)).
 
 A file is removed by `yardr store prune`, and by the daemon's hourly

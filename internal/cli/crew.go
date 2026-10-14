@@ -1061,14 +1061,15 @@ with "◆", as "1 image: <path>" or "1 page: <path>": a crew member reads the fi
 bytes are is what counts, not the file's name; one over the
 yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused.
 
---file with <name>@<peer> sends the image to the linked yard with the mail,
-when the link carries files out (yardr peer allow <peer> --send file) and the
-peer's yardr understands them (yardr peer show <peer>); otherwise the mail is
-refused and nothing is sent. One image may have up to yardr settings get
-` + store.PeerFileMaxSetting + ` bytes (the yard's limit for an image unless set). The other
+--file with <name>@<peer> sends the file to the linked yard with the mail,
+whether an image or a page, when the link carries files out (yardr peer
+allow <peer> --send file) and the peer's yardr understands them (yardr peer
+show <peer>); otherwise the mail is refused and nothing is sent. One file
+may have up to yardr settings get
+` + store.PeerFileMaxSetting + ` bytes (the yard's limit for a file unless set). The other
 yard keeps it only when its link takes files and it is within that yard's own
 limit; where it does not, the mail still arrives, and says "not taken" with
-the reason where the image's path would be.
+the reason where the file's path would be.
 
 --with <name> sends nothing and prints the mail between you and that crew member
 or user, both directions, oldest first: seq, time, whether its receiver has

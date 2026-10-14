@@ -14,10 +14,11 @@ import (
 
 // A file crosses a link (docs/peers.md) as a message of kind PeerFile: the
 // bytes of one blob (blobs.go), with the name they are to have. Mail with
-// images to another yard is those messages and then the mail that names
-// them, in that order in the outbox, which never reorders: when the mail is
-// taken its blobs are there. The yard that takes a file checks its bytes
-// against the hash claimed and keeps it as it keeps a blob put here.
+// an image or a page to another yard is those messages and then the mail
+// that names them, in that order in the outbox, which never reorders: when
+// the mail is taken its blobs are there. The yard that takes a file checks
+// its bytes against the hash claimed and keeps it as it keeps a blob put
+// here.
 //
 // file is a kind of its own on a link, apart from mail: whether a peer's
 // bytes may land on this yard's disk is the operator's to say, whoever is
@@ -86,11 +87,11 @@ func peerFileMax(tx *bolt.Tx) (int64, error) {
 func (p *Peer) SendsFiles() error {
 	switch {
 	case !p.carries(PeerFile, false):
-		return fmt.Errorf("peer %s: the link does not carry %s out, so mail to it carries no image: the operator allows it with yardr peer allow %s --send %s", p.Name, PeerFile, p.Name, PeerFile)
+		return fmt.Errorf("peer %s: the link does not carry %s out, so mail to it carries no file: the operator allows it with yardr peer allow %s --send %s", p.Name, PeerFile, p.Name, PeerFile)
 	case p.Said == nil:
-		return fmt.Errorf("peer %s has not said what its yardr understands (an older yardr, or nothing has come from it yet), so mail to it carries no image", p.Name)
+		return fmt.Errorf("peer %s has not said what its yardr understands (an older yardr, or nothing has come from it yet), so mail to it carries no file", p.Name)
 	case !p.Said.Knows(PeerFile):
-		return fmt.Errorf("peer %s: its yardr (%s) does not understand %s, so mail to it carries no image until it is upgraded", p.Name, or(p.Said.Yardr, "a build it does not name"), PeerFile)
+		return fmt.Errorf("peer %s: its yardr (%s) does not understand %s, so mail to it carries no file until it is upgraded", p.Name, or(p.Said.Yardr, "a build it does not name"), PeerFile)
 	}
 	return nil
 }
@@ -126,8 +127,12 @@ func (s *Store) peerFiles(name string, hashes []string) ([]BlobRef, []PeerMessag
 	var msgs []PeerMessage
 	for i, ref := range refs {
 		if ref.Bytes > limit {
-			return nil, nil, fmt.Errorf("the image %s is %d bytes, over what this yard sends another of %d (yardr settings set %s <bytes>, at most %d)",
-				ref.Hash, ref.Bytes, limit, PeerFileMaxSetting, MaxPeerFile)
+			noun := "image"
+			if ref.IsPage() {
+				noun = "page"
+			}
+			return nil, nil, fmt.Errorf("the %s %s is %d bytes, over what this yard sends another of %d (yardr settings set %s <bytes>, at most %d)",
+				noun, ref.Hash, ref.Bytes, limit, PeerFileMaxSetting, MaxPeerFile)
 		}
 		// Named twice, it crosses once.
 		if slices.ContainsFunc(refs[:i], func(r BlobRef) bool { return r.Hash == ref.Hash }) {

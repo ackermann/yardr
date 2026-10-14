@@ -386,7 +386,7 @@ Sending one is two calls: [`PutBlob`](#putblob) with the bytes, then
 [`Mail`](#mail) with the hash it answered among `files`. The cap on one
 image is `blob_max_bytes` of [`Settings`](#settings). To a linked yard it is
 the same with [`MailPeer`](#mailpeer), when the link carries `file` out and
-the image is within `peer_file_max_bytes`
+the file is within `peer_file_max_bytes`
 ([peers.md](peers.md#an-image-with-the-mail)). A file of mail from a linked
 yard that this yard did not take has `not_taken`, the reason, beside the
 sender's `hash`, `type` and `bytes`: there is no image to ask for then.

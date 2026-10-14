@@ -473,9 +473,14 @@ func (w *wtx) undelivered(m *PeerOut, image, reason string) error {
 	of := fmt.Sprintf("your mail to %s@%s of %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"))
 	data := map[string]any{"to": mail.From, "undelivered": m.ID, "text": of + " was not delivered: " + reason}
 	if image != "" {
-		which := "the image"
+		noun := "image"
+		at := slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == image })
+		if at >= 0 && mail.Files[at].IsPage() {
+			noun = "page"
+		}
+		which := "the " + noun
 		if n := len(mail.Files); n > 1 {
-			which = fmt.Sprintf("image %d of %d", 1+slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == image }), n)
+			which = fmt.Sprintf("%s %d of %d", noun, 1+at, n)
 		}
 		data = map[string]any{"to": mail.From, "not_taken": image, "of": m.ID, "text": which + " of " + of + " was not taken: " + reason}
 	}

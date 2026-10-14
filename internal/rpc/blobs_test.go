@@ -55,7 +55,7 @@ func TestBlobsOverTheSocket(t *testing.T) {
 		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + unknown + `"]}`,
 			`{"error":{"code":"not-found","message":"mail to yardmaster: image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr mail --file)"}}`},
 		{"MailPeer", `{"to":"clerk","peer":"north","text":"look","actor":"jo","files":["` + hash + `"]}`,
-			`{"error":{"code":"error","message":"mail to clerk@north: peer north: the link does not carry file out, so mail to it carries no image: the operator allows it with yardr peer allow north --send file"}}`},
+			`{"error":{"code":"error","message":"mail to clerk@north: peer north: the link does not carry file out, so mail to it carries no file: the operator allows it with yardr peer allow north --send file"}}`},
 		// What the mail carried is in the conversation.
 		{"Conversation", `{"a":"jo","b":"yardmaster"}`, `"text":"look","read":false,"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
 	} {

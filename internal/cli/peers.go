@@ -455,12 +455,13 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          yards. --send lets this yard's crew write (each needs the peer
          in its peers setting too), --receive puts the peer's mail in the
          inbox of the crew member it names.
-  file   yardr mail <crew member>@<peer> --file: the images mail carries, each
-         a message of its own that crosses before its mail. --send lets
-         this yard's mail to the peer carry images, --receive lets the
-         peer's bytes land in this yard's blobs. Without --receive the
-         peer's mail still arrives, and says "not taken" where the image
-         would be. One file may have up to yardr settings get
+  file   yardr mail <crew member>@<peer> --file: the images and pages mail
+         carries, each a message of its own that crosses before its mail.
+         --send lets this yard's mail to the peer carry images and pages,
+         --receive lets the peer's bytes land in this yard's blobs.
+         Without --receive the peer's mail still arrives, and says
+         "not taken" where the file would be. One file may have up to
+         yardr settings get
          ` + store.PeerFileMaxSetting + ` bytes, on each side by its own setting.
   bead   a bead of one yard worked by the other. --receive lets this yard
          take the peer's beads, each as a bead of its own, and send back how

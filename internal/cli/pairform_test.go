@@ -246,7 +246,7 @@ func TestPairForm(t *testing.T) {
 	pages := o.pages.String()
 	wantText(t, pages, "Show a code, or enter one?", "Does the other screen show the same?", "What may this link carry?",
 		"ping: each yard may ask the other whether it is there", "mail between crew members: this yard's may write to laptop's, and laptop's to this yard's",
-		"file: images in mail cross the link, kept within peer_file_max_bytes",
+		"file: images and pages in mail cross the link, kept within peer_file_max_bytes",
 		"This yard's name for the other one", "The other yard's address", "The code")
 	for _, y := range []*cliYard{north, laptop} {
 		for _, p := range peersOf(t, y) {
@@ -295,8 +295,8 @@ func TestPairFormWithoutMail(t *testing.T) {
 }
 
 // An operator who ticks file gets a link that carries it beside ping and
-// mail, each way, and is told how an image goes. It is not ticked for them:
-// the other's link carries what it did.
+// mail, each way, and is told how an image or a page goes. It is not ticked
+// for them: the other's link carries what it did.
 func TestPairFormWithFile(t *testing.T) {
 	o := &operators{ways: []string{pairShow, pairEnter}, same: map[string]bool{"laptop": true, "north": true},
 		carry: map[string][]string{"laptop": {store.PeerPing, store.PeerMail, store.PeerFile}}}
@@ -311,13 +311,13 @@ func TestPairFormWithFile(t *testing.T) {
 	}
 	wantText(t, out, "This one knows the other as laptop, and the link carries ping, mail and file, each way.",
 		"This one knows the other as north, and the link carries ping and mail, each way.")
-	if n := strings.Count(out, "An image goes with the mail (`--file <png or jpeg>`)"); n != 1 {
-		t.Errorf("how an image goes is said %d times, and one yard ticked file:\n%s", n, out)
+	if n := strings.Count(out, "An image or a page goes with the mail (`--file <image or page>`)"); n != 1 {
+		t.Errorf("how an image or a page goes is said %d times, and one yard ticked file:\n%s", n, out)
 	}
 }
 
-// file cannot be ticked without mail, which carries the images: the page
-// does not go on until mail is ticked too.
+// file cannot be ticked without mail, which carries the images and pages:
+// the page does not go on until mail is ticked too.
 func TestPairFormFileGoesWithMail(t *testing.T) {
 	stubAsk(t, func(fields ...huh.Field) error {
 		carry := fields[0].(*huh.MultiSelect[string])

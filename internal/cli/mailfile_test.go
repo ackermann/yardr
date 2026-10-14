@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,7 +160,7 @@ func TestMailFileToAPeer(t *testing.T) {
 	}
 
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "mail")
-	refusedAs(t, st, "jo", "peer north: the link does not carry file out, so mail to it carries no image: the operator allows it with yardr peer allow north --send file",
+	refusedAs(t, st, "jo", "peer north: the link does not carry file out, so mail to it carries no file: the operator allows it with yardr peer allow north --send file",
 		"mail", "yardmaster@north", "look", "--file", png)
 	nothing("a link that sends no file")
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "file")
@@ -167,7 +168,7 @@ func TestMailFileToAPeer(t *testing.T) {
 	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
 		t.Fatal(err)
 	}
-	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no image until it is upgraded",
+	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no file until it is upgraded",
 		"mail", "yardmaster@north", "look", "--file", png)
 	nothing("a peer that does not understand file")
 	// Doctor says it of a link that sends files, and of no other.
@@ -194,6 +195,79 @@ func TestMailFileToAPeer(t *testing.T) {
 	}
 	if show := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(show, "file") || strings.Contains(show, "iVBOR") {
 		t.Errorf("peer show:\n%s", show)
+	}
+}
+
+// yardr mail <name>@<peer> --file sends a page as it sends an image, with
+// no new flag. Where the link or the peer's yardr does not take files it
+// is refused before anything is put; over this yard's own cap it is
+// refused naming the page, and nothing is queued.
+func TestMailPageToAPeer(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	ctx := t.Context()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
+	page := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(page, []byte(html), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(html))
+	hash := hex.EncodeToString(sum[:])
+	nothing := func(why string) {
+		t.Helper()
+		names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
+		if p, err := api.GetPeer(ctx, "north"); err != nil || p.Waiting != 0 || len(names) != 0 {
+			t.Fatalf("%s: %d wait for north, and the yard holds %v", why, p.Waiting, names)
+		}
+	}
+
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "mail")
+	refusedAs(t, st, "jo", "peer north: the link does not carry file out, so mail to it carries no file",
+		"mail", "yardmaster@north", "look", "--file", page)
+	nothing("a link that sends no file")
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "file")
+	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
+		t.Fatal(err)
+	}
+	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no file until it is upgraded",
+		"mail", "yardmaster@north", "look", "--file", page)
+	nothing("a peer that does not understand file")
+	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), store.Says("v1.3.0")); err != nil {
+		t.Fatal(err)
+	}
+	// Over this yard's own cap: refused naming the page, after the put,
+	// with nothing queued.
+	if err := api.SetSetting(ctx, store.PeerFileMaxSetting, "16", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	refusedAs(t, st, "jo", fmt.Sprintf("the page %s is %d bytes, over what this yard sends another of 16", hash, len(html)),
+		"mail", "yardmaster@north", "look", "--file", page)
+	names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
+	if p, _ := api.GetPeer(ctx, "north"); p.Waiting != 0 || len(names) != 1 {
+		t.Fatalf("a page over this yard's cap: %d wait for north, and the yard holds %v", p.Waiting, names)
+	}
+	if err := api.SetSetting(ctx, store.PeerFileMaxSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hash)
+	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the shed, mocked up", "--file", page); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "\n"+marked+"\n") {
+		t.Fatalf("mail --file to a peer = %q", out)
+	}
+	waiting, err := api.PeerOutbox(ctx, "north", 0)
+	if err != nil || len(waiting) != 2 || waiting[0].Kind != store.PeerFile || waiting[1].Kind != store.PeerMail {
+		t.Fatalf("north's outbox = %+v, %v", waiting, err)
+	}
+	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the shed, mocked up\n    "+marked+"\n") {
+		t.Errorf("mail --with yardmaster@north:\n%s", with)
 	}
 }
 
