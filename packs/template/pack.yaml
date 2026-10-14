@@ -1,0 +1,15 @@
+# acme as a pack of kind source: the skeleton a new source pack starts
+# from. Copy this directory, rename acme to the service's name in the
+# files' names and text, and drop the keys the service does not need.
+# What stays must read: the pack loads, and applies in a scratch yard, as
+# it stands, and a test holds it so (internal/pack/template_test.go).
+# docs/integrations.md#adding-a-service walks the rest.
+#
+# The source is named acme: the skeleton's name for the service.
+name: acme
+kind: source
+setup: SETUP.md
+
+sources:
+  acme:
+    declaration: acme.yaml

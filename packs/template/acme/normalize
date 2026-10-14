@@ -1,0 +1,19 @@
+#!/bin/sh
+# A verified delivery to the yard's envelope: stdin {"headers":{…},"body":{…}},
+# stdout the envelope. The core sets source and delivery itself, truncates
+# text to 500 characters, and derives the envelope's train from its
+# head_branch, so the script leaves those out; it refuses an envelope
+# without type. The stub calls no service: it answers in shape from its
+# input. Needs jq.
+exec jq -c '
+.body as $b
+| {
+    type: "issue",
+    action: ($b.action // "create"),
+    actor: {id: "u-1", name: "Jane"},
+    thread: {id: "acme-1", title: "An issue", url: "https://acme.example.com/acme/issue/acme-1"},
+    mentions: [],
+    text: "an issue was created",
+    fields: {team: ["acme"]}
+  }
+'

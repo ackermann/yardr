@@ -1,0 +1,190 @@
+# acme as a declared source: the skeleton a new source pack starts from.
+# Copy the pack's directory, rename acme to the service's name in the
+# files' names and text, and drop the keys the service does not need.
+# Every key a declaration in a pack of kind source may bring is here,
+# each with when it stays; what stays must read. A test holds the
+# skeleton to the reader: it copies this directory, renames it, and
+# applies the copy in a scratch yard.
+#
+# The name is acme: the skeleton's name for the service.
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies into
+# the yard.
+name: acme
+about: Issues and comments of the service. Hears its webhooks and speaks in its threads.
+
+# The name of the variable, never the value. A command gets it in its
+# environment under this name, and gets no other variable of the yard.
+# hook.normalize is handed no credential at all.
+credential:
+  env: ACME_TOKEN
+  header: "Authorization: Bearer {credential}"
+  # Drop update_env where one token does everything: it names the second
+  # variable of the env file, which the update calls are sent with
+  # instead, so the reads run on one that may only read. With it the env
+  # file sets both.
+  update_env: ACME_UPDATE_TOKEN
+  # Drop mint where the token does not expire: it names the variables
+  # that together select a minted credential, names only, beside the
+  # variable above, which the minted token is handed under. The command
+  # that turns their values into a token is the operator's, set with
+  # `yardr source set <name> mint_command=<program> [args...]`; no pack
+  # brings it. Where the env sets every mint name the token is minted;
+  # one of them alone is refused; otherwise the variable above is used
+  # as it is set.
+  mint: [ACME_APP_ID, ACME_APP_KEY_FILE]
+
+# ---- what it sends us ----------------------------------------------------
+# Drop the whole key where the service sends nothing in: without it the
+# source is no hook source, and no hook receives it.
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the signing secret is
+  # handed to no command, and an unverified body reaches none. With scheme
+  # secret the header holds the secret itself, compared as it arrives,
+  # and signed, encoding, prefix and the timestamp do not apply; delivery
+  # is then left out where the service sends none.
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: X-Service-Signature, encoding: hex }
+    delivery:  { header: X-Service-Delivery }
+    # Drop the timestamp where the service signs none: without it a replay
+    # cannot be told by age, and the signed body drops it instead
+    # (bodies). In the body at the dot path, or in a header, in ms or s,
+    # within window of the yard's clock.
+    timestamp: { body: sent_at, unit: ms, window: 1m }
+  # unique drops a body the source sent before, whichever hook it reached;
+  # unique-per-hook drops one the hook saw before, where one event's body
+  # goes to every webhook that asked for it; repeat takes a body again as
+  # a new delivery, told from its retry by the delivery id alone.
+  bodies: unique
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself, truncates text,
+  # and derives the envelope's train from its head_branch, which the
+  # command leaves out; it refuses an envelope without type. The shapes
+  # are in docs/integrations.md.
+  normalize: [acme/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label. Drop a
+  # key the normalize command never sets; keep hear's field among them.
+  keys: [team, project, channel]
+
+# ---- what it sends about pull requests and CI ------------------------------
+# Drop the whole key where the service has no pull requests: without it
+# the dispatcher never asks. Each stands alone: the lists without the
+# commands, and either command without the other.
+events:
+  runs: [build_finished]      # the types that are CI runs, whatever became of them
+  head_from: [merge_request]  # the types that tell the pull request's head
+  pr: [acme/pr]   # in  {repo, number, url}  out {head, base, state}
+  ci: [acme/ci]   # in  {repo, number, sha}  out {head, base, state, required, checks}
+
+# ---- what the yard does in its threads ------------------------------------
+# Drop the whole key where the yard never speaks in the service. One
+# command per thing, each handed its object on stdin and the credential
+# under ACME_TOKEN, with YARDR_SOURCE_BASE from base below. The shapes
+# are in docs/integrations.md.
+
+thread:
+  reply:  [acme/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
+  posted: [acme/thread, posted]     # in  {thread, key}                    out {id, url} or {}
+  read:   [acme/thread, read]       # in  {thread}                         out {messages: [...]}
+  place:  team                        # what open's in names; drop with open
+  open:   [acme/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}
+  assignee: id                        # the assignee open takes: a user's id (or key); drop with open
+  opened: [acme/thread, opened]     # in  {in, key, since?}                out {id, title, url} or {}
+  state:  [acme/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
+  states: [started, review, done]     # the words it has a status for; drop with state
+  labels: true                        # and a label:<name> adds the label, to any thread
+
+# ---- who a crew member is in it -------------------------------------------
+# Drop the whole key where identity keys keep their case: without it a key
+# is kept as it was typed.
+
+identity:
+  fold: lower
+
+# ---- its issues as a bead's link ------------------------------------------
+# Drop the whole key where the service has no issues to link: without it
+# the yard links nothing there. The host its issue URLs are on, what
+# reads an issue from a URL's path, and over the groups: the issue's one
+# fixed form, and the id a thread command takes for it.
+
+link:
+  host: acme.example.com
+  issue: '^/([^/]+)/issue/([A-Z]+-[0-9]+)'
+  fixed: "https://acme.example.com/{1}/issue/{2}"
+  thread: "{2}"
+  # Drop fold where the service matches in exactly one case: with it the
+  # groups fold before the templates expand, so one spelling names the
+  # issue however it was typed.
+  fold: lower
+  # Drop pull and repos where the service has no pull requests: pull is
+  # the second shape, its own issue pattern with fixed and thread
+  # templates over the same groups in the same order, and repos is what a
+  # repository's path matches, as a depot's origin remote carries it past
+  # the host.
+  pull:
+    issue: '^/([^/]+)/pull/([0-9]+)'
+    fixed: "https://acme.example.com/{1}/pull/{2}"
+    thread: "{1}#{2}"
+  repos: '[^/]+/[^/]+'
+
+# ---- what an agent may ask of it, through `yardr call` --------------------
+# Drop check where no read call without parameters answers for the
+# credential: `yardr source check` then looks at the credential and sends
+# nothing. Drop idempotency where the service takes no key for it, or no
+# call updates.
+
+base: https://acme.example.com
+check: ping
+idempotency: Idempotency-Key
+calls:
+  ping:
+    kind: read
+    about: Who the credential acts as.
+    request: { method: GET, path: /me }
+  customer:
+    kind: read
+    about: Look a customer up by id.
+    params:
+      id: { type: string, pattern: "^[0-9]{1,12}$", log: true }
+    request: { method: GET, path: "/customers/{id}" }
+    answer: { select: [id, name, plan] }
+  message:
+    kind: update
+    about: One message to one person.
+    params:
+      user:  { type: string, max: 64 }
+      title: { type: string, max: 250 }
+      text:  { type: string, max: 2000 }
+      link:  { type: string, max: 512, optional: true }
+    request: { method: POST, path: /messages, body: { to: "{user}", title: "{title}", text: "{text}", link: "{link}" } }
+
+# ---- telling a person through it ------------------------------------------
+# Drop the whole key where the service tells no person: without it no user
+# names the source. Which update call tells, and which of its parameters
+# take where the person is reached, a title, a text and a link.
+
+notify:
+  call: message
+  address: { param: user, env: ACME_USER }   # the person's own address, read from the user's env file
+  title: title                               # the yard's value -> the call's parameter
+  text: text
+  link: link
+
+# ---- which told addresses are heard back ----------------------------------
+# Drop the whole key where the source tells no person, or hears every
+# delivery back: without it every verified delivery is kept. With it a
+# delivery is kept only when its field holds the address of a user told
+# through the source; from narrows whom it hears to the operator, and is
+# left out for every user told through it.
+
+hear:
+  field: channel
+  address: { env: ACME_USER }
+  from: operator

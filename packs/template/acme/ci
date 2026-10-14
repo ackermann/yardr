@@ -1,0 +1,17 @@
+#!/bin/sh
+# ci: the CI state of one commit of a pull request: the pull request's head
+# commit, base branch and state, the checks its base requires, and the
+# checks on the commit. One JSON object on stdin, one on stdout, as the
+# events key of the declaration says: in {repo, number, sha}, out {head,
+# base, state, required, checks}. The daemon reads it as state for a train
+# whose hook's table has an event=ci line for it, and the train's brief
+# carries its snapshot. Each check is completed or not, and a completed one
+# concluded success, neutral, skipped, failure, timed_out or
+# startup_failure: the script translates its service into that tongue, and
+# the verdict stays the core's. ACME_TOKEN (or what the source's
+# mint_command minted) and YARDR_SOURCE_BASE, the declaration's base, are
+# in the environment. The stub calls no service: it answers in shape.
+# Needs jq.
+exec jq -c '{head: "abc123", base: "main", state: "open", required: ["build"],
+  checks: [{name: "build", status: "completed", conclusion: "success",
+    url: "https://acme.example.com/acme/web/checks/1"}]}'
