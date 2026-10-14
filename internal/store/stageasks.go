@@ -8,6 +8,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -363,4 +364,236 @@ func (w *wtx) takeBackStage(row *beadRow, reason string, match func(Ask) bool) e
 		}
 	}
 	return nil
+}
+
+// latestStayEntry is the seq of the event that entered the bead into its
+// stage: the latest of its created, advanced and reopened events, which a
+// stage ask's Entry names. Closing ends no stay and starts none.
+func latestStayEntry(tx *bolt.Tx, uuid string) (uint64, error) {
+	var entry uint64
+	for _, k := range keys(tx, bEventsBy, uuid+"\x00") {
+		var e Event
+		if ok, err := get(tx, bEvents, k[len(uuid)+1:], &e); err != nil {
+			return 0, err
+		} else if !ok {
+			continue
+		}
+		switch e.Kind {
+		case "created", "advanced", "reopened":
+			entry = max(entry, e.Seq)
+		}
+	}
+	return entry, nil
+}
+
+// stageMove is the outcome a pick of option n, 1-based into the stage ask's
+// options, reports: "" for You decide, which moves nothing, and for an
+// option past the moves, which a corrupt ask moves nothing for.
+func stageMove(ask Ask, n int) string {
+	if n < 1 || n > len(ask.Move) {
+		return ""
+	}
+	return ask.Move[n-1]
+}
+
+// stageWordsMove is the outcome words on the stage ask report: an input
+// ask's single entry, "" for move none and for none.
+func stageWordsMove(ask Ask) string {
+	if len(ask.Move) == 0 || ask.Move[0] == AskMoveNone {
+		return ""
+	}
+	return ask.Move[0]
+}
+
+// stageAnswerAuth reports whether actor may answer the stage ask ask on row:
+// who may move the bead out of the stage by hand (the same check), a name
+// the links trust as such a member, or the ask's addressee where the yard
+// put the ask to the operator as fallback. A group with no members refuses
+// nobody, as on the hand path. Who asks is the store's own word before the
+// extras, as checkMembers reads it: a bead's agent answering as a member,
+// and a crew member answering as another name, are refused whatever the
+// extras say. The error is checkMembers', word for word.
+func (w *wtx) stageAnswerAuth(ctx context.Context, row *beadRow, ask Ask, actor string) error {
+	g, err := stageGroup(w.Tx, row)
+	if err != nil {
+		return err
+	}
+	if err := w.checkMembers(ctx, Expect{}, g, row, actor); err != nil {
+		spoil, serr := w.stageAnswerSpoof(ctx, row, actor)
+		if serr != nil || spoil {
+			if serr != nil {
+				return serr
+			}
+			return err
+		}
+		var peers []Peer
+		if err := each(w.Tx, bPeers, "", func(_ []byte, p *Peer) error {
+			peers = append(peers, *p)
+			return nil
+		}); err != nil {
+			return err
+		}
+		// An answer arriving over reach counts as the member's word.
+		if as, ok := TrustedAs(peers)[actor]; ok && slices.Contains(g.Members, as) {
+			return nil
+		}
+		if actor == ask.To {
+			if operator, err := operatorIn(w.Tx); err != nil {
+				return err
+			} else if operator != "" && ask.To == operator {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// stageAnswerSpoof is whether the answer's caller is who checkMembers
+// refuses whatever name it answers under: a bead's agent session, or a
+// crew pane naming another name.
+func (w *wtx) stageAnswerSpoof(ctx context.Context, row *beadRow, actor string) (bool, error) {
+	sess, err := w.callerSession(ctx, Expect{}, row)
+	if err != nil {
+		return false, err
+	}
+	if sess != nil && !sess.Manual() {
+		return true, nil
+	}
+	r, err := paneCrew(w.Tx, callerOf(ctx))
+	if err != nil {
+		return false, err
+	}
+	return r != nil && r.Name != actor, nil
+}
+
+// stageAnswer decides what ans, by actor, does to the stage ask it names
+// among notes, the notes of the bead row: the outcome to report through
+// Done in the write that stores the answer, "" to record without moving.
+// answerable has passed: the ask is one, and takes this shape of answer.
+// With a refusal it answers what the other yard is told of one that came
+// from there: RefusedAskAnswered for a pick the ask takes no more, which
+// ends its copy as answered, "" for an answer that is none of its members'
+// to give.
+//
+// Every answer on a stage ask is its members' to give: a pick, words,
+// Later or Decline from anyone else is refused whole, with the membership
+// reason. Later and Decline need no further rule: they move nothing. A
+// pick moves only for the stay that put it: one whose current answer moved
+// takes no further pick, one for another stage names both, and one for an
+// earlier stay names the fresh ask where one stands, else says the template
+// went or broke and the bead is moved by hand. Picking You decide records
+// without moving, as do words with no move. A closed bead moves no more.
+func (w *wtx) stageAnswer(ctx context.Context, row *beadRow, notes []Note, ans Answer, actor string, repo *RepoFlows, home *stageHome) (outcome, reason string, err error) {
+	var current *ResolvedAsk
+	resolved := ResolveAsks(notes, now())
+	for i := range resolved {
+		if resolved[i].Note.Seq == ans.Ask {
+			current = &resolved[i]
+		}
+	}
+	if current == nil || current.AskErr != nil {
+		// answerable passed, so neither happens; refused as no ask.
+		return "", RefusedNoSuchAsk, fmt.Errorf("bead %s has no ask %d", row.ID, ans.Ask)
+	}
+	ask := current.Ask
+	if ask.Stage == "" {
+		return "", "", nil
+	}
+	if err := w.stageAnswerAuth(ctx, row, ask, actor); err != nil {
+		return "", "", err
+	}
+	if ans.Later || ans.Decline {
+		return "", "", nil
+	}
+	move := ""
+	if ans.Option != 0 {
+		move = stageMove(ask, ans.Option)
+	} else {
+		move = stageWordsMove(ask)
+	}
+	if row.Status == "closed" && (ans.Option != 0 || move != "") {
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d: bead %s is closed: a closed bead moves no more", ans.Ask, row.ID)
+	}
+	if current.State == AskAnswered && current.Current != nil && current.Current.Answer.Option != 0 &&
+		stageMove(ask, current.Current.Answer.Option) != "" {
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d already moved bead %s with the outcome %s: a stage ask takes no pick after one that moved it",
+			ans.Ask, row.ID, stageMove(ask, current.Current.Answer.Option))
+	}
+	if ask.Stage != row.Stage {
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d was put for the stage %s, and bead %s is in %s: a stage ask takes a pick only while the bead is in its stage",
+			ans.Ask, ask.Stage, row.ID, row.Stage)
+	}
+	entry, err := latestStayEntry(w.Tx, row.UUID)
+	if err != nil {
+		return "", "", err
+	}
+	if ask.Entry != entry {
+		return w.earlierStay(row, notes, current, actor, entry, repo, home)
+	}
+	return move, "", nil
+}
+
+// stageOutcome checks that outcome still moves the bead row under its
+// flow: what the move would refuse, before an answer arriving over a link
+// is stored, since a refusal there commits. errNeedRepo is a flow read
+// for another configuration meanwhile, the move's to retry; any other
+// error refuses the answer.
+func (w *wtx) stageOutcome(row *beadRow, outcome string, repo *RepoFlows) error {
+	f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
+	if err != nil {
+		return err
+	}
+	to, err := donePick(outcome)(f, row, map[string]any{})
+	if err != nil {
+		return err
+	}
+	return checkWagon(w.Tx, f, row, to)
+}
+
+// earlierStay refuses a pick on a stage ask put for the bead row's stage in
+// an earlier stay: it names the fresh ask where one stands open, else says
+// the template went or broke and the bead is moved by hand. entry is the
+// stay's, which the ask's Entry is not.
+func (w *wtx) earlierStay(row *beadRow, notes []Note, current *ResolvedAsk, actor string, entry uint64, repo *RepoFlows, home *stageHome) (string, string, error) {
+	seq := current.Note.Seq
+	var fresh *ResolvedAsk
+	resolved := ResolveAsks(notes, now())
+	for i := range resolved {
+		r := &resolved[i]
+		if r.AskErr != nil || r.Note.Seq == seq || r.Ask.Stage != row.Stage || r.Ask.Entry != entry ||
+			(r.State != AskOpen && r.State != AskAside) {
+			continue
+		}
+		if fresh == nil || r.Ask.To == actor {
+			fresh = r
+		}
+	}
+	if fresh != nil {
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d was put for an earlier stay in %s: ask %d was put for this one",
+			seq, row.Stage, fresh.Note.Seq)
+	}
+	byHand := fmt.Sprintf("move the bead by hand (yardr bead advance %s --to <stage>)", row.ID)
+	none := fmt.Errorf("ask %d was put for an earlier stay in %s, and no ask stands for this one: %s",
+		seq, row.Stage, byHand)
+	f, src, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
+	if err != nil {
+		// The stay is over whatever the flow says; the hand move names
+		// the flow's error where it is refused.
+		return "", RefusedAskAnswered, none
+	}
+	tmpl, broken, fatal := stageTemplate(f, src, repo, home, row.Stage)
+	switch {
+	case broken != nil:
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d was put for an earlier stay in %s, and its ask template is broken (%s): %s",
+			seq, row.Stage, broken.Error(), byHand)
+	case fatal == nil && tmpl == nil:
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d was put for an earlier stay in %s, and the stage has no ask template any more: %s",
+			seq, row.Stage, byHand)
+	default:
+		// A valid template with no fresh ask (taken back by hand, or put
+		// with no operator to fall back to), or files read for another
+		// flow meanwhile: no ask stands either way.
+		return "", RefusedAskAnswered, none
+	}
 }

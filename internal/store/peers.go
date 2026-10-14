@@ -1278,7 +1278,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 			case PeerBeadNote:
 				t.Refused, err = w.noteBead(p, m, way, tk)
 			case PeerAsk:
-				ask, t.Refused, err = w.checkAsk(p, m, way)
+				ask, t.Refused, err = w.checkAsk(p, m, way, tk)
 			}
 			if err != nil {
 				return nil, err

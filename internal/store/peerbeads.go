@@ -905,9 +905,9 @@ func intakeStage(tx *bolt.Tx, in *PeerIntake, repo *RepoFlows) (*Flow, string, e
 }
 
 // taking is what taking the beads of a batch of messages needs of the depot
-// their peer's intake names, and what taking its notes needs of the flows
-// of the beads they are for, read before the write: git does not run
-// inside one.
+// their peer's intake names, and what taking its notes and answers needs
+// of the flows of the beads they are for, read before the write: git does
+// not run inside one.
 type taking struct {
 	// repo are the depot's repository flows, when the intake's flow is one.
 	repo *RepoFlows
@@ -920,8 +920,8 @@ type taking struct {
 	bases map[string]string
 	// at is that depot, when it is a repository.
 	at *Depot
-	// flows are the repository flows of the beads that the notes of the
-	// batch are for, by the bead's UUID (noteFlows).
+	// flows are the repository flows of the beads that the notes and
+	// answers of the batch are for, by the bead's UUID (noteFlows).
 	flows map[string]*RepoFlows
 	// homes are the store flow's stage files of those beads, by the bead's
 	// UUID (noteHomes).

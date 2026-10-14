@@ -166,10 +166,11 @@ func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNo
 	return out, err
 }
 
-// noteFlows are the repository flows that moving the beads the notes among
-// msgs are for depends on, by the bead's UUID, read before the write that
-// takes them: git does not run inside one. A note for no bead of the peer
-// name has none, and neither has a bead whose flow is the store's.
+// noteFlows are the repository flows that moving the beads the notes and
+// answers among msgs are for depends on, by the bead's UUID, read before
+// the write that takes them: git does not run inside one. A note for no
+// bead of the peer name has none, and neither has a bead whose flow is the
+// store's; an answer names its bead in the body.
 func (s *Store) noteFlows(ctx context.Context, name string, msgs []PeerMessage) map[string]*RepoFlows {
 	var rows []*beadRow
 	_ = s.read(func(tx *bolt.Tx) error {
@@ -178,12 +179,7 @@ func (s *Store) noteFlows(ctx context.Context, name string, msgs []PeerMessage) 
 			return nil // said where the messages are taken
 		}
 		for _, m := range msgs {
-			if m.Kind != PeerBeadNote {
-				continue
-			}
-			if _, row, _ := beadFor(tx, p, m.Re); row != nil {
-				rows = append(rows, row)
-			}
+			rows = append(rows, takingRows(tx, p, m)...)
 		}
 		return nil
 	})
@@ -199,10 +195,11 @@ func (s *Store) noteFlows(ctx context.Context, name string, msgs []PeerMessage) 
 	return out
 }
 
-// noteHomes are the store flow's stage files that moving the beads the notes
-// among msgs are for depends on, by the bead's UUID, read before the write
-// that takes them: disk does not run inside one. A note for no bead has
-// none, and neither has a bead whose flow is the repository's.
+// noteHomes are the store flow's stage files that moving the beads the
+// notes and answers among msgs are for depends on, by the bead's UUID,
+// read before the write that takes them: disk does not run inside one. A
+// note for no bead has none, and neither has a bead whose flow is the
+// repository's; an answer names its bead in the body.
 func (s *Store) noteHomes(ctx context.Context, name string, msgs []PeerMessage) map[string]*stageHome {
 	var rows []*beadRow
 	_ = s.read(func(tx *bolt.Tx) error {
@@ -211,12 +208,7 @@ func (s *Store) noteHomes(ctx context.Context, name string, msgs []PeerMessage) 
 			return nil
 		}
 		for _, m := range msgs {
-			if m.Kind != PeerBeadNote {
-				continue
-			}
-			if _, row, _ := beadFor(tx, p, m.Re); row != nil {
-				rows = append(rows, row)
-			}
+			rows = append(rows, takingRows(tx, p, m)...)
 		}
 		return nil
 	})
@@ -231,6 +223,29 @@ func (s *Store) noteHomes(ctx context.Context, name string, msgs []PeerMessage) 
 		}
 	}
 	return out
+}
+
+// takingRows are the beads moving m may move: the bead a note names in its
+// Re, or the bead an answer names in its body. None for any other message,
+// and for one that names no bead of this yard: refused where it is taken.
+func takingRows(tx *bolt.Tx, p *Peer, m PeerMessage) []*beadRow {
+	switch m.Kind {
+	case PeerBeadNote:
+		if _, row, _ := beadFor(tx, p, m.Re); row != nil {
+			return []*beadRow{row}
+		}
+	case PeerAsk:
+		// An answer, naming its bead in the body; an ask names none.
+		if m.Re != "" {
+			var a peerAnswer
+			if json.Unmarshal(m.Body, &a) == nil {
+				if row, err := loadBead(tx, a.Bead); err == nil {
+					return []*beadRow{row}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // noteBead takes the note m that p sent for a bead of this yard that came

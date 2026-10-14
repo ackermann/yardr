@@ -539,6 +539,11 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // A run ask takes Later and Decline with its words, and nothing else here:
 // a pick and words are refused, so that no path but ApproveAsk runs its
 // command, from this yard or over a link.
+//
+// An answer on a stage ask is its members' to give: a pick, words, Later
+// or Decline from anyone else is refused whole, with the membership
+// reason. A pick or words that fire an outcome move the bead in the same
+// write, through Done's path (stageAnswer).
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
 	return s.addAnswer(ctx, id, ans, actor, "")
 }
@@ -564,6 +569,16 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		}
 		return s.answerForeign(ctx, bead, peer, ans, actor)
 	}
+	// What an answer that moves the bead resolves its outcome and the next
+	// stage's template through, read before the write: git and disk never
+	// run inside one. An answer that moves nothing wants none of it, so a
+	// failure to read refuses only the move, with its reason.
+	pre, err := s.GetBead(ctx, id)
+	if err != nil {
+		return err
+	}
+	repo, repoErr := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
+	home, homeErr := s.stageHomeBefore(pre, repo)
 	return s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
@@ -579,12 +594,31 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if _, err := answerable(row.ID, notes, ans, now()); err != nil {
 			return err
 		}
+		outcome, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
+		if err != nil {
+			return err
+		}
 		text, err := json.Marshal(ans)
 		if err != nil {
 			return err
 		}
 		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 			return err
+		}
+		// A pick or words that fire an outcome move the bead in the same
+		// write, through Done's path; the answer's words stay on the
+		// answer note, so the move carries no separate note. Nobody's to
+		// refuse: the answer's writer was checked as a decider above.
+		if outcome != "" {
+			if repoErr != nil {
+				return repoErr
+			}
+			if homeErr != nil {
+				return homeErr
+			}
+			if _, err := w.move(row.UUID, actor, repo, home, nil, donePick(outcome)); err != nil {
+				return err
+			}
 		}
 		return w.settleCopies(row, ans, nil, "")
 	})

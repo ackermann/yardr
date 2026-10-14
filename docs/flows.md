@@ -432,6 +432,24 @@ reopening into a templated stage asks fresh. A broken template puts no
 ask: the bead enters as today, and the yard logs one `bad_template`
 event naming the stage and the error.
 
+An answer on a stage ask is its members' to give: a pick, words, Later or
+Decline from anyone else is refused whole, with the membership reason. A
+name the links trust as a member answers as them, and where the yard put
+the ask to the operator as fallback, the operator answers it. A pick or
+words that fire an outcome move the bead in the same write, through the
+flow's existing outcomes; the `advanced` event records the outcome, and
+the answer's words stay on the answer note, so the move carries no
+separate note. Picking You decide records without moving, as do words
+with `move: none`. Later puts the ask aside and Decline ends it; the bead
+waits as today in both cases, and the yard never re-asks on its own.
+Several members resolve as first answer wins: the winner's move takes the
+other members' open asks back. A stage ask takes picks only for the stay
+that put it: a re-pick after one that moved, a pick from another stage,
+and a pick for an earlier stay are each refused, the last naming the
+fresh ask where one stands, or saying the template went or broke and the
+bead is moved by hand. An answer arriving from a linked yard moves the
+bead the same way. A closed bead moves no more.
+
 ### The map of the flow
 
 `yardr prime --bead <id>` draws the whole flow before the `STAGE` block, so

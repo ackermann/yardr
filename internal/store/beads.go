@@ -1189,7 +1189,15 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 	if outcome != DefaultOutcome {
 		command += " --outcome " + outcome
 	}
-	b, err := s.advance(ctx, id, note, exp, actor, true, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome))
+	return b, s.refused(ctx, id, command, exp, actor, err)
+}
+
+// donePick reports outcome through the flow governing the bead, as Done
+// does: the stage it sends a bead in its stage to, with the outcome on the
+// event. An answer on a stage ask moves the bead through the same pick.
+func donePick(outcome string) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	return func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
 		}
@@ -1199,8 +1207,7 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 		}
 		data["outcome"] = outcome
 		return to, nil
-	})
-	return b, s.refused(ctx, id, command, exp, actor, err)
+	}
 }
 
 // advance is the move AdvanceNote and Done share: pick names the stage

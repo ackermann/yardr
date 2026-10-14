@@ -238,8 +238,9 @@ func (f foreignAsk) notes(id, asker string) []Note {
 // The names the link exposes to p (Peer.Expose) are the only ones an ask
 // reaches, and only a user of this yard has a decisions queue: anything
 // else is refused as not exposed whether or not anyone here has it, and an
-// exposed name nobody has as a user as no such user.
-func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, error) {
+// exposed name nobody has as a user as no such user. tk is what an answer
+// that moves its bead needs of its flows (taking).
+func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string, tk *taking) (*peerAsk, string, error) {
 	p.hour(now())
 	p.Mails++
 	extra := map[string]any{"direction": "in", "way": way}
@@ -267,7 +268,7 @@ func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, er
 	case m.Re != "":
 		// An answer, whose Re is the ask message's id, or the asking
 		// yard's word that the ask ended there (takeSettle).
-		if reason, err = w.takeAnswer(p, m, extra); err != nil || reason == "" {
+		if reason, err = w.takeAnswer(p, m, extra, tk); err != nil || reason == "" {
 			return nil, "", err
 		}
 	case !peerMailName.MatchString(ask.From):
@@ -486,12 +487,18 @@ func (w *wtx) dropPeerAsks(p *Peer) (map[string][]foreignAsk, error) {
 // name@peer: a newer pick supersedes by note order, never by a clock, and
 // an ask that takes no further answer refuses one naming its state.
 //
+// An answer on a stage ask moves the bead the same way one given here
+// does, under the same rules in the write that lands it (stageAnswer): a
+// pick or words that fire an outcome move through Done's path, and anyone
+// but the stage's deciders is refused whole. tk is what the move needs of
+// the bead's flows (taking).
+//
 // A body that says settled is no answer but the word that an ask copied
 // to this yard ended in p's (takeSettle).
 //
 // extra is what the refusal's event says, which checkAsk logs; it counted
 // the message toward p's hour and held its body to its size and v.
-func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, error) {
+func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *taking) (string, error) {
 	var a peerAnswer
 	reason := ""
 	if err := json.Unmarshal(m.Body, &a); err != nil {
@@ -502,6 +509,7 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 	ans := Answer{Ask: a.Seq, Option: a.Option, Words: a.Words, Later: a.Later, Decline: a.Decline}
 	var row *beadRow
 	var text []byte
+	outcome := ""
 	switch {
 	case reason != "":
 	case !peerMailName.MatchString(a.From) || !utf8.ValidString(a.Words) || answerShape(a.Bead, &ans) != nil:
@@ -557,6 +565,16 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 			extra["detail"] = err.Error()
 			break
 		}
+		// No local caller answers over a link: who asks is the name as
+		// written, held to the stage's deciders with the trust mapping.
+		outcome, why, err = w.stageAnswer(context.Background(), row, notes, ans, a.From+"@"+p.Name, tk.flows[row.UUID], tk.homes[row.UUID])
+		if err != nil {
+			if reason = why; reason == "" {
+				reason = RefusedNotAsk
+			}
+			extra["detail"] = err.Error()
+			break
+		}
 		if text, err = json.Marshal(ans); err != nil {
 			return "", err
 		}
@@ -567,8 +585,31 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 		}
 		return reason, nil
 	}
-	if _, err := w.addNoted(row, NoteAnswer, string(text), a.From+"@"+p.Name); err != nil {
+	by := a.From + "@" + p.Name
+	// Before the note, which a refusal must leave unstored: an outcome
+	// the flow has no more, a move it forbids, or a flow that does not
+	// read refuses the answer with its reason, and the question stays
+	// open for the flow to mend. A flow read for another configuration
+	// meanwhile fails the batch instead, to be taken again.
+	if outcome != "" {
+		if err := w.stageOutcome(row, outcome, tk.flows[row.UUID]); err != nil {
+			if errors.Is(err, errNeedRepo) {
+				return "", changedMeanwhile(err)
+			}
+			extra["detail"] = err.Error()
+			if a.Bead != "" && validID.MatchString(a.Bead) {
+				extra["bead"], extra["ask"] = a.Bead, a.Seq
+			}
+			return RefusedNotAsk, nil
+		}
+	}
+	if _, err := w.addNoted(row, NoteAnswer, string(text), by); err != nil {
 		return "", err
+	}
+	if outcome != "" {
+		if _, err := w.move(row.UUID, by, tk.flows[row.UUID], tk.homes[row.UUID], nil, donePick(outcome)); err != nil {
+			return "", err
+		}
 	}
 	return "", w.settleCopies(row, ans, p, a.From)
 }

@@ -262,7 +262,9 @@ func TestStageAskHandMove(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("asks = %d", len(got))
 	}
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 1, Words: "go"}, "ada"); err != nil {
+	// You decide: a moving pick would move the bead in its write, and this
+	// is the hand move's test.
+	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3, Words: "go"}, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[1].Note.Seq, Decline: true, Words: "not mine"}, "mckean"); err != nil {
@@ -303,7 +305,9 @@ func TestStageAskReentry(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 1}, "ada"); err != nil {
+	// You decide: a moving pick would move the bead in its write, and this
+	// is the re-entry's test.
+	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 3}, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
