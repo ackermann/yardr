@@ -244,7 +244,7 @@ func (m *Model) lines(w int) []string {
 		// The sender, the addressee and the text are writers' words, shown
 		// without the mark, and the images stand under them on a marked
 		// line of their own, so no mail's words forge its files line.
-		from, text := look.member, store.Letters(l.Text)
+		from, text := look.member, l.Text
 		switch {
 		case l.From == m.opt.Me:
 			from = look.own
@@ -256,6 +256,9 @@ func (m *Model) lines(w int) []string {
 				from = look.own
 			}
 		}
+		// Letters and no more from any writer: a terminal draws the mark
+		// for an escape, and another yard's sequences are gone whole by now.
+		text = store.Letters(text)
 		head := look.faint.Render(clock(l.At)) + "  " + from.Render(store.Letters(store.ViaMark(l.From, l.Via)))
 		if l.To != m.sel && l.To != m.opt.Me {
 			// What went to a name trusted as a user of this yard, and not
