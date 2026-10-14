@@ -386,11 +386,12 @@ ask again. The yard removes a file once no mail or note it still has
 names it (`yardr store prune`), which is how a hash from a letter can
 come to be 404.
 
-Sending one is two calls: [`PutBlob`](#putblob) with the bytes, then
-[`Mail`](#mail) with the hash it answered among `files`. The cap on one
-file is `blob_max_bytes` of [`Settings`](#settings). To a linked yard it is
-the same with [`MailPeer`](#mailpeer), an image or a page alike, when the
-link carries `file` out and the file is within `peer_file_max_bytes`
+To mail one, call [`PutBlob`](#putblob) with the bytes, then [`Mail`](#mail)
+with the hash it answered among `files`. To attach one to a note, use
+`yardr bead note --file`. The cap on one file is `blob_max_bytes` of
+[`Settings`](#settings). To a linked yard it is the same with
+[`MailPeer`](#mailpeer), an image or a page alike, when the link carries
+`file` out and the file is within `peer_file_max_bytes`
 ([peers.md](peers.md#an-image-with-the-mail)). A file of mail from a linked
 yard that this yard did not take has `not_taken`, the reason, beside the
 sender's `hash`, `type` and `bytes`: there is no file to ask for then.
@@ -889,7 +890,7 @@ POST /call/UserInbox
 
 ### `PutBlob`
 
-Gives the yard a file, so that mail or a note can carry it: `Mail` then names it by the hash this answers. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail is about to be sent, and put it again when that was longer ago.
+Gives the yard a file, so that mail or a note can carry it. `Mail` and `MailPeer` name mail files by the hash this answers; `yardr bead note --file` attaches a blob to a note. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail or note is about to be written, and put it again when that was longer ago.
 
 | argument | type | |
 |---|---|---|
