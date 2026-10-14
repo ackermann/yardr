@@ -166,11 +166,11 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 }
 
 // assertScriptedPolicy holds the response's policy to the scripted policy
-// of the design (section 3.5, as the approval on yardr-x4t5 decided it),
-// exactly: inline scripts run, and fetch, frames, workers and WebRTC are
-// each forbidden by the headers. Top-level navigation is denied
-// entirely: no allow-top-navigation token, no allow-popups, so a script
-// cannot carry data out by redirecting on a click.
+// of the design (section 3.5), exactly. These are header checks: inline
+// scripts run, and fetch, frames and workers are forbidden by the policy;
+// WebRTC is blocked only in browsers that enforce its directive. The
+// absent allow-top-navigation and allow-popups tokens do not stop a
+// top-level page from navigating itself; docs/web.md records that limit.
 func assertScriptedPolicy(t *testing.T, csp string) {
 	t.Helper()
 	if want := "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"; csp != want {
@@ -188,11 +188,12 @@ func assertScriptedPolicy(t *testing.T, csp string) {
 	}
 	for directive, want := range map[string]string{
 		// Scripts run, but the sandbox keeps them from the yard:
-		// no same origin, no way out to the top page.
+		// no same origin and no yard API.
 		"sandbox":    "allow-scripts",
 		"script-src": "'unsafe-inline'",
-		// Fetch, frames, workers and WebRTC each forbidden; only
-		// data: images and inline styles render beside the markup.
+		// Fetch, frames and workers are forbidden; only data: images
+		// and inline styles render beside the markup. WebRTC depends
+		// on browser support for its directive, noted above.
 		"connect-src": "'none'",
 		"frame-src":   "'none'",
 		"child-src":   "'none'",

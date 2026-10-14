@@ -74,6 +74,28 @@ func TestWebServeRefusesPagesHost(t *testing.T) {
 	}
 }
 
+// A failed sandbox listener must release the view listener it bound first.
+func TestWebServeClosesViewIfPagesAddrIsInUse(t *testing.T) {
+	home, st, _ := statusYard(t, "abcdef123456")
+	t.Setenv("YARDR_WEB_ADDR", "")
+	t.Setenv("YARDR_WEB_PAGES_ADDR", "")
+	pages, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pages.Close()
+	viewAddr := freeAddr(t)
+	a := &app{st: st, cfg: &config.Config{Home: home}, actor: "me"}
+	if _, err := run(t, a.webCmd(), "serve", "--addr", viewAddr, "--pages-addr", pages.Addr().String()); err == nil {
+		t.Fatal("web serve started with its pages address already in use")
+	}
+	view, err := net.Listen("tcp", viewAddr)
+	if err != nil {
+		t.Fatalf("web serve left its view listener bound after the pages listener failed: %v", err)
+	}
+	_ = view.Close()
+}
+
 // A start and an install hand the sandbox origin's flags on when they
 // are given, and check what the yard's settings and the environment
 // resolve them to: a start with neither hands on only the view's

@@ -70,7 +70,9 @@ name someone else controls could read the yard through a visitor's browser
 
 Beside the view it serves the sandbox origin, where a note's pages run:
 a second listener on loopback answering blob bytes only, under a policy
-that runs a page's inline scripts and nothing else. It listens on
+that permits inline scripts and blocks fetches, frames, workers and
+popups. WebRTC blocking depends on browser support, and a page opened
+top-level can navigate itself (docs/web.md). It listens on
 --pages-addr, else on YARDR_WEB_PAGES_ADDR when set in the command's
 environment, else on the yard's web_pages_addr setting (yardr settings
 set web_pages_addr <host:port>), else on 127.0.0.1:8789, on loopback
@@ -188,6 +190,7 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			defer ln.Close()
 			// The sandbox origin beside the view: a note's pages run
 			// there, on an origin of their own. Both listen before
 			// either serves, so a taken pages port fails the view
@@ -196,6 +199,7 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			defer pln.Close()
 			srv.SetPagesAddr(pln.Addr().String())
 			srv.SetPagesHost(pagesHost)
 			if unsafe {

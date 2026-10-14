@@ -784,16 +784,16 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // scriptedPolicy is the policy a note's page runs under on the sandbox
-// origin: its inline scripts run, and nothing else. The sandbox's opaque
-// origin (no allow-same-origin) withholds the yard's API and cookies from
-// the page; fetch, frames and workers are dead, and WebRTC peer
-// connections are blocked where the browser enforces the webrtc
-// directive. Top-level navigation is denied entirely — no
-// allow-top-navigation token, no allow-popups — so a script cannot carry
-// data out by redirecting on a click: a page's links do not leave the
-// sandbox, and a reader copies a URL if they want it.
-// (docs/design/2026-10-14-yardr-x4t5-board.md, section 3.5, as the
-// approval on yardr-x4t5 decided it.)
+// origin: inline scripts may run, while the policy forbids fetches,
+// frames, workers and form submissions. The sandbox's opaque origin (no
+// allow-same-origin) withholds the yard's API and cookies from the page.
+// WebRTC peer connections are blocked only where the browser enforces the
+// webrtc directive. The missing allow-top-navigation and allow-popups
+// tokens prevent a nested page from navigating its top frame or opening a
+// popup, but run opens this document top-level, where it can navigate
+// itself. The WebRTC and self-navigation limits are described in
+// docs/web.md; the self-navigation claim is being corrected in the
+// follow-up design bead yardr-b4ey.
 const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // handleBlob serves a note's image or page: the bytes of a blob a note on
