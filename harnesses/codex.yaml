@@ -1,6 +1,7 @@
 # Codex. Every flag is from `codex --help`.
 version: 1
 label: Codex
+provider: OpenAI
 install: npm install -g @openai/codex
 
 # On a Mac without a terminal (docs/doctor.md, "A program fetched on a Mac").

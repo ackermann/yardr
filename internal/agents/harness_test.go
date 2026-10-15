@@ -29,6 +29,12 @@ func TestHarnessFiles(t *testing.T) {
 	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi"}; !slices.Equal(kinds, want) {
 		t.Errorf("kinds with a file: %v, want %v", kinds, want)
 	}
+	wantProvider := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "grok": "xAI", "kimi": "Moonshot"}
+	for _, h := range Harnesses {
+		if h.Provider != wantProvider[h.Kind] {
+			t.Errorf("%s: provider %q, want %q", h.Kind, h.Provider, wantProvider[h.Kind])
+		}
+	}
 	for kind := range modelLists {
 		if _, ok := Lookup(kind); !ok {
 			t.Errorf("%s lists its models and has no file", kind)
@@ -41,7 +47,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" || h.Provider != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}

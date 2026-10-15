@@ -1,6 +1,7 @@
 # opencode. Every flag is from `opencode --help`.
 version: 1
 label: opencode
+# No provider: its README names no maker, only the OpenCode team.
 install: https://opencode.ai
 
 flags:

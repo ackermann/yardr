@@ -1,6 +1,7 @@
 # Claude Code. Every flag is from `claude --help`.
 version: 1
 label: Claude Code
+provider: Anthropic
 install: npm install -g @anthropic-ai/claude-code (https://claude.com/claude-code)
 
 # On a Mac without a terminal (docs/doctor.md, "A program fetched on a Mac").

@@ -1,6 +1,7 @@
 # Grok. Every flag is from `grok --help`.
 version: 1
 label: Grok
+provider: xAI
 
 flags:
   model: --model

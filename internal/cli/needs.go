@@ -89,6 +89,11 @@ type need struct {
 	// Harness is the herdr kind the program is the harness of; "" for git
 	// and herdr.
 	Harness string `json:"harness,omitempty"`
+	// Label is the harness's name as people write it, and Provider who
+	// makes it, as the kind's file says them; absent for git and herdr,
+	// and Provider absent for a kind whose file names none.
+	Label    string `json:"label,omitempty"`
+	Provider string `json:"provider,omitempty"`
 	// HarnessFile is the version of the file yardr reads the harness's kind
 	// from (yardr harness show); 0 for a kind it has none for.
 	HarnessFile int `json:"harness_file,omitempty"`
@@ -208,6 +213,8 @@ func harnessNeed(kind, what string) need {
 		n.HarnessFile = h.Version
 		n.HarnessAlways = h.Flags.Always
 		n.HarnessLogin = h.LoginRecipe != nil
+		n.Label = h.Label
+		n.Provider = h.Provider
 		n.Offers = h.Offers
 		n.Fetch = fetchFor(h.Fetch)
 	}

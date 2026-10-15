@@ -1,6 +1,7 @@
 # pi. Every flag is from `pi --help`.
 version: 1
 label: pi
+# No provider: its README names no maker.
 
 flags:
   model: --model

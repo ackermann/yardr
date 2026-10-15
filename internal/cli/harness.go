@@ -115,7 +115,11 @@ func printHarness(h agents.Harness, has bool) {
 		return s
 	}
 	args := func(a []string) string { return or(strings.Join(a, " "), "none known") }
-	fmt.Printf("%s  %s  (harnesses/%s.yaml, version %d)\n", h.Kind, h.Label, h.Kind, h.Version)
+	head := fmt.Sprintf("%s  %s", h.Kind, h.Label)
+	if h.Provider != "" {
+		head += ", by " + h.Provider
+	}
+	fmt.Printf("%s  (harnesses/%s.yaml, version %d)\n", head, h.Kind, h.Version)
 	if len(h.Aliases) > 0 {
 		fmt.Printf("  also asked for as: %s\n", strings.Join(h.Aliases, ", "))
 	}

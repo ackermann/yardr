@@ -35,6 +35,9 @@ type Harness struct {
 	Version int    `yaml:"version" json:"version"`
 	// Label is the harness's name as people write it.
 	Label string `yaml:"label" json:"label"`
+	// Provider is who makes the harness, as people write it
+	// ("Anthropic"). "" when the file names none.
+	Provider string `yaml:"provider" json:"provider,omitempty"`
 	// Aliases are other names the kind is asked for by (Lookup).
 	Aliases []string `yaml:"aliases" json:"aliases,omitempty"`
 	// Install says where to get the harness: yardr prints it and never

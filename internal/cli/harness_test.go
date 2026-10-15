@@ -41,7 +41,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 
 	out = ask(0, "harness", "show", "codex")
-	wantText(t, out, "codex  Codex  (harnesses/codex.yaml, version 1)", "get it: npm install -g @openai/codex",
+	wantText(t, out, "codex  Codex, by OpenAI  (harnesses/codex.yaml, version 1)", "get it: npm install -g @openai/codex",
 		"on a Mac without a terminal: version 0.162.1 is fetched, checked against its sha256 and moved to ~/.local/bin/codex",
 		"(verified from https://github.com/openai/codex/blob/main/README.md on 2026-10-13;",
 		"trust: yardr answers no dialog of it", "input begins with:    ›", "a message it took:    ›",
@@ -77,15 +77,25 @@ func TestHarnessListAndShow(t *testing.T) {
 	if len(shown.Offers) != 3 || shown.Offers[0] != (agents.Offer{Model: "kimi-code/k3", Label: "K3", Recommended: "yardmaster"}) {
 		t.Fatalf("show kimi --json offers: %+v", shown.Offers)
 	}
+	if shown.Provider != "Moonshot" {
+		t.Fatalf("show kimi --json provider: %q", shown.Provider)
+	}
 	wantText(t, ask(0, "harness", "show", "kimi"), "kimi-code/k3 (K3), recommended for a yardmaster")
-	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id")
+	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")
+	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id",
+		"pi  pi  (harnesses/pi.yaml, version 1)")
+	shown = agents.Harness{}
+	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "pi", "--json")), &shown); err != nil || shown.Provider != "" {
+		t.Fatalf("show pi --json: %v, provider %q", err, shown.Provider)
+	}
 
 	// A kind's fetch for a Mac is printed as its file has it, every target;
 	// a kind with none says it is installed by hand.
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "claude", "--json")), &shown); err != nil || shown.Fetch == nil ||
 		shown.Fetch.Path != "~/.local/bin/claude" || len(shown.Fetch.Targets) != 2 || shown.Fetch.Verified.On == "" ||
+		shown.Provider != "Anthropic" ||
 		!strings.HasPrefix(shown.Fetch.Targets["darwin/arm64"].URL, "https://downloads.claude.ai/claude-code-releases/"+shown.Fetch.Version+"/") {
-		t.Fatalf("show claude --json: %v, fetch %+v", err, shown.Fetch)
+		t.Fatalf("show claude --json: %v, fetch %+v, provider %q", err, shown.Fetch, shown.Provider)
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "is fetched, checked against its sha256 and run with `install "+shown.Fetch.Version+"`, which puts it at ~/.local/bin/claude")
 	wantText(t, ask(0, "harness", "show", "kimi"), "on a Mac without a terminal: no way known, it is installed by hand")
@@ -136,5 +146,40 @@ func TestDoctorOffers(t *testing.T) {
 	raw, err := json.Marshal(m["claude"])
 	if err != nil || !strings.Contains(string(raw), `"offers":[{"model":"opus","label":"Opus 5.5","recommended":"yardmaster"}`) {
 		t.Errorf("the wire carries: %s, %v", raw, err)
+	}
+}
+
+// doctor --json carries each harness kind's label and provider on its
+// machine item, from the kind's file, as it carries its offers: what a
+// program shows a person choosing a provider (footplate's setup reads
+// doctor). A kind whose file names no provider carries none, and git and
+// herdr carry neither.
+func TestDoctorHarnessLabels(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n"})
+	stub(t, &loginShell, func() string { return "" })
+	m := machineOf(t)
+	want := map[string][2]string{
+		"claude": {"Claude Code", "Anthropic"}, "codex": {"Codex", "OpenAI"},
+		"kimi": {"Kimi", "Moonshot"}, "grok": {"Grok", "xAI"},
+		"opencode": {"opencode", ""}, "pi": {"pi", ""},
+	}
+	for program, w := range want {
+		if got := m[program]; got.Label != w[0] || got.Provider != w[1] {
+			t.Errorf("%s: label %q, provider %q, want %q, %q", program, got.Label, got.Provider, w[0], w[1])
+		}
+	}
+	for _, program := range []string{"git", "herdr"} {
+		if got := m[program]; got.Label != "" || got.Provider != "" {
+			t.Errorf("%s: label %q, provider %q, want none", program, got.Label, got.Provider)
+		}
+	}
+	raw, err := json.Marshal(m["claude"])
+	if err != nil || !strings.Contains(string(raw), `"label":"Claude Code"`) || !strings.Contains(string(raw), `"provider":"Anthropic"`) {
+		t.Errorf("the wire carries: %s, %v", raw, err)
+	}
+	if raw, err := json.Marshal(m["pi"]); err != nil || strings.Contains(string(raw), `"provider"`) {
+		t.Errorf("a kind with no provider carries one on the wire: %s, %v", raw, err)
 	}
 }

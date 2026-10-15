@@ -1,6 +1,7 @@
 # Kimi Code. Every flag is from `kimi --help`.
 version: 1
 label: Kimi
+provider: Moonshot
 
 # Kimi asks whether a folder is trusted the first time it is started in it
 # ("Trust this folder?", read live, Kimi Code 2.1.1), and every bead is a new

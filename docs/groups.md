@@ -989,7 +989,8 @@ built into the binary and read once when yardr starts:
 | in the file | what it says | read by |
 |---|---|---|
 | `version` | the shape of the file, 1 today; a file of another shape is refused | the loader, `yardr doctor` |
-| `label` | the harness's name as people write it | the forms |
+| `label` | the harness's name as people write it | the forms, `yardr harness show`, `yardr doctor --json` |
+| `provider` | who makes the harness, as people write it. Claude Code, Codex, Kimi and Grok name one each; a kind whose README names no maker names none | `yardr harness show`, `yardr doctor --json`, for a program that shows them |
 | `aliases` | other names the kind is asked for by; no file has one today | the loader |
 | `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
 | `fetch` | how the harness gets onto a Mac that has no package manager and nobody at a terminal: one file of one version at its maker's address, with its sha256 ([doctor.md](doctor.md#a-program-fetched-on-a-mac)). Printed, never fetched by yardr. Claude Code and Codex have one; a kind with none is installed by hand | `yardr doctor --json`, `yardr harness show --json`, for a program that fetches |
