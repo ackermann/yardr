@@ -1185,8 +1185,10 @@ has no such hint the event names no harness.
   a folder a depot (or a crew member's directory) is what says you trust it. The
   session's `started` event carries `trust_accepted: true` when this
   happened. Claude Code and Codex record the answer against the repository,
-  so it comes up once per depot, not per worktree; Kimi records it per
-  folder, so it comes up in every new worktree. Set `--set trust=false`
+  so a bead session meets it once per depot's worktree; Kimi records it per
+  folder, so it comes up in every new worktree. Claude Code keeps no trust
+  for the home directory, so a crew session there meets the dialog at every
+  start, and the yard answers it each time. Set `--set trust=false`
   on a group (or crew member) to answer it yourself: the session then waits
   as `session_blocked` and gets its first prompt once you have. yardr
   answers only this dialog, only when both its mark and its answer show and
