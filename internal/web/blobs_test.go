@@ -100,7 +100,7 @@ func TestBlobRoute(t *testing.T) {
 	assertPagePolicy(t, r.header.Get("Content-Security-Policy"))
 	for _, h := range [][2]string{
 		{"X-Content-Type-Options", "nosniff"},
-		{"Referrer-Policy", "no-referrer"},
+		{"Referrer-Policy", "same-origin"},
 	} {
 		if got := r.header.Get(h[0]); got != h[1] {
 			t.Errorf("the page's %s %q, want %q", h[0], got, h[1])

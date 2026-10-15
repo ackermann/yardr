@@ -277,7 +277,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", s.policy(r))
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// same-origin keeps the referrer off other sites as no-referrer
+	// did, and lets a plain form POST carry its origin: under
+	// no-referrer a browser sends Origin null for a navigate-mode POST
+	// (Fetch, "append a request Origin header"), which ownOrigin
+	// refuses.
+	h.Set("Referrer-Policy", "same-origin")
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -351,6 +356,8 @@ func (s *Server) PagesHandler() http.Handler {
 		h.Set("Content-Security-Policy", scriptedPolicy)
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("X-Content-Type-Options", "nosniff")
+		// no-referrer stays here: the sandbox origin is opaque, has no
+		// forms (form-action 'none'), and must leak nothing.
 		h.Set("Referrer-Policy", "no-referrer")
 		s.pagesMux.ServeHTTP(w, r)
 	})

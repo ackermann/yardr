@@ -449,6 +449,27 @@ func TestBeadPostRefused(t *testing.T) {
 	}
 }
 
+// A plain form submission — the page's own form posted without script,
+// as a browser sends it from a page served under Referrer-Policy
+// same-origin, carrying the view's own Origin — is taken. Under
+// no-referrer the browser would send Origin null for a navigate-mode
+// POST (Fetch, "append a request Origin header") and ownOrigin would
+// refuse it; the policy is why this POST carries an origin at all.
+func TestBeadPostPlainFormCarriesOwnOrigin(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	b, seq := actYard(t, f, pickAsk())
+	rev := revOf(t, f, b.ID)
+	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)}, "option": {"1"}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+		t.Fatalf("status %d, location %q, want 303 to the bead", r.status, r.header.Get("Location"))
+	}
+	v, err := f.st.Bead(context.Background(), b.ID)
+	must(t, err)
+	if len(v.Asks) != 1 || v.Asks[0].State != "answered" || v.Asks[0].Option != 1 {
+		t.Fatalf("the ask: %+v", v.Asks)
+	}
+}
+
 // The needs rows answer where the view acts: home's oldest ask under its
 // row, /line's every ask under its reason. Without --as neither answers.
 func TestNeedsAnswerButtons(t *testing.T) {

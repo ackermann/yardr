@@ -222,6 +222,31 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 	}
 }
 
+// The view's pages answer Referrer-Policy same-origin and the sandbox
+// origin's no-referrer: the same note page, served on both origins,
+// carries its origin off the view only back to the view, and nothing
+// off the sandbox. same-origin is what lets a plain form POST carry
+// the view's own Origin (under no-referrer a browser sends null for a
+// navigate-mode POST: Fetch, "append a request Origin header").
+func TestReferrerPolicyViewAndSandbox(t *testing.T) {
+	f := newPagesFixture(t)
+	_, page, _ := f.notedPage(t)
+	r := f.get("/blobs/" + page.Hash)
+	if r.status != 200 {
+		t.Fatalf("the view's page: status %d, want 200: %s", r.status, r.body)
+	}
+	if got := r.header.Get("Referrer-Policy"); got != "same-origin" {
+		t.Errorf("the view's page: Referrer-Policy %q, want same-origin", got)
+	}
+	r = f.getPages("/blobs/" + page.Hash)
+	if r.status != 200 {
+		t.Fatalf("the sandbox page: status %d, want 200: %s", r.status, r.body)
+	}
+	if got := r.header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("the sandbox page: Referrer-Policy %q, want no-referrer", got)
+	}
+}
+
 // In JWT mode the sandbox origin takes the gateway's token too: a request
 // without one is 401, as on the view, and only a verified one is served,
 // under the scripted policy. The origin stays fenced and note-only: an
