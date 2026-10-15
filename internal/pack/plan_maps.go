@@ -137,6 +137,7 @@ func (b *planner) maps() error {
 			mp.Action = action(had, changes)
 			if mp.Action == Change {
 				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map, Says: h.Says, Makes: h.Makes}
+				mp.Drops = b.hookDrops(h, sm)
 			}
 			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes)}
 			if sm.As != "" {
@@ -150,6 +151,91 @@ func (b *planner) maps() error {
 		b.plan.Maps = append(b.plan.Maps, mp)
 	}
 	return nil
+}
+
+// hookDrops are the hook's says and makes lines setting the pack's tables
+// would drop: those the pack does not give, beyond the pack's own lines
+// from its last import into this depot, which the pack evolving drops
+// freely. Each carries whose it is: another pack's import that left it, or
+// the operator's hand. Only the tables the pack carries are asked: a table
+// it does not carry stays as the yard has it.
+func (b *planner) hookDrops(h store.Hook, sm StageMap) []HookDrop {
+	var prevSays []store.Say
+	var prevMakes []store.Make
+	if b.rec != nil {
+		for _, po := range b.rec.Objects {
+			if po.Kind == "map" && po.Name == h.Name {
+				prevSays, prevMakes = po.Says, po.Makes
+				break
+			}
+		}
+	}
+	var out []HookDrop
+	if len(sm.Says) > 0 {
+		want := map[string]bool{}
+		for _, l := range store.SayLines(sm.Says) {
+			want[l] = true
+		}
+		had := map[string]bool{}
+		for _, l := range store.SayLines(prevSays) {
+			had[l] = true
+		}
+		for _, l := range store.SayLines(h.Says) {
+			if want[l] || had[l] {
+				continue
+			}
+			out = append(out, HookDrop{Table: "says", Line: l, Owner: b.lineOwner(h.Name, l, true)})
+		}
+	}
+	if len(sm.Makes) > 0 {
+		want := map[string]bool{}
+		for _, l := range store.MakeLines(sm.Makes) {
+			want[l] = true
+		}
+		had := map[string]bool{}
+		for _, l := range store.MakeLines(prevMakes) {
+			had[l] = true
+		}
+		for _, l := range store.MakeLines(h.Makes) {
+			if want[l] || had[l] {
+				continue
+			}
+			out = append(out, HookDrop{Table: "makes", Line: l, Owner: b.lineOwner(h.Name, l, false)})
+		}
+	}
+	return out
+}
+
+// lineOwner is whose the hook's line is: another pack's import that left it
+// there, or the operator's hand. says says which table to read the records'
+// lines from.
+func (b *planner) lineOwner(hook, line string, says bool) string {
+	var owners []string
+	for _, r := range b.all {
+		if r.Pack == b.p.Name && r.Depot == b.o.Depot {
+			continue // the pack's own last import is not another's
+		}
+		for _, po := range r.Objects {
+			if po.Kind != "map" || po.Name != hook {
+				continue
+			}
+			var lines []string
+			if says {
+				lines = store.SayLines(po.Says)
+			} else {
+				lines = store.MakeLines(po.Makes)
+			}
+			if slices.Contains(lines, line) {
+				owners = append(owners, "pack "+r.Pack+" in "+inDepot(r.Depot))
+				break
+			}
+		}
+	}
+	if len(owners) > 0 {
+		slices.Sort(owners)
+		return strings.Join(slices.Compact(owners), ", ")
+	}
+	return "the operator's"
 }
 
 // optional names the sources the pack could use that the yard has nothing

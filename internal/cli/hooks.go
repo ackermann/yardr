@@ -65,10 +65,13 @@ the one that tracks its thread, else the train of its branch (docs/links.md).
 the words before the arrow match reports that outcome for the bead, as yardr
 bead done --outcome does, and the bead's flow routes it. The words are a
 subscription's --where (yardr subscribe --help: all must hold, a key given
-twice holds either value), and one more key, stage: the stage the bead is in.
-The first line an event matches counts, so give them in that order. ": <words>"
+twice holds either value), and two more keys, stage and type: the stage the
+bead is in and its type, for a line that holds in some stages or for some
+types only. The event's own type is named with event there. The first line
+an event matches counts, so give them in that order. ": <words>"
 after the outcome begins the note the move adds. A line whose outcome no stage
-of a flow in the yard's depots has an edge for is refused. What the yard did
+of a flow in the yard's depots has an edge for is refused (for a line with
+type, no stage of the flows beads of that type follow). What the yard did
 itself (an event whose actor is a crew member's identity in the source) says
 nothing. A hook without a table moves nothing, and each event about a train
 says so (yardr events).
@@ -77,8 +80,10 @@ An event about a thread no open bead tracks can make the bead that tracks it,
 so that an issue or a pull request from outside enters the yard. --makes
 "<key>=<value> ... -> <type>:<stage>[@<depot>]" is a line of the hook's other
 table: an event the words before the arrow match (as for --says, without
-stage) makes a bead of that type in that stage, with the thread's title, the
-event's text and a tracks link to the thread, as hook:<name>. The first line
+stage and without type, which the line's bead already says) makes a bead of
+that type in that stage, with the thread's title, the event's text and a
+tracks link to the thread, as hook:<name>. The event's own type is named
+with event there. The first line
 an event matches counts. The depot is the line's, else the one depot whose
 origin remote is the repository the event is in; an event no depot is found
 for makes nothing, and yardr events says why. A closed bead that tracks the
@@ -349,6 +354,7 @@ func hookMap(ctx context.Context, st store.API, home, source string, lines []str
 // hookSays reads --says lines into a hook's table, in the order given. It
 // refuses what a pack's check does: a line no bead of the yard's depots
 // could take the outcome of, since the flow would refuse it at every event.
+// A line with type is held to the flows beads of that type follow alone.
 func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, error) {
 	if len(lines) == 0 {
 		return nil, nil
@@ -363,7 +369,17 @@ func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, e
 		if err != nil {
 			return nil, fmt.Errorf("--says %w", err)
 		}
-		if err := say.Unrouted(stages); err != nil {
+		if typ, ok := say.Where[store.SayType]; ok {
+			for _, t := range store.WhereValues(typ) {
+				typed, err := depotOutcomesFor(ctx, st, t)
+				if err != nil {
+					return nil, err
+				}
+				if err := say.Unrouted(typed); err != nil {
+					return nil, fmt.Errorf("--says %q: no bead of type %s of the yard's depots could take it: %w", line, t, err)
+				}
+			}
+		} else if err := say.Unrouted(stages); err != nil {
 			return nil, fmt.Errorf("--says %q: no bead of the yard's depots could take it: %w", line, err)
 		}
 		out = append(out, say)
@@ -459,26 +475,61 @@ func depotOutcomes(ctx context.Context, st store.API) (map[string][]string, erro
 			return nil, fmt.Errorf("the flows of depot %s: %w", d.Name, err)
 		}
 		for _, df := range flows {
-			f := df.Flow
-			if f == nil {
-				continue
-			}
-			for _, stage := range f.Stages {
-				if f.IsTerminal(stage) {
-					continue
-				}
-				if _, has := out[stage]; !has {
-					out[stage] = nil
-				}
-				for _, o := range f.OutcomesFrom(stage) {
-					if !slices.Contains(out[stage], o.Name) {
-						out[stage] = append(out[stage], o.Name)
-					}
-				}
-			}
+			addOutcomes(out, df.Flow)
 		}
 	}
 	return out, nil
+}
+
+// depotOutcomesFor are the outcomes a bead of type typ can report, by the
+// stage it is in, under the flow that type follows in each of the yard's
+// depots: its own where it has one, else the depot's.
+func depotOutcomesFor(ctx context.Context, st store.API, typ string) (map[string][]string, error) {
+	depots, err := st.Depots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, d := range depots {
+		flows, err := st.DepotFlows(ctx, d.Name)
+		if err != nil {
+			return nil, fmt.Errorf("the flows of depot %s: %w", d.Name, err)
+		}
+		var own *store.Flow
+		for _, df := range flows {
+			if df.Type == typ && df.Flow != nil {
+				addOutcomes(out, df.Flow)
+				own = nil
+				break
+			}
+			if df.Type == "" {
+				own = df.Flow
+			}
+		}
+		if own != nil {
+			addOutcomes(out, own)
+		}
+	}
+	return out, nil
+}
+
+func addOutcomes(out map[string][]string, f *store.Flow) {
+	if f == nil {
+		return
+	}
+	for _, stage := range f.Stages {
+		if f.IsTerminal(stage) {
+			continue
+		}
+		if _, has := out[stage]; !has {
+			out[stage] = nil
+		}
+		for _, o := range f.OutcomesFrom(stage) {
+			if !slices.Contains(out[stage], o.Name) {
+				out[stage] = append(out[stage], o.Name)
+			}
+		}
+	}
 }
 
 // mapLines are a hook's map as --map takes it, sorted.

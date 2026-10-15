@@ -383,12 +383,27 @@ type MapPlan struct {
 	// another (Was), unchanged, NotSet, or Skipped.
 	Action string `json:"action"`
 	Was    *MapOp `json:"was,omitempty"`
+	// Drops are the hook's says and makes lines the pack does not give,
+	// which setting the pack's tables would drop: each with whose it is,
+	// another pack's or the operator's. Empty when the hook holds none
+	// beyond the pack's own lines from its last import. An import drops
+	// them only with --yes.
+	Drops []HookDrop `json:"drops,omitempty"`
 	// Skipped is why the lines are not set: the yard has no source of the
 	// name, or they do not fit the one it has. Empty when they are not
 	// skipped.
 	Skipped string `json:"skipped,omitempty"`
 	// Needs are hook, identity and set_state, each ok or missing.
 	Needs []Need `json:"needs"`
+}
+
+// HookDrop is one says or makes line on the yard's hook that the pack does
+// not give and setting the pack's table would drop: the line as the hook
+// has it, and whose, another pack's import or the operator's hand.
+type HookDrop struct {
+	Table string `json:"table"` // says or makes
+	Line  string `json:"line"`
+	Owner string `json:"owner"` // pack <pack> in <depot>, or the operator's
 }
 
 // Missing is the detail of the need what when the yard lacks it, else "".
@@ -975,6 +990,49 @@ func (p *Plan) EditedFiles() []string {
 		}
 	}
 	return out
+}
+
+// DroppedHookLines are the hook tables the plan would replace though they
+// hold says or makes lines the pack does not give, each with which lines
+// and whose: another pack's, or the operator's. An import drops them only
+// with --yes.
+func (p *Plan) DroppedHookLines() []string {
+	var out []string
+	for _, m := range p.Maps {
+		if len(m.Drops) == 0 || m.Hook == "" {
+			continue
+		}
+		var lines []string
+		for _, d := range m.Drops {
+			owner := d.Owner
+			if owner == "the operator's" {
+				owner += " (set by hand with yardr hook add)"
+			}
+			lines = append(lines, fmt.Sprintf("%q (%s)", d.Line, owner))
+		}
+		out = append(out, fmt.Sprintf("hook %s's %s table has lines the pack %s does not give, which the import would drop: %s", m.Hook, tables(m.Drops), p.Pack, strings.Join(lines, ", ")))
+	}
+	return out
+}
+
+// tables is the tables drops take lines from: says, makes, or both.
+func tables(drops []HookDrop) string {
+	var says, makes bool
+	for _, d := range drops {
+		if d.Table == "says" {
+			says = true
+		} else {
+			makes = true
+		}
+	}
+	switch {
+	case says && makes:
+		return "says and makes"
+	case says:
+		return "says"
+	default:
+		return "makes"
+	}
 }
 
 func sum(b []byte) string {

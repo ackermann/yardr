@@ -328,7 +328,7 @@ A key given more than once holds each value, and any of them matches:
 in that depot. A bead takes one value: its subscription ends with it.
 Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 (key or name), project and label (any of the issue's labels). GitHub exposes
-repo (owner/name) and label, and also event, number, state, merged,
+repo (owner/name) and label, and also number, state, merged,
 conclusion, workflow, head_branch, head_sha, head_repo, base, train,
 sender, association
 (train: the yardr train whose yard/<train> branch a pull request or CI run is on;

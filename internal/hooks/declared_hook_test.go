@@ -592,7 +592,7 @@ func TestDeclaredWhereKeys(t *testing.T) {
 	}
 	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll,
 		Where: map[string]string{"train": "yard-x"}}, "me"); err == nil ||
-		!strings.Contains(err.Error(), `cannot filter acme on "train": use type, action, team, project, repo, label, queue`) {
+		!strings.Contains(err.Error(), `cannot filter acme on "train": use type, action, team, project, repo, label, event, queue`) {
 		t.Fatalf("where train: err = %v", err)
 	}
 	say, err := store.ParseSay("team=ENG -> done")

@@ -119,11 +119,12 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "an outcome no stage has", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request\", outcome: landed }\n"}, key: "sources.github.says[0].outcome", msg: "no stage has an outcome landed", line: 29},
 		{name: "an outcome the named stage has not", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request stage=new\", outcome: changes }\n"}, key: "sources.github.says[0].outcome", msg: "stage new has no outcome changes (it has: done, question)", line: 29},
 		{name: "a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=ci stage=in-pr\", outcome: done }\n"}, key: "sources.github.says[0].outcome", msg: "no stage in-pr", line: 29},
-		{name: "a status in a source that has none", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    as: yardmaster\n    says:\n      - { where: \"type=deploy\", outcome: done }\n"}, key: "sources.token.as", msg: "yardr cannot set a status in token", line: 28},
+		{name: "a status in a source that has none", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    as: yardmaster\n    says:\n      - { where: \"event=deploy\", outcome: done }\n"}, key: "sources.token.as", msg: "yardr cannot set a status in token", line: 28},
 		{name: "makes is no list", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes: { where: x }\n"}, key: "sources.github.makes", msg: "want a list of lines", line: 28},
 		{name: "a make without a bead", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\" }\n"}, key: "sources.github.makes[0].bead", msg: "missing", line: 29},
 		{name: "a make without a stage", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "missing", line: 29},
-		{name: "a make filtered on the bead's stage", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    makes:\n      - { where: \"type=issue stage=new\", bead: { type: task, stage: new } }\n"}, key: "sources.token.makes[0]", msg: `cannot filter token on "stage"`, line: 29},
+		{name: "a make filtered on the bead's stage", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    makes:\n      - { where: \"event=issue stage=new\", bead: { type: task, stage: new } }\n"}, key: "sources.token.makes[0]", msg: `cannot filter token on "stage"`, line: 29},
+		{name: "a make filtered on the bead's type", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    makes:\n      - { where: \"event=issue type=task\", bead: { type: task, stage: new } }\n"}, key: "sources.token.makes[0]", msg: "redundant with the bead the line makes", line: 29},
 		{name: "a make in a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: triage } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "flow default: no stage triage a bead can be made in (stages: decide, new, review)", line: 29},
 		{name: "a make in a stage that ends the flow", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: merged } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "no stage merged a bead can be made in", line: 29},
 		{name: "a make of a type no flow is for", pairs: []string{"  default:\n", "  default:\n    type: train\n", "      task: { new", "      train: { new", "merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: issue, stage: new } }\n"}, key: "sources.github.makes[0].bead.type", msg: "no flow of this pack is for beads of type issue", line: 30},
@@ -245,7 +246,7 @@ func TestStageMapWaitsForTheYardsSource(t *testing.T) {
     hears:
       task: { new: started, review: review, merged: done }
     says:
-      - { where: "type=issue action=opened", outcome: done }
+      - { where: "event=issue action=opened", outcome: done }
 `)))
 
 	plan := build(t, st, p, o)
@@ -299,7 +300,7 @@ func TestStageMapSkipsLinesThatDoNotFitTheSource(t *testing.T) {
 `, want: `"review" is no state of acme`},
 		{name: "a key the source's events carry none of", decl: cmdDecl, sources: `  acme:
     says:
-      - { where: "type=issue priority=high", outcome: done }
+      - { where: "event=issue priority=high", outcome: done }
 `, want: `cannot filter acme on "priority"`},
 		{name: "a map for a source that moves no issue", decl: pushover, sources: `  pushover:
     as: yardmaster
@@ -860,5 +861,77 @@ func TestPackSetsWhatTheSourceMakesOnTheYardsHook(t *testing.T) {
 	}
 	if h := getHook(t, st, "gh"); h.Makes != nil || h.Says != nil || h.Source != "github" {
 		t.Fatalf("with --prune: hook %+v", h)
+	}
+}
+
+// An import meets a hook's table that holds a line the pack does not give:
+// the plan names the line and whose it is, and the import refuses without
+// --yes, dropping it loudly with it. The pack's own lines from its last
+// import drop freely as the pack evolves.
+func TestPackImportRefusesAHookTableWithAnOperatorsLine(t *testing.T) {
+	st, o := yard(t)
+	withGitHub(t, st)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
+	if err := st.SetIdentity(ctx, "boss", "github", store.Identity{ID: "boss-bot"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	dir := copyStarter(t)
+	want := starterSays(t)
+	// The hook as the last import left it, plus the operator's line.
+	ours, err := store.ParseSay("event=pull_request action=closed merged=false type=pr -> dropped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: append(slices.Clone(want), ours)})
+	// The record of the pack's last import: its lines alone.
+	if _, err := st.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web",
+		Objects: []store.PackObject{{Kind: "map", Name: "gh", CrewMember: "boss", Says: want}}}, true, "me"); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	mp := mapPlan(t, plan, "github")
+	if mp.Action != pack.Change || len(mp.Drops) != 1 || mp.Drops[0].Table != "says" ||
+		mp.Drops[0].Line != ours.String() || mp.Drops[0].Owner != "the operator's" {
+		t.Fatalf("drops = %+v, want the operator's line", mp.Drops)
+	}
+	dropped := plan.DroppedHookLines()
+	if len(dropped) != 1 || !strings.Contains(dropped[0], "hook gh's says table") ||
+		!strings.Contains(dropped[0], ours.String()) || !strings.Contains(dropped[0], "the operator's") {
+		t.Fatalf("dropped = %v", dropped)
+	}
+	answers := pack.Answers{}
+	for _, q := range plan.Questions {
+		switch q.Field {
+		case "kind":
+			answers[q.ID] = "claude"
+		case "dir":
+			answers[q.ID] = t.TempDir()
+		default:
+			answers[q.ID] = ""
+		}
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Actor: "me"}); err == nil ||
+		!strings.Contains(err.Error(), "would drop") {
+		t.Fatalf("without --yes: %v, want it refused", err)
+	}
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, append(slices.Clone(want), ours)) {
+		t.Fatalf("refused but wrote: %+v", h.Says)
+	}
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Actor: "me", Overwrite: true})
+	if err != nil {
+		t.Fatalf("with --yes: %v", err)
+	}
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, want) {
+		t.Fatalf("with --yes: hook %+v, want the pack's table", h.Says)
+	}
+	if len(res.Mapped) != 1 {
+		t.Fatalf("mapped = %+v", res.Mapped)
+	}
+	// The pack evolving drops its own old line freely: no refusal.
+	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: want[:1]})
+	plan = build(t, st, load(t, dir), o)
+	if mp := mapPlan(t, plan, "github"); len(mp.Drops) != 0 {
+		t.Fatalf("the pack's own subset drops %+v, want none", mp.Drops)
 	}
 }

@@ -79,7 +79,7 @@ func ciHook(hs []store.Hook, train *store.Bead, decls []*source.Declaration) *st
 	for i := range hs {
 		pr := boundPR(train, hs[i].Source, findDecl(decls, hs[i].Source))
 		for _, conclusion := range []string{ciSuccess, ciFailure} {
-			if hs[i].Said(ciEnvelope(hs[i].Source, train, pr, sha, conclusion, "", ""), train.Stage) != nil {
+			if hs[i].Said(ciEnvelope(hs[i].Source, train, pr, sha, conclusion, "", ""), train.Stage, train.Type) != nil {
 				return &hs[i]
 			}
 		}
@@ -351,7 +351,7 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Ho
 		}
 		return nil, nil, ignored("pending: waiting for %s", strings.Join(v.checks, ", ")), true
 	}
-	if line = h.Said(env, train.Stage); line == nil {
+	if line = h.Said(env, train.Stage, train.Type); line == nil {
 		return env, nil, ignored("%s, and hook %s has no line for that for a train in %s", v.state, h.Name, train.Stage), true
 	}
 	res = d.report(ctx, train, line, env)

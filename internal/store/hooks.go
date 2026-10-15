@@ -131,8 +131,11 @@ func (h Hook) checkMap() error {
 //
 // Where is a subscription's filter (Subscription's Where: exact matches,
 // ANDed, a key with several values matching any) over the fields of the
-// source's envelope, and one more key, stage: the stage the bead is in when
-// the event is judged, for a line that holds in some stages only.
+// source's envelope, and two more keys: stage, the stage the bead is in
+// when the event is judged, for a line that holds in some stages only,
+// and type, the bead's type, for a line that holds for some types only
+// (a train, or the bead that tracks the thread). The event's own type is
+// named with event there.
 type Say struct {
 	Where   map[string]string `json:"where"`
 	Outcome string            `json:"outcome"`
@@ -140,8 +143,12 @@ type Say struct {
 }
 
 // SayStage is the key of a Say's filter that the bead's stage is matched
-// on. The others are the source's own (whereKeys).
+// on. SayType is the key the bead's type is matched on; the event's type
+// is named with event. The others are the source's own (whereKeys).
 const SayStage = "stage"
+
+// SayType is the key of a Say's filter that the bead's type is matched on.
+const SayType = "type"
 
 // String is the line as yardr hook add --says takes it (ParseSay).
 func (s Say) String() string {
@@ -195,7 +202,9 @@ func ParseSay(line string) (Say, error) {
 // repository the event is in.
 //
 // Where is a subscription's filter over the fields of the source's
-// envelope, as a Say's is, without stage: there is no bead yet to be in one.
+// envelope, as a Say's is, without stage and without type: there is no bead
+// yet to be in one or of one, and the line's bead already says the type it
+// makes. The event's own type is named with event there, as in a Say's.
 type Make struct {
 	Where map[string]string `json:"where"`
 	Type  string            `json:"type"`
@@ -277,6 +286,9 @@ func (h Hook) checkMakes(keys []string) error {
 	for _, m := range h.Makes {
 		if len(m.Where) == 0 {
 			return fmt.Errorf("hook %s: makes -> %s:%s: no filter: a line says which events it is for (event=issues action=opened)", h.Name, m.Type, m.Stage)
+		}
+		if typ, ok := m.Where[SayType]; ok {
+			return fmt.Errorf("hook %s: makes %s: type=%s is redundant with the bead the line makes (-> %s:%s): the line makes a bead of that type, so it needs no filter on it; the event's own type is named with event", h.Name, m, WhereValues(typ)[0], m.Type, m.Stage)
 		}
 		for _, k := range slices.Sorted(maps.Keys(m.Where)) {
 			if !slices.Contains(keys, k) {
@@ -373,6 +385,13 @@ func (h Hook) checkSays(keys []string) error {
 				return fmt.Errorf("hook %s: says %s: empty value for %s", h.Name, s, k)
 			}
 		}
+		if typ, ok := s.Where[SayType]; ok {
+			for _, v := range WhereValues(typ) {
+				if err := checkName("hook "+h.Name+": says "+s.String()+": bead type", v); err != nil {
+					return err
+				}
+			}
+		}
 		if !validOutcome.MatchString(s.Outcome) {
 			return fmt.Errorf("hook %s: says %s: outcome %q: use letters, digits, '.', '_' or '-'", h.Name, s, s.Outcome)
 		}
@@ -415,14 +434,15 @@ func (h Hook) checkCI(tx *bolt.Tx) error {
 }
 
 // Said is the first line of the hook's table that the event with the
-// envelope data (a hook event's Data) matches for a bead in stage, nil when
-// none does.
-func (h Hook) Said(data map[string]any, stage string) *Say {
+// envelope data (a hook event's Data) matches for a bead of beadType in
+// stage, nil when none does. A line with type matches only such beads.
+func (h Hook) Said(data map[string]any, stage, beadType string) *Say {
 	if len(h.Says) == 0 {
 		return nil
 	}
 	fields := hookFields(data)
 	fields[SayStage] = []string{stage}
+	fields[SayType] = []string{beadType}
 	for i, s := range h.Says {
 		if match(Subscription{Scope: ScopeAll, Where: s.Where}, fields, given(false), given(false), given(false)) != "" {
 			return &h.Says[i]

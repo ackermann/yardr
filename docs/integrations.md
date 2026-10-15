@@ -1524,7 +1524,7 @@ The same steps as Linear, with these differences:
 - **Links** are to issues and to pull requests. A map sets the status of
   an issue only: for a tracked pull request the move is skipped (`failed`).
 - **Where keys** are the pack's `hook.keys`: besides the common ones,
-  `event`, `number`, `state`,
+  `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
   `base`, `train`, `sender`, `association`. `association` is GitHub's
   `author_association` in lowercase: what the author of the issue or pull
@@ -1539,9 +1539,14 @@ The same steps as Linear, with these differences:
   tracks its thread (an issue or a pull request, `yardr link`), else the
   train of its branch (`train`: the head branch is `yard/<train>`). The
   line an event matches reports an outcome for the bead, which its flow
-  routes. An event whose actor is a crew member's github identity (the
-  App's `<slug>[bot]`) says nothing: a label or comment the yard set never
-  moves the yard. yardr holds no rule of its own for them ([links.md](links.md#the-sources-events-move-the-bead),
+  routes. A line may name the bead's type with `type`, so one table serves
+  trains and tracked beads: `event=pull_request action=closed merged=false
+  type=train -> question` asks a person about the train while `type=pr ->
+  dropped` drops the pr bead for the same event. The event's own type is
+  named with `event` there. An event whose actor is a crew member's github
+  identity (the App's `<slug>[bot]`) says nothing: a label or comment the
+  yard set never moves the yard. yardr holds no rule of its own for them
+  ([links.md](links.md#the-sources-events-move-the-bead),
   [line.md](line.md#trains)).
 - **Events make beads.** An event about a thread no open bead tracks is
   put to the hook's other table, of what its events make (`yardr hook add
@@ -1553,7 +1558,9 @@ The same steps as Linear, with these differences:
   title, the event's text and url as its body and a `tracks` link to the
   thread, as `hook:<name>`; the bead has its `created` event and a
   `hook_rule` event with the line under `makes`. The where keys are the
-  ones above, `association` among them, without `stage`. The depot is the
+  ones above, `association` among them, without `stage` and without `type`,
+  which the line's bead already says; the event's own type is named with
+  `event` there, as in a `says` line. The depot is the
   line's, else the one depot whose `origin` remote is the event's `repo`
   (read at each event); with none, or several, nothing is made and a
   `hook_rule` event on no bead says why under `ignored`. One thread makes one bead: a delivery that

@@ -20,7 +20,7 @@ func TestHookSaidIsTheFirstLineThatMatches(t *testing.T) {
 		"event=pull_request action=closed merged=true -> merged: PR merged",
 		"event=pull_request action=closed -> question",
 		"event=workflow_run event=check_suite conclusion=failure conclusion=timed_out stage=review -> changes",
-		"type=ci stage=in-pr stage=land -> done",
+		"event=ci stage=in-pr stage=land -> done",
 	} {
 		s, err := store.ParseSay(l)
 		if err != nil {
@@ -47,15 +47,72 @@ func TestHookSaidIsTheFirstLineThatMatches(t *testing.T) {
 		{"no fields", map[string]any{"type": "push"}, "review", ""},
 	} {
 		got := ""
-		if line := h.Said(c.data, c.stage); line != nil {
+		if line := h.Said(c.data, c.stage, "task"); line != nil {
 			got = line.Outcome
 		}
 		if got != c.want {
 			t.Errorf("%s: outcome %q, want %q", c.name, got, c.want)
 		}
 	}
-	if (store.Hook{}).Said(env("pull_request", "closed", nil), "open") != nil {
+	if (store.Hook{}).Said(env("pull_request", "closed", nil), "open", "task") != nil {
 		t.Error("a hook without a table said something")
+	}
+}
+
+// A line with type matches only beads of that type: one table serves a
+// train and a pr bead with different outcomes for the same event. The
+// event's own type is named with event.
+func TestHookSaidFiltersOnBeadType(t *testing.T) {
+	var says []store.Say
+	for _, l := range []string{
+		"event=pull_request action=closed merged=false type=train -> question",
+		"event=pull_request action=closed merged=false type=pr -> dropped",
+		"event=pull_request action=closed merged=false -> ignored",
+	} {
+		s, err := store.ParseSay(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		says = append(says, s)
+	}
+	h := store.Hook{Name: "gh", Source: "github", Says: says}
+	data := map[string]any{"source": "github", "type": "pull_request", "action": "closed",
+		"fields": map[string]any{"event": []any{"pull_request"}, "action": []any{"closed"}, "merged": []any{"false"}}}
+	for _, c := range []struct {
+		beadType, want string
+	}{
+		{"train", "question"},
+		{"pr", "dropped"},
+		{"task", "ignored"},
+	} {
+		got := ""
+		if line := h.Said(data, "open", c.beadType); line != nil {
+			got = line.Outcome
+		}
+		if got != c.want {
+			t.Errorf("bead type %s: outcome %q, want %q", c.beadType, got, c.want)
+		}
+	}
+	// A line with several types holds for any of them.
+	s, err := store.ParseSay("event=pull_request type=train type=pr -> moved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h = store.Hook{Name: "gh", Source: "github", Says: []store.Say{s}}
+	for _, c := range []struct {
+		beadType, want string
+	}{
+		{"train", "moved"},
+		{"pr", "moved"},
+		{"task", ""},
+	} {
+		got := ""
+		if line := h.Said(data, "open", c.beadType); line != nil {
+			got = line.Outcome
+		}
+		if got != c.want {
+			t.Errorf("bead type %s: outcome %q, want %q", c.beadType, got, c.want)
+		}
 	}
 }
 
@@ -101,12 +158,13 @@ func TestPutHookChecksItsTable(t *testing.T) {
 		say    store.Say
 		want   string
 	}{
-		"no filter":                  {"github", store.Say{Outcome: "merged"}, "no filter"},
-		"a key of another source":    {"github", store.Say{Where: map[string]string{"kind": "held"}, Outcome: "merged"}, `cannot filter github on "kind"`},
-		"a github key on linear":     {"linear", store.Say{Where: map[string]string{"merged": "true"}, Outcome: "merged"}, `cannot filter linear on "merged"`},
-		"an empty value":             {"github", store.Say{Where: map[string]string{"event": ""}, Outcome: "merged"}, "empty value for event"},
-		"no outcome":                 {"github", store.Say{Where: map[string]string{"event": "push"}}, `outcome ""`},
-		"an outcome that is no name": {"github", store.Say{Where: map[string]string{"event": "push"}, Outcome: "all done"}, `outcome "all done"`},
+		"no filter":                   {"github", store.Say{Outcome: "merged"}, "no filter"},
+		"a key of another source":     {"github", store.Say{Where: map[string]string{"kind": "held"}, Outcome: "merged"}, `cannot filter github on "kind"`},
+		"a github key on linear":      {"linear", store.Say{Where: map[string]string{"merged": "true"}, Outcome: "merged"}, `cannot filter linear on "merged"`},
+		"an empty value":              {"github", store.Say{Where: map[string]string{"event": ""}, Outcome: "merged"}, "empty value for event"},
+		"a bead type that is no name": {"github", store.Say{Where: map[string]string{"event": "push", "type": "My Type"}, Outcome: "merged"}, `bead type "My Type"`},
+		"no outcome":                  {"github", store.Say{Where: map[string]string{"event": "push"}}, `outcome ""`},
+		"an outcome that is no name":  {"github", store.Say{Where: map[string]string{"event": "push"}, Outcome: "all done"}, `outcome "all done"`},
 	} {
 		if err := put(c.source, c.say); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", name, err, c.want)
@@ -117,7 +175,7 @@ func TestPutHookChecksItsTable(t *testing.T) {
 	}
 	lines := []store.Say{
 		{Where: map[string]string{"event": "pull_request", "stage": "approved"}, Outcome: "done", Note: "PR merged"},
-		{Where: map[string]string{"type": "deploy"}, Outcome: "changes"},
+		{Where: map[string]string{"event": "deploy"}, Outcome: "changes"},
 	}
 	if err := put("github", lines...); err != nil {
 		t.Fatal(err)
@@ -142,7 +200,7 @@ func TestPutHookChecksItsTable(t *testing.T) {
 	}
 	// The order is part of the table: the same lines turned round are another.
 	turned := []store.Say{lines[1], lines[0]}
-	if store.SameSays(lines, turned) || !slices.Equal(store.SayLines(turned), []string{"type=deploy -> changes", "event=pull_request stage=approved -> done: PR merged"}) {
+	if store.SameSays(lines, turned) || !slices.Equal(store.SayLines(turned), []string{"event=deploy -> changes", "event=pull_request stage=approved -> done: PR merged"}) {
 		t.Fatalf("turned = %v", store.SayLines(turned))
 	}
 }

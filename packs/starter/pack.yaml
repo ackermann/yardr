@@ -101,9 +101,10 @@ crew:
 #   says:   lines, the first an event matches counts
 #     where:    the events the line is for, as a subscription's --where:
 #               key=value words that must all hold, a key given twice
-#               holding either value. The keys are the source's, and stage:
-#               the stage the train is in, for a line that holds in some
-#               stages only
+#               holding either value. The keys are the source's, and stage
+#               and type: the stage the bead is in and its type, for a line
+#               that holds in some stages or for some types only. The
+#               event's own type is named with event there
 #     outcome:  what such an event reports. A stage with no edge for it
 #               refuses, and the train's events show the refusal
 #     note:     optional, the words the move's note begins with

@@ -208,11 +208,12 @@ yardr events --bead yardr-sv6b   # hook_rule: the move, or why there was none
 **The line.** `--says "<key>=<value> ... -> <outcome>[: <note>]"`,
 repeatable. The words before the arrow are a subscription's `--where`
 ([subscriptions.md](subscriptions.md)): every one must hold, and a key given
-twice holds either value. The keys are the source's own, and one more,
-`stage`: the stage the bead is in when the event is judged, for a line that
-holds in some stages only. The first line an event matches is the one that
-counts, so the order is part of the table. The note begins the note the
-move adds; the event's own text, its URL and who acted follow.
+twice holds either value. The keys are the source's own, and two more,
+`stage` and `type`: the stage the bead is in when the event is judged and its
+type, for a line that holds in some stages or for some types only. The
+event's own type is named with `event` there. The first line an event matches
+is the one that counts, so the order is part of the table. The note begins
+the note the move adds; the event's own text, its URL and who acted follow.
 
 **The bead** an event is about is the open bead that tracks its thread:
 the one with a `tracks` link to the issue or pull request, of any type,

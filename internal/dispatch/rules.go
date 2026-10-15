@@ -319,7 +319,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ruleEvent, pass *hookPass
 	if tracked && len(h.Says) == 0 && !ownAction {
 		return
 	}
-	line := h.Said(ev.data, bead.Stage)
+	line := h.Said(ev.data, bead.Stage, bead.Type)
 	head := ev.tellsHead
 	// An event the table has no line for moves nothing and logs nothing.
 	// It is still judged when it tells the pull request's head or that CI

@@ -270,3 +270,32 @@ func TestSaysFiltersOnAssociation(t *testing.T) {
 		t.Fatalf("yard-t in %s after a member's issue was labeled, want backlog", st)
 	}
 }
+
+// type is a key a says line may filter on: the bead's type, so one table
+// serves a train and a pr bead with different outcomes for the same event.
+// A closed-unmerged pull request asks a person about the train and drops
+// the pr bead.
+func TestSaysFiltersOnBeadType(t *testing.T) {
+	r := newTrackingDepot(t,
+		"event=pull_request action=closed merged=false type=train -> question",
+		"event=pull_request action=closed merged=false type=pr -> dropped",
+	)
+	r.train(t, "yard-a", "in-pr")
+	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: "yard-p", Title: "yard-p",
+		Type: "pr", Depot: "yard", Stage: "triage",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: "https://github.com/acme/yardr/pull/18"}}}, "me")
+	must(t, err)
+	r.deliver(t, "pull_request", "pull_request_closed_unmerged", "yard-a", "")
+	r.deliverEdited(t, "pull_request", "pull_request_closed_unmerged", "yard-a", "", func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(s, "/pull/17", "/pull/18"), `"number": 17`, `"number": 18`)
+	})
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "decide" {
+		t.Fatalf("yard-a in %s after its PR closed unmerged, want decide", st)
+	}
+	if st := r.stageOf(t, "yard-p"); st != "closed" {
+		t.Fatalf("yard-p in %s after its PR closed unmerged, want closed", st)
+	}
+	wantRules(t, r.rules(t, "yard-a"), "question in-pr -> decide")
+	wantRules(t, r.rules(t, "yard-p"), "dropped triage -> closed")
+}

@@ -68,6 +68,7 @@ func TestPutHookChecksWhatItMakes(t *testing.T) {
 		"no filter":               {"github", store.Make{Type: "issue", Stage: "triage"}, "no filter"},
 		"a key of another source": {"linear", store.Make{Where: map[string]string{"merged": "true"}, Type: "issue", Stage: "triage"}, `cannot filter linear on "merged"`},
 		"the bead's stage":        {"github", store.Make{Where: map[string]string{"stage": "new"}, Type: "issue", Stage: "triage"}, `cannot filter github on "stage"`},
+		"the bead's type":         {"github", store.Make{Where: map[string]string{"event": "issues", "type": "issue"}, Type: "issue", Stage: "triage"}, "redundant with the bead the line makes"},
 		"an empty value":          {"github", store.Make{Where: map[string]string{"event": ""}, Type: "issue", Stage: "triage"}, "empty value for event"},
 		"no type":                 {"github", store.Make{Where: opened, Stage: "triage"}, `bead type ""`},
 		"a type with no flow":     {"github", store.Make{Where: opened, Type: store.TypeMemory, Stage: "memory"}, "follows no flow"},

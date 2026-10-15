@@ -1107,7 +1107,9 @@ func (r *reader) makes(k entry, source string, p *Pack, builtin bool) []store.Ma
 // flows, nil when one could: some flow has the outcome in the stage the
 // line names (each of them, for a line that names several, which may be
 // stages of different flows), or in any stage for a line that names none.
-// The error names every flow and what it lacks for the stage.
+// A line with type is held to the flows beads of that type follow alone;
+// one with several types to each of them. The error names every flow and
+// what it lacks for the stage.
 func unrouted(say store.Say, flows []Flow) error {
 	// The line, once for each stage it names; as it is when it names none.
 	lines := []store.Say{say}
@@ -1119,18 +1121,33 @@ func unrouted(say store.Say, flows []Flow) error {
 			lines = append(lines, one)
 		}
 	}
+	// A line with type holds for those types alone, so each of them must
+	// have a flow that routes the outcome; without one every flow is asked.
+	types := []string{""}
+	if named, ok := say.Where[store.SayType]; ok {
+		types = store.WhereValues(named)
+	}
 	for _, line := range lines {
-		var why []string
-		for _, f := range flows {
-			err := line.Unrouted(stageOutcomes(f))
-			if err == nil {
-				why = nil
-				break
+		for _, typ := range types {
+			check := flows
+			if typ != "" {
+				check = flowsFor(flows, typ)
+				if len(check) == 0 {
+					return fmt.Errorf("no flow of this pack is for beads of type %s", typ)
+				}
 			}
-			why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
-		}
-		if why != nil {
-			return errors.New(strings.Join(why, "; "))
+			var why []string
+			for _, f := range check {
+				err := line.Unrouted(stageOutcomes(f))
+				if err == nil {
+					why = nil
+					break
+				}
+				why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
+			}
+			if why != nil {
+				return errors.New(strings.Join(why, "; "))
+			}
 		}
 	}
 	return nil

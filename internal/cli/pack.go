@@ -780,6 +780,11 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if edited := plan.EditedFiles(); len(edited) > 0 && !f.yes {
 		return nil, fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
 	}
+	// A hook's lines another pack or the operator set are not dropped on
+	// a confirmation alone either: they are lost for good.
+	if drops := plan.DroppedHookLines(); len(drops) > 0 && !f.yes {
+		return nil, fmt.Errorf("nothing was changed: %s; --yes drops them", strings.Join(drops, "; "))
+	}
 	// Without a terminal nothing is missing here: that failed above,
 	// before the plan. In a terminal what is still open is asked.
 	if missing := plan.Missing(answers); len(missing) > 0 {
@@ -1405,6 +1410,21 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			}
 		}
 	}
+	for _, m := range plan.Maps {
+		if len(m.Drops) == 0 {
+			continue
+		}
+		if !slices.ContainsFunc(res.Mapped, func(mapped pack.MapOp) bool { return mapped.Hook == m.Hook }) {
+			continue
+		}
+		for _, d := range m.Drops {
+			owner := d.Owner
+			if owner == "the operator's" {
+				owner += " (set by hand with yardr hook add)"
+			}
+			fmt.Printf("note: --yes dropped hook %s's %s line %q (%s): the pack does not give it\n", m.Hook, d.Table, d.Line, owner)
+		}
+	}
 	// What the import did not do for a stage map, each with who does it and
 	// how: it makes no hook, gives no identity and grants no set_state. A
 	// source the yard has nothing of is not said again: the plan said it
@@ -1784,6 +1804,13 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			fmt.Printf("  hook %s has it\n", m.Hook)
 		default:
 			fmt.Println("  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
+		}
+		for _, d := range m.Drops {
+			owner := d.Owner
+			if owner == "the operator's" {
+				owner += " (set by hand with yardr hook add)"
+			}
+			fmt.Printf("  would drop the hook's %s line %q (%s): the pack does not give it; --yes drops it\n", d.Table, d.Line, owner)
 		}
 		for _, n := range m.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)

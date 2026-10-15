@@ -421,6 +421,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	}
 	if !o.Overwrite {
 		problems = append(problems, p.EditedFiles()...)
+		problems = append(problems, p.DroppedHookLines()...)
 	}
 	// An answer is to a question of the plan: a source the yard lacks, or
 	// one the pack does not name, is granted to nobody.

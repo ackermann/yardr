@@ -84,8 +84,10 @@ const (
 // fields, then source fields its hook.keys may expose. Exact matches only,
 // ANDed; a key with several values (WhereValues) matches any of them. The
 // yardr source has its own (YardrWhereKeys), as the peer source has
-// (PeerWhereKeys).
-var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
+// (PeerWhereKeys). event is the envelope's type, as type is: a hook's says
+// table filters the bead's type on type, so the event's type is named with
+// event there.
+var WhereKeys = []string{"type", "action", "team", "project", "repo", "label", "event"}
 
 // extraWhereKeys are the keys a hook source adds to WhereKeys: the fields
 // its adapter exposes, registered by internal/hooks at init. The store
@@ -879,6 +881,9 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (deliveries, notified map[
 // hookFields are a hook envelope as match reads it: the fields its
 // source's adapter set, each a set of values, and the envelope's own type
 // and action as two more, which a field of the same name does not replace.
+// event is the envelope's type too, for the sources whose fields carry no
+// event of their own: a says line names the bead's type with type, so the
+// event's type is named with event there.
 func hookFields(data map[string]any) map[string][]string {
 	out := map[string][]string{}
 	switch f := data["fields"].(type) {
@@ -892,6 +897,9 @@ func hookFields(data map[string]any) map[string][]string {
 	for _, k := range []string{"type", "action"} {
 		s, _ := data[k].(string)
 		out[k] = []string{s}
+	}
+	if len(out["event"]) == 0 {
+		out["event"] = out["type"]
 	}
 	return out
 }
