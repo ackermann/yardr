@@ -119,8 +119,10 @@ type BlobFile struct {
 const MaxBlobName = 255
 
 // CheckBlobName holds a file's name to what a letter may carry: at most
-// MaxBlobName bytes, valid UTF-8, no "/", "\", NUL or control character,
-// and neither "." nor "..". Empty is allowed, for a paste. Mail, MailPeer
+// MaxBlobName bytes, valid UTF-8, no "/", "\", NUL or control character
+// (bidi controls and the line and paragraph separators among them, which
+// would turn "exe.pdf" around where the name is drawn), and neither "."
+// nor "..". Empty is allowed, for a paste. Mail, MailPeer
 // and notes refuse a name that fails, never sanitised; a name arriving
 // from a peer is kept empty instead (filing.mailFiles); the view holds a
 // name in a blob URL to the same rule.
@@ -138,7 +140,7 @@ func CheckBlobName(name string) error {
 		return fmt.Errorf("a file's name is UTF-8: %q", name)
 	}
 	for _, r := range name {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || r == '\u2028' || r == '\u2029' {
 			return fmt.Errorf("a file's name holds no control character: %q", name)
 		}
 	}
@@ -167,6 +169,8 @@ func (s *Store) BlobPath(hash string) string { return BlobPath(s.home, hash) }
 //
 // The marked line stays the only line that names a file the yard keeps:
 // the name in parentheses is for the reader, never a path the yard reads.
+// A name that holds a parenthesis or a quote is quoted inside them, so
+// what a sender names a file never closes them and reads as another path.
 func FilesLine(home string, files []BlobRef) string {
 	if len(files) == 0 {
 		return ""
@@ -179,6 +183,9 @@ func FilesLine(home string, files []BlobRef) string {
 			paths[i], between = "not taken: "+f.NotTaken, "; "
 		}
 		if name := Letters(f.Name); name != "" {
+			if strings.ContainsAny(name, `()"`) {
+				name = strconv.Quote(name)
+			}
 			paths[i] += " (" + name + ")"
 		}
 	}

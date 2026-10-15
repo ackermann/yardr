@@ -143,8 +143,12 @@ What kind a file is is read from its bytes: a PNG or a JPEG is an image,
 HTML a page, anything else a file. A file carries a name, the path's base
 name, because its bytes say nothing a person can read; an image or a page
 carries one too, empty on a paste. A name is at most 255 bytes of UTF-8,
-with no `/`, `\` or control character, and neither `.` nor `..`: one that
-fails the rule refuses the mail, never sanitised. One over the yard's
+with no `/`, `\` or control character (a bidi control, which would turn
+`exe.pdf` around where the name is drawn, is one), and neither `.` nor
+`..`: one that fails the rule refuses the mail, never sanitised. Where
+the yard's marked line names a file, a name holding a parenthesis or a
+quote stands quoted in its parentheses, so it never reads as another
+path. One over the yard's
 limit, 8 MiB unless `yardr settings set blob_max_bytes <bytes>` says
 otherwise, is refused with nothing stored, and the mail is not sent.
 A name arriving from a linked yard that fails the rule is kept empty, the

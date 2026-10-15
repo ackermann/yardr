@@ -871,6 +871,10 @@ func TestFilesLine(t *testing.T) {
 		"1 image: /y/blobs/bb":                                                          store.WithFiles("", "/y", []store.BlobRef{b}),
 		"hello  1 page: /y/blobs/cc":                                                    store.WithFiles("hello", "/y", []store.BlobRef{p}),
 		"hello  1 file: /y/blobs/ee (report.pdf)":                                       store.WithFiles("hello", "/y", []store.BlobRef{f}),
+		// A name never closes its parentheses to read as another path.
+		`1 file: /y/blobs/ee ("a.pdf) /etc/passwd (b")`: store.FilesLine("/y", []store.BlobRef{{Hash: "ee", Name: "a.pdf) /etc/passwd (b"}}),
+		`1 file: /y/blobs/ee ("report (final).pdf")`:    store.FilesLine("/y", []store.BlobRef{{Hash: "ee", Name: "report (final).pdf"}}),
+		`1 file: /y/blobs/ee ("\") /etc/passwd (\"")`:   store.FilesLine("/y", []store.BlobRef{{Hash: "ee", Name: `") /etc/passwd ("`}}),
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -925,6 +929,7 @@ func TestMailAndNoteRefuseBadNames(t *testing.T) {
 	bad := []string{
 		"a/b.pdf", `a\b.pdf`, "a\x00b.pdf", "a\nb.pdf", "a\rb.pdf",
 		"a\tb.pdf", ".", "..", strings.Repeat("a", 256), "a\xffb.pdf",
+		"report\u202efdp.exe", "a\u2066b.pdf", "a\u200fb.pdf", "a\u2028b.pdf", "a\u2029b.pdf",
 	}
 	for _, name := range bad {
 		if err := api.Mail(ctx, "ada", "look", "jo", store.BlobFile{Hash: pdf.Hash, Name: name}); err == nil ||

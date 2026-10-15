@@ -1201,7 +1201,7 @@ Nothing waits for a file that did not come, and none is asked for later. In
 `hash`, `type`, `bytes` and `name`.
 
 A received name is a stranger's word: one no letter may carry — with a
-`/`, a control character, as `.` or `..`, over 255 bytes or no UTF-8 — is
+`/`, a control character or a bidi control, as `.` or `..`, over 255 bytes or no UTF-8 — is
 kept empty, the file still taken. The mail arrives, and its line names no
 name.
 
