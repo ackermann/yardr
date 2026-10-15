@@ -144,6 +144,14 @@ to it, and that event carries the end of the pane as `tail` too (its last
 question the agent waits on is in `yardr inbox`, with no `herdr agent read`
 to get it.
 
+At startup, yardr answers only a folder-trust dialog named by the agent's
+harness, while the first prompt is still pending and no delivery was taken.
+A prompt seen in the pane or a working status closes that guard. Crew
+sessions also read their `crew_status` history since the current
+`crew_started`, so a daemon restart cannot reopen trust after the session
+was seen working. An unknown dialog stays for a person and is reported as
+`crew_blocked` (yardr-v3mp, yardr-9a82, yardr-q7rd).
+
 The builder implements the change, commits on its branch (never pushes or
 merges), runs the depot's test command on the last commit (`sh .yardr/test`
 in its worktree, which its brief prints as `test:`: `gofmt`, `go vet`,

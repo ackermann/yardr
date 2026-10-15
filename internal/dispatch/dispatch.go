@@ -308,6 +308,10 @@ type Dispatcher struct {
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
+	// crewWorkHistory caches whether the current crew session has ever been
+	// seen working. A missing entry is reconstructed from crew_status events
+	// before startup trust can be answered, so daemon restarts keep the guard.
+	crewWorkHistory map[string]bool
 	// paused is group -> model -> the live session that stalled with it, or
 	// waits with it for a usage limit's window, as of this pass: route starts
 	// no further session with that model (see holdBack).
@@ -461,6 +465,9 @@ func (d *Dispatcher) defaults() {
 		d.logins = map[string]string{}
 		d.nudged = map[string]ownNudge{}
 		d.unsent = map[string]*unsent{}
+	}
+	if d.crewWorkHistory == nil {
+		d.crewWorkHistory = map[string]bool{}
 	}
 }
 
@@ -929,7 +936,7 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session, cfg 
 		// Looked at on every pass, not only of an idle agent: one that took
 		// the prompt late is working on it, and by the time it is idle again
 		// the prompt may have left what the runner reads of its pane.
-		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status, cfg)
+		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status, cfg, true)
 		if pass.handle != nil {
 			if err := d.Store.SetHandle(ctx, s.ID, pass.handle); err != nil {
 				return true, err

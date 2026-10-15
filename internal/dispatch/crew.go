@@ -327,6 +327,7 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	delete(d.logins, key)
 	delete(d.nudged, key)
 	delete(d.unsent, key)
+	delete(d.crewWorkHistory, key)
 	if err := d.Store.CrewStartedFor(ctx, def.Name, s.user, handle); err != nil {
 		return err
 	}
@@ -378,12 +379,64 @@ func (d *Dispatcher) crewSeen(ctx context.Context, s *memberSession, status stri
 	default:
 		status = "unknown"
 	}
+	if status == "working" {
+		d.crewWorkHistory[s.key()] = true
+	}
 	if status == s.st.Status {
 		return
 	}
 	if err := d.Store.CrewStatusFor(ctx, s.member.Name, s.user, status); err != nil {
 		d.Log.Warn("crew member status", "crew", s.member.Name, "session", s.label(), "err", err)
 	}
+}
+
+// crewWorked reports whether the current crew session has ever been seen
+// working. crew_status events are global, so the latest matching
+// crew_started event in the member's journal bounds the session's history.
+// The result is cached for this dispatcher; a new dispatcher reconstructs it
+// from the same store before answering a startup trust dialog.
+func (d *Dispatcher) crewWorked(ctx context.Context, s memberSession) (bool, error) {
+	key := s.key()
+	if worked, known := d.crewWorkHistory[key]; known {
+		return worked, nil
+	}
+	const allEvents = int(^uint(0) >> 1)
+	starts, err := d.Store.Events(ctx, s.member.Journal, allEvents)
+	if err != nil {
+		return false, err
+	}
+	var start uint64
+	for _, event := range starts {
+		if event.Kind == "crew_started" && crewSessionEvent(event, s.member.Name, s.user) {
+			start = event.Seq
+		}
+	}
+	if start == 0 {
+		// Without the current start event there is no proof that the session
+		// has never worked. Keep the trust guard closed.
+		d.crewWorkHistory[key] = true
+		return true, nil
+	}
+	events, err := d.Store.EventsSince(ctx, start, 0)
+	if err != nil {
+		return false, err
+	}
+	for _, event := range events {
+		if event.Kind == "crew_status" && event.Data["status"] == "working" && crewSessionEvent(event, s.member.Name, s.user) {
+			d.crewWorkHistory[key] = true
+			return true, nil
+		}
+	}
+	d.crewWorkHistory[key] = false
+	return false, nil
+}
+
+func crewSessionEvent(event store.Event, name, user string) bool {
+	if event.Data["crew"] != name {
+		return false
+	}
+	eventUser, _ := event.Data["user"].(string)
+	return eventUser == user
 }
 
 // crewStartFailed counts a start that did not happen, or whose session
@@ -432,7 +485,17 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		}
 	}
 	if p, ok := s.st.Handle[store.PendingPrompt].(string); ok {
-		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status, def.Config)
+		trustAllowed := true
+		if _, canAnswer := runner.(TrustAcceptor); canAnswer && status != "working" && !idle {
+			worked, err := d.crewWorked(ctx, *s)
+			if err != nil {
+				trustAllowed = false
+				d.Log.Error("crew status history", "crew", def.Name, "session", s.label(), "err", err)
+			} else {
+				trustAllowed = !worked
+			}
+		}
+		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status, def.Config, trustAllowed)
 		if pass.handle != nil {
 			if err := d.Store.SetCrewHandleFor(ctx, def.Name, s.user, pass.handle); err != nil {
 				return err

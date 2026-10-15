@@ -635,8 +635,9 @@ type promptPass struct {
 // the pane, or the agent was seen working after a send.
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
-// yardr looked.
-func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string, cfg map[string]any) promptPass {
+// yardr looked. For a crew session, its crew_status history also keeps this
+// guard closed after a daemon restart once the session was seen working.
+func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string, cfg map[string]any, trustAllowed bool) promptPass {
 	pass := promptPass{sends: handleInt(handle[promptSends]), submits: handleInt(handle[promptSubmits])}
 	// Login can look idle, blocked, or like a harness still starting. Read
 	// it before trusting the runtime status or the input marker.
@@ -689,7 +690,7 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// counts no delivery only when a readable pane has no prompt
 			// echo (see above); an echo or an uncertain look keeps this
 			// answer closed.
-			if ta, ok := r.(TrustAcceptor); ok && !sent && ta.AcceptTrust(ctx, handle, cfg) {
+			if ta, ok := r.(TrustAcceptor); ok && trustAllowed && !sent && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
 			}
 		}

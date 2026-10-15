@@ -644,6 +644,89 @@ func TestCrewOtherDialogStillWaitsForAHuman(t *testing.T) {
 	}
 }
 
+func TestCrewTrustDialogAnsweredAfterBlockedDeliveryAndRestart(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		name := "same dispatcher"
+		if restart {
+			name = "fresh dispatcher"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			f.sent = true
+			must(t, d.Reconcile(ctx)) // start with the first prompt pending
+			f.atDialog = true
+			f.set("yardmaster-1", "idle")
+			must(t, d.Reconcile(ctx)) // herdr reports the delivery blocked, no echo
+			if f.trustCalls != 0 {
+				t.Fatalf("answered before the blocked delivery was observed: calls=%d keys=%v", f.trustCalls, f.trustKeys)
+			}
+			f.screen = fakeTrustDialog
+			f.set("yardmaster-1", "blocked")
+			if restart {
+				d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+			}
+			must(t, d.Reconcile(ctx)) // first pass at the trust dialog
+			if f.trustCalls != 1 || !slices.Equal(f.trustKeys, []string{"enter"}) {
+				t.Fatalf("trust calls=%d keys=%v, want one answer", f.trustCalls, f.trustKeys)
+			}
+
+			// Once the dialog is answered, the first prompt follows the usual path.
+			f.atDialog, f.screen = false, ""
+			f.set("yardmaster-1", "idle")
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			member, _ := s.GetCrew(ctx, "yardmaster")
+			if len(f.nudges) != 1 || member.Handle[store.PendingPrompt] != nil {
+				t.Fatalf("nudges=%v handle=%v, want the first prompt delivered", f.nudges, member.Handle)
+			}
+			events, err := s.Events(ctx, member.Journal, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range events {
+				if event.Kind == "crew_blocked" {
+					t.Fatalf("crew_blocked logged despite answering the startup dialog: %+v", event)
+				}
+			}
+		})
+	}
+}
+
+func TestCrewTrustDialogStaysClosedAfterWorkingAcrossRestart(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // start with the first prompt pending
+	if err := s.CrewStatus(ctx, "yardmaster", "working"); err != nil {
+		t.Fatal(err)
+	}
+	f.atDialog = true
+	f.screen = fakeTrustDialog
+	f.set("yardmaster-1", "blocked")
+	// The new dispatcher must consult the persisted crew_status event even
+	// though the current runner status is blocked at a startup dialog.
+	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+	must(t, d.Reconcile(ctx))
+	if f.trustCalls != 0 || len(f.trustKeys) != 0 {
+		t.Fatalf("trust dialog answered after working status: calls=%d keys=%v", f.trustCalls, f.trustKeys)
+	}
+	member, _ := s.GetCrew(ctx, "yardmaster")
+	events, err := s.Events(ctx, member.Journal, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := 0
+	for _, event := range events {
+		if event.Kind == "crew_blocked" {
+			blocked++
+		}
+	}
+	if blocked != 1 {
+		t.Fatalf("crew_blocked events=%d, want one after refusing an already-worked session", blocked)
+	}
+}
+
 // Found live (yardr-ykbt): a first prompt that was sent and did not show in
 // the pane is left pending. An agent that took it after the runner stopped
 // looking is working on it: it does not get it a second time, and it is not
