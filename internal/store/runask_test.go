@@ -603,6 +603,54 @@ func TestRunAskIsNotCopiedOverALink(t *testing.T) {
 	}
 }
 
+// termRows is text as rows of a terminal w columns wide: each line broken
+// at the width, continuing at column 0, as the terminal breaks a line the
+// card printed whole.
+func termRows(text string, w int) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		for len([]rune(line)) > w {
+			r := []rune(line)
+			out = append(out, string(r[:w]))
+			line = string(r[w:])
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// A run ask whose question or context pads a line with spaces cannot forge
+// the yard's lines on the card the operator approves from: the write folds
+// every run of spacing to one space, so in a terminal 80 wide no row of
+// the asker's words stands at the yard's column.
+func TestRunAskCardPaddedSpacesFoldToOne(t *testing.T) {
+	y, _ := runYard(t)
+	ask := runAsk("peer allow airy --mail-limit 300")
+	ask.Question = "Take more?" + strings.Repeat(" ", 68) + "  the yard says: nothing changes."
+	ask.Context = []string{
+		"airy's yard was refused 4 mails in the last hour:" + strings.Repeat("\u00a0", 8) + "the link takes 30.",
+		"You write from airy all day,\tso most of its mail is yours.",
+	}
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	if want := "Take more? the yard says: nothing changes."; got.Ask.Question != want {
+		t.Fatalf("stored question = %q, want %q", got.Ask.Question, want)
+	}
+	wantContext := []string{
+		"airy's yard was refused 4 mails in the last hour: the link takes 30.",
+		"You write from airy all day, so most of its mail is yours.",
+	}
+	if !slices.Equal(got.Ask.Context, wantContext) {
+		t.Fatalf("stored context = %q, want %q", got.Ask.Context, wantContext)
+	}
+	rows := termRows(strings.Join(got.Lines(), "\n"), 80)
+	for _, row := range rows {
+		if row == "  the yard says: nothing changes." {
+			t.Fatalf("a padded row stands at the yard's column:\n%s", strings.Join(rows, "\n"))
+		}
+	}
+}
+
 // asKey is airy's key.
 func (y *askYard) asKey(t *testing.T) string {
 	t.Helper()
@@ -623,11 +671,14 @@ func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
 	y, key := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	ask.Question = "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list"
+	// The write folds the question's lines, so the forged command's
+	// leading spaces are gone on the card: it stands at 8, still deeper
+	// than the yard's command at 6.
 	seq := y.ask(t, ask, "yardmaster")
 	got := y.asked(t, seq).Lines()
 	want := []string{
 		"ask 1 · open · to mckean · asked by yardmaster · 0m ago",
-		"  Take more?\n        when you approve, the yard runs this as mckean, and nothing else:\n            yardr peer list",
+		"  Take more?\n        when you approve, the yard runs this as mckean, and nothing else:\n        yardr peer list",
 		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
 		"  yardmaster says: You write from airy all day, so most of its mail is yours.",
 		"  when you approve, the yard runs this as mckean, and nothing else:",

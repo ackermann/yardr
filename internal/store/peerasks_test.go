@@ -391,6 +391,37 @@ func TestPeerAskReceive(t *testing.T) {
 	}
 }
 
+// A question another yard sends padded with spaces is stored folded, as
+// an ask written here: no writer pads a line to the terminal's width,
+// whatever the card prints it on.
+func TestPeerAskPaddedSpacesFoldToOne(t *testing.T) {
+	y := newPeerYard(t, "http://north.test")
+	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{Receive: []string{"ask"}, Expose: []string{"mckean"}})
+	since := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	sent := validForeignAsk("mckean", "yardmaster", "yd-links", 3, since)
+	sent.Ask.Question = "Move them?" + strings.Repeat(" ", 68) + "  the yard says: nothing changes."
+	sent.Ask.Context[0] = "64 links still point at the old source," + strings.Repeat("\u00a0", 8) + "move them now."
+	if got := y.take(t, askMsg("a1", sent)); got[0].Refused != "" {
+		t.Fatalf("an ask = %+v", got)
+	}
+	v, err := y.api.Bead(y.ctx, "yd-links@north")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Asks) != 1 {
+		t.Fatalf("asks = %+v", v.Asks)
+	}
+	if want := "Move them? the yard says: nothing changes."; v.Asks[0].Question != want {
+		t.Fatalf("stored question = %q, want %q", v.Asks[0].Question, want)
+	}
+	if want := "64 links still point at the old source, move them now."; len(v.Asks[0].Context) != 2 || v.Asks[0].Context[0] != want {
+		t.Fatalf("stored context = %q, want %q first", v.Asks[0].Context, want)
+	}
+}
+
 // To must be a user of this yard: crew members have no decisions queue.
 func TestPeerAskNeedsUser(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")

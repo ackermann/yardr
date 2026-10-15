@@ -406,6 +406,12 @@ func askBytes(a Ask) int {
 // the link, which the sender cannot choose. The yard that takes a question
 // into a person's queue tells them of it outside the yard (queueAskPush).
 func (w *wtx) deliverAsk(p *Peer, m PeerMessage, ask *peerAsk) error {
+	// As an ask written here: a run of spaces in a line would pad it to
+	// the terminal's width on the card, so another yard's words fold too.
+	ask.Ask.Question = foldQuestion(ask.Ask.Question)
+	for i, line := range ask.Ask.Context {
+		ask.Ask.Context[i] = foldSpaces(line)
+	}
 	rec := foreignAsk{
 		Message: m.ID, Key: p.Key, To: ask.To, From: ask.From,
 		Bead: ask.Bead, Title: ask.Title, Topic: ask.Topic, Stage: ask.Stage,

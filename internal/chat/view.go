@@ -313,7 +313,13 @@ func (m *Model) questions(w int) []string {
 		// An answer from another yard says whose word it is, as mail
 		// does; m.as is whom the links trust as a user of this yard.
 		for _, line := range m.secretCard(r, r.LinesMarked(m.as)) {
-			out = append(out, wrap(line, w, "")...)
+			// Each card line keeps its indent where it wraps, so a
+			// long line continues under its own start instead of at
+			// the pane's left edge.
+			for _, part := range strings.Split(line, "\n") {
+				lead := part[:len(part)-len(strings.TrimLeft(part, " "))]
+				out = append(out, wrap(strings.TrimLeft(part, " "), w, lead)...)
+			}
 		}
 	}
 	return out

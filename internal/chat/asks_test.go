@@ -159,6 +159,47 @@ func TestConversationShowsForgedQuestionDeeper(t *testing.T) {
 	}
 }
 
+// A card's long line continues under its own indent where it wraps, never
+// at the pane's left edge: the yard's block reads as one block.
+func TestConversationWrapsCardLinesUnderTheirIndent(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "the links"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := strings.TrimSpace(strings.Repeat("links ", 30))
+	if _, err := st.AddAsk(ctx, b.ID, store.Ask{
+		Question: "Move the links now?",
+		To:       me,
+		Context:  []string{long},
+		Options: []store.AskOption{
+			{Label: "Move them now", Consequence: "all 64 links move tonight"},
+			{Label: "After Friday", Consequence: "keep the old source"},
+		},
+	}, "chief"); err != nil {
+		t.Fatal(err)
+	}
+
+	v := withAsks(t, st, "chief", 120, 40)
+	var card []string
+	for _, row := range v.m.questions(v.m.bodyWidth()) {
+		if strings.HasPrefix(row, "ask ") || len(card) > 0 {
+			card = append(card, row)
+		}
+	}
+	// The head, the question, three rows of context, three options and
+	// the hint: the long line wrapped, so there is a continuation to pin.
+	if len(card) < 8 {
+		t.Fatalf("the long context line wrapped nowhere:\n%s", strings.Join(card, "\n"))
+	}
+	for _, row := range card[1:] {
+		if !strings.HasPrefix(row, " ") {
+			t.Fatalf("a card row starts at the pane's left edge: %q\n%s", row, strings.Join(card, "\n"))
+		}
+	}
+}
+
 // AsksFor reads the user's asks on the yard's open beads, oldest first;
 // a closed bead's asks are done with.
 func TestAsksFor(t *testing.T) {

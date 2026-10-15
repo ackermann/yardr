@@ -213,6 +213,25 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 	return seq, nil
 }
 
+// foldSpaces is a line with every run of spacing folded to one space, so
+// no writer pads a line to the terminal's width: where the terminal
+// breaks the card's line, the words after would continue at column 0, at
+// the column of the yard's own lines. Fields splits on unicode.IsSpace,
+// so the wide spaces fold too.
+func foldSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// foldQuestion is the question with each of its lines folded, keeping its
+// breaks: a question holds later lines, further in on the card.
+func foldQuestion(q string) string {
+	lines := strings.Split(q, "\n")
+	for i := range lines {
+		lines[i] = foldSpaces(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
 // newAsk checks ask as far as it can be checked outside a write and answers
 // what stores it on the bead id inside one (AddAsk, AskNew).
 func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string) (uint64, error), error) {
@@ -224,6 +243,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 	if ask.Question == "" {
 		return nil, fmt.Errorf("an ask needs a question")
 	}
+	ask.Question = foldQuestion(ask.Question)
 	ask.To = strings.TrimSpace(ask.To)
 	if ask.To == "" {
 		return nil, fmt.Errorf("an ask needs --to: who must answer")
@@ -237,7 +257,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line", i+1)
 		}
 		if line = strings.TrimSpace(line); line != "" {
-			context = append(context, line)
+			context = append(context, foldSpaces(line))
 		}
 	}
 	if len(context) == 0 {
