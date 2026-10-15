@@ -407,10 +407,16 @@ func (h *Harness) check() error {
 		}
 	}
 	if len(h.Offers) > 0 {
+		if len(h.Offers) < 2 || len(h.Offers) > 4 {
+			return fmt.Errorf("offers: %d entries, want 2 to 4", len(h.Offers))
+		}
 		marked := 0
 		for _, o := range h.Offers {
 			if o.Model == "" {
 				return fmt.Errorf("offers: one without a model id")
+			}
+			if o.Label == "" {
+				return fmt.Errorf("offers: one without a label")
 			}
 			if o.Recommended != "" {
 				marked++

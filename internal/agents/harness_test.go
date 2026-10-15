@@ -314,7 +314,7 @@ func TestOffers(t *testing.T) {
 	}
 	// A file with the list passes the check, and one without it does too.
 	hs, err := load(t, map[string]string{
-		"claude.yaml": "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b}]\n",
+		"claude.yaml": "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B}]\n",
 		"pi.yaml":     "version: 1\nlabel: pi\n",
 	})
 	if err != nil {
@@ -421,9 +421,12 @@ func TestLoadRefuses(t *testing.T) {
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
 		"model flag is not a flag": {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
-		"two recommended":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
-		"none recommended":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a}, {model: b}]\n", "offers: 0 recommended, want exactly one"},
-		"an offer without a model": {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: x, recommended: yardmaster}]\n", "offers: one without a model id"},
+		"two recommended":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
+		"none recommended":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A}, {model: b, label: B}]\n", "offers: 0 recommended, want exactly one"},
+		"an offer without a model": {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: A, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a model id"},
+		"an offer without a label": {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a label"},
+		"too few offers":           {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}]\n", "offers: 1 entries, want 2 to 4"},
+		"too many offers":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B}, {model: c, label: C}, {model: d, label: D}, {model: e, label: E}]\n", "offers: 5 entries, want 2 to 4"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)
