@@ -80,7 +80,8 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # contention (yardr-cecb). The lock is an flock on one file under the yard's
 # home, which every worktree's gate shares, so a gate that dies releases it;
 # never a file the gate removes again, which a dead gate leaves behind
-# blocking every landing. macOS has no flock binary; perl's flock is the
+# blocking every landing. The file is the yard's, 0600 in a 0700 home, as
+# its other files are. macOS has no flock binary; perl's flock is the
 # same call, and the perl execs the run, so the run itself holds the lock.
 # It waits without a limit, and says so, with the seconds, when it waited.
 # A run nested in another's race leg shares its hold instead of waiting on
@@ -88,13 +89,13 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # tests, which run this script, would wait on the run they are in.
 racelocked() {
   lock=$HOME/.yardr/race.lock
-  mkdir -p "$HOME/.yardr"
+  mkdir -p -m 700 "$HOME/.yardr"
   YARDR_RACE_HELD=1
   export YARDR_RACE_HELD
-  perl -e 'use Fcntl qw(:flock);
+  perl -e 'use Fcntl qw(:DEFAULT :flock);
 $^F = 100; # fds above $^F close on exec; keep the lock open across it
 $lock = shift;
-open(my $fh, ">>", $lock) or die "test: cannot open $lock: $!\n";
+sysopen(my $fh, $lock, O_WRONLY | O_APPEND | O_CREAT, 0600) or die "test: cannot open $lock: $!\n";
 $t = time;
 flock($fh, LOCK_EX) or die "test: cannot lock $lock: $!\n";
 $w = time - $t;

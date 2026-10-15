@@ -926,3 +926,61 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 		t.Errorf("left behind: %v", left)
 	}
 }
+
+// The race lock is a file of the yard's: a gate that makes the yard's home
+// and the lock in it makes them as the yard makes its own, the home 0700 and
+// the file 0600, whatever the umask.
+func TestYardTestRaceLockIsTheYards(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, fake, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	for name, text := range map[string]string{
+		"go":    "#!/bin/sh\n",
+		"gofmt": "#!/bin/sh\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmp := filepath.Join(fake, "tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A branch that changed go.mod: a plain run tests every package.
+	mod := filepath.Join(dir, "go.mod")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", "umask 022; "+string(script))
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+		"HOME="+home, "TMPDIR="+tmp)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("err %v, output:\n%s", err, out)
+	}
+	for path, want := range map[string]os.FileMode{
+		filepath.Join(home, ".yardr"):              0o700,
+		filepath.Join(home, ".yardr", "race.lock"): 0o600,
+	} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("%s is %o, want %o", path, got, want)
+		}
+	}
+}
