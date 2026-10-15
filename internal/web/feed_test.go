@@ -788,20 +788,23 @@ func TestSteadyClient(t *testing.T) {
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
-	// The deadline held generous for this test alone: a reader paced in
-	// tens of milliseconds must not meet the drop a client that takes
-	// nothing meets, however loaded the machine. The drop itself is
-	// TestSlowClient's, on the short deadline; the frame below still takes
-	// longer than one of these, so a stream that dropped a steady client
-	// would still fail this test.
-	srv.SetStreamWrite(3 * time.Second)
+	// The production deadline: a write that lapses it ends the stream
+	// either way (a timed-out response cannot be written to again), so
+	// what stands between a steady client and a loaded machine is the
+	// window alone. The drop itself is TestSlowClient's, on the short
+	// deadline; the frame below still takes longer than one of these,
+	// so a stream that dropped a steady client would still fail this
+	// test.
+	srv.SetStreamWrite(10 * time.Second)
 	ts := httptest.NewServer(srv)
 	defer shut(ts)
 
 	c, err := net.Dial("tcp", ts.Listener.Addr().String())
 	must(t, err)
 	defer c.Close()
-	must(t, c.SetDeadline(time.Now().Add(60*time.Second)))
+	// Bound, not pace: the frame below takes thirteen seconds
+	// unloaded, and a loaded machine stretches every paced sleep.
+	must(t, c.SetDeadline(time.Now().Add(180*time.Second)))
 	// HTTP/1.0: the frame comes as plain bytes, not in chunks.
 	_, err = fmt.Fprintf(c, "GET /events?format=json&after=0 HTTP/1.0\r\nHost: %s\r\n\r\n", ts.Listener.Addr())
 	must(t, err)
@@ -818,7 +821,7 @@ func TestSteadyClient(t *testing.T) {
 	// One frame, larger than any buffering: the buffers take megabytes
 	// at once, so only tens of megabytes keep a steady reader on one
 	// write past one deadline.
-	big := strings.Repeat("x", 24<<20)
+	big := strings.Repeat("x", 64<<20)
 	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"reason": big}))
 	var got []byte
 	// Whole when the frame's bytes are all here: the retry line comes
@@ -826,9 +829,10 @@ func TestSteadyClient(t *testing.T) {
 	whole := func() bool {
 		return len(got) >= len(big) && strings.HasSuffix(string(got[max(0, len(got)-2):]), "\n\n")
 	}
-	// A steady 256 KB every 50 ms: nearly five seconds for the frame,
-	// which one 3 s deadline could never cover, so only a stream that
-	// renews its deadline as the bytes flow serves it whole.
+	// A steady 256 KB every 50 ms: nearly thirteen seconds for the
+	// frame, which one 10 s deadline could never cover, so only a
+	// stream that renews its deadline as the bytes flow serves it
+	// whole.
 	pace := make([]byte, 256<<10)
 	for !whole() {
 		// One paced piece: 256 KB, however many reads it takes, then
