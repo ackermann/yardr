@@ -26,10 +26,10 @@ func TestHarnessFiles(t *testing.T) {
 			t.Errorf("%s model flag %q, want --model", h.Kind, h.Flags.Model)
 		}
 	}
-	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi"}; !slices.Equal(kinds, want) {
+	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi", "muse"}; !slices.Equal(kinds, want) {
 		t.Errorf("kinds with a file: %v, want %v", kinds, want)
 	}
-	wantProvider := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "grok": "xAI", "kimi": "Moonshot"}
+	wantProvider := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "grok": "xAI", "kimi": "Moonshot", "muse": "Meta"}
 	for _, h := range Harnesses {
 		if h.Provider != wantProvider[h.Kind] {
 			t.Errorf("%s: provider %q, want %q", h.Kind, h.Provider, wantProvider[h.Kind])
@@ -132,13 +132,14 @@ func TestLoadOrderAndAliases(t *testing.T) {
 }
 
 // The trust dialogs yardr answers itself: Claude Code's folder-trust
-// question, Kimi's and Codex's, each the text that marks it, the answer
-// that accepts it and the mark of its selected answer, as the harness
-// prints them (yardr-bgnn, yardr-mdz4, yardr-q7rd). No other kind names one.
+// question, Kimi's, Codex's and Muse's, each the text that marks it, the
+// answer that accepts it and the mark of its selected answer, as the
+// harness prints them (yardr-bgnn, yardr-mdz4, yardr-q7rd). No other kind
+// names one.
 func TestTrust(t *testing.T) {
 	for _, h := range Harnesses {
-		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi" || h.Kind == "codex") {
-			t.Errorf("%s: trust %+v; only claude's, kimi's and codex's files name one", h.Kind, h.Trust)
+		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi" || h.Kind == "codex" || h.Kind == "muse") {
+			t.Errorf("%s: trust %+v; only claude's, kimi's, codex's and muse's files name one", h.Kind, h.Trust)
 		}
 	}
 	claude, _ := Lookup("claude")
@@ -152,6 +153,10 @@ func TestTrust(t *testing.T) {
 	codex, _ := Lookup("codex")
 	if codex.Trust == nil || codex.Trust.Dialog != "Trust this folder?" || codex.Trust.Answer != "1. Trust and continue" || codex.Trust.Cursor != "›" {
 		t.Errorf("codex: trust %+v", codex.Trust)
+	}
+	muse, _ := Lookup("muse")
+	if muse.Trust == nil || muse.Trust.Dialog != "Do you trust this workspace?" || muse.Trust.Answer != "1  Trust and continue" || muse.Trust.Cursor != "⟩" {
+		t.Errorf("muse: trust %+v", muse.Trust)
 	}
 }
 
@@ -296,6 +301,10 @@ func TestOffers(t *testing.T) {
 			{Model: "kimi-code/k3-256k", Label: "K3-256k"},
 			{Model: "kimi-code/kimi-for-coding", Label: "K2.8 Preview"},
 		},
+		"muse": {
+			{Model: "muse-spark-1.3-contributor", Label: "Spark 1.3 Contributor", Recommended: "yardmaster"},
+			{Model: "muse-wonder-1.0", Label: "Wonder 1.0"},
+		},
 	} {
 		h, _ := Lookup(kind)
 		if !slices.Equal(h.Offers, want) {
@@ -312,7 +321,7 @@ func TestOffers(t *testing.T) {
 		want := 0
 		if len(h.Offers) > 0 {
 			want = 1
-		} else if h.Kind == "claude" || h.Kind == "codex" || h.Kind == "kimi" {
+		} else if h.Kind == "claude" || h.Kind == "codex" || h.Kind == "kimi" || h.Kind == "muse" {
 			t.Errorf("%s names no model to pick from", h.Kind)
 		}
 		if marked != want {

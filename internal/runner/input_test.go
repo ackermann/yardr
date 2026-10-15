@@ -25,6 +25,11 @@ import (
 // input in its box, the cursor a space in reverse video, and the message it
 // took above. The box that holds a draft is as Kimi drew one in a terminal
 // of its own on the same day, its second line as it wraps a long one.
+//
+// Muse Code 1.4.9's is a pty read of 15 Oct 2026, narrowed: the input one
+// line under a voice-input divider and above a rule and the footer, the
+// mark coloured and no placeholder drawn, a message it took above with
+// the same mark, and the line it works behind begun with ◆.
 const (
 	rule         = "\x1b[0m\x1b[38;5;7m────────────────\x1b[0m\r\n"
 	claudeFooter = "  \x1b[0m\x1b[38;5;11m⏵⏵ auto mode on\x1b[0m\x1b[38;5;7m (shift+tab to cycle)\x1b[0m\r\n"
@@ -52,6 +57,17 @@ const (
 	kimiTaken = " \x1b[0m\x1b[1m\x1b[38;2;255;203;107m✨ earlier message,        \x1b[0m\r\n" +
 		"    \x1b[0m\x1b[1m\x1b[38;2;255;203;107msent\x1b[0m                     \r\n \r\n" +
 		" \x1b[0m\x1b[38;2;136;136;136m● \x1b[0m\x1b[3m\x1b[38;2;136;136;136mAn answer.\x1b[0m\r\n \r\n"
+
+	museHead    = "  Muse Code 1.4.9\r\n\r\n"
+	museVoice   = "── Voice input (alt(option)+v to start) ──\r\n"
+	musePrompt  = "\x1b[0m\x1b[38;2;90;160;255m❯ \x1b[39m\r\n"
+	museRule    = "────────────────────────────────────────\r\n"
+	museFooter  = "  muse-spark-1.3 · max · /tmp/work · Auto-review\r\n"
+	museEmpty   = museHead + museVoice + musePrompt + museRule + museFooter
+	museDraft   = museHead + museVoice + "❯ half a thought\r\n" + museRule + museFooter
+	museTaken   = "❯ hi\r\n\r\n◆ echo: hi\r\n\r\n"
+	museWorking = museHead + "❯ hi\r\n\r\n◆ Thinking (3s · esc to interrupt)\r\n\r\n" +
+		museVoice + musePrompt + museRule + museFooter
 )
 
 // inputScreen is the input of a harness of kind as its pane shows it, with
@@ -113,6 +129,14 @@ func TestInputText(t *testing.T) {
 		// Kimi's mark and no edge is not Kimi's.
 		"kimi's box, another kind": {"acme", kimiDraft, "", false},
 		"kimi, no box drawn":       {"kimi", noMark, "", false},
+		// Muse's input is one line under its voice divider and above a
+		// rule and the footer; a message it took carries the same mark,
+		// and the line it works behind another.
+		"muse empty": {"muse", museEmpty, "", true},
+		"muse draft": {"muse", museDraft, "half a thought", true},
+		"muse, sent message above an empty input": {"muse", museTaken + museEmpty, "", true},
+		"muse, sent message above a draft":        {"muse", museTaken + museDraft, "half a thought", true},
+		"muse, mid-turn":                          {"muse", museWorking, "", true},
 		// Without its own mark a pane is read by the others': enough to
 		// type nothing after it.
 		"kimi, a line with Claude Code's mark": {"kimi", claudeDraft, "some creative..", true},

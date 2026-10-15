@@ -7,6 +7,8 @@ package agents
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,6 +99,50 @@ func ParseGrokModels(out string) []string {
 func kimiModels(ctx context.Context) ([]string, error) {
 	home, _ := os.UserHomeDir()
 	return tomlValues(filepath.Join(home, ".kimi-code", "config.toml"), regexp.MustCompile(`^\[models\."([^"]+)"\]`))
+}
+
+// museModels reads the installed agent's model catalog: one JSON file per
+// provider and profile under .local/share/muse/model-catalog, each with
+// rows of models. Only rows the catalog marks visible are listed: the
+// hidden ones are the same models' contributor variants and an image
+// model, not the list a coding model is picked from.
+func museModels(ctx context.Context) ([]string, error) {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".local", "share", "muse", "model-catalog")
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	var out []string
+	for _, f := range files {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		out = append(out, ParseMuseCatalog(body)...)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no visible models in %s", dir)
+	}
+	return uniq(out), nil
+}
+
+// ParseMuseCatalog reads the model_ids of the rows a model catalog file
+// marks visible. A file that is not the catalog names none.
+func ParseMuseCatalog(body []byte) []string {
+	var catalog struct {
+		Rows []struct {
+			Model      string `json:"model_id"`
+			Visibility string `json:"visibility"`
+		} `json:"rows"`
+	}
+	if json.Unmarshal(body, &catalog) != nil {
+		return nil
+	}
+	var out []string
+	for _, r := range catalog.Rows {
+		if r.Visibility == "visible" && r.Model != "" {
+			out = append(out, r.Model)
+		}
+	}
+	return uniq(out)
 }
 
 func opencodeModels(ctx context.Context) ([]string, error) {

@@ -81,6 +81,21 @@ anthropic       claude-haiku-4-5            200K     64K      yes       yes
 	}
 }
 
+func TestParseMuseCatalog(t *testing.T) {
+	out := `{"schema_version":2,"provider_id":"meta","profile_id":"tbh","source":"provider_catalog","rows":[
+{"model_id":"muse-wonder-1.0","visibility":"visible","is_default":true},
+{"model_id":"muse-wonder-1.0-contributor","visibility":"hidden"},
+{"model_id":"muse-spark-1.3","visibility":"visible"},
+{"model_id":"muse-image-1.0","visibility":"hidden"},
+{"model_id":"","visibility":"visible"}]}`
+	if got := ParseMuseCatalog([]byte(out)); !slices.Equal(got, []string{"muse-wonder-1.0", "muse-spark-1.3"}) {
+		t.Fatalf("got %v", got)
+	}
+	if got := ParseMuseCatalog([]byte("not json")); got != nil {
+		t.Fatalf("of no catalog: %v", got)
+	}
+}
+
 func TestPresetsAreHerdrKinds(t *testing.T) {
 	for _, p := range Harnesses {
 		if !slices.Contains(HerdrKinds, p.Kind) {
@@ -94,6 +109,7 @@ func TestUnattendedArgs(t *testing.T) {
 		"claude": {"--permission-mode", "auto"},
 		"codex":  {"--dangerously-bypass-approvals-and-sandbox"},
 		"kimi":   {"--yolo"},
+		"muse":   {"--yolo"},
 		"pi":     nil,
 	} {
 		if got := UnattendedArgs(kind); !slices.Equal(got, want) {

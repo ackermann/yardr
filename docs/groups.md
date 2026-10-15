@@ -1259,6 +1259,7 @@ has no such hint the event names no harness.
   | `claude` | `❯` | `❯` |
   | `codex` | `›` | `›` |
   | `kimi` | `>` after `│`, the edge of the box its input is drawn in; the edges are no part of the text | `✨` |
+  | `muse` | `❯` | `❯` |
   | any other, or none | `❯` or `›` | no mark known: the prompt anywhere above the input, and anywhere at all in a pane with neither mark, as before |
   <!-- /harness marks -->
 

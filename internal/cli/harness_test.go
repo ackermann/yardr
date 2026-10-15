@@ -81,6 +81,13 @@ func TestHarnessListAndShow(t *testing.T) {
 		t.Fatalf("show kimi --json provider: %q", shown.Provider)
 	}
 	wantText(t, ask(0, "harness", "show", "kimi"), "kimi-code/k3 (K3), recommended for a yardmaster")
+	wantText(t, ask(0, "harness", "show", "muse"), "muse  Muse Code, by Meta  (harnesses/muse.yaml, version 1)",
+		"trust: yardr answers its folder-trust dialog", "input begins with:    ❯", "a message it took:    ❯",
+		"before an error line: any of ◆", "unattended: --yolo", "model flag: --model", "one shot:   exec <prompt>",
+		`permission "yolo": --yolo`, `permission "no approval": --disable-approval`,
+		"no source known: nothing is recorded and nothing compared",
+		"none known: nothing is reported, and session_idle with its tail is what there is",
+		"muse-spark-1.3-contributor (Spark 1.3 Contributor), recommended for a yardmaster", "muse-wonder-1.0 (Wonder 1.0)")
 	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")
 	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id",
 		"pi  pi  (harnesses/pi.yaml, version 1)")
@@ -126,7 +133,7 @@ func TestHarnessListAndShow(t *testing.T) {
 func TestDoctorOffers(t *testing.T) {
 	newHome(t)
 	setInteractive(t, false)
-	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n"})
+	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
 	if got := m["claude"].Offers; len(got) != 3 || got[0] != (agents.Offer{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"}) {
@@ -137,6 +144,9 @@ func TestDoctorOffers(t *testing.T) {
 	}
 	if got := m["kimi"].Offers; len(got) != 3 || got[0].Model != "kimi-code/k3" {
 		t.Errorf("kimi offers: %+v", got)
+	}
+	if got := m["muse"].Offers; len(got) != 2 || got[0] != (agents.Offer{Model: "muse-spark-1.3-contributor", Label: "Spark 1.3 Contributor", Recommended: "yardmaster"}) {
+		t.Errorf("muse offers: %+v", got)
 	}
 	for _, kind := range []string{"grok", "pi", "git", "herdr"} {
 		if got := m[kind].Offers; got != nil {
@@ -157,13 +167,14 @@ func TestDoctorOffers(t *testing.T) {
 func TestDoctorHarnessLabels(t *testing.T) {
 	newHome(t)
 	setInteractive(t, false)
-	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n"})
+	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
 	want := map[string][2]string{
 		"claude": {"Claude Code", "Anthropic"}, "codex": {"Codex", "OpenAI"},
 		"kimi": {"Kimi", "Moonshot"}, "grok": {"Grok", "xAI"},
 		"opencode": {"opencode", ""}, "pi": {"pi", ""},
+		"muse": {"Muse Code", "Meta"},
 	}
 	for program, w := range want {
 		if got := m[program]; got.Label != w[0] || got.Provider != w[1] {

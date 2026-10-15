@@ -922,6 +922,15 @@ func TestPromptPlace(t *testing.T) {
 		{"Kimi, the prompt after its input mark, above the input", "kimi", " > " + prompt + "\n" + kimiBox(">"), false, false, false},
 		{"Kimi, a message that only holds the prompt", "kimi", " ✨ what does \"" + prompt + "\" mean?\n" + kimiBox(">"), false, false, false},
 		{"Kimi, a line with Claude Code's mark", "kimi", "❯ " + prompt + "\n" + rule + "\n❯ \n" + rule, false, false, true},
+		// Muse's input is one line under its voice divider and above a
+		// rule and the footer, as a pty read it on 15 Oct 2026 (Muse Code
+		// 1.4.9), narrowed; a message it took carries the same mark, and
+		// the line it works behind another.
+		{"Muse, in the input", "muse", "  Muse Code 1.4.9\n\n── Voice input (alt(option)+v to start) ──\n❯ " + prompt + "\n" + rule + "\n  muse-spark-1.3 · max · /tmp/work · Auto-review", false, true, false},
+		{"Muse, echoed", "muse", "❯ " + prompt + "\n\n◆ Reading the brief.\n\n" + rule + "\n❯ \n" + rule, true, false, false},
+		{"Muse, mid-turn", "muse", "  Muse Code 1.4.9\n\n❯ " + prompt + "\n\n◆ Thinking (3s · esc to interrupt)\n\n── Voice input (alt(option)+v to start) ──\n❯ \n" + rule, true, false, false},
+		{"Muse, empty", "muse", rule + "\n❯ \n" + rule, false, false, false},
+		{"Muse, still coming up", "muse", "$ muse\n" + prompt + "\n", false, false, true},
 	} {
 		if taken, typed, bare := promptPlace(c.text, prompt, c.kind); taken != c.taken || typed != c.typed || bare != c.bare {
 			t.Errorf("%s: taken %v, typed %v, bare %v; want %v, %v, %v", c.name, taken, typed, bare, c.taken, c.typed, c.bare)

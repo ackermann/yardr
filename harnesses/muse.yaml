@@ -1,0 +1,77 @@
+# Muse Code. Every flag is from `muse --help`.
+version: 1
+label: Muse Code
+provider: Meta
+
+# Muse asks whether a workspace is trusted the first time it is started in
+# it ("Do you trust this workspace?", read live, Muse Code 1.4.9), and
+# every bead is a new worktree, so every Muse session stops there: yardr
+# answers it (internal/runner/trust.go). The dialog opens with its cursor
+# on the accepting answer, and the cursor wraps neither way, so a dialog
+# whose cursor is off the answer is left for a human (read live, four
+# launches and both arrow keys). Answering the dialog writes the
+# workspace's decision to Muse's trust store (~/.config/muse/trust.json,
+# one decision per folder) for Muse to keep; --yolo and --trust-workspace
+# trust the workspace for the run without writing it (`muse --help`).
+# The dialog's cursor is ⟩, as its other menus', though its input mark
+# (below) is ❯.
+trust:
+  dialog: "Do you trust this workspace?"
+  answer: "1  Trust and continue"
+  cursor: "⟩"
+
+# Muse's input is one line at the bottom of its pane (read live, Muse Code
+# 1.4.9),
+#
+#   ── Voice input (alt(option)+v to start) ──…
+#   ❯
+#   ───…
+#     muse-spark-1.3 · max · /private/tmp/…/work · Auto-review
+#
+# and a message it took begins with the mark of its input. A message of
+# its own, and the line it works behind ("◆ Thinking (3s · esc to
+# interrupt)"), begins with ◆. The other marks taken off an error line
+# are what any TUI may draw.
+marks:
+  input: "❯"
+  message: "❯"
+  error: "◆⏺⎿●■•▌│┃✗✘⚠!"
+
+flags:
+  model: --model
+  unattended: [--yolo]
+  version: [--version]
+  one_shot: [exec]
+  permissions:
+    - label: yolo
+      args: [--yolo]
+      description: never asks, no sandbox, trusts the workspace for the run
+    - label: no approval
+      args: [--disable-approval]
+      description: no approval prompts; the sandbox still applies
+
+# The models to pick from: the yard's own (muse-spark-1.3-contributor:
+# model muse-spark-1.3 with contributor mode on,
+# ~/.config/muse/settings.json of 2026-10-15) and the catalog's newer
+# default (muse-wonder-1.0, is_default, released 2026-10-12), both spelled
+# as the model catalog does (~/.local/share/muse/model-catalog/*.json,
+# provider meta, read 2026-10-15). Each label shortens its id, as the
+# TUI's footer shortens the running model (muse-spark-1.3 for a run of
+# muse-spark-1.3-contributor, read live, Muse Code 1.4.9).
+offers:
+  - model: muse-spark-1.3-contributor
+    label: Spark 1.3 Contributor
+    recommended: yardmaster
+  - model: muse-wonder-1.0
+    label: Wonder 1.0
+
+# No model: the model a session's agent reports is in its session file
+# (~/.local/share/muse/sessions/*/*/*/<id>/session.jsonl), but as JSON in
+# JSON (children[].record_json holds the event whose payload names it),
+# past what a dotted field path reads.
+#
+# No errors: no line a Muse pane stops on was read. `muse exec` fails out
+# loud (missing meta credentials, a model that does not exist), but the
+# TUI shows its login screen for the first and answers anyway for the
+# second (read live, Muse Code 1.4.9), so neither line ever ends a pane;
+# a dead base URL warns once at startup and its turns answer too.

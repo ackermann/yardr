@@ -278,6 +278,7 @@ var modelLists = map[string]func(ctx context.Context) ([]string, error){
 	"codex":    codexModels,
 	"grok":     grokModels,
 	"kimi":     kimiModels,
+	"muse":     museModels,
 	"opencode": opencodeModels,
 	"pi":       piModels,
 }
