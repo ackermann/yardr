@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -138,6 +139,59 @@ func ParsePiModels(out string) []string {
 		models = append(models, f[0]+"/"+f[1])
 	}
 	return uniq(models)
+}
+
+// KimiHook is one [[hooks]] table of Kimi's config: the event it runs on
+// and the command it runs.
+type KimiHook struct {
+	Event, Command string
+}
+
+// A hooks table of Kimi's config, and the two keys doctor reads, as herdr's
+// integration and moshi-hook write them:
+//
+//	[[hooks]]
+//	event = "Stop"
+//	command = "bash '/Users/jo/.kimi-code/hooks/herdr-agent-state.sh' idle"
+var (
+	kimiHooksTable  = regexp.MustCompile(`^\[\[\s*hooks\s*\]\]\s*(?:#.*)?$`)
+	kimiHookEvent   = regexp.MustCompile(`^event\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
+	kimiHookCommand = regexp.MustCompile(`^command\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
+)
+
+// ParseKimiHooks reads the [[hooks]] tables of Kimi's config: the event and
+// the command of each, in order. Anything else a table holds (matcher,
+// timeout) is not read.
+func ParseKimiHooks(config string) []KimiHook {
+	var out []KimiHook
+	in := false
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case kimiHooksTable.MatchString(line):
+			out = append(out, KimiHook{})
+			in = true
+		case strings.HasPrefix(line, "["):
+			in = false
+		case in:
+			if m := kimiHookEvent.FindStringSubmatch(line); m != nil {
+				out[len(out)-1].Event = tomlString(m[1])
+			} else if m := kimiHookCommand.FindStringSubmatch(line); m != nil {
+				out[len(out)-1].Command = tomlString(m[1])
+			}
+		}
+	}
+	return out
+}
+
+// tomlString is the value of a TOML basic or literal string.
+func tomlString(s string) string {
+	if strings.HasPrefix(s, `"`) {
+		if u, err := strconv.Unquote(s); err == nil {
+			return u
+		}
+	}
+	return s[1 : len(s)-1]
 }
 
 func tomlValues(path string, re *regexp.Regexp) ([]string, error) {

@@ -34,6 +34,43 @@ func TestParseOpencodeModels(t *testing.T) {
 	}
 }
 
+// The hooks tables of Kimi's config: the event and the command of each,
+// in order, in either kind of string, and nothing else.
+func TestParseKimiHooks(t *testing.T) {
+	config := `default_model = "kimi-code/k3"
+
+[models."kimi-code/k3"]
+
+[[hooks]]
+event = "SessionStart"
+command = "bash '/Users/jo/.kimi-code/hooks/herdr-agent-state.sh' session"
+timeout = 10
+
+[[hooks]]
+event = 'Stop' # a literal string
+matcher = "startup|resume"
+command = "'/opt/homebrew/bin/moshi-hook' kimi-hook"
+
+[[hooks]]
+event = "Stop"
+command = "bash \"/Users/jo/hooks/herdr-agent-state.sh\" idle"
+
+[thinking]
+enabled = true
+`
+	want := []KimiHook{
+		{Event: "SessionStart", Command: "bash '/Users/jo/.kimi-code/hooks/herdr-agent-state.sh' session"},
+		{Event: "Stop", Command: "'/opt/homebrew/bin/moshi-hook' kimi-hook"},
+		{Event: "Stop", Command: `bash "/Users/jo/hooks/herdr-agent-state.sh" idle`},
+	}
+	if got := ParseKimiHooks(config); !slices.Equal(got, want) {
+		t.Fatalf("hooks = %q, want %q", got, want)
+	}
+	if got := ParseKimiHooks(""); len(got) != 0 {
+		t.Fatalf("of no config: %q", got)
+	}
+}
+
 func TestParsePiModels(t *testing.T) {
 	out := `provider        model                       context  max-out  thinking  images
 anthropic       claude-fable-5              1M       128K     yes       yes

@@ -103,6 +103,11 @@ type yardState struct {
 	// Codex's own config does not trust, each with the lines that trust it
 	// (codexTrustNotes).
 	CodexTrust []string `json:"codex_trust,omitempty"`
+	// KimiHooks are what Kimi's config lacks for herdr, when the yard runs
+	// on kimi: no StopFailure hook that tells herdr the agent is idle, or
+	// the herdr hooks standing twice, each with what sets it right
+	// (kimiHookNotes).
+	KimiHooks []string `json:"kimi_hooks,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -364,6 +369,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 	if rep.State.CodexTrust, err = codexTrustNotes(ctx, st, groups); err != nil {
 		return nil, err
 	}
+	rep.State.KimiHooks = kimiHookNotes(uses)
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
 		return nil, err
 	}
@@ -826,6 +832,9 @@ func (s *yardState) lines(home string) []docLine {
 	}
 	for _, n := range s.CodexTrust {
 		out = append(out, docLine{tagNote, "codex", n})
+	}
+	for _, n := range s.KimiHooks {
+		out = append(out, docLine{tagNote, "kimi", n})
 	}
 	return out
 }
