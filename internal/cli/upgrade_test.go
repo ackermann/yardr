@@ -519,7 +519,7 @@ func TestUpgradeFromFlag(t *testing.T) {
 	if err := st.SetSetting(ctx, store.OperatorSetting, "probeuser", "probeuser"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a().rootCmd(), "upgrade", "--from", "missing")
+	out, err := run(t, a().rootCmd(), "--actor", "probeuser", "upgrade", "--from", "missing")
 	if err == nil || !strings.Contains(err.Error(), "not in the yard") || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("unknown depot: err = %v\n%s", err, out)
 	}
@@ -527,15 +527,15 @@ func TestUpgradeFromFlag(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: gone}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, a().rootCmd(), "upgrade", "--from", "yardr")
+	out, err = run(t, a().rootCmd(), "--actor", "probeuser", "upgrade", "--from", "yardr")
 	if err == nil || !strings.Contains(err.Error(), "no checkout") || !strings.Contains(err.Error(), gone) {
 		t.Fatalf("no checkout: err = %v\n%s", err, out)
 	}
-	out, err = run(t, a().rootCmd(), "upgrade", "--from", "Bad Name")
+	out, err = run(t, a().rootCmd(), "--actor", "probeuser", "upgrade", "--from", "Bad Name")
 	if err == nil || !strings.Contains(err.Error(), `depot name "Bad Name"`) {
 		t.Fatalf("bad name: err = %v\n%s", err, out)
 	}
-	out, err = run(t, a().rootCmd(), "upgrade", "--from", "")
+	out, err = run(t, a().rootCmd(), "--actor", "probeuser", "upgrade", "--from", "")
 	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
 		t.Fatalf("empty flag: err = %v\n%s", err, out)
 	}
@@ -567,8 +567,30 @@ func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "one", Path: filepath.Join(t.TempDir(), "gone")}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a().rootCmd(), "upgrade", "--from", "missing")
+	out, err := run(t, a().rootCmd(), "--actor", "jo", "upgrade", "--from", "missing")
 	if err == nil || !strings.Contains(err.Error(), "not in the yard") || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("err = %v\n%s", err, out)
+	}
+}
+
+// --from stands in for upgrade_from, which only the operator may set, so
+// only the operator may name it: anyone else, a bead's agent among them,
+// is refused before the depot is looked up, and a plain run is not.
+func TestUpgradeFromFlagOperatorOnly(t *testing.T) {
+	ctx := context.Background()
+	_, st, a := upgradeYard(t)
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: t.TempDir()}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a().rootCmd(), "--actor", "hal", "upgrade", "--from", "yardr")
+	if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may name the depot to install from (--from); this is hal") {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	out, err = run(t, a().rootCmd(), "--actor", "hal", "upgrade")
+	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+		t.Fatalf("plain run: err = %v\n%s", err, out)
 	}
 }

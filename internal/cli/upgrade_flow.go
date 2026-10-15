@@ -48,6 +48,14 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 	if err != nil {
 		return err
 	}
+	// --from stands in for upgrade_from, which only the operator may set:
+	// the same line holds for the flag, or anyone could pick the source
+	// built over the yard's binary.
+	if fromFlag != "" {
+		if err := a.operatorOnly(ctx, st, "name the depot to install from (--from)"); err != nil {
+			return err
+		}
+	}
 	from := fromFlag
 	if from == "" {
 		from = settings[store.UpgradeFromSetting]

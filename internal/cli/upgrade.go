@@ -121,7 +121,8 @@ service runs the shared binary. A yard with neither is untouched.
 names no notify source cannot set upgrade_from, which stays refused so
 the automatic path can never install untold, and names its depot on the
 command instead. The caller takes a failure through the exit status and
-the terminal, as a hand run does.
+the terminal, as a hand run does. Like the setting, the flag is the
+operator's alone.
 
 With --check it asserts the yard runs this build, read-only: the
 install gate, by hand.

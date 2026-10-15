@@ -54,7 +54,8 @@ A yard whose operator names no notify source cannot set `upgrade_from`
 untold — and takes its upgrades by hand with `yardr upgrade --from
 <depot>`, which names the depot for one run instead of the setting. The
 caller takes the failure through the exit status and the terminal, as a
-hand run does; the assembly never passes the flag, so it cannot leak
+hand run does. Like the setting, the flag is the operator's alone: anyone
+else is refused. The assembly never passes the flag, so it cannot leak
 into the automatic path.
 
 ## What it covers
