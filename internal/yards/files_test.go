@@ -524,9 +524,9 @@ func TestFileRefusedForWhatItIs(t *testing.T) {
 		return south.caller().Push(ctx, toNorth, store.PeerMessage{ID: id, Kind: "file", Body: body})
 	}
 	for name, err := range map[string]error{
-		"bytes of another hash": file("f1", hashOf([]byte("another")), shedPNG),
-		"no bytes":              file("f3", hashOf(nil), nil),
-		"a path for a hash":     file("f4", "../../yard.db", shedPNG),
+		"bytes of another hash":       file("f1", hashOf([]byte("another")), shedPNG),
+		"empty bytes with wrong hash": file("f3", hashOf([]byte("not empty")), nil),
+		"a path for a hash":           file("f4", "../../yard.db", shedPNG),
 	} {
 		if !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), "it does not read the file, or its bytes are not what it was named by") {
 			t.Errorf("%s = %v", name, err)
