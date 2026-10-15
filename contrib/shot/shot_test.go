@@ -64,6 +64,17 @@ func shotCtx(t *testing.T) context.Context {
 // Chrome-timeout words.
 func runShot(ctx context.Context, t *testing.T, args []string, env ...string) (int, string) {
 	t.Helper()
+	rc, out, err := runShotCmd(ctx, args, env...)
+	if err != nil {
+		t.Fatalf("shot %v: %v", args, err)
+	}
+	return rc, out
+}
+
+// runShotCmd is runShot without the test: a caller that arms the deadline
+// after the stand-in is ready runs the script ahead of that, from another
+// goroutine, where the test must not fail.
+func runShotCmd(ctx context.Context, args []string, env ...string) (int, string, error) {
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, "./shot", args...)
 	cmd.Env = append(os.Environ(), env...)
@@ -72,17 +83,17 @@ func runShot(ctx context.Context, t *testing.T, args []string, env ...string) (i
 	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
 	if err != nil && ctx.Err() != nil {
-		return 1, string(out) + "shot: chrome did not finish within " + timeoutSecs(ctx, start) + "\n"
+		return 1, string(out) + "shot: chrome did not finish within " + timeoutSecs(ctx, start) + "\n", nil
 	}
 	rc := 0
 	if err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
 			rc = exit.ExitCode()
 		} else {
-			t.Fatalf("shot %v: %v", args, err)
+			return 0, "", err
 		}
 	}
-	return rc, string(out)
+	return rc, string(out), nil
 }
 
 // timeoutSecs words ctx's deadline as whole seconds ("60s"), the script's
@@ -426,6 +437,54 @@ func deadWithin(t *testing.T, pids string, within time.Duration) {
 	}
 }
 
+// ready waits for the stand-in to be ready: the pids file it writes on
+// start, up to within. Under load the stand-in can take seconds to be
+// scheduled; the deadline the test then takes must not start before this
+// returns. It returns when the file appeared, so the kill after it is told
+// from one that took the whole bound.
+func ready(t *testing.T, pids string, within time.Duration) time.Time {
+	t.Helper()
+	giveUp := time.Now().Add(within)
+	for {
+		if _, err := os.Stat(pids); err == nil {
+			return time.Now()
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", pids, err)
+		}
+		if time.Now().After(giveUp) {
+			t.Fatalf("%s did not appear within %s", pids, within)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// readySleep is a sleep for the timeout test: the script's watchdog must
+// not start its SHOT_TIMEOUT clock before the stand-in Chrome is ready, so
+// this sleep waits for readyFile (the pids file the stand-in writes on
+// start), with a generous bound, and then sleeps as asked. Past the bound
+// it sleeps anyway, and the test fails on its assertions instead of
+// hanging.
+func readySleep(t *testing.T, readyFile string) []string {
+	t.Helper()
+	realSleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep: the shot watchdog uses it")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"i=0\n" +
+		"while [ ! -e \"$SHOT_SLEEP_READY\" ] && [ \"$i\" -lt 300 ]; do \"$SHOT_REAL_SLEEP\" 0.1; i=$((i+1)); done\n" +
+		"exec \"$SHOT_REAL_SLEEP\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return []string{
+		"SHOT_REAL_SLEEP=" + realSleep,
+		"SHOT_SLEEP_READY=" + readyFile,
+		"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	}
+}
+
 // A Chrome that finishes promptly must not leave the watchdog's sleep
 // running for the whole timeout.
 func TestShotStopsItsWatchdogAfterChromeExits(t *testing.T) {
@@ -472,7 +531,10 @@ func TestShotStopsItsWatchdogAfterChromeExits(t *testing.T) {
 // A Chrome that sleeps past its deadline is killed, and the shot fails with
 // what it printed so far and the reason, within about a second: the script's
 // own bound and runShot's context each do it, so a hung Chrome hangs neither
-// a builder nor the suite.
+// a builder nor the suite. Neither one-second clock starts before the
+// stand-in is ready: under load it can take seconds to be scheduled, and a
+// deadline that fires first kills a Chrome that never ran, leaving the test
+// a missing pids file instead of the refusal.
 func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -480,6 +542,9 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	s := page(t)
 	t.Run("the script's SHOT_TIMEOUT", func(t *testing.T) {
 		env, pids := sleeper(t, "chrome is warming up", false)
+		// The watchdog's clock waits for the stand-in: sleep holds it
+		// until the pids file appears.
+		env = append(env, readySleep(t, pids)...)
 		env = append(env, "SHOT_TIMEOUT=1")
 		out := filepath.Join(t.TempDir(), "shot.png")
 		rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
@@ -494,14 +559,38 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	t.Run("runShot's context deadline", func(t *testing.T) {
 		env, pids := sleeper(t, "chrome is warming up", true)
 		out := filepath.Join(t.TempDir(), "shot.png")
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		// The deadline starts when the test says so: the run starts with
+		// no deadline but a backstop, the test waits for the stand-in's
+		// pids file, and only then takes the second.
+		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
-		rc, text := runShot(ctx, t, []string{s.URL + "/page", out}, env...)
-		if rc == 0 || !strings.Contains(text, "chrome did not finish within 1s") {
-			t.Errorf("a Chrome past the deadline: exit %d, %q, want a refusal naming the deadline", rc, text)
+		backstop := time.AfterFunc(shotTimeout, cancel)
+		t.Cleanup(func() { backstop.Stop() })
+		type outcome struct {
+			rc   int
+			text string
+			err  error
 		}
-		if !strings.Contains(text, "chrome is warming up") {
-			t.Errorf("the refusal is %q, without what Chrome printed", text)
+		done := make(chan outcome, 1)
+		go func() {
+			rc, text, err := runShotCmd(ctx, []string{s.URL + "/page", out}, env...)
+			done <- outcome{rc, text, err}
+		}()
+		readyAt := ready(t, pids, 30*time.Second)
+		kill := time.AfterFunc(time.Second, cancel)
+		defer kill.Stop()
+		res := <-done
+		if res.err != nil {
+			t.Fatalf("shot: %v", res.err)
+		}
+		if res.rc == 0 || !strings.Contains(res.text, "chrome did not finish within") {
+			t.Errorf("a Chrome past the deadline: exit %d, %q, want a refusal naming the deadline", res.rc, res.text)
+		}
+		if !strings.Contains(res.text, "chrome is warming up") {
+			t.Errorf("the refusal is %q, without what Chrome printed", res.text)
+		}
+		if dt := time.Since(readyAt); dt > 10*time.Second {
+			t.Errorf("the kill took %s after the stand-in was ready, want the test's one-second deadline", dt.Round(time.Millisecond))
 		}
 		dead(t, pids)
 	})
