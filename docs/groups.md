@@ -1191,7 +1191,14 @@ has no such hint the event names no harness.
   as `session_blocked` and gets its first prompt once you have. yardr
   answers only this dialog, only when both its mark and its answer show and
   its cursor is seen on the answer; anything else an agent asks is left to
-  you.
+  you. Under load the dialog may draw only after the start looked, or over
+  the delivery itself: while the first prompt is pending and never taken,
+  the daemon's passes answer it the same way, and a delivery herdr reports
+  blocked at a dialog counts as no delivery. Once a delivery was taken —
+  the prompt shows in the pane, or the agent was seen working after a
+  send — the answer is left to you: the agent's work reaches its pane, and
+  a dialog's text there may be a file it shows at a permission question
+  Enter would answer.
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
   taken: an agent that is still coming up can drop the keys. So yardr gives
   the first prompt to herdr to wait on (`herdr agent prompt <agent> '<text>'
@@ -1213,8 +1220,9 @@ has no such hint the event names no harness.
   again. An agent herdr saw at a dialog after the prompt keeps it pending
   unless the pane shows it taken, and one that was at a dialog before is
   typed nothing (herdr refuses with `agent_blocked`, since the keys would
-  answer the dialog): both then wait for you as `session_blocked`, like an
-  agent that was not ready. What the pane showed and what herdr said is
+  answer the dialog): on later passes the trust dialog is answered as above,
+  and anything else waits for you as `session_blocked`, like an agent that
+  was not ready. What the pane showed and what herdr said is
   `prompt_look` on the handle (`shown, herdr working`; `typed, herdr
   stalled`: the pane's part is `shown`, `typed`, `no input`, `absent`,
   `unknown`, `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`;
@@ -1229,7 +1237,9 @@ has no such hint the event names no harness.
   pane or the agent is working. The daemon's delivery goes out with the
   same wait: one that stalls with its text in the agent's input gets its
   Enter on that pass, and one for an agent at a dialog is not typed and
-  not counted. A delivery that has done neither after ten
+  not counted, as one that ends with the agent at a dialog counts none
+  either (herdr reports `blocked`: the agent took nothing). A delivery
+  that has done neither after ten
   seconds was lost (`session_prompt_lost`) and is made again, three times in
   all; after the third, `session_prompt_gave_up` tells the yardmaster, its `hint`
   being the command that gives the prompt by hand (`herdr agent prompt

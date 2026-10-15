@@ -553,6 +553,52 @@ func TestTrustDialogNotAnsweredAfterThePromptWasSent(t *testing.T) {
 	}
 }
 
+// Found live (yardr-9a82): the trust dialog drew over the delivery itself,
+// after herdr took the prompt and before the agent started on it. A send
+// herdr reports blocked at a dialog is not one the agent took: it counts
+// no delivery, the trust dialog is answered on a later pass, the prompt is
+// redelivered once the agent is idle, and the session is never reported
+// blocked.
+func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
+	s := storetest.New(t)
+	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle", block: 1}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, d.Reconcile(ctx)) // started; the prompt is pending
+	must(t, d.Reconcile(ctx)) // sent into the dialog; herdr says blocked
+	if len(r.nudges) != 1 {
+		t.Fatalf("nudges %v, want the prompt sent once", r.nudges)
+	}
+	if h := handleOf(t, s, b.ID); h[store.PendingPrompt] == nil {
+		t.Fatalf("handle = %v, want the prompt still pending", h)
+	}
+	// At the trust dialog, with no echo of the prompt.
+	r.status, r.screen = "blocked", fakeTrustDialog
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); h[dispatch.TrustAccepted] != true || h[store.PendingPrompt] != "read your brief" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", h)
+	}
+	if !slices.Equal(r.trustKeys, []string{"enter"}) || r.trustCalls != 1 {
+		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", r.trustKeys, r.trustCalls)
+	}
+	// The agent boots; the prompt goes on the usual path.
+	r.status = "idle"
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 2 || r.nudges[1] != "read your brief" || h[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+	if prompted := eventKinds(t, s, b.ID, "session_prompted"); len(prompted) != 1 || prompted[0].Data["deliveries"] != float64(1) {
+		t.Fatalf("session_prompted = %+v, want one with a single delivery", prompted)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_blocked")); n != 0 {
+		t.Fatalf("session_blocked logged %d times for a session whose trust dialog was answered", n)
+	}
+}
+
 // A pane at another question, and one whose crew member says trust=false,
 // are left for a human: crew_blocked once, no key sent, and the next pass
 // looks again.
@@ -647,6 +693,7 @@ type nudgeRunner struct {
 	nudges []string
 	shown  bool // the pane shows the first prompt
 	drop   int  // deliveries of the first prompt the agent still drops
+	block  int  // deliveries of the first prompt that end with the agent at a dialog
 
 	typed   bool // the first prompt is in the agent's input, not submitted
 	stick   int  // deliveries of the first prompt the agent still leaves in its input
@@ -727,6 +774,10 @@ func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any
 func (n *nudgeRunner) Status(context.Context, map[string]any) (string, error) { return n.status, nil }
 func (n *nudgeRunner) Nudge(_ context.Context, _ map[string]any, text string) error {
 	n.nudges = append(n.nudges, text)
+	if n.block > 0 {
+		n.block--
+		return dispatch.ErrAgentBlocked
+	}
 	if n.drop > 0 {
 		n.drop--
 	} else if n.stick > 0 {

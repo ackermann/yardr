@@ -81,9 +81,11 @@ type TrustAcceptor interface {
 // What a Nudger that waits for the agent to start on its text (herdr does,
 // see the herdr runner's prompt) says with its error when the agent did not.
 var (
-	// ErrAgentBlocked: nothing was typed, because the agent is at a dialog
-	// and the keys would answer it. The text is still due.
-	ErrAgentBlocked = errors.New("the agent is at a dialog: nothing was typed")
+	// ErrAgentBlocked: the agent is at a dialog and took nothing. One
+	// there before the text is typed nothing, since the keys would
+	// answer it; one that drew over the delivery leaves the text due
+	// as well. No delivery is counted for either.
+	ErrAgentBlocked = errors.New("the agent is at a dialog: nothing was taken")
 	// ErrPromptStalled: the text was typed, and the agent was not seen to
 	// start on it in the time the runner waits. It is no failure to type:
 	// sent again, the text would be in the input twice. Whether it was taken
@@ -622,6 +624,14 @@ type promptPass struct {
 // the agent is not ready, the runner answers the trust dialog when that is
 // what the pane shows (TrustAcceptor): the handle says TrustAccepted, and
 // the pass declares no human wait.
+//
+// Found live (yardr-9a82): the dialog may draw over the delivery itself,
+// after herdr took the prompt and before the agent started on it. Such a
+// send is not one the agent took: the runner says the agent is blocked
+// (ErrAgentBlocked, as when it refuses before anything is typed), no
+// delivery is counted, and the trust answer stays open. It closes once a
+// delivery was seen taken: the prompt shows in the pane, or the agent was
+// seen working after a send.
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
@@ -667,13 +677,16 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		delete(d.drafts, key)
 		delete(d.dialogs, key)
 		if status != "working" {
-			// The dialog may have drawn only after the start looked: before
-			// the wait is declared a human's, the runner answers the trust
-			// dialog when that is what the pane shows (see TrustAcceptor).
-			// A working agent is past it. So is one that was sent its
-			// prompt: what it does with it reaches its pane, and a dialog's
-			// text there (a file shown, at a permission question Enter
-			// would answer) is not the harness's.
+			// The dialog may have drawn only after the start looked, or
+			// over the delivery itself: before the wait is declared a
+			// human's, the runner answers the trust dialog when that is
+			// what the pane shows (see TrustAcceptor). A working agent is
+			// past it. So is one that took its prompt: what it does with
+			// it reaches its pane, and a dialog's text there (a file
+			// shown, at a permission question Enter would answer) is not
+			// the harness's. A send herdr reported blocked at a dialog
+			// counts no delivery (see above), so the answer stays open
+			// for it.
 			if ta, ok := r.(TrustAcceptor); ok && !sent && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
 			}

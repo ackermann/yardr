@@ -748,12 +748,14 @@ esac`)}
 
 // Nudge waits as the first prompt does, and says with its error what the
 // dispatcher has to know: nothing for a nudge herdr saw the agent working
-// on or at a dialog after, that nothing was typed for an agent at a dialog
-// before, and that the text was typed and not started on for a stall, a
-// timeout or another error of herdr's.
+// on, that the agent is at a dialog and took nothing for one at a dialog
+// before or after (yardr-9a82: a send herdr reports blocked is not one the
+// agent took, so no delivery is counted for it), and that the text was
+// typed and not started on for a stall, a timeout or another error of
+// herdr's.
 func TestNudgeSaysWhatHerdrSawOfIt(t *testing.T) {
 	for answer, want := range map[string]error{
-		"working": nil, "blocked": nil, "refused": dispatch.ErrAgentBlocked,
+		"working": nil, "blocked": dispatch.ErrAgentBlocked, "refused": dispatch.ErrAgentBlocked,
 		"idle": dispatch.ErrPromptStalled, "timeout": dispatch.ErrPromptStalled,
 	} {
 		bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
