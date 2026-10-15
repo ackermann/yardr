@@ -78,6 +78,12 @@ var aloneList = []aloneCommand{{
 		return w.operatorOnly(ctx, actor, "change where a peer is called", Alone)
 	},
 }, {
+	words: []string{"peer", "rm"},
+	parse: aloneArgs("yardr peer rm <name>", 1, 1),
+	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
+		return w.operatorOnly(ctx, actor, "remove a peer", Alone)
+	},
+}, {
 	words: []string{"peer", "intake"},
 	parse: aloneArgs("yardr peer intake <name> [--depot <depot> --flow <flow> | --none]", 1, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {

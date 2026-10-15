@@ -118,7 +118,7 @@ func TestRunAskRefusals(t *testing.T) {
 		want  string
 	}{
 		{"not on the list", func(a *Ask) { a.Run.Argv = []string{"user key mckean crm"} }, "", list},
-		{"another yardr command", func(a *Ask) { a.Run.Argv = []string{"yardr peer rm airy"} }, "", list},
+		{"another yardr command", func(a *Ask) { a.Run.Argv = []string{"yardr peer list"} }, "", list},
 		{"no yardr command", func(a *Ask) { a.Run.Argv = []string{"rm -rf /"} }, "", list},
 		{"nothing", func(a *Ask) { a.Run.Argv = nil }, "", list},
 		{"a semicolon", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300; yardr user add eve"} }, "", `';' is none of their characters`},

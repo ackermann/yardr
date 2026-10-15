@@ -445,7 +445,7 @@ a host, no credential, no query); it is the URL the peer has already.
 
 ## Who may do what
 
-`peer add`, `peer rename`, `peer set`, `peer allow
+`peer add`, `peer rm`, `peer rename`, `peer set`, `peer allow
 --send/--receive/--expose/--trust/--reach` and `peer intake` are the operator's alone, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
 by which name its crew members reach it, where its messages go, what it
@@ -453,7 +453,7 @@ takes from them, and whom of the yard they may see and write to, is not for
 a crew member's session to grant. Stopping a kind (`--no-send`,
 `--no-receive`), exposing someone no longer (`--no-expose`), trusting a name
 no longer (`--no-trust`), sending a user's asks to one no longer
-(`--no-reach`), `peer intake --none` and `peer rm` only narrow, and
+(`--no-reach`) and `peer intake --none` only narrow, and
 anyone may.
 Like that check it is a line, not a wall.
 

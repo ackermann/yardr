@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,7 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.AddPeer(ctx, store.Peer{Name: "south", Key: key}, a)
 			return err
 		},
+		"remove a peer":                 func(a string) error { return api.DeletePeer(ctx, "north", a) },
 		"rename a peer":                 func(a string) error { _, err := api.RenamePeer(ctx, "north", "up", a); return err },
 		"change where a peer is called": func(a string) error { _, err := api.SetPeerURL(ctx, "north", "", a); return err },
 		"allow a peer's messages": func(a string) error {
@@ -130,6 +132,27 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		if err := write("jo"); err != nil && strings.Contains(err.Error(), "only the operator") {
 			t.Errorf("%s as the operator = %v", does, err)
 		}
+	}
+}
+
+// Removing a peer is the operator's alone, as adding one is: a crew
+// member is refused with the alone mark and the link stays, and the
+// operator removes.
+func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
+	api, _ := operatorYard(t)
+	ctx := context.Background()
+	err := api.DeletePeer(ctx, "north", "yardmaster")
+	if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Fatalf("DeletePeer as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if _, err := api.GetPeer(ctx, "north"); err != nil {
+		t.Fatalf("the refused removal removed: %v", err)
+	}
+	if err := api.DeletePeer(ctx, "north", "jo"); err != nil {
+		t.Fatalf("DeletePeer as the operator: %v", err)
+	}
+	if _, err := api.GetPeer(ctx, "north"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetPeer after rm = %v", err)
 	}
 }
 

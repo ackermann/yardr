@@ -636,9 +636,15 @@ func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
 // to it. What waited for it is dropped, and peer_removed says how many. A
 // bead of this yard that was there ends its stage as undelivered: no
 // return can come for it. The questions it asked are dropped too, and each
-// person they were for gets one mail listing theirs as text.
+// person they were for gets one mail listing theirs as text. Unlinking is
+// the operator's to say (operatorOnly), as linking is: not for a crew
+// member's session to grant.
 func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		// Alone: a link is whom the yard talks to.
+		if err := w.operatorOnly(ctx, actor, "remove a peer", Alone); err != nil {
+			return err
+		}
 		p, err := loadPeer(w.Tx, name)
 		if err != nil {
 			return err
