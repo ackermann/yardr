@@ -652,7 +652,7 @@ func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 		{"typed, working", "claude", typed, "working", true, true, "typed, herdr working"},
 		{"echoed, stalled", "claude", echoed, "idle", false, false, "shown, herdr stalled"},
 		{"echoed, working", "claude", echoed, "working", false, false, "shown, herdr working"},
-		{"typed, at a dialog after it", "claude", typed, "blocked", true, false, "typed, herdr blocked"},
+		{"typed, at a dialog after it", "claude", typed, "blocked", true, true, "typed, herdr blocked"},
 		{"echoed, at a dialog after it", "claude", echoed, "blocked", false, false, "shown, herdr blocked"},
 		{"at a dialog before it", "claude", typed, "refused", true, false, ""},
 		{"typed, herdr's wait timed out", "claude", typed, "timeout", true, false, "typed, herdr stalled"},
@@ -783,6 +783,7 @@ func TestNudgeBlockedNeedsPaneEvidenceThatPromptWasNotTaken(t *testing.T) {
 	}{
 		{"no echo", `printf 'Do you trust this folder?\n❯ Yes, trust\n'`, dispatch.ErrAgentBlocked},
 		{"echo", `printf '❯ read the brief\n\n⏺ Reading\n\n❯ \n'`, nil},
+		{"typed in input", `printf '────\n❯ read the brief\n────'`, nil},
 		{"unreadable", `exit 1`, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {

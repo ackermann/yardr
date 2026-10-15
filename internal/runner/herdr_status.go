@@ -325,10 +325,12 @@ func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) e
 		// the prompt's echo says nothing was taken. Keep the send guarded if
 		// the pane shows it or cannot settle the question.
 		switch h.arrived(ctx, handle, text) {
-		case sawShown, sawUnreadable, sawUnknown, sawNoPane:
-			return nil
-		default:
+		case sawAbsent, sawNoInput:
 			return dispatch.ErrAgentBlocked
+		default:
+			// A shown or typed echo, and any uncertain look, keeps the
+			// delivery counted so it cannot reopen trust acceptance.
+			return nil
 		}
 	case took == tookStalled:
 		return dispatch.ErrPromptStalled
