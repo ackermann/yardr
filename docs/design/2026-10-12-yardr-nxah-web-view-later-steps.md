@@ -14,6 +14,8 @@ mckean, 4 Oct 2026: a web view to watch beads travel through flows, in real time
 
 Step 1, the read-only live view, is built: train yardr-e3rg with children yardr-tzzc, yardr-ardv, yardr-822r and yardr-68k3 is merged. `yardr web serve` (docs/web.md) shows the home feed, flows, beads, one bead, sessions, crew and what waits for a person, live over one server-sent-events stream, every page also answering JSON. It is server-rendered HTML with vendored htmx, no Node and no build step; every route in `internal/web/server.go` names GET, "so the mux refuses every other method itself: the view changes nothing". The JSON routes and the stream are a second front end's API: signalbox reads the yard only through them, served by `yardr web serve --ui <dir>` (design yardr-zyzp, merged; its build beads yardr-fkkt and signalbox-6cyw closed).
 
+Corrected 2026-10-15: `--ui` never landed (yardr-zyzp withdrawn, yardr-fkkt withdrawn 11 Oct 2026; signalbox is a view of its own).
+
 The cleanup mckean asked for on 11 Oct 2026 is built: yardr-1707 ("one page scroll, and a home page that leads with what needs a person") is merged. And the direction for observing on a phone is decided and built: design yardr-8y0f ("the web view's home on a phone answers 'does anything need me?' on the first screen, and nothing else") is merged, with all three children merged (yardr-mhm8 and yardr-k8z9, the yard panel; yardr-m2r7, home answers first).
 
 ### 2.2. Already decided by another design: act, and who the view acts as

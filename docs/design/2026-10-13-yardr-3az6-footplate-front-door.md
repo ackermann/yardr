@@ -106,6 +106,8 @@ footplate runs as the user, with no elevation and no shell of its own: every com
 | `git` read-only (`rev-parse`, `branch --show-current`) in the picked directory | prefilling the depot form |
 | the OS opener with an `https://` URL, or revealing a file | vendor pages, the login page, showing what was written |
 
+Replaced 2026-10-15: since yardr-74py and footplate-m1me, the table above and the "never" list below are footplate's README section "What footplate starts", which names the makers' hosts and the size/sha256 hold.
+
 What it never does: run anything as root or another user; run a shell of its own (`sh -c`, `$SHELL -l`); run an installer yardr does not name as data (no `curl | sh` typed or pasted, no package the vendor's page offered beyond the named one); install anything on Linux (a list with pages, section 3.1); change PATH or any shell profile; type into a herdr pane or start herdr's server itself (that is `yardr up`'s to do); drive a harness login itself — the terminal the recipe plays under is yardr's (`harness login`), footplate only shows its JSON needs; store a harness credential or the pasted login code anywhere; run a fetched yardr whose signature or hash failed; write outside its settings, token and stored-yardr files except through yardr commands into the yard home; make a network call of its own beyond the yard socket, paired addresses, and the one named host above (a prerequisite's own download happens in the vendor's installer, logging in in the browser); write the store except through yardr (no second setup logic against the database); phone home.
 
 ### 3.5. Why not the web view
