@@ -20,11 +20,19 @@ import (
 // upgradeRun installs the depot's build, verified, or rolls back: the
 // command of design yardr-6ja6 sections 3.1-3.3 and 3.6. Timeout bounds the
 // whole multi-yard gate; noRestore overrides the upgrade_restore setting
-// for one run.
-func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.Duration, noRestore bool) error {
+// for one run, and fromFlag names the depot for one run instead of the
+// upgrade_from setting.
+func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.Duration, noRestore bool, fromFlag string) error {
 	runStarted := time.Now()
 	if timeout <= 0 {
 		return fmt.Errorf("--timeout must be greater than zero")
+	}
+	if fromFlag != "" {
+		if set, ok := store.SettingOf(store.UpgradeFromSetting); ok && set.Check != nil {
+			if err := set.Check(fromFlag); err != nil {
+				return err
+			}
+		}
 	}
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
@@ -40,7 +48,10 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 	if err != nil {
 		return err
 	}
-	from := settings[store.UpgradeFromSetting]
+	from := fromFlag
+	if from == "" {
+		from = settings[store.UpgradeFromSetting]
+	}
 	if from == "" {
 		return fmt.Errorf("upgrade_from is not set: the yard installs nothing until it names a depot (%s settings set upgrade_from <depot>)", yardrAt(cfg.Home))
 	}

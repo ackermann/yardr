@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -503,6 +504,68 @@ func TestUpgradeWithoutCheck(t *testing.T) {
 	_, _, a := upgradeYard(t)
 	out, err = run(t, a().rootCmd(), "upgrade")
 	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+}
+
+// --from names the depot for one run, on a yard with upgrade_from unset
+// and no operator notify source: an unknown depot fails with the "not in
+// the yard" line, and a depot with no checkout with the "no checkout"
+// line. A value the setting would refuse is refused the same way, and an
+// empty one reads as unset.
+func TestUpgradeFromFlag(t *testing.T) {
+	ctx := context.Background()
+	_, st, a := upgradeYard(t)
+	out, err := run(t, a().rootCmd(), "upgrade", "--from", "missing")
+	if err == nil || !strings.Contains(err.Error(), "not in the yard") || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("unknown depot: err = %v\n%s", err, out)
+	}
+	gone := filepath.Join(t.TempDir(), "gone")
+	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: gone}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a().rootCmd(), "upgrade", "--from", "yardr")
+	if err == nil || !strings.Contains(err.Error(), "no checkout") || !strings.Contains(err.Error(), gone) {
+		t.Fatalf("no checkout: err = %v\n%s", err, out)
+	}
+	out, err = run(t, a().rootCmd(), "upgrade", "--from", "Bad Name")
+	if err == nil || !strings.Contains(err.Error(), `depot name "Bad Name"`) {
+		t.Fatalf("bad name: err = %v\n%s", err, out)
+	}
+	out, err = run(t, a().rootCmd(), "upgrade", "--from", "")
+	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+		t.Fatalf("empty flag: err = %v\n%s", err, out)
+	}
+}
+
+// With upgrade_from set to one depot and --from naming another, the run
+// uses the flag's: the setting's depot has no checkout, so a run on the
+// setting would fail "no checkout", while the flag's unknown depot fails
+// "not in the yard".
+func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
+	ctx := context.Background()
+	_, st, a := upgradeYard(t)
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	decl, err := os.ReadFile("testdata/pushover.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "pushover.yaml", string(decl), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetUser(ctx, "jo", map[string]string{store.UserNotify: "pushover"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "one", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "one", Path: filepath.Join(t.TempDir(), "gone")}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a().rootCmd(), "upgrade", "--from", "missing")
+	if err == nil || !strings.Contains(err.Error(), "not in the yard") || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 }

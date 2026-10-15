@@ -129,7 +129,7 @@ func TestUpgradeRestoreOn(t *testing.T) {
 
 func TestUpgradeRejectsNonPositiveTimeout(t *testing.T) {
 	for _, timeout := range []time.Duration{0, -time.Second} {
-		err := (&app{}).upgradeRun(context.Background(), config.At(t.TempDir()), timeout, false)
+		err := (&app{}).upgradeRun(context.Background(), config.At(t.TempDir()), timeout, false, "")
 		if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
 			t.Fatalf("timeout %s: err = %v", timeout, err)
 		}

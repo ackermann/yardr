@@ -49,6 +49,14 @@ refused without one), install a build that has the command (one
 `go install .` by hand from `main`), reinstall the script from `main`,
 then set `upgrade_from` to the depot.
 
+A yard whose operator names no notify source cannot set `upgrade_from`
+— the setting stays refused, so the automatic path can never install
+untold — and takes its upgrades by hand with `yardr upgrade --from
+<depot>`, which names the depot for one run instead of the setting. The
+caller takes the failure through the exit status and the terminal, as a
+hand run does; the assembly never passes the flag, so it cannot leak
+into the automatic path.
+
 ## What it covers
 
 The covered yards are this yard, always, plus every yard registered on

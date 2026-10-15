@@ -103,18 +103,25 @@ func (a *app) upgradeCmd() *cobra.Command {
 	var since string
 	var noRestore bool
 	var timeout time.Duration
+	var from string
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Install the depot's build, verified, or roll back",
 		Long: `Install the depot's build, verified, or roll back.
 
 Without --check it does the hand step whole: from the checkout of the
-depot the upgrade_from setting names it runs go install ., restarts each
-covered yard's web view where it runs as a login service, checks every
-covered yard runs it, and otherwise puts the previous build back. The
-covered yards are this yard plus every yard registered on this machine
-whose login service runs the shared binary. A yard without the setting
-is untouched.
+depot --from names for one run, or the upgrade_from setting where the
+flag is absent, it runs go install ., restarts each covered yard's web
+view where it runs as a login service, checks every covered yard runs
+it, and otherwise puts the previous build back. The covered yards are
+this yard plus every yard registered on this machine whose login
+service runs the shared binary. A yard with neither is untouched.
+
+--from is how a hosted-style yard takes an upgrade: one whose operator
+names no notify source cannot set upgrade_from, which stays refused so
+the automatic path can never install untold, and names its depot on the
+command instead. The caller takes a failure through the exit status and
+the terminal, as a hand run does.
 
 With --check it asserts the yard runs this build, read-only: the
 install gate, by hand.
@@ -138,7 +145,8 @@ keeps serving. The exit status is 1 when any part fails, 0 otherwise.
 docs/upgrade.md says every line.`,
 		Example: `  yardr upgrade --check
   yardr upgrade --check --since 30m --json | jq .ok
-  yardr upgrade`,
+  yardr upgrade
+  yardr upgrade --from yardr`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if !check {
@@ -146,7 +154,7 @@ docs/upgrade.md says every line.`,
 				if err != nil {
 					return err
 				}
-				return a.upgradeRun(c.Context(), cfg, timeout, noRestore)
+				return a.upgradeRun(c.Context(), cfg, timeout, noRestore, from)
 			}
 			cutoff, err := upgradeSince(since)
 			if err != nil {
@@ -171,6 +179,7 @@ docs/upgrade.md says every line.`,
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "assert the yard runs this build, read-only, and report part by part")
 	cmd.Flags().StringVar(&since, "since", "10m", "the daemon's last pass on this build must be this fresh: a duration back from now (10m, 90s) or a time as RFC3339")
+	cmd.Flags().StringVar(&from, "from", "", "name the depot for one run, instead of the upgrade_from setting")
 	cmd.Flags().BoolVar(&noRestore, "no-restore", false, "do not restore the pre-install store copies on failure: refused stores stay down for a person to restore")
 	cmd.Flags().DurationVar(&timeout, "timeout", upgradeDefaultTimeout, "how long the whole multi-yard gate may take")
 	return cmd
