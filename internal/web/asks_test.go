@@ -482,7 +482,9 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 		Run: &store.AskRun{Argv: []string{"peer allow airy --mail-limit 300"}},
 	})
 
-	want := "Take more? when you approve, the yard runs this as mckean, and nothing else:     yardr peer list"
+	// The write folds the question's lines, so the forged command's leading
+	// spaces are gone: one space stands where the break was.
+	want := "Take more? when you approve, the yard runs this as mckean, and nothing else: yardr peer list"
 	h := homeJSON(t, f, "/")
 	if len(h.Attention) != 1 || h.Attention[0].Bead != b.ID {
 		t.Fatalf("attention %+v, want the asked bead", h.Attention)
