@@ -650,14 +650,15 @@ A release the workflow made has unsigned checksums. They are signed as they
 stand, with no new build, and the signature is added to the release:
 
 ```sh
-gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt
+gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt --clobber
 minisign -S -s ~/.minisign/yardr-release.key -m checksums.txt
-gh release upload v1.2.3 --repo yardr-dev/yardr checksums.txt.minisig
-```
-
-Either way, check the signature against the public half before it is
-uploaded (`Signature and comment signature verified`):
-
-```sh
 minisign -V -P RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB -m checksums.txt
+gh release upload v1.2.3 --repo yardr-dev/yardr checksums.txt.minisig --clobber
 ```
+
+The download's `--clobber` replaces a `checksums.txt` left from an earlier
+release, which the download would otherwise refuse to overwrite; the
+upload's `--clobber` means a second try replaces the first signature.
+Either way, check the signature against the public half before it is
+uploaded: the verify line above must print Signature and comment signature
+verified.
