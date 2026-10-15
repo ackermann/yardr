@@ -278,3 +278,30 @@ From there the bead travels its depot's flow: the starter pack's, the one
 `yardr depot init` sets a depot up with, is drawn and read in
 [flows.md](flows.md#drawing-a-flow) (`yardr flow draw starter`), and
 [line.md](line.md) follows a bead through it.
+
+## Letting the yard cut releases
+
+Not a step: a yard is complete without it. Once depot yardr's base carries
+the release flow (`.yardr/flows/type/release.flow`), the yardmaster adds one
+exec group and four routes; from then on a release bead cuts the release
+([install.md](install.md#with-the-yard)):
+
+```sh
+yardr group add yardr-release --runner exec --limit 1 \
+  --set cmd='contrib/release/stage $YARDR_STAGE' \
+  --set log="$HOME/.yardr/logs/release.log"
+yardr route add --stage build --group yardr-release --depot yardr
+yardr route add --stage verify --group yardr-release --depot yardr
+yardr route add --stage publish --group yardr-release --depot yardr
+yardr route add --stage sign --group decisions --depot yardr
+```
+
+The group runs the depot's own script, one release at a time; the stage in
+`cmd` says which of `build`, `verify` or `publish` it is. The build refuses
+a checkout that is not clean at the remote's `main`, so the script it runs
+is `main`'s. `sign` goes to the manual group mckean is in, whose Done says
+the signature is uploaded; `backlog` and `decide` ride the depot's existing
+routes. The group runs where `jq`, `git`, `gh` (logged in) and `minisign`
+are; to sign the darwin binaries as well as build them, give it the two
+variables in its `env_file`
+([groups.md](groups.md#outbound-credentials)).

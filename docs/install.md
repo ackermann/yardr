@@ -520,6 +520,44 @@ yard with any agent it stops nothing and prints `"confirm": true`, as
 
 ## Making a release
 
+### With the yard
+
+A release bead cuts the release: `build` makes the archives and the GitHub
+release, `sign` asks mckean to sign the checksums, `verify` checks the
+signature, and `publish` files the yardr.dev sync bead (the release flow,
+`.yardr/flows/type/release.flow`; the script its stages run is
+`contrib/release/stage`).
+
+```sh
+yardr bead create "yardr v1.2.3" -t release -d yardr -b - < notes.md
+yardr bead advance <id> --to build
+```
+
+The title's last word is the version; the body is the release notes as they
+will stand on the GitHub release. The yardmaster shapes the bead in
+`backlog`, then advances it to `build`, and from there:
+
+- `build` refuses a bad title, an existing release or tag, a dirty tree, or
+  a checkout that is not the remote's `main`; builds the four archives and
+  `checksums.txt`; tags the base commit, pushes the tag, and makes the
+  GitHub release; notes the five signing commands on the bead.
+- `sign` asks mckean whether `checksums.txt.minisig` is uploaded. Run the
+  five commands from the build's note, in a directory of their own, then
+  Done. Each names the version, so a stale file or a wrong release shows
+  itself.
+- `verify` downloads the release, checks the signature against the release
+  key and the archives against the checksums. A bad signature asks `sign`
+  again.
+- `publish` files the yardr.dev sync bead and advances it to `new`; the
+  release bead is `published`.
+
+Anything failed or questioned waits in `decide` for a person. The yard's
+build leaves the darwin binaries unsigned, unless the release group carries
+the two signing variables in its `env_file`
+([setup.md](setup.md#letting-the-yard-cut-releases)); a signed build is
+otherwise still by hand, below. The group and the routes are the yard's, and
+the yardmaster adds them once.
+
 `contrib/release/build <version> [out-dir]` builds the four archives and
 `checksums.txt` (into `dist/` by default) on any machine with Go: it
 cross-compiles without cgo, stamps the version, and runs the binary for the
@@ -529,7 +567,9 @@ so, unless it is told to sign them ([below](#signed-darwin-binaries)). The
 same holds for `checksums.txt` ([Signed checksums](#signed-checksums)).
 
 `.github/workflows/release.yml` runs the depot's tests and then that script when
-a tag `v*` is pushed, and creates the GitHub release with the files; a tag
+a tag `v*` is pushed, and creates the GitHub release with the files, unless
+the yard already made it (a release bead's `build` tags and creates within
+the minute, long before the workflow gets there); a tag
 with a pre-release part (`v1.2.3-rc.1`) makes a pre-release. Started by hand
 (Actions, "release", "Run workflow") it is a dry run: the same tests and
 build, the archives kept for a week as the run's `dist` artifact, and no

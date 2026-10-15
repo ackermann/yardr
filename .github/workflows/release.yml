@@ -74,5 +74,9 @@ jobs:
           # v1.2.3-rc.1 is a pre-release: it never becomes "latest".
           prerelease=
           case "$TAG" in *-*) prerelease=--prerelease ;; esac
-          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt* \
-            --verify-tag --generate-notes --title "$TAG" $prerelease
+          # A release the yard already made (its build tags and creates
+          # within the minute) is left as it is; without this the run fails
+          # here on every release the yard cuts.
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt* \
+              --verify-tag --generate-notes --title "$TAG" $prerelease
