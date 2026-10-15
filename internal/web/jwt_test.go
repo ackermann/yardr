@@ -175,8 +175,18 @@ func serveJWT(t *testing.T, jwks *jwksStub, header string, users map[string]stri
 // the fixture for its store.
 func jwtFixture(t *testing.T, jwks *jwksStub, header string, users map[string]string) *fixture {
 	t.Helper()
-	st := storetest.New(t)
-	srv, home := jwtServer(t, st, jwks, header, users)
+	home := t.TempDir()
+	st := storetest.Open(t, filepath.Join(home, "yard.db"))
+	srv, err := web.NewServer(st, home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.UseJWT(context.Background(), web.JWTConfig{
+		Issuer: jwtTestIssuer, Audience: jwtTestAudience,
+		JWKSURL: jwks.ts.URL, Header: header, Users: users,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	return &fixture{t: t, st: st, ts: ts, home: home}
@@ -638,7 +648,10 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 		return err
 	}())
 	must(t, f.st.Mail(ctx, "yardmaster", "paint the shed", "jo"))
-	must(t, f.st.Mail(ctx, "jo", "it is painted", "yardmaster"))
+	photoBytes := []byte("\x89PNG\r\n\x1a\nmail image")
+	photo, err := f.st.PutBlob(ctx, photoBytes)
+	must(t, err)
+	must(t, f.st.Mail(ctx, "jo", "it is painted", "yardmaster", photo.Hash))
 	must(t, f.st.Mail(ctx, "yardmaster", "fix the gate", "kay"))
 	must(t, f.st.Mail(ctx, "kay", "it is fixed", "yardmaster"))
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "jo"))
@@ -660,6 +673,12 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 
 	jo := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
 	kay := signRSA(t, keys.a, "a", jwtClaims("kay@example.net"))
+	if r := f.get("/blobs/"+photo.Hash, header, jo); r.status != 200 || r.header.Get("Content-Type") != "image/png" || r.body != string(photoBytes) {
+		t.Errorf("jo's mailed image: status %d, type %q, body %q", r.status, r.header.Get("Content-Type"), r.body)
+	}
+	if r := f.get("/blobs/"+photo.Hash, header, kay); r.status != 404 {
+		t.Errorf("kay's request for jo's mail image: status %d, want 404: %s", r.status, r.body)
+	}
 
 	// Each sees their own conversation, with the form that writes to it.
 	r := f.get("/talk", header, jo)

@@ -163,6 +163,11 @@ func (s *Server) talkLetters(ctx context.Context, as, with string, letters []sto
 	for _, l := range letters {
 		t := TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)}
 		for _, f := range l.Files {
+			// The peer's word says this yard never took the file; it is
+			// different from one the yard held and later lost.
+			if f.NotTaken != "" {
+				continue
+			}
 			if _, err := s.st.MailBlob(ctx, as, f.Hash); err == nil {
 				continue
 			} else if !errors.Is(err, store.ErrNotFound) {
