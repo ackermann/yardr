@@ -51,16 +51,16 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
 // which takes its mark and its accepting answer on separate lines,
-// selected when the dialog's cursor is on the exact answer line. The
-// mark may share its row with more text on either side (Claude Code's
-// "Quick safety check: ..." before it, Codex's long paragraph after it,
-// wrapped wherever the pane wraps), so the row matches when it holds the
-// mark; the answer line stays exact, with the cursor t.Cursor on it.
+// selected when the dialog's cursor is on the exact answer line. The mark
+// may share its row with more text on either side (Claude Code's "Quick
+// safety check: ..." before it, Codex's long paragraph after it), so match
+// it at either edge; the answer line stays exact, with the cursor t.Cursor
+// on it.
 func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
 		l = strings.TrimSpace(l)
-		dialog = dialog || strings.Contains(l, t.Dialog)
+		dialog = dialog || strings.HasPrefix(l, t.Dialog) || strings.HasSuffix(l, t.Dialog)
 		answerText := strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
 		if !answer && answerText == t.Answer {
 			answer, selected = true, t.Cursor != "" && strings.HasPrefix(l, t.Cursor)

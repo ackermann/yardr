@@ -247,6 +247,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		{"kimi's answer without its title", "I typed: Trust this folder\n", kimi.Trust, ""},
 		{"kimi's title without its answer", "Trust this folder?\n", kimi.Trust, ""},
 		{"codex, another question", " Do you want to allow this?\n › Yes\n   No\n", codex.Trust, ""},
+		{"codex's title only inside another question", "A different dialog says Trust this folder? in its explanation\n› 1. Trust and continue\n", codex.Trust, ""},
 		{"codex's answer without its question", "› 1. Trust and continue\n", codex.Trust, ""},
 		{"codex's question without its answer", "Trust this folder? Codex can read, edit, and run files here\n", codex.Trust, ""},
 		{"codex's answer at the end of a decorated line", "Trust this folder?\n› Please choose 1. Trust and continue\n", codex.Trust, ""},
