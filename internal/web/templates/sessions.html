@@ -14,6 +14,9 @@
       {{- if .Originator}}
       <div><dt>originator</dt><dd>{{.Originator}}</dd></div>
       {{- end}}
+      {{- if .Login}}
+      <div><dt>login</dt><dd>{{.Login}}</dd></div>
+      {{- end}}
       {{- /* A manual group's claim says manual for its runner, as the
              heading above it already says: it is left out. */}}
       {{- if ne .Runner "manual"}}

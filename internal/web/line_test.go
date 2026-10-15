@@ -857,6 +857,59 @@ func TestSessions(t *testing.T) {
 	}
 }
 
+// The sessions page shows each session's effective login beside its bead
+// originator, as JSON and as the page: the group's login_for, else the
+// operator's (yardr-q0xd).
+func TestSessionsLogin(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	if _, err := f.st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "jo"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 5}, "jo"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "login_for": "hal"}, Limit: 5}, "jo"))
+	work := func(title, group string) string {
+		t.Helper()
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Stage: "new", Depot: "line", For: "hal"}, "jo")
+		must(t, err)
+		sess, err := f.st.Claim(ctx, b.ID, group, "new", "yard")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
+		return b.ID
+	}
+	subsidy := work("hal's door on the operator's login", "builders")
+	personal := work("hal's door on hal's login", "hal-builders")
+
+	var got web.Sessions
+	r := f.get("/sessions", "Accept", "application/json")
+	if err := json.Unmarshal([]byte(r.body), &got); err != nil || r.status != 200 {
+		t.Fatalf("status %d, %v: %s", r.status, err, r.body)
+	}
+	type pair struct{ originator, login string }
+	byBead := map[string]pair{}
+	for _, s := range got.Sessions {
+		byBead[s.Bead] = pair{s.Originator, s.Login}
+	}
+	if byBead[subsidy] != (pair{"hal", "jo"}) || byBead[personal] != (pair{"hal", "hal"}) {
+		t.Errorf("sessions logins = %v, want subsidy hal/jo and personal hal/hal", byBead)
+	}
+	text := squash(f.get("/sessions").body)
+	for _, part := range []string{
+		`<dd>builders</dd></div><div><dt>originator</dt><dd>hal</dd></div><div><dt>login</dt><dd>jo</dd></div>`,
+		`<dd>hal-builders</dd></div><div><dt>originator</dt><dd>hal</dd></div><div><dt>login</dt><dd>hal</dd></div>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("the page lacks %q", part)
+		}
+	}
+}
+
 // The sessions page shows each session's bead originator beside its group,
 // as JSON and as the page.
 func TestSessionsOriginator(t *testing.T) {

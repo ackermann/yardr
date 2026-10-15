@@ -523,7 +523,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/blobs/<hash>` | a note's image or page to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes of the blob with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin a note's bytes run under the scripted policy | |
-| `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
+| `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
 | `/config` | the hub of the configuration pages: links to the six lists | `Config` |
@@ -659,22 +659,22 @@ Home as JSON:
 {
   "sessions": [
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "title": "web: what waits for a person",
-     "train": "yardr-e3rg", "stage": "new", "group": "yardr-builders", "originator": "hal",
+     "train": "yardr-e3rg", "stage": "new", "group": "yardr-builders", "originator": "hal", "login": "jo",
      "runner": "herdr yardr-68k3-new",
      "state": "running", "blocked": true, "started_at": "2026-10-04T00:02:11Z", "age": "3h 4m"}
   ],
   "manual": [
     {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "title": "name the command",
-     "stage": "decide", "group": "decisions", "originator": "jo", "runner": "manual",
+     "stage": "decide", "group": "decisions", "originator": "jo", "login": "jo", "runner": "manual",
      "state": "claimed", "started_at": "2026-10-03T23:58:07Z", "age": "3h 8m"}
   ],
   "list": [
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "group": "yardr-builders", "stage": "new",
      "runner": "herdr", "kind": "claude", "model": "opus", "state": "running", "handle": {"agent": "yardr-68k3-new"}, "stopped": false,
-     "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg", "originator": "hal"},
+     "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg", "originator": "hal", "login": "jo"},
     {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "group": "decisions", "stage": "decide",
      "runner": "manual", "state": "running", "handle": {"manual": true}, "stopped": false,
-     "started_at": "2026-10-03T23:58:07Z", "originator": "jo"}
+     "started_at": "2026-10-03T23:58:07Z", "originator": "jo", "login": "jo"}
   ],
   "head": 1301
 }
@@ -692,6 +692,9 @@ Home as JSON:
   `manual`.
 - `originator` is the user the bead is for. A subsidy route may use the
   operator's login for that user's work.
+- `login` is whose login the group burns: its `login_for`, else the
+  operator's. Beside the originator it says at a glance whose login
+  burns, even when a personal route fell back with `--else`.
 - `state` is `starting` or `running`: an ended session is not listed. A
   manual claim's is `claimed`: the store keeps it as a running session,
   and nothing runs.

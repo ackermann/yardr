@@ -125,8 +125,8 @@ func TestSessionListOriginator(t *testing.T) {
 			t.Fatalf("session list: %v\n%s", err, out)
 		}
 		lines := strings.Split(strings.TrimSpace(out), "\n")
-		if h := strings.Fields(lines[0]); !slices.Equal(h, []string{"ID", "BEAD", "TRAIN", "STAGE", "GROUP", "ORIGINATOR", "STATE", "RUNNER", "STARTED"}) {
-			t.Fatalf("session list header %q, want the originator beside the group", lines[0])
+		if h := strings.Fields(lines[0]); !slices.Equal(h, []string{"ID", "BEAD", "TRAIN", "STAGE", "GROUP", "ORIGINATOR", "LOGIN", "STATE", "RUNNER", "STARTED"}) {
+			t.Fatalf("session list header %q, want the originator and login beside the group", lines[0])
 		}
 		got := map[string]string{}
 		for _, l := range lines[1:] {
@@ -167,6 +167,92 @@ func TestSessionListOriginator(t *testing.T) {
 	}
 	if got := byBead(); got[hal.ID] != "jo" {
 		t.Errorf("after the change, hal's session originator = %q, want jo", got[hal.ID])
+	}
+}
+
+// session list shows each session's effective login beside its bead
+// originator, in text and in --json: the group's login_for, else the
+// operator's. A claimed bead for hal on a group with no login_for shows
+// hal and jo (the operator), while one on hal's own group shows hal and
+// hal (yardr-q0xd).
+func TestSessionListLogin(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "login_for": "hal"}, Limit: 4}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	claim := func(title, group string) string {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Depot: depot.Name, For: "hal"}, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Claim(ctx, b.ID, group, b.Stage, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return b.ID
+	}
+	subsidy := claim("hal's bead on the operator's login", "builders")
+	personal := claim("hal's bead on hal's login", "hal-builders")
+
+	out, err := run(t, (&app{st: st}).rootCmd(), "session", "list")
+	if err != nil {
+		t.Fatalf("session list: %v\n%s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if h := strings.Fields(lines[0]); !slices.Equal(h, []string{"ID", "BEAD", "TRAIN", "STAGE", "GROUP", "ORIGINATOR", "LOGIN", "STATE", "RUNNER", "STARTED"}) {
+		t.Fatalf("session list header %q, want LOGIN beside ORIGINATOR", lines[0])
+	}
+	type pair struct{ originator, login string }
+	got := map[string]pair{}
+	for _, l := range lines[1:] {
+		f := strings.Fields(l)
+		i := slices.Index(f, "builders")
+		if i < 0 {
+			i = slices.Index(f, "hal-builders")
+		}
+		if i < 0 || i+2 >= len(f) {
+			t.Fatalf("session list row %q has no group with two cells after it", l)
+		}
+		got[f[1]] = pair{f[i+1], f[i+2]}
+	}
+	if got[subsidy] != (pair{"hal", "jo"}) {
+		t.Errorf("subsidy session = %+v, want originator hal and login jo", got[subsidy])
+	}
+	if got[personal] != (pair{"hal", "hal"}) {
+		t.Errorf("personal session = %+v, want originator hal and login hal", got[personal])
+	}
+
+	out, err = run(t, (&app{st: st}).rootCmd(), "session", "list", "--json")
+	if err != nil {
+		t.Fatalf("session list --json: %v\n%s", err, out)
+	}
+	var listed []dispatch.ListedSession
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		t.Fatalf("session list --json = %q: %v", out, err)
+	}
+	js := map[string]pair{}
+	for _, s := range listed {
+		js[s.Bead] = pair{s.Originator, s.Login}
+	}
+	if js[subsidy] != (pair{"hal", "jo"}) || js[personal] != (pair{"hal", "hal"}) {
+		t.Errorf("session list --json logins = %v, want subsidy hal/jo and personal hal/hal", js)
 	}
 }
 

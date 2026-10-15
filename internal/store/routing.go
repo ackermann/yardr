@@ -1253,6 +1253,11 @@ type Session struct {
 	// sessions (see Bead.Originator); never stored. An empty originator
 	// reads as the operator's, resolved where it is read.
 	Originator string `json:"originator,omitempty"`
+	// Login is whose login the session burns: its group's login_for, else
+	// the operator's; set on listed sessions like Originator, never
+	// stored. A subsidy route shows another user's work on the
+	// operator's login.
+	Login string `json:"login,omitempty"`
 }
 
 // originatorOf is the originator of the bead u: what it stores, or the
@@ -1262,6 +1267,20 @@ func originatorOf(tx *bolt.Tx, u string) string {
 	row := new(beadRow)
 	if ok, err := get(tx, bBeads, u, row); err == nil && ok && row.Originator != "" {
 		return row.Originator
+	}
+	op, _ := operatorIn(tx)
+	return op
+}
+
+// loginOf is whose login the group burns: what it declares in login_for,
+// else the operator's. "" when the group names none and no operator is set
+// either, or the group is gone.
+func loginOf(tx *bolt.Tx, group string) string {
+	g := new(Group)
+	if ok, err := get(tx, bGroups, group, g); err == nil && ok {
+		if who := g.LoginFor(); who != "" {
+			return who
+		}
 	}
 	op, _ := operatorIn(tx)
 	return op
@@ -1808,6 +1827,7 @@ func (s *Store) sessionsWhere(pending bool, match func(*bolt.Tx, *Session) bool)
 			if match(tx, sess) {
 				sess.Train = trainOf(tx, sess.Bead)
 				sess.Originator = originatorOf(tx, sess.Bead)
+				sess.Login = loginOf(tx, sess.Group)
 				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}
@@ -1852,6 +1872,7 @@ func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 		for _, sess := range live {
 			sess.Train = trainOf(tx, sess.Bead)
 			sess.Originator = originatorOf(tx, sess.Bead)
+			sess.Login = loginOf(tx, sess.Group)
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, sess)
 		}
@@ -1895,6 +1916,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 		keep := func(sess *Session) {
 			sess.Train = trainOf(tx, sess.Bead)
 			sess.Originator = originatorOf(tx, sess.Bead)
+			sess.Login = loginOf(tx, sess.Group)
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, *sess)
 		}

@@ -41,6 +41,9 @@ type SessionRow struct {
 	// Originator is the user the bead is for; a subsidy route may use the
 	// operator's login for that user's work.
 	Originator string `json:"originator,omitempty"`
+	// Login is whose login the group burns: its login_for, else the
+	// operator's.
+	Login string `json:"login,omitempty"`
 	// Runner is the runner that started it and what it runs there: "herdr
 	// yardr-68k3-new", "exec pid 4411", "manual".
 	Runner string `json:"runner"`
@@ -106,7 +109,7 @@ func age(d time.Duration) string {
 func sessionRow(ctx context.Context, rd *reader, sess store.Session) (row SessionRow, manual bool) {
 	row = SessionRow{
 		ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
-		Stage: sess.Stage, Group: sess.Group, Originator: sess.Originator,
+		Stage: sess.Stage, Group: sess.Group, Originator: sess.Originator, Login: sess.Login,
 		Runner: runnerOf(sess), State: sess.State,
 		StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
 	}

@@ -1031,8 +1031,9 @@ func (a *app) sessionCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use: "list", Short: "List live sessions", Args: cobra.NoArgs,
 		Long: `List live sessions: one for each bead a group has claimed. ORIGINATOR
-is the user the bead is for, beside the group. The group uses the login in
-its configuration; a subsidy route can use the operator's login.
+is the user the bead is for, beside the group; LOGIN is whose login the
+group burns, its login_for else the operator's, so a subsidy route shows
+another user's work on the operator's login.
 
 A manual group's claim is among them, though nothing runs in it: the bead
 waits for a person. --running leaves those out, so the list is what an
@@ -1078,10 +1079,10 @@ fewer, and --all every session there is, which is what a script wants.
 					} else if v, ok := s.Handle["pid"]; ok {
 						runner += " pid " + show(v)
 					}
-					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.Originator, s.State, or(runner, "-"),
+					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.Originator, s.Login, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
-				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tSTATE\tRUNNER\tSTARTED", rows)
+				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tLOGIN\tSTATE\tRUNNER\tSTARTED", rows)
 				for _, s := range listed {
 					if s.ResetWait != nil {
 						fmt.Println(resetWaitLine(*s.ResetWait, s.Session, now))
