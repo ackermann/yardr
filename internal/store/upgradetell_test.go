@@ -108,7 +108,7 @@ func TestUpgradeFromSetting(t *testing.T) {
 	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.OperatorSetting] != "jo" {
+	if got, _ := st.Settings(ctx); len(got) != 2 || got[store.OperatorSetting] != "jo" || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("after unset = %v", got)
 	}
 }

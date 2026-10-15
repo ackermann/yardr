@@ -1109,6 +1109,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		TimerLimitSetting:     Askable,
 		TimerMinEverySetting:  Askable,
 		BlobMaxSetting:        Askable,
+		FilesMaxSetting:       Alone,
 		PeerFileMaxSetting:    Askable,
 		BackupEverySetting:    Askable,
 		BackupKeepSetting:     Askable,

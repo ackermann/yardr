@@ -52,6 +52,10 @@ const (
 	// MaxNoteFiles bounds the files of one note, as MaxMailFiles bounds a
 	// mail's.
 	MaxNoteFiles = MaxMailFiles
+	// FilesMaxSetting is the count Settings answers beside blob_max_bytes:
+	// how many files one mail or note may carry. The yard answers its own
+	// count; it is not set.
+	FilesMaxSetting = "files_max"
 	// BlobGrace is how long Prune leaves a blob that nothing names: the
 	// mail or note that will name it is sent after it was put, a paste
 	// some time before the line it goes with.
@@ -114,11 +118,13 @@ type BlobFile struct {
 // MaxBlobName is how many bytes a file's name may have.
 const MaxBlobName = 255
 
-// checkBlobName holds a file's name to what a letter may carry: at most
+// CheckBlobName holds a file's name to what a letter may carry: at most
 // MaxBlobName bytes, valid UTF-8, no "/", "\", NUL or control character,
-// and neither "." nor "..". Empty is allowed, for a paste. A name that
-// fails is refused, never sanitised: the sender names it again.
-func checkBlobName(name string) error {
+// and neither "." nor "..". Empty is allowed, for a paste. Mail, MailPeer
+// and notes refuse a name that fails, never sanitised; a name arriving
+// from a peer is kept empty instead (filing.mailFiles); the view holds a
+// name in a blob URL to the same rule.
+func CheckBlobName(name string) error {
 	switch {
 	case name == "":
 		return nil
@@ -526,7 +532,7 @@ func (s *Store) mailFiles(files []BlobFile) ([]BlobRef, error) {
 	}
 	var out []BlobRef
 	for _, f := range files {
-		if err := checkBlobName(f.Name); err != nil {
+		if err := CheckBlobName(f.Name); err != nil {
 			return nil, err
 		}
 		ref, err := s.Blob(f.Hash)
@@ -552,7 +558,7 @@ func (s *Store) noteFiles(files []BlobFile) ([]BlobRef, error) {
 	}
 	var out []BlobRef
 	for _, f := range files {
-		if err := checkBlobName(f.Name); err != nil {
+		if err := CheckBlobName(f.Name); err != nil {
 			return nil, err
 		}
 		ref, err := s.Blob(f.Hash)

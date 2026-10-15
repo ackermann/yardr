@@ -522,7 +522,8 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's blob to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes with their type; anything else is a 404 ([One bead](#one-bead)). An image and a page open inline, a file downloads (`Content-Disposition: attachment` with its name). On the sandbox origin a note's page runs under the scripted policy, a file downloads the same way | |
+| `/blobs/<hash>` | a note's blob to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes with their type; anything else is a 404 ([One bead](#one-bead)). An image and a page open inline, a file downloads (`Content-Disposition: attachment`) under the first name the lookup finds. On the sandbox origin a note's page runs under the scripted policy, a file downloads the same way | |
+| `/blobs/<hash>/<name>` | the same blob served under that name, when the name passes the rule; a name that fails it is a 404. One blob can carry different names on different letters, so the view's pages link with the name ([One bead](#one-bead)) | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1272,7 +1273,13 @@ anyone, and on a view that acts a mail's file to its sender or recipient;
 anything else answers as a missing blob. The rule is by kind, not by type:
 an SVG, a PDF and a text file all download, with
 `Content-Disposition: attachment; filename*=UTF-8''<encoded name>` and the
-type the bytes say.
+type the bytes say. One blob can carry different names on different
+letters while the route keys by hash, so the name is in the URL:
+`/blobs/<hash>/<name>` serves the blob under that name when the name
+passes the rule (at most 255 bytes of UTF-8, no `/`, `\` or control
+character, neither `.` nor `..`); a name that fails it is a 404, and the
+bare hash serves a file under the first name the lookup finds. The pages
+link with the name: a file's link downloads under it.
 
 A page opens under its own policy, which replaces the yard page's for
 that response: `sandbox` with no `allow-scripts`, so scripts, forms and

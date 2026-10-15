@@ -948,27 +948,52 @@ func TestReceiverTreatsMessageNotFoundAsStoreError(t *testing.T) {
 	}
 }
 
-// Mail from another yard that names a file with a name no letter may
-// carry is no mail: refused, nothing of it taken, and no mail delivered.
-func TestMailWithABadNameIsNoMail(t *testing.T) {
+// A name arriving from a peer that no letter may carry is kept empty,
+// the file still taken: the mail arrives, and its line names no name.
+func TestMailWithABadNameArrivesNameless(t *testing.T) {
 	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
 	ctx := context.Background()
-	body, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "look",
-		"files": []store.BlobRef{{Hash: hashOf(shedPNG), Type: "image/png", Bytes: int64(len(shedPNG)), Name: "../yard.db"}}})
-	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m1", Kind: "mail", Body: body}); !errors.Is(err, yards.ErrRefused) {
-		t.Fatalf("mail with a bad name = %v, want refused", err)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
+	if err != nil {
+		t.Fatal(err)
 	}
-	refused := north.events(t, "peer_message_refused")
-	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedNotMail {
-		t.Fatalf("north's peer_message_refused = %+v", refused)
+	body, _ := json.Marshal(peerFileForTest(store.BlobRef{Hash: ref.Hash, Type: "image/png", Bytes: int64(len(shedPNG))}, shedPNG))
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "f1", Kind: "file", Body: body}); err != nil {
+		t.Fatal(err)
+	}
+	mailBody, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "look",
+		"files": []store.BlobRef{{Hash: ref.Hash, Type: "image/png", Bytes: int64(len(shedPNG)), Name: "../yard.db"}}})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m1", Kind: "mail", Body: mailBody}); err != nil {
+		t.Fatalf("mail with a bad name = %v, want taken", err)
+	}
+	e, files := mailed(t, north)
+	if len(files) != 1 || files[0].Hash != ref.Hash || files[0].Name != "" || files[0].NotTaken != "" {
+		t.Fatalf("north's mail = %+v, files %+v", e, files)
+	}
+	if line := store.FilesLine("/home", files); line != "1 image: "+store.BlobPath("/home", ref.Hash) {
+		t.Fatalf("the file line = %q", line)
+	}
+	// A control character in the name goes the same way: nothing
+	// unvalidated reaches the line.
+	mailBody, _ = json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "look again",
+		"files": []store.BlobRef{{Hash: ref.Hash, Type: "image/png", Bytes: int64(len(shedPNG)), Name: "a\nb.png"}}})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m2", Kind: "mail", Body: mailBody}); err != nil {
+		t.Fatalf("mail with a control character = %v, want taken", err)
 	}
 	page, err := north.api.Inbox(ctx, "yardmaster", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var mails []store.Event
 	for _, e := range page.Events {
 		if e.Kind == "mail" {
-			t.Fatalf("north took the mail: %+v", e)
+			mails = append(mails, e)
 		}
+	}
+	if len(mails) != 2 {
+		t.Fatalf("north's inbox = %+v", page.Events)
+	}
+	if got := store.MailFiles(mails[1]); len(got) != 1 || got[0].Name != "" {
+		t.Fatalf("the second mail's files = %+v", got)
 	}
 }

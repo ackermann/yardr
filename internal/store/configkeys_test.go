@@ -225,7 +225,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, files_max, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
@@ -252,6 +252,7 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_jwt_users: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                              {"web_jwt_users", "a@b.example=a b"},
 		`web_jwt_users: email "A@B.EXAMPLE" twice`:                                                                          {"web_jwt_users", "a@b.example=jo,A@B.EXAMPLE=ann"},
 		`timer_limit "0": a whole number, 1 or more`:                                                                        {"timer_limit", "0"},
+		`files_max is answered by the yard and not set`:                                                                     {"files_max", "32"},
 		`default_pack "packs/x": a directory is given as an absolute path`:                                                  {"default_pack", "packs/x"},
 		`yard name "a b"`: {"name", "a b"},
 	} {
@@ -259,7 +260,7 @@ func TestStoreChecksSettings(t *testing.T) {
 			t.Errorf("SetSetting(%s, %s) = %v, want %s", kv[0], kv[1], err, want)
 		}
 	}
-	if all, err := s.Settings(ctx); err != nil || len(all) != 0 {
+	if all, err := s.Settings(ctx); err != nil || len(all) != 1 || all[store.FilesMaxSetting] != "64" {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
 	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790", "router_addr": "172.18.0.2",

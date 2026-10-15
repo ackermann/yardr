@@ -289,6 +289,10 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: FilesMaxSetting, Help: "how many files one mail or note may carry; the yard answers its own count, and it is not set",
+		Default: strconv.Itoa(MaxMailFiles), Check: func(v string) error {
+			return fmt.Errorf("%s is answered by the yard and not set", FilesMaxSetting)
+		}},
 	{Key: PeerFileMaxSetting, Help: fmt.Sprintf("the most bytes one image sent to a linked yard, or taken from one, may have (yardr peer allow --send/--receive file), at most %d; default: %s", MaxPeerFile, BlobMaxSetting),
 		Check: func(v string) error {
 			if n, err := strconv.ParseInt(v, 10, 64); err != nil || n < 1 || n > MaxPeerFile {
@@ -581,7 +585,9 @@ func CheckWebHost(whose, name string) (string, error) {
 	return host, nil
 }
 
-// Settings returns every setting.
+// Settings returns every setting, and files_max beside them: how many
+// files one mail or note may carry. That count is the yard's own, not a
+// setting the operator changes, so a client needs no copy of the number.
 func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	out := map[string]string{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -590,6 +596,8 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 			return nil
 		})
 	})
+	// The yard's own count wins over anything stored under its key.
+	out[FilesMaxSetting] = strconv.Itoa(MaxMailFiles)
 	return out, err
 }
 

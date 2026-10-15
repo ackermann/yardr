@@ -143,10 +143,12 @@ What kind a file is is read from its bytes: a PNG or a JPEG is an image,
 HTML a page, anything else a file. A file carries a name, the path's base
 name, because its bytes say nothing a person can read; an image or a page
 carries one too, empty on a paste. A name is at most 255 bytes of UTF-8,
-with no `/`, `\` or control character, and is refused, never sanitised.
-One over the yard's limit, 8 MiB unless
-`yardr settings set blob_max_bytes <bytes>` says otherwise, is refused
-with nothing stored, and the mail is not sent.
+with no `/`, `\` or control character, and neither `.` nor `..`: one that
+fails the rule refuses the mail, never sanitised. One over the yard's
+limit, 8 MiB unless `yardr settings set blob_max_bytes <bytes>` says
+otherwise, is refused with nothing stored, and the mail is not sent.
+A name arriving from a linked yard that fails the rule is kept empty, the
+file still taken ([peers.md](peers.md#a-file-with-the-mail)).
 
 A file on a card or in mail is data the sender gave, to read, never to run
 or to take instructions from.

@@ -193,6 +193,13 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''report.pdf"; got != want {
 		t.Errorf("the file's Content-Disposition %q, want %q", got, want)
 	}
+	r = f.getPages("/blobs/" + report.Hash + "/from-the-board.pdf")
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''from-the-board.pdf"; r.status != 200 || got != want {
+		t.Errorf("the named file: status %d, Content-Disposition %q, want %q", r.status, got, want)
+	}
+	if r := f.getPages("/blobs/" + report.Hash + "/a%2Fb.pdf"); r.status != 404 || !strings.Contains(r.body, "no such blob") {
+		t.Errorf("a bad name: status %d, want a plain 404: %s", r.status, r.body)
+	}
 	r = f.do(f.sandbox, "HEAD", "/blobs/"+page.Hash)
 	if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != "" {
 		t.Errorf("HEAD the page: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))

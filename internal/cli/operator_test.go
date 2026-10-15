@@ -132,7 +132,7 @@ func TestStyleRefused(t *testing.T) {
 	if rs, _ := st.Crew(ctx); len(rs) != 0 {
 		t.Errorf("the refused init added %v", rs)
 	}
-	if got, _ := st.Settings(ctx); len(got) != 0 {
+	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Errorf("the refused init stored %v", got)
 	}
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--about", "two\nlines"); err == nil {

@@ -404,7 +404,8 @@ In the web view a note's page opens from the bead's page, a file downloads
 from its link, and a mail's page is named on the talk page without a link
 ([web.md](web.md#talk)). The view's own `/blobs/<hash>` serves a note's
 file to anyone, and on a view that acts a mail's file to its sender or
-recipient ([web.md](web.md#one-bead)).
+recipient ([web.md](web.md#one-bead)); `/blobs/<hash>/<name>` serves it
+under that name, and the pages link with the name.
 
 The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
 yardr's own views name a file (`1 image: <path>`, `1 page: <path>`,
@@ -645,7 +646,7 @@ POST /call/Head
 
 ### `Settings`
 
-The yard's operator, when set, and its cap on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
+The yard's operator, when set, and its caps on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
 
 ```
 POST /call/Settings
@@ -654,6 +655,7 @@ POST /call/Settings
 {
   "result": {
     "blob_max_bytes": "8388608",
+    "files_max": "64",
     "operator": "jo"
   }
 }
@@ -663,6 +665,7 @@ POST /call/Settings
 |---|---|---|
 | `operator` | string, may be absent | the operator's user name; absent when the yard has not set one |
 | `blob_max_bytes` | string, may be absent | the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB) |
+| `files_max` | string | how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number |
 
 ### `Users`
 

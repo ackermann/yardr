@@ -278,7 +278,7 @@ func TestInitNamesTheFirstOperatorAsItsCaller(t *testing.T) {
 		!strings.Contains(err.Error(), "only the operator may change a setting; this is the crew member boss") {
 		t.Fatalf("init --operator Jo as the crew member boss: %v", err)
 	}
-	if got, _ := st.Settings(ctx); len(got) != 0 {
+	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("the refused init stored settings: %v", got)
 	}
 	if now, _ := st.Head(ctx); now != head {
@@ -892,7 +892,7 @@ func TestDefaultKind(t *testing.T) {
 	if _, err := run(t, a.settingsCmd(), "set", "default_kind", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Settings(ctx); len(got) != 0 {
+	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("unset left %v", got)
 	}
 }

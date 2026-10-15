@@ -226,11 +226,11 @@ func TestBlobFileDownloads(t *testing.T) {
 	// line break reaches the header.
 	tricky, err := f.st.PutBlob(ctx, []byte("%PDF-1.4 tricky"))
 	must(t, err)
-	if _, err := f.st.AddNotedAs(ctx, b.ID, "tricky", "me", "", store.BlobFile{Hash: tricky.Hash, Name: `a"b;c d.pdf`}); err != nil {
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "tricky", "me", "", store.BlobFile{Hash: tricky.Hash, Name: `a"b;c d%e€.pdf`}); err != nil {
 		t.Fatal(err)
 	}
 	r = f.get("/blobs/" + tricky.Hash)
-	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''a%22b%3Bc%20d.pdf"; got != want {
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''a%22b%3Bc%20d%25e%E2%82%AC.pdf"; got != want {
 		t.Errorf("the tricky name's Content-Disposition %q, want %q", got, want)
 	}
 	// Empty, for a paste, downloads under the URL's hash.
@@ -241,6 +241,64 @@ func TestBlobFileDownloads(t *testing.T) {
 	}
 	if got := f.get("/blobs/" + plain.Hash).header.Get("Content-Disposition"); got != "attachment" {
 		t.Errorf("the paste's Content-Disposition %q, want %q", got, "attachment")
+	}
+}
+
+// One blob can carry different names on different letters while the route
+// keys by hash, so the name is in the URL: /blobs/<hash>/<name> serves
+// the blob under that name when the name passes the rule; a name that
+// fails it is a 404, as is a hash no letter names.
+func TestBlobNamedURL(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
+	must(t, err)
+	pdf := []byte("%PDF-1.4 the report")
+	report, err := f.st.PutBlob(ctx, pdf)
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "the report, filed", "me", "", store.BlobFile{Hash: report.Hash, Name: "report.pdf"}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := f.get("/blobs/" + report.Hash + "/report.pdf")
+	if r.status != 200 || r.body != string(pdf) {
+		t.Fatalf("the named file: status %d, %d bytes", r.status, len(r.body))
+	}
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''report.pdf"; got != want {
+		t.Errorf("the named file's Content-Disposition %q, want %q", got, want)
+	}
+	// Under whatever name the URL carries, when it passes the rule —
+	// even one no letter gave it.
+	r = f.get("/blobs/" + report.Hash + "/from-the-board.pdf")
+	if r.status != 200 {
+		t.Fatalf("another name: status %d, want 200", r.status)
+	}
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''from-the-board.pdf"; got != want {
+		t.Errorf("another name's Content-Disposition %q, want %q", got, want)
+	}
+	// An escaped name serves decoded.
+	r = f.get("/blobs/" + report.Hash + "/a%22b%3Bc%20d.pdf")
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''a%22b%3Bc%20d.pdf"; r.status != 200 || got != want {
+		t.Errorf("the escaped name: status %d, Content-Disposition %q, want %q", r.status, got, want)
+	}
+	// A name that fails the rule is a 404: a slash, a line break, too long.
+	for _, name := range []string{"a%2Fb.pdf", "a%0Ab.pdf", strings.Repeat("a", 256) + ".pdf"} {
+		if r := f.get("/blobs/" + report.Hash + "/" + name); r.status != 404 {
+			t.Errorf("/blobs/<hash>/%s: status %d, want 404: %s", name, r.status, r.body)
+		}
+	}
+	// The hash must still be one a letter names.
+	if r := f.get("/blobs/" + strings.Repeat("0", 64) + "/report.pdf"); r.status != 404 {
+		t.Errorf("a hash nothing names with a name: status %d, want 404", r.status)
+	}
+	// An image under a name serves as ever, inline and nameless.
+	shot, err := f.st.PutBlob(ctx, shotPNG)
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "the shed", "me", "", store.BlobFile{Hash: shot.Hash, Name: "shot.png"}); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.get("/blobs/" + shot.Hash + "/shot.png"); r.status != 200 || r.header.Get("Content-Disposition") != "" {
+		t.Errorf("the named image: status %d, Content-Disposition %q", r.status, r.header.Get("Content-Disposition"))
 	}
 }
 
@@ -348,7 +406,7 @@ func TestBeadPageNoteFiles(t *testing.T) {
 	}
 
 	body := f.get("/beads/" + b.ID).body
-	if want := `<a href="/blobs/` + ref.Hash + `">file report.pdf</a>`; !strings.Contains(body, want) {
+	if want := `<a href="/blobs/` + ref.Hash + `/report.pdf">file report.pdf</a>`; !strings.Contains(body, want) {
 		t.Errorf("the page lacks %s", want)
 	}
 	if strings.Contains(body, "<img") {

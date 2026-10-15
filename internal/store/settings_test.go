@@ -12,13 +12,13 @@ import (
 func TestSettings(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if got, err := st.Settings(ctx); err != nil || len(got) != 0 {
+	if got, err := st.Settings(ctx); err != nil || len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("fresh settings = %v, %v", got, err)
 	}
 	if err := st.SetSetting(ctx, "default_kind", "codex", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" || len(got) != 1 {
+	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" || len(got) != 2 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("settings = %v", got)
 	}
 	evs, _ := st.Events(ctx, "", 1)
@@ -29,7 +29,7 @@ func TestSettings(t *testing.T) {
 	if err := st.SetSetting(ctx, "default_kind", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Settings(ctx); len(got) != 0 {
+	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("after unset = %v", got)
 	}
 	if err := st.SetSetting(ctx, "Bad Key", "x", "me"); err == nil {

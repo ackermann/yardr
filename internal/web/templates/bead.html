@@ -157,7 +157,7 @@
       {{- if index $.Data.Missing .File.Hash}}
       <p class="faint">page {{slice .File.Hash 0 8}}: the yard no longer has it</p>
       {{- else}}
-      <p><a href="/blobs/{{.File.Hash}}">page {{slice .File.Hash 0 8}}</a></p>
+      <p><a href="{{blobURL .File.Hash .File.Name}}">page {{slice .File.Hash 0 8}}</a></p>
       {{- end}}
       <pre class="text">{{.Note.Text}}</pre>
     </article>
@@ -176,13 +176,13 @@
       {{- if index $.Data.Missing .Hash}}
       <p class="faint">{{$kind}} {{slice .Hash 0 8}}: the yard no longer has it</p>
       {{- else if eq $kind "page"}}
-      <a href="/blobs/{{.Hash}}">page {{slice .Hash 0 8}}</a> <a href="{{$.Data.RunBase}}/blobs/{{.Hash}}">run</a>
+      <a href="{{blobURL .Hash .Name}}">page {{slice .Hash 0 8}}</a> <a href="{{$.Data.RunBase}}{{blobURL .Hash .Name}}">run</a>
       {{- else if eq $kind "image"}}
-      <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+      <img src="{{blobURL .Hash .Name}}" alt="{{$words}}">
       {{- else if .Name}}
-      <a href="/blobs/{{.Hash}}">file {{.Name}}</a>
+      <a href="{{blobURL .Hash .Name}}">file {{.Name}}</a>
       {{- else}}
-      <a href="/blobs/{{.Hash}}">file {{slice .Hash 0 8}}</a>
+      <a href="{{blobURL .Hash .Name}}">file {{slice .Hash 0 8}}</a>
       {{- end}}
       {{- end}}
     </article>

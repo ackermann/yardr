@@ -939,6 +939,10 @@ func TestMailAndNoteRefuseBadNames(t *testing.T) {
 			!strings.Contains(err.Error(), "a file's name") {
 			t.Errorf("a noted note with %q = %v", name, err)
 		}
+		if _, err := api.MailPeer(ctx, "yardmaster", "north", "look", "jo", store.BlobFile{Hash: pdf.Hash, Name: name}); err == nil ||
+			!strings.Contains(err.Error(), "a file's name") {
+			t.Errorf("mail to a peer with %q = %v", name, err)
+		}
 	}
 	if box, err := api.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 0 {
 		t.Errorf("what was refused was sent: %+v, %v", box, err)

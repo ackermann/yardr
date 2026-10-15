@@ -15,11 +15,11 @@
     {{- else if eq $kind "page"}}
     <p class="faint">page {{slice .Hash 0 8}}: pages open from notes</p>
     {{- else if eq $kind "image"}}
-    <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+    <img src="{{blobURL .Hash .Name}}" alt="{{$words}}">
     {{- else if .Name}}
-    <a href="/blobs/{{.Hash}}">file {{.Name}}</a>
+    <a href="{{blobURL .Hash .Name}}">file {{.Name}}</a>
     {{- else}}
-    <a href="/blobs/{{.Hash}}">file {{slice .Hash 0 8}}</a>
+    <a href="{{blobURL .Hash .Name}}">file {{slice .Hash 0 8}}</a>
     {{- end}}
     {{- end}}
     {{- if and .Own .Read}}

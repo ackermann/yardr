@@ -152,7 +152,7 @@ func TestSettingsOfAYardWithoutAnOperator(t *testing.T) {
 			}
 		}
 	}
-	if got, err := s.Settings(ctx); err != nil || len(got) != 0 {
+	if got, err := s.Settings(ctx); err != nil || len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Errorf("settings = %v, %v after the refusals", got, err)
 	}
 	if now, _ := s.Head(ctx); now != head {

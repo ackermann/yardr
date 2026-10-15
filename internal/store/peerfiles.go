@@ -352,12 +352,18 @@ func (w *wtx) checkFile(p *Peer, m PeerMessage, way string, fl *filing) (string,
 // it does not (BlobRef.NotTaken). The link and the cap are asked here
 // again, of what the mail claims, so a file that was refused for either
 // says which; any other that is not held did not arrive, whatever became
-// of its message.
+// of its message. The name is a stranger's word: one no letter may carry
+// is kept empty, the file still taken, so nothing unvalidated ever
+// reaches FilesLine.
 func (fl *filing) mailFiles(p *Peer, mail *peerMail) []BlobRef {
 	var out []BlobRef
 	for _, f := range mail.Files {
 		held, ok := fl.held[f.Hash]
-		ref := BlobRef{Hash: f.Hash, Type: f.Type, Bytes: f.Bytes, Name: f.Name}
+		name := f.Name
+		if CheckBlobName(name) != nil {
+			name = ""
+		}
+		ref := BlobRef{Hash: f.Hash, Type: f.Type, Bytes: f.Bytes, Name: name}
 		switch {
 		case !p.carries(PeerFile, true):
 			ref.NotTaken = notTakenLink
@@ -367,7 +373,7 @@ func (fl *filing) mailFiles(p *Peer, mail *peerMail) []BlobRef {
 			// must not turn a held blob into a missing one. Its name is
 			// the mail's word, kept on the event.
 			ref = held
-			ref.Name = f.Name
+			ref.Name = name
 		case f.Bytes > fl.limit:
 			ref.NotTaken = fmt.Sprintf("it is %d bytes, over this yard's limit of %d for a file from another yard", f.Bytes, fl.limit)
 		default:

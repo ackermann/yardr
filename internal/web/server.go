@@ -155,7 +155,7 @@ var partial = []string{"shell", "aside", "entry", "card"}
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock, "inc": inc, "markAuthor": markAuthor}
+	funcs := template.FuncMap{"asset": s.assetURL, "blobURL": blobURL, "clock": clock, "inc": inc, "markAuthor": markAuthor}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")
@@ -203,6 +203,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
 	s.mux.HandleFunc("GET /blobs/{hash}", s.handleBlob)
+	s.mux.HandleFunc("GET /blobs/{hash}/{name}", s.handleBlob)
 	// The configuration lists (lists.go, limits.go): each has a page under
 	// the Config entry, with /config as their hub.
 	s.mux.HandleFunc("GET /config", s.handleConfig)
@@ -237,6 +238,7 @@ func (s *Server) routes() {
 // origin answers no yard route at all.
 func (s *Server) pagesRoutes() {
 	s.pagesMux.HandleFunc("GET /blobs/{hash}", s.handlePagesBlob)
+	s.pagesMux.HandleFunc("GET /blobs/{hash}/{name}", s.handlePagesBlob)
 }
 
 // policy lets the browser load and reach this server only, so a page that

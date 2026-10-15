@@ -158,11 +158,12 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Settings",
-		says:     "The yard's operator, when set, and its cap on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
+		says:     "The yard's operator, when set, and its caps on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
 		requests: []string{`{}`},
 		fields: []field{
 			{"operator", "string?", "the operator's user name; absent when the yard has not set one"},
 			{"blob_max_bytes", "string?", "the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB)"},
+			{"files_max", "string", "how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number"},
 		},
 	},
 	{

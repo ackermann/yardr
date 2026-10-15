@@ -233,12 +233,11 @@ type peerMail struct {
 }
 
 // filesNamed reports whether the files a peer's mail names are what mail
-// may name: no more than local mail carries, each by a hash, with a name
-// no letter may carry refusing it as no mail.
+// may name: no more than local mail carries, each by a hash. A name no
+// letter may carry does not refuse the mail: filing.mailFiles keeps it
+// empty instead, the file still taken.
 func filesNamed(files []BlobRef) bool {
-	return len(files) <= MaxMailFiles && !slices.ContainsFunc(files, func(f BlobRef) bool {
-		return !blobHash.MatchString(f.Hash) || f.Bytes < 0 || checkBlobName(f.Name) != nil
-	})
+	return len(files) <= MaxMailFiles && !slices.ContainsFunc(files, func(f BlobRef) bool { return !blobHash.MatchString(f.Hash) || f.Bytes < 0 })
 }
 
 // peerMailName is what a name in mail between yards is held to: a

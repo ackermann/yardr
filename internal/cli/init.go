@@ -1249,6 +1249,15 @@ type settingRow struct {
 // settingRows are the settings as the yard at home goes by them, sorted:
 // each known one, then what is stored under a key nothing reads.
 func settingRows(home string, stored map[string]string) []settingRow {
+	// files_max is answered, never stored: Settings carries it, but the
+	// yard goes by its own count, from default.
+	kept := make(map[string]string, len(stored))
+	for k, v := range stored {
+		if k != store.FilesMaxSetting {
+			kept[k] = v
+		}
+	}
+	stored = kept
 	var rows []settingRow
 	for _, k := range store.SettingKeys() {
 		set, _ := store.SettingOf(k)
@@ -1346,7 +1355,8 @@ many live ones one crew member or user may have set, and the shortest period of
 a recurring one. They hold for timers set from then on.
 
 blob_max_bytes is the most bytes one file in mail may have (yardr mail
---file), 8388608 (8 MiB) unless set.
+--file), 8388608 (8 MiB) unless set. files_max is how many files one mail
+or note may carry, 64: the yard answers its own count, and it is not set.
 
 max_sessions is the most sessions that run on this machine at once, over
 all groups: what the machine carries, beside each group's limit. A session

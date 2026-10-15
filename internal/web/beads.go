@@ -952,6 +952,13 @@ const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'u
 // directory. A page opens under the page policy, inert, which replaces the
 // yard page's policy ServeHTTP set before the mux served; an image keeps
 // that policy. A file downloads, never inline (serveBlob).
+//
+// One blob can carry different names on different letters while the route
+// keys by hash, so the name is in the URL: /blobs/<hash>/<name> serves
+// the blob under that name when the name passes the rule, and the hash
+// must still be one a letter the caller may read names; a name that fails
+// the rule answers as a missing blob. The bare hash serves as ever: for a
+// file, under the first name the lookup finds.
 func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ctx := r.Context()
@@ -963,6 +970,13 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if name := r.PathValue("name"); name != "" {
+		if err := store.CheckBlobName(name); err != nil {
+			s.fail(w, r, fmt.Errorf("%w: %w", err, store.ErrNotFound))
+			return
+		}
+		ref.Name = name
+	}
 	if ref.IsPage() {
 		w.Header().Set("Content-Security-Policy", pagePolicy)
 	}
@@ -972,8 +986,9 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 // handlePagesBlob serves a note's blob on the sandbox origin: the same
 // bytes the view serves, under the scripted policy PagesHandler set
 // before the mux served. A file downloads the same way as on the main
-// origin; only a page runs there. Anything else answers plainly: the
-// origin answers no yard route, not even the yard's error page.
+// origin, under a name the URL carries as there; only a page runs here.
+// Anything else answers plainly: the origin answers no yard route, not
+// even the yard's error page.
 func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ref, err := s.st.NoteBlob(r.Context(), hash)
@@ -987,6 +1002,13 @@ func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "could not read the blob", http.StatusInternalServerError)
 		return
+	}
+	if name := r.PathValue("name"); name != "" {
+		if store.CheckBlobName(name) != nil {
+			http.Error(w, "no such blob", http.StatusNotFound)
+			return
+		}
+		ref.Name = name
 	}
 	serveBlob(w, r, s.home, hash, ref)
 }
@@ -1032,6 +1054,17 @@ func blobDisposition(name string) string {
 // inc is one more than i: an ask's options are numbered from one, and the
 // template ranges them from zero.
 func inc(i int) int { return i + 1 }
+
+// blobURL is the path the pages link a blob by: with the letter's name
+// when it has one, so a file downloads under it, the bare hash otherwise.
+// The name is escaped for its segment; the handler holds it to the rule
+// again before serving under it.
+func blobURL(hash, name string) string {
+	if name == "" {
+		return "/blobs/" + hash
+	}
+	return "/blobs/" + hash + "/" + url.PathEscape(name)
+}
 
 // markAuthor is who a name reads as on the page, a note's author or a
 // history's actor: a name of this yard unchanged, a name of another

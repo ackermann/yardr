@@ -266,7 +266,7 @@ func TestSettingHookAddr(t *testing.T) {
 			t.Errorf("hook_addr %s: %v", bad, err)
 		}
 	}
-	if got, _ := st.Settings(ctx); len(got) != 0 {
+	if got, _ := st.Settings(ctx); len(got) != 1 || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("a refused address was kept: %v", got)
 	}
 
