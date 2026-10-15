@@ -340,11 +340,48 @@ func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") 
 // whose user lookup blocks (yardr-tbm4).
 var currentUser = user.Current
 
-// actorLookupTimeout bounds the OS user lookup in Actor. Under Codex's
-// sandbox getpwuid can hang (in notify_register_check), past signals, so
-// an unbounded lookup hangs the command past killing. A variable so the
-// test fails in milliseconds (yardr-tbm4).
-var actorLookupTimeout = 2 * time.Second
+// userLookupTimeout bounds the OS user lookup in LookupUsername, and so in
+// Actor and the login name. Under Codex's sandbox getpwuid can hang (in
+// notify_register_check), past signals, so an unbounded lookup hangs the
+// command past killing. A variable so the test fails in milliseconds
+// (yardr-tbm4).
+var userLookupTimeout = 2 * time.Second
+
+// errUserLookupTimeout is the LookupUsername error when the lookup does not
+// answer in time. Callers fall through to their next name; Actor, which has
+// none, fails instead, with how to name one.
+var errUserLookupTimeout = errors.New("the system's user lookup did not answer")
+
+// LookupUsername is the username lookup answers with, bounded by
+// userLookupTimeout: errUserLookupTimeout when it does not answer in time,
+// the lookup's error when it answers with none. The one bounded lookup,
+// shared by Actor and the login name (yardr-tbm4, yardr-8ms7).
+func LookupUsername(lookup func() (*user.User, error)) (string, error) {
+	type lookedUp struct {
+		name string
+		err  error
+	}
+	found := make(chan lookedUp, 1)
+	go func() {
+		u, err := lookup()
+		if err != nil {
+			found <- lookedUp{err: err}
+			return
+		}
+		found <- lookedUp{name: u.Username}
+	}()
+	select {
+	case r := <-found:
+		if r.err != nil {
+			return "", r.err
+		}
+		return r.name, nil
+	case <-time.After(userLookupTimeout):
+		// The lookup stays stuck where it is; the buffered send lets it
+		// go, and the goroutine with it, if it ever answers.
+		return "", errUserLookupTimeout
+	}
+}
 
 // Actor names who is acting: YARDR_ACTOR, else the login name ($USER,
 // then the OS user's), else "unknown". A named actor never reaches the
@@ -358,34 +395,14 @@ func Actor() (string, error) {
 	if u := os.Getenv("USER"); u != "" {
 		return u, nil
 	}
-	type lookedUp struct {
-		name string
-		err  error
-	}
-	found := make(chan lookedUp, 1)
-	// Read here, not in the goroutine: the variable is the test's to
-	// stub, and the goroutine may still be starting when it is restored.
-	lookup := currentUser
-	go func() {
-		u, err := lookup()
-		if err != nil {
-			found <- lookedUp{err: err}
-			return
-		}
-		found <- lookedUp{name: u.Username}
-	}()
-	select {
-	case r := <-found:
-		if r.err != nil {
-			return "unknown", nil
-		}
-		return r.name, nil
-	case <-time.After(actorLookupTimeout):
-		// The lookup stays stuck where it is; the buffered send lets it
-		// go if it ever answers. The process, which fails now, takes it
-		// with it when it exits.
+	name, err := LookupUsername(currentUser)
+	if errors.Is(err, errUserLookupTimeout) {
 		return "", errors.New("no actor: set YARDR_ACTOR or USER; the system's user lookup did not answer")
 	}
+	if err != nil {
+		return "unknown", nil
+	}
+	return name, nil
 }
 
 // ParseRetention reads how long something is kept: a number of days

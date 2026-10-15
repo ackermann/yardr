@@ -788,15 +788,22 @@ func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, re
 // the environment gives none.
 const fallbackOperator = "operator"
 
+// osUserLookup is user.Current as a variable, so a test can be a machine
+// whose user lookup blocks (yardr-8ms7).
+var osUserLookup = user.Current
+
 // loginName is the OS's name for the user running yardr, "" when it has
-// none (a uid without a passwd entry, as in a container). A variable so a
-// test can be a machine that does not know its user.
+// none (a uid without a passwd entry, as in a container) or when its
+// lookup does not answer in time. Under Codex's sandbox getpwuid can hang
+// past signals, so the lookup runs bounded, through the helper Actor uses
+// (yardr-tbm4, yardr-8ms7). A variable so a test can be a machine that
+// does not know its user.
 var loginName = func() string {
-	u, err := user.Current()
+	name, err := config.LookupUsername(osUserLookup)
 	if err != nil {
 		return ""
 	}
-	return u.Username
+	return name
 }
 
 // defaultOperator is who the role prompts name when the onboarding was not
@@ -804,12 +811,18 @@ var loginName = func() string {
 // operator is a user, so only a name a user may have is taken (Windows'
 // DOMAIN\name is none), and without one it is "operator": init under
 // env -i, in a container or in a service unit must not fail for want of a
-// login name.
+// login name. Each name is tried only when the ones before it gave none:
+// with $USER set the OS is never asked, where its lookup can hang past
+// signals (yardr-8ms7).
 func defaultOperator() string {
-	for _, name := range []string{os.Getenv("USER"), os.Getenv("LOGNAME"), loginName()} {
-		if store.ValidUserName(name) {
-			return name
-		}
+	if name := os.Getenv("USER"); store.ValidUserName(name) {
+		return name
+	}
+	if name := os.Getenv("LOGNAME"); store.ValidUserName(name) {
+		return name
+	}
+	if name := loginName(); store.ValidUserName(name) {
+		return name
 	}
 	return fallbackOperator
 }

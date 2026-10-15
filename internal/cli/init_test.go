@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -340,6 +341,40 @@ func TestDefaultOperator(t *testing.T) {
 		if !store.ValidUserName(got) {
 			t.Errorf("USER=%q LOGNAME=%q login %q: %q is no user name", c.user, c.logname, c.login, got)
 		}
+	}
+}
+
+// yardr-8ms7: with the OS user lookup stubbed to block, as getpwuid does
+// under Codex's sandbox: a set $USER returns at once, never reaching it,
+// and with nothing set the bounded lookup falls through to "operator"
+// within the bound instead of hanging.
+func TestDefaultOperatorBlockedLookup(t *testing.T) {
+	was := osUserLookup
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		osUserLookup = was
+		close(release)
+	})
+	osUserLookup = func() (*user.User, error) {
+		<-release
+		return nil, errors.New("released")
+	}
+	t.Setenv("USER", "kim")
+	t.Setenv("LOGNAME", "")
+	start := time.Now()
+	if got := defaultOperator(); got != "kim" {
+		t.Fatalf("USER=kim: defaultOperator = %q, want kim", got)
+	}
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("USER=kim: defaultOperator took %v, want it at once", elapsed)
+	}
+	t.Setenv("USER", "")
+	start = time.Now()
+	if got := defaultOperator(); got != "operator" {
+		t.Fatalf("nothing set: defaultOperator = %q, want operator", got)
+	}
+	if elapsed := time.Since(start); elapsed >= 5*time.Second {
+		t.Fatalf("nothing set: defaultOperator took %v, want the 2s bound", elapsed)
 	}
 }
 

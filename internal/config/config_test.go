@@ -47,22 +47,22 @@ func TestActorFallsBackToLogin(t *testing.T) {
 // bounds it at 2 s and fails with how to name one instead of hanging; a
 // named actor never reaches the lookup.
 func TestActorLookupTimeout(t *testing.T) {
-	if actorLookupTimeout != 2*time.Second {
-		t.Fatalf("actorLookupTimeout = %v, want 2s", actorLookupTimeout)
+	if userLookupTimeout != 2*time.Second {
+		t.Fatalf("userLookupTimeout = %v, want 2s", userLookupTimeout)
 	}
 	t.Setenv("YARDR_ACTOR", "")
 	t.Setenv("USER", "")
 	release := make(chan struct{})
 	t.Cleanup(func() {
 		currentUser = user.Current
-		actorLookupTimeout = 2 * time.Second
+		userLookupTimeout = 2 * time.Second
 		close(release)
 	})
 	currentUser = func() (*user.User, error) {
 		<-release
 		return nil, errors.New("released")
 	}
-	actorLookupTimeout = 50 * time.Millisecond
+	userLookupTimeout = 50 * time.Millisecond
 	start := time.Now()
 	got, err := Actor()
 	if elapsed := time.Since(start); elapsed >= time.Second {
@@ -71,6 +71,22 @@ func TestActorLookupTimeout(t *testing.T) {
 	want := "no actor: set YARDR_ACTOR or USER; the system's user lookup did not answer"
 	if err == nil || err.Error() != want {
 		t.Fatalf("Actor with a blocked lookup = %q, %v, want the error", got, err)
+	}
+}
+
+// A lookup that answers with no user is "unknown", as before the bound;
+// LookupUsername hands the caller the lookup's error.
+func TestActorLookupError(t *testing.T) {
+	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("USER", "")
+	t.Cleanup(func() { currentUser = user.Current })
+	lookupErr := errors.New("user: unknown userid 99")
+	currentUser = func() (*user.User, error) { return nil, lookupErr }
+	if name, err := LookupUsername(currentUser); name != "" || !errors.Is(err, lookupErr) {
+		t.Fatalf("LookupUsername = %q, %v, want the lookup's error", name, err)
+	}
+	if got, err := Actor(); err != nil || got != "unknown" {
+		t.Fatalf("Actor = %q, %v, want unknown", got, err)
 	}
 }
 
