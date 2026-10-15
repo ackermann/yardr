@@ -955,7 +955,11 @@ func (a *app) primeCmd() *cobra.Command {
 						fmt.Printf("  %s\n", depLine(d))
 					}
 				}
-				if len(notes) > 0 {
+				templateErr := ""
+				if flowErr == nil && next != nil {
+					templateErr = next.TemplateError
+				}
+				if len(notes) > 0 || templateErr != "" {
 					fmt.Println("\nNotes:")
 					// An answer from another yard says whose word it is,
 					// as mail does; with no grants when the trusts cannot
@@ -967,6 +971,11 @@ func (a *app) primeCmd() *cobra.Command {
 					blocks := store.NoteBlocksMarked(notes, time.Now(), as, a.mailHome())
 					for _, block := range blocks {
 						fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
+					}
+					// A broken template put no fresh ask: the error stands
+					// where it would, after the history.
+					if templateErr != "" {
+						fmt.Printf("  ask template broken in stage %s: %s\n\n", b.Stage, store.OneLine(templateErr))
 					}
 				}
 			})

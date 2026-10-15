@@ -430,7 +430,8 @@ fresh stay: the old stage ask is taken back and a fresh ask is put.
 Closing takes back open stage asks with `closed` as the reason, and
 reopening into a templated stage asks fresh. A broken template puts no
 ask: the bead enters as today, and the yard logs one `bad_template`
-event naming the stage and the error.
+event naming the stage and the error. Prime and review show the error
+where the ask would stand; the bead still moves by hand.
 
 An answer on a stage ask is its members' to give: a pick, words, Later or
 Decline from anyone else is refused whole, with the membership reason. A

@@ -28,6 +28,10 @@ type reviewItem struct {
 	// FlowError says why the bead's flow does not resolve; every move is
 	// refused until it is fixed, so only diff and skip are offered.
 	FlowError string `json:"flow_error,omitempty"`
+	// TemplateError is why entering the stage put no stage ask: the
+	// bad_template event's reason for this stay, where the ask would
+	// stand. The bead still moves by hand.
+	TemplateError string `json:"template_error,omitempty"`
 }
 
 // Action kinds. advance moves the bead to Stage; done reports Outcome,
@@ -101,6 +105,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 			it.FlowError, it.Actions = err.Error(), lookActions()
 		} else {
 			it.Actions = reviewActions(b, next.Flow, routes)
+			it.TemplateError = next.TemplateError
 		}
 		items = append(items, it)
 	}
@@ -304,8 +309,9 @@ names no outcomes).`,
 }
 
 // printReviewList prints the review queue as a table, one bead per row with
-// the moves it allows. The title is its writer's words, one line, as
-// letters only, so it cannot start a row of its own.
+// the moves it allows. A bead whose stage ask template broke shows the
+// error instead, where the ask would stand. The title is its writer's
+// words, one line, as letters only, so it cannot start a row of its own.
 func printReviewList(items []reviewItem) {
 	rows := [][]string{}
 	for _, it := range items {
@@ -321,6 +327,8 @@ func printReviewList(items []reviewItem) {
 		nextCol := or(strings.Join(next, " | "), "-")
 		if it.FlowError != "" {
 			nextCol = "flow error: " + it.FlowError
+		} else if it.TemplateError != "" {
+			nextCol = "ask template broken: " + store.OneLine(it.TemplateError)
 		}
 		rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
 			nextCol, store.OneLine(it.Bead.Title)})
@@ -366,6 +374,11 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 		}
 		if n := lastNotes(notes, 3, as, a.mailHome()); n != "" {
 			desc += "\n\nNotes:\n" + n
+		}
+		// A broken template put no fresh ask: the error stands where it
+		// would, after the notes. The bead still moves by hand.
+		if it.TemplateError != "" {
+			desc += "\n\nAsk template broken (no ask was put; move by hand): " + store.OneLine(it.TemplateError)
 		}
 		desc += "\n\nDiff:\n" + clip(diffStat(ctx, st, b), 15)
 

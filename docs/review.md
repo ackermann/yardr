@@ -45,4 +45,6 @@ history. Later puts the question aside, Decline ends it, and the bead waits
 to be moved by hand. Only the stage's members may answer, with the operator
 allowed when the yard used the fallback addressee. If the stage has no listed
 members, the usual rule applies and anyone may answer; other non-members are
-refused whole.
+refused whole. A broken template puts no ask: the list marks the bead with
+the error instead of its moves, and the form shows it after the notes; the
+bead still moves by hand.

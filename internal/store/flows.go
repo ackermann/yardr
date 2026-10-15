@@ -1147,6 +1147,11 @@ type NextStages struct {
 	// one. A store flow's is a file in the yard's home, which the store
 	// does not read: whoever knows the home asks HomeStageFile.
 	StageFile *StageFile `json:"stage_file,omitempty"`
+	// TemplateError is why entering Stage put no stage ask: the
+	// bad_template event's reason for this stay, where the ask would
+	// stand. Empty when the entry put its asks, or the stage has no
+	// template. The bead still moves by hand.
+	TemplateError string `json:"template_error,omitempty"`
 }
 
 // NextStages reports the flow governing bead id, the stages it may be
@@ -1178,6 +1183,13 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 			if f.IsTerminal(st) {
 				out.Terminal = append(out.Terminal, st)
 			}
+		}
+		entry, err := latestStayEntry(tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		if out.TemplateError, err = stayTemplateError(tx, row.UUID, row.Stage, entry); err != nil {
+			return err
 		}
 		return nil
 	})

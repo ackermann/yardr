@@ -640,6 +640,83 @@ func TestStageAskBrokenTemplate(t *testing.T) {
 	}
 }
 
+// NextStages carries the current stay's bad_template reason, where the ask
+// would stand: set on a broken entry, empty on a good one, and history
+// once a later stay puts its asks.
+func TestNextStagesTemplateError(t *testing.T) {
+	dir := gitRepo(t, map[string]string{
+		".yardr/flows/default.flow":      stageAskFlow,
+		".yardr/flows/default/review.md": stageAskChoice,
+	})
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"ada", "mckean"} {
+		if _, err := s.AddUser(ctx, u, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada", "mckean"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := s.NextStages(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	} else if next.TemplateError != "" {
+		t.Fatalf("good entry template error = %q", next.TemplateError)
+	}
+	commitFiles(t, dir, map[string]string{".yardr/flows/default/review.md": "Review.\n\n## Ask\nkind: chek\n"})
+	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := s.NextStages(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	} else if next.TemplateError != "" {
+		t.Fatalf("outside the stage template error = %q", next.TemplateError)
+	}
+	if b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.NextStages(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(next.TemplateError, "ask line 4") {
+		t.Fatalf("broken entry template error = %q", next.TemplateError)
+	}
+	// Fixed and re-entered, the old event is history: a fresh ask stands
+	// and no error does.
+	commitFiles(t, dir, map[string]string{".yardr/flows/default/review.md": stageAskChoice})
+	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := s.NextStages(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	} else if next.TemplateError != "" {
+		t.Fatalf("fixed re-entry template error = %q", next.TemplateError)
+	}
+	if got := stageAsks(t, s, b.ID); len(got) != 4 {
+		t.Fatalf("asks after fixed re-entry = %d, want the old two and a fresh two", len(got))
+	}
+}
+
 // Input and check templates put their shape: words with the move as the
 // single entry, and Done firing the move with the yard's consequence.
 func TestStageAskInputCheck(t *testing.T) {

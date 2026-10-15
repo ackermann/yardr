@@ -388,6 +388,36 @@ func latestStayEntry(tx *bolt.Tx, uuid string) (uint64, error) {
 	return entry, nil
 }
 
+// stayTemplateError is why the bead's stay in stage put no stage ask: the
+// bad_template event's reason logged for it since its entry, "" when the
+// entry put its asks. entry is latestStayEntry; an event of an earlier stay
+// is history, as a removed or fixed template's is.
+func stayTemplateError(tx *bolt.Tx, uuid, stage string, entry uint64) (string, error) {
+	if entry == 0 {
+		return "", nil
+	}
+	var reason string
+	var at uint64
+	for _, k := range keys(tx, bEventsBy, uuid+"\x00") {
+		var e Event
+		if ok, err := get(tx, bEvents, k[len(uuid)+1:], &e); err != nil {
+			return "", err
+		} else if !ok {
+			continue
+		}
+		if e.Kind != badTemplateEvent || e.Seq <= entry || e.Seq < at {
+			continue
+		}
+		if s, _ := e.Data["stage"].(string); s != stage {
+			continue
+		}
+		if r, _ := e.Data["reason"].(string); r != "" {
+			reason, at = r, e.Seq
+		}
+	}
+	return reason, nil
+}
+
 // stageMove is the outcome a pick of option n, 1-based into the stage ask's
 // options, reports: "" for You decide, which moves nothing, and for an
 // option past the moves, which a corrupt ask moves nothing for.
