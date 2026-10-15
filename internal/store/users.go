@@ -11,6 +11,9 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 )
 
 // A user is a person as a party of the yard: a name and an inbox, as a
@@ -212,6 +215,28 @@ func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass
 // (a pairing, which lives in the server's memory).
 func (s *Store) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {
 	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does, ask) })
+}
+
+// daemonOnly refuses a session-lifecycle write from any caller but the
+// daemon: method is the daemon's alone to make. The pane checks trust
+// what these writes record (paneSession, paneCrew), so a pane that could
+// make them could pass as another session or rewrite who a note is stored
+// as. A call with no caller (the owning process: tests, in-process use)
+// is served; over the socket the caller is the pid that holds the daemon
+// lock, verified by pid and start time as a stop verifies it (never a
+// bare pid), or the call is refused.
+func (s *Store) daemonOnly(ctx context.Context, method string) error {
+	pid := callerOf(ctx)
+	if pid <= 0 {
+		return nil
+	}
+	lock := config.At(s.home).DaemonLock()
+	holder := config.DaemonPID(lock)
+	start, recorded := config.DaemonStart(lock)
+	if holder != pid || !recorded || !peer.Alive(pid, start) {
+		return fmt.Errorf("%s is the daemon's alone", method)
+	}
+	return nil
 }
 
 // maySpeakAs refuses to speak as the crew member name to anyone but the

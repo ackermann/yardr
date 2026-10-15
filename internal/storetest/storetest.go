@@ -12,12 +12,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 )
@@ -47,10 +50,15 @@ func New(t testing.TB) store.API {
 // event kind) while the test reads back through the API.
 func NewOwned(t testing.TB) (store.API, *store.Store) {
 	t.Helper()
-	s := Open(t, filepath.Join(t.TempDir(), "yard.db"))
+	home := t.TempDir()
+	s := Open(t, filepath.Join(home, "yard.db"))
 	if config.Getenv("TEST_RPC") == "" {
 		return s, s
 	}
+	// Over the wire every call has a caller, so the daemon's own writes
+	// would be refused without a holder: the test process holds the
+	// lock, as the daemon does.
+	HoldDaemon(t, home)
 	// Unix socket paths are limited to ~108 bytes; t.TempDir is too long.
 	dir, err := os.MkdirTemp("", "ys")
 	if err != nil {
@@ -99,6 +107,42 @@ func RepoFlow(t testing.TB, name string) string {
 		t.Fatalf("the repository carries no flow %s (%v); it has %v", name, err, have)
 	}
 	return path
+}
+
+// HoldDaemon holds home's daemon lock as the test process until the test
+// ends, as the daemon holds it: over the socket every call has a caller,
+// so without a holder the daemon's own writes would be refused.
+func HoldDaemon(t testing.TB, home string) {
+	t.Helper()
+	me := os.Getpid()
+	var start uint64
+	if st, err := peer.Describe(me); err == nil {
+		start = st.Start
+	}
+	HoldDaemonAs(t, home, me, start)
+}
+
+// HoldDaemonAs is HoldDaemon recording pid with start as the holder, for a
+// test where another process holds the lock.
+func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) {
+	t.Helper()
+	lock := config.At(home).DaemonLock()
+	f, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		t.Fatalf("hold %s: %v", lock, err)
+	}
+	id := strconv.Itoa(pid) + " " + strconv.FormatUint(start, 10) + "\n"
+	if err := f.Truncate(0); err == nil {
+		_, _ = f.WriteAt([]byte(id), 0)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	})
 }
 
 // Open opens the store at path, closing it when the test ends.

@@ -77,9 +77,11 @@ func shortHome(t *testing.T) string {
 // served over a unix socket, as storetest.New serves its own.
 func shortYard(t *testing.T) (store.API, string) {
 	t.Helper()
-	s := storetest.Open(t, filepath.Join(shortHome(t), "yard.db"))
+	home := shortHome(t)
+	s := storetest.Open(t, filepath.Join(home, "yard.db"))
 	var st store.API = s
 	if os.Getenv("YARDR_TEST_RPC") != "" {
+		storetest.HoldDaemon(t, home)
 		dir, err := os.MkdirTemp("", "ys")
 		if err != nil {
 			t.Fatal(err)

@@ -1552,7 +1552,12 @@ func fillLiveSessions(tx *bolt.Tx) error {
 // (`limits_unknown`). A claim that names none logs the event as it was.
 // Whatever the claim came by, the event names the group that last held the
 // bead in this stage when it is another (`was`).
+//
+// The daemon's alone (daemonOnly): only it claims.
 func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, via ...Routed) (*Session, error) {
+	if err := s.daemonOnly(ctx, "Claim"); err != nil {
+		return nil, err
+	}
 	var sess *Session
 	// The blockers' repository flows, read before the write: git must not
 	// run inside one. The readiness check below resolves their flows
@@ -1680,7 +1685,11 @@ func (s *Store) changeSession(id string, fn func(*wtx, *Session) error) error {
 }
 
 // MarkRunning records the runner handle once the runner has started.
+// The daemon's alone (daemonOnly): only it starts sessions.
 func (s *Store) MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error {
+	if err := s.daemonOnly(ctx, "MarkRunning"); err != nil {
+		return err
+	}
 	return s.changeSession(sessionID, func(w *wtx, sess *Session) error {
 		if sess.State != "starting" {
 			return nil
@@ -1743,8 +1752,12 @@ func (s *Store) MarkStopped(ctx context.Context, sessionID string) error {
 }
 
 // SetHandle records runner resources on a session without changing state,
-// so teardown can clean up after a failed start.
+// so teardown can clean up after a failed start. The daemon's alone
+// (daemonOnly): the pane checks trust the handle.
 func (s *Store) SetHandle(ctx context.Context, sessionID string, handle map[string]any) error {
+	if err := s.daemonOnly(ctx, "SetHandle"); err != nil {
+		return err
+	}
 	return s.changeSession(sessionID, func(_ *wtx, sess *Session) error {
 		sess.Handle = handle
 		return nil
@@ -1752,8 +1765,11 @@ func (s *Store) SetHandle(ctx context.Context, sessionID string, handle map[stri
 }
 
 // MarkCleaned records that a closed bead's workspace was handled, so it is
-// attempted once.
+// attempted once. The daemon's alone (daemonOnly): only it cleans up.
 func (s *Store) MarkCleaned(ctx context.Context, sessionID string) error {
+	if err := s.daemonOnly(ctx, "MarkCleaned"); err != nil {
+		return err
+	}
 	return s.changeSession(sessionID, func(_ *wtx, sess *Session) error {
 		sess.Cleaned = true
 		return nil

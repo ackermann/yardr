@@ -80,8 +80,12 @@ func (s *Store) CrewStartingFor(ctx context.Context, name, user string, handle m
 	})
 }
 
-// CrewStartedFor is CrewStarted for one session.
+// CrewStartedFor is CrewStarted for one session. The daemon's alone
+// (daemonOnly): only it starts crew sessions.
 func (s *Store) CrewStartedFor(ctx context.Context, name, user string, handle map[string]any) error {
+	if err := s.daemonOnly(ctx, "CrewStartedFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		t := now()
 		st.Starting = nil
@@ -97,16 +101,24 @@ func (s *Store) CrewStartedFor(ctx context.Context, name, user string, handle ma
 	})
 }
 
-// CrewSettledFor is CrewSettled for one session.
+// CrewSettledFor is CrewSettled for one session. The daemon's alone
+// (daemonOnly): only it watches crew sessions live.
 func (s *Store) CrewSettledFor(ctx context.Context, name, user string) error {
+	if err := s.daemonOnly(ctx, "CrewSettledFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Failures = 0
 		return nil
 	})
 }
 
-// CrewStatusFor is CrewStatus for one session.
+// CrewStatusFor is CrewStatus for one session. The daemon's alone
+// (daemonOnly): only it sees what a crew session is doing.
 func (s *Store) CrewStatusFor(ctx context.Context, name, user, status string) error {
+	if err := s.daemonOnly(ctx, "CrewStatusFor"); err != nil {
+		return err
+	}
 	if !slices.Contains(CrewStatuses, status) {
 		return fmt.Errorf("crew member status %q: it is one of %s", status, strings.Join(CrewStatuses, ", "))
 	}
@@ -130,8 +142,12 @@ func (s *Store) CrewStatusFor(ctx context.Context, name, user, status string) er
 	})
 }
 
-// SetCrewHandleFor is SetCrewHandle for one session.
+// SetCrewHandleFor is SetCrewHandle for one session. The daemon's alone
+// (daemonOnly): the pane checks trust the handle.
 func (s *Store) SetCrewHandleFor(ctx context.Context, name, user string, handle map[string]any) error {
+	if err := s.daemonOnly(ctx, "SetCrewHandleFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Handle = handle
 		return nil
@@ -149,8 +165,12 @@ func (s *Store) CrewStoppedFor(ctx context.Context, name, user, reason string) e
 	})
 }
 
-// CrewGoneFor is CrewGone for one session.
+// CrewGoneFor is CrewGone for one session. The daemon's alone
+// (daemonOnly): only it reaps crew sessions.
 func (s *Store) CrewGoneFor(ctx context.Context, name, user, reason string) error {
+	if err := s.daemonOnly(ctx, "CrewGoneFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		if st.State != "running" {
 			return nil
@@ -163,16 +183,24 @@ func (s *Store) CrewGoneFor(ctx context.Context, name, user, reason string) erro
 	})
 }
 
-// CrewLeftFor is CrewLeft for one session.
+// CrewLeftFor is CrewLeft for one session. The daemon's alone
+// (daemonOnly): only it closes what a crew session left.
 func (s *Store) CrewLeftFor(ctx context.Context, name, user string, left []map[string]any) error {
+	if err := s.daemonOnly(ctx, "CrewLeftFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Left = left
 		return nil
 	})
 }
 
-// CrewStartFailedFor is CrewStartFailed for one session.
+// CrewStartFailedFor is CrewStartFailed for one session. The daemon's
+// alone (daemonOnly): only it starts crew sessions.
 func (s *Store) CrewStartFailedFor(ctx context.Context, name, user, reason string, backoff time.Duration) error {
+	if err := s.daemonOnly(ctx, "CrewStartFailedFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		st.Failures++
 		// What the failed start opened, the daemon has closed as far as it
@@ -203,8 +231,12 @@ func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, 
 	})
 }
 
-// MarkRotationAskedFor is MarkRotationAsked for one session.
+// MarkRotationAskedFor is MarkRotationAsked for one session. The
+// daemon's alone (daemonOnly): only it rotates crew sessions.
 func (s *Store) MarkRotationAskedFor(ctx context.Context, name, user string) error {
+	if err := s.daemonOnly(ctx, "MarkRotationAskedFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		t := now()
 		st.RotationAskedAt = &t
@@ -212,8 +244,12 @@ func (s *Store) MarkRotationAskedFor(ctx context.Context, name, user string) err
 	})
 }
 
-// MarkNotifiedFor is MarkNotified for one session.
+// MarkNotifiedFor is MarkNotified for one session. The daemon's alone
+// (daemonOnly): only it nudges crew sessions.
 func (s *Store) MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error {
+	if err := s.daemonOnly(ctx, "MarkNotifiedFor"); err != nil {
+		return err
+	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Notified = max(st.Notified, seq)
 		return nil
