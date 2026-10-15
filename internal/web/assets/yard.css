@@ -1,8 +1,7 @@
 /* yardr web: the one stylesheet. The tokens below are the whole palette and
    scale; a page uses them and adds none without need (docs/web.md). The
-   colours are the yardr design system's: each value carries the design
-   token it came from, and what the design has no token for is kept and
-   says so. */
+   colours come from the yardr design system, except the late warning and
+   the panel's own track colours, which have no matching token. */
 
 :root {
   color-scheme: dark;
@@ -20,22 +19,19 @@
   --accent: #d3602f; /* --yard-500 */
   /* the accent's hover, for every rule that hovers into it */
   --accent-hover: #e2794a; /* --yard-400 */
-  /* the second accent, for what landed and nothing else; the design
-     system has one accent only, so this value is kept, not mapped */
-  --landed: #cfa548;
-  /* the sheet's shade: the backdrop that dims the page under the phone's
-     More sheet; the design system names no scrim, so this value is kept,
-     not mapped */
-  --shade: rgba(0, 0, 0, 0.45);
+  /* A landed bead is done, so it shares the quiet done text tier. */
+  --landed: var(--faint); /* --text-disabled */
+  /* The phone's More sheet dims the page with a translucent dusk ground. */
+  --shade: rgba(16, 17, 18, 0.45); /* --dusk-950 */
 
   /* status */
-  --working: var(--accent);
+  --working: var(--accent); /* --yard-500 */
   --running: #4cc38a; /* --signal-green */
   --held: #e5675a; /* --signal-red */
-  /* amber: the design system has no warning colour, so this value is
-     kept, not mapped */
+  /* The design system has no warning colour, so late keeps the nearest
+     existing amber. */
   --late: #e8a33d;
-  --done: var(--faint);
+  --done: var(--faint); /* --text-disabled */
 
   /* the yard panel: every colour the panel's track uses, so the palette
      changes in one edit (flowdraw's own values, which its SVG carries for
@@ -299,7 +295,7 @@ ul, ol { list-style: none; }
 .diagram { margin-top: 8px; overflow-x: auto; }
 .diagram .panel-svg { display: block; }
 .panel-svg .board { fill: var(--panel-board); }
-.panel-svg text { font: 11px "IBM Plex Mono", ui-monospace, Menlo, monospace; fill: var(--panel-ink); }
+.panel-svg text { font: 11px var(--mono); fill: var(--panel-ink); }
 .panel-svg .small { font-size: 9px; fill: var(--panel-dim); }
 .panel-svg .mid { text-anchor: middle; }
 .panel-svg .ln { fill: none; stroke: var(--panel-line); }
@@ -314,16 +310,16 @@ ul, ol { list-style: none; }
 .panel-svg .block.running { fill: var(--running); }
 .panel-svg a:hover .block { stroke: var(--accent-hover); }
 /* Every blocked kind told apart: solid red for held, hollow red for gave
-   up, hollow green for stalled, green with a red ring for blocked on a
+   up, a muted outline for stalled, rust with a red ring for blocked on a
    prompt, rust for waiting on a dependency, a red diamond for back on
    failed or changes, an amber ring for running past its usual time, red
-   and rust wait lamps, dotted no-route sections. The state colours are
-   the yard's own, the same on the track and the rows: lit green, fault
-   red, person's-turn rust, late amber. */
+   and rust wait lamps, dotted no-route sections. Green marks a running
+   session only; other state colours are fault red, person's-turn rust
+   and late amber. */
 .panel-svg .block.held { fill: var(--held); }
 .panel-svg .block.gaveup { fill: var(--panel-board); stroke: var(--held); stroke-width: 1.5; }
-.panel-svg .block.stalled { fill: var(--panel-board); stroke: var(--running); stroke-width: 1.5; }
-.panel-svg .block.blocked { fill: var(--running); stroke: var(--held); stroke-width: 1.5; }
+.panel-svg .block.stalled { fill: var(--panel-board); stroke: var(--panel-dim); stroke-width: 1.5; }
+.panel-svg .block.blocked { fill: var(--accent); stroke: var(--held); stroke-width: 1.5; }
 .panel-svg .block.dep { fill: var(--accent); }
 .panel-svg .late-ring { fill: none; stroke: var(--late); stroke-width: 1.5; }
 .panel-svg .diamond { fill: var(--held); }

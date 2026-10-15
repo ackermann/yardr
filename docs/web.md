@@ -1160,7 +1160,7 @@ How to read it:
 - A section is lit green while a session runs in it. No bead writes
   anything on the plan: no id, no group name, nothing beside its light.
 - Every blocked kind is told apart: solid red for held, hollow red for
-  gave up, hollow green for stalled, green with a red ring for blocked on
+  gave up, a muted outline for stalled, rust with a red ring for blocked on
   a prompt, rust for waiting on a dependency, a red diamond before a bead
   back on `failed` or `changes`. A bead running past its usual time gets
   an amber ring around its light besides, its title naming the stage age
@@ -1184,7 +1184,7 @@ The whole panel reads itself again on every event of the stream
 without a reload. The parameter shapes the HTML alone: as JSON the page
 answers the same with it as without it. Every colour the panel uses is a
 named token of the stylesheet (`--panel-*` for the track, with `--running`,
-`--held` and `--accent` for lit green, fault red and person's-turn rust,
+`--held` and `--accent` for running green, fault red and person's-turn rust,
 and `--late` for the late ring), so the palette changes in one edit.
 
 ## Beads
@@ -1419,7 +1419,7 @@ start.
 
 Late is past the stage's slow time: waiting past the whole-stay p90, or
 running past the claimed-run p90. Stalled means the agent stopped —
-its first prompt idle past the stall limit, a hollow green lamp on the
+its first prompt idle past the stall limit, a hollow muted lamp on the
 panel; late means it takes long. A bead can be either, both, or
 neither, and late tells no one: there is no event for it, only the
 mark.
@@ -1702,7 +1702,7 @@ The shell is `internal/web/templates/shell.html`; the aside is the
 
 ## Look
 
-Neutral greys, square corners, monospace. The tokens are custom properties
+The dusk palette, square corners, Plex faces. The tokens are custom properties
 at the top of `internal/web/assets/yard.css`, the one stylesheet. Use them;
 add none without need, and never write a colour, a face or a column width
 anywhere else.
@@ -1718,12 +1718,12 @@ anywhere else.
 | `--faint` | `#808286` | labels, what is done |
 | `--accent` | `#d3602f` | the one accent: the current page, a link in use, focus |
 | `--accent-hover` | `#e2794a` | the accent's hover |
-| `--landed` | `#cfa548` | the second accent, for what landed and nothing else |
-| `--shade` | `rgba(0, 0, 0, 0.45)` | the backdrop that dims the page under the phone's More sheet |
+| `--landed` | faint | status: landed |
+| `--shade` | `rgba(16, 17, 18, 0.45)` from `--dusk-950` | the backdrop that dims the page under the phone's More sheet |
 | `--working` | the accent | status: a session is working |
-| `--running` | `#4cc38a` | status: idle or running |
+| `--running` | `#4cc38a` | status: running only |
 | `--held` | `#e5675a` | status: blocked or held, and errors |
-| `--late` | `#e8a33d` | status: running past its usual time |
+| `--late` | `#e8a33d` | status: running past its usual time; the design has no warning colour, so this keeps the nearest amber |
 | `--done` | faint | status: done |
 | `--panel-board` | `#202622` | the panel's track: its board |
 | `--panel-ink` | `#e6e1d3` | the panel's track: stage names |

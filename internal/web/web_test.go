@@ -1152,8 +1152,7 @@ func TestVendoredAssets(t *testing.T) {
 	}
 }
 
-// The stylesheet carries the train's tokens, the design system's values in
-// the dark theme, which is the only one.
+// The stylesheet carries the yardr design tokens used by the web view.
 func TestTokens(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {
@@ -1162,10 +1161,14 @@ func TestTokens(t *testing.T) {
 	if strings.Contains(string(css), "@media (prefers-color-scheme: light)") {
 		t.Error("a light theme, which the view does not have")
 	}
+	if !strings.Contains(string(css), "color-scheme: dark;") {
+		t.Error("the view's colour scheme is not dark")
+	}
 	tokens := map[string]string{
 		"ground": "#161718", "panel": "#1c1d1f", "hairline": "#27282b", "hairline-strong": "#333538",
 		"ink": "#e9e9ea", "dim": "#abadb0", "faint": "#808286",
-		"accent": "#d3602f", "accent-hover": "#e2794a", "landed": "#cfa548",
+		"accent": "#d3602f", "accent-hover": "#e2794a", "landed": "var(--faint)",
+		"shade":   "rgba(16, 17, 18, 0.45)",
 		"working": "var(--accent)", "running": "#4cc38a", "held": "#e5675a",
 		"late": "#e8a33d", "done": "var(--faint)",
 	}
@@ -1173,6 +1176,34 @@ func TestTokens(t *testing.T) {
 		if !strings.Contains(string(css), "--"+name+": "+value+";") {
 			t.Errorf("token --%s is not %s", name, value)
 		}
+	}
+	for name, source := range map[string]string{
+		"ground": "--surface-app", "panel": "--surface-raised", "hairline": "--border-subtle",
+		"hairline-strong": "--border-strong", "ink": "--text-primary", "dim": "--text-secondary",
+		"faint": "--text-disabled", "accent": "--yard-500", "accent-hover": "--yard-400",
+		"landed": "--text-disabled", "shade": "--dusk-950", "working": "--yard-500",
+		"running": "--signal-green", "held": "--signal-red", "done": "--text-disabled",
+	} {
+		line := regexp.MustCompile(`(?m)^\s*--` + regexp.QuoteMeta(name) + `: [^;]+; /\* ` + regexp.QuoteMeta(source) + ` \*/$`)
+		if !line.Match(css) {
+			t.Errorf("token --%s does not name its design source %s", name, source)
+		}
+	}
+	for name, stack := range map[string]string{
+		"mono": `"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace`,
+		"sans": `"IBM Plex Sans", system-ui, sans-serif`,
+	} {
+		if !strings.Contains(string(css), "--"+name+": "+stack+";") {
+			t.Errorf("font token --%s is not %s", name, stack)
+		}
+	}
+	for _, selector := range []string{".panel-svg .block.stalled", ".panel-svg .block.blocked"} {
+		if strings.Contains(cssRule(t, selector), "var(--running)") {
+			t.Errorf("%s uses the running green", selector)
+		}
+	}
+	if !strings.Contains(cssRule(t, ".panel-svg .block.running"), "var(--running)") {
+		t.Error("a running bead does not use the running green")
 	}
 	// Square corners everywhere; circles only for status dots.
 	radii := regexp.MustCompile(`(?m)^(.*)border-radius:\s*([^;]+);`).FindAllStringSubmatch(string(css), -1)
