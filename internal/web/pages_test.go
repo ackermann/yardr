@@ -36,6 +36,31 @@ func newPagesFixture(t *testing.T) *pagesFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return servePagesFixture(t, st, srv, dir)
+}
+
+// newPagesJWTFixture serves a yard's view and its sandbox origin side by
+// side in JWT mode, against the stub's keys and the users table.
+func newPagesJWTFixture(t *testing.T, jwks *jwksStub, users map[string]string) *pagesFixture {
+	t.Helper()
+	dir := t.TempDir()
+	st := storetest.Open(t, filepath.Join(dir, "yard.db"))
+	srv, err := web.NewServer(st, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.UseJWT(context.Background(), web.JWTConfig{
+		Issuer: jwtTestIssuer, Audience: jwtTestAudience,
+		JWKSURL: jwks.ts.URL, Users: users,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return servePagesFixture(t, st, srv, dir)
+}
+
+// servePagesFixture serves srv's view and its sandbox origin side by side.
+func servePagesFixture(t *testing.T, st store.API, srv *web.Server, dir string) *pagesFixture {
+	t.Helper()
 	f := &pagesFixture{t: t, st: st, srv: srv, home: dir}
 	f.view = httptest.NewServer(srv)
 	t.Cleanup(func() { shut(f.view) })
@@ -171,6 +196,54 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 	}
 	if r := f.do(f.sandbox, "POST", "/blobs/"+page.Hash); r.status != http.StatusMethodNotAllowed {
 		t.Errorf("POST: status %d, want 405", r.status)
+	}
+}
+
+// In JWT mode the sandbox origin takes the gateway's token too: a request
+// without one is 401, as on the view, and only a verified one is served,
+// under the scripted policy. The origin stays fenced and note-only: an
+// unknown Host is 421, a mail's file 404s even with a token.
+func TestSandboxRequiresJWT(t *testing.T) {
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	f := newPagesJWTFixture(t, jwks, map[string]string{"jo@example.net": "jo"})
+	header := web.DefaultJWTHeader
+	ctx := context.Background()
+	_, page, _ := f.notedPage(t)
+	mailed, err := f.st.PutBlob(ctx, shotJPEG)
+	must(t, err)
+	if _, err := f.st.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.Mail(ctx, "jo", "paint it", "me", mailed.Hash))
+	token := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
+
+	// Without a token the origin refuses as the view does.
+	if r := f.getPages("/blobs/" + page.Hash); r.status != 401 {
+		t.Errorf("no token on the origin: status %d, want 401: %s", r.status, r.body)
+	}
+	if r := f.get("/blobs/" + page.Hash); r.status != 401 {
+		t.Errorf("no token on the view: status %d, want 401: %s", r.status, r.body)
+	}
+	if r := f.getPages("/blobs/"+page.Hash, header, "junk"); r.status != 401 {
+		t.Errorf("a junk token on the origin: status %d, want 401: %s", r.status, r.body)
+	}
+	// With a token the note's page serves under the scripted policy.
+	r := f.getPages("/blobs/"+page.Hash, header, token)
+	if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != string(pageHTML) {
+		t.Errorf("the note's page: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))
+	}
+	assertScriptedPolicy(t, r.header.Get("Content-Security-Policy"))
+	if cookie := r.header.Get("Set-Cookie"); cookie != "" {
+		t.Errorf("the page sets a cookie %q, want none", cookie)
+	}
+	// A mail's file stays 404 with a token: the origin serves notes only.
+	if r := f.getPages("/blobs/"+mailed.Hash, header, token); r.status != 404 {
+		t.Errorf("the mail's file with a token: status %d, want 404: %s", r.status, r.body)
+	}
+	// An unknown Host is still 421, before any token is read.
+	if r := f.getPages("/blobs/"+page.Hash, "Host", "evil.example.net"); r.status != http.StatusMisdirectedRequest {
+		t.Errorf("Host evil.example.net: status %d, want 421: %s", r.status, r.body)
 	}
 }
 

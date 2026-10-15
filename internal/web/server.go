@@ -266,23 +266,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// In JWT mode every request proves itself with the gateway's token,
 	// but the health check, which carries no user and says no secret.
-	if s.jwt != nil && r.URL.Path != "/health" {
-		id, code, msg := s.jwt.verify(r)
-		if code != 0 {
-			if code == http.StatusServiceUnavailable {
-				// No keys: the next fetch may have them.
-				w.Header().Set("Retry-After", "60")
-			}
-			http.Error(w, msg, code)
+	if r.URL.Path != "/health" {
+		var ok bool
+		if r, ok = s.verifyJWT(w, r); !ok {
 			return
 		}
-		r = r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, id))
 	}
 	h := w.Header()
 	h.Set("Content-Security-Policy", s.policy(r))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	s.mux.ServeHTTP(w, r)
+}
+
+// verifyJWT is the request with its verified gateway identity, or the
+// refusal already answered: in JWT mode every request proves itself with
+// the gateway's token. Both listeners ask it — the view's ServeHTTP,
+// which spares the health check, and the sandbox origin's PagesHandler —
+// so a blob has no tokenless path.
+func (s *Server) verifyJWT(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	if s.jwt == nil {
+		return r, true
+	}
+	id, code, msg := s.jwt.verify(r)
+	if code != 0 {
+		if code == http.StatusServiceUnavailable {
+			// No keys: the next fetch may have them.
+			w.Header().Set("Retry-After", "60")
+		}
+		http.Error(w, msg, code)
+		return nil, false
+	}
+	return r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, id)), true
 }
 
 // misdirected answers a request whose Host header names no host of this
@@ -309,8 +324,9 @@ func (s *Server) misdirected(w http.ResponseWriter, r *http.Request, extra ...st
 
 // PagesHandler serves the sandbox origin: a note's blobs under the
 // scripted policy, and nothing else. It is fenced as the view itself is
-// — the loopback, --host and --unsafe rules with the same 421s — and
-// answers to the origin's public name (--pages-host) besides.
+// — the loopback, --host and --unsafe rules with the same 421s, and in
+// JWT mode the gateway's token with the same 401s — and answers to the
+// origin's public name (--pages-host) besides.
 func (s *Server) PagesHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.knownHost(r.Host) && !s.knownPagesHost(r.Host) {
@@ -321,6 +337,14 @@ func (s *Server) PagesHandler() http.Handler {
 			s.misdirected(w, r, extra...)
 			return
 		}
+		// In JWT mode the gateway's token guards the sandbox origin
+		// too: the same verify as the view's, so a blob has no
+		// tokenless path.
+		verified, ok := s.verifyJWT(w, r)
+		if !ok {
+			return
+		}
+		r = verified
 		h := w.Header()
 		h.Set("Content-Security-Policy", scriptedPolicy)
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")

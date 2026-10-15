@@ -233,7 +233,8 @@ request is ever served as the default user — and so is a start without
 `web_jwt_audience` or `web_jwt_jwks`, or while the keys cannot be fetched.
 A request without the header, or with a token that is malformed, badly
 signed, expired, of another issuer or for another audience, is 401; a valid
-token whose email maps to no user is 403.
+token whose email maps to no user is 403. The sandbox origin takes the
+same token on every request, so a note's bytes have no tokenless path.
 
 Each request then acts as its own user: the talk page holds the visitor's
 conversation and sends mail as them, an ask answers where it is addressed
