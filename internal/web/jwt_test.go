@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -528,6 +529,32 @@ func TestUseJWTRefusesInsecureJWKSRedirect(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "non-loopback JWKS URL") {
 		t.Fatalf("UseJWT = %v, want an insecure JWKS redirect refusal", err)
+	}
+}
+
+// A JWKS endpoint may redirect key retrieval to the hosted router over
+// plain http, as the web_jwt_jwks setting lets its keys come from there:
+// the fetch is attempted, not refused. (The router answers on a hosted
+// yard's own network; here the attempt ends at the lookup, which names
+// the router instead of refusing it.)
+func TestUseJWTFollowsJWKSRedirectToRouter(t *testing.T) {
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, port, _ := net.SplitHostPort(r.Host)
+		http.Redirect(w, r, "http://router:"+port+"/jwks", http.StatusFound)
+	}))
+	t.Cleanup(redirect.Close)
+	srv, err := web.NewServer(storetest.New(t), filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = srv.UseJWT(context.Background(), web.JWTConfig{
+		Issuer: jwtTestIssuer, Audience: jwtTestAudience, JWKSURL: redirect.URL,
+	})
+	if err == nil || strings.Contains(err.Error(), "refusing") {
+		t.Fatalf("UseJWT = %v, want the router redirect followed, not refused", err)
+	}
+	if !strings.Contains(err.Error(), "router") {
+		t.Fatalf("UseJWT = %v, want the fetch attempted at the router", err)
 	}
 }
 

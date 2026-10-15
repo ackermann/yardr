@@ -243,9 +243,10 @@ var KnownSettings = []Setting{
 			}
 			// A key set fetched over plain http is the network's to
 			// rewrite, and its keys admit anyone as anyone: http serves a
-			// test issuer on this machine only.
-			if u, _ := url.Parse(v); u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
-				return fmt.Errorf("%s %q: http is for a test issuer on loopback; a gateway's keys come over https", WebJWTJWKSSetting, v)
+			// test issuer on this machine, and a hosted yard's router,
+			// only.
+			if u, _ := url.Parse(v); u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && !isRouterHost(u.Hostname()) {
+				return fmt.Errorf("%s %q: http is for a test issuer on loopback or the router; a gateway's keys come over https", WebJWTJWKSSetting, v)
 			}
 			return nil
 		}},
@@ -428,8 +429,8 @@ func (s Setting) Effective(stored map[string]string) (value, from string) {
 
 // checkJWTURL takes what a gateway's URLs are: absolute, over http or
 // https. An issuer is compared with a token's iss claim, never fetched;
-// the keys' URL is fetched, and http serves a test issuer on loopback only
-// (the web_jwt_jwks check holds it so).
+// the keys' URL is fetched, and http serves a test issuer on loopback or a
+// hosted yard's router only (the web_jwt_jwks check holds it so).
 func checkJWTURL(what, v string) error {
 	u, err := url.Parse(v)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -446,6 +447,14 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// isRouterHost reports whether host is the name a hosted yard reaches its
+// router by: the router's network name on a user's Docker network, or a
+// provisioner-written hosts entry, so its keys may come over plain http
+// as a test issuer's do.
+func isRouterHost(host string) bool {
+	return strings.EqualFold(host, "router")
 }
 
 // ParseWebJWTUsers is the web_jwt_users setting as the web view reads it:

@@ -242,6 +242,9 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_jwt_audience "two words": an audience is one word`:                                                             {"web_jwt_audience", "two words"},
 		`web_jwt_jwks: the keys' URL "team/certs": a URL`:                                                                   {"web_jwt_jwks", "team/certs"},
 		`web_jwt_jwks "http://keys.example.net/x": http is for a test issuer on loopback`:                                   {"web_jwt_jwks", "http://keys.example.net/x"},
+		`web_jwt_jwks "http://keys.example.com/x": http is for a test issuer on loopback or the router`:                     {"web_jwt_jwks", "http://keys.example.com/x"},
+		`web_jwt_jwks "http://gateway/jwks.json": http is for a test issuer on loopback or the router`:                      {"web_jwt_jwks", "http://gateway/jwks.json"},
+		`web_jwt_jwks "http://router.example.com/x": http is for a test issuer on loopback or the router`:                   {"web_jwt_jwks", "http://router.example.com/x"},
 		`web_jwt_header "a b": a header's name`:                                                                             {"web_jwt_header", "a b"},
 		`web_jwt_users: "mckean": email=user pairs separated by commas`:                                                     {"web_jwt_users", "mckean"},
 		`web_jwt_users: "mckean@example.net": email=user pairs separated by commas`:                                         {"web_jwt_users", "mckean@example.net"},
@@ -278,6 +281,14 @@ func TestStoreChecksSettings(t *testing.T) {
 	}
 	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://localhost:9/certs", "me"); err != nil {
 		t.Errorf("SetSetting(web_jwt_jwks, localhost http) = %v", err)
+	}
+	// The keys' URL over http serves a hosted yard's router, that host
+	// alone, in any case.
+	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://router:8080/jwks.json", "me"); err != nil {
+		t.Errorf("SetSetting(web_jwt_jwks, router http) = %v", err)
+	}
+	if err := s.SetSetting(ctx, "web_jwt_jwks", "http://Router:8080/jwks.json", "me"); err != nil {
+		t.Errorf("SetSetting(web_jwt_jwks, Router http) = %v", err)
 	}
 	// Unset is unchecked: "" is no value of any setting.
 	if err := s.SetSetting(ctx, "timer_limit", "", "me"); err != nil {

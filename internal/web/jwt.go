@@ -379,13 +379,13 @@ func (v *jwtVerifier) fetchKeys(ctx context.Context) (map[string]any, error) {
 
 // checkJWKSRedirect keeps a redirect to another insecure URL from undoing
 // the web_jwt_jwks setting's HTTPS requirement. A loopback HTTP endpoint is
-// only for tests; it cannot redirect key retrieval to a public HTTP host or
-// downgrade an HTTPS fetch.
+// only for tests, and the router's is a hosted yard's keys; neither can
+// redirect key retrieval to a public HTTP host or downgrade an HTTPS fetch.
 func checkJWKSRedirect(req *http.Request, via []*http.Request) error {
 	if req.URL.Scheme == "https" {
 		return nil
 	}
-	if req.URL.Scheme != "http" || !jwksLoopbackHost(req.URL.Hostname()) {
+	if req.URL.Scheme != "http" || (!jwksLoopbackHost(req.URL.Hostname()) && !jwksRouterHost(req.URL.Hostname())) {
 		return errors.New("refusing an HTTP redirect to a non-loopback JWKS URL")
 	}
 	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" {
@@ -400,6 +400,12 @@ func jwksLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// jwksRouterHost reports whether host is the hosted router's name, whose
+// keys the web_jwt_jwks setting lets come over plain http.
+func jwksRouterHost(host string) bool {
+	return strings.EqualFold(host, "router")
 }
 
 // parseJWKS is the set's RSA and EC public keys by key id. Keys of any
