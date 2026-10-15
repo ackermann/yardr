@@ -39,11 +39,13 @@ fetch:
 
 # Claude Code asks whether a folder is trusted the first time it is started
 # in it, and has no flag that skips the question: yardr answers it
-# (internal/runner/trust.go). The dialog is its question, the answer the one
-# that accepts it, the cursor the mark of its selected answer, as 2.1.288
-# prints them.
+# (internal/runner/trust.go). The dialog is the start of its question, the
+# answer the one that accepts it, the cursor the mark of its selected
+# answer, as 2.1.288 prints them. The question's parenthetical tail wraps
+# wherever the pane wraps, so the whole question never sits on one row;
+# only its start marks the dialog at every width (yardr-q7rd).
 trust:
-  dialog: "Is this a project you created or one you trust?"
+  dialog: "Quick safety check:"
   answer: "Yes, I trust this folder"
   cursor: "❯"
 

@@ -134,7 +134,7 @@ func TestLoadOrderAndAliases(t *testing.T) {
 // The trust dialogs yardr answers itself: Claude Code's folder-trust
 // question, Kimi's and Codex's, each the text that marks it, the answer
 // that accepts it and the mark of its selected answer, as the harness
-// prints them (yardr-bgnn, yardr-mdz4). No other kind names one.
+// prints them (yardr-bgnn, yardr-mdz4, yardr-q7rd). No other kind names one.
 func TestTrust(t *testing.T) {
 	for _, h := range Harnesses {
 		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi" || h.Kind == "codex") {
@@ -142,7 +142,7 @@ func TestTrust(t *testing.T) {
 		}
 	}
 	claude, _ := Lookup("claude")
-	if claude.Trust == nil || claude.Trust.Dialog != "Is this a project you created or one you trust?" || claude.Trust.Answer != "Yes, I trust this folder" || claude.Trust.Cursor != "❯" {
+	if claude.Trust == nil || claude.Trust.Dialog != "Quick safety check:" || claude.Trust.Answer != "Yes, I trust this folder" || claude.Trust.Cursor != "❯" {
 		t.Errorf("claude: trust %+v", claude.Trust)
 	}
 	kimi, _ := Lookup("kimi")

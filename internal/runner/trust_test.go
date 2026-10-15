@@ -13,7 +13,9 @@ import (
 )
 
 // trustDialog is Claude Code 2.1.288's folder-trust dialog as herdr's
-// `pane read --source visible` prints it, the cursor on the answer `on`.
+// `pane read --source visible` prints it at 80 columns, the cursor on the
+// answer `on`. The question wraps: its parenthetical tail lands wherever
+// the pane's width puts it, so only the question's start can mark it.
 func trustDialog(on string) string {
 	claude, _ := agents.Lookup("claude")
 	mark := func(answer string) string {
@@ -28,7 +30,11 @@ func trustDialog(on string) string {
 
  /private/tmp/y1z/wt/r1/b1
 
- Quick safety check: Is this a project you created or one you trust?
+ Quick safety check: Is this a project you created or one you trust? (Like your
+ own code, a well-known open source project, or work from your team). If not,
+ take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
 
  Security guide
 
@@ -36,6 +42,19 @@ func trustDialog(on string) string {
 
  Enter to confirm · Esc to cancel
 `
+}
+
+// narrowTrustDialog is Claude Code's dialog at a pane narrow enough that
+// the question fits one row: the mark matches there too.
+func narrowTrustDialog(on string) string {
+	claude, _ := agents.Lookup("claude")
+	mark := func(answer string) string {
+		if answer == on {
+			return " ❯ " + answer
+		}
+		return "   " + answer
+	}
+	return "Quick safety check: Is this a project you created or one you trust?\n" + mark("No, exit") + "\n" + mark(claude.Trust.Answer) + "\n"
 }
 
 // kimiTrustDialog is Kimi Code 2.1.1's folder-trust dialog as a pty read it,
@@ -240,6 +259,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		keys         string // the last key that may have been sent, "" for none
 	}{
 		{"another question", " Do you want to allow this?\n ❯ Yes\n   No\n", claude.Trust, ""},
+		{"the question's lead inside a longer word", "Quick safety checklist:\n❯ Yes, I trust this folder\n", claude.Trust, ""},
 		{"trust=false", trustDialog("No, exit"), nil, ""},
 		{"the answer's words inside other text", "I typed: Yes, I trust this folder, honest\n", claude.Trust, ""},
 		{"the answer at the end of a decorated line", "Quick safety check: " + claude.Trust.Dialog + "\n❯ Please choose " + claude.Trust.Answer + "\n", claude.Trust, ""},
@@ -277,6 +297,7 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	codex, _ := agents.Lookup("codex")
 	yes := trustDialog(claude.Trust.Answer)
+	narrowYes := narrowTrustDialog(claude.Trust.Answer)
 	codexYes := codexTrustDialog(codex.Trust.Answer)
 	cases := []struct {
 		name   string
@@ -287,6 +308,7 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 		keys   bool // a key may have been sent
 	}{
 		{"the dialog, drawn late", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, true, true},
+		{"the dialog at a narrow width", narrowYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, true, true},
 		{"the dialog, kind unset", yes, map[string]any{"pane": "w1:p1"}, nil, true, true},
 		{"codex's dialog, drawn late", codexYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "codex"}, true, true},
 		{"not drawn yet", "", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
@@ -297,6 +319,9 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	}
 	for _, c := range cases {
 		no, yesScreen := trustDialog("No, exit"), yes
+		if c.screen == narrowYes {
+			no, yesScreen = narrowTrustDialog("No, exit"), narrowYes
+		}
 		if kind, _ := c.cfg["kind"].(string); kind == "codex" {
 			no, yesScreen = codexTrustDialog("2. Quit"), codexYes
 		}
