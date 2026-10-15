@@ -24,6 +24,7 @@ import (
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 var yardrBin string
@@ -161,6 +162,10 @@ func newYard(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The test plays the dispatcher (it claims over the socket, as the
+	// dispatcher would), so it holds the daemon lock as the daemon
+	// would: without a holder the daemon's writes are refused.
+	storetest.HoldDaemon(t, home)
 	t.Cleanup(func() {
 		// Stop by pid (the pidfile), then remove the state.
 		if err := server.Stop(&config.Config{Home: home}); err != nil {
