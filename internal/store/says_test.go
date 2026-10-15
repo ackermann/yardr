@@ -116,6 +116,23 @@ func TestHookSaidFiltersOnBeadType(t *testing.T) {
 	}
 }
 
+// event names the envelope's type when the source's fields do not carry an
+// event of their own; type still filters on the bead.
+func TestHookSaidUsesEnvelopeTypeWhenFieldsOmitEvent(t *testing.T) {
+	s, err := store.ParseSay("event=issue type=task -> done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := store.Hook{Name: "lin", Source: "linear", Says: []store.Say{s}}
+	data := map[string]any{
+		"type": "issue", "action": "create",
+		"fields": map[string]any{"team": []any{"YRD"}},
+	}
+	if got := h.Said(data, "review", "task"); got == nil || got.Outcome != "done" {
+		t.Fatalf("Said = %v, want the line matching event=issue and type=task", got)
+	}
+}
+
 // A line is written as it is typed and read back the same, note and all.
 func TestParseSay(t *testing.T) {
 	s, err := store.ParseSay("event=pull_request  merged=false action=closed ->  question : PR closed: reopen, or drop it? ")
