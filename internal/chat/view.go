@@ -313,12 +313,14 @@ func (m *Model) questions(w int) []string {
 		// An answer from another yard says whose word it is, as mail
 		// does; m.as is whom the links trust as a user of this yard.
 		for _, line := range m.secretCard(r, r.LinesMarked(m.as)) {
-			// Each card line keeps its indent where it wraps, so a
-			// long line continues under its own start instead of at
-			// the pane's left edge.
+			// A card line that wraps continues deeper than any line the
+			// yard prints (at 2, a command at 6), never at the pane's
+			// left edge nor under its own start: a writer who fills a
+			// row to the pane's width cannot put words at the yard's
+			// column on the next.
 			for _, part := range strings.Split(line, "\n") {
 				lead := part[:len(part)-len(strings.TrimLeft(part, " "))]
-				out = append(out, wrap(strings.TrimLeft(part, " "), w, lead)...)
+				out = append(out, cardWrap(strings.TrimLeft(part, " "), w, lead)...)
 			}
 		}
 	}
@@ -353,6 +355,22 @@ func wrap(text string, w int, lead string, style ...lipgloss.Style) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// cardWrap is wrap for a card's line: the first row at lead, every row
+// after at least 8 in and deeper than lead, so a continuation never starts
+// where one of the yard's lines does.
+func cardWrap(text string, w int, lead string) []string {
+	deep := strings.Repeat(" ", max(len(lead)+6, 8))
+	rows := strings.Split(ansi.Wrap(strings.TrimRight(text, "\n"), max(w-len(deep), 1), ""), "\n")
+	for i := range rows {
+		if i == 0 {
+			rows[i] = lead + rows[i]
+		} else {
+			rows[i] = deep + rows[i]
+		}
+	}
+	return rows
 }
 
 // fit cuts s to w columns.

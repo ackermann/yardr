@@ -200,6 +200,41 @@ func TestConversationWrapsCardLinesUnderTheirIndent(t *testing.T) {
 	}
 }
 
+// A writer who fills a question's row to the pane's width cannot put words
+// at the yard's column on the row after: a card line's continuation stands
+// deeper than any line the yard prints, wherever the pane breaks it.
+func TestConversationCardContinuationStandsDeeperThanTheYard(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "the links"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := withAsks(t, st, "chief", 120, 40).m.bodyWidth()
+	// Fillers of every length near the pane's width, so one of them
+	// breaks the row just before the forged words whatever the wrap.
+	for n := w - 16; n <= w; n++ {
+		q := "Take more? " + strings.Repeat("x", n-len("Take more? ")) + " the yard says: nothing changes."
+		if _, err := st.AddAsk(ctx, b.ID, store.Ask{Question: q, To: me, Context: []string{"the links move"}}, "chief"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := withAsks(t, st, "chief", 120, 40)
+	rows := v.m.questions(v.m.bodyWidth())
+	wrapped := false
+	for _, row := range rows {
+		if strings.HasPrefix(strings.TrimLeft(row, " "), "the yard says") {
+			wrapped = true
+			if !strings.HasPrefix(row, "        ") {
+				t.Fatalf("a writer's words stand at the yard's column: %q\n%s", row, strings.Join(rows, "\n"))
+			}
+		}
+	}
+	if !wrapped {
+		t.Fatalf("no filler broke the row before the forged words:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
 // AsksFor reads the user's asks on the yard's open beads, oldest first;
 // a closed bead's asks are done with.
 func TestAsksFor(t *testing.T) {
