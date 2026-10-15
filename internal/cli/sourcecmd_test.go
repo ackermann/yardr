@@ -622,3 +622,24 @@ func TestSourceCommandFiles(t *testing.T) {
 		t.Fatalf("the operator's own program was removed: %v", err)
 	}
 }
+
+// The set help's env_file example never types the token as a command's
+// word: that line would stay in the shell's history. It reads the token
+// blind, as the packs' setup pages do.
+func TestSourceSetHelpReadsTokenBlind(t *testing.T) {
+	a := &app{st: storetest.New(t), actor: "jo"}
+	set, _, err := a.sourceCmd().Find([]string{"set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `IFS= read -rs v && printf 'CRM_TOKEN=%s\n' "$v" > ~/.yardr/sources/crm.env; unset v`
+	if !strings.Contains(set.Example, want) {
+		t.Errorf("set help reads the token no blind way, want %q in:\n%s", want, set.Example)
+	}
+	if strings.Contains(set.Example, "'<token>'") {
+		t.Errorf("set help types the token as a command's word:\n%s", set.Example)
+	}
+	if !strings.Contains(set.Example, "umask 077") {
+		t.Errorf("set help names no umask 077:\n%s", set.Example)
+	}
+}

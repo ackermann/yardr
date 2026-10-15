@@ -830,7 +830,8 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 updates_per_hour is how many of those calls are updates (` + fmt.Sprint(store.SourceUpdateLimit) + ` unless set):
 an update is counted as a call and as an update, and is refused when either
 is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceUpdateLimit) + ` again.`,
-		Example: `  printf 'CRM_TOKEN=%s\n' '<token>' > ~/.yardr/sources/crm.env
+		Example: `  umask 077
+  IFS= read -rs v && printf 'CRM_TOKEN=%s\n' "$v" > ~/.yardr/sources/crm.env; unset v
   chmod 600 ~/.yardr/sources/crm.env
   yardr source set crm env_file=~/.yardr/sources/crm.env
   yardr source set crm mint_command=/Users/me/bin/crm-mint
