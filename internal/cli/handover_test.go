@@ -34,7 +34,11 @@ func stubChat(t *testing.T) *[]string {
 // no such help: its "Your name" is who commands act as.
 func actAsOperator(t *testing.T) {
 	t.Helper()
-	t.Setenv("USER", config.Actor())
+	actor, err := config.Actor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("USER", actor)
 }
 
 // yardr init --start ends in the chat with the yardmaster where a person sits

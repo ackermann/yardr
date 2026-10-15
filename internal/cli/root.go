@@ -101,6 +101,14 @@ func (a *app) rootCmd() *cobra.Command {
 					return err
 				}
 			}
+			// Who acts, before anything hangs asking: with no actor
+			// named the OS is asked, and under Codex's sandbox that
+			// lookup hangs past signals, so the command fails here, with
+			// how to name one, instead of hanging wherever it first acts
+			// (yardr-tbm4).
+			if _, err := a.resolveActor(); err != nil {
+				return err
+			}
 			// yardr --version answers as yardr version does: on a home
 			// with no yard, without the onboarding.
 			if showVersion {
@@ -174,14 +182,28 @@ type noTerminal struct{ msg string }
 
 func (e noTerminal) Error() string { return e.msg }
 
-func (a *app) who() string {
+// resolveActor is who this run acts as: --actor, else the session's
+// actor, else the login (see config.Actor). It fails only when the login
+// must come from the OS and that lookup does not answer.
+func (a *app) resolveActor() (string, error) {
 	if a.actor != "" {
-		return a.actor
+		return a.actor, nil
 	}
 	if id := a.identity(); id.actor != "" {
-		return id.actor
+		return id.actor, nil
 	}
 	return config.Actor()
+}
+
+func (a *app) who() string {
+	who, err := a.resolveActor()
+	if err != nil {
+		// Commands run through the root fail in pre-run instead, so
+		// this is a second lookup failing where the first answered, or
+		// a test's direct subcommand: "unknown", as a failed lookup was.
+		return "unknown"
+	}
+	return who
 }
 
 // expect is what a move made from this process expects of the bead: that

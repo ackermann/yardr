@@ -348,7 +348,10 @@ func TestDefaultOperator(t *testing.T) {
 // nil when it took the name.
 func typeName(t *testing.T, name string) (was string, refused error) {
 	t.Helper()
-	var operator = config.Actor()
+	operator, err := config.Actor()
+	if err != nil {
+		t.Fatal(err)
+	}
 	was = operator
 	f := nameField(&operator)
 	f.WithKeyMap(huh.NewDefaultKeyMap())
@@ -371,7 +374,10 @@ func TestYourNameIsWhoCommandsActAs(t *testing.T) {
 	var name string
 	wantText(t, nameField(&name).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
 
-	login := config.Actor()
+	login, err := config.Actor()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !store.ValidUserName(login) || login == "chris" {
 		t.Skipf("the login name %q is no user's, or is the other name of this test", login)
 	}

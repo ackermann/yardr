@@ -67,7 +67,10 @@ func (a *app) upgradeRun(ctx context.Context, cfg *config.Config, timeout time.D
 	}
 	yards := upgradeCoveredYards(cfg, target)
 	restoreOn := upgradeRestoreOn(settings, noRestore)
-	actor := config.Actor()
+	actor, err := config.Actor()
+	if err != nil {
+		return err
+	}
 
 	// The install serializes beside the binary, not in any yard's home:
 	// what it guards, the installed file and the one-generation yardr.prev,

@@ -120,7 +120,11 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
-	if r, err := st.GetCrew(context.Background(), "yardmaster"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
+	actor, aerr := config.Actor()
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	if r, err := st.GetCrew(context.Background(), "yardmaster"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != actor {
 		t.Fatalf("the yardmaster, once started, greets %q again (config %v): %v", runner.Greets(*r), r.Config, err)
 	}
 }

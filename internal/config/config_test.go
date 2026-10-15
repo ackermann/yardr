@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,8 +17,8 @@ func TestGetenv(t *testing.T) {
 	if got := Getenv("ACTOR"); got != "new" {
 		t.Fatalf("Getenv(ACTOR) = %q, want new", got)
 	}
-	if got := Actor(); got != "new" {
-		t.Fatalf("Actor = %q, want new", got)
+	if got, err := Actor(); err != nil || got != "new" {
+		t.Fatalf("Actor = %q, %v, want new", got, err)
 	}
 	t.Setenv("YARDR_ACTOR", "")
 	if got := Getenv("ACTOR"); got != "" {
@@ -31,12 +33,62 @@ func TestGetenv(t *testing.T) {
 func TestActorFallsBackToLogin(t *testing.T) {
 	t.Setenv("YARDR_ACTOR", "")
 	t.Setenv("USER", "kloni")
-	if got := Actor(); got != "kloni" {
-		t.Fatalf("USER=kloni: Actor = %q, want kloni", got)
+	if got, err := Actor(); err != nil || got != "kloni" {
+		t.Fatalf("USER=kloni: Actor = %q, %v, want kloni", got, err)
 	}
 	t.Setenv("USER", "")
-	if got := Actor(); got == "" || got == "kloni" {
-		t.Fatalf("no USER: Actor = %q", got)
+	if got, err := Actor(); err != nil || got == "" || got == "kloni" {
+		t.Fatalf("no USER: Actor = %q, %v", got, err)
+	}
+}
+
+// yardr-tbm4: with neither YARDR_ACTOR nor USER the actor comes from the
+// OS, and under Codex's sandbox that lookup hangs past signals. Actor
+// bounds it at 2 s and fails with how to name one instead of hanging; a
+// named actor never reaches the lookup.
+func TestActorLookupTimeout(t *testing.T) {
+	if actorLookupTimeout != 2*time.Second {
+		t.Fatalf("actorLookupTimeout = %v, want 2s", actorLookupTimeout)
+	}
+	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("USER", "")
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		currentUser = user.Current
+		actorLookupTimeout = 2 * time.Second
+		close(release)
+	})
+	currentUser = func() (*user.User, error) {
+		<-release
+		return nil, errors.New("released")
+	}
+	actorLookupTimeout = 50 * time.Millisecond
+	start := time.Now()
+	got, err := Actor()
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("Actor with a blocked lookup took %v, want the 50ms bound", elapsed)
+	}
+	want := "no actor: set YARDR_ACTOR or USER; the system's user lookup did not answer"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Actor with a blocked lookup = %q, %v, want the error", got, err)
+	}
+}
+
+func TestActorNamedSkipsLookup(t *testing.T) {
+	t.Cleanup(func() { currentUser = user.Current })
+	currentUser = func() (*user.User, error) {
+		t.Error("a named actor reached the OS lookup")
+		return nil, errors.New("looked up")
+	}
+	t.Setenv("YARDR_ACTOR", "jo")
+	t.Setenv("USER", "")
+	if got, err := Actor(); err != nil || got != "jo" {
+		t.Fatalf("YARDR_ACTOR=jo: Actor = %q, %v", got, err)
+	}
+	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("USER", "kloni")
+	if got, err := Actor(); err != nil || got != "kloni" {
+		t.Fatalf("USER=kloni: Actor = %q, %v", got, err)
 	}
 }
 

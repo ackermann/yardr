@@ -714,7 +714,11 @@ func TestSetupOffersTheLink(t *testing.T) {
 	if !slices.Equal(keysOf(f), []string{"link"}) {
 		t.Fatalf("asked %q", keysOf(f))
 	}
-	if _, err := st.AddPeer(context.Background(), store.Peer{Name: "north", Key: "a8tUnLBerkUE5hhF7C4ejE-GeV12GYuXpfNf1Jw1grY"}, config.Actor()); err != nil {
+	actor, aerr := config.Actor()
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	if _, err := st.AddPeer(context.Background(), store.Peer{Name: "north", Key: "a8tUnLBerkUE5hhF7C4ejE-GeV12GYuXpfNf1Jw1grY"}, actor); err != nil {
 		t.Fatal(err)
 	}
 	f.asked = nil

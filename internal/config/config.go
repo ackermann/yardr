@@ -336,19 +336,56 @@ func (c *Config) Flows() string { return filepath.Join(c.Home, "flows") }
 // otherwise.
 func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") }
 
+// currentUser is user.Current as a variable, so a test can be a machine
+// whose user lookup blocks (yardr-tbm4).
+var currentUser = user.Current
+
+// actorLookupTimeout bounds the OS user lookup in Actor. Under Codex's
+// sandbox getpwuid can hang (in notify_register_check), past signals, so
+// an unbounded lookup hangs the command past killing. A variable so the
+// test fails in milliseconds (yardr-tbm4).
+var actorLookupTimeout = 2 * time.Second
+
 // Actor names who is acting: YARDR_ACTOR, else the login name ($USER,
-// then the OS user's), else "unknown".
-func Actor() string {
+// then the OS user's), else "unknown". A named actor never reaches the
+// OS: the lookup runs only when neither names one. It fails when the
+// lookup does not answer in time, with how to name one, instead of
+// hanging; a lookup that answers with no user is "unknown", as before.
+func Actor() (string, error) {
 	if a := Getenv("ACTOR"); a != "" {
-		return a
+		return a, nil
 	}
 	if u := os.Getenv("USER"); u != "" {
-		return u
+		return u, nil
 	}
-	if u, err := user.Current(); err == nil {
-		return u.Username
+	type lookedUp struct {
+		name string
+		err  error
 	}
-	return "unknown"
+	found := make(chan lookedUp, 1)
+	// Read here, not in the goroutine: the variable is the test's to
+	// stub, and the goroutine may still be starting when it is restored.
+	lookup := currentUser
+	go func() {
+		u, err := lookup()
+		if err != nil {
+			found <- lookedUp{err: err}
+			return
+		}
+		found <- lookedUp{name: u.Username}
+	}()
+	select {
+	case r := <-found:
+		if r.err != nil {
+			return "unknown", nil
+		}
+		return r.name, nil
+	case <-time.After(actorLookupTimeout):
+		// The lookup stays stuck where it is; the buffered send lets it
+		// go if it ever answers. The process, which fails now, takes it
+		// with it when it exits.
+		return "", errors.New("no actor: set YARDR_ACTOR or USER; the system's user lookup did not answer")
+	}
 }
 
 // ParseRetention reads how long something is kept: a number of days

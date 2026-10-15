@@ -943,7 +943,11 @@ func harnessOptions() ([]huh.Option[string], string) {
 // (actsAs), whatever that run was told.
 func onboardForm(home string, part *partYard) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Yardmaster: "yardmaster", Dir: filepath.Dir(home), Operator: config.Actor(), Style: defaultStyle, Start: true,
+	operator, err := config.Actor()
+	if err != nil {
+		return initOptions{}, err
+	}
+	o := initOptions{Harness: def, Yardmaster: "yardmaster", Dir: filepath.Dir(home), Operator: operator, Style: defaultStyle, Start: true,
 		// The form's answers are given, whatever the store holds.
 		Given: map[string]bool{"harness": true, "operator": true, "yardmaster": true, "style": true, "about": true}}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a yardmaster on it.\n\n", home)
@@ -1015,7 +1019,10 @@ func nameField(operator *string) *huh.Input {
 // (config.Actor): under another name the person who made the yard would be
 // no user of it, with no chat and an inbox nobody reads (yardr-cj66).
 func actsAs(name string) error {
-	actor := config.Actor()
+	actor, err := config.Actor()
+	if err != nil {
+		return err
+	}
 	switch {
 	case !store.ValidUserName(name):
 		return errors.New("letters, digits, '.', '_', '-', '/', starting with a letter or digit")
