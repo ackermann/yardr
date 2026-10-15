@@ -741,21 +741,20 @@ func TestStartAgentKeepsBlockedPromptPendingWithoutPane(t *testing.T) {
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1"}, nil)
-	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" {
+	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" ||
+		handle[dispatch.PromptUnconfirmed] != true {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
 
 // Nudge waits as the first prompt does, and says with its error what the
 // dispatcher has to know: nothing for a nudge herdr saw the agent working
-// on, that the agent is at a dialog and took nothing for one at a dialog
-// before or after (yardr-9a82: a send herdr reports blocked is not one the
-// agent took, so no delivery is counted for it), and that the text was
-// typed and not started on for a stall, a timeout or another error of
-// herdr's.
+// on, that the agent is at a dialog before anything was typed, and that the
+// text was typed and not started on for a stall, a timeout or another error
+// of herdr's.
 func TestNudgeSaysWhatHerdrSawOfIt(t *testing.T) {
 	for answer, want := range map[string]error{
-		"working": nil, "blocked": dispatch.ErrAgentBlocked, "refused": dispatch.ErrAgentBlocked,
+		"working": nil, "refused": dispatch.ErrAgentBlocked,
 		"idle": dispatch.ErrPromptStalled, "timeout": dispatch.ErrPromptStalled,
 	} {
 		bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
@@ -771,6 +770,33 @@ answer `+answer)
 	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
 	if err := down.Nudge(context.Background(), map[string]any{"agent": "b1"}, "x"); err != dispatch.ErrPromptStalled {
 		t.Errorf("herdr down: Nudge = %v, want %v", err, dispatch.ErrPromptStalled)
+	}
+}
+
+// A blocked status after a send is not proof that the agent missed the
+// prompt: it may have started work and reached a permission question. Only
+// a readable pane with no prompt echo lets the dispatcher answer trust.
+func TestNudgeBlockedNeedsPaneEvidenceThatPromptWasNotTaken(t *testing.T) {
+	for _, c := range []struct {
+		name, pane string
+		want       error
+	}{
+		{"no echo", `printf 'Do you trust this folder?\n❯ Yes, trust\n'`, dispatch.ErrAgentBlocked},
+		{"echo", `printf '❯ read the brief\n\n⏺ Reading\n\n❯ \n'`, nil},
+		{"unreadable", `exit 1`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			bin := deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer blocked ;;
+  "pane read") `+c.pane+` ;;
+esac`)
+			err := (&Herdr{Bin: bin}).Nudge(context.Background(), map[string]any{
+				"agent": "b1", "pane": "w1:p1", "kind": "claude",
+			}, "read the brief")
+			if err != c.want {
+				t.Fatalf("Nudge with %s pane = %v, want %v", c.name, err, c.want)
+			}
+		})
 	}
 }
 

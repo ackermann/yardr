@@ -1194,11 +1194,12 @@ has no such hint the event names no harness.
   you. Under load the dialog may draw only after the start looked, or over
   the delivery itself: while the first prompt is pending and never taken,
   the daemon's passes answer it the same way, and a delivery herdr reports
-  blocked at a dialog counts as no delivery. Once a delivery was taken —
-  the prompt shows in the pane, or the agent was seen working after a
-  send — the answer is left to you: the agent's work reaches its pane, and
-  a dialog's text there may be a file it shows at a permission question
-  Enter would answer.
+  blocked at a dialog counts as no delivery when a readable pane has no
+  prompt echo. An echo, a prior send, or a pane that cannot rule one out
+  keeps the send guarded. Once a delivery was seen taken — the prompt shows
+  in the pane, or the agent was seen working after a send — the answer is
+  left to you: the agent's work reaches its pane, and a dialog's text there
+  may be a file it shows at a permission question Enter would answer.
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
   taken: an agent that is still coming up can drop the keys. So yardr gives
   the first prompt to herdr to wait on (`herdr agent prompt <agent> '<text>'
@@ -1238,8 +1239,9 @@ has no such hint the event names no harness.
   same wait: one that stalls with its text in the agent's input gets its
   Enter on that pass, and one for an agent at a dialog is not typed and
   not counted, as one that ends with the agent at a dialog counts none
-  either (herdr reports `blocked`: the agent took nothing). A delivery
-  that has done neither after ten
+  either when the pane has no echo of it (herdr reports `blocked`: the agent
+  took nothing). A pane that cannot be read keeps the send guarded. A
+  delivery that has done neither after ten
   seconds was lost (`session_prompt_lost`) and is made again, three times in
   all; after the third, `session_prompt_gave_up` tells the yardmaster, its `hint`
   being the command that gives the prompt by hand (`herdr agent prompt

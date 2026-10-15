@@ -83,8 +83,8 @@ type TrustAcceptor interface {
 var (
 	// ErrAgentBlocked: the agent is at a dialog and took nothing. One
 	// there before the text is typed nothing, since the keys would
-	// answer it; one that drew over the delivery leaves the text due
-	// as well. No delivery is counted for either.
+	// answer it; one that drew over the delivery does too when the pane
+	// confirms the prompt has no echo. No delivery is counted for either.
 	ErrAgentBlocked = errors.New("the agent is at a dialog: nothing was taken")
 	// ErrPromptStalled: the text was typed, and the agent was not seen to
 	// start on it in the time the runner waits. It is no failure to type:
@@ -627,11 +627,12 @@ type promptPass struct {
 //
 // Found live (yardr-9a82): the dialog may draw over the delivery itself,
 // after herdr took the prompt and before the agent started on it. Such a
-// send is not one the agent took: the runner says the agent is blocked
-// (ErrAgentBlocked, as when it refuses before anything is typed), no
-// delivery is counted, and the trust answer stays open. It closes once a
-// delivery was seen taken: the prompt shows in the pane, or the agent was
-// seen working after a send.
+// send is not one the agent took when herdr says blocked and a readable
+// pane has no prompt echo (ErrAgentBlocked, as when it refuses before
+// anything is typed): no delivery is counted, and the trust answer stays
+// open. An echo, or a pane that cannot rule one out, keeps the send guard
+// closed. It closes once a delivery was seen taken: the prompt shows in
+// the pane, or the agent was seen working after a send.
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
@@ -685,8 +686,9 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// it reaches its pane, and a dialog's text there (a file
 			// shown, at a permission question Enter would answer) is not
 			// the harness's. A send herdr reported blocked at a dialog
-			// counts no delivery (see above), so the answer stays open
-			// for it.
+			// counts no delivery only when a readable pane has no prompt
+			// echo (see above); an echo or an uncertain look keeps this
+			// answer closed.
 			if ta, ok := r.(TrustAcceptor); ok && !sent && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
 			}

@@ -73,10 +73,14 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	switch {
 	case saw == sawShown:
 	case took == tookBlocked:
-		// Sent, and the agent is at a dialog with no echo of it: the
-		// dispatcher says who waits for a human, and delivers the prompt
-		// after the answer unless it shows by then.
+		// Sent, and herdr saw a dialog. A readable pane with no echo
+		// says the agent did not take it; without that proof, keep the
+		// send guarded so a later trust answer cannot enter a question
+		// reached by the prompt.
 		handle[store.PendingPrompt] = prompt
+		if saw == sawUnreadable || saw == sawUnknown || saw == sawNoPane {
+			handle[dispatch.PromptUnconfirmed] = true
+		}
 	case saw == sawNoPane:
 	case took == tookWorking, saw == sawUnreadable, saw == sawUnknown:
 		// Taken, as far as herdr, a pane that cannot be read, or a prompt

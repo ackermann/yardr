@@ -303,11 +303,11 @@ func (h *Herdr) Worked(ctx context.Context, handle map[string]any) (bool, error)
 
 // Nudge sends text to the session's agent as its next prompt, and waits as
 // the first prompt does for herdr to see the agent start on it (see
-// prompt). An agent at a dialog before is typed nothing, and one at a
-// dialog after took nothing: both say so (dispatch.ErrAgentBlocked), and
-// the caller counts no delivery for either. Text the agent did not start
-// on is said to be so (dispatch.ErrPromptStalled): it was typed, and the
-// caller looks for it.
+// prompt). An agent at a dialog before is typed nothing. For one at a
+// dialog after, only a readable pane with no prompt echo says it took
+// nothing (dispatch.ErrAgentBlocked); an echo or an uncertain pane keeps
+// the send guarded. Text the agent did not start on is said to be so
+// (dispatch.ErrPromptStalled): it was typed, and the caller looks for it.
 func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) error {
 	name, _ := handle["agent"].(string)
 	if name == "" {
@@ -317,8 +317,19 @@ func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) e
 	switch took, err := h.prompt(ctx, name, pane, text); {
 	case err != nil:
 		return err
-	case took == tookRefused, took == tookBlocked:
+	case took == tookRefused:
 		return dispatch.ErrAgentBlocked
+	case took == tookBlocked:
+		// Herdr reports the agent at a dialog after the send, but the prompt
+		// may already have reached it. Only a readable pane that rules out
+		// the prompt's echo says nothing was taken. Keep the send guarded if
+		// the pane shows it or cannot settle the question.
+		switch h.arrived(ctx, handle, text) {
+		case sawShown, sawUnreadable, sawUnknown, sawNoPane:
+			return nil
+		default:
+			return dispatch.ErrAgentBlocked
+		}
 	case took == tookStalled:
 		return dispatch.ErrPromptStalled
 	}
