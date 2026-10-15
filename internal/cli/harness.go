@@ -84,7 +84,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Background) > 0, "background work")
 	add(h.Hints != (agents.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
-	add(h.Trust, "trust dialog")
+	add(h.Trust != nil, "trust dialog")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
 	add(h.Flags.Model != "", "model flag")
 	add(len(h.Flags.Always) > 0, "flags always passed")
@@ -129,7 +129,7 @@ func printHarness(h agents.Harness, has bool) {
 		fmt.Printf("  on a Mac without a terminal: version %s is fetched, checked against its sha256 and %s\n", f.Version, how)
 		fmt.Printf("    (verified from %s on %s; --json has the addresses; yardr fetches nothing itself)\n", f.Verified.From, f.Verified.On)
 	}
-	if h.Trust {
+	if h.Trust != nil {
 		fmt.Println("  trust: yardr answers its folder-trust dialog (unless the group or crew member says trust=false)")
 	} else {
 		fmt.Println("  trust: yardr answers no dialog of it")

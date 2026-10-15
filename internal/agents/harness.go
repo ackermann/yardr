@@ -44,9 +44,9 @@ type Harness struct {
 	// program that fetches it; nil when no such way is known, and the
 	// harness is installed by hand, as Install says.
 	Fetch *Fetch `yaml:"fetch" json:"fetch,omitempty"`
-	// Trust is whether yardr answers the harness's folder-trust dialog
-	// (internal/runner/trust.go).
-	Trust  bool         `yaml:"trust" json:"trust"`
+	// Trust is the harness's folder-trust dialog, which yardr answers
+	// (internal/runner/trust.go); nil when it answers none.
+	Trust  *Trust       `yaml:"trust" json:"trust,omitempty"`
 	Marks  Marks        `yaml:"marks" json:"marks"`
 	Flags  Flags        `yaml:"flags" json:"flags"`
 	Model  *ModelSource `yaml:"model" json:"model,omitempty"`
@@ -68,6 +68,15 @@ type Harness struct {
 	// and not to yardr's idle limit.
 	Background []BackgroundLine `yaml:"background" json:"background,omitempty"`
 	Hints      Hints            `yaml:"hints" json:"hints,omitzero"`
+}
+
+// Trust is one folder-trust dialog yardr answers itself: the text that
+// marks it on the pane's screen, and the answer that accepts it, as the
+// harness prints them. The dialog is answered only when both show and the
+// dialog's cursor is seen on the answer (internal/runner/trust.go).
+type Trust struct {
+	Dialog string `yaml:"dialog" json:"dialog"`
+	Answer string `yaml:"answer" json:"answer"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -360,6 +369,9 @@ func (h *Harness) check() error {
 		if p.Label == "" || len(p.Args) == 0 {
 			return fmt.Errorf("flags.permissions: one without label or args")
 		}
+	}
+	if t := h.Trust; t != nil && (t.Dialog == "" || t.Answer == "") {
+		return fmt.Errorf("trust: a dialog yardr answers names its text and its accepting answer")
 	}
 	if h.Fetch != nil {
 		if err := h.Fetch.Check(Executable(h.Kind)); err != nil {

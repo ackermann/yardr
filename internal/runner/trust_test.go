@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
 // trustDialog is Claude Code 2.1.288's folder-trust dialog as herdr's
 // `pane read --source visible` prints it, the cursor on the answer `on`.
 func trustDialog(on string) string {
+	claude, _ := agents.Lookup("claude")
 	mark := func(answer string) string {
 		if answer == on {
 			return " ❯ " + answer
@@ -30,27 +32,54 @@ func trustDialog(on string) string {
 
  Security guide
 
-` + mark("No, exit") + "\n" + mark(trustYes) + `
+` + mark("No, exit") + "\n" + mark(claude.Trust.Answer) + `
 
  Enter to confirm · Esc to cancel
 `
 }
 
-// trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
-// agent start says agent_not_ready, the pane shows the dialog with its
-// cursor on "No, exit", which `down` moves to the other answer and back as
-// the real one wraps, redrawing after `redraw` seconds. `after` is the
-// agent's status once Enter is sent. Every call is logged.
-func trustHerdr(t *testing.T, screen, after string) (h *Herdr, calls func() string) {
-	t.Helper()
-	return slowTrustHerdr(t, screen, after, "0")
+// kimiTrustDialog is Kimi Code 2.1.1's folder-trust dialog as a pty read it,
+// the cursor on the answer `on`.
+func kimiTrustDialog(on string) string {
+	kimi, _ := agents.Lookup("kimi")
+	mark := func(answer string) string {
+		if answer == on {
+			return "   ❯ " + answer
+		}
+		return "     " + answer
+	}
+	return ` ────────────────────────────────────────────
+  Trust this folder?
+  ↑↓ navigate · Enter select · Esc exit
+
+  /private/tmp/y1z/wt/r1/b1
+
+  Project-level MCP servers are disabled until you explicitly choose Trust.
+  Trust starts the listed project MCP targets and remembers this folder.
+
+` + mark(kimi.Trust.Answer) + `
+     Enable project MCP servers. Remembered for this folder.
+
+` + mark("Don't trust") + `
+     Exit Kimi Code. Asked again next launch.
+`
 }
 
-func slowTrustHerdr(t *testing.T, screen, after, redraw string) (h *Herdr, calls func() string) {
+// trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
+// agent start says agent_not_ready, the pane shows screen, `down` toggles
+// it between no and yes as the real one wraps, redrawing after `redraw`
+// seconds, and Enter answers it. `after` is the agent's status once Enter
+// is sent. Every call is logged.
+func trustHerdr(t *testing.T, no, yes, screen, after string) (h *Herdr, calls func() string) {
+	t.Helper()
+	return slowTrustHerdr(t, no, yes, screen, after, "0")
+}
+
+func slowTrustHerdr(t *testing.T, no, yes, screen, after, redraw string) (h *Herdr, calls func() string) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
-	for name, text := range map[string]string{"no": trustDialog("No, exit"), "yes": trustDialog(trustYes), "screen": screen} {
+	for name, text := range map[string]string{"no": no, "yes": yes, "screen": screen} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -93,24 +122,42 @@ func shortTrustWait(t *testing.T) {
 
 // Found live (yardr-1znz): the first builder of a depot Claude Code had not
 // seen stopped at the folder-trust dialog until someone answered it in its
-// pane. yardr answers it, moving the cursor off "No, exit" first, and the
-// agent gets its first prompt at once.
+// pane; and (yardr-bgnn) every Kimi builder stopped at its own in its new
+// worktree. yardr answers the dialog the kind's file names, moving the
+// cursor onto the accepting answer first, and the agent gets its first
+// prompt at once.
 func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	shortTrustWait(t)
-	h, calls := trustHerdr(t, trustDialog("No, exit"), "idle")
-	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if handle["trust_accepted"] != true || handle[store.PendingPrompt] != nil {
-		t.Fatalf("handle = %v\n%s", handle, calls())
-	}
-	got := calls()
-	down, enter, prompt := strings.Index(got, "pane send-keys w1:p1 down"), strings.Index(got, "pane send-keys w1:p1 enter"),
-		strings.Index(got, "agent prompt b1 read the brief")
-	if down < 0 || enter < down || prompt < enter {
-		t.Fatalf("want down, enter, then the prompt:\n%s", got)
+	claude, _ := agents.Lookup("claude")
+	kimi, _ := agents.Lookup("kimi")
+	for _, c := range []struct {
+		name       string
+		entry      agents.Trust
+		dialog     func(on string) string
+		off, start string
+		moves      bool // the cursor starts off the answer, so down is sent
+	}{
+		{"claude", *claude.Trust, trustDialog, "No, exit", "No, exit", true},
+		{"kimi, cursor on the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", kimi.Trust.Answer, false},
+		{"kimi, cursor off the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", "Don't trust", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.entry.Answer), c.dialog(c.start), "idle")
+			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handle["trust_accepted"] != true || handle[store.PendingPrompt] != nil {
+				t.Fatalf("handle = %v\n%s", handle, calls())
+			}
+			got := calls()
+			down, enter, prompt := strings.Index(got, "pane send-keys w1:p1 down"), strings.Index(got, "pane send-keys w1:p1 enter"),
+				strings.Index(got, "agent prompt b1 read the brief")
+			if enter < 0 || prompt < enter || (down >= 0) != c.moves || (c.moves && enter < down) {
+				t.Fatalf("want enter%s, then the prompt:\n%s", map[bool]string{true: " after down", false: ", no down"}[c.moves], got)
+			}
+		})
 	}
 }
 
@@ -124,9 +171,10 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 	old, oldRedraw := trustWait, trustRedrawWait
 	trustWait, trustRedrawWait = 5*time.Second, time.Minute
 	t.Cleanup(func() { trustWait, trustRedrawWait = old, oldRedraw })
-	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), "idle", "0.3")
+	claude, _ := agents.Lookup("claude")
+	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), trustDialog("No, exit"), "idle", "0.3")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +188,10 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 // question) keeps its prompt pending for the dispatcher.
 func TestStartAgentTrustThenNotReady(t *testing.T) {
 	shortTrustWait(t)
-	h, calls := trustHerdr(t, trustDialog("No, exit"), "blocked")
+	claude, _ := agents.Lookup("claude")
+	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), trustDialog("No, exit"), "blocked")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,24 +204,29 @@ func TestStartAgentTrustThenNotReady(t *testing.T) {
 }
 
 // Only the trust dialog is answered, and only when asked to: any other
-// question, a group with trust=false and a dialog whose cursor cannot be
-// put on the accepting answer are left for a human, no key sent that could
-// answer something else.
+// question, a group with trust=false, a dialog whose cursor cannot be put
+// on the accepting answer, and either half of the dialog without the other
+// are left for a human, no key sent that could answer something else.
 func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	shortTrustWait(t)
+	claude, _ := agents.Lookup("claude")
+	kimi, _ := agents.Lookup("kimi")
 	stuck := strings.ReplaceAll(trustDialog("No, exit"), "❯ No, exit", "> No, exit")
 	cases := []struct {
 		name, screen string
-		trust        bool
+		trust        *agents.Trust
 		keys         string // the last key that may have been sent, "" for none
 	}{
-		{"another question", " Do you want to allow this?\n ❯ Yes\n   No\n", true, ""},
-		{"trust=false", trustDialog("No, exit"), false, ""},
-		{"the answer's words inside other text", "I typed: Yes, I trust this folder, honest\n", true, ""},
-		{"cursor never reaches the answer", stuck, true, "down"},
+		{"another question", " Do you want to allow this?\n ❯ Yes\n   No\n", claude.Trust, ""},
+		{"trust=false", trustDialog("No, exit"), nil, ""},
+		{"the answer's words inside other text", "I typed: Yes, I trust this folder, honest\n", claude.Trust, ""},
+		{"the answer without the question", "❯ Yes, I trust this folder\n", claude.Trust, ""},
+		{"kimi's answer without its title", "I typed: Trust this folder\n", kimi.Trust, ""},
+		{"kimi's title without its answer", "Trust this folder?\n", kimi.Trust, ""},
+		{"cursor never reaches the answer", stuck, claude.Trust, "down"},
 	}
 	for _, c := range cases {
-		h, calls := trustHerdr(t, c.screen, "idle")
+		h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), c.screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust)
 		if err != nil {
@@ -187,20 +241,25 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	}
 }
 
-func TestTrusts(t *testing.T) {
+func TestTrustEntry(t *testing.T) {
+	claude, _ := agents.Lookup("claude")
+	kimi, _ := agents.Lookup("kimi")
 	cases := []struct {
 		cfg  map[string]any
-		want bool
+		want *agents.Trust
 	}{
-		{nil, true}, // kind defaults to claude
-		{map[string]any{"kind": "claude"}, true},
-		{map[string]any{"kind": "claude", "trust": false}, false},
-		{map[string]any{"kind": "claude", "trust": true}, true},
-		{map[string]any{"kind": "codex"}, false},
+		{nil, claude.Trust}, // kind defaults to claude
+		{map[string]any{"kind": "claude"}, claude.Trust},
+		{map[string]any{"kind": "claude", "trust": false}, nil},
+		{map[string]any{"kind": "claude", "trust": true}, claude.Trust},
+		{map[string]any{"kind": "kimi"}, kimi.Trust},
+		{map[string]any{"kind": "kimi", "trust": false}, nil},
+		{map[string]any{"kind": "codex"}, nil},
 	}
 	for _, c := range cases {
-		if got := trusts(c.cfg); got != c.want {
-			t.Errorf("trusts(%v) = %v, want %v", c.cfg, got, c.want)
+		got := trustEntry(c.cfg)
+		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+			t.Errorf("trustEntry(%v) = %+v, want %+v", c.cfg, got, c.want)
 		}
 	}
 }

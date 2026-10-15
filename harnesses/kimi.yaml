@@ -2,6 +2,18 @@
 version: 1
 label: Kimi
 
+# Kimi asks whether a folder is trusted the first time it is started in it
+# ("Trust this folder?", read live, Kimi Code 2.1.1), and every bead is a new
+# worktree, so every Kimi session stops there: yardr answers it
+# (internal/runner/trust.go). Trust is per folder, not from a parent (with
+# /Users/mckean trusted, new worktrees still asked), and
+# KIMI_CODE_TRUST_WORKSPACE=1 does not skip the interactive dialog of 2.1.1
+# (read live under a pty, 15 Oct 2026). Answering the dialog leaves Kimi's
+# own trust record for Kimi to write.
+trust:
+  dialog: "Trust this folder?"
+  answer: "Trust this folder"
+
 # Kimi's input is a box (read live, Kimi Code 2.1.1),
 #
 #   ╭──────────────────────────╮

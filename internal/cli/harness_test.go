@@ -50,7 +50,8 @@ func TestHarnessListAndShow(t *testing.T) {
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)")
-	wantText(t, ask(0, "harness", "show", "kimi"), "after the box's edge: │", "a message it took:    ✨",
+	wantText(t, ask(0, "harness", "show", "kimi"), "trust: yardr answers its folder-trust dialog",
+		"after the box's edge: │", "a message it took:    ✨",
 		"no source known: nothing is recorded and nothing compared",
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
 		"cache_menu  ^This session has been idle for",

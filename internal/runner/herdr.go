@@ -49,8 +49,9 @@ import (
 //	             whose entries join the env_file's (see
 //	             config.ReadCrewEnv)
 //
-//	trust      false to leave Claude Code's folder-trust dialog for a human;
-//	           by default yardr answers it (see acceptTrust)
+//	trust      false to leave the folder-trust dialog for a human; by
+//	           default yardr answers the one the kind's file names (see
+//	           acceptTrust)
 //
 // Worktrees live at <root>/<depot>/<bead>.
 type Herdr struct {
@@ -321,7 +322,7 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	if extra := AgentArgs(job, h.YardHome, workdir); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
-	return h.startAgent(ctx, args, name, h.FirstPrompt(handle), handle, trusts(job.Group.Config))
+	return h.startAgent(ctx, args, name, h.FirstPrompt(handle), handle, trustEntry(job.Group.Config))
 }
 
 // FirstPrompt is what the agent of a bead's session is first told: where

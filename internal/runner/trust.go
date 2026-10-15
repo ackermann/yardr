@@ -11,21 +11,19 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 )
 
-// Claude Code asks whether a folder is trusted the first time it is started
-// in a repository (a linked worktree counts as its repository, so one answer
-// covers every bead of a depot) or in a plain directory. Nobody watches an
-// agent yardr starts, and the operator already said the folder is theirs by
-// making it a depot or a crew member's directory, so yardr answers the dialog.
+// A harness may ask whether a folder is trusted the first time it is
+// started in it. Nobody watches an agent yardr starts, and the operator
+// already said the folder is theirs by making it a depot or a crew
+// member's directory, so yardr answers the dialog of a kind whose harness
+// file names it (`trust`: the text that marks it, the answer that accepts
+// it), and no other question. Answering the dialog leaves the harness's
+// own trust record for the harness to write.
 //
 // Claude Code has no flag, setting or environment variable that skips the
 // dialog in an interactive session (2.1.288). The other way is to write
 // projects.<path>.hasTrustDialogAccepted into ~/.claude.json, an
 // undocumented file that every running Claude session rewrites under a lock
-// of its own; a second writer would race them. Answering the dialog leaves
-// the write to Claude Code.
-
-// trustYes is the dialog's accepting answer, as Claude Code prints it.
-const trustYes = "Yes, I trust this folder"
+// of its own; a second writer would race them.
 
 // trustWait bounds the wait for an agent to be ready after its trust dialog
 // was answered. Start runs inside the dispatcher's pass, so it is short; an
@@ -40,35 +38,41 @@ var trustWait = 20 * time.Second
 // the machine is.
 var trustRedrawWait = 2 * time.Second
 
-// trusts reports whether yardr answers the folder-trust dialog for an agent
-// with this config: only that of a kind whose harness file says so (`trust`:
-// Claude Code's, whose dialog it knows), and not when the group or crew
-// member says `trust=false`.
-func trusts(cfg map[string]any) bool {
+// trustEntry is the folder-trust dialog yardr answers for an agent with
+// this config: the one its kind's harness file names, and none when the
+// file names none or the group or crew member says `trust=false`.
+func trustEntry(cfg map[string]any) *agents.Trust {
 	kind, _ := agents.Lookup(agents.Kind(cfg))
-	return kind.Trust && cfg["trust"] != false
+	if kind.Trust == nil || cfg["trust"] == false {
+		return nil
+	}
+	return kind.Trust
 }
 
-// trustAnswer finds the accepting answer on a pane's screen: found when the
-// trust dialog is up, selected when the dialog's cursor is on it.
-func trustAnswer(screen string) (found, selected bool) {
+// trustAnswer finds t on a pane's screen: found when the dialog is up,
+// which takes its mark and its accepting answer both, selected when the
+// dialog's cursor is on the answer.
+func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
+	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
-		if l = strings.TrimSpace(l); strings.HasSuffix(l, trustYes) {
-			return true, strings.HasPrefix(l, "❯")
+		l = strings.TrimSpace(l)
+		dialog = dialog || strings.HasSuffix(l, t.Dialog)
+		if !answer && strings.HasSuffix(l, t.Answer) {
+			answer, selected = true, strings.HasPrefix(l, "❯")
 		}
 	}
-	return false, false
+	return dialog && answer, selected
 }
 
-// acceptTrust answers the folder-trust dialog in pane, if that is what the
-// pane shows, and reports whether it did. The dialog opens with its cursor
-// on "No, exit", so the cursor is moved and Enter is only sent once the
-// screen shows it on the accepting answer: a dialog that changed shape is
-// left for a human, as any other question is.
-func (h *Herdr) acceptTrust(ctx context.Context, pane string) bool {
+// acceptTrust answers the folder-trust dialog t in pane, if that is what
+// the pane shows, and reports whether it did. The dialog may open with its
+// cursor off the accepting answer, so the cursor is moved and Enter is only
+// sent once the screen shows it on the answer: a dialog that changed shape
+// is left for a human, as any other question is.
+func (h *Herdr) acceptTrust(ctx context.Context, pane string, t agents.Trust) bool {
 	screen, err := h.readPane(ctx, pane, 0)
 	for moves := 0; err == nil; moves++ {
-		found, selected := trustAnswer(screen)
+		found, selected := trustAnswer(screen, t)
 		if !found || (!selected && moves == 4) {
 			return false
 		}

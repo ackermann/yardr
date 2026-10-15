@@ -41,7 +41,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -77,14 +77,10 @@ func TestKindConfigDefault(t *testing.T) {
 	}
 }
 
-// What only one file says: the dialog yardr answers is Claude Code's, and
-// the flags every agent gets are Codex's: no shared daemon (yardr-8bhk), and
-// no upgrade of itself at start (yardr-bcx5).
+// What only one file says: the flags every agent gets are Codex's: no
+// shared daemon (yardr-8bhk), and no upgrade of itself at start (yardr-bcx5).
 func TestWhatOneKindSays(t *testing.T) {
 	for _, h := range Harnesses {
-		if h.Trust != (h.Kind == "claude") {
-			t.Errorf("%s: trust %v", h.Kind, h.Trust)
-		}
 		want := []string(nil)
 		if h.Kind == "codex" {
 			want = []string{"--no-daemon", "--config=check_for_update_on_startup=false"}
@@ -126,6 +122,26 @@ func TestLoadOrderAndAliases(t *testing.T) {
 	}
 	if by := index(hs); by["ampcode"].Kind != "amp" || by["amp"].Label != "Amp" {
 		t.Errorf("by name: %+v", by)
+	}
+}
+
+// The trust dialogs yardr answers itself: Claude Code's folder-trust
+// question and Kimi's, each the text that marks it and the answer that
+// accepts it, as the harness prints them (yardr-bgnn). No other kind names
+// one.
+func TestTrust(t *testing.T) {
+	for _, h := range Harnesses {
+		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi") {
+			t.Errorf("%s: trust %+v; only claude's file and kimi's name one", h.Kind, h.Trust)
+		}
+	}
+	claude, _ := Lookup("claude")
+	if claude.Trust == nil || claude.Trust.Dialog != "Is this a project you created or one you trust?" || claude.Trust.Answer != "Yes, I trust this folder" {
+		t.Errorf("claude: trust %+v", claude.Trust)
+	}
+	kimi, _ := Lookup("kimi")
+	if kimi.Trust == nil || kimi.Trust.Dialog != "Trust this folder?" || kimi.Trust.Answer != "Trust this folder" {
+		t.Errorf("kimi: trust %+v", kimi.Trust)
 	}
 }
 
@@ -337,6 +353,8 @@ func TestLoadRefuses(t *testing.T) {
 		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
+		"trust, no answer":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text and its accepting answer"},
+		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answer: 'Yes'}\n", "names its text and its accepting answer"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
