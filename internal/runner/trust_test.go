@@ -220,6 +220,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		{"another question", " Do you want to allow this?\n ❯ Yes\n   No\n", claude.Trust, ""},
 		{"trust=false", trustDialog("No, exit"), nil, ""},
 		{"the answer's words inside other text", "I typed: Yes, I trust this folder, honest\n", claude.Trust, ""},
+		{"the answer at the end of a decorated line", "Quick safety check: " + claude.Trust.Dialog + "\n❯ Please choose " + claude.Trust.Answer + "\n", claude.Trust, ""},
 		{"the answer without the question", "❯ Yes, I trust this folder\n", claude.Trust, ""},
 		{"kimi's answer without its title", "I typed: Trust this folder\n", kimi.Trust, ""},
 		{"kimi's title without its answer", "Trust this folder?\n", kimi.Trust, ""},

@@ -31,10 +31,10 @@ import (
 // shorten it.
 var trustWait = 20 * time.Second
 
-// trustRedrawWait bounds waiting for Claude Code to repaint the dialog after
-// a cursor key. A terminal redraw can be delayed under load; sending another
-// key against the old screen could move the cursor back to "No, exit". A
-// variable so a test whose dialog does redraw can wait for it however busy
+// trustRedrawWait bounds waiting for a harness to repaint the dialog after a
+// cursor key. A terminal redraw can be delayed under load; sending another
+// key against the old screen could move the cursor back to the first answer.
+// A variable so a test whose dialog does redraw can wait for it however busy
 // the machine is.
 var trustRedrawWait = 2 * time.Second
 
@@ -50,14 +50,15 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 }
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
-// which takes its mark and its accepting answer both, selected when the
-// dialog's cursor is on the answer.
+// which takes its mark and its accepting answer on separate lines, selected
+// when the dialog's cursor is on the exact answer line.
 func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
 		l = strings.TrimSpace(l)
 		dialog = dialog || strings.HasSuffix(l, t.Dialog)
-		if !answer && strings.HasSuffix(l, t.Answer) {
+		answerText := strings.TrimSpace(strings.TrimPrefix(l, "❯"))
+		if !answer && answerText == t.Answer {
 			answer, selected = true, strings.HasPrefix(l, "❯")
 		}
 	}
