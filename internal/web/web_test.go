@@ -1085,8 +1085,8 @@ func TestNoOtherHost(t *testing.T) {
 			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}
 	}
-	if assets != 3 || !beadPage {
-		t.Errorf("walked %d assets, want 3, and a bead's page (%v): %v", assets, beadPage, seen)
+	if assets != 4 || !beadPage {
+		t.Errorf("walked %d assets, want 4, and a bead's page (%v): %v", assets, beadPage, seen)
 	}
 }
 
@@ -1099,6 +1099,7 @@ func TestAssets(t *testing.T) {
 		"yard.css":            "text/css; charset=utf-8",
 		"htmx.min.js":         "text/javascript; charset=utf-8",
 		"htmx-ext-sse.min.js": "text/javascript; charset=utf-8",
+		"yard.js":             "text/javascript; charset=utf-8",
 	} {
 		m := regexp.MustCompile(`"(/assets/` + regexp.QuoteMeta(name) + `\?v=[0-9a-f]{12})"`).FindStringSubmatch(page)
 		if m == nil {
@@ -1144,8 +1145,10 @@ func TestVendoredAssets(t *testing.T) {
 		}
 	}
 	scripts, _ := filepath.Glob("assets/*.js")
-	if len(scripts) != 2 {
-		t.Errorf("assets/ has %d scripts, want the two the README pins: %v", len(scripts), scripts)
+	// yard.js is ours, not a vendored script: the two the README pins
+	// and it are all that may be here.
+	if len(scripts) != 3 {
+		t.Errorf("assets/ has %d scripts, want the two the README pins and yard.js: %v", len(scripts), scripts)
 	}
 }
 

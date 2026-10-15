@@ -121,6 +121,7 @@ func TestTalk(t *testing.T) {
 		"paint the shed", "it is painted", // the letters, both directions
 		"jo", "yardmaster", // who wrote each
 		`<form id="send" method="post" action="/talk?with=yardmaster"`,
+		`<textarea id="text" name="text"`, // yard.js sends on ctrl+Enter in this box
 		`hx-post="/talk?with=yardmaster"`,
 		`hx-get="/talk?with=yardmaster"`, // the newest page is live
 		`maxlength="4096"`,
