@@ -78,7 +78,7 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		// send guarded so a later trust answer cannot enter a question
 		// reached by the prompt.
 		handle[store.PendingPrompt] = prompt
-		if saw == sawTyped || saw == sawUnreadable || saw == sawUnknown || saw == sawNoPane {
+		if saw != sawAbsent {
 			handle[dispatch.PromptUnconfirmed] = true
 		}
 	case saw == sawNoPane:

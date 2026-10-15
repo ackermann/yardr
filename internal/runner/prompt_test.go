@@ -784,6 +784,7 @@ func TestNudgeBlockedNeedsPaneEvidenceThatPromptWasNotTaken(t *testing.T) {
 		{"no echo", `printf 'Do you trust this folder?\n❯ Yes, trust\n'`, dispatch.ErrAgentBlocked},
 		{"echo", `printf '❯ read the brief\n\n⏺ Reading\n\n❯ \n'`, nil},
 		{"typed in input", `printf '────\n❯ read the brief\n────'`, nil},
+		{"text with no input drawn", `printf 'read the brief\n\nAllow this command?\n  1. Yes\n'`, nil},
 		{"unreadable", `exit 1`, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -798,6 +799,30 @@ esac`)
 				t.Fatalf("Nudge with %s pane = %v, want %v", c.name, err, c.want)
 			}
 		})
+	}
+}
+
+// A start whose prompt herdr reports blocked, in a pane that then shows the
+// text with no input drawn (a question may have replaced it), is no proof
+// that nothing was taken: the send stays guarded, as for an echo.
+func TestStartAgentBlockedWithTextAndNoInputIsUnconfirmed(t *testing.T) {
+	prompt := "Read /wt/brief-1.md and follow it."
+	bin := deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer blocked ;;
+  "pane read") if [ -e "$0.read" ]; then printf '%s\n' '`+prompt+`' '' 'Allow this command?' '  1. Yes'
+    else touch "$0.read"; printf '%s\n' '────' '❯ ' '────'; fi ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+	handle, err := (&Herdr{Bin: bin}).startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
+		map[string]any{"agent": "b1", "pane": "w1:p1", harnessKind: "claude"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle[dispatch.PromptUnconfirmed] != true || handle[store.PendingPrompt] == nil {
+		t.Fatalf("handle = %v, want the prompt pending and unconfirmed", handle)
+	}
+	if got, want := handle[dispatch.PromptLook], "no input, herdr blocked"; got != want {
+		t.Fatalf("%s = %v, want %q", dispatch.PromptLook, got, want)
 	}
 }
 
