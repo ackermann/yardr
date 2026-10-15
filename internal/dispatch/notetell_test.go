@@ -664,3 +664,39 @@ func TestIdleSessionWithTestLineIsNudgedWithTheOutcome(t *testing.T) {
 		})
 	}
 }
+
+// Herdr reuses an agent name for retries of a bead and stage. A previous
+// attempt's test note is not this session's handoff.
+func TestIdleSessionIgnoresPriorAttemptTestNote(t *testing.T) {
+	s, f, d := noteSetup(t)
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+	must(t, err)
+	if _, err := s.AddNotedAs(ctx, b.ID,
+		"Done: the previous attempt finished.\ntest: sh .yardr/test @ abc1234: pass, 3 packages ok, 0 failed",
+		"yard-x-new", ""); err != nil {
+		t.Fatal(err)
+	}
+	must(t, d.Reconcile(ctx))
+	sess := liveSession(t, s, b.ID)
+	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+	f.screen(true, true)
+
+	f.set(sess, "working") // a turn first: a session still in its stall window gets none
+	must(t, d.Reconcile(ctx))
+	f.set(sess, "idle")
+	must(t, d.Reconcile(ctx))
+	var outcome, handoff int
+	for _, n := range f.told() {
+		if strings.Contains(n, "report the outcome") {
+			outcome++
+		}
+		if strings.Contains(n, "still in new: write your note and hand on") {
+			handoff++
+		}
+	}
+	if outcome != 0 || handoff != 1 {
+		t.Fatalf("nudges = %q, want the handoff prompt for the new session", f.told())
+	}
+}

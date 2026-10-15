@@ -277,7 +277,10 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		if n.Notify == s.ID && !n.Told && !n.Acked && n.Untold == "" {
 			return
 		}
-		if n.Author == agent {
+		// Herdr names an agent for its bead and stage, so a retry can have
+		// the same author as its predecessor. Only notes written after this
+		// session started are this session's own.
+		if n.Author == agent && n.At.After(s.StartedAt) {
 			wrote = true
 			if hasTestLine(n.Text) {
 				finished = true
