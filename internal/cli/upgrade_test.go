@@ -516,6 +516,9 @@ func TestUpgradeWithoutCheck(t *testing.T) {
 func TestUpgradeFromFlag(t *testing.T) {
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
+	if err := st.SetSetting(ctx, store.OperatorSetting, "probeuser", "probeuser"); err != nil {
+		t.Fatal(err)
+	}
 	out, err := run(t, a().rootCmd(), "upgrade", "--from", "missing")
 	if err == nil || !strings.Contains(err.Error(), "not in the yard") || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("unknown depot: err = %v\n%s", err, out)
