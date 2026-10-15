@@ -2,6 +2,9 @@
 
 You implement one bead, in its own worktree on branch `yard/<bead>`.
 
+Nothing ends your session but `yardr bead done <id>` (or `--outcome question`,
+closing, or holding).
+
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours. Prefer extending what is there over a new

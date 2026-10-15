@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -215,11 +216,17 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 }
 
 // idleNudge sends the idle session s one prompt when its bead is still in
-// the stage it works and it wrote no note of its own on it: it finished
-// its turn without handing on, and sits until told. The nudge goes before
-// the idle limit counts, once per idle spell, through the same delivery as
-// a note's telling (typed where the pane shows a prompt, through herdr
-// where it shows none); the session_idle_nudge event says which way.
+// the stage it works: it finished its turn without handing on, and sits
+// until told. The nudge goes before the idle limit counts, once per idle
+// spell, through the same delivery as a note's telling (typed where the
+// pane shows a prompt, through herdr where it shows none); the
+// session_idle_nudge event says which way.
+//
+// A session whose own note already carries its test line wrote everything
+// but the outcome (yardr-k5g8: three builders wrote the finish note with
+// its test line and sat at their prompt), so its nudge names the command.
+// One with no note of its own is asked for the note and the handover, and
+// one whose own note carries no test line is still at work, and gets none.
 //
 // A session still in its stall window, one judged stalled, one with a
 // first prompt still unsubmitted, and one that waits for a usage limit's
@@ -265,15 +272,30 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 	if err != nil {
 		return
 	}
+	wrote, finished := false, false
 	for _, n := range notes {
 		if n.Notify == s.ID && !n.Told && !n.Acked && n.Untold == "" {
 			return
 		}
 		if n.Author == agent {
-			return
+			wrote = true
+			if hasTestLine(n.Text) {
+				finished = true
+			}
 		}
 	}
-	text := fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
+	// The bead is still in the session's stage (checked above), so no
+	// outcome was reported yet: a finished note with no outcome is the
+	// builder sitting at its prompt after handing nothing on.
+	var text string
+	switch {
+	case finished:
+		text = fmt.Sprintf("yardr: your note is on the bead; report the outcome: yardr bead done %s.", s.Bead)
+	case wrote:
+		return
+	default:
+		text = fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
+	}
 	told, delivery, err := d.nudgeSession(ctx, r, s, text)
 	if err != nil {
 		// For good, as a note's telling that fails: give up for this
@@ -292,6 +314,18 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		data["pane"] = pane
 	}
 	_ = d.Store.LogDispatch(ctx, s.Bead, "session_idle_nudge", actor, data)
+}
+
+// hasTestLine reports whether the note carries a test line: a line of its
+// own starting with "test:", as a builder's finish note ends with. By line,
+// not by Contains, which would also match "latest:".
+func hasTestLine(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "test:") {
+			return true
+		}
+	}
+	return false
 }
 
 // limitEvent logs a limit's event; extra is what this one carries beside

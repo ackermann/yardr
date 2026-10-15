@@ -207,6 +207,26 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	}
 }
 
+// A builder that finishes and sits at its prompt lost the outcome commands
+// at the brief's end (yardr-k5g8: three did), so every builder role says up
+// front, in its first ten lines, that only reporting an outcome ends the
+// session, with the done command.
+func TestBuilderRolesSayUpFrontThatOnlyAnOutcomeEndsTheSession(t *testing.T) {
+	files := packFiles(t)
+	for _, name := range []string{"starter/roles/builder.md", "contributors/roles/builder.md", "design/roles/builder.md", "dir/roles/builder.md"} {
+		lines := strings.Split(files[name], "\n")
+		if len(lines) > 10 {
+			lines = lines[:10]
+		}
+		first := strings.Join(lines, "\n")
+		for _, want := range []string{"Nothing ends your session but", "yardr bead done <id>"} {
+			if !strings.Contains(first, want) {
+				t.Errorf("%s: its first ten lines lack %q:\n%s", name, want, first)
+			}
+		}
+	}
+}
+
 // A pack's stage file's one line on the map of the flow (yardr prime
 // --bead, the brief) is its `summary:` line, else its first sentence, and
 // the map cuts it at store.SummaryMax characters. Most pack summaries fit

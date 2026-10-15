@@ -106,12 +106,15 @@ first, and it never arrives. A note behind a first prompt that is stuck on
 a screen that is not there does not wait behind it: through herdr it goes
 at once.
 
-An idle session with its bead still in its stage and no note of its own
-gets one prompt to hand on before the idle limit counts, once per idle
-spell (`session_idle_nudge`): `your bead is still in <stage>: write your
-note and hand on, or say what blocks you`. A session still in its stall
-window, one judged stalled, one with a first prompt still unsubmitted, one
-with a note already due, and one that wrote are not nudged.
+An idle session with its bead still in its stage gets one prompt to hand
+on before the idle limit counts, once per idle spell (`session_idle_nudge`).
+One with no note of its own gets `your bead is still in <stage>: write your
+note and hand on, or say what blocks you`; one whose own note already carries
+its test line wrote everything but the outcome, so its nudge names the command:
+`your note is on the bead; report the outcome: yardr bead done <id>`. A session
+still in its stall window, one judged stalled, one with a first prompt still
+unsubmitted, one with a note already due, and one whose own note carries no test
+line are not nudged.
 
 **A move refused to an agent is logged.** A move that works ends the
 agent's session, so an agent whose `yardr bead done` was refused sits idle

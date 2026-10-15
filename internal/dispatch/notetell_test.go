@@ -604,3 +604,63 @@ func TestIdleSessionWithNoNoteIsNudgedOnce(t *testing.T) {
 		})
 	}
 }
+
+// An idle session whose own note already carries its test line wrote
+// everything but the outcome: its nudge names the command, once per spell.
+// A note that merely mentions "latest:" is no test line, and its session
+// gets none.
+func TestIdleSessionWithTestLineIsNudgedWithTheOutcome(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		note string
+		want int
+	}{
+		{"a finish note gets the outcome command", "Done: wired the nudge.\ntest: sh .yardr/test @ abc1234: pass, 3 packages ok, 0 failed", 1},
+		{"a note without a test line gets none", "on it", 0},
+		{"latest: is no test line", "the latest: still wiring the nudge", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := noteSetup(t)
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))
+			b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+			must(t, err)
+			must(t, d.Reconcile(ctx))
+			sess := liveSession(t, s, b.ID)
+			must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+			f.screen(true, true)
+
+			f.set(sess, "working") // a turn first: a session still in its stall window gets none
+			must(t, d.Reconcile(ctx))
+			if _, err := s.AddNotedAs(ctx, b.ID, c.note, "yard-x-new", sess); err != nil {
+				t.Fatal(err)
+			}
+			f.set(sess, "idle")
+			must(t, d.Reconcile(ctx)) // idle from here
+			must(t, d.Reconcile(ctx))
+			var got []string
+			for _, n := range f.told() {
+				if strings.Contains(n, "report the outcome") {
+					got = append(got, n)
+				}
+			}
+			if len(got) != c.want {
+				t.Fatalf("outcome nudges = %q, want %d", f.told(), c.want)
+			}
+			if c.want == 1 && !strings.Contains(got[0], "yardr bead done "+b.ID) {
+				t.Fatalf("outcome nudge names no command: %q", got[0])
+			}
+			// Once per spell: no second nudge while it sits idle.
+			must(t, d.Reconcile(ctx))
+			var again int
+			for _, n := range f.told() {
+				if strings.Contains(n, "report the outcome") {
+					again++
+				}
+			}
+			if again != c.want {
+				t.Fatalf("outcome nudges = %d, want still %d", again, c.want)
+			}
+		})
+	}
+}

@@ -4,6 +4,9 @@ You do one bead's work in a directory depot: a plain directory, with no
 branches and no commits. You work in the depot's directory itself, where other
 beads may be at work too.
 
+Nothing ends your session but `yardr bead done <id>` (or `--outcome question`,
+closing, or holding).
+
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Touch only the files and folders your bead names. Make the change in the
    style of what is there, and prefer extending what is there over something
