@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -108,21 +109,33 @@ func liveSession(t *testing.T, s store.API, bead string) string {
 func TestNoteTellsTheBeadsSessionOnce(t *testing.T) {
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Limit: 2}, "me"))
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
 	must(t, err)
+	writer, err := s.CreateBead(ctx, store.NewBead{Title: "writer", Stage: "new"}, "me")
+	must(t, err)
 	// No route out of backlog: no session ever works it.
-	quiet, err := s.CreateBead(ctx, store.NewBead{Title: "y", Stage: "backlog"}, "me")
+	quiet, err := s.CreateBead(ctx, store.NewBead{Title: "quiet", Stage: "backlog"}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	sess := liveSession(t, s, b.ID)
+	writerSess := liveSession(t, s, writer.ID)
+	// The caller's pane belongs to another session, so this note must
+	// notify b's session while naming the actor of the writer's pane.
+	must(t, s.SetHandle(ctx, writerSess, map[string]any{
+		"session": writerSess, "agent": "yard-writer", "shell_pid": os.Getpid(),
+	}))
 
-	n, err := s.AddNotedAs(ctx, b.ID, "narrower: only the shed", "yardmaster", "")
+	n, err := s.AddNotedAs(store.WithCaller(ctx, os.Getpid()), b.ID, "narrower: only the shed", "op", writerSess)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if n.Author != "yard-writer" || n.Notify != sess {
+		t.Fatalf("note = %+v, want author yard-writer and notification to %s", n, sess)
+	}
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	want := sess + ": yardr: a note (note " + fmt.Sprint(n.Seq) + ") was added to your bead by yardmaster: " +
+	want := sess + ": yardr: a note (note " + fmt.Sprint(n.Seq) + ") was added to your bead by yard-writer: " +
 		"read it with `yardr bead show " + b.ID + "`, and ack it with `yardr bead note " + b.ID + " --ack " + fmt.Sprint(n.Seq) + "`."
 	if got := f.told(); len(got) != 1 || got[0] != want {
 		t.Fatalf("nudges = %q, want the one telling", got)
