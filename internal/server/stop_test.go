@@ -79,7 +79,9 @@ func TestStopStopsTheServerItNames(t *testing.T) {
 	c := home(t)
 	sleeper := decoy(t)
 	pid := sleeper.Process.Pid
+	var start uint64
 	if st, err := peer.Describe(pid); err == nil {
+		start = st.Start
 		stale(t, c, pid, st.Start)
 	} else if err := os.WriteFile(c.PIDFile(), []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -87,7 +89,10 @@ func TestStopStopsTheServerItNames(t *testing.T) {
 	if err := Stop(c); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if syscall.Kill(pid, 0) == nil {
+	// Stop waits on peer.Alive, which reads a zombie as stopped, so the
+	// decoy may still await its reaper here; a zombie answers kill as if
+	// it still ran. Assert with what Stop asserted with (yardr-1cbe).
+	if peer.Alive(pid, start) {
 		t.Fatal("Stop left the server running")
 	}
 }
