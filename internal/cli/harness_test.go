@@ -30,7 +30,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 	out := ask(0, "harness", "list")
 	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, trust dialog,",
-		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, model flag, flags always passed,",
+		"codex     Codex        v1    pane marks, error lines, reported model, trust dialog, unattended flags, model flag, flags always passed,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
 	var listed struct {
@@ -44,7 +44,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	wantText(t, out, "codex  Codex, by OpenAI  (harnesses/codex.yaml, version 1)", "get it: npm install -g @openai/codex",
 		"on a Mac without a terminal: version 0.162.1 is fetched, checked against its sha256 and moved to ~/.local/bin/codex",
 		"(verified from https://github.com/openai/codex/blob/main/README.md on 2026-10-13;",
-		"trust: yardr answers no dialog of it", "input begins with:    ›", "a message it took:    ›",
+		"trust: yardr answers its folder-trust dialog", "input begins with:    ›", "a message it took:    ›",
 		"unattended: --dangerously-bypass-approvals-and-sandbox", "always:     --no-daemon",
 		"model flag: --model",
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,

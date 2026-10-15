@@ -34,6 +34,18 @@ fetch:
       size: 107055460
       member: codex-x86_64-apple-darwin
 
+# Codex asks whether a folder is trusted the first time it is started in
+# it: yardr answers it (internal/runner/trust.go). The dialog is its
+# question, the answer the one that accepts it, as codex-cli 0.160.1
+# prints them, read 2026-10-15 from a review session's pane. Codex trusts
+# by git repository root, so one answer covers the depot; answering the
+# dialog leaves Codex's own trust record for Codex to write, and no hand
+# adds a line to ~/.codex/config.toml.
+trust:
+  dialog: "Trust this folder?"
+  answer: "1. Trust and continue"
+  cursor: "›"
+
 # Codex begins a message it took with the mark of its input. Before a
 # message of its own it draws ■ or •; the other marks are a box's edge and
 # what any TUI may draw before an error.

@@ -78,12 +78,15 @@ type Harness struct {
 }
 
 // Trust is one folder-trust dialog yardr answers itself: the text that
-// marks it on the pane's screen, and the answer that accepts it, as the
-// harness prints them. The dialog is answered only when both show and the
-// dialog's cursor is seen on the answer (internal/runner/trust.go).
+// marks it on the pane's screen, the answer that accepts it, and the mark
+// of the dialog's selected answer, as the harness prints them. The dialog
+// is answered only when the mark shows, the answer shows exactly, and the
+// cursor is seen on the answer (internal/runner/trust.go). The cursor is
+// the dialog's own mark: Kimi's is ❯ though its input mark is ">".
 type Trust struct {
 	Dialog string `yaml:"dialog" json:"dialog"`
 	Answer string `yaml:"answer" json:"answer"`
+	Cursor string `yaml:"cursor" json:"cursor"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -390,8 +393,8 @@ func (h *Harness) check() error {
 			return fmt.Errorf("flags.permissions: one without label or args")
 		}
 	}
-	if t := h.Trust; t != nil && (t.Dialog == "" || t.Answer == "") {
-		return fmt.Errorf("trust: a dialog yardr answers names its text and its accepting answer")
+	if t := h.Trust; t != nil && (t.Dialog == "" || t.Answer == "" || t.Cursor == "") {
+		return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answer and its cursor")
 	}
 	if h.Fetch != nil {
 		if err := h.Fetch.Check(Executable(h.Kind)); err != nil {

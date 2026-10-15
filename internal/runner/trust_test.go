@@ -65,6 +65,24 @@ func kimiTrustDialog(on string) string {
 `
 }
 
+// codexTrustDialog is Codex's folder-trust dialog as a review session's
+// pane showed it (codex-cli 0.160.1, 15 Oct 2026): one long paragraph,
+// wrapped by the pane, then the answers, the cursor on the answer `on`.
+func codexTrustDialog(on string) string {
+	codex, _ := agents.Lookup("codex")
+	mark := func(answer string) string {
+		if answer == on {
+			return "› " + answer
+		}
+		return "  " + answer
+	}
+	return `  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings can run code automatically, even without a model request. Continue only if you trust
+  these files. Your trust decision will be saved.
+` + mark(codex.Trust.Answer) + `
+` + mark("2. Quit") + `
+`
+}
+
 // trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
 // agent start says agent_not_ready, the pane shows screen, `down` toggles
 // it between no and yes as the real one wraps, redrawing after `redraw`
@@ -122,14 +140,15 @@ func shortTrustWait(t *testing.T) {
 
 // Found live (yardr-1znz): the first builder of a depot Claude Code had not
 // seen stopped at the folder-trust dialog until someone answered it in its
-// pane; and (yardr-bgnn) every Kimi builder stopped at its own in its new
-// worktree. yardr answers the dialog the kind's file names, moving the
-// cursor onto the accepting answer first, and the agent gets its first
-// prompt at once.
+// pane; (yardr-bgnn) every Kimi builder stopped at its own in its new
+// worktree; and (yardr-mdz4) the first Codex review stopped at its own.
+// yardr answers the dialog the kind's file names, moving the cursor onto
+// the accepting answer first, and the agent gets its first prompt at once.
 func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	shortTrustWait(t)
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
+	codex, _ := agents.Lookup("codex")
 	for _, c := range []struct {
 		name       string
 		entry      agents.Trust
@@ -140,6 +159,8 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 		{"claude", *claude.Trust, trustDialog, "No, exit", "No, exit", true},
 		{"kimi, cursor on the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", kimi.Trust.Answer, false},
 		{"kimi, cursor off the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", "Don't trust", true},
+		{"codex, cursor on the answer", *codex.Trust, codexTrustDialog, "2. Quit", codex.Trust.Answer, false},
+		{"codex, cursor off the answer", *codex.Trust, codexTrustDialog, "2. Quit", "2. Quit", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.entry.Answer), c.dialog(c.start), "idle")
@@ -211,6 +232,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	shortTrustWait(t)
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
+	codex, _ := agents.Lookup("codex")
 	stuck := strings.ReplaceAll(trustDialog("No, exit"), "❯ No, exit", "> No, exit")
 	cases := []struct {
 		name, screen string
@@ -224,6 +246,10 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		{"the answer without the question", "❯ Yes, I trust this folder\n", claude.Trust, ""},
 		{"kimi's answer without its title", "I typed: Trust this folder\n", kimi.Trust, ""},
 		{"kimi's title without its answer", "Trust this folder?\n", kimi.Trust, ""},
+		{"codex, another question", " Do you want to allow this?\n › Yes\n   No\n", codex.Trust, ""},
+		{"codex's answer without its question", "› 1. Trust and continue\n", codex.Trust, ""},
+		{"codex's question without its answer", "Trust this folder? Codex can read, edit, and run files here\n", codex.Trust, ""},
+		{"codex's answer at the end of a decorated line", "Trust this folder?\n› Please choose 1. Trust and continue\n", codex.Trust, ""},
 		{"cursor never reaches the answer", stuck, claude.Trust, "down"},
 	}
 	for _, c := range cases {
@@ -248,7 +274,9 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	shortTrustWait(t)
 	claude, _ := agents.Lookup("claude")
+	codex, _ := agents.Lookup("codex")
 	yes := trustDialog(claude.Trust.Answer)
+	codexYes := codexTrustDialog(codex.Trust.Answer)
 	cases := []struct {
 		name   string
 		screen string
@@ -259,14 +287,19 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	}{
 		{"the dialog, drawn late", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, true, true},
 		{"the dialog, kind unset", yes, map[string]any{"pane": "w1:p1"}, nil, true, true},
+		{"codex's dialog, drawn late", codexYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "codex"}, true, true},
 		{"not drawn yet", "", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
 		{"another question", " Do you want to allow this?\n ❯ Yes\n", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
 		{"trust=false", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, false, false},
-		{"a kind with no dialog", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "codex"}, false, false},
+		{"a kind with no dialog", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "grok"}, false, false},
 		{"no pane", yes, map[string]any{"agent": "b1"}, map[string]any{"kind": "claude"}, false, false},
 	}
 	for _, c := range cases {
-		h, calls := trustHerdr(t, trustDialog("No, exit"), yes, c.screen, "idle")
+		no, yesScreen := trustDialog("No, exit"), yes
+		if kind, _ := c.cfg["kind"].(string); kind == "codex" {
+			no, yesScreen = codexTrustDialog("2. Quit"), codexYes
+		}
+		h, calls := trustHerdr(t, no, yesScreen, c.screen, "idle")
 		if got := h.AcceptTrust(context.Background(), c.handle, c.cfg); got != c.want {
 			t.Errorf("%s: AcceptTrust = %v, want %v\n%s", c.name, got, c.want, calls())
 		}
@@ -283,6 +316,7 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 func TestTrustEntry(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
+	codex, _ := agents.Lookup("codex")
 	cases := []struct {
 		cfg  map[string]any
 		want *agents.Trust
@@ -293,7 +327,9 @@ func TestTrustEntry(t *testing.T) {
 		{map[string]any{"kind": "claude", "trust": true}, claude.Trust},
 		{map[string]any{"kind": "kimi"}, kimi.Trust},
 		{map[string]any{"kind": "kimi", "trust": false}, nil},
-		{map[string]any{"kind": "codex"}, nil},
+		{map[string]any{"kind": "codex"}, codex.Trust},
+		{map[string]any{"kind": "codex", "trust": false}, nil},
+		{map[string]any{"kind": "grok"}, nil},
 	}
 	for _, c := range cases {
 		got := trustEntry(c.cfg)

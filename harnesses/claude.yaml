@@ -40,10 +40,12 @@ fetch:
 # Claude Code asks whether a folder is trusted the first time it is started
 # in it, and has no flag that skips the question: yardr answers it
 # (internal/runner/trust.go). The dialog is its question, the answer the one
-# that accepts it, as 2.1.288 prints them.
+# that accepts it, the cursor the mark of its selected answer, as 2.1.288
+# prints them.
 trust:
   dialog: "Is this a project you created or one you trust?"
   answer: "Yes, I trust this folder"
+  cursor: "❯"
 
 # Claude Code begins a message it took with the mark of its input. Before a
 # message of its own it draws ⏺ or ⎿; the other marks are a box's edge and

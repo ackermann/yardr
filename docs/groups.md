@@ -994,7 +994,7 @@ built into the binary and read once when yardr starts:
 | `aliases` | other names the kind is asked for by; no file has one today | the loader |
 | `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
 | `fetch` | how the harness gets onto a Mac that has no package manager and nobody at a terminal: one file of one version at its maker's address, with its sha256 ([doctor.md](doctor.md#a-program-fetched-on-a-mac)). Printed, never fetched by yardr. Claude Code and Codex have one; a kind with none is installed by hand | `yardr doctor --json`, `yardr harness show --json`, for a program that fetches |
-| `trust` | the folder-trust dialog yardr answers: `dialog` (the text that marks it) and `answer` (the one that accepts it); a kind with none is left for a person | the herdr runner, at start |
+| `trust` | the folder-trust dialog yardr answers: `dialog` (the text that marks it), `answer` (the one that accepts it) and `cursor` (the mark of its selected answer); a kind with none is left for a person | the herdr runner, at start |
 | `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
 | `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `offers` | the models to pick from: each a `model` id the kind's `--model` flag takes, a `label` a person reads, and what it is `recommended` for (`yardmaster` on the one frontier model a yardmaster should run on). A suggestion, not a check: `init --model` takes any id, whether the file names it or not. Claude Code, Codex and Kimi name one each; a kind with none suggests no model | `yardr harness show`, `yardr doctor --json`, for a program that offers them |
@@ -1176,21 +1176,22 @@ has no such hint the event names no harness.
 
 ### herdr setup
 
-- **Folder trust.** Claude Code and Kimi ask whether they may trust a folder
-  the first time they are started in it, and neither has a flag or setting
-  that skips the question in an interactive session. yardr answers the dialog
-  the kind's file names (`trust` in harnesses/<kind>.yaml): when the agent
-  stops at it, yardr moves the cursor onto the accepting answer and sends the
-  first prompt as soon as the agent is ready. Making
+- **Folder trust.** Claude Code, Codex and Kimi ask whether they may trust
+  a folder the first time they are started in it, and none has a flag or
+  setting that skips the question in an interactive session. yardr answers
+  the dialog the kind's file names (`trust` in harnesses/<kind>.yaml): when
+  the agent stops at it, yardr moves the cursor onto the accepting answer
+  and sends the first prompt as soon as the agent is ready. Making
   a folder a depot (or a crew member's directory) is what says you trust it. The
   session's `started` event carries `trust_accepted: true` when this
-  happened. Claude Code records the answer against the repository, so it
-  comes up once per depot, not per worktree; Kimi records it per folder, so it
-  comes up in every new worktree. Set `--set trust=false` on a group
-  (or crew member) to answer it yourself: the session then waits as
-  `session_blocked` and gets its first prompt once you have. yardr answers
-  only this dialog, only when both its mark and its answer show and its cursor
-  is seen on the answer; anything else an agent asks is left to you.
+  happened. Claude Code and Codex record the answer against the repository,
+  so it comes up once per depot, not per worktree; Kimi records it per
+  folder, so it comes up in every new worktree. Set `--set trust=false`
+  on a group (or crew member) to answer it yourself: the session then waits
+  as `session_blocked` and gets its first prompt once you have. yardr
+  answers only this dialog, only when both its mark and its answer show and
+  its cursor is seen on the answer; anything else an agent asks is left to
+  you.
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
   taken: an agent that is still coming up can drop the keys. So yardr gives
   the first prompt to herdr to wait on (`herdr agent prompt <agent> '<text>'

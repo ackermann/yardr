@@ -132,22 +132,26 @@ func TestLoadOrderAndAliases(t *testing.T) {
 }
 
 // The trust dialogs yardr answers itself: Claude Code's folder-trust
-// question and Kimi's, each the text that marks it and the answer that
-// accepts it, as the harness prints them (yardr-bgnn). No other kind names
-// one.
+// question, Kimi's and Codex's, each the text that marks it, the answer
+// that accepts it and the mark of its selected answer, as the harness
+// prints them (yardr-bgnn, yardr-mdz4). No other kind names one.
 func TestTrust(t *testing.T) {
 	for _, h := range Harnesses {
-		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi") {
-			t.Errorf("%s: trust %+v; only claude's file and kimi's name one", h.Kind, h.Trust)
+		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi" || h.Kind == "codex") {
+			t.Errorf("%s: trust %+v; only claude's, kimi's and codex's files name one", h.Kind, h.Trust)
 		}
 	}
 	claude, _ := Lookup("claude")
-	if claude.Trust == nil || claude.Trust.Dialog != "Is this a project you created or one you trust?" || claude.Trust.Answer != "Yes, I trust this folder" {
+	if claude.Trust == nil || claude.Trust.Dialog != "Is this a project you created or one you trust?" || claude.Trust.Answer != "Yes, I trust this folder" || claude.Trust.Cursor != "❯" {
 		t.Errorf("claude: trust %+v", claude.Trust)
 	}
 	kimi, _ := Lookup("kimi")
-	if kimi.Trust == nil || kimi.Trust.Dialog != "Trust this folder?" || kimi.Trust.Answer != "Trust this folder" {
+	if kimi.Trust == nil || kimi.Trust.Dialog != "Trust this folder?" || kimi.Trust.Answer != "Trust this folder" || kimi.Trust.Cursor != "❯" {
 		t.Errorf("kimi: trust %+v", kimi.Trust)
+	}
+	codex, _ := Lookup("codex")
+	if codex.Trust == nil || codex.Trust.Dialog != "Trust this folder?" || codex.Trust.Answer != "1. Trust and continue" || codex.Trust.Cursor != "›" {
+		t.Errorf("codex: trust %+v", codex.Trust)
 	}
 }
 
@@ -421,8 +425,9 @@ func TestLoadRefuses(t *testing.T) {
 		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
-		"trust, no answer":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text and its accepting answer"},
-		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answer: 'Yes'}\n", "names its text and its accepting answer"},
+		"trust, no answer":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answer and its cursor"},
+		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answer: 'Yes'}\n", "names its text, its accepting answer and its cursor"},
+		"trust, no cursor":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answer: 'Yes'}\n", "names its text, its accepting answer and its cursor"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},

@@ -10,10 +10,12 @@ provider: Moonshot
 # /Users/mckean trusted, new worktrees still asked), and
 # KIMI_CODE_TRUST_WORKSPACE=1 does not skip the interactive dialog of 2.1.1
 # (read live under a pty, 15 Oct 2026). Answering the dialog leaves Kimi's
-# own trust record for Kimi to write.
+# own trust record for Kimi to write. The dialog's cursor is ❯, as its
+# other menus', though its input mark (below) is ">".
 trust:
   dialog: "Trust this folder?"
   answer: "Trust this folder"
+  cursor: "❯"
 
 # Kimi's input is a box (read live, Kimi Code 2.1.1),
 #

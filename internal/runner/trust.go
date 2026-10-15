@@ -16,8 +16,8 @@ import (
 // already said the folder is theirs by making it a depot or a crew
 // member's directory, so yardr answers the dialog of a kind whose harness
 // file names it (`trust`: the text that marks it, the answer that accepts
-// it), and no other question. Answering the dialog leaves the harness's
-// own trust record for the harness to write.
+// it, the cursor that selects it), and no other question. Answering the
+// dialog leaves the harness's own trust record for the harness to write.
 //
 // Claude Code has no flag, setting or environment variable that skips the
 // dialog in an interactive session (2.1.288). The other way is to write
@@ -50,16 +50,20 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 }
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
-// which takes its mark and its accepting answer on separate lines, selected
-// when the dialog's cursor is on the exact answer line.
+// which takes its mark and its accepting answer on separate lines,
+// selected when the dialog's cursor is on the exact answer line. The
+// mark may share its row with more text on either side (Claude Code's
+// "Quick safety check: ..." before it, Codex's long paragraph after it,
+// wrapped wherever the pane wraps), so the row matches when it holds the
+// mark; the answer line stays exact, with the cursor t.Cursor on it.
 func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
 		l = strings.TrimSpace(l)
-		dialog = dialog || strings.HasSuffix(l, t.Dialog)
-		answerText := strings.TrimSpace(strings.TrimPrefix(l, "❯"))
+		dialog = dialog || strings.Contains(l, t.Dialog)
+		answerText := strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
 		if !answer && answerText == t.Answer {
-			answer, selected = true, strings.HasPrefix(l, "❯")
+			answer, selected = true, t.Cursor != "" && strings.HasPrefix(l, t.Cursor)
 		}
 	}
 	return dialog && answer, selected
