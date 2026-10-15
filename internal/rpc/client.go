@@ -91,6 +91,19 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 	if args == nil {
 		args = []any{}
 	}
+	// A file's name is held to what a letter may carry before it is
+	// sent: JSON cannot carry what is no UTF-8, and the server would
+	// hold the replacement character it arrives as, under another
+	// name. The server holds every name to the same rule again.
+	for _, arg := range args {
+		if files, ok := arg.([]store.BlobFile); ok {
+			for _, f := range files {
+				if err := store.CheckBlobName(f.Name); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	body, err := json.Marshal(args)
 	if err != nil {
 		return err
