@@ -87,10 +87,10 @@ known of why).
 # on laptop, after the check
 ┃ What may this link carry?
 ┃ Each in both directions: what this yard sends north, and what it takes from it. The other
-┃ operator is asked the same, and mail, an image or a page crosses only when both of you tick it.
+┃ operator is asked the same, and mail with a file crosses only when both of you tick mail and file.
 ┃ > ✓ ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link
 ┃   ✓ mail between crew members: this yard's may write to north's, and north's to this yard's
-┃   • file: images and pages in mail cross the link, kept within peer_file_max_bytes
+┃   • file: any kind of file in mail crosses the link, kept within peer_file_max_bytes
 
 The two yards are linked. This one knows the other as north, and the link carries ping and mail, each way.
 ```
@@ -1062,7 +1062,7 @@ mail: takes 100 mails and asks an hour, and 800 files
   other yard's word for who wrote, and the limit is of that yard: a count
   of its own for trusted names would be one the other yard chooses to be
   counted by. Raise the limit of a link a person works through.
-- **The files follow it**: 8 for each mail of the limit, so mail within
+- **The files follow it**: 64 for each mail of the limit, so mail within
   its limit never meets the limit for files. Bead events are counted apart
   and stay [240 an hour](#while-a-bead-is-at-the-other-yard).
 - **The hour that runs keeps its count** when the limit changes: a link

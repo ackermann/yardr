@@ -1007,7 +1007,7 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 		return nil, fmt.Errorf("mail goes to a peer's crew member with yardr mail <crew member>@%s", name)
 	case PeerFile:
 		// A file crosses for the mail that names it, and is checked there.
-		return nil, fmt.Errorf("a file goes to a peer with the mail that carries it: yardr mail <crew member>@%s --file <image>", name)
+		return nil, fmt.Errorf("a file goes to a peer with the mail that carries it: yardr mail <crew member>@%s --file <path>", name)
 	case PeerBead, PeerBeadReturn, PeerBeadEvent:
 		// Each would be a word about a bead from whoever can reach the
 		// socket: the yard says them itself, from its own beads.
@@ -1221,11 +1221,11 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 	gone := now()
 	m.Failed, m.RetryAt, m.Error = &gone, nil, reason
 	data := map[string]any{"attempts": m.Attempts, "reason": reason}
-	told, image := m, ""
+	told, fileHash := m, ""
 	if m.Kind == PeerFile {
 		m.Body = withoutData(m.Body)
-		if told, image = w.carrier(m); told != nil {
-			data["hash"], data["mail"] = image, told.ID
+		if told, fileHash = w.carrier(m); told != nil {
+			data["hash"], data["mail"] = fileHash, told.ID
 		}
 	}
 	for k, v := range extra {
@@ -1246,7 +1246,7 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 	if err := w.noteGivenUp(m, reason); err != nil {
 		return err
 	}
-	return w.undelivered(told, image, reason, limit, until)
+	return w.undelivered(told, fileHash, reason, limit, until)
 }
 
 // PeerHandOver answers a pull by the peer name, whose question was signed

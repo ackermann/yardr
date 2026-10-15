@@ -35,7 +35,7 @@ import (
 type pairChoice struct {
 	// mail is whether the link carries mail between crew members, both ways.
 	mail bool
-	// file is whether the mail may carry images, both ways (store.PeerFile).
+	// file is whether the mail may carry files, both ways (store.PeerFile).
 	file bool
 	// expose are the crew members and users of this yard the other one may
 	// see and write to (store.Peer.Expose).
@@ -433,7 +433,7 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 		// The value before the options: they are ticked from it.
 		huh.NewMultiSelect[string]().Key("pair_carry").Title("What may this link carry?").
 			Description(fmt.Sprintf("Each in both directions: what this yard sends %s, and what it takes from it. The other\n"+
-				"operator is asked the same, and mail, an image or a page crosses only when both of you tick it.", calls)).
+				"operator is asked the same, and mail with a file crosses only when both of you tick mail and file.", calls)).
 			Value(&carry).Options(
 			huh.NewOption("ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link", store.PeerPing),
 			huh.NewOption(fmt.Sprintf("mail between crew members: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
@@ -697,7 +697,7 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 			"docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
 	}
 	if opt.form.file {
-		fmt.Printf("\nAn image or a page goes with the mail (`--file <image or page>`), once the other operator ticked file too.\n")
+		fmt.Printf("\nAny file goes with the mail (`--file <path>`), once the other operator ticked file too.\n")
 	}
 	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil

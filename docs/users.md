@@ -501,7 +501,7 @@ one. The operator and the user whose it is remove one. Like every such
 check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 
 **What a device reads and writes.** The 22 calls of
-[api.md](api.md#the-calls), the event stream and the images of mail, and
+[api.md](api.md#the-calls), the event stream and the files of mail, and
 nothing else the yard's socket serves: no move of a bead and no setting is
 on the listener, whoever calls. A device of the operator has two calls
 more, and no other device has them

@@ -1242,7 +1242,7 @@ body; the stage file of its stage (without its
 stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its board, the note pages in note order
 where there are any; its notes, the oldest first, each with
-its images and pages below its words; the sessions that worked it; its
+its files below its words; the sessions that worked it; its
 history. A closed bead has a page too. An unknown id is a 404.
 
 On a view that acts, the page answers the bead's open asks to its user,

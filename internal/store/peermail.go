@@ -477,14 +477,14 @@ func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail, fl *filing) er
 // yardr chat and reads no events. Anyone else reads peer_message_failed
 // and yardr peer show.
 //
-// With image, the hash of a file of the mail, it is that file's message
+// With fileHash, the hash of a file of the mail, it is that file's message
 // which was given up (carrier): the mail goes on without it, and its
 // writer is told that.
 //
 // With limit and until, the mail was refused over the peer's hour, and
 // the event keeps them: what the link takes and when the hour ends, which
 // its text names.
-func (w *wtx) undelivered(m *PeerOut, image, reason string, limit int, until *time.Time) error {
+func (w *wtx) undelivered(m *PeerOut, fileHash, reason string, limit int, until *time.Time) error {
 	if m == nil || m.Kind != PeerMail {
 		return nil
 	}
@@ -497,9 +497,9 @@ func (w *wtx) undelivered(m *PeerOut, image, reason string, limit int, until *ti
 	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
 	of := fmt.Sprintf("your mail to %s@%s of %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"))
 	data := map[string]any{"to": mail.From, "undelivered": m.ID, "text": of + " was not delivered: " + reason}
-	if image != "" {
+	if fileHash != "" {
 		noun := "file"
-		at := slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == image })
+		at := slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == fileHash })
 		if at >= 0 {
 			noun = mail.Files[at].Kind()
 		}
@@ -507,7 +507,7 @@ func (w *wtx) undelivered(m *PeerOut, image, reason string, limit int, until *ti
 		if n := len(mail.Files); n > 1 {
 			which = fmt.Sprintf("%s %d of %d", noun, 1+at, n)
 		}
-		data = map[string]any{"to": mail.From, "not_taken": image, "of": m.ID, "text": which + " of " + of + " was not taken: " + reason}
+		data = map[string]any{"to": mail.From, "not_taken": fileHash, "of": m.ID, "text": which + " of " + of + " was not taken: " + reason}
 	} else if limit > 0 && until != nil {
 		data["limit"], data["until"] = limit, *until
 	}

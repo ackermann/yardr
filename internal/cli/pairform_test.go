@@ -245,6 +245,7 @@ func TestPairForm(t *testing.T) {
 	}
 	pages := o.pages.String()
 	wantText(t, pages, "Show a code, or enter one?", "Does the other screen show the same?", "What may this link carry?",
+		"mail with a file crosses only when both of you tick mail and file.",
 		"ping: each yard may ask the other whether it is there", "mail between crew members: this yard's may write to laptop's, and laptop's to this yard's",
 		"file: files in mail cross the link, kept within peer_file_max_bytes",
 		"This yard's name for the other one", "The other yard's address", "The code")
@@ -295,7 +296,7 @@ func TestPairFormWithoutMail(t *testing.T) {
 }
 
 // An operator who ticks file gets a link that carries it beside ping and
-// mail, each way, and is told how an image or a page goes. It is not ticked
+// mail, each way, and is told how a file goes. It is not ticked
 // for them: the other's link carries what it did.
 func TestPairFormWithFile(t *testing.T) {
 	o := &operators{ways: []string{pairShow, pairEnter}, same: map[string]bool{"laptop": true, "north": true},
@@ -311,8 +312,8 @@ func TestPairFormWithFile(t *testing.T) {
 	}
 	wantText(t, out, "This one knows the other as laptop, and the link carries ping, mail and file, each way.",
 		"This one knows the other as north, and the link carries ping and mail, each way.")
-	if n := strings.Count(out, "An image or a page goes with the mail (`--file <image or page>`)"); n != 1 {
-		t.Errorf("how an image or a page goes is said %d times, and one yard ticked file:\n%s", n, out)
+	if n := strings.Count(out, "Any file goes with the mail (`--file <path>`)"); n != 1 {
+		t.Errorf("how a file goes is said %d times, and one yard ticked file:\n%s", n, out)
 	}
 }
 
