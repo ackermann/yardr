@@ -107,11 +107,43 @@ func managerOf() string {
 
 var notIDChar = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
+// resolveHome is resolve for a home that may no longer exist: EvalSymlinks
+// fails when nothing is there, and a service installed while the home
+// existed must keep its name after the home is removed by hand, or
+// uninstall no longer finds it. Only what exists can hold a symlink, so
+// resolving the longest prefix that does and appending the rest names what
+// EvalSymlinks would have, had the home been there.
+func resolveHome(home string) string {
+	if r, err := filepath.EvalSymlinks(home); err == nil {
+		return r
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return home
+	}
+	var rest []string
+	dir := home
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return home
+		}
+		rest = append(rest, filepath.Base(dir))
+		dir = parent
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			for i := len(rest) - 1; i >= 0; i-- {
+				r = filepath.Join(r, rest[i])
+			}
+			return r
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return home
+		}
+	}
+}
+
 // homeID names a home in a service's name: the directory's name, for the
 // person reading, and the start of its path's hash, so that two homes of
 // one name are two services.
 func homeID(home string) string {
-	sum := sha256.Sum256([]byte(resolve(home)))
+	sum := sha256.Sum256([]byte(resolveHome(home)))
 	name := strings.Trim(notIDChar.ReplaceAllString(filepath.Base(home), "-"), "-_")
 	return or(name, "yard") + "-" + hex.EncodeToString(sum[:4])
 }

@@ -169,6 +169,47 @@ func TestServiceNameCarriesTheHome(t *testing.T) {
 	}
 }
 
+// A service's name is the same whether or not its home exists: a home
+// reached through a symlink is installed under its resolved name, and a
+// file written while the home is gone is still the home's once the home
+// is back.
+func TestServiceNameWithoutHome(t *testing.T) {
+	real := t.TempDir()
+	linked := filepath.Join(shortDir(t, "yl"), "link")
+	if err := os.Symlink(real, linked); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(linked, "yard")
+	newHome(t)
+	t.Setenv("YARDR_HOME", home)
+	stubServices(t, "darwin")
+	// The home is not there: the service is written under its name all
+	// the same.
+	u, err := newUnit(config.At(home), kindOf(svcDaemon), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(u.Path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(u.Path, []byte(u.render()), u.Mode); err != nil {
+		t.Fatal(err)
+	}
+	// The home appears, and uninstall removes the service, not "nothing".
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: storetest.New(t), actor: "me"}
+	out, err := run(t, a.rootCmd(), "daemon", "uninstall")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "removed "+u.Path)
+	if _, err := os.Stat(u.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("still there: %v", err)
+	}
+}
+
 // The environment a service gets is the server's and where herdr is, and
 // nothing else of the shell: no credential, no identity.
 func TestServiceEnv(t *testing.T) {
