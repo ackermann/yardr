@@ -89,7 +89,13 @@
   <form id="send" method="post" action="/talk?with={{.Data.With}}" hx-post="/talk?with={{.Data.With}}" hx-target="#talk" hx-select="#talk > *" hx-swap="innerHTML ignoreTitle:true">
     <label class="label" for="text">Mail to {{.Data.With}} as {{.Data.As}}</label>
     <textarea id="text" name="text" rows="3" required maxlength="{{.Data.MaxMail}}" placeholder="Write to {{.Data.With}}…">{{.Data.Draft}}</textarea>
-    <button type="submit">Send</button>
+    {{- /* The key that sends beside the Send button: yard.js fills the
+           empty, hidden hint from the platform and shows it, so without
+           scripts the page names no key, which is true. */}}
+    <div class="send-row">
+      <span class="hint" id="send-key" hidden></span>
+      <button type="submit">Send</button>
+    </div>
   </form>
   {{- end}}
 </div>

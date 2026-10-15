@@ -428,7 +428,12 @@ ul, ol { list-style: none; }
    and the page with it. */
 #send { display: flex; flex-direction: column; gap: 8px; padding: var(--gap); }
 #send textarea { width: 100%; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); resize: vertical; }
-#send button { align-self: flex-end; padding: 8px 16px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+/* The Send button stands at the row's right edge, the key that sends it
+   beside: faint as the view's faint text, small, and never uppercased,
+   as key names are case-sensitive. */
+#send .send-row { display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; }
+#send .hint { color: var(--faint); font-size: var(--small); }
+#send button { padding: 8px 16px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
 #send button:hover { color: var(--accent); border-color: var(--accent); }
 /* Why a mail was not sent, above the form that keeps its words. */
 .error { color: var(--held); }
