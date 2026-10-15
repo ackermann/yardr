@@ -15,10 +15,10 @@ import (
 )
 
 // yardr bead note --file puts the image in the yard and writes a note that
-// names it; bead show prints the image line under the note and names it in
-// --json, and prime ends the note's block with it. A GIF, a file over the
-// yard's limit and a missing file are refused with nothing written, as are
-// --ack with --file and a note without words.
+// names it with the path's base name; bead show prints the image line under
+// the note and names it in --json, and prime ends the note's block with it.
+// A file over the yard's limit and a missing file are refused with nothing
+// written, as are --ack with --file and a note without words.
 func TestBeadNoteFile(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
@@ -37,10 +37,10 @@ func TestBeadNoteFile(t *testing.T) {
 		}
 		return path
 	}
-	// The name says nothing: what the bytes are is what counts.
+	// The name says nothing of the kind: what the bytes are is what counts.
 	png := file("shot.txt", "\x89PNG\r\n\x1a\n the shed")
 	hash := hashOfFile(t, png)
-	image := "1 image: " + store.BlobPath(home, hash)
+	image := "1 image: " + store.BlobPath(home, hash) + " (shot.txt)"
 
 	out := mustAs(t, st, "jo", "bead", "note", b.ID, "the shed, painted", "--file", png)
 	if want := " on " + b.ID + "  " + image + "\n"; !strings.HasPrefix(out, "note ") || !strings.HasSuffix(out, want) {
@@ -73,11 +73,9 @@ func TestBeadNoteFile(t *testing.T) {
 	if show := mustAs(t, st, "jo", "bead", "show", b.ID); strings.Count(show, "image") != 1 {
 		t.Errorf("bead show after a plain note:\n%s", show)
 	}
-	refusedAs(t, st, "jo", "a note with --file needs words: say what the picture shows",
+	refusedAs(t, st, "jo", "a note with --file needs words: say what they show",
 		"bead", "note", b.ID, " \n\t ", "--file", file("blank.png", "\x89PNG\r\n\x1a\n no words"))
 
-	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8",
-		"bead", "note", b.ID, "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608",
 		"bead", "note", b.ID, "big", "--file", file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
 	refusedAs(t, st, "jo", "no such file", "bead", "note", b.ID, "gone", "--file", filepath.Join(dir, "none.png"))
@@ -94,9 +92,10 @@ func TestBeadNoteFile(t *testing.T) {
 }
 
 // yardr bead note --file attaches a page as it attaches an image, with no
-// new flag: the note names "1 page", and --json carries the HTML type. A
-// mixed note counts each kind apart. Prose named .html and an SVG file are
-// refused, since what the bytes are is what counts.
+// new flag: the note names "1 page" with the path's base name, and --json
+// carries the HTML type. A mixed note counts each kind apart. Prose named
+// .html and an SVG file go as files, since what the bytes are is what
+// counts.
 func TestBeadNotePage(t *testing.T) {
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
@@ -117,7 +116,7 @@ func TestBeadNotePage(t *testing.T) {
 	}
 	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
 	page := file("page.html", html)
-	want := "1 page: " + store.BlobPath(home, hashOfFile(t, page))
+	want := "1 page: " + store.BlobPath(home, hashOfFile(t, page)) + " (page.html)"
 
 	out := mustAs(t, st, "jo", "bead", "note", b.ID, "the shed, mocked up", "--file", page)
 	if suffix := " on " + b.ID + "  " + want + "\n"; !strings.HasPrefix(out, "note ") || !strings.HasSuffix(out, suffix) {
@@ -139,13 +138,16 @@ func TestBeadNotePage(t *testing.T) {
 	if out := mustAs(t, st, "jo", "bead", "note", b.ID, "both", "--file", png, "--file", page); !strings.Contains(out, "1 image, 1 page: ") {
 		t.Errorf("bead note --file png --file html = %q", out)
 	}
-	// What the bytes are is what counts, not the .html name.
-	refusedAs(t, st, "jo", "prose.html: the file is text/plain; charset=utf-8: the yard keeps only",
-		"bead", "note", b.ID, "prose", "--file", file("prose.html", "just some prose"))
-	refusedAs(t, st, "jo", "diagram.svg: the file is text/plain; charset=utf-8: the yard keeps only",
-		"bead", "note", b.ID, "a diagram", "--file", file("diagram.svg", `<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>`))
-	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 2 {
-		t.Errorf("what was refused was written: %+v, %v", notes, err)
+	// What the bytes are is what counts, not the .html name: prose and an
+	// SVG go as files.
+	if out := mustAs(t, st, "jo", "bead", "note", b.ID, "prose", "--file", file("prose.html", "just some prose")); !strings.Contains(out, "1 file: ") || !strings.Contains(out, " (prose.html)") {
+		t.Errorf("bead note --file prose.html = %q", out)
+	}
+	if out := mustAs(t, st, "jo", "bead", "note", b.ID, "a diagram", "--file", file("diagram.svg", `<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>`)); !strings.Contains(out, "1 file: ") || !strings.Contains(out, " (diagram.svg)") {
+		t.Errorf("bead note --file diagram.svg = %q", out)
+	}
+	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 4 {
+		t.Errorf("the notes = %+v, %v", notes, err)
 	}
 }
 
@@ -182,7 +184,7 @@ func TestBeadNoteFilesLineNotForgeable(t *testing.T) {
 				marked = append(marked, strings.TrimSpace(line))
 			}
 		}
-		want := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hash)
+		want := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hash) + " (shot.png)"
 		if len(marked) != 1 || marked[0] != want {
 			t.Errorf("%s: marked lines = %q, want [%q]:\n%s", name, marked, want, out)
 		}

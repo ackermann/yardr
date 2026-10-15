@@ -256,7 +256,7 @@ func TestApproveAsk(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := []string{"peer", "allow", "airy", "--mail-limit", "300"}
-	const result = "peer airy: takes 300 mails and asks an hour, and 2400 files"
+	const result = "peer airy: takes 300 mails and asks an hour, and 19200 files"
 	if done.Bead != y.bead || done.Ask != seq || done.Asker != "yardmaster" || !slices.Equal(done.Argv, argv) || done.Result != result ||
 		len(done.Does) != 1 || !strings.Contains(done.Does[0], "takes 300 mails and asks an hour from it. It takes 30 now.") {
 		t.Fatalf("ApproveAsk answers %+v", done)

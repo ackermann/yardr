@@ -522,7 +522,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's image or page to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes of the blob with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin a note's bytes run under the scripted policy | |
+| `/blobs/<hash>` | a note's blob to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes with their type; anything else is a 404 ([One bead](#one-bead)). An image and a page open inline, a file downloads (`Content-Disposition: attachment` with its name). On the sandbox origin a note's page runs under the scripted policy, a file downloads the same way | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1257,10 +1257,11 @@ for the user in a stage a manual group works, the outcomes send it on as
 `yardr review` offers them, with a note. Each write carries the revision
 the page was drawn from ([Acting as a user](#acting-as-a-user)).
 
-A note's images and pages are what `yardr bead note --file` attached to
-it. Each image shows below the note's words, with those words as its alt
-text; each page stands as a link, `page <hash8>`, opening the bytes
-top-level and inert. One the yard no longer holds is a line saying so,
+A note's files are what `yardr bead note --file` attached to it. Each
+image shows below the note's words, with those words as its alt text; each
+page stands as a link, `page <hash8>`, opening the bytes top-level and
+inert; each file stands as a download link, `file <name>`, and downloads
+instead of opening. One the yard no longer holds is a line saying so,
 never a broken icon or link. The JSON names them as the notes have them.
 Above the notes, the board lays the bead's note pages out in note order,
 each with its note beside it: one entry per page, the link first and the
@@ -1268,7 +1269,10 @@ note's words under it. A bead with no note page shows no board. Mail
 pages stand on no board: from here only a note's page opens.
 The bytes come from `/blobs/<hash>`, which serves a note's blob to
 anyone, and on a view that acts a mail's file to its sender or recipient;
-anything else answers as a missing blob.
+anything else answers as a missing blob. The rule is by kind, not by type:
+an SVG, a PDF and a text file all download, with
+`Content-Disposition: attachment; filename*=UTF-8''<encoded name>` and the
+type the bytes say.
 
 A page opens under its own policy, which replaces the yard page's for
 that response: `sandbox` with no `allow-scripts`, so scripts, forms and
@@ -1450,13 +1454,13 @@ user has unread mail from it. Beside the member in conversation is its
 state, in the words footplate lists crew members with; a person shows
 none. Each letter reads as a
 note does: the sender
-with its device, the time, the words with their lines kept, the images it
+with its device, the time, the words with their lines kept, the files it
 carries, and `read` under the user's own where the other party
 acknowledged it.
 A page the mail carries is named without a link, never drawn as an image:
-no link here opens one. A file the yard no longer holds is a line saying
-so, never a broken image. With no user the page says the view does not
-act.
+no link here opens one. A file downloads from its link, `file <name>`.
+A file the yard no longer holds is a line saying so, never a broken image.
+With no user the page says the view does not act.
 
 The page reads as a messaging app: the crew and the people stay above the
 letters and

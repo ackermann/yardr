@@ -145,7 +145,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	want := "ask 1, asked by yardmaster: yardr peer allow airy --mail-limit 300\n" +
 		"the link with airy (it calls itself yardr, key " + key[:8] + "…) takes 300 mails and asks an hour from it. It takes 30 now.\n" +
 		"jo approved it, and the yard ran it:\n" +
-		"peer airy: takes 300 mails and asks an hour, and 2400 files\n"
+		"peer airy: takes 300 mails and asks an hour, and 19200 files\n"
 	if out != want {
 		t.Fatalf("bead answer --approve printed:\n%s\nwant:\n%s", out, want)
 	}

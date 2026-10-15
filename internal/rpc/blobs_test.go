@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // get is GET path on the socket: the status, the type and the body.
@@ -50,27 +52,27 @@ func TestBlobsOverTheSocket(t *testing.T) {
 	}
 
 	for _, c := range []struct{ method, body, want string }{
-		{"PutBlob", `{"data":"` + base64.StdEncoding.EncodeToString([]byte("GIF89a it moves")) + `"}`, `"message":"the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8"`},
-		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + hash + `"]}`, `{}`},
-		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + unknown + `"]}`,
-			`{"error":{"code":"not-found","message":"mail to yardmaster: image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr mail --file)"}}`},
-		{"MailPeer", `{"to":"clerk","peer":"north","text":"look","actor":"jo","files":["` + hash + `"]}`,
+		{"PutBlob", `{"data":"` + base64.StdEncoding.EncodeToString([]byte("GIF89a it moves")) + `"}`, `"type":"image/gif"`},
+		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":[{"hash":"` + hash + `","name":"fence.jpg"}]}`, `{}`},
+		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":[{"hash":"` + unknown + `"}]}`,
+			`{"error":{"code":"not-found","message":"mail to yardmaster: file ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr mail --file)"}}`},
+		{"MailPeer", `{"to":"clerk","peer":"north","text":"look","actor":"jo","files":[{"hash":"` + hash + `","name":"fence.jpg"}]}`,
 			`{"error":{"code":"error","message":"mail to clerk@north: peer north: the link does not carry file out, so mail to it carries no file: the operator allows it with yardr peer allow north --send file"}}`},
 		// What the mail carried is in the conversation.
-		{"Conversation", `{"a":"jo","b":"yardmaster"}`, `"text":"look","read":false,"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
+		{"Conversation", `{"a":"jo","b":"yardmaster"}`, `"text":"look","read":false,"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14,"name":"fence.jpg"}]`},
 		// A note carries files as mail does, and what it carried is on
 		// the bead; one the yard does not hold, and files without words,
 		// are refused. An old client names no files, by name or in an
 		// array, and its note is a note as before.
-		{"AddNote", `{"bead":"yd-shed","text":"hung","actor":"jo","files":["` + hash + `"]}`, `{}`},
-		{"AddNote", `{"bead":"yd-shed","text":"a ghost","actor":"jo","files":["` + unknown + `"]}`,
-			`{"error":{"code":"not-found","message":"image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)"}}`},
-		{"AddNote", `{"bead":"yd-shed","text":"  ","actor":"jo","files":["` + hash + `"]}`,
-			`{"error":{"code":"error","message":"a note with images needs words: say what the picture shows"}}`},
+		{"AddNote", `{"bead":"yd-shed","text":"hung","actor":"jo","files":[{"hash":"` + hash + `","name":"fence.jpg"}]}`, `{}`},
+		{"AddNote", `{"bead":"yd-shed","text":"a ghost","actor":"jo","files":[{"hash":"` + unknown + `"}]}`,
+			`{"error":{"code":"not-found","message":"file ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)"}}`},
+		{"AddNote", `{"bead":"yd-shed","text":"  ","actor":"jo","files":[{"hash":"` + hash + `"}]}`,
+			`{"error":{"code":"error","message":"a note with files needs words: say what they show"}}`},
 		{"AddNote", `{"bead":"yd-shed","text":"straight","actor":"jo"}`, `{}`},
 		{"AddNote", `["yd-shed","by array","jo"]`, `{}`},
 		{"Bead", `{"bead":"yd-shed"}`, `"text":"hung","at":`},
-		{"Bead", `{"bead":"yd-shed"}`, `"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
+		{"Bead", `{"bead":"yd-shed"}`, `"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14,"name":"fence.jpg"}]`},
 	} {
 		if got := strings.TrimSpace(string(post(t, hc, c.method, c.body))); !strings.Contains(got, c.want) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)
@@ -92,13 +94,13 @@ func TestClientMailWithFiles(t *testing.T) {
 	if err != nil || ref.Type != "image/png" || ref.Bytes != 17 {
 		t.Fatalf("PutBlob = %+v, %v", ref, err)
 	}
-	if err := c.Mail(ctx, "yardmaster", "from the client", "jo", ref.Hash); err != nil {
+	if err := c.Mail(ctx, "yardmaster", "from the client", "jo", store.BlobFile{Hash: ref.Hash, Name: "shed.png"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Mail(ctx, "yardmaster", "and one without", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.MailPeer(ctx, "clerk", "north", "look", "jo", ref.Hash); err == nil || !strings.Contains(err.Error(), "the link does not carry file out") {
+	if _, err := c.MailPeer(ctx, "clerk", "north", "look", "jo", store.BlobFile{Hash: ref.Hash}); err == nil || !strings.Contains(err.Error(), "the link does not carry file out") {
 		t.Errorf("MailPeer with a file = %v", err)
 	}
 	for e := range events {

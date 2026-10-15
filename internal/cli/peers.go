@@ -455,9 +455,9 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          yards. --send lets this yard's crew write (each needs the peer
          in its peers setting too), --receive puts the peer's mail in the
          inbox of the crew member it names.
-  file   yardr mail <crew member>@<peer> --file: the images and pages mail
+  file   yardr mail <crew member>@<peer> --file: the files mail
          carries, each a message of its own that crosses before its mail.
-         --send lets this yard's mail to the peer carry images and pages,
+         --send lets this yard's mail to the peer carry files,
          --receive lets the peer's bytes land in this yard's blobs.
          Without --receive the peer's mail still arrives, and says
          "not taken" where the file would be. One file may have up to

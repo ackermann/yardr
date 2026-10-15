@@ -678,7 +678,7 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 	photoBytes := []byte("\x89PNG\r\n\x1a\nmail image")
 	photo, err := f.st.PutBlob(ctx, photoBytes)
 	must(t, err)
-	must(t, f.st.Mail(ctx, "jo", "it is painted", "yardmaster", photo.Hash))
+	must(t, f.st.Mail(ctx, "jo", "it is painted", "yardmaster", store.BlobFile{Hash: photo.Hash}))
 	must(t, f.st.Mail(ctx, "yardmaster", "fix the gate", "kay"))
 	must(t, f.st.Mail(ctx, "kay", "it is fixed", "yardmaster"))
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "jo"))

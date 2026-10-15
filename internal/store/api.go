@@ -44,9 +44,9 @@ type API interface {
 	MoveSourceRecords(ctx context.Context, from, to, actor string) (*SourceMove, error)
 	Links(ctx context.Context, id string) ([]Link, error)
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
-	AddNote(ctx context.Context, id, text, actor string, files ...string) error
+	AddNote(ctx context.Context, id, text, actor string, files ...BlobFile) error
 	AddNoted(ctx context.Context, id, text, actor string) (*Note, error)
-	AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error)
+	AddNotedAs(ctx context.Context, id, text, actor, session string, files ...BlobFile) (*Note, error)
 	AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error)
 	MarkNoteTold(ctx context.Context, id string, seq uint64, session, delivery string) error
 	MarkNoteUntold(ctx context.Context, id string, seq uint64, session, reason string) error
@@ -155,7 +155,7 @@ type API interface {
 	MarkRotationAskedFor(ctx context.Context, name, user string) error
 	MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error
 	Journal(ctx context.Context, name, kind, text, actor string) error
-	Mail(ctx context.Context, to, text, actor string, files ...string) error
+	Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error
 	PutBlob(ctx context.Context, data []byte) (*BlobRef, error)
 	Inbox(ctx context.Context, name string, limit int) (*InboxPage, error)
 	AckInbox(ctx context.Context, name string, through uint64) error
@@ -242,7 +242,7 @@ type API interface {
 	SetPeerURL(ctx context.Context, name, url, actor string) (*Peer, error)
 	SetPeerIntake(ctx context.Context, name string, in *PeerIntake, actor string) (*Peer, error)
 	PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error)
-	MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*PeerOut, error)
+	MailPeer(ctx context.Context, to, peer, text, actor string, files ...BlobFile) (*PeerOut, error)
 	PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error)
 	PeerDelivered(ctx context.Context, name string, seq uint64) error
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error

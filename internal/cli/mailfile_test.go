@@ -16,11 +16,11 @@ import (
 )
 
 // yardr mail --file puts the image in the yard, once however often it is
-// sent, and sends mail that names it; the inbox of a crew member and of a
-// user and the conversation name the image under the mail's line, on a
-// marked line of their own, and say nothing more of mail without one. A
-// GIF and a file over the yard's limit are refused with nothing stored
-// and nothing sent, and so is an image for another yard.
+// sent, and sends mail that names it with the path's base name; the inbox
+// of a crew member and of a user and the conversation name the image under
+// the mail's line, on a marked line of their own, and say nothing more of
+// mail without one. A file over the yard's limit is refused with nothing
+// stored and nothing sent, and so is a file for another yard.
 func TestMailFile(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
@@ -34,10 +34,10 @@ func TestMailFile(t *testing.T) {
 		}
 		return path
 	}
-	// The name says nothing: what the bytes are is what counts.
+	// The name says nothing of the kind: what the bytes are is what counts.
 	png := file("pic.txt", "\x89PNG\r\n\x1a\n the shed")
 	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the shed"))
-	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:])) + " (pic.txt)"
 	marked := store.NoteFilesMark + " " + image
 	stored := func() []string {
 		t.Helper()
@@ -58,13 +58,10 @@ func TestMailFile(t *testing.T) {
 		t.Fatalf("after a second send the yard holds %v", got)
 	}
 
-	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608", "mail", "yardmaster", "big", "--file",
 		file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
 	refusedAs(t, st, "jo", "no such file", "mail", "yardmaster", "gone", "--file", filepath.Join(dir, "none.png"))
-	// The good one before the bad is put, and the mail is not sent.
-	refusedAs(t, st, "jo", "pic.gif", "mail", "yardmaster", "both", "--file", png, "--file", filepath.Join(dir, "pic.gif"))
-	// To a yard no link names: refused before the image is put.
+	// To a yard no link names: refused before the file is put.
 	refusedAs(t, st, "jo", "peer airy: not found", "mail", "yardmaster@airy", "look", "--file", file("other.png", "\x89PNG\r\n\x1a\n the fence"))
 	refusedAs(t, st, "jo", "accepts 2 arg(s)", "mail", "yardmaster")
 	if got := stored(); len(got) != 1 {
@@ -96,9 +93,9 @@ func TestMailFile(t *testing.T) {
 }
 
 // yardr mail --file sends a page as it sends an image, with no new flag:
-// the sent mail names "1 page", and the inbox shows it under the mail's
-// words. Prose named .html is refused, since what the bytes are is what
-// counts.
+// the sent mail names "1 page" with the path's base name, and the inbox
+// shows it under the mail's words. Prose named .html goes as a file,
+// since what the bytes are is what counts.
 func TestMailPage(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
@@ -110,7 +107,7 @@ func TestMailPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256([]byte(html))
-	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hex.EncodeToString(sum[:])) + " (page.html)"
 	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the shed, mocked up", "--file", page); out != "mail sent to yardmaster\n"+marked+"\n" {
 		t.Fatalf("mail --file page.html = %q", out)
 	}
@@ -118,9 +115,13 @@ func TestMailPage(t *testing.T) {
 	if err := os.WriteFile(prose, []byte("just some prose"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	refusedAs(t, st, "jo", "prose.html: the file is text/plain; charset=utf-8: the yard keeps only", "mail", "yardmaster", "prose", "--file", prose)
-	if names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*")); len(names) != 1 {
-		t.Fatalf("what was refused was stored: %v", names)
+	proseSum := sha256.Sum256([]byte("just some prose"))
+	proseMarked := store.NoteFilesMark + " 1 file: " + store.BlobPath(home, hex.EncodeToString(proseSum[:])) + " (prose.html)"
+	if out := mustAs(t, st, "jo", "mail", "yardmaster", "prose", "--file", prose); out != "mail sent to yardmaster\n"+proseMarked+"\n" {
+		t.Fatalf("mail --file prose.html = %q", out)
+	}
+	if names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*")); len(names) != 2 {
+		t.Fatalf("the yard holds %v", names)
 	}
 	t.Setenv("YARDR_CREW", "yardmaster")
 	inbox := mustAs(t, st, "yardmaster", "inbox")
@@ -128,6 +129,31 @@ func TestMailPage(t *testing.T) {
 		t.Errorf("the yardmaster's inbox:\n%s", inbox)
 	}
 	t.Setenv("YARDR_CREW", "")
+}
+
+// yardr mail <user> "x" --file report.pdf is delivered, and the inbox
+// line reads "1 file: <path> (report.pdf)": a file carries the path's
+// base name, because its bytes say nothing a person can read.
+func TestMailPDFFilesLine(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(report, []byte("%PDF-1.4 the report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("%PDF-1.4 the report"))
+	marked := store.NoteFilesMark + " 1 file: " + store.BlobPath(home, hex.EncodeToString(sum[:])) + " (report.pdf)"
+	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the report", "--file", report); out != "mail sent to yardmaster\n"+marked+"\n" {
+		t.Fatalf("mail --file report.pdf = %q", out)
+	}
+	t.Setenv("YARDR_CREW", "yardmaster")
+	defer t.Setenv("YARDR_CREW", "")
+	inbox := mustAs(t, st, "yardmaster", "inbox")
+	if !strings.Contains(inbox, "mail from jo: the report\n    "+marked+"\n") {
+		t.Errorf("the yardmaster's inbox:\n%s", inbox)
+	}
 }
 
 // yardr mail <name>@<peer> --file sends the image with the mail when the
@@ -150,7 +176,7 @@ func TestMailFileToAPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the shed"))
-	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:])) + " (shed.png)"
 	nothing := func(why string) {
 		t.Helper()
 		names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
@@ -258,7 +284,7 @@ func TestMailPageToAPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hash)
+	marked := store.NoteFilesMark + " 1 page: " + store.BlobPath(home, hash) + " (page.html)"
 	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the shed, mocked up", "--file", page); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "\n"+marked+"\n") {
 		t.Fatalf("mail --file to a peer = %q", out)
 	}
@@ -291,7 +317,7 @@ func TestMailFilesLineNotForgeable(t *testing.T) {
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen, painted", "--file", png)
 	crew := mustAs(t, st, "yardmaster", "inbox")
 	t.Setenv("YARDR_CREW", "")
-	marked := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hashOfFile(t, png))
+	marked := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hashOfFile(t, png)) + " (shed.png)"
 	if sent != "mail sent to yardmaster\n"+marked+"\n" {
 		t.Errorf("mail --file = %q", sent)
 	}

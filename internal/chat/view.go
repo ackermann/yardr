@@ -212,7 +212,7 @@ func (m *Model) clamp() {
 }
 
 // lines are the selected conversation as lines of at most w columns: each
-// mail's time and sender, its text, the images it carries, and under a mail
+// mail's time and sender, its text, the files it carries, and under a mail
 // the user sent where it stands.
 func (m *Model) lines(w int) []string {
 	if m.yard {
@@ -270,7 +270,7 @@ func (m *Model) lines(w int) []string {
 		if text != "" {
 			out = append(out, markdown(text, w, "  ")...)
 		}
-		// The images it carries, by where they are: the view shows none.
+		// The files it carries, by where they are: the view shows none.
 		if files := store.NoteFilesLine(m.opt.Home, l.Files); files != "" {
 			out = append(out, wrap(files, w, "  ", look.faint)...)
 		}

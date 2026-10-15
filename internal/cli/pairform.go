@@ -437,13 +437,13 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 			Value(&carry).Options(
 			huh.NewOption("ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link", store.PeerPing),
 			huh.NewOption(fmt.Sprintf("mail between crew members: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
-			huh.NewOption(fmt.Sprintf("file: images and pages in mail cross the link, kept within %s", store.PeerFileMaxSetting), store.PeerFile),
+			huh.NewOption(fmt.Sprintf("file: files in mail cross the link, kept within %s", store.PeerFileMaxSetting), store.PeerFile),
 		).Validate(func(picked []string) error {
 			if !slices.Contains(picked, store.PeerPing) {
 				return errors.New("ping stays ticked: without it the link cannot be proved")
 			}
 			if slices.Contains(picked, store.PeerFile) && !slices.Contains(picked, store.PeerMail) {
-				return errors.New("file goes with mail, which carries the images and pages: tick mail too, or untick file")
+				return errors.New("file goes with mail, which carries the files: tick mail too, or untick file")
 			}
 			return nil
 		}),

@@ -71,7 +71,7 @@ through a tunnel or proxy of your own. There is no relay.
 operators run it, and it asks what the commands below take as arguments:
 whether to show a code or enter one, the check, what the link may carry
 (`ping`, which the page does not let go, mail between crew members, and
-`file`, [the images and pages mail carries](#an-image-with-the-mail), which
+`file`, [the files mail carries](#a-file-with-the-mail), which
 is not ticked and goes only with mail, each for both directions on this
 yard), whom of this yard the other may
 write to ([`--expose`](#the-roster-whom-a-peer-may-see-and-write-to), the
@@ -505,7 +505,7 @@ peer said, and `yardr peer show <name>` prints both sides:
 
 ```text
   expose   mckean, yardmaster
-  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow north --mail-limit <n> sets it)
+  mail     takes 30 mails and asks an hour, and 1920 files (yardr peer allow north --mail-limit <n> sets it)
   understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
   exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
 ```
@@ -840,7 +840,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
 | `mail` | `yardr mail <name>@<peer>`: [mail between crew members](#mail-between-crew-members), and between the people of the two yards. `--send` lets this yard's crew and users write to whom the peer exposes, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
-| `file` | `yardr mail <name>@<peer> --file`: [the images and pages mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images and pages, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
+| `file` | `yardr mail <name>@<peer> --file`: [the files mail carries](#a-file-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry files, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 | `ask` | `yardr bead ask <id> "<question>" --to <person>@<peer>`: a question asked of a person of the other yard, which stands among their decisions there; their pick comes back onto the bead. `--send` lets this yard's crew and users ask (each crew member needs the peer in its `peers` setting too), `--receive` lets the peer's asks stand among this yard's decisions. The answer is a message of kind `ask` too, so each yard allows the kind both ways |
 | `thread` | [what a yard says of a bead it works for the other while the bead is there](#while-a-bead-is-at-the-other-yard). `--send` lets this yard tell the peer how the beads it took from it stand; `--receive` lets this yard keep what the peer says of this yard's beads there. The word is the kind of no message itself. It covers the message `bead-event`, which goes the way the word is allowed, and the message `bead-read`, [a read of the other yard's bead](#reading-the-other-yards-bead) and its answer, which needs the word both ways on both sides, and the message `bead-note`, [a note on the other yard's bead](#answering-on-the-other-yards-bead), which goes against the events: the yard whose bead is away sends it, the yard that works the bead receives it |
@@ -891,7 +891,7 @@ nothing has crossed yet:
   the wrong hash are: a page to a yardr from before pages, over a link that
   carries `file`, is refused as `not_file` and never lands as bytes served
   under a claimed type. The mail that names it still arrives, saying `it
-  did not arrive` ([below](#an-image-with-the-mail)), and is whole once the
+  did not arrive` ([below](#a-file-with-the-mail)), and is whole once the
   yard is upgraded and the page sent again.
 - **The older of two builds** ignores the statement, which is one more field
   where it reads the ones it knows, and says nothing itself. The two still
@@ -1022,7 +1022,7 @@ mail, with a reason:
 | `rate_limited` | it has taken as much mail from this peer as [its link takes in an hour](#how-much-mail-a-link-takes), 30 unless its operator set another, within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them. Whoever there the mail was for is told, once in the hour |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |
 
-[Files](#an-image-with-the-mail) are counted in the same hour, apart from the mail: 8 for each mail the link takes, so 240 from one peer unless its limit is set, and one past that is refused as `rate_limited` with none of it kept.
+[Files](#a-file-with-the-mail) are counted in the same hour, apart from the mail: 64 for each mail the link takes, so 1920 from one peer unless its limit is set, and one past that is refused as `rate_limited` with none of it kept.
 
 #### How much mail a link takes
 
@@ -1072,7 +1072,7 @@ mail: takes 100 mails and asks an hour, and 800 files
   peer is over it how much came and until when it is refused:
 
 ```text
-  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow airy --mail-limit <n> sets it); 34 came since 22:13, 4 of them refused, as is what comes until 23:13
+  mail     takes 30 mails and asks an hour, and 1920 files (yardr peer allow airy --mail-limit <n> sets it); 34 came since 22:13, 4 of them refused, as is what comes until 23:13
 ```
 
 **Whom the refused mail was for is told.** The sender's yard hears the
@@ -1126,24 +1126,24 @@ and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
 
-Not carried: files that are no image or page, beads, memories, mail to a group.
+Not carried: beads, memories, mail to a group.
 
-### An image with the mail
+### A file with the mail
 
-`yardr mail <name>@<peer> --file yard.png` sends the image with the mail,
-and `--file page.html` the page, as [`--file` does in one
-yard](users.md#an-image-in-mail), when the link carries the kind `file` as
-well as `mail`. Pages cross as files: under the same kind, within the same
-caps, and inert — the receiving yard keeps the bytes as files of its own,
-named on the mail as in one yard. A page that arrives on mail stays
-unopenable until mail viewing is decided: the web view serves only note
-files, so only note pages open:
+`yardr mail <name>@<peer> --file report.pdf` sends the file with the mail,
+as [`--file` does in one yard](users.md#a-file-in-mail), when the link
+carries the kind `file` as well as `mail`. Any kind crosses — an image, a
+page or a file — under the same kind and caps, with its name in the mail's
+`files`; the receiving yard keeps the bytes as files of its own, named on
+the mail as in one yard. A page that arrives on mail stays unopenable
+until mail viewing is decided: the web view serves only note files, so
+only note pages open:
 
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
-yardr mail yardmaster@north "The yard, painted" --file yard.png
+yardr mail yardmaster@north "The report" --file report.pdf
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
-◆ 1 image: /home/me/.yardr/blobs/5f2c…
+◆ 1 file: /home/me/.yardr/blobs/5f2c… (report.pdf)
 ```
 
 Each file is one message of kind `file` (`peer show` lists it, `waiting:
@@ -1152,9 +1152,9 @@ order, so the file is in the other yard when its mail arrives. That yard
 checks the bytes against the hash they came under, reads the type from the
 bytes as it does for a file put there, and keeps the file in its own
 `blobs` under the same hash; one it holds already is not written again.
-The mail then names `1 image: <path>` or `1 page: <path>` in that yard's
-home, on a marked line of its own under its words, in `yardr inbox`, the
-nudge, `yardr mail --with` and `yardr chat`. From then on
+The mail then names `1 file: <path> (report.pdf)` in that yard's home, on
+a marked line of its own under its words, in `yardr inbox`, the nudge,
+`yardr mail --with` and `yardr chat`. From then on
 it is a file of that yard like any other: kept while mail the yard still
 has names it, and removed by the prune after.
 
@@ -1177,27 +1177,28 @@ for mail that was not delivered, and their conversation with the other yard
 where the file's path was:
 
 ```text
-    58 10-08 15:02  mail from yard: the image of your mail to yardmaster@north of 10-08 15:02 was not taken: refused by the peer: its link does not carry file in
+    58 10-08 15:02  mail from yard: the file of your mail to yardmaster@north of 10-08 15:02 was not taken: refused by the peer: its link does not carry file in
 ```
 
-For a page the line says `the page of your mail …` instead. The mail that
-names it is delivered all the same, and there too, where the file's path
-would be, it says why there is none:
+For an image the line says `the image of your mail …`, for a page
+`the page of your mail …`. The mail that names it is delivered all the
+same, and there too, where the file's path would be, it says why there is
+none:
 
 ```text
-    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted
-    ◆ 1 image: not taken: the link does not take files
+    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The report
+    ◆ 1 file: not taken: the link does not take files (report.pdf)
 ```
 
 | `not taken:` | when |
 |---|---|
 | `the link does not take files` | this yard's link does not carry `file` in |
 | `it is <n> bytes, over this yard's limit of <m> for a file from another yard` | the file is over this yard's `peer_file_max_bytes` |
-| `it did not arrive` | anything else: the bytes were not those of the hash, or were of no type the yard keeps, or the sender gave the file up before it crossed |
+| `it did not arrive` | anything else: the bytes were not those of the hash, or the sender gave the file up before it crossed |
 
 Nothing waits for a file that did not come, and none is asked for later. In
 `--json` such a file has `not_taken` with the reason beside the sender's
-`hash`, `type` and `bytes`.
+`hash`, `type`, `bytes` and `name`.
 
 **How large.** A file is one message and is not cut in parts, so
 `peer_file_max_bytes` is the limit of a file over a link: unset it is the
@@ -2777,7 +2778,7 @@ reply`), and the store refuses them to anything else on its socket.
 
 Each yard keeps an outbox for each peer. Every message in it has a sequence
 number, an id the sender minted, a kind and a JSON body of up to 256 KB. A
-[`file`](#an-image-with-the-mail) is the one kind with a larger body: the
+[`file`](#a-file-with-the-mail) is the one kind with a larger body: the
 file in base64, up to the yard's `peer_file_max_bytes` (at most 32 MiB of
 file). It is one message like any other, never cut in parts: a post of it
 is one request of that size, which a proxy in front of the yard has to let
@@ -2890,7 +2891,8 @@ other](#the-roster-whom-a-peer-may-see-and-write-to):
 `[{"name", "kind": "crew"|"user", "role", "mail": true|false}]`.
 
 A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`,
-with `"files": [{"hash", "type", "bytes"}]` when it carries files, at most 8.
+with `"files": [{"hash", "type", "bytes", "name"}]` when it carries files,
+at most 64.
 A file's body is `{"hash": "<sha256 of the bytes, hex>", "type", "bytes",
 "data": "<the bytes, base64>"}`: only the hash is held to, the type is read
 from the bytes.

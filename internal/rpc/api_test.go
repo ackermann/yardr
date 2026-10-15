@@ -80,9 +80,10 @@ func sentLetter(prefix string) []field {
 		{prefix + "read", "bool", letterRead},
 		{prefix + "as", "string?", "on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers)"},
 		{prefix + "via", "string?", "the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine"},
-		{prefix + "files", "array?", "the files the mail carries, each an image or a page, in the order it was sent with them; absent on mail without any"},
+		{prefix + "files", "array?", "the files the mail carries, each an image, a page or a file, in the order it was sent with them; absent on mail without any"},
 		{prefix + "files[].hash", "string", "the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
-		{prefix + "files[].type", "string", "`image/png`, `image/jpeg` or `text/html; charset=utf-8`"},
+		{prefix + "files[].type", "string", "what the bytes say: `image/png` or `image/jpeg` for an image, `text/html; charset=utf-8` for a page"},
+		{prefix + "files[].name", "string?", "the file's base name as the sender gave it; absent on a paste and on a letter from before names"},
 		{prefix + "files[].bytes", "number", "how many bytes it is"},
 	}
 }
@@ -235,12 +236,12 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "PutBlob",
-		says:     "Gives the yard a file, so that mail or a note can carry it. `Mail`, `MailPeer` and `AddNote` name files by the hash this answers; `yardr bead note --file` attaches a blob to a note. The bytes go in the JSON of the call, in base64. What it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, and anything else is refused, as is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail or note is about to be written, and put it again when that was longer ago.",
+		says:     "Gives the yard a file, so that mail or a note can carry it. `Mail`, `MailPeer` and `AddNote` name files by the hash this answers, each with a name; `yardr bead note --file` attaches a blob to a note. The bytes go in the JSON of the call, in base64. What kind it is is read from the bytes themselves: a PNG or a JPEG is an image, HTML a page, anything else a file. One over the yard's cap is refused (`blob_max_bytes` of `Settings`). The yard keeps a file once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. A file no mail or note names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail or note is about to be written, and put it again when that was longer ago.",
 		args:     []field{{"data", "string", "the file's bytes, in base64 (the standard alphabet, padded)"}},
 		requests: []string{`{"data":"` + apiPNG + `"}`},
 		fields: []field{
 			{"hash", "string", "the file's name: the SHA-256 of its bytes, in hex"},
-			{"type", "string", "`image/png`, `image/jpeg` or `text/html; charset=utf-8`, as the bytes say"},
+			{"type", "string", "what the bytes say"},
 			{"bytes", "number", "how many bytes it is"},
 		},
 	},
@@ -251,10 +252,10 @@ var apiCalls = []apiCall{
 			{"to", "string", "the receiver's name"},
 			{"text", "string", "the mail, 1 to 4096 bytes; it may be empty when the mail carries a file"},
 			{"actor", "string", "who sends it: the user's name"},
-			{"files", "array of string", "the files the mail carries, images and pages, at most 8: the hash of each, as `PutBlob` answered it. Left out, the mail carries none. One the yard does not hold refuses the mail"},
+			{"files", "array of object", "the files the mail carries, at most 64: each `{hash, name}`, the hash as `PutBlob` answered it with the file's base name. Left out, the mail carries none. One the yard does not hold, or a name no letter may carry, refuses the mail"},
 		},
 		requests: []string{`{"to":"yardmaster","text":"Thanks. Land it.","actor":"jo"}`,
-			`{"to":"yardmaster","text":"Paint the fence like this.","actor":"jo","files":["` + apiPNGHash + `"]}`},
+			`{"to":"yardmaster","text":"Paint the fence like this.","actor":"jo","files":[{"hash":"` + apiPNGHash + `","name":"fence.png"}]}`},
 	},
 	{
 		method: "MailPeer",
@@ -264,7 +265,7 @@ var apiCalls = []apiCall{
 			{"peer", "string", "this yard's name for the link"},
 			{"text", "string", "the mail"},
 			{"actor", "string", "who sends it: the user's name"},
-			{"files", "array of string", "the hashes of the files the mail carries, images and pages, as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when a file is over `peer_file_max_bytes`"},
+			{"files", "array of object", "the files the mail carries, each `{hash, name}` as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when a file is over `peer_file_max_bytes`"},
 		},
 		requests: []string{`{"to":"clerk","peer":"north","text":"Is the ledger closed?","actor":"jo"}`},
 		fields: []field{
@@ -368,9 +369,10 @@ var apiCalls = []apiCall{
 			{"notes[].text", "string", "the note"},
 			{"notes[].at", "time", "when it was written"},
 			{"notes[].via", "string?", "the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine"},
-			{"notes[].files", "array?", "the files the note carries, each an image or a page, in the order it was written with them; absent on a note without any"},
+			{"notes[].files", "array?", "the files the note carries, each an image, a page or a file, in the order it was written with them; absent on a note without any"},
 			{"notes[].files[].hash", "string", "the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
-			{"notes[].files[].type", "string", "`image/png`, `image/jpeg` or `text/html; charset=utf-8`"},
+			{"notes[].files[].type", "string", "what the bytes say: `image/png` or `image/jpeg` for an image, `text/html; charset=utf-8` for a page"},
+			{"notes[].files[].name", "string?", "the file's base name as the sender gave it; absent on a paste and on a letter from before names"},
 			{"notes[].files[].bytes", "number", "how many bytes it is"},
 			{"asks[].ask", "number", "the ask note's seq: what an answer names"},
 			{"asks[].to", "string", "who must answer"},
@@ -458,15 +460,15 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "AddNote",
-		says:   "Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. With `files` the note carries images and pages, as one written with `yardr bead note --file` does. It answers nothing; the note is then a `noted` event in the stream.",
+		says:   "Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. With `files` the note carries files, as one written with `yardr bead note --file` does. It answers nothing; the note is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"text", "string", "the note; it may not be empty when the note carries files"},
 			{"actor", "string", "who writes it: the user's name"},
-			{"files", "array of string", "the files the note carries, images and pages, at most 8: the hash of each, as `PutBlob` answered it. Left out, the note carries none. One the yard does not hold refuses the note"},
+			{"files", "array of object", "the files the note carries, at most 64: each `{hash, name}`, the hash as `PutBlob` answered it with the file's base name. Left out, the note carries none. One the yard does not hold, or a name no letter may carry, refuses the note"},
 		},
 		requests: []string{`{"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}`,
-			`{"bead":"yd-greet","text":"the newcomer arrives Monday, in this doorway","actor":"jo","files":["` + apiPNGHash + `"]}`},
+			`{"bead":"yd-greet","text":"the newcomer arrives Monday, in this doorway","actor":"jo","files":[{"hash":"` + apiPNGHash + `","name":"doorway.png"}]}`},
 	},
 }
 
@@ -550,9 +552,10 @@ var apiEvents = []apiEvent{
 			{"data.text", "string", "the mail"},
 			{"data.to_user", "bool?", "true when the receiver is a user; absent when it is a crew member"},
 			{"data.as", "string?", "on mail that came from a linked yard, whose `actor` is `<name>@<peer>`: the user of this yard the link trusted that name as when it came, as a letter's `as`; absent on any other mail"},
-			{"data.files", "array?", "the files the mail carries, each an image or a page, as a letter's `files`; absent on mail without any"},
+			{"data.files", "array?", "the files the mail carries, each an image, a page or a file, as a letter's `files`; absent on mail without any"},
 			{"data.files[].hash", "string", "the file's name: `GET /blobs/<hash>` answers the bytes"},
-			{"data.files[].type", "string", "`image/png`, `image/jpeg` or `text/html; charset=utf-8`"},
+			{"data.files[].type", "string", "what the bytes say: `image/png` or `image/jpeg` for an image, `text/html; charset=utf-8` for a page"},
+			{"data.files[].name", "string?", "the file's base name as the sender gave it; absent on a paste and on a letter from before names"},
 			{"data.files[].bytes", "number", "how many bytes it is"},
 			{"data.via", "string?", "the [device](#over-the-network) the sender wrote through; absent on mail written on the yard's own machine. Every event a device's call writes as its user carries it, a `noted` and a `mail_read` too"},
 		},
@@ -701,7 +704,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	shed, err := st.PutBlob(ctx, png)
 	must(err)
 	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
-	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", shed.Hash))
+	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", store.BlobFile{Hash: shed.Hash, Name: "shed.png"}))
 
 	// Jo hears of the shed alone from here on: the decisions below are
 	// asked and answered on other beads, and would otherwise stand in
@@ -724,7 +727,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	greet, err := st.CreateBead(ctx, store.NewBead{Title: "The greeting", ID: "yd-greet"}, "yardmaster")
 	must(err)
 	_ = train
-	_, err = st.AddNotedAs(ctx, links.ID, "the test passed on a copy", "yardmaster", "", shed.Hash)
+	_, err = st.AddNotedAs(ctx, links.ID, "the test passed on a copy", "yardmaster", "", store.BlobFile{Hash: shed.Hash, Name: "shed.png"})
 	must(err)
 	ask := func(id string, a store.Ask) uint64 {
 		seq, err := st.AddAsk(ctx, id, a, "yardmaster")

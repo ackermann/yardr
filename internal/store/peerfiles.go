@@ -13,12 +13,12 @@ import (
 )
 
 // A file crosses a link (docs/peers.md) as a message of kind PeerFile: the
-// bytes of one blob (blobs.go), with the name they are to have. Mail with
-// an image or a page to another yard is those messages and then the mail
-// that names them, in that order in the outbox, which never reorders: when
-// the mail is taken its blobs are there. The yard that takes a file checks
-// its bytes against the hash claimed and keeps it as it keeps a blob put
-// here.
+// bytes of one blob (blobs.go), of any kind, with the hash they are to
+// have. Mail with files to another yard is those messages and then the
+// mail that names them, with each file's name in the mail's files, in that
+// order in the outbox, which never reorders: when the mail is taken its
+// blobs are there. The yard that takes a file checks its bytes against the
+// hash claimed and keeps them as it keeps a blob put here.
 //
 // file is a kind of its own on a link, apart from mail: whether a peer's
 // bytes may land on this yard's disk is the operator's to say, whoever is
@@ -42,8 +42,7 @@ const (
 )
 
 // RefusedNotFile is a message of kind PeerFile that is no file: a body that
-// does not read, bytes that are not what the hash claims, or a type no
-// blob has.
+// does not read, or bytes that are not what the hash claims.
 const RefusedNotFile = "not_file"
 
 // Why a file of a peer's mail was not taken, as its line says (FilesLine).
@@ -96,16 +95,16 @@ func (p *Peer) SendsFiles() error {
 	return nil
 }
 
-// peerFiles are the blobs hashes name, as mail to the peer name carries
+// peerFiles are the blobs files name, as mail to the peer name carries
 // them, and the messages that take their bytes there, one for each blob.
 // It is read before the write that queues them: a blob is megabytes. What
 // the link or this yard's cap does not let out refuses the mail, here,
 // before anything is queued.
-func (s *Store) peerFiles(name string, hashes []string) ([]BlobRef, []PeerMessage, error) {
-	if len(hashes) == 0 {
+func (s *Store) peerFiles(name string, files []BlobFile) ([]BlobRef, []PeerMessage, error) {
+	if len(files) == 0 {
 		return nil, nil, nil
 	}
-	refs, err := s.mailFiles(hashes)
+	refs, err := s.mailFiles(files)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -127,12 +126,8 @@ func (s *Store) peerFiles(name string, hashes []string) ([]BlobRef, []PeerMessag
 	var msgs []PeerMessage
 	for i, ref := range refs {
 		if ref.Bytes > limit {
-			noun := "image"
-			if ref.IsPage() {
-				noun = "page"
-			}
 			return nil, nil, fmt.Errorf("the %s %s is %d bytes, over what this yard sends another of %d (yardr settings set %s <bytes>, at most %d)",
-				noun, ref.Hash, ref.Bytes, limit, PeerFileMaxSetting, MaxPeerFile)
+				ref.Kind(), ref.Hash, ref.Bytes, limit, PeerFileMaxSetting, MaxPeerFile)
 		}
 		// Named twice, it crosses once.
 		if slices.ContainsFunc(refs[:i], func(r BlobRef) bool { return r.Hash == ref.Hash }) {
@@ -307,17 +302,13 @@ func (s *Store) takeFile(m PeerMessage, limit int64) (reason string, extra map[s
 		return RefusedTooLarge, extra, nil
 	}
 	sum := sha256.Sum256(f.Data)
-	typ, ok := blobType(f.Data)
-	switch {
-	case hex.EncodeToString(sum[:]) != f.Hash:
+	if hex.EncodeToString(sum[:]) != f.Hash {
 		extra["detail"] = "the bytes are not those of the hash"
-		return RefusedNotFile, extra, nil
-	case !ok:
-		extra["detail"] = "the bytes are " + typ
 		return RefusedNotFile, extra, nil
 	}
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
+	typ := blobType(f.Data)
 	_, err = s.keepBlob(&BlobRef{Hash: f.Hash, Type: typ, Bytes: int64(len(f.Data))}, f.Data)
 	return "", nil, err
 }
@@ -357,26 +348,26 @@ func (w *wtx) checkFile(p *Peer, m PeerMessage, way string, fl *filing) (string,
 }
 
 // mailFiles are the files of the mail from p as its event carries them:
-// each as the yard holds it, or with why it does not (BlobRef.NotTaken).
-// The link and the cap are asked here again, of what the mail claims, so a
-// file that was refused for either says which; any other that is not held
-// did not arrive, whatever became of its message.
+// each as the yard holds it, with the name the mail gives it, or with why
+// it does not (BlobRef.NotTaken). The link and the cap are asked here
+// again, of what the mail claims, so a file that was refused for either
+// says which; any other that is not held did not arrive, whatever became
+// of its message.
 func (fl *filing) mailFiles(p *Peer, mail *peerMail) []BlobRef {
 	var out []BlobRef
 	for _, f := range mail.Files {
 		held, ok := fl.held[f.Hash]
-		ref := BlobRef{Hash: f.Hash, Bytes: f.Bytes}
-		if slices.Contains(BlobTypes, f.Type) {
-			ref.Type = f.Type
-		}
+		ref := BlobRef{Hash: f.Hash, Type: f.Type, Bytes: f.Bytes, Name: f.Name}
 		switch {
 		case !p.carries(PeerFile, true):
 			ref.NotTaken = notTakenLink
 		case ok:
 			// A file the yard took was checked against its actual size and
 			// type. The mail's copies of those fields are only claims; they
-			// must not turn a held blob into a missing one.
+			// must not turn a held blob into a missing one. Its name is
+			// the mail's word, kept on the event.
 			ref = held
+			ref.Name = f.Name
 		case f.Bytes > fl.limit:
 			ref.NotTaken = fmt.Sprintf("it is %d bytes, over this yard's limit of %d for a file from another yard", f.Bytes, fl.limit)
 		default:

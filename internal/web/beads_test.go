@@ -743,7 +743,7 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 		{"from a stranger", "jo@airy"},
 		{"this yard's own", "builder"},
 	} {
-		if err := st.AddNote(ctx, b.ID, n[0], n[1], page.Hash); err != nil {
+		if err := st.AddNote(ctx, b.ID, n[0], n[1], store.BlobFile{Hash: page.Hash}); err != nil {
 			t.Fatal(err)
 		}
 	}

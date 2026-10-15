@@ -5,9 +5,11 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/eta"
@@ -653,10 +655,10 @@ type BeadPage struct {
 	// unmarked. HTML-only: the JSON names the author as the note has
 	// it.
 	Marks map[string]string `json:"-"`
-	// Missing are the hashes of the notes' images and pages the yard no
-	// longer holds: the page draws those as a line saying so, never a
-	// broken icon or link. HTML-only: the JSON names the files as the
-	// notes have them.
+	// Missing are the hashes of the notes' files the yard no longer
+	// holds: the page draws those as a line saying so, never a broken
+	// icon or link. HTML-only: the JSON names the files as the notes
+	// have them.
 	Missing map[string]bool `json:"-"`
 	// Board is the bead's note pages in note order, each with the note
 	// that carries it: the board above the notes. Mail pages stand on no
@@ -849,9 +851,10 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	} else {
 		d.Marks = store.TrustedAs(peers)
 	}
-	// The page draws each note's images and pages below its words; one
-	// the yard no longer holds is a line saying so, never a broken icon
-	// or link. The board above the notes is the note pages alone, in the
+	// The page draws each note's files below its words: an image, a page's
+	// links, a file's download link; one the yard no longer holds is a
+	// line saying so, never a broken icon or link. The board above the
+	// notes is the note pages alone, in the
 	// same note order, each with its note beside it; mail is read
 	// nowhere here, so mail pages stand on no board.
 	for _, n := range d.Notes {
@@ -940,15 +943,15 @@ const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src
 // self-navigation limits are described in docs/web.md.
 const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
-// handleBlob serves a note's image or page: the bytes of a blob a note on
-// some bead names, with their type. Where the view acts it serves a
-// mail's file too, to the mail's sender or recipient; anything else —
-// one the yard never held, a name that is no hash, a mail's file to
-// anyone else or where the view acts as nobody — answers as a missing
-// blob. The check stands before the file: only a hash the yard holds
-// reaches the directory. A page opens under the page policy, inert, which
-// replaces the yard page's policy ServeHTTP set before the mux served; an
-// image keeps that policy.
+// handleBlob serves a note's blob: the bytes of a blob a note on some bead
+// names, with their type. Where the view acts it serves a mail's file
+// too, to the mail's sender or recipient; anything else — one the yard
+// never held, a name that is no hash, a mail's file to anyone else or
+// where the view acts as nobody — answers as a missing blob. The check
+// stands before the file: only a hash the yard holds reaches the
+// directory. A page opens under the page policy, inert, which replaces the
+// yard page's policy ServeHTTP set before the mux served; an image keeps
+// that policy. A file downloads, never inline (serveBlob).
 func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ctx := r.Context()
@@ -968,8 +971,9 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 
 // handlePagesBlob serves a note's blob on the sandbox origin: the same
 // bytes the view serves, under the scripted policy PagesHandler set
-// before the mux served. Anything else answers plainly: the origin
-// answers no yard route, not even the yard's error page.
+// before the mux served. A file downloads the same way as on the main
+// origin; only a page runs there. Anything else answers plainly: the
+// origin answers no yard route, not even the yard's error page.
 func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ref, err := s.st.NoteBlob(r.Context(), hash)
@@ -988,12 +992,41 @@ func (s *Server) handlePagesBlob(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveBlob serves a note's blob ref, held under hash: its bytes with
-// their type. As the socket serves a blob: the bytes never change, so
-// the name is all a cache needs to know.
+// their type. An image and a page are served as ever, inline. A file is
+// served as a download, never inline, by kind and not by type: an SVG, a
+// PDF and a text file all download. As the socket serves a blob: the
+// bytes never change, so the hash is all a cache needs to know.
 func serveBlob(w http.ResponseWriter, r *http.Request, home, hash string, ref *store.BlobRef) {
 	w.Header().Set("Content-Type", ref.Type)
 	w.Header().Set("ETag", `"`+ref.Hash+`"`)
+	if ref.Kind() == "file" {
+		w.Header().Set("Content-Disposition", blobDisposition(ref.Name))
+	}
 	http.ServeFile(w, r, store.BlobPath(home, hash))
+}
+
+// blobDisposition is the Content-Disposition a file downloads with:
+// attachment, with the sender's name. The name is a sender's word, never
+// a header's: only RFC 5987 attr-chars pass through, everything else is
+// percent-encoded, so no quote, semicolon or line break reaches the
+// header. Empty, for a paste, downloads under the URL's hash.
+func blobDisposition(name string) string {
+	if name == "" {
+		return "attachment"
+	}
+	var b strings.Builder
+	b.WriteString("attachment; filename*=UTF-8''")
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+			c == '!' || c == '#' || c == '$' || c == '&' || c == '+' || c == '-' ||
+			c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
 }
 
 // inc is one more than i: an ask's options are numbered from one, and the

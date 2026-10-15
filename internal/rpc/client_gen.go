@@ -108,13 +108,13 @@ func (c *Client) Links(ctx context.Context, id string) ([]store.Link, error) {
 func (c *Client) IssueLinks(ctx context.Context, issue string) ([]store.Link, error) {
 	return callV[[]store.Link](c, ctx, "IssueLinks", issue)
 }
-func (c *Client) AddNote(ctx context.Context, id, text, actor string, files ...string) error {
+func (c *Client) AddNote(ctx context.Context, id, text, actor string, files ...store.BlobFile) error {
 	return c.call(ctx, "AddNote", nil, id, text, actor, files)
 }
 func (c *Client) AddNoted(ctx context.Context, id, text, actor string) (*store.Note, error) {
 	return callV[*store.Note](c, ctx, "AddNoted", id, text, actor)
 }
-func (c *Client) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*store.Note, error) {
+func (c *Client) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...store.BlobFile) (*store.Note, error) {
 	return callV[*store.Note](c, ctx, "AddNotedAs", id, text, actor, session, files)
 }
 func (c *Client) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*store.Note, error) {
@@ -419,7 +419,7 @@ func (c *Client) MarkNotifiedFor(ctx context.Context, name, user string, seq uin
 func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
 	return c.call(ctx, "Journal", nil, name, kind, text, actor)
 }
-func (c *Client) Mail(ctx context.Context, to, text, actor string, files ...string) error {
+func (c *Client) Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error {
 	return c.call(ctx, "Mail", nil, to, text, actor, files)
 }
 func (c *Client) PutBlob(ctx context.Context, data []byte) (*store.BlobRef, error) {
@@ -674,7 +674,7 @@ func (c *Client) SetPeerIntake(ctx context.Context, name string, in *store.PeerI
 func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
 }
-func (c *Client) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*store.PeerOut, error) {
+func (c *Client) MailPeer(ctx context.Context, to, peer, text, actor string, files ...store.BlobFile) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "MailPeer", to, peer, text, actor, files)
 }
 func (c *Client) PeerOutbox(ctx context.Context, name string, limit int) ([]store.PeerOut, error) {

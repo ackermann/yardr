@@ -359,7 +359,7 @@ $ yardr bead answer yardr-k3vd 2710 --approve
 ask 2710, asked by yardmaster: yardr peer allow airy --mail-limit 300
 the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
 mckean approved it, and the yard ran it:
-peer airy: takes 300 mails and asks an hour, and 2400 files
+peer airy: takes 300 mails and asks an hour, and 19200 files
 ```
 
 Approving is yours as the operator and nobody else's: in a terminal on the
@@ -715,20 +715,24 @@ as it was.
 A mail holds 4 KB. From three quarters of that the rule above the line
 counts the bytes (`3072 of 4096 bytes`).
 
-### An image
+### A file
 
-Mail can carry images ([users.md](users.md#an-image-in-mail)). The view
-shows no picture: under the mail's text it prints, dim, where each is,
+Mail can carry files ([users.md](users.md#a-file-in-mail)). The view
+shows no preview: under the mail's text it prints, dim, where each is,
+a file with its name,
 
 ```
 10-05 13:20  yardmaster
   the yard, painted
-  ◆ 1 image: /home/ada/.yardr/blobs/497790947d46…1581
+  ◆ 1 image: /home/ada/.yardr/blobs/497790947d46…1581 (yard.png)
+10-05 13:21  yardmaster
+  the report
+  ◆ 1 file: /home/ada/.yardr/blobs/8f3a…c41d (report.pdf)
 ```
 
 with the whole path, for a terminal or another program to open. Mail that
-is an image and no text has that line alone. The line takes no image:
-`yardr mail <name> <text> --file <image>` sends one.
+is a file and no text has that line alone. The line takes no file:
+`yardr mail <name> <text> --file <path>` sends one.
 
 `ctrl+g` brings the crew member's pane to the front when `yardr chat` runs in a
 pane of herdr (`herdr agent focus <agent>`); the view goes on in its own

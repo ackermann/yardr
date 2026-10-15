@@ -246,7 +246,7 @@ func TestPairForm(t *testing.T) {
 	pages := o.pages.String()
 	wantText(t, pages, "Show a code, or enter one?", "Does the other screen show the same?", "What may this link carry?",
 		"ping: each yard may ask the other whether it is there", "mail between crew members: this yard's may write to laptop's, and laptop's to this yard's",
-		"file: images and pages in mail cross the link, kept within peer_file_max_bytes",
+		"file: files in mail cross the link, kept within peer_file_max_bytes",
 		"This yard's name for the other one", "The other yard's address", "The code")
 	for _, y := range []*cliYard{north, laptop} {
 		for _, p := range peersOf(t, y) {
@@ -316,8 +316,8 @@ func TestPairFormWithFile(t *testing.T) {
 	}
 }
 
-// file cannot be ticked without mail, which carries the images and pages:
-// the page does not go on until mail is ticked too.
+// file cannot be ticked without mail, which carries the files:
+// the form does not go on until mail is ticked too.
 func TestPairFormFileGoesWithMail(t *testing.T) {
 	stubAsk(t, func(fields ...huh.Field) error {
 		carry := fields[0].(*huh.MultiSelect[string])

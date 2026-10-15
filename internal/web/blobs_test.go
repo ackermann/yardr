@@ -75,9 +75,9 @@ func TestBlobRoute(t *testing.T) {
 	if _, err := f.st.AddUser(ctx, "sam", "me"); err != nil {
 		t.Fatal(err)
 	}
-	must(t, f.st.Mail(ctx, "sam", "paint it", "me", mailed.Hash))
-	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", mailedPage.Hash))
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", noted.Hash, page.Hash)
+	must(t, f.st.Mail(ctx, "sam", "paint it", "me", store.BlobFile{Hash: mailed.Hash}))
+	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", store.BlobFile{Hash: mailedPage.Hash}))
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", store.BlobFile{Hash: noted.Hash}, store.BlobFile{Hash: page.Hash})
 	must(t, err)
 
 	r := f.get("/blobs/" + noted.Hash)
@@ -174,6 +174,76 @@ func TestBlobRoute(t *testing.T) {
 	}
 }
 
+// A file downloads, never inline: /blobs/<hash> answers it with
+// Content-Disposition: attachment and the sender's name encoded, by kind
+// and not by type — a PDF, an SVG and prose all download. An image and a
+// page carry no such header, served as ever.
+func TestBlobFileDownloads(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
+	must(t, err)
+	pdf := []byte("%PDF-1.4 the report")
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>`)
+	shot, err := f.st.PutBlob(ctx, shotPNG)
+	must(t, err)
+	report, err := f.st.PutBlob(ctx, pdf)
+	must(t, err)
+	diagram, err := f.st.PutBlob(ctx, svg)
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "the report, filed", "me", "",
+		store.BlobFile{Hash: report.Hash, Name: "report.pdf"},
+		store.BlobFile{Hash: diagram.Hash, Name: "diagram.svg"},
+		store.BlobFile{Hash: shot.Hash, Name: "shot.png"}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := f.get("/blobs/" + report.Hash)
+	if r.status != 200 || r.body != string(pdf) {
+		t.Fatalf("the PDF: status %d, %d bytes", r.status, len(r.body))
+	}
+	if got, want := r.header.Get("Content-Type"), "application/pdf"; got != want {
+		t.Errorf("the PDF's Content-Type %q, want %q", got, want)
+	}
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''report.pdf"; got != want {
+		t.Errorf("the PDF's Content-Disposition %q, want %q", got, want)
+	}
+	r = f.get("/blobs/" + diagram.Hash)
+	if r.status != 200 || r.body != string(svg) {
+		t.Fatalf("the SVG: status %d, %d bytes", r.status, len(r.body))
+	}
+	if got := r.header.Get("Content-Disposition"); !strings.HasPrefix(got, "attachment; filename*=UTF-8''diagram.svg") {
+		t.Errorf("the SVG's Content-Disposition %q, want an attachment", got)
+	}
+	// An image and a page carry no such header: served as ever, inline.
+	for _, hash := range []string{shot.Hash} {
+		if got := f.get("/blobs/" + hash).header.Get("Content-Disposition"); got != "" {
+			t.Errorf("the image's Content-Disposition %q, want none", got)
+		}
+	}
+	// The name is a sender's word, never a header's: only attr-chars pass
+	// through, the rest is percent-encoded, so no quote, semicolon or
+	// line break reaches the header.
+	tricky, err := f.st.PutBlob(ctx, []byte("%PDF-1.4 tricky"))
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "tricky", "me", "", store.BlobFile{Hash: tricky.Hash, Name: `a"b;c d.pdf`}); err != nil {
+		t.Fatal(err)
+	}
+	r = f.get("/blobs/" + tricky.Hash)
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''a%22b%3Bc%20d.pdf"; got != want {
+		t.Errorf("the tricky name's Content-Disposition %q, want %q", got, want)
+	}
+	// Empty, for a paste, downloads under the URL's hash.
+	plain, err := f.st.PutBlob(ctx, []byte("%PDF-1.4 plain"))
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "plain", "me", "", store.BlobFile{Hash: plain.Hash}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get("/blobs/" + plain.Hash).header.Get("Content-Disposition"); got != "attachment" {
+		t.Errorf("the paste's Content-Disposition %q, want %q", got, "attachment")
+	}
+}
+
 // assertPagePolicy holds the response's policy to the page policy of the
 // design (section 3.3), exactly: scripts dead, and an external image,
 // stylesheet, script, fetch and frame each forbidden by the headers.
@@ -222,7 +292,7 @@ func TestBeadPageNoteImages(t *testing.T) {
 	ref, err := f.st.PutBlob(ctx, shotPNG)
 	must(t, err)
 	must(t, f.st.AddNote(ctx, b.ID, "plain words", "me"))
-	_, err = f.st.AddNotedAs(ctx, b.ID, `the "door", hung <firmly>`, "me", "", ref.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, `the "door", hung <firmly>`, "me", "", store.BlobFile{Hash: ref.Hash})
 	must(t, err)
 
 	var got web.BeadPage
@@ -253,6 +323,45 @@ func TestBeadPageNoteImages(t *testing.T) {
 	}
 }
 
+// A note's file stands under its words as a download link with its name,
+// never drawn as an image and never previewed; one the yard no longer
+// holds is a line saying so, never a broken link. The JSON names the
+// files with their names.
+func TestBeadPageNoteFiles(t *testing.T) {
+	f := blobFixture(t)
+	ctx := context.Background()
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
+	must(t, err)
+	ref, err := f.st.PutBlob(ctx, []byte("%PDF-1.4 the report"))
+	must(t, err)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the report, filed", "me", "", store.BlobFile{Hash: ref.Hash, Name: "report.pdf"})
+	must(t, err)
+
+	var got web.BeadPage
+	f.getJSON("/beads/"+b.ID, &got)
+	var files []store.BlobRef
+	for _, n := range got.Notes {
+		files = append(files, n.Files...)
+	}
+	if len(files) != 1 || files[0].Hash != ref.Hash || files[0].Name != "report.pdf" {
+		t.Fatalf("the JSON names %v", files)
+	}
+
+	body := f.get("/beads/" + b.ID).body
+	if want := `<a href="/blobs/` + ref.Hash + `">file report.pdf</a>`; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %s", want)
+	}
+	if strings.Contains(body, "<img") {
+		t.Error("the page draws the file as an image")
+	}
+
+	must(t, os.Remove(store.BlobPath(f.home, ref.Hash)))
+	body = f.get("/beads/" + b.ID).body
+	if want := `file ` + ref.Hash[:8] + `: the yard no longer has it`; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %q", want)
+	}
+}
+
 // A note's page stands under its words as a link opening the bytes
 // top-level; one the yard no longer holds is a line saying so, never a
 // broken link. The JSON names the files, and the bead's own page keeps
@@ -264,7 +373,7 @@ func TestBeadPageNotePages(t *testing.T) {
 	must(t, err)
 	ref, err := f.st.PutBlob(ctx, pageHTML)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", ref.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", store.BlobFile{Hash: ref.Hash})
 	must(t, err)
 
 	var got web.BeadPage
@@ -315,11 +424,11 @@ func TestBeadBoardLaysPagesInNoteOrder(t *testing.T) {
 	must(t, err)
 	shot, err := f.st.PutBlob(ctx, shotPNG)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, `the door, first pass <b>bold</b>`, "me", "", first.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, `the door, first pass <b>bold</b>`, "me", "", store.BlobFile{Hash: first.Hash})
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", shot.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", store.BlobFile{Hash: shot.Hash})
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, second pass", "me", "", second.Hash, third.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, second pass", "me", "", store.BlobFile{Hash: second.Hash}, store.BlobFile{Hash: third.Hash})
 	must(t, err)
 
 	var got web.BeadPage
@@ -383,7 +492,7 @@ func TestBeadBoardAbsentWithoutPages(t *testing.T) {
 	}
 	shot, err := f.st.PutBlob(ctx, shotPNG)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", shot.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "a photo of the door", "me", "", store.BlobFile{Hash: shot.Hash})
 	must(t, err)
 	if body := f.get("/beads/" + b.ID).body; strings.Contains(body, `id="board"`) {
 		t.Fatal("a bead with an image only shows a board")
@@ -404,8 +513,8 @@ func TestBeadBoardHoldsNoMailPage(t *testing.T) {
 	if _, err := f.st.AddUser(ctx, "sam", "me"); err != nil {
 		t.Fatal(err)
 	}
-	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", mailed.Hash))
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", noted.Hash)
+	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", store.BlobFile{Hash: mailed.Hash}))
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", store.BlobFile{Hash: noted.Hash})
 	must(t, err)
 
 	body := f.get("/beads/" + b.ID).body
@@ -434,7 +543,7 @@ func TestBeadBoardMissingPage(t *testing.T) {
 	must(t, err)
 	ref, err := f.st.PutBlob(ctx, pageHTML)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", ref.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", store.BlobFile{Hash: ref.Hash})
 	must(t, err)
 	must(t, os.Remove(store.BlobPath(f.home, ref.Hash)))
 

@@ -1793,13 +1793,13 @@ func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	must(t, err)
 	fence, err := s.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the fence"))
 	must(t, err)
-	must(t, s.Mail(ctx, "yardmaster", "the shed", "chris", shed.Hash))
+	must(t, s.Mail(ctx, "yardmaster", "the shed", "chris", store.BlobFile{Hash: shed.Hash}))
 	must(t, d.Reconcile(ctx))
 	if want := "\n" + store.NoteFilesMark + " 1 image: /y/blobs/" + shed.Hash; len(f.nudges) != 2 ||
 		!strings.HasSuffix(f.nudges[1], want) || !strings.Contains(f.nudges[1], answer) {
 		t.Fatalf("nudges = %q, want the last to tell how to answer it and end with %q", f.nudges, want)
 	}
-	must(t, s.Mail(ctx, "yardmaster", "", "chris", fence.Hash))
+	must(t, s.Mail(ctx, "yardmaster", "", "chris", store.BlobFile{Hash: fence.Hash}))
 	must(t, d.Reconcile(ctx))
 	if want := "\n" + store.NoteFilesMark + " 2 images: /y/blobs/" + shed.Hash + " /y/blobs/" + fence.Hash; len(f.nudges) != 3 ||
 		!strings.HasSuffix(f.nudges[2], want) || !strings.Contains(f.nudges[2], answer) {

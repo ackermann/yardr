@@ -18,20 +18,26 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	bolt "go.etcd.io/bbolt"
 )
 
-// A blob is a file mail or a bead's note carries: an image or a page. The
-// yard keeps it in its home under BlobsDir, in a file named by the SHA-256
-// of its bytes, so the same picture sent twice is one file and a letter
-// names it by what it is. A blob is written once and never changed. The
-// log has only the name (the files of a mail event, of a note its row), so
-// the store file does not grow by the picture; a blob nothing names any
-// more goes with Prune, and nothing else removes one.
+// A blob is a file mail or a bead's note carries: any bytes under the
+// cap, in one of three kinds the yard tells apart by the bytes
+// (http.DetectContentType): an image (a PNG or a JPEG), a page (HTML),
+// and a file (everything else). The yard keeps it in its home under
+// BlobsDir, in a file named by the SHA-256 of its bytes, so the same
+// bytes sent twice are one file and a letter names them by what they
+// are. A blob is written once and never changed. The log has only the
+// name (the files of a mail event, of a note its row), so the store file
+// does not grow by the bytes; a blob nothing names any more goes with
+// Prune, and nothing else removes one.
 //
 // The file has no record beside it: its type is read from its first bytes
-// each time it is asked for, as it was when it was put.
+// each time it is asked for, as it was when it was put. A file's name is
+// kept on the letter that carries the blob, not beside the blob file,
+// which stays content-addressed and shared.
 
 // BlobsDir is the directory of the blobs, in the yard's home.
 const BlobsDir = "blobs"
@@ -42,7 +48,7 @@ const (
 	BlobMaxSetting = "blob_max_bytes"
 	DefaultBlobMax = 8 << 20
 	// MaxMailFiles bounds the files of one mail.
-	MaxMailFiles = 8
+	MaxMailFiles = 64
 	// MaxNoteFiles bounds the files of one note, as MaxMailFiles bounds a
 	// mail's.
 	MaxNoteFiles = MaxMailFiles
@@ -52,32 +58,86 @@ const (
 	BlobGrace = time.Hour
 )
 
-// BlobTypes are the types a blob may have, as its bytes say.
-var BlobTypes = []string{"image/png", "image/jpeg", "text/html; charset=utf-8"}
-
-// blobPage is the type of a page: the one BlobTypes entry that is no image.
-// FilesLine counts it apart.
+// blobPage is the type of a page: HTML, as the bytes say. FilesLine
+// counts it apart from images, and the view runs it where a file only
+// downloads.
 const blobPage = "text/html; charset=utf-8"
+
+// blobImages are the types of an image, as the bytes say: what Kind
+// counts apart from a page and a file.
+var blobImages = []string{"image/png", "image/jpeg"}
 
 // BlobRef names a blob where a letter carries it: the SHA-256 of its bytes
 // in hex, which is its file's name, the type its bytes say, and how many
-// they are.
+// they are. Name is the file's base name as the sender gave it, kept on
+// the letter, not beside the blob file; empty on a paste, and on a letter
+// from before names.
 //
 // NotTaken is set on a file of mail from another yard that this yard did
 // not take, and says why (peerfiles.go): the yard holds no blob for it,
-// and hash, type and bytes are the sender's word. Where a conversation
-// shows mail this yard sent to another, it is set on a file that yard did
-// not take, with its reason (peerConversation).
+// and hash, type, bytes and name are the sender's word. Where a
+// conversation shows mail this yard sent to another, it is set on a file
+// that yard did not take, with its reason (peerConversation).
 type BlobRef struct {
 	Hash     string `json:"hash"`
 	Type     string `json:"type"`
 	Bytes    int64  `json:"bytes"`
+	Name     string `json:"name,omitempty"`
 	NotTaken string `json:"not_taken,omitempty"`
 }
 
-// IsPage is whether the blob is a page, not an image: the one BlobTypes
-// entry that is no image.
+// IsPage is whether the blob is a page: HTML, as the bytes say.
 func (f BlobRef) IsPage() bool { return f.Type == blobPage }
+
+// Kind is the blob's kind, as its bytes say: "image" for a PNG or a
+// JPEG, "page" for HTML, "file" for everything else.
+func (f BlobRef) Kind() string {
+	switch {
+	case f.Type == blobPage:
+		return "page"
+	case slices.Contains(blobImages, f.Type):
+		return "image"
+	default:
+		return "file"
+	}
+}
+
+// BlobFile is a file a letter carries, as Mail, MailPeer, AddNote and
+// AddNotedAs take it: the hash PutBlob answered and the name the sender
+// gives it. The name is the file's base name; empty on a paste, and on
+// an image or a page sent without one.
+type BlobFile struct {
+	Hash string `json:"hash"`
+	Name string `json:"name,omitempty"`
+}
+
+// MaxBlobName is how many bytes a file's name may have.
+const MaxBlobName = 255
+
+// checkBlobName holds a file's name to what a letter may carry: at most
+// MaxBlobName bytes, valid UTF-8, no "/", "\", NUL or control character,
+// and neither "." nor "..". Empty is allowed, for a paste. A name that
+// fails is refused, never sanitised: the sender names it again.
+func checkBlobName(name string) error {
+	switch {
+	case name == "":
+		return nil
+	case len(name) > MaxBlobName:
+		return fmt.Errorf("a file's name is at most %d bytes, not %d", MaxBlobName, len(name))
+	case name == "." || name == "..":
+		return fmt.Errorf("a file's name is never %q", name)
+	case strings.Contains(name, "/") || strings.Contains(name, "\\"):
+		return fmt.Errorf("a file's name holds no / or \\: %q", name)
+	case !utf8.ValidString(name):
+		return fmt.Errorf("a file's name is UTF-8: %q", name)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("a file's name holds no control character: %q", name)
+		}
+	}
+	return nil
+}
 
 // blobHash is what names a blob, and so all a path under BlobsDir is made
 // of.
@@ -90,12 +150,17 @@ func BlobPath(home, hash string) string { return filepath.Join(home, BlobsDir, h
 func (s *Store) BlobPath(hash string) string { return BlobPath(s.home, hash) }
 
 // FilesLine says the files of a letter or a note where it is shown, each
-// by the path of its blob in the yard at home, so a crew member reads the
-// picture with what its harness reads any file with: "1 image: <path>".
-// Pages stand apart from images: "1 page: <path>", and "1 image, 1 page:
-// <path> <path>" for both. One the yard did not take has its reason where
-// its path would be: "1 image: not taken: <reason>". "" for one without
-// files.
+// by the path of its blob in the yard at home, so a crew member reads it
+// with what its harness reads any file with: "1 image: <path>". A file
+// with a name carries it in parentheses after its path, for whoever reads
+// it, agent or person: "1 file: <path> (report.pdf)". Pages stand apart
+// from images, and files from both: "1 image, 2 files: <path> <path>
+// (report.pdf) <path> (data.csv)". One the yard did not take has its
+// reason where its path would be: "1 image: not taken: <reason>". "" for
+// one without files.
+//
+// The marked line stays the only line that names a file the yard keeps:
+// the name in parentheses is for the reader, never a path the yard reads.
 func FilesLine(home string, files []BlobRef) string {
 	if len(files) == 0 {
 		return ""
@@ -107,19 +172,25 @@ func FilesLine(home string, files []BlobRef) string {
 			// A reason has spaces of its own.
 			paths[i], between = "not taken: "+f.NotTaken, "; "
 		}
+		if name := Letters(f.Name); name != "" {
+			paths[i] += " (" + name + ")"
+		}
 	}
 	return fmt.Sprintf("%s: %s", filesNoun(files), strings.Join(paths, between))
 }
 
-// filesNoun counts the files by kind, images first: "2 images", "1 page",
-// "1 image, 1 page". One of no known type counts as an image.
+// filesNoun counts the files by kind, images first, then pages, then
+// files: "2 images", "1 page", "1 image, 1 page", "1 image, 2 files".
 func filesNoun(files []BlobRef) string {
-	var images, pages int
+	var images, pages, rest int
 	for _, f := range files {
-		if f.IsPage() {
+		switch f.Kind() {
+		case "page":
 			pages++
-		} else {
+		case "image":
 			images++
+		default:
+			rest++
 		}
 	}
 	var parts []string
@@ -137,6 +208,13 @@ func filesNoun(files []BlobRef) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", pages, noun))
 	}
+	if rest > 0 {
+		noun := "file"
+		if rest > 1 {
+			noun = "files"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", rest, noun))
+	}
 	return strings.Join(parts, ", ")
 }
 
@@ -153,13 +231,13 @@ func WithFiles(text, home string, files []BlobRef) string {
 	return text + "  " + line
 }
 
-// NoteFilesMark starts the line that names the images a note or a mail
+// NoteFilesMark starts the line that names the files a note or a mail
 // carries where it is shown (NoteFilesLine): its words end where the
 // line begins, so nothing its writer typed stands for a file the yard
 // keeps. Every renderer of notes and mail keeps the mark out of the
 // writers' own words (WithoutFilesMark, and Letters where control
 // characters go too), so a line starting with it is the yard's, and any
-// other "N image(s):" is words.
+// other "N image(s):", "N page(s):" or "N file(s):" is words.
 const NoteFilesMark = "◆"
 
 // NoteFilesLine is the files of a note or a mail where it is shown: the
@@ -237,10 +315,9 @@ func MailFiles(e Event) []BlobRef {
 	return out
 }
 
-// blobType is the type the bytes say, and whether a blob may have it.
-func blobType(head []byte) (string, bool) {
-	typ := http.DetectContentType(head)
-	return typ, slices.Contains(BlobTypes, typ)
+// blobType is the type the bytes say.
+func blobType(head []byte) string {
+	return http.DetectContentType(head)
 }
 
 // blobMax is the yard's cap on one blob; a setting that does not parse
@@ -268,12 +345,12 @@ func bytesSetting(tx *bolt.Tx, key string, unset int64) (int64, error) {
 }
 
 // PutBlob keeps data as a blob and answers its name. The type is what the
-// bytes say, never what the caller does, and anything but BlobTypes is
-// refused, as is more than the yard's cap (BlobMaxSetting); nothing is
-// stored then. Bytes the yard has already are not written again: the
-// answer is the same, and the file is only marked as put now, so that a
-// blob nothing names yet is not pruned before the mail or note it was put
-// for is sent (BlobGrace).
+// bytes say, never what the caller does; any bytes under the yard's cap
+// (BlobMaxSetting) are kept, and more than the cap is refused with nothing
+// stored. Bytes the yard has already are not written again: the answer is
+// the same, and the file is only marked as put now, so that a blob nothing
+// names yet is not pruned before the mail or note it was put for is sent
+// (BlobGrace).
 func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
@@ -282,13 +359,10 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	typ, ok := blobType(data)
-	switch {
-	case int64(len(data)) > limit:
+	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("the file is %d bytes, over the yard's limit of %d (yardr settings set %s <bytes>)", len(data), limit, BlobMaxSetting)
-	case !ok:
-		return nil, fmt.Errorf("the file is %s: the yard keeps only %s", typ, strings.Join(BlobTypes, " and "))
 	}
+	typ := blobType(data)
 	sum := sha256.Sum256(data)
 	return s.keepBlob(&BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}, data)
 }
@@ -333,11 +407,11 @@ func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 // not, and for a name that is no hash.
 func (s *Store) Blob(hash string) (*BlobRef, error) {
 	if !blobHash.MatchString(hash) {
-		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %q: %w", hash, ErrNotFound)
 	}
 	f, err := os.Open(s.BlobPath(hash))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	} else if err != nil {
 		return nil, err
 	}
@@ -351,54 +425,61 @@ func (s *Store) Blob(hash string) (*BlobRef, error) {
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
-	// A file someone else left in the directory is no blob of the yard.
-	typ, ok := blobType(head[:n])
-	if !ok {
-		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
-	}
-	return &BlobRef{Hash: hash, Type: typ, Bytes: st.Size()}, nil
+	return &BlobRef{Hash: hash, Type: blobType(head[:n]), Bytes: st.Size()}, nil
 }
 
 // NoteBlob is the blob hash as the web view serves it to anyone: one a
-// note on some bead names, as the yard holds it. ErrNotFound for one no
-// note names — a mail's image, one nothing names — for one the yard no
-// longer holds, and for a name that is no hash, refused as Blob refuses
-// it. A mail's file is MailBlob's: where the view acts, it serves that
-// to the mail's sender or recipient.
+// note on some bead names, as the yard holds it, with the name the first
+// such note gives it. ErrNotFound for one no note names — a mail's file,
+// one nothing names — for one the yard no longer holds, and for a name
+// that is no hash, refused as Blob refuses it. A mail's file is
+// MailBlob's: where the view acts, it serves that to the mail's sender or
+// recipient.
 func (s *Store) NoteBlob(ctx context.Context, hash string) (*BlobRef, error) {
 	if !blobHash.MatchString(hash) {
-		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %q: %w", hash, ErrNotFound)
 	}
-	var named bool
+	var name string
+	named := false
 	if err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bNotes, "", func(_ []byte, n *Note) error {
-			named = named || slices.ContainsFunc(n.Files, func(f BlobRef) bool { return f.Hash == hash })
+			for _, f := range n.Files {
+				if f.Hash == hash && !named {
+					name, named = f.Name, true
+				}
+			}
 			return nil
 		})
 	}); err != nil {
 		return nil, err
 	}
 	if !named {
-		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	}
-	return s.Blob(hash)
+	ref, err := s.Blob(hash)
+	if err != nil {
+		return nil, err
+	}
+	ref.Name = name
+	return ref, nil
 }
 
 // MailBlob is the blob hash as the web view serves it to viewer: one a
 // mail names where viewer is its sender or recipient, as the yard holds
-// it. ErrNotFound for one no such mail names — a note's image, one
-// nothing names — for one the yard no longer holds, for a viewer that is
-// nobody, and for a name that is no hash, refused as Blob refuses it. One
-// a mail carries that the yard did not take (BlobRef.NotTaken) names no
-// blob of the yard's.
+// it, with the name the first such mail gives it. ErrNotFound for one no
+// such mail names — a note's file, one nothing names — for one the yard
+// no longer holds, for a viewer that is nobody, and for a name that is no
+// hash, refused as Blob refuses it. One a mail carries that the yard did
+// not take (BlobRef.NotTaken) names no blob of the yard's.
 func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, error) {
 	if !blobHash.MatchString(hash) {
-		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %q: %w", hash, ErrNotFound)
 	}
 	if viewer == "" {
-		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	}
-	var named bool
+	var name string
+	named := false
 	if err := s.read(func(tx *bolt.Tx) error {
 		prefix := []byte("mail\x00")
 		c := tx.Bucket(bEventsKd).Cursor()
@@ -410,9 +491,11 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 			if e.Actor != viewer && mailReceiver(e) != viewer {
 				continue
 			}
-			named = named || slices.ContainsFunc(MailFiles(e), func(f BlobRef) bool {
-				return f.Hash == hash && f.NotTaken == ""
-			})
+			for _, f := range MailFiles(e) {
+				if f.Hash == hash && f.NotTaken == "" && !named {
+					name, named = f.Name, true
+				}
+			}
 			if named {
 				return nil
 			}
@@ -422,46 +505,63 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 		return nil, err
 	}
 	if !named {
-		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	}
-	return s.Blob(hash)
+	ref, err := s.Blob(hash)
+	if err != nil {
+		return nil, err
+	}
+	ref.Name = name
+	return ref, nil
 }
 
-// mailFiles are the blobs the hashes name, as a mail event carries them.
-// One the yard does not hold refuses the mail: a letter never names a
-// picture nobody can read.
-func (s *Store) mailFiles(hashes []string) ([]BlobRef, error) {
-	if len(hashes) > MaxMailFiles {
-		return nil, fmt.Errorf("mail carries at most %d images, not %d", MaxMailFiles, len(hashes))
+// mailFiles are the blobs the files name, as a mail event carries them:
+// each with the type and size the yard holds, and the name the sender
+// gave. One the yard does not hold refuses the mail: a letter never names
+// a file nobody can read. A name no letter may carry refuses it too,
+// never sanitised.
+func (s *Store) mailFiles(files []BlobFile) ([]BlobRef, error) {
+	if len(files) > MaxMailFiles {
+		return nil, fmt.Errorf("mail carries at most %d files, not %d", MaxMailFiles, len(files))
 	}
 	var out []BlobRef
-	for _, h := range hashes {
-		ref, err := s.Blob(h)
+	for _, f := range files {
+		if err := checkBlobName(f.Name); err != nil {
+			return nil, err
+		}
+		ref, err := s.Blob(f.Hash)
 		if errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("%w: the yard does not hold it; put it first (PutBlob, or yardr mail --file)", err)
 		} else if err != nil {
 			return nil, err
 		}
+		ref.Name = f.Name
 		out = append(out, *ref)
 	}
 	return out, nil
 }
 
-// noteFiles are the blobs the hashes name, as a note carries them. One
-// the yard does not hold refuses the note: a note never names a picture
-// nobody can read.
-func (s *Store) noteFiles(hashes []string) ([]BlobRef, error) {
-	if len(hashes) > MaxNoteFiles {
-		return nil, fmt.Errorf("a note carries at most %d images, not %d", MaxNoteFiles, len(hashes))
+// noteFiles are the blobs the files name, as a note carries them: each
+// with the type and size the yard holds, and the name the sender gave.
+// One the yard does not hold refuses the note: a note never names a file
+// nobody can read. A name no letter may carry refuses it too, never
+// sanitised.
+func (s *Store) noteFiles(files []BlobFile) ([]BlobRef, error) {
+	if len(files) > MaxNoteFiles {
+		return nil, fmt.Errorf("a note carries at most %d files, not %d", MaxNoteFiles, len(files))
 	}
 	var out []BlobRef
-	for _, h := range hashes {
-		ref, err := s.Blob(h)
+	for _, f := range files {
+		if err := checkBlobName(f.Name); err != nil {
+			return nil, err
+		}
+		ref, err := s.Blob(f.Hash)
 		if errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("%w: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)", err)
 		} else if err != nil {
 			return nil, err
 		}
+		ref.Name = f.Name
 		out = append(out, *ref)
 	}
 	return out, nil

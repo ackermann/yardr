@@ -1258,7 +1258,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 // folded into its ask. An answer that names no ask of the bead says so
 // where it stands. Nobody reads the raw form. A note with files names
 // them under its text, on a line of their own starting with the mark
-// (NoteFilesLine), each image by its path in the yard at home; the
+// (NoteFilesLine), each by its path in the yard at home; the
 // mark is kept out of every word a note's writer chose, so only that
 // line names a file the yard keeps.
 //

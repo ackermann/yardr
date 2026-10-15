@@ -172,13 +172,17 @@
       <pre class="text">{{.Text}}</pre>
       {{- $words := .Text}}
       {{- range .Files}}
-      {{- $page := .IsPage}}
+      {{- $kind := .Kind}}
       {{- if index $.Data.Missing .Hash}}
-      <p class="faint">{{if $page}}page{{else}}image{{end}} {{slice .Hash 0 8}}: the yard no longer has it</p>
-      {{- else if $page}}
+      <p class="faint">{{$kind}} {{slice .Hash 0 8}}: the yard no longer has it</p>
+      {{- else if eq $kind "page"}}
       <a href="/blobs/{{.Hash}}">page {{slice .Hash 0 8}}</a> <a href="{{$.Data.RunBase}}/blobs/{{.Hash}}">run</a>
-      {{- else}}
+      {{- else if eq $kind "image"}}
       <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+      {{- else if .Name}}
+      <a href="/blobs/{{.Hash}}">file {{.Name}}</a>
+      {{- else}}
+      <a href="/blobs/{{.Hash}}">file {{slice .Hash 0 8}}</a>
       {{- end}}
       {{- end}}
     </article>

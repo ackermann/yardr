@@ -233,9 +233,12 @@ type peerMail struct {
 }
 
 // filesNamed reports whether the files a peer's mail names are what mail
-// may name: no more than local mail carries, each by a hash.
+// may name: no more than local mail carries, each by a hash, with a name
+// no letter may carry refusing it as no mail.
 func filesNamed(files []BlobRef) bool {
-	return len(files) <= MaxMailFiles && !slices.ContainsFunc(files, func(f BlobRef) bool { return !blobHash.MatchString(f.Hash) || f.Bytes < 0 })
+	return len(files) <= MaxMailFiles && !slices.ContainsFunc(files, func(f BlobRef) bool {
+		return !blobHash.MatchString(f.Hash) || f.Bytes < 0 || checkBlobName(f.Name) != nil
+	})
 }
 
 // peerMailName is what a name in mail between yards is held to: a
@@ -263,16 +266,16 @@ func mailTo(e Event) string {
 // be the operator (notOperator), who is a user in every yard that names
 // one: a bead's agent has no say in what leaves the yard.
 //
-// files are the blobs the mail carries, by their hashes, as for Mail, and
-// mail with one needs no text. Each crosses as a message of its own, of
-// kind PeerFile, queued before the mail (peerFiles). Mail with a file is
-// refused, with nothing queued, when the link does not carry file out, when
-// the peer's yardr has not said it understands the kind (Peer.SendsFiles),
-// and when a file is over this yard's cap for one (PeerFileMaxSetting).
-// From a session's or a crew member's pane the mail goes as that
-// session's actor or that crew member, whatever actor says; from anywhere
-// else, as given (paneAuthor).
-func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*PeerOut, error) {
+// files are the blobs the mail carries, each as its hash with the name
+// the sender gives it, as for Mail, and mail with one needs no text. Each
+// crosses as a message of its own, of kind PeerFile, queued before the
+// mail (peerFiles). Mail with a file is refused, with nothing queued, when
+// the link does not carry file out, when the peer's yardr has not said it
+// understands the kind (Peer.SendsFiles), and when a file is over this
+// yard's cap for one (PeerFileMaxSetting). From a session's or a crew
+// member's pane the mail goes as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
+func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, files ...BlobFile) (*PeerOut, error) {
 	switch {
 	case strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxPeerMailBytes:
 		return nil, fmt.Errorf("mail to another yard must be 1..%d bytes", MaxPeerMailBytes)
@@ -496,10 +499,10 @@ func (w *wtx) undelivered(m *PeerOut, image, reason string, limit int, until *ti
 	of := fmt.Sprintf("your mail to %s@%s of %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"))
 	data := map[string]any{"to": mail.From, "undelivered": m.ID, "text": of + " was not delivered: " + reason}
 	if image != "" {
-		noun := "image"
+		noun := "file"
 		at := slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == image })
-		if at >= 0 && mail.Files[at].IsPage() {
-			noun = "page"
+		if at >= 0 {
+			noun = mail.Files[at].Kind()
 		}
 		which := "the " + noun
 		if n := len(mail.Files); n > 1 {

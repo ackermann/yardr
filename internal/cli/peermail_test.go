@@ -223,7 +223,7 @@ func TestPeerAllowMailLimit(t *testing.T) {
 	t.Setenv("YARDR_HOME", south.home)
 	south.must(t, "add", "up-north", nInvite)
 
-	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow up-north --mail-limit <n> sets it)\n")
+	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 30 mails and asks an hour, and 1920 files (yardr peer allow up-north --mail-limit <n> sets it)\n")
 	for args, want := range map[string]string{
 		"--mail-limit 0":     "--mail-limit 0: a link takes 1 to 10000 mails an hour (30 unless set)",
 		"--mail-limit 10001": "peer up-north: a link takes 1 to 10000 mails an hour, not 10001",
@@ -232,8 +232,8 @@ func TestPeerAllowMailLimit(t *testing.T) {
 			t.Errorf("allow %s = %v, want %q", args, err, want)
 		}
 	}
-	wantText(t, south.must(t, "allow", "up-north", "--mail-limit", "100"), "peer up-north: send nothing; receive nothing; expose nobody\n", "mail: takes 100 mails and asks an hour, and 800 files\n")
-	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 100 mails and asks an hour, and 800 files\n")
+	wantText(t, south.must(t, "allow", "up-north", "--mail-limit", "100"), "peer up-north: send nothing; receive nothing; expose nobody\n", "mail: takes 100 mails and asks an hour, and 6400 files\n")
+	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 100 mails and asks an hour, and 6400 files\n")
 	if p, err := south.st.GetPeer(context.Background(), "up-north"); err != nil || p.MailLimit != 100 {
 		t.Fatalf("the link = %+v, %v", p, err)
 	}
@@ -244,10 +244,10 @@ func TestPeerAllowMailLimit(t *testing.T) {
 func TestMailLineCountsTheRefused(t *testing.T) {
 	since := time.Date(2026, 10, 12, 20, 0, 0, 0, time.Local)
 	p := store.Peer{Name: "airy", MailLimit: 40, MailSince: &since, Mails: 43, Files: 12}
-	if got, want := mailLine(p, since.Add(20*time.Minute)), "takes 40 mails and asks an hour, and 320 files; 43 came since 20:00, 3 of them refused, as is what comes until 21:00"; got != want {
+	if got, want := mailLine(p, since.Add(20*time.Minute)), "takes 40 mails and asks an hour, and 2560 files; 43 came since 20:00, 3 of them refused, as is what comes until 21:00"; got != want {
 		t.Errorf("over the limit:\n got %q\nwant %q", got, want)
 	}
-	if got, want := mailLine(p, since.Add(time.Hour)), "takes 40 mails and asks an hour, and 320 files"; got != want {
+	if got, want := mailLine(p, since.Add(time.Hour)), "takes 40 mails and asks an hour, and 2560 files"; got != want {
 		t.Errorf("once the hour has passed:\n got %q\nwant %q", got, want)
 	}
 }

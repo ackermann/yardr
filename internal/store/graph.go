@@ -763,7 +763,7 @@ type Note struct {
 	// Notes returns, never stored. A note still untold whose session has
 	// ended is told to nothing, ever.
 	NotifyLive bool `json:"notify_live,omitempty"`
-	// Files are the images the note carries, as PutBlob answered them, in
+	// Files are the files the note carries, as PutBlob answered them, in
 	// the order the note was written with them; nil on a note without
 	// any. Only a plain note written with files has any (yardr bead note
 	// --file, or AddNote over the wire).
@@ -816,19 +816,19 @@ func sessionActor(sess *Session) string {
 }
 
 // AddNote puts a plain note on the bead without telling its live session,
-// unlike AddNotedAs. files are the images and pages the note carries, each
-// by its hash as PutBlob answered it, as with yardr bead note --file; a
-// note with any needs words. Left out, the note carries none. From a
-// session's or a crew member's pane the note is stored as that session's
-// actor or that crew member, whatever actor says; from anywhere else, as
-// given (paneAuthor).
-func (s *Store) AddNote(ctx context.Context, id, text, actor string, files ...string) error {
+// unlike AddNotedAs. files are the files the note carries, each as its
+// hash as PutBlob answered it with the name the sender gives it, as with
+// yardr bead note --file; a note with any needs words. Left out, the note
+// carries none. From a session's or a crew member's pane the note is
+// stored as that session's actor or that crew member, whatever actor says;
+// from anywhere else, as given (paneAuthor).
+func (s *Store) AddNote(ctx context.Context, id, text, actor string, files ...BlobFile) error {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
 		return s.refuseForeignNote(bead, peer)
 	}
 	if len(files) > 0 && strings.TrimSpace(text) == "" {
-		return fmt.Errorf("a note with images needs words: say what the picture shows")
+		return fmt.Errorf("a note with files needs words: say what they show")
 	}
 	refs, err := s.noteFiles(files)
 	if err != nil {
@@ -878,17 +878,18 @@ func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, er
 // agent about it once, when idle. Notes through any other write tell
 // nothing: a move's note ends the session in the same write, asks and
 // answers have their own flows, and the daemon notes past its sessions'
-// ends. files are the images the note carries, each by its hash as PutBlob
-// answered it. From a session's or a crew member's pane the note is stored
-// as that session's actor or that crew member, whatever actor says; from
-// anywhere else, as given (paneAuthor).
-func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error) {
+// ends. files are the files the note carries, each as its hash as PutBlob
+// answered it with the name the sender gives it. From a session's or a
+// crew member's pane the note is stored as that session's actor or that
+// crew member, whatever actor says; from anywhere else, as given
+// (paneAuthor).
+func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...BlobFile) (*Note, error) {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
 		return nil, s.refuseForeignNote(bead, peer)
 	}
 	if len(files) > 0 && strings.TrimSpace(text) == "" {
-		return nil, fmt.Errorf("a note with images needs words: say what the picture shows")
+		return nil, fmt.Errorf("a note with files needs words: say what they show")
 	}
 	refs, err := s.noteFiles(files)
 	if err != nil {
@@ -1112,7 +1113,7 @@ func (w *wtx) addNotedSession(row *beadRow, kind, text, actor, session string) (
 
 // addNotedNotify is addNoted that names the session a plain note is for:
 // the daemon tells it once, when idle. notify is "" for no session, and
-// for any kind but a plain note. files are the images the note carries, as
+// for any kind but a plain note. files are the files the note carries, as
 // PutBlob answered them, and only a plain note has any.
 func (w *wtx) addNotedNotify(row *beadRow, kind, text, actor, notify string, files []BlobRef) (*Note, error) {
 	return w.addNotedNotifySession(row, kind, text, actor, notify, files, "")

@@ -343,7 +343,7 @@ func TestTalkShowsMailImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.Mail(ctx, "jo", `the "shed", painted <firmly>`, "yardmaster", ref.Hash); err != nil {
+	if err := f.st.Mail(ctx, "jo", `the "shed", painted <firmly>`, "yardmaster", store.BlobFile{Hash: ref.Hash}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -381,10 +381,10 @@ func TestTalkMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.Mail(ctx, "jo", "the shed, painted", "yardmaster", shot.Hash); err != nil {
+	if err := f.st.Mail(ctx, "jo", "the shed, painted", "yardmaster", store.BlobFile{Hash: shot.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", page.Hash); err != nil {
+	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", store.BlobFile{Hash: page.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	must(t, os.Remove(store.BlobPath(f.home, shot.Hash)))
@@ -415,7 +415,7 @@ func TestTalkNamesPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", ref.Hash); err != nil {
+	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", store.BlobFile{Hash: ref.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	body := f.get("/talk").body

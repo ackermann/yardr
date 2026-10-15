@@ -125,7 +125,7 @@ func (f *pagesFixture) notedPage(t *testing.T) (bead string, page, shot *store.B
 	must(t, err)
 	page, err = f.st.PutBlob(ctx, pageHTML)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", shot.Hash, page.Hash)
+	_, err = f.st.AddNotedAs(ctx, b.ID, "the door, hung", "me", "", store.BlobFile{Hash: shot.Hash}, store.BlobFile{Hash: page.Hash})
 	must(t, err)
 	return b.ID, page, shot
 }
@@ -146,8 +146,8 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 	if _, err := f.st.AddUser(ctx, "sam", "me"); err != nil {
 		t.Fatal(err)
 	}
-	must(t, f.st.Mail(ctx, "sam", "paint it", "me", mailed.Hash))
-	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", mailedPage.Hash))
+	must(t, f.st.Mail(ctx, "sam", "paint it", "me", store.BlobFile{Hash: mailed.Hash}))
+	must(t, f.st.Mail(ctx, "sam", "the fence, drawn", "me", store.BlobFile{Hash: mailedPage.Hash}))
 
 	r := f.getPages("/blobs/" + page.Hash)
 	if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != string(pageHTML) {
@@ -176,6 +176,22 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 	assertScriptedPolicy(t, r.header.Get("Content-Security-Policy"))
 	if cookie := r.header.Get("Set-Cookie"); cookie != "" {
 		t.Errorf("the image sets a cookie %q, want none", cookie)
+	}
+	// A file downloads the same way as on the main origin; only a page
+	// runs there.
+	report, err := f.st.PutBlob(ctx, []byte("%PDF-1.4 the report"))
+	must(t, err)
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
+	must(t, err)
+	if _, err := f.st.AddNotedAs(ctx, b.ID, "the report, filed", "me", "", store.BlobFile{Hash: report.Hash, Name: "report.pdf"}); err != nil {
+		t.Fatal(err)
+	}
+	r = f.getPages("/blobs/" + report.Hash)
+	if r.status != 200 || r.body != "%PDF-1.4 the report" {
+		t.Fatalf("the note's file: status %d, %d bytes", r.status, len(r.body))
+	}
+	if got, want := r.header.Get("Content-Disposition"), "attachment; filename*=UTF-8''report.pdf"; got != want {
+		t.Errorf("the file's Content-Disposition %q, want %q", got, want)
 	}
 	r = f.do(f.sandbox, "HEAD", "/blobs/"+page.Hash)
 	if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != "" {
@@ -215,7 +231,7 @@ func TestSandboxRequiresJWT(t *testing.T) {
 	if _, err := f.st.AddUser(ctx, "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	must(t, f.st.Mail(ctx, "jo", "paint it", "me", mailed.Hash))
+	must(t, f.st.Mail(ctx, "jo", "paint it", "me", store.BlobFile{Hash: mailed.Hash}))
 	token := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
 
 	// Without a token the origin refuses as the view does.

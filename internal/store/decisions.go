@@ -317,7 +317,7 @@ type BeadNote struct {
 	At     time.Time `json:"at"`
 	// Via is the device the note was written through, "" for none.
 	Via string `json:"via,omitempty"`
-	// Files are the images the note carries; absent on a note without
+	// Files are the files the note carries; absent on a note without
 	// any. `GET /blobs/<hash>` answers the bytes.
 	Files []BlobRef `json:"files,omitempty"`
 }

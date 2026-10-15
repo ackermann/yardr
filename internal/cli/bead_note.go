@@ -20,15 +20,16 @@ func (a *app) newBeadNoteCmd() *cobra.Command {
 words. The bead's live session is told of it, unless the writer is that
 session itself.
 
---file <path> attaches an image (a PNG or a JPEG) or a page (HTML) to the
-note, and may be given more than once (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the file in its
+--file <path> attaches a file to the note, and may be given more than once
+(up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the file in its
 home, in blobs/ under the SHA-256 of its bytes, once however often it is
 attached, and where the note is read (yardr prime, yardr review, yardr bead
 show) it stands under the note's words, on a line of its own starting with
-"◆", as "1 image: <path>" or "1 page: <path>". The note still needs its words:
-say what the picture shows. What the bytes are is what counts, not the
-file's name; one over the yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB
-unless set) is refused.
+"◆", as "1 image: <path>", "1 page: <path>" or "1 file: <path> (name)".
+The note still needs its words: say what they show. What kind it is is read
+from its bytes: an image is a PNG or a JPEG, a page is HTML, anything else
+a file, which carries the path's base name; one over the yard's limit
+(yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused.
 
 --ack <seq> writes nothing: it records that this session read note <seq>,
 and takes no text and no --file.`,
@@ -86,17 +87,13 @@ and takes no text and no --file.`,
 				return err
 			}
 			if len(noteFiles) > 0 && strings.TrimSpace(text) == "" {
-				return fmt.Errorf("a note with --file needs words: say what the picture shows")
+				return fmt.Errorf("a note with --file needs words: say what they show")
 			}
 			refs, err := putFiles(c.Context(), st, noteFiles)
 			if err != nil {
 				return err
 			}
-			hashes := make([]string, len(refs))
-			for i, r := range refs {
-				hashes[i] = r.Hash
-			}
-			n, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session, hashes...)
+			n, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session, blobFiles(refs)...)
 			if err != nil {
 				return err
 			}
@@ -117,6 +114,6 @@ and takes no text and no --file.`,
 		},
 	}
 	note.Flags().Uint64Var(&ackSeq, "ack", 0, "record that this session read note <seq>, instead of writing one")
-	note.Flags().StringArrayVar(&noteFiles, "file", nil, "an image (a PNG or a JPEG) or a page (HTML) the note carries (repeatable)")
+	note.Flags().StringArrayVar(&noteFiles, "file", nil, "a file the note carries (repeatable)")
 	return note
 }

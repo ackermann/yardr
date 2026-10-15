@@ -621,7 +621,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	}) {
 		msg += " Answer mail with yardr reply <seq>, the number its inbox line starts with."
 	}
-	// The images the mail carries, each by its path: what a crew member's
+	// The files the mail carries, each by its path: what a crew member's
 	// harness reads a file by, on a marked line of their own as where the
 	// mail itself is read.
 	if line := store.NoteFilesLine(d.Home, files); line != "" {

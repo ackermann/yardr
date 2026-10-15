@@ -48,8 +48,9 @@ func blobFiles(t *testing.T, s *store.Store) []string {
 }
 
 // A blob is the file of its hash in the home, with the type its bytes say;
-// the same bytes put again are not written again, and what is no PNG or
-// JPEG, or over the yard's cap, is refused with nothing stored.
+// the same bytes put again are not written again, and more than the
+// yard's cap is refused with nothing stored. Any bytes go: a GIF is a
+// file, not a refusal.
 func TestPutBlob(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -86,8 +87,8 @@ func TestPutBlob(t *testing.T) {
 	if ref, err := api.PutBlob(ctx, jpegBytes); err != nil || ref.Type != "image/jpeg" {
 		t.Errorf("a JPEG = %+v, %v", ref, err)
 	}
-	if _, err := api.PutBlob(ctx, gifBytes); err == nil || !strings.Contains(err.Error(), "the file is image/gif: the yard keeps only image/png and image/jpeg and text/html; charset=utf-8") {
-		t.Errorf("a GIF = %v", err)
+	if ref, err := api.PutBlob(ctx, gifBytes); err != nil || ref.Type != "image/gif" || ref.Kind() != "file" {
+		t.Errorf("a GIF = %+v, %v", ref, err)
 	}
 	big := append(bytes.Clone(pngBytes), make([]byte, 9<<20)...)
 	if _, err := api.PutBlob(ctx, big); err == nil || !strings.Contains(err.Error(), "over the yard's limit of 8388608 (yardr settings set blob_max_bytes <bytes>)") {
@@ -99,10 +100,10 @@ func TestPutBlob(t *testing.T) {
 	if _, err := api.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n and seventeen")); err == nil || !strings.Contains(err.Error(), "over the yard's limit of 16") {
 		t.Errorf("over the cap that is set = %v", err)
 	}
-	if got := blobFiles(t, s); len(got) != 2 {
-		t.Errorf("what was refused was stored: %v", got)
+	if got := blobFiles(t, s); len(got) != 3 {
+		t.Errorf("what was refused was stored, or what was kept was not: %v", got)
 	}
-	for _, name := range []string{"nope", "../yard.db", hashOf(gifBytes)} {
+	for _, name := range []string{"nope", "../yard.db", hashOf([]byte("nothing put"))} {
 		if _, err := s.Blob(name); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("Blob(%q) = %v, want not found", name, err)
 		}
@@ -112,9 +113,9 @@ func TestPutBlob(t *testing.T) {
 	}
 }
 
-// A page is HTML bytes put as a blob, with the type the bytes say; what
-// is not HTML is refused as images are, whatever its name. An SVG file is
-// refused: the yard reads it as text. Caps and dedup are the images'.
+// A page is HTML bytes put as a blob, with the type the bytes say; prose
+// and an SVG file are files, not refusals. Caps and dedup are the
+// images'.
 func TestPutBlobPage(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -133,22 +134,22 @@ func TestPutBlobPage(t *testing.T) {
 	if err != nil || *again != *ref || len(blobFiles(t, s)) != 1 {
 		t.Fatalf("the second put = %+v, %v; files %v", again, err, blobFiles(t, s))
 	}
-	if _, err := api.PutBlob(ctx, textBytes); err == nil || !strings.Contains(err.Error(), "the file is text/plain; charset=utf-8: the yard keeps only") {
-		t.Errorf("prose named .html = %v", err)
+	if ref, err := api.PutBlob(ctx, textBytes); err != nil || ref.Kind() != "file" {
+		t.Errorf("prose = %+v, %v", ref, err)
 	}
-	if _, err := api.PutBlob(ctx, svgBytes); err == nil || !strings.Contains(err.Error(), "the file is text/plain; charset=utf-8: the yard keeps only") {
-		t.Errorf("an SVG file = %v", err)
+	if ref, err := api.PutBlob(ctx, svgBytes); err != nil || ref.Kind() != "file" {
+		t.Errorf("an SVG file = %+v, %v", ref, err)
 	}
 	big := append(bytes.Clone(htmlBytes), make([]byte, 9<<20)...)
 	if _, err := api.PutBlob(ctx, big); err == nil || !strings.Contains(err.Error(), "over the yard's limit of 8388608") {
 		t.Errorf("9 MiB of HTML = %v", err)
 	}
-	if got := blobFiles(t, s); len(got) != 1 {
-		t.Errorf("what was refused was stored: %v", got)
+	if got := blobFiles(t, s); len(got) != 3 {
+		t.Errorf("what was refused was stored, or what was kept was not: %v", got)
 	}
 }
 
-// A page counts toward the note and mail bounds as an image does, and a
+// A page counts toward the note and mail bounds as a file does, and a
 // named one survives the prune past its grace.
 func TestPageBoundsAndPrune(t *testing.T) {
 	api, s := storetest.NewOwned(t)
@@ -164,23 +165,23 @@ func TestPageBoundsAndPrune(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eight := make([]string, store.MaxNoteFiles)
-	nine := make([]string, store.MaxNoteFiles+1)
-	for i := range eight {
-		eight[i], nine[i] = page.Hash, page.Hash
+	full := make([]store.BlobFile, store.MaxNoteFiles)
+	over := make([]store.BlobFile, store.MaxNoteFiles+1)
+	for i := range full {
+		full[i], over[i] = store.BlobFile{Hash: page.Hash}, store.BlobFile{Hash: page.Hash}
 	}
-	nine[store.MaxNoteFiles] = page.Hash
-	if _, err := api.AddNotedAs(ctx, b.ID, "eight pages", "jo", "", eight...); err != nil {
-		t.Fatalf("a note with 8 pages = %v", err)
+	over[store.MaxNoteFiles] = store.BlobFile{Hash: page.Hash}
+	if _, err := api.AddNotedAs(ctx, b.ID, "a full note", "jo", "", full...); err != nil {
+		t.Fatalf("a note with %d pages = %v", store.MaxNoteFiles, err)
 	}
-	if err := api.Mail(ctx, "ada", "eight pages", "jo", eight...); err != nil {
-		t.Fatalf("mail with 8 pages = %v", err)
+	if err := api.Mail(ctx, "ada", "a full mail", "jo", full...); err != nil {
+		t.Fatalf("mail with %d pages = %v", store.MaxMailFiles, err)
 	}
-	if _, err := api.AddNotedAs(ctx, b.ID, "nine", "jo", "", nine...); err == nil || !strings.Contains(err.Error(), "carries at most 8") {
-		t.Errorf("a note with 9 pages = %v", err)
+	if _, err := api.AddNotedAs(ctx, b.ID, "one too many", "jo", "", over...); err == nil || !strings.Contains(err.Error(), "carries at most 64") {
+		t.Errorf("a note with 65 pages = %v", err)
 	}
-	if err := api.Mail(ctx, "ada", "nine", "jo", nine...); err == nil || !strings.Contains(err.Error(), "carries at most 8") {
-		t.Errorf("mail with 9 pages = %v", err)
+	if err := api.Mail(ctx, "ada", "one too many", "jo", over...); err == nil || !strings.Contains(err.Error(), "carries at most 64") {
+		t.Errorf("mail with 65 pages = %v", err)
 	}
 	old := time.Now().Add(-2 * store.BlobGrace)
 	if err := os.Chtimes(s.BlobPath(page.Hash), old, old); err != nil {
@@ -247,11 +248,11 @@ func TestMailFiles(t *testing.T) {
 	if err := api.Mail(ctx, "ada", "plain", "clerk"); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "ada", "the shed", "clerk", png.Hash, jpeg.Hash); err != nil {
+	if err := api.Mail(ctx, "ada", "the shed", "clerk", store.BlobFile{Hash: png.Hash}, store.BlobFile{Hash: jpeg.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	// A picture says enough: mail with one needs no text.
-	if err := api.Mail(ctx, "clerk", "", "ada", png.Hash); err != nil {
+	if err := api.Mail(ctx, "clerk", "", "ada", store.BlobFile{Hash: png.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	want := []store.BlobRef{*png, *jpeg}
@@ -291,10 +292,10 @@ func TestMailFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for why, files := range map[string][]string{
-		"the yard does not hold it": {hashOf(gifBytes)},
-		"not found":                 {"../yard.db"},
-		"at most 8 images, not 9":   slicesOf(png.Hash, 9),
+	for why, files := range map[string][]store.BlobFile{
+		"the yard does not hold it": {{Hash: hashOf([]byte("nothing put"))}},
+		"not found":                 {{Hash: "../yard.db"}},
+		"at most 64 files, not 65":  filesOf(png.Hash, 65),
 	} {
 		if err := api.Mail(ctx, "ada", "look", "clerk", files...); err == nil || !strings.Contains(err.Error(), why) {
 			t.Errorf("mail with %v = %v, want %q", files, err, why)
@@ -308,23 +309,27 @@ func TestMailFiles(t *testing.T) {
 	}
 }
 
-func slicesOf(s string, n int) []string {
-	out := make([]string, n)
+func filesOf(hash string, n int) []store.BlobFile {
+	out := make([]store.BlobFile, n)
 	for i := range out {
-		out[i] = s
+		out[i] = store.BlobFile{Hash: hash}
 	}
 	return out
 }
 
 // A file of a peer's mail that the yard did not take has its reason where
 // its path would be, and the line parts such files so that a reason's own
-// spaces read as its own.
+// spaces read as its own. One of no known type counts as a file.
 func TestFilesLineNotTaken(t *testing.T) {
 	held := store.BlobRef{Hash: hashOf(pngBytes), Type: "image/png", Bytes: 7}
-	gone := store.BlobRef{Hash: hashOf(jpegBytes), NotTaken: "the link does not take files"}
+	gone := store.BlobRef{Hash: hashOf(jpegBytes), Type: "image/jpeg", NotTaken: "the link does not take files"}
+	unknown := store.BlobRef{Hash: hashOf(gifBytes), NotTaken: "the link does not take files"}
 	untook := store.BlobRef{Hash: hashOf(htmlBytes), Type: "text/html; charset=utf-8", NotTaken: "the link does not take files"}
 	if got := store.FilesLine("/y", []store.BlobRef{gone}); got != "1 image: not taken: the link does not take files" {
 		t.Errorf("one not taken = %q", got)
+	}
+	if got := store.FilesLine("/y", []store.BlobRef{unknown}); got != "1 file: not taken: the link does not take files" {
+		t.Errorf("one of no known type not taken = %q", got)
 	}
 	if got := store.FilesLine("/y", []store.BlobRef{untook}); got != "1 page: not taken: the link does not take files" {
 		t.Errorf("one page not taken = %q", got)
@@ -353,7 +358,7 @@ func TestPruneBlobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "ada", "the shed", "jo", named.Hash); err != nil {
+	if err := api.Mail(ctx, "ada", "the shed", "jo", store.BlobFile{Hash: named.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	if res, err := api.Prune(ctx, store.Retention{}, "jo"); err != nil || res.Blobs != 0 || len(blobFiles(t, s)) != 2 {
@@ -428,7 +433,7 @@ func TestAddNotedAsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", png.Hash, jpeg.Hash)
+	n, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", store.BlobFile{Hash: png.Hash}, store.BlobFile{Hash: jpeg.Hash})
 	if err != nil || n.Seq == 0 {
 		t.Fatalf("a note with files = %+v, %v", n, err)
 	}
@@ -444,20 +449,17 @@ func TestAddNotedAsFiles(t *testing.T) {
 		t.Fatalf("the bead whole = %+v, %v", view, err)
 	}
 
-	many := make([]string, store.MaxNoteFiles+1)
-	for i := range many {
-		many[i] = png.Hash
-	}
+	many := filesOf(png.Hash, store.MaxNoteFiles+1)
 	if _, err := api.AddNotedAs(ctx, b.ID, "too many", "jo", "", many...); err == nil ||
-		!strings.Contains(err.Error(), "a note carries at most 8 images, not 9") {
-		t.Errorf("9 files = %v", err)
+		!strings.Contains(err.Error(), "a note carries at most 64 files, not 65") {
+		t.Errorf("65 files = %v", err)
 	}
-	if _, err := api.AddNotedAs(ctx, b.ID, " \n\t ", "jo", "", png.Hash); err == nil ||
-		!strings.Contains(err.Error(), "a note with images needs words") {
-		t.Errorf("an image note without words = %v", err)
+	if _, err := api.AddNotedAs(ctx, b.ID, " \n\t ", "jo", "", store.BlobFile{Hash: png.Hash}); err == nil ||
+		!strings.Contains(err.Error(), "a note with files needs words") {
+		t.Errorf("a file note without words = %v", err)
 	}
 	unknown := strings.Repeat("0", 64)
-	if _, err := api.AddNotedAs(ctx, b.ID, "a ghost", "jo", "", unknown); err == nil ||
+	if _, err := api.AddNotedAs(ctx, b.ID, "a ghost", "jo", "", store.BlobFile{Hash: unknown}); err == nil ||
 		!strings.Contains(err.Error(), "the yard does not hold it") {
 		t.Errorf("an unknown hash = %v", err)
 	}
@@ -485,7 +487,7 @@ func TestAddNoteFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.AddNote(ctx, b.ID, "the shed, painted", "jo", png.Hash, jpeg.Hash); err != nil {
+	if err := api.AddNote(ctx, b.ID, "the shed, painted", "jo", store.BlobFile{Hash: png.Hash}, store.BlobFile{Hash: jpeg.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	notes, err := api.Notes(ctx, b.ID)
@@ -504,20 +506,17 @@ func TestAddNoteFiles(t *testing.T) {
 		t.Fatalf("the note without files = %+v", notes)
 	}
 
-	many := make([]string, store.MaxNoteFiles+1)
-	for i := range many {
-		many[i] = png.Hash
-	}
+	many := filesOf(png.Hash, store.MaxNoteFiles+1)
 	if err := api.AddNote(ctx, b.ID, "too many", "jo", many...); err == nil ||
-		!strings.Contains(err.Error(), "a note carries at most 8 images, not 9") {
-		t.Errorf("9 files = %v", err)
+		!strings.Contains(err.Error(), "a note carries at most 64 files, not 65") {
+		t.Errorf("65 files = %v", err)
 	}
-	if err := api.AddNote(ctx, b.ID, " \n\t ", "jo", png.Hash); err == nil ||
-		!strings.Contains(err.Error(), "a note with images needs words") {
-		t.Errorf("an image note without words = %v", err)
+	if err := api.AddNote(ctx, b.ID, " \n\t ", "jo", store.BlobFile{Hash: png.Hash}); err == nil ||
+		!strings.Contains(err.Error(), "a note with files needs words") {
+		t.Errorf("a file note without words = %v", err)
 	}
 	unknown := strings.Repeat("0", 64)
-	if err := api.AddNote(ctx, b.ID, "a ghost", "jo", unknown); err == nil ||
+	if err := api.AddNote(ctx, b.ID, "a ghost", "jo", store.BlobFile{Hash: unknown}); err == nil ||
 		!strings.Contains(err.Error(), "the yard does not hold it") {
 		t.Errorf("an unknown hash = %v", err)
 	}
@@ -533,7 +532,7 @@ func TestAddNoteFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.AddNote(ctx, b.ID, "the fence too", "jo", png.Hash); err != nil {
+	if err := api.AddNote(ctx, b.ID, "the fence too", "jo", store.BlobFile{Hash: png.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	if notes, _ := api.Notes(ctx, b.ID); notes[len(notes)-1].Notify != "" {
@@ -558,7 +557,7 @@ func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", named.Hash); err != nil {
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", store.BlobFile{Hash: named.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-2 * store.BlobGrace)
@@ -754,10 +753,10 @@ func TestNoteBlob(t *testing.T) {
 	if _, err := api.AddUser(ctx, "sam", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "sam", "paint it", "jo", mailed.Hash); err != nil {
+	if err := api.Mail(ctx, "sam", "paint it", "jo", store.BlobFile{Hash: mailed.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", noted.Hash); err != nil {
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", store.BlobFile{Hash: noted.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	if ref, err := api.NoteBlob(ctx, noted.Hash); err != nil || *ref != *noted {
@@ -806,10 +805,10 @@ func TestMailBlob(t *testing.T) {
 	if _, err := api.AddUser(ctx, "kay", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "sam", "paint it", "jo", mailed.Hash); err != nil {
+	if err := api.Mail(ctx, "sam", "paint it", "jo", store.BlobFile{Hash: mailed.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", noted.Hash); err != nil {
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", store.BlobFile{Hash: noted.Hash}); err != nil {
 		t.Fatal(err)
 	}
 	for _, viewer := range []string{"sam", "jo"} {
@@ -842,28 +841,155 @@ func TestMailBlob(t *testing.T) {
 	}
 }
 
-// The lines mail is shown with name each image by its path in the home,
+// The lines mail is shown with name each file by its path in the home,
 // and say nothing of mail without one. Pages stand apart from images,
-// counted on their own; one of no known type counts as an image.
+// files from both, each counted on their own; one of no known type
+// counts as a file. A file with a name carries it in parentheses after
+// its path.
 func TestFilesLine(t *testing.T) {
-	a, b := store.BlobRef{Hash: "aa"}, store.BlobRef{Hash: "bb"}
+	a := store.BlobRef{Hash: "aa", Type: "image/png"}
+	b := store.BlobRef{Hash: "bb", Type: "image/jpeg"}
 	p := store.BlobRef{Hash: "cc", Type: "text/html; charset=utf-8"}
 	q := store.BlobRef{Hash: "dd", Type: "text/html; charset=utf-8"}
+	f := store.BlobRef{Hash: "ee", Type: "application/pdf", Bytes: 9, Name: "report.pdf"}
+	g := store.BlobRef{Hash: "ff", Type: "text/csv; charset=utf-8", Bytes: 7, Name: "data.csv"}
+	u := store.BlobRef{Hash: "gg"}
 	for want, got := range map[string]string{
 		"":                                  store.FilesLine("/y", nil),
 		"1 image: /y/blobs/aa":              store.FilesLine("/y", []store.BlobRef{a}),
 		"2 images: /y/blobs/aa /y/blobs/bb": store.FilesLine("/y", []store.BlobRef{a, b}),
 		"1 page: /y/blobs/cc":               store.FilesLine("/y", []store.BlobRef{p}),
 		"2 pages: /y/blobs/cc /y/blobs/dd":  store.FilesLine("/y", []store.BlobRef{p, q}),
-		"1 image, 1 page: /y/blobs/aa /y/blobs/cc": store.FilesLine("/y", []store.BlobRef{a, p}),
-		"1 image, 1 page: /y/blobs/cc /y/blobs/aa": store.FilesLine("/y", []store.BlobRef{p, a}),
-		"hello":                       store.WithFiles("hello", "/y", nil),
-		"hello  1 image: /y/blobs/aa": store.WithFiles("hello", "/y", []store.BlobRef{a}),
-		"1 image: /y/blobs/bb":        store.WithFiles("", "/y", []store.BlobRef{b}),
-		"hello  1 page: /y/blobs/cc":  store.WithFiles("hello", "/y", []store.BlobRef{p}),
+		"1 image, 1 page: /y/blobs/aa /y/blobs/cc":                                      store.FilesLine("/y", []store.BlobRef{a, p}),
+		"1 image, 1 page: /y/blobs/cc /y/blobs/aa":                                      store.FilesLine("/y", []store.BlobRef{p, a}),
+		"1 file: /y/blobs/ee (report.pdf)":                                              store.FilesLine("/y", []store.BlobRef{f}),
+		"2 files: /y/blobs/ee (report.pdf) /y/blobs/ff (data.csv)":                      store.FilesLine("/y", []store.BlobRef{f, g}),
+		"1 image, 2 files: /y/blobs/aa /y/blobs/ee (report.pdf) /y/blobs/ff (data.csv)": store.FilesLine("/y", []store.BlobRef{a, f, g}),
+		"1 file: /y/blobs/gg":                                                           store.FilesLine("/y", []store.BlobRef{u}),
+		"hello":                                                                         store.WithFiles("hello", "/y", nil),
+		"hello  1 image: /y/blobs/aa":                                                   store.WithFiles("hello", "/y", []store.BlobRef{a}),
+		"1 image: /y/blobs/bb":                                                          store.WithFiles("", "/y", []store.BlobRef{b}),
+		"hello  1 page: /y/blobs/cc":                                                    store.WithFiles("hello", "/y", []store.BlobRef{p}),
+		"hello  1 file: /y/blobs/ee (report.pdf)":                                       store.WithFiles("hello", "/y", []store.BlobRef{f}),
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
+	}
+}
+
+// Kind is read from the bytes' type: a PNG or a JPEG is an image, HTML
+// a page, anything else a file.
+func TestBlobKind(t *testing.T) {
+	for typ, want := range map[string]string{
+		"image/png":                 "image",
+		"image/jpeg":                "image",
+		"text/html; charset=utf-8":  "page",
+		"image/gif":                 "file",
+		"application/pdf":           "file",
+		"text/plain; charset=utf-8": "file",
+		"":                          "file",
+		"text/html":                 "file",
+	} {
+		if got := (store.BlobRef{Type: typ}).Kind(); got != want {
+			t.Errorf("Kind of %q = %q, want %q", typ, got, want)
+		}
+	}
+	if !(store.BlobRef{Type: "text/html; charset=utf-8"}).IsPage() || (store.BlobRef{Type: "image/png"}).IsPage() {
+		t.Error("IsPage is not HTML alone")
+	}
+}
+
+// A name no letter may carry refuses the mail or the note, never
+// sanitised: with a slash, a backslash, NUL or a control character, as
+// "." or "..", over 255 bytes, or no UTF-8. Empty is allowed, for a
+// paste, and a name on an image or a page is kept and shown.
+func TestMailAndNoteRefuseBadNames(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := api.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf, err := api.PutBlob(ctx, []byte("%PDF-1.4 the report"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := []string{
+		"a/b.pdf", `a\b.pdf`, "a\x00b.pdf", "a\nb.pdf", "a\rb.pdf",
+		"a\tb.pdf", ".", "..", strings.Repeat("a", 256), "a\xffb.pdf",
+	}
+	for _, name := range bad {
+		if err := api.Mail(ctx, "ada", "look", "jo", store.BlobFile{Hash: pdf.Hash, Name: name}); err == nil ||
+			!strings.Contains(err.Error(), "a file's name") {
+			t.Errorf("mail with %q = %v", name, err)
+		}
+		if err := api.AddNote(ctx, b.ID, "look", "jo", store.BlobFile{Hash: pdf.Hash, Name: name}); err == nil ||
+			!strings.Contains(err.Error(), "a file's name") {
+			t.Errorf("a note with %q = %v", name, err)
+		}
+		if _, err := api.AddNotedAs(ctx, b.ID, "look", "jo", "", store.BlobFile{Hash: pdf.Hash, Name: name}); err == nil ||
+			!strings.Contains(err.Error(), "a file's name") {
+			t.Errorf("a noted note with %q = %v", name, err)
+		}
+	}
+	if box, err := api.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 0 {
+		t.Errorf("what was refused was sent: %+v, %v", box, err)
+	}
+	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 0 {
+		t.Errorf("what was refused was written: %+v, %v", notes, err)
+	}
+
+	// Empty, for a paste, and a name on an image or a page, are kept.
+	if err := api.Mail(ctx, "ada", "the shed", "jo", store.BlobFile{Hash: png.Hash, Name: "shed.png"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.Mail(ctx, "ada", "", "jo", store.BlobFile{Hash: pdf.Hash}); err != nil {
+		t.Fatal(err)
+	}
+	box, err := api.UserInbox(ctx, "ada", 0)
+	if err != nil || len(box.Mail) != 2 {
+		t.Fatalf("ada's inbox = %+v, %v", box, err)
+	}
+	if got := box.Mail[0].Files; len(got) != 1 || got[0].Name != "shed.png" || got[0].Hash != png.Hash {
+		t.Errorf("the named image = %+v", got)
+	}
+	if got := box.Mail[1].Files; len(got) != 1 || got[0].Name != "" || got[0].Hash != pdf.Hash {
+		t.Errorf("the paste = %+v", got)
+	}
+	if err := api.AddNote(ctx, b.ID, "the report", "jo", store.BlobFile{Hash: pdf.Hash, Name: "report.pdf"}); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := api.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || len(notes[0].Files) != 1 || notes[0].Files[0].Name != "report.pdf" {
+		t.Fatalf("the note's files = %+v, %v", notes, err)
+	}
+	// A name the yard keeps is shown in parentheses after its path, and
+	// a paste without one as a path alone.
+	home := t.TempDir()
+	if got, want := store.FilesLine(home, box.Mail[0].Files),
+		"1 image: "+store.BlobPath(home, png.Hash)+" (shed.png)"; got != want {
+		t.Errorf("the named image line = %q, want %q", got, want)
+	}
+	if got, want := store.FilesLine(home, box.Mail[1].Files),
+		"1 file: "+store.BlobPath(home, pdf.Hash); got != want {
+		t.Errorf("the paste line = %q, want %q", got, want)
+	}
+	// A name that is all letters but the mark reads without it: the
+	// marked line stays the yard's.
+	marked := store.BlobRef{Hash: pdf.Hash, Type: "application/pdf", Name: "a" + store.NoteFilesMark + "b.pdf"}
+	if got := store.FilesLine(home, []store.BlobRef{marked}); !strings.Contains(got, "(ab.pdf)") || strings.Count(got, store.NoteFilesMark) != 0 {
+		// FilesLine itself carries no mark; NoteFilesLine adds the one.
+		t.Errorf("the marked name line = %q", got)
+	}
+	if got := store.NoteFilesLine(home, []store.BlobRef{marked}); strings.Count(got, store.NoteFilesMark) != 1 {
+		t.Errorf("the noted marked name line = %q", got)
 	}
 }

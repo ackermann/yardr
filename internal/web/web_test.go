@@ -1008,7 +1008,7 @@ func TestNoOtherHost(t *testing.T) {
 	must(t, err)
 	page, err := f.st.PutBlob(ctx, pageHTML)
 	must(t, err)
-	_, err = f.st.AddNotedAs(ctx, door.ID, "the door, hung", "me", "", page.Hash)
+	_, err = f.st.AddNotedAs(ctx, door.ID, "the door, hung", "me", "", store.BlobFile{Hash: page.Hash})
 	must(t, err)
 	self, err := url.Parse(f.ts.URL)
 	if err != nil {

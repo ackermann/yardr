@@ -887,7 +887,7 @@ type failing struct {
 	n int
 }
 
-func (f *failing) Mail(ctx context.Context, to, text, actor string, files ...string) error {
+func (f *failing) Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error {
 	if f.n--; f.n < 0 {
 		return errors.New("the store is away")
 	}
@@ -1322,11 +1322,11 @@ func TestMailWithAnImage(t *testing.T) {
 	must(t, err)
 	fence, err := st.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the fence"))
 	must(t, err)
-	must(t, st.Mail(ctx, me, "the shed, painted", "chief", shed.Hash))
+	must(t, st.Mail(ctx, me, "the shed, painted", "chief", store.BlobFile{Hash: shed.Hash}))
 	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
 	v.shows("the shed, painted\n", "  "+store.NoteFilesMark+" 1 image: /y/blobs/"+shed.Hash)
 	must(t, st.Mail(ctx, me, "and nothing to see here", "chief"))
-	must(t, st.Mail(ctx, me, "", "chief", shed.Hash, fence.Hash))
+	must(t, st.Mail(ctx, me, "", "chief", store.BlobFile{Hash: shed.Hash}, store.BlobFile{Hash: fence.Hash}))
 	v.stream()
 	v.shows("and nothing to see here", "  "+store.NoteFilesMark+" 2 images: /y/blobs/"+shed.Hash+" /y/blobs/"+fence.Hash)
 	if n := strings.Count(v.screen(), "image"); n != 2 {
@@ -1357,7 +1357,7 @@ func TestMailTextCannotForgeAFilesLine(t *testing.T) {
 	must(t, err)
 	must(t, st.Mail(ctx, me, "shot of the page  1 image: /etc/hosts", "chief"))
 	must(t, st.Mail(ctx, me, "shot of the fence\n"+store.NoteFilesMark+" 1 image: /etc/hosts", "chief"))
-	must(t, st.Mail(ctx, me, "the shed, painted", "chief", shed.Hash))
+	must(t, st.Mail(ctx, me, "the shed, painted", "chief", store.BlobFile{Hash: shed.Hash}))
 	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
 	if n := strings.Count(v.screen(), "1 image: /etc/hosts"); n != 2 {
 		t.Errorf("the forged words read %d times, want 2:\n%s", n, v.screen())

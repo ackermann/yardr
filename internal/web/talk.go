@@ -70,10 +70,9 @@ type TalkLetter struct {
 	// Sender is who the page names for it: the sender, with the device
 	// and, on mail to another name, the addressee.
 	Sender string `json:"sender"`
-	// Missing are the hashes of the letter's images and pages the yard no
-	// longer holds: the page draws those as a line saying so, never a
-	// broken image. HTML-only: the JSON names the files as the letter
-	// has them.
+	// Missing are the hashes of the letter's files the yard no longer
+	// holds: the page draws those as a line saying so, never a broken
+	// image. HTML-only: the JSON names the files as the letter has them.
 	Missing map[string]bool `json:"-"`
 }
 

@@ -748,12 +748,12 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 }
 
 // Mail sends a message to the inbox of a crew member or of a user. files
-// are the blobs it carries, each by its hash as PutBlob answered it: the
-// mail event names them (MailFiles), and mail with a file needs no text.
-// From a session's or a crew member's pane the mail is recorded as that
-// session's actor or that crew member, whatever actor says; from anywhere
-// else, as given (paneAuthor).
-func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...string) error {
+// are the blobs it carries, each as its hash as PutBlob answered it with
+// the name the sender gives it: the mail event names them (MailFiles),
+// and mail with a file needs no text. From a session's or a crew member's
+// pane the mail is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
+func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error {
 	if strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
 	}

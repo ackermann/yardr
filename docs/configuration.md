@@ -1424,8 +1424,8 @@ value; `--json` has where it is from.
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
 | `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
-| `blob_max_bytes` | the most bytes one image in mail may have ([users.md](users.md#an-image-in-mail)); a whole number from 1, default 8388608 (8 MiB). A larger one is refused when it is put, by `yardr mail --file` and by `PutBlob` on the socket; images the yard already holds stay. |
-| `peer_file_max_bytes` | the most bytes one file sent to a linked yard, or taken from one, may have ([peers.md](peers.md#an-image-with-the-mail)); a whole number from 1 to 33554432 (32 MiB). Unset, it is `blob_max_bytes`, and never more than 32 MiB. A file over it is refused before its mail is queued here, and refused with its size when it comes from a peer. |
+| `blob_max_bytes` | the most bytes one file in mail may have ([users.md](users.md#a-file-in-mail)); a whole number from 1, default 8388608 (8 MiB). A larger one is refused when it is put, by `yardr mail --file` and by `PutBlob` on the socket; files the yard already holds stay. |
+| `peer_file_max_bytes` | the most bytes one file sent to a linked yard, or taken from one, may have ([peers.md](peers.md#a-file-with-the-mail)); a whole number from 1 to 33554432 (32 MiB). Unset, it is `blob_max_bytes`, and never more than 32 MiB. A file over it is refused before its mail is queued here, and refused with its size when it comes from a peer. |
 | `upgrade_from` | the depot whose landed build the yard installs itself after the assembly lands on it (`yardr upgrade`); unset, nothing is installed. Setting it is refused while the operator names no notify source, and names how to set one (`yardr pack apply pushover` or `yardr pack apply telegram`, with `--notify`): with none, a failed install could tell nobody outside the yard. Setting it subscribes the operator to the install's failure kinds (`install_failed`, `rolled_back`) in the same write, and while it is set unsubscribing from either kind is refused: remove the setting first ([subscriptions.md](subscriptions.md#users-as-subscribers)). |
 | `upgrade_restore` | whether a failed `yardr upgrade` restores the pre-install store copies (`true`) or leaves refused stores down for a person to restore (`false`); default `true`. The setting governs the whole run, every covered yard with it; `YARDR_UPGRADE_RESTORE` and `yardr upgrade --no-restore` override it, the flag for one run ([upgrade.md](upgrade.md#rollback)). |
 
@@ -1475,8 +1475,8 @@ everything. Whatever its age, an event is kept when:
   session started. A bead waiting for a person holds no events back: a
   manual group's claim starts no agent, so nothing reads back to its start.
 
-The images mail carries are files beside `yard.db`, in `blobs/` in the home
-([users.md](users.md#an-image-in-mail)), and no knob keeps them: an image
+The files mail carries are beside `yard.db`, in `blobs/` in the home
+([users.md](users.md#a-file-in-mail)), and no knob keeps them: a file
 goes with the prune once no mail left in the log names it, so it lives as
 long as the last letter that carries it. One put less than an hour ago
 stays whether or not mail names it yet. `yardr store prune` says how many

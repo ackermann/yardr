@@ -46,9 +46,9 @@ type Store interface {
 	UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]store.Letter, bool, error)
-	Mail(ctx context.Context, to, text, actor string, files ...string) error
+	Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error
 	Peers(ctx context.Context) ([]store.Peer, error)
-	MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*store.PeerOut, error)
+	MailPeer(ctx context.Context, to, peer, text, actor string, files ...store.BlobFile) (*store.PeerOut, error)
 	UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error)
 	AckUserNotifications(ctx context.Context, name string, through uint64) error
 }
@@ -63,7 +63,7 @@ type Options struct {
 	Select string
 	// Yardr is the command's name in the hints the view gives.
 	Yardr string
-	// Home is the yard's home: where the images mail carries are, which
+	// Home is the yard's home: where the files mail carries are, which
 	// the view names by their paths (store.NoteFilesLine).
 	Home string
 	// InHerdr says the view runs in a pane of herdr, where Focus brings
