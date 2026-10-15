@@ -775,3 +775,82 @@ func TestPeerBoundWriteFromAPaneIsThatPanesActor(t *testing.T) {
 		}
 	})
 }
+
+// Peer notes and reads also carry the pane's actor into peer-bound state:
+// a note says who wrote it, and a failed read is reported to who asked.
+func TestPeerNoteAndReadFromACrewPaneUseTheCrewActor(t *testing.T) {
+	setup := func(t *testing.T) (*peerYard, *store.Bead, context.Context) {
+		t.Helper()
+		y, _ := newSendingYard(t)
+		y.allow(t, store.PeerAllow{
+			Send:    []string{store.PeerBead, store.PeerThread},
+			Receive: []string{store.PeerThread},
+		})
+		b, _ := y.send(t, store.NewBead{Title: "a"})
+		y.member(t, "yardmaster", "north")
+		h := map[string]any{"shell_pid": os.Getpid()}
+		if st, err := peer.Describe(os.Getpid()); err == nil {
+			h["shell_start"] = st.Start
+		}
+		if err := y.api.CrewStarted(y.ctx, "yardmaster", h); err != nil {
+			t.Fatal(err)
+		}
+		return y, b, store.WithCaller(y.ctx, os.Getpid())
+	}
+
+	t.Run("peer note", func(t *testing.T) {
+		y, b, pane := setup(t)
+		noted, err := y.api.PeerNote(pane, b.ID, "A note from the pane.", "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := y.api.PeerOutbox(y.ctx, "north", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			From string `json:"from"`
+		}
+		for _, m := range out {
+			if m.ID == noted.ID {
+				if err := json.Unmarshal(m.Body, &body); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if body.From != "yardmaster" {
+			t.Fatalf("peer note sender = %q, want yardmaster", body.From)
+		}
+		if a := lastEventActor(t, y.api, y.ctx, b.ID, "peer_bead_noted"); a != "yardmaster" {
+			t.Fatalf("peer_bead_noted actor = %q, want yardmaster", a)
+		}
+	})
+
+	t.Run("failed peer read", func(t *testing.T) {
+		y, b, pane := setup(t)
+		read, err := y.api.PeerRead(pane, b.ID, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := y.api.PeerOutbox(y.ctx, "north", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seq uint64
+		for _, m := range out {
+			if m.ID == read.ID && m.Kind == store.PeerBeadRead {
+				seq = m.Seq
+			}
+		}
+		if seq == 0 {
+			t.Fatalf("peer read %q is not queued: %+v", read.ID, out)
+		}
+		if err := y.api.PeerRefused(y.ctx, "north", seq, "peer north: refused by the peer"); err != nil {
+			t.Fatal(err)
+		}
+		inbox := y.inbox(t, "yardmaster")
+		if len(inbox) != 1 || inbox[0].Data["to"] != "yardmaster" {
+			t.Fatalf("failed-read mail = %+v, want a message to yardmaster", inbox)
+		}
+	})
+}
