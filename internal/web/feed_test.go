@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -781,6 +782,67 @@ func TestSlowClientNoHoldUp(t *testing.T) {
 	settle(t, "a stream outlived its client", func() bool { return srv.Streams() == 0 })
 }
 
+// The paced-read failure needs both sides' timing: an EOF alone does not say
+// whether the reader stopped or the server's write deadline expired.
+type writeDeadlineConn struct {
+	net.Conn
+	mu             sync.Mutex
+	lastRenewal    time.Time
+	lastWriteErr   error
+	lastWriteErrAt time.Time
+}
+
+func (c *writeDeadlineConn) SetWriteDeadline(at time.Time) error {
+	err := c.Conn.SetWriteDeadline(at)
+	if err == nil && !at.IsZero() {
+		c.mu.Lock()
+		c.lastRenewal = time.Now()
+		c.mu.Unlock()
+	}
+	return err
+}
+
+func (c *writeDeadlineConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if err != nil {
+		c.mu.Lock()
+		c.lastWriteErr = err
+		c.lastWriteErrAt = time.Now()
+		c.mu.Unlock()
+	}
+	return n, err
+}
+
+func (c *writeDeadlineConn) failureContext(now, lastRead time.Time) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	renewal := "never"
+	if !c.lastRenewal.IsZero() {
+		renewal = now.Sub(c.lastRenewal).Round(time.Millisecond).String() + " ago"
+	}
+	writeErr := "none"
+	if c.lastWriteErr != nil {
+		writeErr = fmt.Sprintf("%v (%s ago)", c.lastWriteErr, now.Sub(c.lastWriteErrAt).Round(time.Millisecond))
+	}
+	return fmt.Sprintf("client had no read progress for %s; last server write deadline renewal was %s; last server write error: %s",
+		now.Sub(lastRead).Round(time.Millisecond), renewal, writeErr)
+}
+
+type writeDeadlineListener struct {
+	net.Listener
+	accepted chan *writeDeadlineConn
+}
+
+func (l *writeDeadlineListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	observed := &writeDeadlineConn{Conn: c}
+	l.accepted <- observed
+	return observed, nil
+}
+
 // A client that reads steadily, if slowly, is dropped never: a frame it
 // cannot drain in one deadline still arrives whole, since the stream
 // renews the deadline as its bytes flow.
@@ -796,12 +858,16 @@ func TestSteadyClient(t *testing.T) {
 	// so a stream that dropped a steady client would still fail this
 	// test.
 	srv.SetStreamWrite(10 * time.Second)
-	ts := httptest.NewServer(srv)
+	ts := httptest.NewUnstartedServer(srv)
+	listener := &writeDeadlineListener{Listener: ts.Listener, accepted: make(chan *writeDeadlineConn, 1)}
+	ts.Listener = listener
+	ts.Start()
 	defer shut(ts)
 
 	c, err := net.Dial("tcp", ts.Listener.Addr().String())
 	must(t, err)
 	defer c.Close()
+	serverConn := <-listener.accepted
 	// Bound, not pace: the frame below takes thirteen seconds
 	// unloaded, and a loaded machine stretches every paced sleep.
 	must(t, c.SetDeadline(time.Now().Add(180*time.Second)))
@@ -816,6 +882,12 @@ func TestSteadyClient(t *testing.T) {
 		_, err := io.ReadFull(c, one[:])
 		must(t, err)
 		hdr = append(hdr, one[0])
+	}
+	serverConn.mu.Lock()
+	recordedRenewal := !serverConn.lastRenewal.IsZero()
+	serverConn.mu.Unlock()
+	if !recordedRenewal {
+		t.Fatal("the diagnostic listener did not observe a stream write deadline renewal")
 	}
 
 	// One frame, larger than any buffering: the buffers take megabytes
@@ -833,6 +905,7 @@ func TestSteadyClient(t *testing.T) {
 	// frame, which one 10 s deadline could never cover, so only a
 	// stream that renews its deadline as the bytes flow serves it
 	// whole.
+	lastRead := time.Now()
 	pace := make([]byte, 256<<10)
 	for !whole() {
 		// One paced piece: 256 KB, however many reads it takes, then
@@ -841,8 +914,11 @@ func TestSteadyClient(t *testing.T) {
 		got0 := len(got)
 		for len(got)-got0 < len(pace) && !whole() {
 			n, err := c.Read(pace)
-			must(t, err)
+			if err != nil {
+				t.Fatalf("paced read after %d bytes: %v; %s", len(got), err, serverConn.failureContext(time.Now(), lastRead))
+			}
 			got = append(got, pace[:n]...)
+			lastRead = time.Now()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
