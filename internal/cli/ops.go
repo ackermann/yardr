@@ -1121,7 +1121,7 @@ func resetWaitLine(w dispatch.ResetWaiting, s store.Session, now time.Time) stri
 func printEvent(e store.Event) {
 	data := ""
 	if len(e.Data) > 0 {
-		data = fmtConfig(store.Brief(e.Data))
+		data = fmtConfig(printableThreadFields(store.Brief(e.Data)))
 	}
 	fmt.Printf("%6d %s  %-8s %-14s %-12s %s\n", e.Seq, e.At.Local().Format("01-02 15:04:05"), deref(e.Bead), e.Kind, e.Actor, data)
 }

@@ -818,14 +818,14 @@ func printHookDelivery(e store.Event, member string) {
 	thread, _ := e.Data["thread"].(map[string]any)
 	title, _ := thread["title"].(string)
 	if title != "" {
-		what += " on " + fmt.Sprintf("%q", title)
+		what += " on " + fmt.Sprintf("%q", printable(title))
 	}
 	fmt.Printf("%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, member), "-"), what)
 	if t := str("text"); t != "" {
 		fmt.Printf(": %s", t)
 	}
 	if u := str("url"); u != "" {
-		fmt.Printf("  %s", u)
+		fmt.Printf("  %s", printable(u))
 	}
 	fmt.Println()
 }
@@ -954,7 +954,7 @@ func printBeadDelivery(e store.Event, member string) {
 		return
 	}
 	data := map[string]any{}
-	for k, v := range store.Brief(e.Data) {
+	for k, v := range printableThreadFields(store.Brief(e.Data)) {
 		if k != "deliveries" && k != "watches_ended" && k != "notified" && k != "answer" {
 			data[k] = v
 		}

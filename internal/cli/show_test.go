@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,67 @@ func TestHookDeliveryLine(t *testing.T) {
 	want := "     7 10-02 09:14  hook (mentioned) linear comment create by Jane on \"Retries\": can you look?  https://x/1\n"
 	if got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
+	e := store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+		"source": "linear", "type": "comment", "action": "create",
+		"thread": map[string]any{"title": "Retries\r\n\x1b[2K"}, "url": "https://x/\rhidden\x1b[2K",
+	}}
+	got := capture(t, func() { printInboxEvent(e, "yardmaster", "") })
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("hook delivery split across lines: %q", got)
+	}
+	if strings.ContainsAny(got, "\r\x1b") {
+		t.Fatalf("hook delivery printed a control character: %q", got)
+	}
+	want := "     7 10-02 09:14  hook (-) linear comment create on \"Retries???[2K\"  https://x/?hidden?[2K\n"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
+	id := "t1\r    something else\x1b[2K"
+	title := "Retries\r\n\x1b[2K"
+	url := "https://x/\rhidden\x1b[2K"
+	wants := []string{"thread=t1?    something else?[2K", "title=Retries???[2K", "url=https://x/?hidden?[2K"}
+	check := func(name string, print func()) {
+		t.Helper()
+		got := capture(t, print)
+		if strings.Count(got, "\n") != 1 || strings.ContainsAny(got, "\r\x1b") {
+			t.Fatalf("%s printed a control character or split a row: %q", name, got)
+		}
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s printed no %q:\n%s", name, want, got)
+			}
+		}
+	}
+
+	e := store.Event{Seq: 8, Kind: "thread_state", Actor: "ann", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+		"thread": id, "title": title, "url": url,
+	}}
+	check("event log", func() { printEvent(e) })
+	check("inbox journal", func() { printBeadDelivery(e, "ann") })
+	if e.Data["thread"] != id || e.Data["title"] != title || e.Data["url"] != url {
+		t.Fatalf("printing changed event data: %+v", e.Data)
+	}
+}
+
+func TestEventLogPrintsPrintableNestedThreadFields(t *testing.T) {
+	e := store.Event{Seq: 9, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+		"thread": map[string]any{"id": "t1\r    something else\x1b[2K", "title": "Retries\r\n\x1b[2K", "url": "https://x/\rhidden\x1b[2K"},
+	}}
+	got := capture(t, func() { printEvent(e) })
+	if strings.Count(got, "\n") != 1 || strings.ContainsAny(got, "\r\x1b") {
+		t.Fatalf("event log printed a control character or split a row: %q", got)
+	}
+	for _, want := range []string{"id=t1?    something else?[2K", "title=Retries???[2K", "url=https://x/?hidden?[2K"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("event log printed no %q:\n%s", want, got)
+		}
 	}
 }
 

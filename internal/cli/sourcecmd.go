@@ -1566,6 +1566,26 @@ func printable(command string) string {
 	}, strings.ToValidUTF8(command, "?"))
 }
 
+// printableThreadFields prepares event data for the human-readable event and
+// inbox journals, where thread fields are otherwise shown as a generic map.
+func printableThreadFields(data map[string]any) map[string]any {
+	printFields := func(fields map[string]any, names ...string) map[string]any {
+		out := make(map[string]any, len(fields))
+		for key, value := range fields {
+			if s, ok := value.(string); ok && slices.Contains(names, key) {
+				value = printable(s)
+			}
+			out[key] = value
+		}
+		return out
+	}
+	clean := printFields(data, "title", "url", "thread")
+	if thread, ok := data["thread"].(map[string]any); ok {
+		clean["thread"] = printFields(thread, "id", "title", "url")
+	}
+	return clean
+}
+
 func countPhrase(count int, singular, plural string) string {
 	if count == 1 {
 		return fmt.Sprintf("%d %s", count, singular)
