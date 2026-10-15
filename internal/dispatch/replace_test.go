@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
@@ -100,7 +101,9 @@ func TestDaemonChecksItsBinaryBetweenPasses(t *testing.T) {
 }
 
 func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
-	s, _, d := setup(t)
+	_, _, d := setup(t)
+	home := t.TempDir()
+	d.Home = home
 	var calls atomic.Int32
 	bin, path := fakeBinary(t, "old", func([]string) error {
 		calls.Add(1)
@@ -113,7 +116,10 @@ func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
-	until(t, "the daemon to start", func() bool { return len(eventsOf(t, s, "daemon_started")) == 1 })
+	until(t, "the daemon's first pass", func() bool {
+		stamp, err := config.ReadPassStamp(home)
+		return err == nil && stamp.Build == "old"
+	})
 	if calls.Load() != 0 {
 		t.Fatal("exec'd an unchanged binary")
 	}
