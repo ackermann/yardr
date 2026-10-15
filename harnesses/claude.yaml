@@ -79,6 +79,20 @@ flags:
       args: [--settings, '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["{workdir}"]},"network":{"allowUnixSockets":["{socket}"]}}}']
       description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else
 
+# The models to pick from: the aliases `claude --help` names for --model
+# ("an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a
+# model's full name"), read with Claude Code 2.1.288 on 2026-10-15. An alias
+# does not go stale when a version ships; each label is what it resolved to
+# in recent session files on that date.
+offers:
+  - model: opus
+    label: Opus 5.5
+    recommended: yardmaster
+  - model: fable
+    label: Fable 5.1
+  - model: sonnet
+    label: Sonnet 5
+
 # The model of the first assistant message, which is what the API answered
 # with. Claude Code's own message (an API error shown as a reply) names
 # "<synthetic>", which is no model: a name that begins with "<" is passed

@@ -49,7 +49,8 @@ func TestHarnessListAndShow(t *testing.T) {
 		"model flag: --model",
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
-		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)")
+		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)",
+		"Models it offers", "gpt-6-luna (GPT-6 Luna), recommended for a yardmaster", "gpt-6-astra (GPT-6 Astra)")
 	wantText(t, ask(0, "harness", "show", "kimi"), "trust: yardr answers its folder-trust dialog",
 		"after the box's edge: │", "a message it took:    ✨",
 		"no source known: nothing is recorded and nothing compared",
@@ -73,6 +74,11 @@ func TestHarnessListAndShow(t *testing.T) {
 		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != agents.ReasonRateLimited {
 		t.Fatalf("show kimi --json: %v, %+v", err, shown)
 	}
+	if len(shown.Offers) != 3 || shown.Offers[0] != (agents.Offer{Model: "kimi-code/k3", Label: "K3", Recommended: "yardmaster"}) {
+		t.Fatalf("show kimi --json offers: %+v", shown.Offers)
+	}
+	wantText(t, ask(0, "harness", "show", "kimi"), "kimi-code/k3 (K3), recommended for a yardmaster")
+	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id")
 
 	// A kind's fetch for a Mac is printed as its file has it, every target;
 	// a kind with none says it is installed by hand.
@@ -100,5 +106,35 @@ func TestHarnessListAndShow(t *testing.T) {
 
 	if entries, err := os.ReadDir(user); err != nil || len(entries) != 0 {
 		t.Errorf("yardr harness left %d entries in a home with no yard: %v", len(entries), err)
+	}
+}
+
+// doctor --json carries each harness kind's offered models on its machine
+// item, the same list harness show --json carries: what a program offers a
+// person choosing a model (footplate's setup reads doctor). A kind whose
+// file names none carries none.
+func TestDoctorOffers(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n"})
+	stub(t, &loginShell, func() string { return "" })
+	m := machineOf(t)
+	if got := m["claude"].Offers; len(got) != 3 || got[0] != (agents.Offer{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"}) {
+		t.Errorf("claude offers: %+v", got)
+	}
+	if got := m["codex"].Offers; len(got) != 2 || got[0].Recommended != "yardmaster" || got[1].Recommended != "" {
+		t.Errorf("codex offers: %+v", got)
+	}
+	if got := m["kimi"].Offers; len(got) != 3 || got[0].Model != "kimi-code/k3" {
+		t.Errorf("kimi offers: %+v", got)
+	}
+	for _, kind := range []string{"grok", "pi", "git", "herdr"} {
+		if got := m[kind].Offers; got != nil {
+			t.Errorf("%s offers: %+v, want none", kind, got)
+		}
+	}
+	raw, err := json.Marshal(m["claude"])
+	if err != nil || !strings.Contains(string(raw), `"offers":[{"model":"opus","label":"Opus 5.5","recommended":"yardmaster"}`) {
+		t.Errorf("the wire carries: %s, %v", raw, err)
 	}
 }

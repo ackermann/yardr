@@ -46,9 +46,13 @@ type Harness struct {
 	Fetch *Fetch `yaml:"fetch" json:"fetch,omitempty"`
 	// Trust is the harness's folder-trust dialog, which yardr answers
 	// (internal/runner/trust.go); nil when it answers none.
-	Trust  *Trust       `yaml:"trust" json:"trust,omitempty"`
-	Marks  Marks        `yaml:"marks" json:"marks"`
-	Flags  Flags        `yaml:"flags" json:"flags"`
+	Trust *Trust `yaml:"trust" json:"trust,omitempty"`
+	Marks Marks  `yaml:"marks" json:"marks"`
+	Flags Flags  `yaml:"flags" json:"flags"`
+	// Offers are the models the file suggests a person pick: a list to
+	// choose from, not what is installed, which Models lists live. nil
+	// when the file names none.
+	Offers []Offer      `yaml:"offers" json:"offers,omitempty"`
 	Model  *ModelSource `yaml:"model" json:"model,omitempty"`
 	Errors []ErrorLine  `yaml:"errors" json:"errors,omitempty"`
 	// Dialogs are the questions the harness is known to draw in place of
@@ -123,6 +127,19 @@ type Permission struct {
 	Label string   `yaml:"label" json:"label"`
 	Args  []string `yaml:"args" json:"args"`
 	Note  string   `yaml:"description" json:"description"`
+}
+
+// Offer is one model a harness file suggests: the id the kind's --model
+// flag takes, the label a person reads, and what it is recommended for.
+// Recommended is "yardmaster" on the one frontier model a yardmaster should
+// run on, and empty on the others. A list in a file goes stale, but a wrong
+// id fails loudly at the first session; the file's comment says where each
+// id came from and on what date. A suggestion, not a check: init takes any
+// id, whether the file names it or not.
+type Offer struct {
+	Model       string `yaml:"model" json:"model"`
+	Label       string `yaml:"label" json:"label"`
+	Recommended string `yaml:"recommended,omitempty" json:"recommended,omitempty"`
 }
 
 // ModelSource is where the model a session's agent itself reports is read:
@@ -387,6 +404,20 @@ func (h *Harness) check() error {
 			return fmt.Errorf("model: home and field are needed")
 		case !strings.Contains(m.Glob, sessionID):
 			return fmt.Errorf("model: glob %q has no %s, so it finds any session's file", m.Glob, sessionID)
+		}
+	}
+	if len(h.Offers) > 0 {
+		marked := 0
+		for _, o := range h.Offers {
+			if o.Model == "" {
+				return fmt.Errorf("offers: one without a model id")
+			}
+			if o.Recommended != "" {
+				marked++
+			}
+		}
+		if marked != 1 {
+			return fmt.Errorf("offers: %d recommended, want exactly one", marked)
 		}
 	}
 	for i := range h.Errors {

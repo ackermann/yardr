@@ -263,6 +263,68 @@ func TestBackground(t *testing.T) {
 	}
 }
 
+// The models the files suggest a person pick (yardr-tv3s): each the id the
+// kind's --model flag takes and the label to show it by, with the one
+// frontier model a yardmaster should run on marked. Claude Code's are its
+// --model aliases, which do not go stale when a version ships; the other
+// ids were read from the harness's own config or session files, as each
+// file's comment says. A file may name none: grok, opencode and pi name
+// none, and a kind with no file has no list.
+func TestOffers(t *testing.T) {
+	for kind, want := range map[string][]Offer{
+		"claude": {
+			{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"},
+			{Model: "fable", Label: "Fable 5.1"},
+			{Model: "sonnet", Label: "Sonnet 5"},
+		},
+		"codex": {
+			{Model: "gpt-6-luna", Label: "GPT-6 Luna", Recommended: "yardmaster"},
+			{Model: "gpt-6-astra", Label: "GPT-6 Astra"},
+		},
+		"kimi": {
+			{Model: "kimi-code/k3", Label: "K3", Recommended: "yardmaster"},
+			{Model: "kimi-code/k3-256k", Label: "K3-256k"},
+			{Model: "kimi-code/kimi-for-coding", Label: "K2.8 Preview"},
+		},
+	} {
+		h, _ := Lookup(kind)
+		if !slices.Equal(h.Offers, want) {
+			t.Errorf("%s: offers %+v, want %+v", kind, h.Offers, want)
+		}
+	}
+	for _, h := range Harnesses {
+		marked := 0
+		for _, o := range h.Offers {
+			if o.Recommended != "" {
+				marked++
+			}
+		}
+		want := 0
+		if len(h.Offers) > 0 {
+			want = 1
+		} else if h.Kind == "claude" || h.Kind == "codex" || h.Kind == "kimi" {
+			t.Errorf("%s names no model to pick from", h.Kind)
+		}
+		if marked != want {
+			t.Errorf("%s: %d recommended of %d offers, want %d", h.Kind, marked, len(h.Offers), want)
+		}
+	}
+	if h, _ := Lookup("cursor"); h.Offers != nil {
+		t.Errorf("a kind with no file offers models: %+v", h.Offers)
+	}
+	// A file with the list passes the check, and one without it does too.
+	hs, err := load(t, map[string]string{
+		"claude.yaml": "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b}]\n",
+		"pi.yaml":     "version: 1\nlabel: pi\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hs[0].Offers) != 2 || hs[0].Offers[0].Recommended != "yardmaster" || hs[1].Offers != nil {
+		t.Errorf("loaded offers: %+v, %+v", hs[0].Offers, hs[1].Offers)
+	}
+}
+
 // The one hint a file has is kimi's, for a prompt at a reset that its cache
 // menu keeps (yardr-5yww): the sentence the shared hint had until then,
 // word for word. No other kind adds to a hint.
@@ -359,6 +421,9 @@ func TestLoadRefuses(t *testing.T) {
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
 		"model flag is not a flag": {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
+		"two recommended":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
+		"none recommended":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a}, {model: b}]\n", "offers: 0 recommended, want exactly one"},
+		"an offer without a model": {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: x, recommended: yardmaster}]\n", "offers: one without a model id"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)

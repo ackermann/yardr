@@ -44,6 +44,20 @@ flags:
       args: [--auto]
       description: fully autonomous; asks nothing
 
+# The models to pick from: ~/.kimi-code/config.toml of 2026-10-15 names four
+# under [models.*], of which these three (k3 is its default_model), each
+# labelled with its display_name there. `kimi --model` takes the same ids as
+# that default ("LLM model alias to use for this invocation. Defaults to
+# default_model in config.toml", Kimi Code 2.1.1).
+offers:
+  - model: kimi-code/k3
+    label: K3
+    recommended: yardmaster
+  - model: kimi-code/k3-256k
+    label: K3-256k
+  - model: kimi-code/kimi-for-coding
+    label: K2.8 Preview
+
 # Kimi prints `Error: [<code>] <message>`, the code from its own list, and
 # breaks the line at the pane's width itself, which no unwrapped read mends:
 # only the line's first part is there to match, so its lines are told by the

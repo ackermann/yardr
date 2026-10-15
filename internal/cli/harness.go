@@ -22,9 +22,10 @@ working, blocked or done. What yardr knows of a kind beyond that is in one
 file per kind, built into yardr: the marks its pane is read by, the error
 lines it stops on, the questions and the login screen it draws in place of
 its input, what it adds to a hint of yardr's, the flags yardr starts it
-with or offers, where the model its agent reports is read, whether yardr
-answers its folder-trust dialog, and the login command a program can lead
-its login by. list and show print the files this build of yardr runs on;
+with or offers, the models it suggests a person pick, where the model its
+agent reports is read, whether yardr answers its folder-trust dialog, and
+the login command a program can lead its login by. list and show print the
+files this build of yardr runs on;
 login leads a kind's login for a program.
 
 A kind herdr starts that has no file is started all the same: yardr then
@@ -161,6 +162,20 @@ func printHarness(h agents.Harness, has bool) {
 	}
 	for _, p := range h.Flags.Permissions {
 		fmt.Printf("  permission %q: %s  (%s)\n", p.Label, args(p.Args), p.Note)
+	}
+	fmt.Println("\nModels it offers")
+	if len(h.Offers) == 0 {
+		fmt.Println("  none named: --model takes any id")
+	}
+	for _, o := range h.Offers {
+		line := "  " + o.Model
+		if o.Label != "" {
+			line += " (" + o.Label + ")"
+		}
+		if o.Recommended != "" {
+			line += ", recommended for a " + o.Recommended
+		}
+		fmt.Println(line)
 	}
 	fmt.Println("\nThe model its agent reports")
 	if m := h.Model; m == nil {

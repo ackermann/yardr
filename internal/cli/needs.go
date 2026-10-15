@@ -98,6 +98,10 @@ type need struct {
 	// program can lead its login without a terminal (yardr harness login
 	// <kind> --json). Absent for a kind that is logged in in a terminal.
 	HarnessLogin bool `json:"harness_login,omitempty"`
+	// Offers are the models the kind's file suggests a person pick, each
+	// the id its --model flag takes with the label to show and what it is
+	// recommended for; absent when the file names none.
+	Offers []agents.Offer `json:"offers,omitempty"`
 	// Optional is a harness nothing in the yard runs on: one of those a
 	// home with no yard could be created on. What is wrong with it is said,
 	// and is no fault.
@@ -204,6 +208,7 @@ func harnessNeed(kind, what string) need {
 		n.HarnessFile = h.Version
 		n.HarnessAlways = h.Flags.Always
 		n.HarnessLogin = h.LoginRecipe != nil
+		n.Offers = h.Offers
 		n.Fetch = fetchFor(h.Fetch)
 	}
 	if p, err := lookPath(n.Program); err == nil {

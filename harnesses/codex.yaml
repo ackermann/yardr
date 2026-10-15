@@ -96,6 +96,17 @@ flags:
         - 'permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}'
       description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature
 
+# The models to pick from: gpt-6-luna is what recent Codex session files
+# report, and gpt-6-astra is the live default in ~/.codex/config.toml, both
+# read on 2026-10-15. `codex --help` names no models for --model, only
+# "Model the agent should use" (codex-cli 0.160.1).
+offers:
+  - model: gpt-6-luna
+    label: GPT-6 Luna
+    recommended: yardmaster
+  - model: gpt-6-astra
+    label: GPT-6 Astra
+
 # The model of the first turn_context.
 model:
   home: .codex
