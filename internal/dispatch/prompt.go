@@ -670,8 +670,11 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// The dialog may have drawn only after the start looked: before
 			// the wait is declared a human's, the runner answers the trust
 			// dialog when that is what the pane shows (see TrustAcceptor).
-			// A working agent is past it.
-			if ta, ok := r.(TrustAcceptor); ok && ta.AcceptTrust(ctx, handle, cfg) {
+			// A working agent is past it. So is one that was sent its
+			// prompt: what it does with it reaches its pane, and a dialog's
+			// text there (a file shown, at a permission question Enter
+			// would answer) is not the harness's.
+			if ta, ok := r.(TrustAcceptor); ok && !sent && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
 			}
 		}

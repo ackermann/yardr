@@ -509,6 +509,50 @@ func TestBeadTrustDialogDrawnLateIsAnswered(t *testing.T) {
 	}
 }
 
+// A session that was sent its prompt has had the trust dialog behind it,
+// and what it does with the prompt reaches its pane: a file it shows may
+// hold the dialog's text, at a permission question Enter would answer. So
+// the trust dialog is not answered for it again, whether the dispatcher
+// sent the prompt or the start did without seeing it taken.
+func TestTrustDialogNotAnsweredAfterThePromptWasSent(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		send func(*testing.T, *dispatch.Dispatcher, *nudgeRunner)
+	}{
+		{"delivered by the dispatcher", func(t *testing.T, d *dispatch.Dispatcher, r *nudgeRunner) {
+			r.status, r.drop = "idle", 1
+			must(t, d.Reconcile(context.Background())) // delivered, and not shown
+			if len(r.nudges) != 1 {
+				t.Fatalf("nudges %v, want the prompt delivered", r.nudges)
+			}
+		}},
+		{"sent by the start, unconfirmed", func(*testing.T, *dispatch.Dispatcher, *nudgeRunner) {}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := storetest.New(t)
+			r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked", unconfirmed: c.name != "delivered by the dispatcher"}
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
+			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+			must(t, d.Reconcile(ctx))
+			c.send(t, d, r)
+			// At a question, with the dialog's text on its screen.
+			r.status, r.screen = "blocked", fakeTrustDialog
+			for range 2 {
+				must(t, d.Reconcile(ctx))
+			}
+			if r.trustCalls != 0 || len(r.trustKeys) != 0 {
+				t.Fatalf("trust dialog asked for on %d passes, keys %v, after the prompt was sent", r.trustCalls, r.trustKeys)
+			}
+			if h := handleOf(t, s, b.ID); h[dispatch.TrustAccepted] != nil || h[store.PendingPrompt] == nil {
+				t.Fatalf("handle = %v, want the prompt pending and no trust_accepted", h)
+			}
+		})
+	}
+}
+
 // A pane at another question, and one whose crew member says trust=false,
 // are left for a human: crew_blocked once, no key sent, and the next pass
 // looks again.
