@@ -108,8 +108,8 @@ func TestPeerKeyAndInvite(t *testing.T) {
 
 // Who a yard is linked with, and what it takes from them, is the
 // operator's to say: a crew member's session, and a bead's agent, are refused
-// peer add and peer allow. Anyone may stop a kind or remove a peer.
-func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
+// peer add, peer allow and peer rm. Anyone may stop a kind.
+func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	t.Setenv("YARDR_HOME", south.home)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -184,6 +184,13 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	wantText(t, show, "south  (it calls itself south)", "key      "+p.Key, "url      "+south.srv.URL, "send     ping", "receive  nothing",
 		"incoming nothing can be posted to this yard, so it gets this peer's messages by asking it")
 	north.a.actor = "yardmaster"
+	if _, err := north.peer(t, "rm", "south"); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may remove a peer; this is yardmaster") {
+		t.Fatalf("yardmaster removing a peer: %v", err)
+	}
+	if _, err := north.st.GetPeer(ctx, "south"); err != nil {
+		t.Fatalf("the refused removal removed: %v", err)
+	}
+	north.a.actor = "jo"
 	if out := north.must(t, "rm", "south"); !strings.Contains(out, "south: removed") {
 		t.Fatalf("rm printed %q", out)
 	}
