@@ -160,6 +160,31 @@ func (v *view) hides(what ...string) {
 	}
 }
 
+// unwrapped is the screen with wrapping removed: each row past the crew's
+// column, the rows joined with single spaces, so a line longer than the
+// conversation reads whole wherever it wrapped.
+func (v *view) unwrapped() string {
+	var b strings.Builder
+	for _, line := range strings.Split(v.screen(), "\n") {
+		if _, right, ok := strings.Cut(line, " │ "); ok {
+			line = right
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func (v *view) showsUnwrapped(what ...string) {
+	v.t.Helper()
+	s := v.unwrapped()
+	for _, w := range what {
+		if !strings.Contains(s, w) {
+			v.t.Fatalf("the view does not show %q:\n%s", w, v.screen())
+		}
+	}
+}
+
 // cursor is how far ada's mail is acknowledged in the store.
 func (v *view) cursor() uint64 {
 	v.t.Helper()

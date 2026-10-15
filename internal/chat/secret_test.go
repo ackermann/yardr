@@ -473,9 +473,14 @@ func TestOwnAddressIsTypedInTheField(t *testing.T) {
 		t.Fatalf("the file %q holds %q (%v)", u.EnvFile, text, err)
 	}
 	// The gave line is longer than the conversation's 85 columns, so it
-	// wraps after "ada"; the home's fixed length keeps the break there.
-	v.shows("ada gave PUSH_USER · it is set in", "yardr user set ada", "notify=push tells ada through it")
+	// wraps; joined, it names the command that tells ada through the
+	// source, wherever the break falls.
+	v.shows("ada gave PUSH_USER · it is set in")
+	v.showsUnwrapped("yardr user set ada notify=push tells ada through it")
 	v.hides("source check push")
+	// And whole on one row where the conversation has the columns for it.
+	v.send(tea.WindowSizeMsg{Width: 200, Height: 40})
+	v.shows("yardr user set ada notify=push tells ada through it")
 	f.all = append(f.all, v.m.View())
 	v.stream()
 	f.all = append(f.all, v.m.View())
