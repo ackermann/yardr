@@ -65,6 +65,19 @@ func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 	return dialog && answer, selected
 }
 
+// AcceptTrust answers the folder-trust dialog of an agent with this config
+// when that is what its pane shows, and reports whether it did
+// (dispatch.TrustAcceptor): the dispatcher's later passes answer what drew
+// only after the start looked, by the same rule as the start.
+func (h *Herdr) AcceptTrust(ctx context.Context, handle map[string]any, cfg map[string]any) bool {
+	t := trustEntry(cfg)
+	pane, _ := handle["pane"].(string)
+	if t == nil || pane == "" {
+		return false
+	}
+	return h.acceptTrust(ctx, pane, *t)
+}
+
 // acceptTrust answers the folder-trust dialog t in pane, if that is what
 // the pane shows, and reports whether it did. The dialog may open with its
 // cursor off the accepting answer, so the cursor is moved and Enter is only

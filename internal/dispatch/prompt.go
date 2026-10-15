@@ -66,6 +66,18 @@ type ScreenWatcher interface {
 	HarnessScreen(ctx context.Context, handle map[string]any) (up, known bool)
 }
 
+// TrustAcceptor is implemented by runners that answer the folder-trust
+// dialog a harness draws on its first start in a directory (the herdr
+// runner, from the kind's file). On a pass where a first prompt is pending
+// and the agent is not ready, the dispatcher answers the dialog the
+// config's kind names when that is what the session's pane shows, and
+// reports whether it did: the dialog may have drawn only after the start
+// looked. A config whose kind names none, or that says trust=false,
+// answers nothing, as no pane at another question does.
+type TrustAcceptor interface {
+	AcceptTrust(ctx context.Context, handle map[string]any, cfg map[string]any) bool
+}
+
 // What a Nudger that waits for the agent to start on its text (herdr does,
 // see the herdr runner's prompt) says with its error when the agent did not.
 var (
@@ -550,6 +562,9 @@ type promptPass struct {
 	// that the prompt is not typed; tail is what its pane showed instead.
 	starting bool
 	tail     string
+	// trusted is the pass that answered the session's trust dialog; the
+	// handle carries TrustAccepted, and no human wait is declared for it.
+	trusted bool
 }
 
 // pendingPrompt takes one step with the pending first prompt p of the
@@ -602,10 +617,15 @@ type promptPass struct {
 // session_prompted says it was not seen (`unseen`). One herdr saw nothing
 // start on is lost, as before.
 //
+// Found live (yardr-v3mp): under load the folder-trust dialog drew only
+// after the start looked, and the session sat waiting for a human. While
+// the agent is not ready, the runner answers the trust dialog when that is
+// what the pane shows (TrustAcceptor): the handle says TrustAccepted, and
+// the pass declares no human wait.
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
-func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string) promptPass {
+func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string, cfg map[string]any) promptPass {
 	pass := promptPass{sends: handleInt(handle[promptSends]), submits: handleInt(handle[promptSubmits])}
 	// Login can look idle, blocked, or like a harness still starting. Read
 	// it before trusting the runtime status or the input marker.
@@ -646,6 +666,15 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		delete(d.promptIdle, key)
 		delete(d.drafts, key)
 		delete(d.dialogs, key)
+		if status != "working" {
+			// The dialog may have drawn only after the start looked: before
+			// the wait is declared a human's, the runner answers the trust
+			// dialog when that is what the pane shows (see TrustAcceptor).
+			// A working agent is past it.
+			if ta, ok := r.(TrustAcceptor); ok && ta.AcceptTrust(ctx, handle, cfg) {
+				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
+			}
+		}
 		return pass
 	}
 	now := d.now()

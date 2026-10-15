@@ -483,6 +483,11 @@ const PromptStarted = "prompt_started"
 // session_idle after it, say why the prompt was or was not left pending.
 const PromptLook = "prompt_look"
 
+// TrustAccepted is a handle key: yardr answered the session's folder-trust
+// dialog itself, at its start or on a later pass (see TrustAcceptor). It
+// stays on the handle as the record of it.
+const TrustAccepted = "trust_accepted"
+
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
 // prompt or a question) gets a session_blocked event so a human can step in,
@@ -863,7 +868,7 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 				live(s)
 			}
 		default:
-			alive, err := d.alive(ctx, r, &s)
+			alive, err := d.alive(ctx, r, &s, groups[s.Group].Config)
 			if err != nil {
 				// Say it once per session and cause, not on every pass.
 				if msg := err.Error(); d.unknown[s.ID] != msg {
@@ -910,7 +915,7 @@ func runnerName(s store.Session, groups map[string]store.Group) string {
 
 // alive asks the runner about s and reports blocked agents once per episode.
 // s.Handle is updated with what it stores about a pending prompt.
-func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (bool, error) {
+func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session, cfg map[string]any) (bool, error) {
 	st, ok := r.(Statuser)
 	if !ok {
 		return r.Alive(ctx, s.Handle)
@@ -919,11 +924,12 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (boo
 	if err != nil || status == "" {
 		return false, err
 	}
+	trusted := false
 	if p, ok := s.Handle[store.PendingPrompt].(string); ok {
 		// Looked at on every pass, not only of an idle agent: one that took
 		// the prompt late is working on it, and by the time it is idle again
 		// the prompt may have left what the runner reads of its pane.
-		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status)
+		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status, cfg)
 		if pass.handle != nil {
 			if err := d.Store.SetHandle(ctx, s.ID, pass.handle); err != nil {
 				return true, err
@@ -936,8 +942,16 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (boo
 		if pass.arrived {
 			d.prompted(r, s.ID)
 		}
+		trusted = pass.trusted
 	} else {
 		d.ownInput(ctx, r, s.ID, s.Bead, map[string]any{"session": s.ID}, s.Handle, status)
+	}
+	if trusted {
+		// Its trust dialog was answered on this pass: no human waits, and
+		// the prompt goes on the usual path once the agent is idle. The
+		// blocked turn is not recorded either, so a session still blocked
+		// on the next pass is reported then.
+		return true, nil
 	}
 	prev, seen := d.status[s.ID]
 	if !seen {

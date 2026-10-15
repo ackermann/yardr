@@ -41,7 +41,7 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 			handle[store.PendingPrompt] = prompt
 			return handle, nil
 		}
-		handle["trust_accepted"] = true
+		handle[dispatch.TrustAccepted] = true
 		if !h.ready(ctx, handle) {
 			// Slow, or at a next question: the dispatcher takes it from here.
 			handle[store.PendingPrompt] = prompt

@@ -432,7 +432,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		}
 	}
 	if p, ok := s.st.Handle[store.PendingPrompt].(string); ok {
-		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status)
+		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status, def.Config)
 		if pass.handle != nil {
 			if err := d.Store.SetCrewHandleFor(ctx, def.Name, s.user, pass.handle); err != nil {
 				return err
@@ -442,6 +442,11 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		if pass.arrived {
 			// An agent working on its first prompt does not wait for a human.
 			delete(d.status, key)
+			return nil
+		}
+		if pass.trusted {
+			// Its trust dialog was answered on this pass: no human waits,
+			// and the prompt goes on the usual path once the agent is idle.
 			return nil
 		}
 		if !idle {

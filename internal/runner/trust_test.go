@@ -242,6 +242,44 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	}
 }
 
+// The dispatcher's later passes answer a trust dialog that drew only after
+// the start looked (yardr-v3mp): AcceptTrust answers the dialog of the
+// config's kind by the same rule as the start, and nothing else.
+func TestAcceptTrustAnswersLateDialog(t *testing.T) {
+	shortTrustWait(t)
+	claude, _ := agents.Lookup("claude")
+	yes := trustDialog(claude.Trust.Answer)
+	cases := []struct {
+		name   string
+		screen string
+		handle map[string]any
+		cfg    map[string]any
+		want   bool
+		keys   bool // a key may have been sent
+	}{
+		{"the dialog, drawn late", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, true, true},
+		{"the dialog, kind unset", yes, map[string]any{"pane": "w1:p1"}, nil, true, true},
+		{"not drawn yet", "", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
+		{"another question", " Do you want to allow this?\n ❯ Yes\n", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
+		{"trust=false", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, false, false},
+		{"a kind with no dialog", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "codex"}, false, false},
+		{"no pane", yes, map[string]any{"agent": "b1"}, map[string]any{"kind": "claude"}, false, false},
+	}
+	for _, c := range cases {
+		h, calls := trustHerdr(t, trustDialog("No, exit"), yes, c.screen, "idle")
+		if got := h.AcceptTrust(context.Background(), c.handle, c.cfg); got != c.want {
+			t.Errorf("%s: AcceptTrust = %v, want %v\n%s", c.name, got, c.want, calls())
+		}
+		got := calls()
+		if c.want && !strings.Contains(got, "pane send-keys w1:p1 enter") {
+			t.Errorf("%s: no enter sent:\n%s", c.name, got)
+		}
+		if !c.keys && strings.Contains(got, "send-keys") {
+			t.Errorf("%s: a key was sent:\n%s", c.name, got)
+		}
+	}
+}
+
 func TestTrustEntry(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")

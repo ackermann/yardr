@@ -15,41 +15,49 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
+// fakeTrustDialog is the folder-trust dialog the fake runners answer: only
+// this exact text on the pane, and only when the config does not say
+// trust=false.
+const fakeTrustDialog = "Do you trust this folder?\n❯ Yes, proceed"
+
 // crewRunner fakes herdr for crew members: sessions with a status, and the
 // nudges they received.
 type crewRunner struct {
-	mu       sync.Mutex
-	n        int
-	status   map[string]string // agent -> idle|working|"" (gone)
-	nudges   []string
-	stops    int
-	failNext error
-	blocked  bool                // next start blocks before the agent is ready (a trust prompt)
-	foreign  *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
-	findErr  error               // the agent list cannot be read
-	sent     bool                // next start sends the first prompt and does not see it arrive
-	shown    bool                // the pane shows the first prompt
-	drop     int                 // deliveries of the first prompt the agent still drops
-	blind    bool                // the pane cannot be read
-	typed    bool                // the first prompt is in the agent's input, not submitted
-	stick    int                 // deliveries of the first prompt the agent still leaves in its input
-	deaf     bool                // Enter does not submit what is in the input
-	submits  int                 // times Enter was sent
-	input    string              // what is in the agent's input, not sent
-	noInput  bool                // the harness's input cannot be told
-	open     []string            // agents whose workspace is open, in the order they started
-	busy     map[string]bool     // agents in whose workspace another agent runs now
-	closeErr error               // a workspace cannot be closed
-	tail     string              // what the pane ends in
-	first    string              // the first prompt a start gives, kept on the handle when set
-	atDialog bool                // the agent is at a dialog: Nudge types nothing and says so
-	stalls   bool                // the agent starts on nothing it is typed: Nudge says so
-	took     bool                // ... though it took the text all the same
-	dialog   string              // the dialog its harness has drawn in place of its input, by its word
-	line     string              // ... and the dialog's first line
-	asks     string              // the harness answers the next text typed with this dialog, and keeps the text behind it
-	login    string              // the line of the login screen it sits at, "" for none
-	noScreen bool                // the harness has not drawn its screen (no input mark)
+	mu         sync.Mutex
+	n          int
+	status     map[string]string // agent -> idle|working|"" (gone)
+	nudges     []string
+	screen     string   // what the pane shows
+	trustKeys  []string // keys sent to answer the trust dialog
+	trustCalls int      // passes that asked for the trust dialog to be answered
+	stops      int
+	failNext   error
+	blocked    bool                // next start blocks before the agent is ready (a trust prompt)
+	foreign    *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
+	findErr    error               // the agent list cannot be read
+	sent       bool                // next start sends the first prompt and does not see it arrive
+	shown      bool                // the pane shows the first prompt
+	drop       int                 // deliveries of the first prompt the agent still drops
+	blind      bool                // the pane cannot be read
+	typed      bool                // the first prompt is in the agent's input, not submitted
+	stick      int                 // deliveries of the first prompt the agent still leaves in its input
+	deaf       bool                // Enter does not submit what is in the input
+	submits    int                 // times Enter was sent
+	input      string              // what is in the agent's input, not sent
+	noInput    bool                // the harness's input cannot be told
+	open       []string            // agents whose workspace is open, in the order they started
+	busy       map[string]bool     // agents in whose workspace another agent runs now
+	closeErr   error               // a workspace cannot be closed
+	tail       string              // what the pane ends in
+	first      string              // the first prompt a start gives, kept on the handle when set
+	atDialog   bool                // the agent is at a dialog: Nudge types nothing and says so
+	stalls     bool                // the agent starts on nothing it is typed: Nudge says so
+	took       bool                // ... though it took the text all the same
+	dialog     string              // the dialog its harness has drawn in place of its input, by its word
+	line       string              // ... and the dialog's first line
+	asks       string              // the harness answers the next text typed with this dialog, and keeps the text behind it
+	login      string              // the line of the login screen it sits at, "" for none
+	noScreen   bool                // the harness has not drawn its screen (no input mark)
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -150,6 +158,17 @@ func (f *crewRunner) PromptShown(context.Context, map[string]any, string) (bool,
 		return false, errors.New("pane cannot be read")
 	}
 	return f.shown, nil
+}
+
+func (f *crewRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[string]any) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.trustCalls++
+	if cfg["trust"] == false || f.screen != fakeTrustDialog {
+		return false
+	}
+	f.trustKeys = append(f.trustKeys, "enter")
+	return true
 }
 
 func (f *crewRunner) LiveCrew(context.Context, store.CrewMember, string) (*dispatch.LiveAgent, error) {
@@ -413,6 +432,128 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	}
 }
 
+// Found live (yardr-v3mp): under load the folder-trust dialog drew only
+// after the start looked, and the crew member sat at it until a person
+// pressed Enter. A dialog that appears after the start is answered on the
+// dispatcher's pass: the handle says trust_accepted, the first prompt is
+// delivered once the agent is idle, and no crew_blocked is logged.
+func TestCrewTrustDialogDrawnLateIsAnswered(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.blocked = true // the start finds the agent not ready and leaves the prompt pending
+	must(t, d.Reconcile(ctx))
+	agent := agentOf(t, s)
+	f.screen = fakeTrustDialog // drawn after the start looked
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+	}
+	if !slices.Equal(f.trustKeys, []string{"enter"}) || f.trustCalls != 1 {
+		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", f.trustKeys, f.trustCalls)
+	}
+	// The agent boots; its first prompt goes on the usual path.
+	f.set(agent, "idle")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
+	}
+	if r.Handle[dispatch.TrustAccepted] != true {
+		t.Fatalf("trust_accepted left the handle: %v", r.Handle)
+	}
+	if f.trustCalls != 1 {
+		t.Fatalf("the trust dialog was asked for on %d passes, want the one blocked pass", f.trustCalls)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	for _, e := range evs {
+		if e.Kind == "crew_blocked" {
+			t.Fatalf("a crew member whose trust dialog was answered was reported blocked: %+v", e)
+		}
+	}
+}
+
+// The same for a bead's session: a trust dialog that appears after the
+// start is answered on the pass, and the session is never reported blocked.
+func TestBeadTrustDialogDrawnLateIsAnswered(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.screen = fakeTrustDialog // drawn after the start looked
+	must(t, d.Reconcile(ctx))
+	h := handleOf(t, s, b.ID)
+	if h[dispatch.TrustAccepted] != true || h[store.PendingPrompt] != "read your brief" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", h)
+	}
+	if !slices.Equal(r.trustKeys, []string{"enter"}) || r.trustCalls != 1 {
+		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", r.trustKeys, r.trustCalls)
+	}
+	r.status = "idle"
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	h = handleOf(t, s, b.ID)
+	if len(r.nudges) != 1 || r.nudges[0] != "read your brief" || h[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+	if h[dispatch.TrustAccepted] != true {
+		t.Fatalf("trust_accepted left the handle: %v", h)
+	}
+	if r.trustCalls != 1 {
+		t.Fatalf("the trust dialog was asked for on %d passes, want the one blocked pass", r.trustCalls)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_blocked")); n != 0 {
+		t.Fatalf("session_blocked logged %d times for a session whose trust dialog was answered", n)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted logged %d times, want 1", n)
+	}
+}
+
+// A pane at another question, and one whose crew member says trust=false,
+// are left for a human: crew_blocked once, no key sent, and the next pass
+// looks again.
+func TestCrewOtherDialogStillWaitsForAHuman(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		cfg    map[string]any
+		screen string
+	}{
+		{"another question", nil, "Do you want to allow this?\n❯ Yes\n  No"},
+		{"trust=false", map[string]any{"trust": false}, fakeTrustDialog},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{Config: c.cfg})
+			ctx := context.Background()
+			f.blocked = true
+			must(t, d.Reconcile(ctx))
+			f.screen = c.screen
+			for range 3 {
+				must(t, d.Reconcile(ctx))
+			}
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			if r.Handle[dispatch.TrustAccepted] != nil {
+				t.Fatalf("trust_accepted on the handle: %v", r.Handle)
+			}
+			if len(f.trustKeys) != 0 {
+				t.Fatalf("keys sent into %s: %v", c.name, f.trustKeys)
+			}
+			if f.trustCalls != 3 {
+				t.Fatalf("the trust dialog was asked for on %d passes, want every blocked pass", f.trustCalls)
+			}
+			blocked := 0
+			evs, _ := s.Events(ctx, r.Journal, 100)
+			for _, e := range evs {
+				if e.Kind == "crew_blocked" {
+					blocked++
+				}
+			}
+			if blocked != 1 {
+				t.Fatalf("crew_blocked logged %d times, want 1", blocked)
+			}
+		})
+	}
+}
+
 // Found live (yardr-ykbt): a first prompt that was sent and did not show in
 // the pane is left pending. An agent that took it after the runner stopped
 // looking is working on it: it does not get it a second time, and it is not
@@ -475,6 +616,10 @@ type nudgeRunner struct {
 	blind       bool     // the pane cannot be read
 	noScreen    bool     // the harness has not drawn its screen (no input mark)
 	directs     []string // prompts submitted through herdr, for a pane that shows none
+
+	screen     string   // what the pane shows
+	trustKeys  []string // keys sent to answer the trust dialog
+	trustCalls int      // passes that asked for the trust dialog to be answered
 }
 
 func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {
@@ -502,6 +647,15 @@ func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool
 		return false, errors.New("pane read failed")
 	}
 	return n.shown, nil
+}
+
+func (n *nudgeRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[string]any) bool {
+	n.trustCalls++
+	if cfg["trust"] == false || n.screen != fakeTrustDialog {
+		return false
+	}
+	n.trustKeys = append(n.trustKeys, "enter")
+	return true
 }
 
 func (n *nudgeRunner) HarnessScreen(context.Context, map[string]any) (bool, bool) {
