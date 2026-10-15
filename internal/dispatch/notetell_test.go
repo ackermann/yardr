@@ -454,7 +454,7 @@ func TestNoteBehindAGivenUpFirstPromptIsUntold(t *testing.T) {
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	sess := liveSession(t, s, b.ID)
-	f.screen(true, true)
+	f.screen(false, false) // the first prompt is lost even though no screen is readable
 	// The first prompt was delivered and given up ("prompt_lost", as
 	// pendingPrompt leaves it): it still goes first.
 	must(t, s.SetHandle(ctx, sess, map[string]any{

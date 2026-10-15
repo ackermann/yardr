@@ -57,11 +57,7 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 		return nil
 	}
 	direct := !d.paneHasPrompt(ctx, r, s.Handle)
-	if !direct && s.Handle[store.PendingPrompt] != nil {
-		// The first prompt goes first. Where the pane shows none the
-		// pending one is stuck on a screen that is not there (its
-		// delivery waits for the harness to draw it), and a note
-		// through herdr does not wait behind it.
+	if s.Handle[store.PendingPrompt] != nil {
 		if s.Handle[promptLost] == true {
 			// Given up: the first prompt never arrives, so a note
 			// behind it never goes either. Marked untold with why,
@@ -69,7 +65,12 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 			return d.Store.MarkNoteUntold(ctx, s.Bead, untold.Seq, s.ID,
 				"the session's first prompt never arrived and was given up, and a note is not told before it")
 		}
-		return nil
+		if !direct {
+			// The first prompt goes first while its harness screen is up.
+			// With no readable screen, the note goes through herdr instead
+			// of waiting for the harness to draw one.
+			return nil
+		}
 	}
 	if s.Handle[harnessPrompted] != nil {
 		// The prompt yardr gave at a usage limit's reset is not known to
