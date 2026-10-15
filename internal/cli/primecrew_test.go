@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -315,6 +317,165 @@ func TestPrimeCrewAskCannotForgeARow(t *testing.T) {
 	for _, forged := range []string{"\n## Forged", "\nforged\n", "\x1b"} {
 		if strings.Contains(sec, forged) {
 			t.Errorf("the prime lets the ask start a line of its own %q:\n%s", forged, sec)
+		}
+	}
+}
+
+// prime --crew names the yard's other crew members beside the operator: each
+// with its name, kind and model, state, and what it is for in its author's
+// words (the first paragraph after its role file's heading), ending with how
+// to reach it. The section sits after the role (and the operator, when there
+// is one) and before the work.
+func TestPrimeCrewListsOtherMembers(t *testing.T) {
+	st := userYard(t)
+	ctx := context.Background()
+	role := "# Brakeman\n\nYou are the yardmaster's second opinion in this yard, " +
+		"the skeptic it asks before it commits.\nYou run on another model on purpose.\n\n" +
+		"## What reaches you\n\nMail.\n"
+	path := filepath.Join(t.TempDir(), "brakeman.md")
+	if err := os.WriteFile(path, []byte(role), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "crew", "add", "brakeman", "--set", "kind=claude", "--set", "model=opus",
+		"--set", "prompt="+path)
+
+	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
+	for _, want := range []string{
+		"## The crew",
+		"brakeman",
+		"claude",
+		"opus",
+		"stopped",
+		"second opinion",
+		"skeptic",
+		"yardr mail brakeman",
+		"yardr crew show brakeman",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the prime lacks %q:\n%s", want, out)
+		}
+	}
+	// The first paragraph only, not the next section.
+	if ci := strings.Index(out, "## The crew"); ci >= 0 && strings.Contains(out, "What reaches you") {
+		sec := out[ci:]
+		if i := strings.Index(sec, "## How you work"); i >= 0 {
+			sec = sec[:i]
+		}
+		if strings.Contains(sec, "What reaches you") {
+			t.Errorf("the crew section holds past the first paragraph:\n%s", sec)
+		}
+	}
+	// After the role (and the operator, when shown), before the work.
+	if i, j := strings.Index(out, "## Your role"), strings.Index(out, "## The crew"); i < 0 || j < 0 || i > j {
+		t.Errorf("the crew section is not after the role:\n%s", out)
+	} else if k := strings.Index(out, "## How you work"); k < 0 || j > k {
+		t.Errorf("the crew section is not before the work:\n%s", out)
+	} else if o := strings.Index(out, "## The operator"); o >= 0 && o > j {
+		t.Errorf("the crew section is not beside the operator:\n%s", out)
+	}
+	// The primed member is not listed among the others.
+	if ci := strings.Index(out, "## The crew"); ci >= 0 {
+		sec := out[ci:]
+		if i := strings.Index(sec, "## How you work"); i >= 0 {
+			sec = sec[:i]
+		}
+		if strings.Contains(sec, "yardr mail yardmaster") {
+			t.Errorf("the crew section lists the primed member itself:\n%s", sec)
+		}
+	}
+
+	// JSON carries the same entry.
+	js := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster", "--json")
+	var v struct {
+		Crew []struct {
+			Name  string `json:"name"`
+			Agent string `json:"agent"`
+			State string `json:"state"`
+			About string `json:"about"`
+		} `json:"crew"`
+	}
+	if err := json.Unmarshal([]byte(js), &v); err != nil {
+		t.Fatalf("prime --json: %v\n%s", err, js)
+	}
+	if len(v.Crew) != 1 || v.Crew[0].Name != "brakeman" {
+		t.Fatalf("prime --json crew = %+v, want brakeman alone", v.Crew)
+	}
+	for _, want := range []string{"claude", "opus"} {
+		if !strings.Contains(v.Crew[0].Agent, want) {
+			t.Errorf("prime --json agent = %q, want %q in it", v.Crew[0].Agent, want)
+		}
+	}
+	if v.Crew[0].State != "stopped" {
+		t.Errorf("prime --json state = %q, want stopped", v.Crew[0].State)
+	}
+	if !strings.Contains(v.Crew[0].About, "second opinion") || !strings.Contains(v.Crew[0].About, "skeptic") {
+		t.Errorf("prime --json about = %q", v.Crew[0].About)
+	}
+
+	// States follow the session: running, and blocked when it waits at a
+	// prompt only a person can answer.
+	if err := st.CrewStarted(ctx, "brakeman", map[string]any{"agent": "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster"); !strings.Contains(out, "running") {
+		t.Errorf("a running crew member primes no running:\n%s", out)
+	}
+	if err := st.CrewStatus(ctx, "brakeman", "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster"); !strings.Contains(out, "blocked") {
+		t.Errorf("a blocked crew member primes no blocked:\n%s", out)
+	}
+}
+
+// A yard with no other crew member prints no crew section.
+func TestPrimeCrewAloneShowsNoSection(t *testing.T) {
+	st := userYard(t)
+	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
+	if strings.Contains(out, "## The crew") {
+		t.Errorf("a lone crew member primes a crew section:\n%s", out)
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster", "--json")), &v); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := v["crew"]; ok {
+		t.Errorf("a lone crew member primes crew in JSON")
+	}
+}
+
+// A crew member whose prompt cannot be read is listed by name and config
+// alone: the prime still succeeds, with no description for it.
+func TestPrimeCrewMissingPromptListsNameAndConfig(t *testing.T) {
+	st := userYard(t)
+	mustAs(t, st, "jo", "crew", "add", "clerk", "--set", "kind=claude", "--set", "model=sonnet",
+		"--set", "prompt="+filepath.Join(t.TempDir(), "gone.md"))
+	mustAs(t, st, "jo", "crew", "add", "page", "--set", "kind=claude")
+	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
+	for _, want := range []string{"## The crew", "clerk", "claude", "sonnet", "yardr mail clerk", "page", "yardr mail page"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the prime lacks %q:\n%s", want, out)
+		}
+	}
+	var v struct {
+		Crew []struct {
+			Name  string `json:"name"`
+			About string `json:"about"`
+		} `json:"crew"`
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster", "--json")), &v); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]string{}
+	for _, c := range v.Crew {
+		byName[c.Name] = c.About
+	}
+	if len(v.Crew) != 2 {
+		t.Fatalf("prime --json crew = %+v, want clerk and page", v.Crew)
+	}
+	for _, name := range []string{"clerk", "page"} {
+		if about, ok := byName[name]; !ok || about != "" {
+			t.Errorf("%s about = %q, want none", name, about)
 		}
 	}
 }
