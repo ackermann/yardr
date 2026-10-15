@@ -27,6 +27,12 @@ const SampleFloor = 10
 // store.DefaultOutcome; eta_test pins the two equal.
 const doneOutcome = "done"
 
+// OriginatorAny is the originator a route names to take every
+// originator's beads. The same keyword as store.OriginatorAny, which
+// this package cannot import (the store reads this package for its JSON
+// shapes); eta_test pins the two equal.
+const OriginatorAny = "any"
+
 // A Cell is one group, label and stage's answered durations: the medians
 // and p90s of its entry-to-exit and claim-to-exit rings with the samples
 // behind each, and the stay and send-back counts the per-stage stretch is
@@ -53,8 +59,11 @@ type Bead struct {
 	Depot    *string
 	Labels   []string
 	Priority int
-	Hold     bool
-	Closed   bool
+	// Originator is the user the bead is for, whose subscription builds
+	// it. Empty reads as the operator's, as on the bead.
+	Originator string
+	Hold       bool
+	Closed     bool
 	// Group holds the bead, nil when none does; the queue is only
 	// simulated for a bead none holds, and the late clock is the waiting
 	// one then, the running one otherwise.
@@ -90,7 +99,10 @@ type Route struct {
 	Depot        *string
 	Labels       []string
 	BeadPriority *int
-	Groups       []string
+	// Originator matches beads for this user alone; OriginatorAny
+	// matches every originator's, and nil the operator's alone.
+	Originator *string
+	Groups     []string
 }
 
 // A Group is one pool of agents, one command, people, or another yard.
@@ -120,6 +132,9 @@ type Queued struct {
 	Depot    *string
 	Labels   []string
 	Priority int
+	// Originator is whose subscription the bead builds on. Empty reads
+	// as the operator's, as on the bead.
+	Originator string
 }
 
 // A Live is one live session, with its bead's labels for its remainder.
@@ -177,10 +192,11 @@ type Late struct {
 }
 
 // Estimate answers b's ETA and late mark at now: nil when there is
-// nothing to say. The queue snapshot q is shared by every bead of one
-// response, so a page reads the dispatchable listing and the live
-// sessions once, not once per bead.
-func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q Queue, now time.Time) *Result {
+// nothing to say. Operator is the yard's operator, which beads and routes
+// without an originator read as. The queue snapshot q is shared by every
+// bead of one response, so a page reads the dispatchable listing and the
+// live sessions once, not once per bead.
+func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q Queue, now time.Time, operator string) *Result {
 	if b.Closed {
 		return nil
 	}
@@ -190,8 +206,8 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	}
 	// primary is the group the routes would send a bead like b in stage
 	// to: the first of the matching route's groups.
-	primary := func(stage, typ string, depot *string, labels []string, priority int) (Group, bool) {
-		r := matchRoute(routes, stage, typ, depot, labels, priority)
+	primary := func(stage, typ string, depot *string, labels []string, priority int, originator string) (Group, bool) {
+		r := matchRoute(routes, stage, typ, depot, labels, priority, originator, operator)
 		if r == nil || len(r.Groups) == 0 {
 			return Group{}, false
 		}
@@ -199,7 +215,7 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 		return g, ok
 	}
 	primaryOf := func(stage string) (Group, bool) {
-		return primary(stage, b.Type, b.Depot, b.Labels, b.Priority)
+		return primary(stage, b.Type, b.Depot, b.Labels, b.Priority, b.Originator)
 	}
 	label := difficulty(b.Labels)
 	legs, stop := walkPath(b, flow, primaryOf)
@@ -219,7 +235,7 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	if b.Group == nil {
 		if g, ok := primaryOf(b.Stage); ok && machineRunner(g.Runner) {
 			qw := simulateQueue(b, g, cells, q, now, func(qb Queued) (Group, bool) {
-				return primary(qb.Stage, qb.Type, qb.Depot, qb.Labels, qb.Priority)
+				return primary(qb.Stage, qb.Type, qb.Depot, qb.Labels, qb.Priority, qb.Originator)
 			})
 			// An uncertain queue — a live remainder stood on a thin
 			// cell — still shows its number beside clocked stages,
@@ -528,7 +544,7 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 // matchRoute is the first route in match order that applies to the bead:
 // what store.MatchRoute answers. It mirrors that function, which this
 // package cannot import; eta_test pins the two equal.
-func matchRoute(routes []Route, stage, typ string, depot *string, labels []string, priority int) *Route {
+func matchRoute(routes []Route, stage, typ string, depot *string, labels []string, priority int, originator, operator string) *Route {
 	for i := range routes {
 		r := &routes[i]
 		if r.Stage != stage {
@@ -546,9 +562,30 @@ func matchRoute(routes []Route, stage, typ string, depot *string, labels []strin
 		if r.BeadPriority != nil && priority > *r.BeadPriority {
 			continue
 		}
+		if !r.matchesOriginator(originator, operator) {
+			continue
+		}
 		return r
 	}
 	return nil
+}
+
+// matchesOriginator reports whether the route takes beads for
+// originator, whose subscription they build on. It mirrors
+// store.Route.MatchesOriginator, which this package cannot import;
+// eta_test pins the two equal through Estimate.
+func (r Route) matchesOriginator(originator, operator string) bool {
+	if originator == "" {
+		originator = operator
+	}
+	switch {
+	case r.Originator == nil:
+		return originator == operator
+	case *r.Originator == OriginatorAny:
+		return true
+	default:
+		return originator == *r.Originator
+	}
 }
 
 // difficulty is the bead's estimate label for its cells: its difficulty:

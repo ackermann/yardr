@@ -196,6 +196,62 @@ func TestStoreBeadViewCarriesEstimate(t *testing.T) {
 	}
 }
 
+// A non-operator bead's ETA names the group the store's match sends it
+// to: the operator-only route is skipped for hal's bead, the any route
+// taken. The any route sorts after the operator's, so the estimate must
+// skip that route to reach it; the ten sitters are the operator's, so
+// none stands ahead of it.
+func TestStoreEstimateOriginatorRoutes(t *testing.T) {
+	y := newEstimateTest(t)
+	ctx := context.Background()
+	if _, err := y.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.PutGroup(ctx, Group{Name: "hal-builders", Runner: "herdr", Limit: 10}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	anyOriginator := OriginatorAny
+	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "hal-builders", Originator: &anyOriginator, Priority: -1}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// Ten passers claimed by hal-builders clock its cell, as the seeds
+	// clocked builders'.
+	for i := range 10 {
+		y.at(y.now.Add(time.Duration(i) * time.Minute))
+		b, err := y.CreateBead(ctx, NewBead{Title: fmt.Sprintf("hal seed %d", i), Stage: "new",
+			Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": y.flow}}, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		y.claim(t, b.ID, "hal-builders", "new")
+		y.at(y.now.Add(30*time.Minute)).advance(t, b.ID, "review")
+		y.claim(t, b.ID, "builders", "review")
+		y.at(y.now.Add(30*time.Minute)).advance(t, b.ID, "approved")
+	}
+	y.at(y.now.Add(time.Hour))
+	b, err := y.CreateBead(ctx, NewBead{Title: "hal's", Stage: "new", For: "hal",
+		Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": y.flow}}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := y.Estimate(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil || r.ETA == nil || len(r.ETA.Stages) == 0 || r.ETA.Stages[0].Group != "hal-builders" {
+		t.Fatalf("hal's ETA names %+v, want hal-builders first", r)
+	}
+	if r.ETA.Ahead != 0 {
+		t.Fatalf("hal's queue counts the operator's sitters: %+v", r.ETA)
+	}
+}
+
 func TestStoreEstimateAbsent(t *testing.T) {
 	y := newETATest(t)
 	ctx := context.Background()

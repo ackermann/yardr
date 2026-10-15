@@ -18,6 +18,9 @@ func TestFloorParity(t *testing.T) {
 	if store.DefaultOutcome != "done" {
 		t.Fatalf("store.DefaultOutcome %q is not the word eta walks", store.DefaultOutcome)
 	}
+	if eta.OriginatorAny != store.OriginatorAny {
+		t.Fatalf("eta.OriginatorAny %q != store.OriginatorAny %q", eta.OriginatorAny, store.OriginatorAny)
+	}
 }
 
 // The walk follows the outcome the store calls done, whatever word that is.
@@ -33,7 +36,7 @@ func TestDoneWordParity(t *testing.T) {
 		return eta.Cell{ClaimMedian: time.Hour, ClaimP90: 2 * time.Hour, ClaimN: 42, Stays: 42}
 	}
 	b := eta.Bead{ID: "yardr-9c2k", Stage: "new", Type: "task", Priority: 2}
-	r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now())
+	r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now(), "")
 	if r == nil || r.ETA == nil || len(r.ETA.Stages) != 2 {
 		t.Fatalf("walk did not follow %q: %+v", store.DefaultOutcome, r)
 	}
@@ -57,7 +60,7 @@ func TestDifficultyParity(t *testing.T) {
 		flow := &eta.Flow{Stages: []string{"new"}}
 		routes := []eta.Route{{Stage: "new", Groups: []string{"builders"}}}
 		groups := []eta.Group{{Name: "builders", Runner: "herdr", Limit: 1}}
-		if r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now()); r == nil {
+		if r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now(), ""); r == nil {
 			t.Fatalf("labels %q: no estimate", labels)
 		}
 		want := store.DifficultyLabel(labels)
@@ -77,11 +80,12 @@ func toEtaRoute(r store.Route) eta.Route {
 	for _, g := range r.Groups() {
 		names = append(names, g.Name)
 	}
-	return eta.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels(), BeadPriority: r.BeadPriority, Groups: names}
+	return eta.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels(), BeadPriority: r.BeadPriority, Originator: r.Originator, Groups: names}
 }
 
 // eta matches the route the store matches: the first in match order the
-// bead's stage, type, depot, labels and priority all satisfy.
+// bead's stage, type, depot, labels and priority all satisfy. Neither
+// side names an originator here; the beads read as the operator's.
 func TestMatchParity(t *testing.T) {
 	routes := []store.Route{
 		{ID: "r1", Stage: "new", Label: strptr("difficulty:2"), AndLabels: []string{"size:big"}, Group: "builders"},
@@ -117,8 +121,66 @@ func TestMatchParity(t *testing.T) {
 			queried = append(queried, group)
 			return eta.Cell{}
 		}
-		b := eta.Bead{ID: "yardr-9c2k", Stage: sb.Stage, Type: sb.Type, Depot: sb.Depot, Labels: sb.Labels, Priority: sb.Priority}
-		r := eta.Estimate(b, flow, eroutes, groups, cells, eta.Queue{}, time.Now())
+		b := eta.Bead{ID: "yardr-9c2k", Stage: sb.Stage, Type: sb.Type, Depot: sb.Depot, Labels: sb.Labels, Priority: sb.Priority, Originator: sb.Originator}
+		r := eta.Estimate(b, flow, eroutes, groups, cells, eta.Queue{}, time.Now(), "")
+		switch {
+		case !ok && r != nil:
+			t.Fatalf("bead %d: store matches nothing, eta estimated %+v", i, r)
+		case ok && len(queried) == 0:
+			t.Fatalf("bead %d: store matches %s, eta matched nothing", i, want)
+		case ok && queried[0] != want:
+			t.Fatalf("bead %d: store matches %s, eta queried %s", i, want, queried[0])
+		}
+	}
+}
+
+// eta matches the route the store matches when originators differ: a
+// named route takes only its person's beads, any takes every
+// originator's, and a route without one takes only the operator's,
+// however high its priority or specificity. A bead without one reads as
+// the operator's.
+func TestMatchOriginatorParity(t *testing.T) {
+	hal := "hal"
+	any := store.OriginatorAny
+	routes := []store.Route{
+		{ID: "r-op", Stage: "new", Label: strptr("difficulty:3"), Group: "builders"},
+		{ID: "r-any", Stage: "new", Group: "hal-builders", Originator: &any},
+		{ID: "r-review-op", Stage: "review", Priority: 10, Group: "builders"},
+		{ID: "r-hal", Stage: "review", Group: "hal-builders", Originator: &hal},
+	}
+	store.SortRoutes(routes)
+	var eroutes []eta.Route
+	for _, r := range routes {
+		eroutes = append(eroutes, toEtaRoute(r))
+	}
+	groups := []eta.Group{
+		{Name: "builders", Runner: "herdr", Limit: 1},
+		{Name: "hal-builders", Runner: "herdr", Limit: 1},
+	}
+	flow := &eta.Flow{Stages: []string{"new", "review"}}
+	beads := []store.Bead{
+		{Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Priority: 2, Originator: "hal"},
+		{Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Priority: 2, Originator: "jo"},
+		{Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Priority: 2},
+		{Stage: "new", Type: "task", Priority: 2, Originator: "hal"},
+		{Stage: "new", Type: "task", Priority: 2, Originator: "mallory"},
+		{Stage: "review", Type: "task", Priority: 2, Originator: "hal"},
+		{Stage: "review", Type: "task", Priority: 2, Originator: "jo"},
+		{Stage: "review", Type: "task", Priority: 2},
+		{Stage: "review", Type: "task", Priority: 2, Originator: "mallory"},
+	}
+	for i, sb := range beads {
+		want, ok := "", false
+		if m := store.MatchRoute(routes, sb, "jo"); m != nil {
+			want, ok = m.Worker(), true
+		}
+		var queried []string
+		cells := func(group, _, _ string) eta.Cell {
+			queried = append(queried, group)
+			return eta.Cell{}
+		}
+		b := eta.Bead{ID: "yardr-9c2k", Stage: sb.Stage, Type: sb.Type, Depot: sb.Depot, Labels: sb.Labels, Priority: sb.Priority, Originator: sb.Originator}
+		r := eta.Estimate(b, flow, eroutes, groups, cells, eta.Queue{}, time.Now(), "jo")
 		switch {
 		case !ok && r != nil:
 			t.Fatalf("bead %d: store matches nothing, eta estimated %+v", i, r)
@@ -147,7 +209,7 @@ func TestMatchManualParity(t *testing.T) {
 		return eta.Cell{ClaimMedian: time.Hour, ClaimP90: 2 * time.Hour, ClaimN: 42, Stays: 42}
 	}
 	b := eta.Bead{ID: "yardr-9c2k", Stage: "new", Type: "task", Priority: 2}
-	r := eta.Estimate(b, flow, eroutes, groups, cells, eta.Queue{}, time.Now())
+	r := eta.Estimate(b, flow, eroutes, groups, cells, eta.Queue{}, time.Now(), "")
 	if r == nil || r.ETA == nil || len(r.ETA.Unclocked) != 1 || r.ETA.Unclocked[0] != "new" {
 		t.Fatalf("manual match did not walk a manual leg: %+v", r)
 	}
@@ -164,7 +226,7 @@ func TestSpanParity(t *testing.T) {
 		flow := &eta.Flow{Stages: []string{"new"}}
 		routes := []eta.Route{{Stage: "new", Groups: []string{"builders"}}}
 		groups := []eta.Group{{Name: "builders", Runner: "herdr", Limit: 1}}
-		r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now())
+		r := eta.Estimate(b, flow, routes, groups, cells, eta.Queue{}, time.Now(), "")
 		if r == nil || r.ETA == nil {
 			t.Fatalf("span %v: no estimate", d)
 		}

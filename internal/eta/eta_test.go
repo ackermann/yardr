@@ -92,7 +92,7 @@ func TestEstimateLine(t *testing.T) {
 	}
 	// The live session's remainder is spent, freeing its slot now; the
 	// three ahead beads at hour medians over 2 slots wait an hour.
-	r := Estimate(b, testFlow(), routes, groups, cells, q, testNow)
+	r := Estimate(b, testFlow(), routes, groups, cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h 50m–4h (queue ~1h behind 3 beads for builders; new ~30m; review ~20m; approved after your decision)"
 	if line != want {
@@ -120,7 +120,7 @@ func TestEstimateJSON(t *testing.T) {
 		"builders\x00difficulty:2\x00review": clocked(20*time.Minute, time.Hour),
 	})
 	q := Queue{Order: []Queued{{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}}}
-	r := Estimate(b, testFlow(), routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, testFlow(), routes, testGroups(), cells, q, testNow, "")
 	if r == nil || r.ETA == nil {
 		t.Fatal("no ETA estimated")
 	}
@@ -155,13 +155,13 @@ func TestEstimateOmitsBothLines(t *testing.T) {
 	routes := []Route{routeFor("new", "builders"), routeFor("review", "builders"), routeFor("approved", "people")}
 	// Nothing clocked anywhere: no cells at all.
 	q := Queue{Order: []Queued{{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}}}
-	if r := Estimate(b, testFlow(), routes, testGroups(), cellMap(nil), q, testNow); r != nil {
+	if r := Estimate(b, testFlow(), routes, testGroups(), cellMap(nil), q, testNow, ""); r != nil {
 		t.Fatalf("estimated with nothing clocked: %+v", r)
 	}
 	closed := b
 	closed.Closed = true
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(time.Hour, 2*time.Hour)})
-	if r := Estimate(closed, testFlow(), routes, testGroups(), cells, q, testNow); r != nil {
+	if r := Estimate(closed, testFlow(), routes, testGroups(), cells, q, testNow, ""); r != nil {
 		t.Fatalf("estimated a closed bead: %+v", r)
 	}
 }
@@ -174,7 +174,7 @@ func TestWalkFork(t *testing.T) {
 	}
 	routes := []Route{routeFor("new", "builders"), routeFor("review", "builders"), routeFor("decide", "people")}
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(30*time.Minute, time.Hour)})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 30m–1h (new ~30m; then review or decide)"
 	if line != want {
@@ -194,7 +194,7 @@ func TestWalkImplicitDone(t *testing.T) {
 		"builders\x00difficulty:2\x00new":    clocked(30*time.Minute, time.Hour),
 		"builders\x00difficulty:2\x00review": clocked(20*time.Minute, time.Hour),
 	})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	// review has no way out at all: the walk stops past it, and the leg
 	// is clocked, so the stop is named.
@@ -215,7 +215,7 @@ func TestWalkNamedNonDoneStops(t *testing.T) {
 	}
 	routes := []Route{routeFor("new", "builders")}
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(30*time.Minute, time.Hour)})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 30m–1h (new ~30m; unclocked after new)"
 	if line != want {
@@ -238,7 +238,7 @@ func TestWalkLoopCaps(t *testing.T) {
 		"builders\x00difficulty:2\x00new":    clocked(30*time.Minute, time.Hour),
 		"builders\x00difficulty:2\x00review": clocked(30*time.Minute, time.Hour),
 	})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	// One full loop plus one step past two stages: new, review, new.
 	want := "eta usual 1h 30m–3h (new ~30m; review ~30m; new ~30m)"
@@ -252,7 +252,7 @@ func TestWalkPeerStop(t *testing.T) {
 	flow := testFlow()
 	routes := []Route{routeFor("new", "builders"), routeFor("review", "far"), routeFor("approved", "people")}
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(30*time.Minute, time.Hour)})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 30m–1h (new ~30m; then review on yard north)"
 	if line != want {
@@ -266,7 +266,7 @@ func TestWalkUnroutedStop(t *testing.T) {
 	// No route for review: the walk names it and stops.
 	routes := []Route{routeFor("new", "builders"), routeFor("approved", "people")}
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(30*time.Minute, time.Hour)})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 30m–1h (new ~30m; then review, unrouted)"
 	if line != want {
@@ -283,7 +283,7 @@ func TestWalkTerminal(t *testing.T) {
 		"builders\x00difficulty:2\x00new":    clocked(30*time.Minute, time.Hour),
 		"builders\x00difficulty:2\x00review": clocked(20*time.Minute, time.Hour),
 	})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	// approved closes the bead on entry: arrival, not a leg.
 	want := "eta usual 50m–2h (new ~30m; review ~20m)"
@@ -296,7 +296,7 @@ func TestWalkNoFlow(t *testing.T) {
 	b := testBead("yardr-9c2k", "new")
 	routes := []Route{routeFor("new", "builders")}
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(30*time.Minute, time.Hour)})
-	r := Estimate(b, nil, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, nil, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 30m–1h (new ~30m; unclocked after new)"
 	if line != want {
@@ -315,7 +315,7 @@ func TestWalkManualCurrent(t *testing.T) {
 	// A manual current stage contributes no time and the walk continues
 	// past it; no queue is simulated for people.
 	routes := []Route{routeFor("approved", "people"), routeFor("merged", "people")}
-	r := Estimate(b, flow, routes, testGroups(), cellMap(nil), Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cellMap(nil), Queue{}, testNow, "")
 	if r != nil {
 		t.Fatalf("estimated with only a manual stage ahead: %+v", r)
 	}
@@ -328,7 +328,7 @@ func TestRangeStretch(t *testing.T) {
 	c := clocked(time.Hour, 2*time.Hour)
 	c.Stays, c.SendBacks = 40, 10 // a quarter sent back: stretch 1.25
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": c})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	// new has no way out and is clocked, so the stop is named.
 	want := "eta usual 1h 15m–2h 30m (new ~1h 15m; unclocked after new)"
@@ -347,7 +347,7 @@ func TestRangeCurrentRemainder(t *testing.T) {
 	start := now.Add(-20 * time.Minute)
 	b := testBead("yardr-9c2k", "new")
 	b.Group, b.SessionStart = &group, &start
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, now)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, now, "")
 	line, _ := lines(t, r)
 	want := "eta usual 40m–1h 40m (new ~40m; unclocked after new)"
 	if line != want {
@@ -356,7 +356,7 @@ func TestRangeCurrentRemainder(t *testing.T) {
 	// Running past both ends floors them at zero: a zero range prints once.
 	start = now.Add(-3 * time.Hour)
 	b.SessionStart = &start
-	r = Estimate(b, flow, routes, testGroups(), cells, Queue{}, now)
+	r = Estimate(b, flow, routes, testGroups(), cells, Queue{}, now, "")
 	line, _ = lines(t, r)
 	want = "eta usual under a minute (new ~under a minute; unclocked after new)"
 	if line != want {
@@ -375,7 +375,7 @@ func TestPerStageFloor(t *testing.T) {
 		"builders\x00difficulty:2\x00new":    c,
 		"builders\x00difficulty:2\x00review": thin,
 	})
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	line, _ := lines(t, r)
 	// The thin stage is named, contributes nothing, and takes no stop
 	// note after it; approved ends the walk without one either.
@@ -403,7 +403,7 @@ func TestQueueFreeSlotZeroWait(t *testing.T) {
 		{Bead: "yardr-aa11", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2},
 		{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2},
 	}}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h–2h (new ~1h; unclocked after new)"
 	if line != want {
@@ -427,7 +427,7 @@ func TestQueueLiveRemainder(t *testing.T) {
 			{Bead: "yardr-bb22", Group: "builders", Stage: "new", StartedAt: testNow.Add(-10 * time.Minute), Labels: []string{"difficulty:2"}},
 		},
 	}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h 10m–2h 10m (queue ~10m for builders; new ~1h; unclocked after new)"
 	if line != want {
@@ -456,11 +456,43 @@ func TestQueueAheadBehindFullSlots(t *testing.T) {
 			{Bead: "yardr-cc33", Group: "reviewers", Stage: "new", StartedAt: testNow.Add(-10 * time.Minute), Labels: []string{"difficulty:2"}},
 		},
 	}
-	r := Estimate(b, flow, routes, groups, cells, q, testNow)
+	r := Estimate(b, flow, routes, groups, cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 3h 50m–4h 50m (queue ~2h 50m behind 2 beads for reviewers; new ~1h; unclocked after new)"
 	if line != want {
 		t.Fatalf("line:\n got %q\nwant %q", line, want)
+	}
+}
+
+func TestQueueAheadCountsOwnOriginator(t *testing.T) {
+	b := testBead("yardr-9c2k", "new")
+	b.Originator = "hal"
+	flow := &Flow{Stages: []string{"new"}}
+	any := OriginatorAny
+	routes := []Route{
+		{Stage: "new", Groups: []string{"builders"}},
+		{Stage: "new", Originator: &any, Groups: []string{"hal-builders"}},
+	}
+	groups := []Group{{Name: "builders", Runner: "herdr", Limit: 1}, {Name: "hal-builders", Runner: "herdr", Limit: 1}}
+	cells := cellMap(map[string]Cell{
+		"builders\x00difficulty:2\x00new":     clocked(time.Hour, 2*time.Hour),
+		"hal-builders\x00difficulty:2\x00new": clocked(time.Hour, 2*time.Hour),
+	})
+	// The operator's bead ahead routes to builders; only hal's stands
+	// ahead of hal's on hal-builders.
+	q := Queue{Order: []Queued{
+		{Bead: "yardr-aa11", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2, Originator: "jo"},
+		{Bead: "yardr-bb22", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2, Originator: "hal"},
+		{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2, Originator: "hal"},
+	}}
+	r := Estimate(b, flow, routes, groups, cells, q, testNow, "jo")
+	line, _ := lines(t, r)
+	want := "eta usual 2h–3h (queue ~1h behind 1 bead for hal-builders; new ~1h; unclocked after new)"
+	if line != want {
+		t.Fatalf("line:\n got %q\nwant %q", line, want)
+	}
+	if r.ETA.Queue != "1h" || r.ETA.Ahead != 1 {
+		t.Fatalf("queue: %+v", r.ETA)
 	}
 }
 
@@ -475,7 +507,7 @@ func TestQueueUnclockedAhead(t *testing.T) {
 		{Bead: "yardr-aa11", Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Priority: 2},
 		{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2},
 	}}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h–2h (behind 1 bead, too new to time; new ~1h; unclocked after new)"
 	if line != want {
@@ -496,7 +528,7 @@ func TestQueueCapped(t *testing.T) {
 		Order:   []Queued{{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}},
 		Running: 4, Max: 4,
 	}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h–2h (behind the yard's cap; new ~1h; unclocked after new)"
 	if line != want {
@@ -517,14 +549,14 @@ func TestQueueSkipped(t *testing.T) {
 	start := testNow.Add(-time.Minute)
 	held := testBead("yardr-9c2k", "new")
 	held.Group, held.SessionStart = &group, &start
-	r := Estimate(held, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(held, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	if strings.Contains(line, "queue") {
 		t.Fatalf("queue simulated for a held bead: %q", line)
 	}
 	// Not in the dispatchable listing: it cannot be claimed now.
 	absent := testBead("yardr-zz99", "new")
-	r = Estimate(absent, flow, routes, testGroups(), cells, q, testNow)
+	r = Estimate(absent, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ = lines(t, r)
 	if strings.Contains(line, "queue") || strings.Contains(line, "behind") {
 		t.Fatalf("queue simulated for a bead outside the listing: %q", line)
@@ -532,7 +564,7 @@ func TestQueueSkipped(t *testing.T) {
 	// A manual stage waits for a person, not a slot.
 	manual := testBead("yardr-9c2k", "approved")
 	mq := Queue{Order: []Queued{{Bead: "yardr-9c2k", Stage: "approved", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}}}
-	r = Estimate(manual, flow, routes, testGroups(), cells, mq, testNow)
+	r = Estimate(manual, flow, routes, testGroups(), cells, mq, testNow, "")
 	if r != nil {
 		t.Fatalf("queue simulated for a manual stage: %+v", r)
 	}
@@ -557,7 +589,7 @@ func TestQueueUncertainLive(t *testing.T) {
 			{Bead: "yardr-aa11", Group: "reviewers", Stage: "new", StartedAt: testNow.Add(-10 * time.Minute), Labels: []string{"difficulty:3"}},
 		},
 	}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h 50m–2h 50m (queue ~50m for reviewers; new ~1h; unclocked after new)"
 	if line != want {
@@ -573,7 +605,7 @@ func TestQueueUncertainLive(t *testing.T) {
 		"reviewers\x00difficulty:2\x00new": thinStage,
 		"reviewers\x00difficulty:3\x00new": thinLive,
 	})
-	if r := Estimate(b, flow, routes, testGroups(), cells, q, testNow); r != nil {
+	if r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, ""); r != nil {
 		t.Fatalf("uncertain queue alone estimated: %+v", r)
 	}
 }
@@ -593,7 +625,7 @@ func TestQueueClockedLiveOnly(t *testing.T) {
 			{Bead: "yardr-aa11", Group: "reviewers", Stage: "new", StartedAt: testNow.Add(-10 * time.Minute), Labels: []string{"difficulty:2"}},
 		},
 	}
-	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 50m (queue ~50m for reviewers; new: too new to time)"
 	if line != want {
@@ -615,7 +647,7 @@ func TestLateWaiting(t *testing.T) {
 	c.EntryMedian, c.EntryP90, c.EntryN = 2*time.Hour, 2*time.Hour, 42
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": c})
 	flow := &Flow{Stages: []string{"new"}}
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	if r == nil || r.Late == nil {
 		t.Fatalf("no late mark: %+v", r)
 	}
@@ -628,7 +660,7 @@ func TestLateWaiting(t *testing.T) {
 	}
 	// At the p90 exactly it is not past it.
 	b.StayStart = testNow.Add(-2 * time.Hour)
-	if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow); r == nil || r.Late != nil {
+	if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, ""); r == nil || r.Late != nil {
 		t.Fatalf("late at the p90: %+v", r)
 	}
 }
@@ -643,7 +675,7 @@ func TestLateRunning(t *testing.T) {
 	c.EntryP90 = 5 * time.Hour // running lateness uses claim-to-exit, not stay time.
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": c})
 	flow := &Flow{Stages: []string{"new"}}
-	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
+	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, "")
 	if r == nil || r.Late == nil {
 		t.Fatalf("no late mark: %+v", r)
 	}
@@ -657,7 +689,7 @@ func TestLateRunning(t *testing.T) {
 	// Under the p90 it is not late.
 	start = testNow.Add(-time.Hour)
 	b.SessionStart = &start
-	if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow); r == nil || r.Late != nil {
+	if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, ""); r == nil || r.Late != nil {
 		t.Fatalf("late under the p90: %+v", r)
 	}
 }
@@ -694,7 +726,7 @@ func TestLateNever(t *testing.T) {
 	cases["unrouted stage"] = unrouted
 
 	for name, b := range cases {
-		if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow); r != nil && r.Late != nil {
+		if r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow, ""); r != nil && r.Late != nil {
 			t.Fatalf("%s: late: %+v", name, r.Late)
 		}
 	}
@@ -703,7 +735,7 @@ func TestLateNever(t *testing.T) {
 	nosess := testBead("yardr-9c2k", "new")
 	nosess.Group = &group
 	nosess.StayStart = old
-	if r := Estimate(nosess, flow, routes, testGroups(), cells, Queue{}, testNow); r != nil && r.Late != nil {
+	if r := Estimate(nosess, flow, routes, testGroups(), cells, Queue{}, testNow, ""); r != nil && r.Late != nil {
 		t.Fatalf("no session start: late: %+v", r.Late)
 	}
 }

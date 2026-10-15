@@ -31,7 +31,7 @@ func (s *Store) EstimateMany(ctx context.Context, ids []string) (map[string]*eta
 	if len(ids) == 0 {
 		return out, nil
 	}
-	q, err := s.etaQueue(ctx)
+	q, operator, err := s.etaQueue(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (s *Store) EstimateMany(ctx context.Context, ids []string) (map[string]*eta
 			names = append(names, g.Name)
 		}
 		eroutes[i] = eta.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot,
-			Labels: r.Labels(), BeadPriority: r.BeadPriority, Groups: names}
+			Labels: r.Labels(), BeadPriority: r.BeadPriority, Originator: r.Originator, Groups: names}
 	}
 	egroups := make([]eta.Group, len(groups))
 	for i, g := range groups {
@@ -113,7 +113,7 @@ func (s *Store) EstimateMany(ctx context.Context, ids []string) (map[string]*eta
 		if err != nil {
 			return nil, err
 		}
-		out[id] = eta.Estimate(eb, flow, eroutes, egroups, cells, q, now)
+		out[id] = eta.Estimate(eb, flow, eroutes, egroups, cells, q, now, operator)
 	}
 	return out, nil
 }
@@ -127,7 +127,7 @@ type etaCellKey struct {
 // which the served bead does not carry.
 func (s *Store) etaBead(ctx context.Context, b *Bead) (eta.Bead, error) {
 	eb := eta.Bead{ID: b.ID, Stage: b.Stage, Type: b.Type, Depot: b.Depot, Labels: b.Labels,
-		Priority: b.Priority, Hold: b.Hold, Closed: b.Status == "closed", Group: b.Group}
+		Priority: b.Priority, Originator: b.Originator, Hold: b.Hold, Closed: b.Status == "closed", Group: b.Group}
 	if eb.Closed {
 		return eb, nil
 	}
@@ -158,24 +158,25 @@ func (s *Store) etaBead(ctx context.Context, b *Bead) (eta.Bead, error) {
 // etaQueue is one response's shared queue snapshot: the dispatchable
 // listing in its order, the live sessions with their beads' labels, and
 // the yard-wide session count against its cap, as the dispatcher counts
-// it (live sessions running something on this machine).
-func (s *Store) etaQueue(ctx context.Context) (eta.Queue, error) {
+// it (live sessions running something on this machine). It also answers
+// the yard's operator, read from the same settings as the cap.
+func (s *Store) etaQueue(ctx context.Context) (eta.Queue, string, error) {
 	var q eta.Queue
 	disp, err := s.Dispatchable(ctx)
 	if err != nil {
-		return q, err
+		return q, "", err
 	}
 	for _, r := range disp {
 		q.Order = append(q.Order, eta.Queued{Bead: r.Bead, Stage: r.Stage, Type: r.Type,
-			Depot: r.Depot, Labels: r.Labels, Priority: r.Priority})
+			Depot: r.Depot, Labels: r.Labels, Priority: r.Priority, Originator: r.Originator})
 	}
 	live, err := s.Sessions(ctx, false)
 	if err != nil {
-		return q, err
+		return q, "", err
 	}
 	groups, err := s.Groups(ctx)
 	if err != nil {
-		return q, err
+		return q, "", err
 	}
 	byName := make(map[string]Group, len(groups))
 	for _, g := range groups {
@@ -198,8 +199,8 @@ func (s *Store) etaQueue(ctx context.Context) (eta.Queue, error) {
 	}
 	settings, err := s.Settings(ctx)
 	if err != nil {
-		return q, err
+		return q, "", err
 	}
 	q.Max = MaxSessions(settings)
-	return q, nil
+	return q, settings[OperatorSetting], nil
 }
