@@ -16,9 +16,11 @@ contrib/isolated-yard/isolated-yard down D    # stops what runs in it, removes D
 own. It then checks, in a pane of that herdr, that `command -v claude` is
 `D/bin/claude` and that the agent list is empty, and prints both; if either
 fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
-`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, so nothing of
-the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`) reaches a command
-run through it. `D/h/.profile` sets `PATH` to the same directories, so the
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, and
+`__CF_USER_TEXT_ENCODING` from the caller's environment (without it a fresh
+binary's first run under the codex sandbox stalls in dyld, before main),
+so nothing else of the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`)
+reaches a command run through it. `D/h/.profile` sets `PATH` to the same directories, so the
 yard's login shell, which yardr asks for a program its PATH lacks (`yardr
 doctor`, and `yardr up` for herdr), finds nothing of the machine's own: a
 trial of that lookup writes the file itself, with directories that hold no

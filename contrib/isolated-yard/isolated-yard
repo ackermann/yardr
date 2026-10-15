@@ -19,7 +19,9 @@
 #   - D/e is `env -i`: nothing of the calling session is inherited, so no
 #     HERDR_SOCKET_PATH (which would reach the caller's herdr) and no YARDR_*.
 #     It sets HOME, XDG_CONFIG_HOME, XDG_STATE_HOME and YARDR_HOME under D,
-#     and PATH to D/bin and the system directories only.
+#     PATH to D/bin and the system directories only, and __CF_USER_TEXT_ENCODING
+#     from the caller's environment (without it a fresh binary's first run
+#     under the codex sandbox stalls in dyld, before main: yardr-ts2c).
 #   - D/h/.profile sets PATH back to the same directories: what yardr asks
 #     the yard's login shell for (a program its PATH lacks) is not found in
 #     the machine's own directories, which the system's profile adds. A trial
@@ -243,11 +245,25 @@ build() {
   printf 'PATH=%s/bin:/usr/bin:/bin:/usr/sbin:/sbin\nexport PATH\n' "$d" >"$d/h/.profile"
   # Commits in a test depot need an author; the caller's gitconfig is not read.
   printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
+  # D/e passes __CF_USER_TEXT_ENCODING through from the caller's environment
+  # (or the value macOS gives, when the caller has none): without it a newly
+  # built binary's first run under `codex sandbox` stalls in dyld's
+  # initializers, before main, in _CFStringGetUserDefaultEncoding -> getpwuid,
+  # which the sandbox leaves waiting on the lookup (yardr-ts2c).
+  cfenc=${__CF_USER_TEXT_ENCODING:-}
+  if [ -z "$cfenc" ] && [ "$(uname -s)" = "Darwin" ]; then
+    cfenc=$(printf '0x%X:0x0:0x0' "$(id -u)")
+  fi
+  if [ -n "$cfenc" ]; then
+    cfarg=" __CF_USER_TEXT_ENCODING=$cfenc"
+  else
+    cfarg=""
+  fi
   cat >"$d/e" <<WRAP
 #!/bin/sh
 exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
   XDG_CONFIG_HOME=$d/c XDG_STATE_HOME=$d/s YARDR_HOME=$d/y \\
-  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8 "\$@"
+  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8$cfarg "\$@"
 WRAP
   chmod +x "$d/e"
 }

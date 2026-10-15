@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -456,5 +457,28 @@ func TestLoginShellFindsNothingOfTheMachine(t *testing.T) {
 	}
 	if got := strings.TrimSpace(in(t, d, "/bin/sh", "-l", "-c", "command -v herdr || echo none")); got != "none" {
 		t.Fatalf("the login shell of a bare yard finds herdr: %s", got)
+	}
+}
+
+// yardr-ts2c: D/e passes __CF_USER_TEXT_ENCODING through from the caller's
+// environment (or the value macOS gives): without it a newly built binary's
+// first run under `codex sandbox` stalls in dyld's initializers, before
+// main, in _CFStringGetUserDefaultEncoding -> getpwuid.
+func TestWrapperSetsCFUserTextEncoding(t *testing.T) {
+	d := bare(t)
+	out, err := exec.Command(filepath.Join(d, "e"), "printenv", "__CF_USER_TEXT_ENCODING").CombinedOutput()
+	if runtime.GOOS == "darwin" {
+		if err != nil {
+			t.Fatalf("D/e printenv __CF_USER_TEXT_ENCODING: %v\n%s", err, out)
+		}
+		got := strings.TrimSpace(string(out))
+		if got == "" {
+			t.Fatal("D/e leaves __CF_USER_TEXT_ENCODING empty")
+		}
+		if want := os.Getenv("__CF_USER_TEXT_ENCODING"); want != "" && got != want {
+			t.Fatalf("D/e __CF_USER_TEXT_ENCODING = %q, want the caller's %q", got, want)
+		}
+	} else if err == nil {
+		t.Fatalf("D/e sets __CF_USER_TEXT_ENCODING to %q off macOS; want it unset", strings.TrimSpace(string(out)))
 	}
 }
