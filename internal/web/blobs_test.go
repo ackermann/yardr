@@ -38,12 +38,27 @@ func blobFixture(t *testing.T) *fixture {
 	return &fixture{t: t, st: st, ts: ts, home: dir}
 }
 
+// as serves f's yard on its own view, acting as the user as: the store's
+// home is the view's, as blobFixture's is.
+func (f *fixture) as(t *testing.T, as string) *fixture {
+	t.Helper()
+	srv, err := web.NewServer(f.st, f.home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.ActAs(as)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	return &fixture{t: t, st: f.st, ts: ts, home: f.home}
+}
+
 // /blobs/<hash> serves a blob a note on some bead names, with its type,
-// and answers anything else as a missing blob: a mail's file, one the
-// yard never held or no longer holds, a name that is no hash. The view
-// has no login, so what it serves is only what its bead pages show. A
-// page opens under the page policy, inert; an image keeps the yard
-// page's policy.
+// to anyone; on a view that acts it serves a mail's file too, to the
+// mail's sender or recipient. Anything else answers as a missing blob:
+// one the yard never held or no longer holds, a name that is no hash, a
+// mail's file to anyone else or where the view acts as nobody. A page
+// opens under the page policy, inert; an image keeps the yard page's
+// policy.
 func TestBlobRoute(t *testing.T) {
 	f := blobFixture(t)
 	ctx := context.Background()
@@ -105,11 +120,42 @@ func TestBlobRoute(t *testing.T) {
 	if r := f.get("/blobs/" + noted.Hash); r.status != 200 {
 		t.Errorf("the closed bead's image: status %d, want 200", r.status)
 	}
-	// A mail's page answers as a missing blob, like a mail's image.
+	// A mail's file answers as a missing blob where the view acts as
+	// nobody; where it acts, to the mail's sender and recipient, and to
+	// nobody else.
 	for _, hash := range []string{mailed.Hash, mailedPage.Hash, strings.Repeat("0", 64), "nope", strings.ToUpper(noted.Hash)} {
 		if r := f.get("/blobs/" + hash); r.status != 404 {
 			t.Errorf("/blobs/%s: status %d, want 404: %s", hash, r.status, r.body)
 		}
+	}
+	sam, sender, stranger := f.as(t, "sam"), f.as(t, "me"), f.as(t, "kay")
+	for _, v := range []struct {
+		name string
+		f    *fixture
+	}{{"sam", sam}, {"me", sender}} {
+		r := v.f.get("/blobs/" + mailed.Hash)
+		if r.status != 200 || r.header.Get("Content-Type") != "image/jpeg" || r.body != string(shotJPEG) {
+			t.Errorf("the mail's image to %s: status %d, type %q, %d bytes", v.name, r.status, r.header.Get("Content-Type"), len(r.body))
+		}
+		if etag := r.header.Get("ETag"); etag != `"`+mailed.Hash+`"` {
+			t.Errorf("the mail's image to %s: ETag %q, want the hash", v.name, etag)
+		}
+		if csp := r.header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
+			t.Errorf("the mail's image to %s: Content-Security-Policy %q, want the yard page's", v.name, csp)
+		}
+		r = v.f.get("/blobs/" + mailedPage.Hash)
+		if r.status != 200 || r.header.Get("Content-Type") != "text/html; charset=utf-8" || r.body != string(pageFence) {
+			t.Errorf("the mail's page to %s: status %d, type %q, %d bytes", v.name, r.status, r.header.Get("Content-Type"), len(r.body))
+		}
+		assertPagePolicy(t, r.header.Get("Content-Security-Policy"))
+	}
+	for _, hash := range []string{mailed.Hash, mailedPage.Hash} {
+		if r := stranger.get("/blobs/" + hash); r.status != 404 {
+			t.Errorf("the mail's file to a stranger: status %d, want 404: %s", r.status, r.body)
+		}
+	}
+	if r := sam.do("HEAD", "/blobs/"+mailed.Hash); r.status != 200 || r.header.Get("Content-Type") != "image/jpeg" || r.body != "" {
+		t.Errorf("HEAD the mail's image: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))
 	}
 	must(t, os.Remove(store.BlobPath(f.home, noted.Hash)))
 	if r := f.get("/blobs/" + noted.Hash); r.status != 404 {
@@ -118,6 +164,10 @@ func TestBlobRoute(t *testing.T) {
 	must(t, os.Remove(store.BlobPath(f.home, page.Hash)))
 	if r := f.get("/blobs/" + page.Hash); r.status != 404 {
 		t.Errorf("the page the yard no longer holds: status %d, want 404", r.status)
+	}
+	must(t, os.Remove(store.BlobPath(f.home, mailed.Hash)))
+	if r := sam.get("/blobs/" + mailed.Hash); r.status != 404 {
+		t.Errorf("the mail's image the yard no longer holds: status %d, want 404", r.status)
 	}
 	if r := f.do("POST", "/blobs/"+noted.Hash); r.status != http.StatusMethodNotAllowed {
 		t.Errorf("POST: status %d, want 405", r.status)

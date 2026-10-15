@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -68,6 +70,11 @@ type TalkLetter struct {
 	// Sender is who the page names for it: the sender, with the device
 	// and, on mail to another name, the addressee.
 	Sender string `json:"sender"`
+	// Missing are the hashes of the letter's images and pages the yard no
+	// longer holds: the page draws those as a line saying so, never a
+	// broken image. HTML-only: the JSON names the files as the letter
+	// has them.
+	Missing map[string]bool `json:"-"`
 }
 
 // talkLimit is how many letters the talk page shows: the newest page of
@@ -136,11 +143,44 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.More = more
-	for _, l := range letters {
-		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)})
+	shown, err := s.talkLetters(ctx, as, with, letters)
+	if err != nil {
+		s.fail(w, r, err)
+		return
 	}
+	out.Letters = shown
 	title := "Talk with " + with
 	s.respond(w, r, Page{Template: "talk", Title: title, Menu: "talk", Data: out, head: head})
+}
+
+// talkLetters is the conversation's letters as the talk page shows them:
+// each with whether the user wrote it and who the page names for it, and
+// with the files the yard no longer holds marked missing, as the bead
+// page marks its notes'. A file the view would serve is not missing: the
+// mail's own, or one a note names too.
+func (s *Server) talkLetters(ctx context.Context, as, with string, letters []store.Letter) ([]TalkLetter, error) {
+	shown := make([]TalkLetter, 0, len(letters))
+	for _, l := range letters {
+		t := TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)}
+		for _, f := range l.Files {
+			if _, err := s.st.MailBlob(ctx, as, f.Hash); err == nil {
+				continue
+			} else if !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+			if _, err := s.st.NoteBlob(ctx, f.Hash); err == nil {
+				continue
+			} else if !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+			if t.Missing == nil {
+				t.Missing = map[string]bool{}
+			}
+			t.Missing[f.Hash] = true
+		}
+		shown = append(shown, t)
+	}
+	return shown, nil
 }
 
 // defaultTalkPeer is the partner the talk page opens on: the yardmaster
@@ -305,9 +345,12 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		return
 	}
 	out.More = more
-	for _, l := range letters {
-		out.Letters = append(out.Letters, TalkLetter{Letter: l, Own: l.From == as || l.As == as, Sender: sender(l, as, with)})
+	shown, err := s.talkLetters(ctx, as, with, letters)
+	if err != nil {
+		s.fail(w, r, err)
+		return
 	}
+	out.Letters = shown
 	s.respond(w, r, Page{Template: "talk", Title: "Talk with " + with, Menu: "talk", Data: out, head: head})
 }
 

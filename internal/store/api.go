@@ -52,6 +52,7 @@ type API interface {
 	MarkNoteUntold(ctx context.Context, id string, seq uint64, session, reason string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 	NoteBlob(ctx context.Context, hash string) (*BlobRef, error)
+	MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error

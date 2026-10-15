@@ -400,10 +400,10 @@ this yard's own mail that the other yard did not take has `not_taken` too,
 with that yard's reason.
 
 In the web view a note's page opens from the bead's page, and a mail's
-page is named on the talk page without a link: only a note's page opens,
-until mail viewing is decided ([web.md](web.md#talk)). The view's own
-`/blobs/<hash>` serves only a file a note names; a mail's file answers
-there as a missing blob ([web.md](web.md#one-bead)).
+page is named on the talk page without a link ([web.md](web.md#talk)).
+The view's own `/blobs/<hash>` serves a note's file to anyone, and on a
+view that acts a mail's file to its sender or recipient
+([web.md](web.md#one-bead)).
 
 The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
 yardr's own views name a file (`1 image: <path>`, `1 page: <path>`). The

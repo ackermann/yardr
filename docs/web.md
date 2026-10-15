@@ -521,7 +521,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin the same bytes run under the scripted policy | |
+| `/blobs/<hash>` | a note's image or page to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes of the blob with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin a note's bytes run under the scripted policy | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1261,10 +1261,10 @@ never a broken icon or link. The JSON names them as the notes have them.
 Above the notes, the board lays the bead's note pages out in note order,
 each with its note beside it: one entry per page, the link first and the
 note's words under it. A bead with no note page shows no board. Mail
-pages stand on no board: only a note's page opens.
-The bytes come from `/blobs/<hash>`, which serves only blobs a note on
-some bead names: any other hash, a mail's file included, answers as a
-missing blob, since the view has no login.
+pages stand on no board: from here only a note's page opens.
+The bytes come from `/blobs/<hash>`, which serves a note's blob to
+anyone, and on a view that acts a mail's file to its sender or recipient;
+anything else answers as a missing blob.
 
 A page opens under its own policy, which replaces the yard page's for
 that response: `sandbox` with no `allow-scripts`, so scripts, forms and
@@ -1450,7 +1450,8 @@ with its device, the time, the words with their lines kept, the images it
 carries, and `read` under the user's own where the other party
 acknowledged it.
 A page the mail carries is named without a link, never drawn as an image:
-only a note's page opens. With no user the page says the view does not
+no link here opens one. A file the yard no longer holds is a line saying
+so, never a broken image. With no user the page says the view does not
 act.
 
 The page reads as a messaging app: the crew and the people stay above the

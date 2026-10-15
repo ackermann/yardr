@@ -132,6 +132,9 @@ func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 func (c *Client) NoteBlob(ctx context.Context, hash string) (*store.BlobRef, error) {
 	return callV[*store.BlobRef](c, ctx, "NoteBlob", hash)
 }
+func (c *Client) MailBlob(ctx context.Context, viewer, hash string) (*store.BlobRef, error) {
+	return callV[*store.BlobRef](c, ctx, "MailBlob", viewer, hash)
+}
 func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
 	return callV[uint64](c, ctx, "AddAsk", id, ask, actor)
 }

@@ -359,11 +359,12 @@ func (s *Store) Blob(hash string) (*BlobRef, error) {
 	return &BlobRef{Hash: hash, Type: typ, Bytes: st.Size()}, nil
 }
 
-// NoteBlob is the blob hash as the web view serves it: one a note on some
-// bead names, as the yard holds it. ErrNotFound for one no note names — a
-// mail's image, one nothing names — for one the yard no longer holds, and
-// for a name that is no hash, refused as Blob refuses it: the view has no
-// login, so what it serves is only what its bead pages show.
+// NoteBlob is the blob hash as the web view serves it to anyone: one a
+// note on some bead names, as the yard holds it. ErrNotFound for one no
+// note names — a mail's image, one nothing names — for one the yard no
+// longer holds, and for a name that is no hash, refused as Blob refuses
+// it. A mail's file is MailBlob's: where the view acts, it serves that
+// to the mail's sender or recipient.
 func (s *Store) NoteBlob(ctx context.Context, hash string) (*BlobRef, error) {
 	if !blobHash.MatchString(hash) {
 		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
@@ -374,6 +375,49 @@ func (s *Store) NoteBlob(ctx context.Context, hash string) (*BlobRef, error) {
 			named = named || slices.ContainsFunc(n.Files, func(f BlobRef) bool { return f.Hash == hash })
 			return nil
 		})
+	}); err != nil {
+		return nil, err
+	}
+	if !named {
+		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+	}
+	return s.Blob(hash)
+}
+
+// MailBlob is the blob hash as the web view serves it to viewer: one a
+// mail names where viewer is its sender or recipient, as the yard holds
+// it. ErrNotFound for one no such mail names — a note's image, one
+// nothing names — for one the yard no longer holds, for a viewer that is
+// nobody, and for a name that is no hash, refused as Blob refuses it. One
+// a mail carries that the yard did not take (BlobRef.NotTaken) names no
+// blob of the yard's.
+func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, error) {
+	if !blobHash.MatchString(hash) {
+		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
+	}
+	if viewer == "" {
+		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+	}
+	var named bool
+	if err := s.read(func(tx *bolt.Tx) error {
+		prefix := []byte("mail\x00")
+		c := tx.Bucket(bEventsKd).Cursor()
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			var e Event
+			if _, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+				return err
+			}
+			if e.Actor != viewer && mailReceiver(e) != viewer {
+				continue
+			}
+			named = named || slices.ContainsFunc(MailFiles(e), func(f BlobRef) bool {
+				return f.Hash == hash && f.NotTaken == ""
+			})
+			if named {
+				return nil
+			}
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}

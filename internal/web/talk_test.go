@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -311,8 +312,99 @@ func TestTalkPaging(t *testing.T) {
 	}
 }
 
-// A mail's page is named, never drawn as an image: only a note's page
-// opens.
+// talkBlobFixture serves a yard as talkFixture does, acting as the user
+// as, whose web view reads the blobs where the yard keeps them, as
+// production does: the store's home is the view's.
+func talkBlobFixture(t *testing.T, as string) *fixture {
+	t.Helper()
+	dir := t.TempDir()
+	st := storetest.Open(t, filepath.Join(dir, "yard.db"))
+	srv, err := web.NewServer(st, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if as != "" {
+		srv.ActAs(as)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	return &fixture{t: t, st: st, ts: ts, home: dir}
+}
+
+// The talk page draws each mail's images below its words, with the
+// letter's words as their alt text. The JSON names the files.
+func TestTalkShowsMailImages(t *testing.T) {
+	f := talkBlobFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	ref, err := f.st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n"+"a picture of the shed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.Mail(ctx, "jo", `the "shed", painted <firmly>`, "yardmaster", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+
+	var got web.Talk
+	f.getJSON("/talk?with=yardmaster", &got)
+	var files []store.BlobRef
+	for _, l := range got.Letters {
+		files = append(files, l.Files...)
+	}
+	if len(files) != 1 || files[0] != *ref {
+		t.Fatalf("the JSON names %v, want %v", files, ref)
+	}
+
+	body := f.get("/talk?with=yardmaster").body
+	if want := `<img src="/blobs/` + ref.Hash + `" alt="the &#34;shed&#34;, painted &lt;firmly&gt;">`; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %s", want)
+	}
+	if n := strings.Count(body, "<img"); n != 1 {
+		t.Errorf("the page draws %d images, want 1", n)
+	}
+}
+
+// A mail's file the yard no longer holds is a line saying so, never a
+// broken image: an image's line where the picture stood, a page's where
+// its name stood.
+func TestTalkMissingFile(t *testing.T) {
+	f := talkBlobFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	shot, err := f.st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n"+"a picture of the shed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := f.st.PutBlob(ctx, []byte("<!DOCTYPE html><html><body>a door</body></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.Mail(ctx, "jo", "the shed, painted", "yardmaster", shot.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.Mail(ctx, "jo", "the door, hung", "yardmaster", page.Hash); err != nil {
+		t.Fatal(err)
+	}
+	must(t, os.Remove(store.BlobPath(f.home, shot.Hash)))
+	must(t, os.Remove(store.BlobPath(f.home, page.Hash)))
+
+	body := f.get("/talk?with=yardmaster").body
+	if want := `image ` + shot.Hash[:8] + `: the yard no longer has it`; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %q", want)
+	}
+	if want := `page ` + page.Hash[:8] + `: the yard no longer has it`; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %q", want)
+	}
+	if strings.Contains(body, "<img") {
+		t.Error("the page draws what the yard no longer holds")
+	}
+	if strings.Contains(body, "pages open from notes") {
+		t.Error("the page names the missing page as one that opens from notes")
+	}
+}
+
+// A mail's page is named, never drawn as an image: no link here opens
+// one.
 func TestTalkNamesPages(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)

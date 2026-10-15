@@ -941,16 +941,21 @@ const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src
 const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // handleBlob serves a note's image or page: the bytes of a blob a note on
-// some bead names, with their type. Anything else — a mail's file, one the
-// yard never held, a name that is no hash — answers as a missing blob:
-// the view has no login, so it serves nothing but what its bead pages
-// show. The check stands before the file: only a hash the yard holds
+// some bead names, with their type. Where the view acts it serves a
+// mail's file too, to the mail's sender or recipient; anything else —
+// one the yard never held, a name that is no hash, a mail's file to
+// anyone else or where the view acts as nobody — answers as a missing
+// blob. The check stands before the file: only a hash the yard holds
 // reaches the directory. A page opens under the page policy, inert, which
 // replaces the yard page's policy ServeHTTP set before the mux served; an
 // image keeps that policy.
 func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
-	ref, err := s.st.NoteBlob(r.Context(), hash)
+	ctx := r.Context()
+	ref, err := s.st.NoteBlob(ctx, hash)
+	if errors.Is(err, store.ErrNotFound) && s.acting(ctx) != "" {
+		ref, err = s.st.MailBlob(ctx, s.acting(ctx), hash)
+	}
 	if err != nil {
 		s.fail(w, r, err)
 		return

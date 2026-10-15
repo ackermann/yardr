@@ -780,6 +780,68 @@ func TestNoteBlob(t *testing.T) {
 	}
 }
 
+// MailBlob answers a blob a mail names to the mail's sender or recipient,
+// as the yard holds it, and nothing else: a note's image, one nothing
+// names, one the yard no longer holds, a viewer that is nobody, one to a
+// stranger, and a name that is no hash are all a missing blob, the last
+// refused as Blob refuses it.
+func TestMailBlob(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mailed, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddUser(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddUser(ctx, "kay", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.Mail(ctx, "sam", "paint it", "jo", mailed.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", noted.Hash); err != nil {
+		t.Fatal(err)
+	}
+	for _, viewer := range []string{"sam", "jo"} {
+		if ref, err := api.MailBlob(ctx, viewer, mailed.Hash); err != nil || *ref != *mailed {
+			t.Errorf("MailBlob(%s) of the mail's image = %+v, %v, want %+v", viewer, ref, err, mailed)
+		}
+	}
+	for _, tc := range []struct{ viewer, hash string }{
+		{"kay", mailed.Hash},      // a stranger to the mail
+		{"", mailed.Hash},         // a viewer that is nobody
+		{"sam", noted.Hash},       // a note's image
+		{"jo", noted.Hash},        // a note's image, to its author too
+		{"sam", hashOf(gifBytes)}, // one nothing names
+	} {
+		if _, err := api.MailBlob(ctx, tc.viewer, tc.hash); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("MailBlob(%q, %q) = %v, want not found", tc.viewer, tc.hash, err)
+		}
+	}
+	_, want := s.Blob("nope")
+	if _, err := api.MailBlob(ctx, "sam", "nope"); err == nil || err.Error() != want.Error() {
+		t.Errorf("MailBlob(sam, nope) = %v, want the refusal Blob gives: %v", err, want)
+	}
+	if err := os.Remove(s.BlobPath(mailed.Hash)); err != nil {
+		t.Fatal(err)
+	}
+	for _, viewer := range []string{"sam", "jo"} {
+		if _, err := api.MailBlob(ctx, viewer, mailed.Hash); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("MailBlob(%s) of what the yard no longer holds = %v, want not found", viewer, err)
+		}
+	}
+}
+
 // The lines mail is shown with name each image by its path in the home,
 // and say nothing of mail without one. Pages stand apart from images,
 // counted on their own; one of no known type counts as an image.
