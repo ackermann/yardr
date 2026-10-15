@@ -269,6 +269,9 @@ func mailTo(e Event) string {
 // refused, with nothing queued, when the link does not carry file out, when
 // the peer's yardr has not said it understands the kind (Peer.SendsFiles),
 // and when a file is over this yard's cap for one (PeerFileMaxSetting).
+// From a session's or a crew member's pane the mail goes as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*PeerOut, error) {
 	switch {
 	case strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxPeerMailBytes:
@@ -282,16 +285,13 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 	if err != nil {
 		return nil, fmt.Errorf("mail to %s@%s: %w", to, peer, err)
 	}
-	body, err := json.Marshal(peerMail{To: to, From: actor, Text: text, Files: refs})
-	if err != nil {
-		return nil, err
-	}
-	m := PeerMessage{ID: newPeerMessageID(), Kind: PeerMail, Body: body}
-	if err := m.check(); err != nil {
-		return nil, err
-	}
 	var out *PeerOut
 	err = s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		p, err := loadPeer(w.Tx, peer)
 		if err != nil {
 			return err
@@ -309,6 +309,14 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 				return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may mail another yard; this is %s",
 					peer, MailPeers, peer, this)
 			}
+		}
+		body, err := json.Marshal(peerMail{To: to, From: actor, Text: text, Files: refs})
+		if err != nil {
+			return err
+		}
+		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerMail, Body: body}
+		if err := m.check(); err != nil {
+			return err
 		}
 		// The files first, and only for mail that goes: the outbox keeps
 		// its order, so each is there when the mail that names it comes.

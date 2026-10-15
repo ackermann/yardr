@@ -267,7 +267,9 @@ func createdData(b *Bead) map[string]any {
 }
 
 // CreateBead mints a UUID and a handle (<prefix>-<random>), or uses nb.ID
-// as the handle, and creates the bead.
+// as the handle, and creates the bead. From a session's or a crew
+// member's pane the bead is created as that session's actor or that crew
+// member, whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
 	create, err := s.newBead(ctx, nb, actor)
 	if err != nil {
@@ -407,6 +409,11 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		return nil, err
 	}
 	return func(w *wtx) (*beadRow, error) {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return nil, err
+		}
+		actor = resolved
 		if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
 			return nil, fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
 		}
@@ -1097,7 +1104,9 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // The note is told and gated like one written with yardr bead note (Notify).
 // Anything else a patch changes (labels, priority, metadata, type, depot)
 // leaves no note, nor does a write by the session itself or one on a bead
-// with no live session.
+// with no live session. From a session's or a crew member's pane the
+// update is recorded as that session's actor or that crew member, whatever
+// actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1131,6 +1140,11 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 	var result *Bead
 	err := s.write(func(w *wtx) error {
 		var err error
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if p.Originator != nil {
 			if err := w.setOriginator(ctx, id, *p.Originator, exp, actor, nil); err != nil {
 				return err
@@ -1256,11 +1270,17 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 }
 
 // changeBead loads a bead, applies fn, and when the state really changed
-// mints it and logs fn's event.
-func (s *Store) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[string]any, error)) (*Bead, error) {
+// mints it and logs fn's event. From a session's or a crew member's pane
+// the event is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
+func (s *Store) changeBead(ctx context.Context, id, actor string, fn func(*wtx, *beadRow) (string, map[string]any, error)) (*Bead, error) {
 	var result *Bead
 	err := s.write(func(w *wtx) error {
-		b, err := w.changeBead(id, actor, fn)
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		b, err := w.changeBead(id, resolved, fn)
 		result = b
 		return err
 	})
@@ -1334,7 +1354,10 @@ func (s *Store) Advance(ctx context.Context, id, stage string, exp Expect, actor
 // AdvanceNote is Advance with a note attached in the same transaction, so
 // a refused move leaves no note behind and whoever picks the bead up in the
 // next stage already sees it (a reviewer's requested changes). An empty
-// note adds none. A stale exp refuses the move (see Expect).
+// note adds none. A stale exp refuses the move (see Expect). From a
+// session's or a crew member's pane the move and its note are recorded as
+// that session's actor or that crew member, whatever actor says; from
+// anywhere else, as given (paneAuthor).
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error) {
 	b, err := s.advance(ctx, id, note, exp, actor, false, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		return stage, checkAdvance(f, b.ID, b.Stage, stage)
@@ -1347,7 +1370,10 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // write like AdvanceNote. The outcome is recorded on the advanced event.
 // A bead no flow governs has no outcomes: it is moved with Advance.
 // The session's own done is refused while a note on the bead names that
-// session and is not acked (see checkUnread).
+// session and is not acked (see checkUnread). From a session's or a crew
+// member's pane the move and its note are recorded as that session's
+// actor or that crew member, whatever actor says; from anywhere else, as
+// given (paneAuthor).
 func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
 	command := "yardr bead done " + id
@@ -1400,6 +1426,11 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 	look := &untilLooks{repos: s.gateRepos(ctx, ids...), memo: flowMemo{}}
 	var result *Bead
 	err = s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		// Checked before the note, which re-mints the bead's revision.
 		cur, err := w.loadBead(id)
 		if err != nil {
@@ -1628,6 +1659,9 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 // (see Expect). A bead that came from another yard is returned to it as
 // refused, with the reason: it left its flow without an outcome of it.
 // Closing takes back the bead's open stage asks, with closed as the reason.
+// From a session's or a crew member's pane the close is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
 	// The repository flows the close's gate evaluation resolves blockers'
@@ -1635,6 +1669,11 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 	look := &untilLooks{repos: s.gateRepos(ctx, s.blocksTargets(ctx, id)...), memo: flowMemo{}}
 	var b *Bead
 	err := s.write(func(w *wtx) (err error) {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		cur, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -1806,7 +1845,10 @@ func withGroup(b *beadRow, data map[string]any) map[string]any {
 
 // Reopen opens a closed bead again, in the stage it was closed in. A stale
 // exp refuses it (see Expect). Reopening into a templated stage is a fresh
-// stay: the yard asks fresh, with the reopened event as the entry.
+// stay: the yard asks fresh, with the reopened event as the entry. From a
+// session's or a crew member's pane the reopen is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string) (*Bead, error) {
 	// The repository flows the reopen's gate evaluation resolves
 	// blockers' flows through, read before the write: git must not run
@@ -1826,6 +1868,11 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 	}
 	var result *Bead
 	err = s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		cur, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -1880,9 +1927,11 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 // a held bead waits on a human, and a session kept for it would only hold a
 // slot other beads could use. Unholding routes it again from its stage with
 // fresh attempts (its failure count starts over). A stale exp refuses it
-// (see Expect).
+// (see Expect). From a session's or a crew member's pane the hold is
+// recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
-	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	b, err := s.changeBead(ctx, id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
@@ -1907,9 +1956,11 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 // Release takes a bead away from its group so it is routed again, ending
 // the current session as 'released'. A stale exp refuses it (see Expect):
 // an agent orphaned by a restart cannot release the bead from under the
-// session that owns it now.
+// session that owns it now. From a session's or a crew member's pane the
+// release is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
-	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	b, err := s.changeBead(ctx, id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}

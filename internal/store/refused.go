@@ -72,6 +72,13 @@ func (s *Store) refused(ctx context.Context, id, command string, exp Expect, act
 	reason := refusedWhy(cause)
 	// Best effort: the move's own error is what the caller is owed.
 	_ = s.write(func(w *wtx) error {
+		// The handle names the agent; the actor is only the fallback,
+		// and the pane's when the call came from one.
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		sess, err := moverSession(w.Tx, callerOf(ctx), exp)
 		if err != nil || sess == nil || sess.Manual() {
 			return err

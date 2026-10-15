@@ -220,7 +220,10 @@ func reading(row *beadRow, p *Peer, sent *peerSent, rec *peerRead) *PeerReading 
 // It is refused, with nothing queued, for a bead that is not away, for an
 // actor who may not (mayReadPeer), and over a link that does not carry
 // PeerThread both ways. While a question about the bead still waits to be
-// delivered, no second one is queued behind it: its id is returned.
+// delivered, no second one is queued behind it: its id is returned. From a
+// session's or a crew member's pane the read is recorded as that session's
+// actor or that crew member, whatever actor says; from anywhere else, as
+// given (paneAuthor).
 func (s *Store) PeerRead(ctx context.Context, bead, actor string) (*PeerReading, error) {
 	body, err := json.Marshal(PeerReadMessage{V: PeerBeadVersion})
 	if err != nil {
@@ -228,6 +231,11 @@ func (s *Store) PeerRead(ctx context.Context, bead, actor string) (*PeerReading,
 	}
 	var out *PeerReading
 	err = s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		row, err := w.loadBead(bead)
 		if err != nil {
 			return err

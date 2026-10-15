@@ -179,12 +179,19 @@ var DispatchKinds = []string{
 // DispatchKinds, so a client on the socket cannot pass off an event of
 // another kind (a webhook delivery, a state change) as the yard's own. A
 // failed-session event also marks its live claim for ETA pairing without
-// changing the bead's revision.
+// changing the bead's revision. From a session's or a crew member's pane
+// the report is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error {
 	if !slices.Contains(DispatchKinds, kind) {
 		return fmt.Errorf("event kind %q is not a dispatch event", kind)
 	}
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if etaFailedKinds[kind] {
 			if session, _ := data["session"].(string); session != "" {
 				var sess Session

@@ -146,12 +146,20 @@ func checkIssueURL(raw string) error {
 // LinkChange.Replaced. For kind tracks it refuses a bead that already
 // tracks an issue of the source, and an issue another bead tracks. The
 // bead's representation lists its links, so it is re-minted, as by an edge.
+// From a session's or a crew member's pane the link is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) AddLink(ctx context.Context, ref string, nl NewLink, actor string) (*LinkChange, error) {
 	if err := checkLink(&nl); err != nil {
 		return nil, err
 	}
 	var out *LinkChange
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		row, err := w.loadBead(ref)
 		if err != nil {
 			return err
@@ -280,13 +288,20 @@ func (w *wtx) dropLink(l *linkRow) error {
 }
 
 // RemoveLink deletes the bead's link to the issue, of either kind; the
-// unlinked event is its record.
+// unlinked event is its record. From a session's or a crew member's pane
+// the removal is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error {
 	if PeerIssue(issue) {
 		return PeerRowRefusal(issue)
 	}
 	issue = fixedIssue(issue)
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		row, err := w.loadBead(ref)
 		if err != nil {
 			return err
@@ -317,7 +332,9 @@ func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error 
 // with two: for work that grew into a train. The earlier tracker keeps a
 // relates link. It refuses an issue no bead tracks (AddLink is for that)
 // and, as AddLink does, a bead that already tracks another issue of the
-// source.
+// source. From a session's or a crew member's pane the move is recorded
+// as that session's actor or that crew member, whatever actor says; from
+// anywhere else, as given (paneAuthor).
 func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*LinkChange, error) {
 	if PeerIssue(issue) {
 		return nil, PeerRowRefusal(issue)
@@ -325,6 +342,11 @@ func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*Link
 	issue = fixedIssue(issue)
 	var out *LinkChange
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		to, err := w.loadBead(toRef)
 		if err != nil {
 			return err

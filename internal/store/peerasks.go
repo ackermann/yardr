@@ -858,6 +858,11 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 		return fmt.Errorf("an answer to another yard carries words of up to %d bytes", MaxPeerMailBytes)
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		p, err := loadPeer(w.Tx, peer)
 		if err != nil {
 			return err

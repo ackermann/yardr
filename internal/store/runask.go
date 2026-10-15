@@ -835,6 +835,11 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 // for one call (write): it reads the yard's records anew each time and ends
 // the same.
 func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor string) (*AskApproved, error) {
+	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return nil, err
+	}
+	actor = who
 	row, err := w.loadBead(id)
 	if err != nil {
 		return nil, err

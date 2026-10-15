@@ -197,6 +197,9 @@ func ParseAnswer(n Note) (Answer, error) {
 // a bead's agent are copied too. A copy that cannot be queued is told to
 // the person and refuses nothing. Where the copies went is kept until the
 // ask ends (bAskCopies), and so is where an ask addressed across went.
+// From a session's or a crew member's pane the ask is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
 	add, err := newAsk(ctx, ask, actor)
 	if err != nil {
@@ -289,16 +292,13 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		return nil, fmt.Errorf("--why needs --recommend: which option it is for")
 	}
 	ask.Why = strings.TrimSpace(ask.Why)
+	// yardr adds YouDecide itself, in the write below, naming the actor
+	// the pane bears out: the option says who is left to decide.
 	var about []string
 	for _, b := range ask.About {
 		if b = strings.TrimSpace(b); b != "" {
 			about = append(about, b)
 		}
-	}
-	if len(ask.Options) > 0 {
-		options := make([]AskOption, 0, len(ask.Options)+1)
-		ask.Options = append(append(options, ask.Options...),
-			AskOption{Label: YouDecide, Consequence: "leave it to " + actor})
 	}
 	to, peer, outside := strings.Cut(ask.To, "@")
 	if ask.Secret != nil {
@@ -341,6 +341,11 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		}
 	}
 	return func(w *wtx, id string) (uint64, error) {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return 0, err
+		}
+		actor = resolved
 		row, err := w.loadBead(id)
 		if err != nil {
 			return 0, err
@@ -389,6 +394,11 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		// A copy of ask, so that a batch which runs this twice checks what
 		// the writer sent both times.
 		ask := ask
+		if len(ask.Options) > 0 {
+			options := make([]AskOption, 0, len(ask.Options)+1)
+			ask.Options = append(append(options, ask.Options...),
+				AskOption{Label: YouDecide, Consequence: "leave it to " + actor})
+		}
 		if ask.Secret != nil {
 			if ask.Secret, err = w.askedSecret(*ask.Secret, ask.To); err != nil {
 				return 0, err
@@ -509,6 +519,9 @@ type AskedBead struct {
 // closes it when the answer is on it. A stage or a type is the caller
 // placing the bead, in a depot's decide stage for one: that bead is what
 // CreateBead makes of nb, a task without a type, and routed as its is.
+// From a session's or a crew member's pane the bead and the ask are
+// recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error) {
 	nb.Title = strings.TrimSpace(ask.Question)
 	if nb.Stage == "" && nb.Type == "" {
@@ -575,14 +588,18 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // An answer on a stage ask is its members' to give: a pick, words, Later
 // or Decline from anyone else is refused whole, with the membership
 // reason. A pick or words that fire an outcome move the bead in the same
-// write, through Done's path (stageAnswer).
+// write, through Done's path (stageAnswer). From a session's or a crew
+// member's pane the answer is recorded as that session's actor or that
+// crew member, whatever actor says; from anywhere else, as given
+// (paneAuthor).
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
 	return s.addAnswer(ctx, id, ans, actor, "")
 }
 
 // AddAnswerExpected is AddAnswer with the revision the caller read. The
 // check and the answer share one write, so another tab cannot answer an
-// older revision in the gap between a read and the write.
+// older revision in the gap between a read and the write. The pane rule
+// is AddAnswer's (paneAuthor).
 func (s *Store) AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error {
 	if revision == "" {
 		return fmt.Errorf("an answer needs the bead revision it was drawn from")
@@ -612,6 +629,11 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 	repo, repoErr := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
 	home, homeErr := s.stageHomeBefore(pre, repo)
 	return s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -809,7 +831,11 @@ func takenBackLine(a ResolvedAnswer) string {
 //
 // Where the ask also stands in other yards (a copy by reach, or an ask
 // addressed to <person>@<peer>), each is told in the same write
-// (settleCopies), and it leaves the person's decisions there too.
+// (settleCopies), and it leaves the person's decisions there too. From a
+// session's or a crew member's pane the take-back is recorded as that
+// session's actor or that crew member, whatever actor says, and theirs
+// are the only asks it may take back; from anywhere else, as given
+// (paneAuthor).
 func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, actor string) error {
 	reason = strings.TrimSpace(reason)
 	switch {
@@ -822,6 +848,11 @@ func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, 
 		return fmt.Errorf("ask %d on %s was asked in another yard, and is taken back there by whoever asked it", seq, id)
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
+		who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = who
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err

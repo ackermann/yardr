@@ -99,7 +99,10 @@ type PeerBack struct {
 // It is refused, with nothing queued, for a bead that is not away, for an
 // actor who may not (mayAtPeer: mail's rule, a crew member needs the peer
 // in its MailPeers setting, a user needs nothing, a bead's agent is
-// refused), and over a link that does not send PeerThread.
+// refused), and over a link that does not send PeerThread. From a
+// session's or a crew member's pane the note goes as that session's actor
+// or that crew member, whatever actor says; from anywhere else, as given
+// (paneAuthor).
 func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNoted, error) {
 	switch {
 	case strings.TrimSpace(text) == "" || len(text) > MaxPeerNoteBytes:
@@ -109,12 +112,13 @@ func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNo
 	case !peerMailName.MatchString(actor):
 		return nil, fmt.Errorf("a note from %q: a name of letters, digits, '.', '_', '-' and '/' is what another yard is told", actor)
 	}
-	body, err := json.Marshal(PeerNoteMessage{V: PeerBeadVersion, From: actor, Text: text})
-	if err != nil {
-		return nil, err
-	}
 	var out *PeerNoted
-	err = s.writeVia(ctx, func(w *wtx) error {
+	err := s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		row, err := w.loadBead(bead)
 		if err != nil {
 			return err
@@ -124,6 +128,10 @@ func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNo
 			return err
 		}
 		if err := mayAtPeer(ctx, w.Tx, actor, p.Name, "write on a bead of"); err != nil {
+			return err
+		}
+		body, err := json.Marshal(PeerNoteMessage{V: PeerBeadVersion, From: actor, Text: text})
+		if err != nil {
 			return err
 		}
 		if !p.carries(PeerBeadNote, false) {

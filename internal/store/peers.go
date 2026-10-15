@@ -997,7 +997,9 @@ func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) 
 // PeerSend puts a message of kind for the peer name in its outbox, under an
 // id minted here, for the daemon to deliver or the peer to ask for. A kind
 // the link does not carry out is refused, and logged as
-// peer_message_refused.
+// peer_message_refused. From a session's or a crew member's pane the send
+// is recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error) {
 	switch kind {
 	case PeerMail:
@@ -1032,6 +1034,11 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 	}
 	var out *PeerOut
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		p, err := loadPeer(w.Tx, name)
 		if err != nil {
 			return err

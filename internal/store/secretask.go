@@ -287,6 +287,11 @@ func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values ma
 // finds the file's lines and writes the same content. A login's handing
 // runs once: the second run finds lg set and writes the note only.
 func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uint64, values map[string]string, actor string, k *sourceKey, lg *loginSent) error {
+	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	actor = resolved
 	row, err := w.loadBead(id)
 	if err != nil {
 		return err

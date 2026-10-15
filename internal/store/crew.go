@@ -701,7 +701,9 @@ func (s *Store) MarkNotified(ctx context.Context, name string, seq uint64) error
 // Journal writes an entry on the crew member's journal bead. A handoff also
 // requests a fresh session. The entry is tagged with the crew session that
 // wrote it (paneCrewSession), so each session reads back its own handoff;
-// a write from no crew pane is the line's.
+// a write from no crew pane is the line's. From a session's or a crew
+// member's pane the entry is recorded as that session's actor or that crew
+// member, whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) error {
 	limit := map[string]int{NoteJournal: MaxJournalBytes, NoteHandoff: MaxHandoffBytes}[kind]
 	if limit == 0 {
@@ -714,6 +716,11 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 		return fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		// The entry is tagged with the session that wrote it: the handoff
 		// is per session, and the journal shared. A write from no crew
 		// pane is the line's, as every entry was before sessions.
@@ -743,6 +750,9 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 // Mail sends a message to the inbox of a crew member or of a user. files
 // are the blobs it carries, each by its hash as PutBlob answered it: the
 // mail event names them (MailFiles), and mail with a file needs no text.
+// From a session's or a crew member's pane the mail is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...string) error {
 	if strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
@@ -752,6 +762,11 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...strin
 		return fmt.Errorf("mail to %s: %w", to, err)
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		data := map[string]any{"to": to, "text": text}
 		if len(refs) > 0 {
 			data["files"] = refs

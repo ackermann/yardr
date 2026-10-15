@@ -77,7 +77,9 @@ type depRow struct {
 // the edge asked for with kind blocks, and the child's edge a parent edge
 // brings. Any other kind decides no readiness and is never refused for it.
 // The walk is part of this write, so of two adds that would close a cycle
-// between them the second sees the first's edge.
+// between them the second sees the first's edge. From a session's or a crew
+// member's pane the edge is recorded as that session's actor or that crew
+// member, whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if err := checkName("dep kind", kind); err != nil {
 		return err
@@ -131,6 +133,11 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, act
 	}
 	look := &untilLooks{repos: repos, memo: flowMemo{}}
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {
 			return err
@@ -493,7 +500,9 @@ func newEdgeID() string {
 // not exist is a no-op. Removing a child from its train (kind parent)
 // removes the plain blocks edge AddDep paired with it, so the train no
 // longer waits on a bead that is not its child; a staged edge between the
-// two is left alone.
+// two is left alone. From a session's or a crew member's pane the removal
+// is recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
@@ -514,6 +523,11 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, 
 	}
 	look := &untilLooks{repos: repos, memo: flowMemo{}}
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {
 			return err
@@ -761,14 +775,16 @@ type Note struct {
 	Session string `json:"session,omitempty"`
 }
 
-// paneAuthor is the author a plain note by actor is stored as: the
-// session's actor when the call comes from a bead session's pane, the
-// crew member's name when it comes from a crew pane, whatever actor says
+// paneAuthor is the actor a write by actor is recorded as: the session's
+// actor when the call comes from a bead session's pane, the crew
+// member's name when it comes from a crew pane, whatever actor says
 // (--actor, $YARDR_ACTOR). The pane is told by the store's own records
 // (paneSession, paneCrew), as a move is checked (see Expect): an agent
-// cannot write a note as the operator or the yardmaster by naming them.
-// A call from no pane (a person's terminal), and one from a pane whose
-// actor the store cannot tell, keeps the actor as given.
+// cannot write, move, ask or answer as the operator or the yardmaster by
+// naming them. A call from no pane (a person's terminal), and one from a
+// pane whose actor the store cannot tell, keeps the actor as given. Every
+// write that records who did it resolves its actor through here, once,
+// before any other use of it.
 func paneAuthor(tx *bolt.Tx, pid int, actor string) (string, error) {
 	if sess, err := paneSession(tx, pid); err != nil {
 		return "", err
@@ -907,7 +923,9 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string,
 // session's pane (WithCaller, as a move is checked: see Expect) acks as
 // that pane's session whatever session says, and one naming another is
 // refused: an agent cannot mark a note for another session read, nor
-// cancel its telling.
+// cancel its telling. From a session's or a crew member's pane the ack is
+// recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error) {
 	var out *Note
 	err := s.writeVia(ctx, func(w *wtx) error {
@@ -915,6 +933,11 @@ func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, act
 		if err != nil {
 			return err
 		}
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		pane, err := paneSession(w.Tx, callerOf(ctx))
 		if err != nil {
 			return err

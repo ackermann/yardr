@@ -900,7 +900,9 @@ func TestPeerBeadMoveFromACrewPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	pane := store.WithCaller(y.ctx, me)
-	want := `only members of group arrivals may move it out of stage arrived: jo, warden (this is the pane of the crew member yardmaster, whatever actor the command names: "jo")`
+	// The move is recorded as the pane's actor before the member check
+	// runs, so the refusal names the crew member, not the forged name.
+	want := `only members of group arrivals may move it out of stage arrived: jo, warden (you are "yardmaster")`
 	if _, err := y.own.Done(pane, one.ID, "refused", "", store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("a move from the yardmaster's pane as jo = %v", err)
 	}
@@ -964,8 +966,10 @@ func TestMembersByThePane(t *testing.T) {
 	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
 		t.Fatal(err)
 	}
+	// The move is recorded as the pane's actor before the member check
+	// runs, so the refusal names the crew member, not the forged name.
 	if _, err := y.own.Advance(pane, own.ID, "build", store.Expect{}, "jo"); err == nil ||
-		!strings.Contains(err.Error(), `this is the pane of the crew member yardmaster, whatever actor the command names: "jo"`) {
+		!strings.Contains(err.Error(), `only members of group decisions may move it out of stage decide: jo (you are "yardmaster")`) {
 		t.Fatalf("a move from the yardmaster's pane as jo = %v", err)
 	}
 	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
