@@ -1152,27 +1152,26 @@ func TestVendoredAssets(t *testing.T) {
 	}
 }
 
-// The stylesheet carries the train's tokens, in both themes.
+// The stylesheet carries the train's tokens, the design system's values in
+// the dark theme, which is the only one.
 func TestTokens(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dark, light, ok := strings.Cut(string(css), "@media (prefers-color-scheme: light)")
-	if !ok {
-		t.Fatal("no light theme")
+	if strings.Contains(string(css), "@media (prefers-color-scheme: light)") {
+		t.Error("a light theme, which the view does not have")
 	}
-	light, _, _ = strings.Cut(light, "\n}\n")
-	for theme, tokens := range map[*string]map[string]string{
-		&dark: {"ground": "#17171a", "panel": "#1e1e22", "hairline": "#26262b", "hairline-strong": "#35353d",
-			"ink": "#eae8ee", "dim": "#cdccd2", "faint": "#b0afb6", "accent": "#a9ceff", "landed": "#cfa548",
-			"working": "var(--accent)", "running": "#6db58a", "held": "#e0735f", "done": "var(--faint)"},
-		&light: {"ground": "#efece5", "panel": "#e7e3da", "ink": "#15140f", "accent": "#3c5777", "landed": "#8d6830"},
-	} {
-		for name, value := range tokens {
-			if !strings.Contains(*theme, "--"+name+": "+value+";") {
-				t.Errorf("token --%s is not %s", name, value)
-			}
+	tokens := map[string]string{
+		"ground": "#161718", "panel": "#1c1d1f", "hairline": "#27282b", "hairline-strong": "#333538",
+		"ink": "#e9e9ea", "dim": "#abadb0", "faint": "#808286",
+		"accent": "#d3602f", "accent-hover": "#e2794a", "landed": "#cfa548",
+		"working": "var(--accent)", "running": "#4cc38a", "held": "#e5675a",
+		"late": "#e8a33d", "done": "var(--faint)",
+	}
+	for name, value := range tokens {
+		if !strings.Contains(string(css), "--"+name+": "+value+";") {
+			t.Errorf("token --%s is not %s", name, value)
 		}
 	}
 	// Square corners everywhere; circles only for status dots.

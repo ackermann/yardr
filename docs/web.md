@@ -1153,7 +1153,7 @@ diagram wider than its depot pans horizontally at full size.
 How to read it:
 
 - A light is its bead: tapping it opens the bead. What it is stands in its
-  title; a blue light's title names what holds it. Lights stand newest
+  title; a rust light's title names what holds it. Lights stand newest
   first; past ten on one section the rest fold into `+N`, and the count
   beside the stage name always says the true number. A stage with none
   carries no count.
@@ -1161,16 +1161,16 @@ How to read it:
   anything on the plan: no id, no group name, nothing beside its light.
 - Every blocked kind is told apart: solid red for held, hollow red for
   gave up, hollow green for stalled, green with a red ring for blocked on
-  a prompt, blue for waiting on a dependency, a red diamond before a bead
+  a prompt, rust for waiting on a dependency, a red diamond before a bead
   back on `failed` or `changes`. A bead running past its usual time gets
   an amber ring around its light besides, its title naming the stage age
   against the p90; late stands beside the stalled lamp, never instead of
   it ([Estimates](#estimates-the-eta-and-the-late-mark)).
 - A stage that waits for a person carries a lamp: red where the wait is a
-  fault (held, blocked, gave up), blue where it is a person's turn by
+  fault (held, blocked, gave up), rust where it is a person's turn by
   design (a manual stage, or an open ask to the operator). A stage that can report `changes` carries a
   signal instead: a lamp on a short post, an unlit outline unless the
-  stage waits, when it lights red or blue as a wait lamp does; a wait on
+  stage waits, when it lights red or rust as a wait lamp does; a wait on
   a stage with no signal is a bare lamp. A bead back on `failed` or
   `changes` lights no lamp: its diamond is its only mark. A stage no
   route serves is dotted with the faint words `no route`.
@@ -1184,7 +1184,7 @@ The whole panel reads itself again on every event of the stream
 without a reload. The parameter shapes the HTML alone: as JSON the page
 answers the same with it as without it. Every colour the panel uses is a
 named token of the stylesheet (`--panel-*` for the track, with `--running`,
-`--held` and `--accent` for lit green, fault red and person's-turn blue,
+`--held` and `--accent` for lit green, fault red and person's-turn rust,
 and `--late` for the late ring), so the palette changes in one edit.
 
 ## Beads
@@ -1707,37 +1707,41 @@ at the top of `internal/web/assets/yard.css`, the one stylesheet. Use them;
 add none without need, and never write a colour, a face or a column width
 anywhere else.
 
-| token | dark | light | for |
-|---|---|---|---|
-| `--ground` | `#17171a` | `#efece5` | the page |
-| `--panel` | `#1e1e22` | `#e7e3da` | panels, the phone's menu bar |
-| `--hairline` | `#26262b` | `#dcd7cb` | rules between entries, panel borders |
-| `--hairline-strong` | `#35353d` | `#c6c0b2` | a rule that must show on a panel |
-| `--ink` | `#eae8ee` | `#15140f` | text |
-| `--dim` | `#cdccd2` | `#3b3930` | secondary text |
-| `--faint` | `#b0afb6` | `#625f54` | labels, what is done |
-| `--accent` | `#a9ceff` | `#3c5777` | the one accent: the current page, a link in use, focus |
-| `--landed` | `#cfa548` | `#8d6830` | the second accent, for what landed and nothing else |
-| `--shade` | `rgba(0, 0, 0, 0.45)` | the same | the backdrop that dims the page under the phone's More sheet |
-| `--working` | the accent | the accent | status: a session is working |
-| `--running` | `#6db58a` | `#2f7d55` | status: idle or running |
-| `--held` | `#e0735f` | `#b3402c` | status: blocked or held, and errors |
-| `--done` | faint | faint | status: done |
-| `--panel-board` | `#202622` | `#f5f1e6` | the panel's track: its board |
-| `--panel-ink` | `#e6e1d3` | `#1d2420` | the panel's track: stage names |
-| `--panel-dim` | `#9aa39b` | `#5d665f` | the panel's track: faint names, unlit lamps |
-| `--panel-line` | `#d8d2c0` | `#2a2f2b` | the panel's track: the lines |
-| `--panel-platform` | `#3a423c` | `#cfc7b2` | the panel's track: quiet lights |
-| `--mono` | | | the main face: `"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace` |
-| `--sans` | | | human words — home's answer, reasons and titles — and longer prose: `"Inter", system-ui, sans-serif` |
+| token | value | for |
+|---|---|---|
+| `--ground` | `#161718` | the page |
+| `--panel` | `#1c1d1f` | panels, the phone's menu bar |
+| `--hairline` | `#27282b` | rules between entries, panel borders |
+| `--hairline-strong` | `#333538` | a rule that must show on a panel |
+| `--ink` | `#e9e9ea` | text |
+| `--dim` | `#abadb0` | secondary text |
+| `--faint` | `#808286` | labels, what is done |
+| `--accent` | `#d3602f` | the one accent: the current page, a link in use, focus |
+| `--accent-hover` | `#e2794a` | the accent's hover |
+| `--landed` | `#cfa548` | the second accent, for what landed and nothing else |
+| `--shade` | `rgba(0, 0, 0, 0.45)` | the backdrop that dims the page under the phone's More sheet |
+| `--working` | the accent | status: a session is working |
+| `--running` | `#4cc38a` | status: idle or running |
+| `--held` | `#e5675a` | status: blocked or held, and errors |
+| `--late` | `#e8a33d` | status: running past its usual time |
+| `--done` | faint | status: done |
+| `--panel-board` | `#202622` | the panel's track: its board |
+| `--panel-ink` | `#e6e1d3` | the panel's track: stage names |
+| `--panel-dim` | `#9aa39b` | the panel's track: faint names, unlit lamps |
+| `--panel-line` | `#d8d2c0` | the panel's track: the lines |
+| `--panel-platform` | `#3a423c` | the panel's track: quiet lights |
+| `--mono` | | | the main face: `"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace` |
+| `--sans` | | | human words — home's answer, reasons and titles — and longer prose: `"IBM Plex Sans", system-ui, sans-serif` |
 | `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures; on home the answer line alone) |
 | `--gap` | | | 16px, the one spacing unit |
 | `--label-spacing` | | | 0.14em, for uppercase labels |
 | `--menu-width`, `--centre-width`, `--right-width` | | | the three columns |
 
-The light theme applies under `prefers-color-scheme: light`. The fonts are
-the reader's own: none is downloaded, so a machine without JetBrains Mono
-or Inter shows its system monospace and sans.
+The view is dark only: there is no light theme. Its colours are the
+yardr design system's (dusk surfaces, one rust accent, green only for
+running); each token in the stylesheet names the design token it came
+from. The faces are the reader's own: none is downloaded, so a machine
+without IBM Plex Sans or Plex Mono shows its system sans and monospace.
 
 Rules the stylesheet holds to, and a test checks the second:
 
