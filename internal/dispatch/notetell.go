@@ -26,12 +26,15 @@ import (
 // the session ends first, nothing is sent, and the note shows as untold.
 //
 // How the telling goes depends on the pane. Where it shows the prompt of
-// its harness it is typed, as ever; where it shows none (the harness idle
-// at a prompt herdr cannot see, a shell of its own), it goes through
-// herdr, which submits it itself. The note_told event says which way with
-// delivery. A telling neither way takes is marked untold, with why, and
-// the yardmaster hears it (note_untold is of the class attention): the
-// note then says "could not be told", and "will be told" is said no more.
+// its harness it is typed, as ever; where it shows none, or none yardr
+// can read (the harness idle at a prompt herdr cannot see, a shell of its
+// own, a kind whose marks are unknown), it goes through herdr, which
+// submits it itself. The note_told event says which way with delivery. A
+// telling neither way takes is marked untold, with why, and the yardmaster
+// hears it (note_untold is of the class attention): the note then says
+// "could not be told", and "will be told" is said no more. One behind a
+// first prompt that was given up is marked untold too: the first prompt
+// goes first, and it never arrives.
 func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) error {
 	notes, err := d.Store.Notes(ctx, s.Bead)
 	if err != nil {
@@ -59,6 +62,13 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 		// pending one is stuck on a screen that is not there (its
 		// delivery waits for the harness to draw it), and a note
 		// through herdr does not wait behind it.
+		if s.Handle[promptLost] == true {
+			// Given up: the first prompt never arrives, so a note
+			// behind it never goes either. Marked untold with why,
+			// not left for a pass that never comes.
+			return d.Store.MarkNoteUntold(ctx, s.Bead, untold.Seq, s.ID,
+				"the session's first prompt never arrived and was given up, and a note is not told before it")
+		}
 		return nil
 	}
 	if s.Handle[harnessPrompted] != nil {
@@ -92,17 +102,23 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 }
 
 // paneHasPrompt reports whether the pane of handle shows the prompt of its
-// harness: its screen is up, with an input to type into. A runner that
-// cannot tell (no ScreenWatcher, an unknown kind, no pane, one that cannot
-// be read) says it does: a telling then goes as it did before yardr
-// looked, typed with herdr's wait.
+// harness: its screen is up, with an input to type into. A screen yardr
+// cannot read (an unknown kind, no pane, one that cannot be read) says it
+// does not: the telling goes through herdr, which submits it itself.
+//
+// Found live (yardr-1h6r): Muse draws its own hint where its input is,
+// which reads as text someone left, so a telling typed into the pane of a
+// kind whose marks are unknown (no muse.yaml) waits behind it for as long
+// as it sits there, and no note_untold says why. A runner with no
+// ScreenWatcher still says it does: a telling then goes as it did before
+// yardr looked, typed with herdr's wait.
 func (d *Dispatcher) paneHasPrompt(ctx context.Context, r Runner, handle map[string]any) bool {
 	sw, ok := r.(ScreenWatcher)
 	if !ok {
 		return true
 	}
 	up, known := sw.HarnessScreen(ctx, handle)
-	return !known || up
+	return known && up
 }
 
 // noteAuthor is a note's author as the nudge names it. Outside a pane the
