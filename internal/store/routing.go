@@ -1272,18 +1272,17 @@ func originatorOf(tx *bolt.Tx, u string) string {
 	return op
 }
 
-// loginOf is whose login the group burns: what it declares in login_for,
-// else the operator's. "" when the group names none and no operator is set
-// either, or the group is gone.
+// loginOf is whose login the group burns, resolved by EffectiveLogin. A
+// missing group and one that declares none both use the operator's login.
 func loginOf(tx *bolt.Tx, group string) string {
 	g := new(Group)
 	if ok, err := get(tx, bGroups, group, g); err == nil && ok {
-		if who := g.LoginFor(); who != "" {
-			return who
+		if g.LoginFor() != "" {
+			return g.EffectiveLogin("")
 		}
 	}
-	op, _ := operatorIn(tx)
-	return op
+	operator, _ := operatorIn(tx)
+	return g.EffectiveLogin(operator)
 }
 
 // PendingPrompt is a key of a handle, a session's or a crew member's: the
