@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,6 +231,66 @@ func TestDaemonStopRefusesAPidItCannotVerify(t *testing.T) {
 		return nil
 	})
 	if _, err := kindOf(svcDaemon).stop(cfg, 0); err == nil {
+		t.Fatal("stop passed a pid it could not verify")
+	}
+	if len(signalled) != 0 {
+		t.Fatalf("stop signalled %v", signalled)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("stop killed the decoy: %v", err)
+	}
+}
+
+// A record whose pid another process has reused must not get that
+// process signalled: the kind's stop signals nothing (yardr-vhs2).
+func TestRecordStopLeavesAReusedPIDAlone(t *testing.T) {
+	if !peer.HaveStat() {
+		t.Skip("the OS reports no process start times")
+	}
+	cfg := &config.Config{Home: newHome(t)}
+	k := kindOf(svcWeb)
+	sleep := sleeper(t)
+	pid := sleep.Process.Pid
+	real, err := peer.Describe(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdLockWith(t, filepath.Join(k.Records(cfg), "web-test.json"),
+		fmt.Sprintf("{\"pid\":%d,\"start\":%d,\"addr\":\"127.0.0.1:8791\"}\n", pid, real.Start+1))
+	var signalled []int
+	stub(t, &signalStop, func(pid int) error {
+		signalled = append(signalled, pid)
+		return nil
+	})
+	if stopped, err := k.stop(cfg, 0); err != nil || len(stopped) != 0 {
+		t.Fatalf("stop = %+v, %v; want the reused pid reported gone", stopped, err)
+	}
+	if len(signalled) != 0 {
+		t.Fatalf("stop signalled %v", signalled)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("stop killed the decoy: %v", err)
+	}
+}
+
+// A record from before starts were recorded names a holder a stop
+// cannot verify: it is refused, not signalled.
+func TestRecordStopRefusesAPidItCannotVerify(t *testing.T) {
+	if !peer.HaveStat() {
+		t.Skip("without start times the pid is trusted, as before")
+	}
+	cfg := &config.Config{Home: newHome(t)}
+	k := kindOf(svcBDP)
+	sleep := sleeper(t)
+	pid := sleep.Process.Pid
+	holdLockWith(t, filepath.Join(k.Records(cfg), "bdp-test.json"),
+		fmt.Sprintf("{\"pid\":%d,\"addr\":\"127.0.0.1:8765\"}\n", pid))
+	var signalled []int
+	stub(t, &signalStop, func(pid int) error {
+		signalled = append(signalled, pid)
+		return nil
+	})
+	if _, err := k.stop(cfg, 0); err == nil {
 		t.Fatal("stop passed a pid it could not verify")
 	}
 	if len(signalled) != 0 {

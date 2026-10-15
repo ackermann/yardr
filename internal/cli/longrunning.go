@@ -339,6 +339,12 @@ func (k *longRunning) announce(cfg *config.Config, fields map[string]any) (clear
 	}
 	path := filepath.Join(dir, k.Name+"-"+strings.TrimPrefix(filepath.Base(f.Name()), ".new-")+".json")
 	record := map[string]any{"pid": os.Getpid(), "started": time.Now().UTC(), "revision": viewRevision()}
+	// The OS start time, by which a stop verifies the pid is still this
+	// process's before signalling it. Where the OS reports none the pid
+	// stands alone, as before.
+	if st, err := peer.Describe(os.Getpid()); err == nil {
+		record["start"] = st.Start
+	}
 	for key, v := range fields {
 		record[key] = v
 	}
@@ -424,19 +430,22 @@ func (k *longRunning) stop(cfg *config.Config, wait time.Duration) ([]instance, 
 			return nil, fmt.Errorf("a %s holds %s, and the file names no pid to stop", k.What, r.path)
 		}
 		pid := r.PID
+		// The pid is read again and verified before it is signalled: the
+		// holder may have let go since running saw it, and the pid may
+		// be another process's now.
+		var gone bool
+		var err error
 		if k.Lock != nil {
-			// The daemon's pid is read again and verified before it is
-			// signalled: the holder may have let go since running saw
-			// it, and the pid may be another process's now.
-			var gone bool
-			var err error
-			if pid, gone, err = verifyLock(r.path); err != nil {
-				return nil, err
-			} else if gone {
-				continue
-			}
-			r.PID = pid
+			pid, gone, err = verifyLock(r.path)
+		} else {
+			pid, gone, err = verifyRecord(r.path, k.What)
 		}
+		if err != nil {
+			return nil, err
+		} else if gone {
+			continue
+		}
+		r.PID = pid
 		if err := signalStop(pid); err != nil {
 			if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EPERM) {
 				continue // gone between the check and the signal
@@ -478,6 +487,55 @@ func verifyLock(path string) (pid int, gone bool, err error) {
 		return 0, false, fmt.Errorf("a daemon holds %s, but pid %d cannot be verified as its holder (the lock file predates start-time verification); not signalling it", path, pid)
 	}
 	return 0, true, nil // the recorded daemon is gone or its pid was reused
+}
+
+// verifyRecord reads the kind's record file again and returns the pid to
+// signal: the holder's, verified by its recorded start time. Gone (the
+// record free, the pid dead or reused) is reported as such and never
+// signalled; a record that is held but names no verifiable pid is an
+// error, not a signal.
+func verifyRecord(path, what string) (pid int, gone bool, err error) {
+	pid, start, recorded := recordIdentity(path)
+	if pid > 0 && (!peer.HaveStat() || (recorded && peer.Alive(pid, start))) {
+		return pid, false, nil
+	}
+	// The holder let go, or the file names another process now; tell them
+	// apart by the lock, read again.
+	if !config.DaemonRunning(path) {
+		return 0, true, nil
+	}
+	if pid <= 0 {
+		return 0, false, fmt.Errorf("a %s holds %s, and the file names no pid to stop", what, path)
+	}
+	if !recorded {
+		return 0, false, fmt.Errorf("a %s holds %s, but pid %d cannot be verified as its holder (the record predates start-time verification); not signalling it", what, path, pid)
+	}
+	return 0, true, nil // the recorded holder is gone or its pid was reused
+}
+
+// recordIdentity is the pid and the OS start time the held record at
+// path names. It is zero when no process holds the record or the record
+// cannot be read; recorded is false when the holder recorded no start
+// time: a record from before starts were recorded.
+func recordIdentity(path string) (pid int, start uint64, recorded bool) {
+	if !config.DaemonRunning(path) {
+		return 0, 0, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	var rec struct {
+		PID   int     `json:"pid"`
+		Start *uint64 `json:"start"`
+	}
+	if json.Unmarshal(b, &rec) != nil {
+		return 0, 0, false
+	}
+	if rec.Start != nil {
+		return rec.PID, *rec.Start, true
+	}
+	return rec.PID, 0, false
 }
 
 // stopDaemon stops the home's daemon. It returns the pid it stopped, 0 when
