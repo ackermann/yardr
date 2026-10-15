@@ -66,7 +66,10 @@ func TestSettingsAreTheOperatorsToChange(t *testing.T) {
 		if err := s.MarkRunning(ctx, sess.ID, map[string]any{"pid": me, "start": ps.Start}); err != nil {
 			t.Fatal(err)
 		}
-		refused(t, pane, sess.ID, sess.ID)
+		// The pane's actor (an exec session runs as its group),
+		// whatever --actor says, even the operator's name (yardr-6g56).
+		refused(t, pane, sess.ID, "builders")
+		refused(t, pane, "jo", "builders")
 	})
 	t.Run("anyone else by name", func(t *testing.T) {
 		refused(t, ctx, "kim", "kim")

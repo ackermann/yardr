@@ -113,7 +113,15 @@ func userSubscribers(tx *bolt.Tx, fn func(u *User, subs []boundSub) error) error
 // maySubscribe refuses actor changing what the user name is told: that is
 // the user's own to decide, or the operator's for them. A crew member
 // deciding what a person hears of is what notifications are there to end.
-func (w *wtx) maySubscribe(name, actor string) error {
+// From a session's or a crew member's pane the actor is the pane's
+// (paneAuthor) before the rule is read, so a pane can never pass as the
+// user or the operator by --actor alone.
+func (w *wtx) maySubscribe(ctx context.Context, name, actor string) error {
+	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	actor = resolved
 	operator, err := operatorIn(w.Tx)
 	if err != nil {
 		return err

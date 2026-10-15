@@ -166,7 +166,9 @@ func timerLimits(tx *bolt.Tx) (limit int, minEvery time.Duration) {
 // AddTimer sets a timer as actor, who must be a crew member or a user. It is
 // for the setter, or, set by a crew member, for a user; nobody sets one for
 // another crew member. It refuses what the yard's limits do not allow, and a
-// timer whose Unless already holds.
+// timer whose Unless already holds. From a session's or a crew member's
+// pane the timer is the pane's actor's (paneAuthor), whatever actor says;
+// from anywhere else, as given.
 func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error) {
 	reason := strings.TrimSpace(nt.Reason)
 	if reason == "" {
@@ -178,7 +180,7 @@ func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer
 	if nt.UnlessStage != "" && nt.UnlessBead == "" {
 		return nil, errors.New("timer: --unless stage=<stage> needs its bead: bead=<id>,stage=<stage>")
 	}
-	t := &Timer{By: actor, To: or(nt.To, actor), Reason: reason}
+	t := &Timer{Reason: reason}
 	if nt.UnlessBead != "" {
 		// Outside the write: a stage's place in the flow may need the
 		// depot's repository read.
@@ -195,6 +197,12 @@ func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer
 		t.Unless = &TimerUnless{Bead: st.bead, Stage: nt.UnlessStage}
 	}
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
+		t.By, t.To = actor, or(nt.To, actor)
 		byCrew := w.Bucket(bCrew).Get([]byte(actor)) != nil
 		byUser := w.Bucket(bUsers).Get([]byte(actor)) != nil
 		if !byCrew && !byUser {
@@ -305,7 +313,10 @@ func (s *Store) Timers(ctx context.Context, name string) ([]Timer, error) {
 }
 
 // RemoveTimer removes the timer id as actor: whoever set it or is told by
-// it, or the operator (operatorOnly), who removes anyone's.
+// it, or the operator (operatorOnly), who removes anyone's. From a
+// session's or a crew member's pane the actor is the pane's (paneAuthor)
+// before the rule is read, so a pane can never pass as the setter, the
+// one told, or the operator by --actor alone.
 func (s *Store) RemoveTimer(ctx context.Context, id, actor string) (*Timer, error) {
 	t := new(Timer)
 	err := s.write(func(w *wtx) error {
@@ -336,6 +347,11 @@ func (w *wtx) checkTimerRemove(ctx context.Context, id, actor string) error {
 // timerForRemoval is the permission and existence check RemoveTimer uses;
 // a run ask uses the same check to decide whether the operator must approve.
 func (w *wtx) timerForRemoval(ctx context.Context, id, actor string) (*Timer, error) {
+	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return nil, err
+	}
+	actor = resolved
 	t := new(Timer)
 	if ok, err := get(w.Tx, bTimers, id, t); err != nil {
 		return nil, err

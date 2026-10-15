@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
@@ -231,6 +232,64 @@ func TestPaneCrewStaleRecordDoesNotHideLiveOne(t *testing.T) {
 	}
 }
 
+// An admin write from a session's or a crew member's pane is checked as
+// the pane's actor, whatever --actor says: a pane can never pass one as
+// the operator. From no pane the actor stands as given (yardr-6g56).
+func TestPaneAdminWriteIsThePanesActor(t *testing.T) {
+	t.Run("session", func(t *testing.T) {
+		s, ctx, _, _, actor := paneMoveYard(t)
+		pane := store.WithCaller(ctx, os.Getpid())
+		if _, err := s.AddUser(pane, "grace", "op"); err == nil ||
+			err.Error() != "only the operator (op) may add a user; this is "+actor {
+			t.Fatalf("AddUser from the pane as the operator = %v", err)
+		}
+		// From no pane, as today: its own yard, with no pane on record.
+		plain, plainCtx, _, _, _ := moveYardClaim(t)
+		if _, err := plain.AddUser(plainCtx, "grace", "op"); err != nil {
+			t.Fatalf("AddUser from no pane as the operator: %v", err)
+		}
+	})
+	t.Run("crew", func(t *testing.T) {
+		api, own := operatorYard(t)
+		ctx := context.Background()
+		if _, err := api.AddUser(ctx, "grace", "jo"); err != nil {
+			t.Fatalf("AddUser from no pane as the operator: %v", err)
+		}
+		me := os.Getpid()
+		ps, err := peer.Describe(me)
+		if err != nil {
+			t.Skipf("this process cannot be described: %v", err)
+		}
+		if err := api.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, me)
+		if _, err := own.AddUser(pane, "heidi", "jo"); err == nil ||
+			err.Error() != "only the operator (jo) may add a user; this is yardmaster" {
+			t.Fatalf("AddUser from the pane as the operator = %v", err)
+		}
+	})
+}
+
+// A timer set from a session's pane is the pane's actor's, whatever
+// --actor says: a pane can never set one as the operator. From no pane
+// the actor stands as given (yardr-6g56).
+func TestPaneTimerIsThePanesActor(t *testing.T) {
+	nt := store.NewTimer{Reason: "stretch", Due: time.Now().Add(time.Hour)}
+	s, ctx, _, _, actor := paneMoveYard(t)
+	pane := store.WithCaller(ctx, os.Getpid())
+	if _, err := s.AddTimer(pane, nt, "op"); err == nil ||
+		!strings.Contains(err.Error(), actor) ||
+		!strings.Contains(err.Error(), "neither a crew member nor a user") {
+		t.Fatalf("AddTimer from the pane as the operator = %v, want a refusal as %s", err, actor)
+	}
+	// From no pane, as today: its own yard, with no pane on record.
+	plain, plainCtx, _, _, _ := moveYardClaim(t)
+	if _, err := plain.AddTimer(plainCtx, nt, "op"); err != nil {
+		t.Fatalf("AddTimer from no pane as the operator: %v", err)
+	}
+}
+
 // Speaking as a crew member is its own or the operator's: its own by the
 // actor its session names, or by the pane yardr started it in when a
 // command there names another.
@@ -283,9 +342,10 @@ func TestSpeakingAsACrewMember(t *testing.T) {
 			t.Errorf("%s from yardmaster's own pane, naming another = %v", does, err)
 		}
 	}
-	// Its pane is its own, not another crew member's.
+	// Its pane is its own, not another crew member's: the call is
+	// checked as yardmaster, whatever --actor says (yardr-6g56).
 	if _, err := own.Replying(pane, "clerk", 7, "", "hello", "yard-10-new"); err == nil ||
-		!strings.Contains(err.Error(), "only clerk's own session or the operator (jo) may speak as clerk; this is yard-10-new") {
+		!strings.Contains(err.Error(), "only clerk's own session or the operator (jo) may speak as clerk; this is yardmaster") {
 		t.Errorf("replying as clerk from yardmaster's pane = %v", err)
 	}
 }

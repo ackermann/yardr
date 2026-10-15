@@ -128,15 +128,22 @@ func operatorIn(tx *bolt.Tx) (string, error) {
 // notOperator says whether actor acts as anyone but the operator: this is
 // then how a refusal names them, and operator how it names the operator.
 // It is the one place the rule is read, inside the write it guards, so
-// every client of the store is held to it. The actor is the caller's word
-// (YARDR_ACTOR, --actor): every agent runs as one OS user, so this is a
-// line against mistakes, not a wall, and moves when yardr hosts more than
-// one person. What must hold against a caller that names someone else asks
-// the store's own records first (maySource, mayTell). A yard that names no
-// operator has nobody to hold it to, and takes the change from anyone who
-// is no agent of its own, as maySource reads it: no crew member, and no
-// call from the pane of a bead's session or of a crew member.
+// every client of the store is held to it. From a session's or a crew
+// member's pane the actor is the pane's (paneAuthor) before the rule is
+// read, so a pane can never pass an admin write as the operator by
+// --actor alone; from anywhere else it is the caller's word (YARDR_ACTOR,
+// --actor): every agent runs as one OS user, so this is a line against
+// mistakes, not a wall, and moves when yardr hosts more than one person.
+// A yard that names no operator has nobody to hold it to, and takes the
+// change from anyone who is no agent of its own, as maySource reads it:
+// no crew member, and no call from the pane of a bead's session or of a
+// crew member.
 func notOperator(ctx context.Context, tx *bolt.Tx, actor string) (operator, this string, err error) {
+	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+	if err != nil {
+		return "", "", err
+	}
+	actor = resolved
 	name, err := operatorIn(tx)
 	switch {
 	case err != nil:
@@ -242,10 +249,17 @@ func (s *Store) daemonOnly(ctx context.Context, method string) error {
 // maySpeakAs refuses to speak as the crew member name to anyone but the
 // crew member itself and the operator: a bead's agent, or another crew
 // member, would otherwise speak in its name, with its credential or the
-// operator's. The crew member is known by the actor its session names, or
-// by the pane yardr started it in (paneCrew) when a command there names
-// another. Like operatorOnly it is a line, not a wall.
+// operator's. From a session's or a crew member's pane the actor is the
+// pane's (paneAuthor) before the rule is read, so a pane can never pass
+// as the crew member or the operator by --actor alone; the pane yardr
+// started it in still speaks as it when a command there names another.
+// Like operatorOnly it is a line, not a wall.
 func maySpeakAs(ctx context.Context, tx *bolt.Tx, name, actor string) error {
+	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	actor = resolved
 	if actor == name {
 		return nil
 	}

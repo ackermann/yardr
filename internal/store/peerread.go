@@ -176,8 +176,16 @@ func mayReadPeer(ctx context.Context, tx *bolt.Tx, actor, peer string) error {
 }
 
 // mayAtPeer is the rule of mayReadPeer for what: reading a bead that is at
-// peer, or writing on that yard's bead for it (PeerNote).
+// peer, or writing on that yard's bead for it (PeerNote). From a session's
+// or a crew member's pane the actor is the pane's (paneAuthor) before the
+// rule is read, so a pane can never pass as a user or the operator by
+// --actor alone.
 func mayAtPeer(ctx context.Context, tx *bolt.Tx, actor, peer, what string) error {
+	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	actor = resolved
 	var r CrewMember
 	if ok, err := get(tx, bCrew, actor, &r); err != nil {
 		return err

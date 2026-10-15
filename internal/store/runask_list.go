@@ -665,12 +665,12 @@ func (w *wtx) staleTold(seq uint64, name string, was, now AskRun) error {
 // the check a subscription typed at a terminal has (maySubscribe): the user
 // subscribes themselves, or the operator does it for them. It answers the
 // line yardr subscribe prints.
-func runSubscribe(_ context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+func runSubscribe(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 	name, sub := subscribeOf(argv)
 	if err := w.bindSubscription(name, "user", &sub); err != nil {
 		return "", err
 	}
-	if err := w.addSubscription(name, sub, actor, by); err != nil {
+	if err := w.addSubscription(ctx, name, sub, actor, by); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s subscribed: %s", name, sub), nil

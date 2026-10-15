@@ -248,10 +248,18 @@ func (s *Store) AnyDevice(ctx context.Context) (bool, error) {
 
 // RemoveDevice removes the device name of the user: its token is refused
 // from then on. The operator removes one, and so does the user whose it is:
-// taking a way in away lets nobody speak as anyone.
+// taking a way in away lets nobody speak as anyone. From a session's or a
+// crew member's pane the actor is the pane's (paneAuthor) before the rule
+// is read, so a pane can never pass as the user or the operator by --actor
+// alone.
 func (s *Store) RemoveDevice(ctx context.Context, user, name, actor string) (*Device, error) {
 	var out *Device
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if actor != user {
 			operator, this, err := notOperator(ctx, w.Tx, actor)
 			if err != nil {

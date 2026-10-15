@@ -312,7 +312,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 		// Batch reruns this closure, so it binds a copy.
 		sub := sub
 		sub.Where = maps.Clone(sub.Where)
-		return w.addSubscription(name, sub, actor, nil)
+		return w.addSubscription(ctx, name, sub, actor, nil)
 	})
 }
 
@@ -325,7 +325,7 @@ func (s *Store) AddSubscriptionKind(ctx context.Context, name, kind string, sub 
 	return s.write(func(w *wtx) error {
 		sub := sub
 		sub.Where = maps.Clone(sub.Where)
-		return w.addSubscriptionKind(name, kind, sub, actor)
+		return w.addSubscriptionKind(ctx, name, kind, sub, actor)
 	})
 }
 
@@ -420,11 +420,11 @@ func (w *wtx) bindSubscription(name, kind string, sub *Subscription) error {
 // addSubscription is AddSubscription inside the transaction, for a
 // subscription check has passed. by is the ask it was approved on, nil for
 // one typed at a terminal: the event then names it (ApproveAsk).
-func (w *wtx) addSubscription(name string, sub Subscription, actor string, by *approvedOn) error {
+func (w *wtx) addSubscription(ctx context.Context, name string, sub Subscription, actor string, by *approvedOn) error {
 	if err := w.bindSubscription(name, "", &sub); err != nil {
 		return err
 	}
-	return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+	return w.changeSubscriptions(ctx, name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
 		if slices.ContainsFunc(subs, sub.same) {
 			return subs, "", nil, nil
 		}
@@ -437,11 +437,11 @@ func (w *wtx) addSubscription(name string, sub Subscription, actor string, by *a
 }
 
 // addSubscriptionKind is addSubscription for one stated kind of subscriber.
-func (w *wtx) addSubscriptionKind(name, kind string, sub Subscription, actor string) error {
+func (w *wtx) addSubscriptionKind(ctx context.Context, name, kind string, sub Subscription, actor string) error {
 	if err := w.bindSubscription(name, kind, &sub); err != nil {
 		return err
 	}
-	return w.changeSubscriptionsKind(name, kind, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+	return w.changeSubscriptionsKind(ctx, name, kind, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
 		if slices.ContainsFunc(subs, sub.same) {
 			return subs, "", nil, nil
 		}
@@ -453,7 +453,7 @@ func (w *wtx) addSubscriptionKind(name, kind string, sub Subscription, actor str
 // group) name to source, only those of scope and with exactly where when
 // given, and reports how many.
 func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
-	return s.dropSubscriptions(name, "", source, actor, func(sub Subscription) bool {
+	return s.dropSubscriptions(ctx, name, "", source, actor, func(sub Subscription) bool {
 		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
 	})
 }
@@ -461,7 +461,7 @@ func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope str
 // RemoveSubscriptionsKind is RemoveSubscriptions for the subscriber of one
 // stated kind ("crew", "user" or "group") called name, and no other.
 func (s *Store) RemoveSubscriptionsKind(ctx context.Context, name, kind, source, scope string, where map[string]string, actor string) (int, error) {
-	return s.dropSubscriptions(name, kind, source, actor, func(sub Subscription) bool {
+	return s.dropSubscriptions(ctx, name, kind, source, actor, func(sub Subscription) bool {
 		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
 	})
 }
@@ -473,17 +473,17 @@ func (s *Store) Unwatch(ctx context.Context, name, bead, actor string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	return s.dropSubscriptions(name, "", SourceYardr, actor, func(sub Subscription) bool { return sub.Where["bead"] == b.ID })
+	return s.dropSubscriptions(ctx, name, "", SourceYardr, actor, func(sub Subscription) bool { return sub.Where["bead"] == b.ID })
 }
 
-func (s *Store) dropSubscriptions(name, kind, source, actor string, match func(Subscription) bool) (int, error) {
+func (s *Store) dropSubscriptions(ctx context.Context, name, kind, source, actor string, match func(Subscription) bool) (int, error) {
 	n := 0
 	err := s.write(func(w *wtx) error {
 		change := func(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 			if kind == "" {
-				return w.changeSubscriptions(name, actor, fn)
+				return w.changeSubscriptions(ctx, name, actor, fn)
 			}
-			return w.changeSubscriptionsKind(name, kind, actor, fn)
+			return w.changeSubscriptionsKind(ctx, name, kind, actor, fn)
 		}
 		return change(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
 			var keep []Subscription
@@ -521,7 +521,7 @@ func (s *Store) dropSubscriptions(name, kind, source, actor string, match func(S
 // one of them with changeSubscriptionsKind. Adding under a shared name
 // still lands on the crew member: only a removal shortens the list it
 // matches, so only one is ever shared out.
-func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+func (w *wtx) changeSubscriptions(ctx context.Context, name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	var r CrewMember
 	crew, err := get(w.Tx, bCrew, name, &r)
 	if err != nil {
@@ -542,7 +542,7 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 	if ok, err := get(w.Tx, bUsers, name, &u); err != nil {
 		return err
 	} else if ok {
-		return w.applyUser(name, u, actor, fn)
+		return w.applyUser(ctx, name, u, actor, fn)
 	}
 	if !group {
 		return fmt.Errorf("no crew member, user or group %s: %w", name, ErrNotFound)
@@ -595,7 +595,7 @@ func (w *wtx) changeSharedSubscriptions(name, actor string, r CrewMember, g Grou
 // changeSubscriptionsKind is changeSubscriptions for one stated kind of
 // subscriber: "crew", "user" or "group". It looks at no other kind: a crew
 // naming only a group is not found.
-func (w *wtx) changeSubscriptionsKind(name, kind, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+func (w *wtx) changeSubscriptionsKind(ctx context.Context, name, kind, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	switch kind {
 	case "crew":
 		var r CrewMember
@@ -612,7 +612,7 @@ func (w *wtx) changeSubscriptionsKind(name, kind, actor string, fn func([]Subscr
 		} else if !ok {
 			return fmt.Errorf("user %s: %w", name, ErrNotFound)
 		}
-		return w.applyUser(name, u, actor, fn)
+		return w.applyUser(ctx, name, u, actor, fn)
 	case "group":
 		var g Group
 		if ok, err := get(w.Tx, bGroups, name, &g); err != nil {
@@ -642,8 +642,8 @@ func (w *wtx) applyCrew(name string, r CrewMember, actor string, fn func([]Subsc
 // applyUser runs fn on the user's subscriptions and writes what it returns
 // back with fn's event, unattached. Only the user and the operator change
 // them.
-func (w *wtx) applyUser(name string, u User, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
-	if err := w.maySubscribe(name, actor); err != nil {
+func (w *wtx) applyUser(ctx context.Context, name string, u User, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
+	if err := w.maySubscribe(ctx, name, actor); err != nil {
 		return err
 	}
 	subs, kind, data, err := fn(u.Subscriptions)
