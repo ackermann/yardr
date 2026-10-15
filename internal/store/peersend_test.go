@@ -283,6 +283,78 @@ func TestPeerBeadMessageTooLargeToSend(t *testing.T) {
 	}
 }
 
+// A bead sent where nothing can carry it is not sent: its stage ends as
+// undelivered when the link carries no bead out, or the peer is linked no
+// more, and the line says not sent, with no row for a bead there. A later
+// sending this yard refuses keeps no row either: there was no stay.
+func TestPeerBeadNotSentWithoutALink(t *testing.T) {
+	y, _ := newSendingYard(t)
+	y.allow(t, store.PeerAllow{NoSend: []string{"bead"}})
+	big, _ := y.send(t, store.NewBead{Title: "Too much", Body: strings.Repeat("x", store.MaxPeerBeadBody+1)})
+	got, err := y.api.GetBead(y.ctx, big.ID)
+	if err != nil || got.Stage != "decide" || len(y.outbox(t)) != 0 {
+		t.Fatalf("a bead whose link carries nothing out = %+v, %v; outbox %d", got, err, len(y.outbox(t)))
+	}
+	away := got.Away()
+	if away == nil || away.Outcome != store.OutcomeUndelivered || !away.Unsent ||
+		!strings.HasPrefix(away.Line(), "not sent to north "+away.At.Local().Format("01-02 15:04")+": the link with north does not carry bead out") {
+		t.Fatalf("what it says = %+v", away)
+	}
+	if strings.Contains(away.Line(), "was at") || len(got.PeerLinks()) != 0 {
+		t.Fatalf("a bead not sent reads as sent: %q, rows %+v", away.Line(), got.PeerLinks())
+	}
+	und := peerEvents(t, y.api, "peer_bead_undelivered")
+	if len(und) != 1 || und[0].Data["sent"] != false {
+		t.Fatalf("undelivered event = %+v", und)
+	}
+	notes, _ := y.api.Notes(y.ctx, big.ID)
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "This yard did not send this bead to north: the link with north does not carry bead out") {
+		t.Fatalf("its note = %+v", notes)
+	}
+	// The word allowed again, the bead goes back and this yard refuses
+	// it for its size: still no stay to name, so still no row.
+	y.allow(t, store.PeerAllow{Send: []string{"bead"}})
+	if _, err := y.api.Advance(y.ctx, big.ID, "build", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.claim(t, big.ID)
+	got, err = y.api.GetBead(y.ctx, big.ID)
+	if err != nil || got.Stage != "decide" {
+		t.Fatalf("the refused bead = %+v, %v", got, err)
+	}
+	if away := got.Away(); away == nil || away.Outcome != store.OutcomeRefused || !away.Unsent || away.Stayed != nil || len(got.PeerLinks()) != 0 {
+		t.Fatalf("a bead refused after one not sent = %+v, rows %+v", away, got.PeerLinks())
+	}
+
+	// No link at all: the peer is gone.
+	y2, _ := newSendingYard(t)
+	if err := y2.api.DeletePeer(y2.ctx, "north", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	lost, _ := y2.send(t, store.NewBead{Title: "Nowhere to go"})
+	got, err = y2.api.GetBead(y2.ctx, lost.ID)
+	if err != nil || got.Stage != "decide" {
+		t.Fatalf("a bead whose peer is gone = %+v, %v", got, err)
+	}
+	away = got.Away()
+	if away == nil || away.Outcome != store.OutcomeUndelivered || !away.Unsent ||
+		!strings.HasPrefix(away.Line(), "not sent to the yard that was north (link removed) ") ||
+		!strings.Contains(away.Line(), "this yard is not linked with a yard north any more") {
+		t.Fatalf("what it says = %+v", away)
+	}
+	if strings.Contains(away.Line(), "was at") || len(got.PeerLinks()) != 0 {
+		t.Fatalf("a bead not sent reads as sent: %q, rows %+v", away.Line(), got.PeerLinks())
+	}
+	und = peerEvents(t, y2.api, "peer_bead_undelivered")
+	if len(und) != 1 || und[0].Data["sent"] != false {
+		t.Fatalf("undelivered event = %+v", und)
+	}
+	notes, _ = y2.api.Notes(y2.ctx, lost.ID)
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "This yard did not send this bead to north: this yard is not linked with a yard north any more") {
+		t.Fatalf("its note = %+v", notes)
+	}
+}
+
 // Where a bead has been comes with it and goes on with it: a bead that
 // arrives with a path is sent on with that path and this yard's key, one
 // from a yardr that said none with its sender's. A yard that finds itself

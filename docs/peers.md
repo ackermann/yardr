@@ -1489,7 +1489,7 @@ note that says why:
 | outcome | when |
 |---|---|
 | `refused` | the other yard did not take the bead (the reasons [below](#what-arrives), in this yard's words), or this yard did not send it: the bead is too large (a title over 512 bytes, a body over 64 KB), or its branch has commits of this yard's own since the other yard returned it ([a bead sent again](#a-bead-sent-again)) |
-| `undelivered` | the message was posted as often as the group's `tries` (5, about a quarter of an hour with the daemon's waits; `--set tries=<n>`) and the yard was never reached; the link stopped carrying `bead` out (`peer allow --no-send bead`); or the link was removed while the bead was there |
+| `undelivered` | the message was posted as often as the group's `tries` (5, about a quarter of an hour with the daemon's waits; `--set tries=<n>`) and the yard was never reached; the link stopped carrying `bead` out (`peer allow --no-send bead`); the link was removed while the bead was there; or this yard did not send it: the peer is linked no more, or its link carries no `bead` out |
 
 A try that does not reach the yard counts for every bead that waits for it,
 also one behind mail the yard does not take: what is counted is that the
@@ -1544,8 +1544,9 @@ web-d5zc  Add the export
   someone here took back, by moving it out of the stage it was sent from
   or closing it, says `… taken back 10-06 14:30` from that move on. What
   the other yard returns afterwards is stale and leaves the line as it is.
-- A bead this yard did not send (too large, or [its branch has commits of
-  this yard's own](#a-bead-sent-again)) was not at the other yard, and the
+- A bead this yard did not send (too large, [its branch has commits of
+  this yard's own](#a-bead-sent-again), or the peer linked no more or its
+  link carrying no `bead` out) was not at the other yard, and the
   line says so: `not sent to north 10-06 14:02: it is too large: …`. In
   `--json` it has `unsent`, and in `stayed` the stay it last had there
   (`bead`, `at`, `until`), if it had one.
@@ -2955,7 +2956,7 @@ with is 401, as any request that is no peer's.
 | `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
 | `peer_bead_refused` | the peer did not take a bead, or this yard did not send it (too large, or its branch has commits of this yard's own since it came back); on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words, `sent` `false` when this yard did not send it |
-| `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
+| `peer_bead_undelivered` | a bead was given up (its tries, its link, or its peer went), or this yard did not send it (the peer is linked no more, or its link carries no `bead` out); on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts`, `sent` `false` when this yard did not send it |
 | `peer_message_failed` | a message was given up: after its tries, because the peer refused it, or because this link stopped carrying its kind while it waited | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question; for a file its `hash` and `mail`, the id of the mail it was for |
 | `mail` | mail was queued for a peer, or mail from one reached an inbox; by `yard`, to who wrote a mail or asked a read that was given up | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |
 

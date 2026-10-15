@@ -129,10 +129,11 @@ type peerSent struct {
 	// last sending only, and a bead sent again continues from that code
 	// however the sendings between ended (taken).
 	Last *PeerGit `json:"last,omitempty"`
-	// Unsent is set for a sending this yard refused before anything was
-	// queued (PeerBeadSend): the bead was not at the peer in this stay, and
-	// the words for how it ended say so. Stayed is then the stay it last
-	// had there, which its row among the bead's links still names.
+	// Unsent is set for a sending that ended before anything was queued
+	// (PeerBeadSend): refused, or undelivered with the peer gone or its
+	// link carrying no beads out. The bead was not at the peer in this
+	// stay, and the words for how it ended say so. Stayed is then the stay
+	// it last had there, which its row among the bead's links still names.
 	Unsent bool      `json:"unsent,omitempty"`
 	Stayed *PeerStay `json:"stayed,omitempty"`
 	// Settled is when the outcome was applied to the bead, or found to be
@@ -356,7 +357,8 @@ func stayOf(tx *bolt.Tx, uuid string) (entered, unheld uint64, err error) {
 // not taken does later: undelivered when the peer is gone or its link
 // carries no beads out, refused when the bead is larger than crosses a
 // link, or when its branch has commits of this yard's own since a yard
-// returned it.
+// returned it. Nothing is queued for any of these, and each reads as not
+// sent.
 func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error) {
 	sess, err := s.GetSession(ctx, session)
 	if err != nil {
@@ -457,29 +459,29 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 			return fmt.Errorf("%w: bead %s came back with code while it was being sent", ErrConflict, row.ID)
 		}
 		rec := &peerSent{Bead: row.UUID, Stage: row.Stage, Group: g.Name, Entered: entered, Message: sentID(row.UUID, seq), Seq: seq, At: now(), Last: last}
+		// Nothing is queued below: the bead was not sent, and its
+		// record and event say so.
+		notSent := func(outcome, why string) error {
+			rec.unsent(old)
+			return w.endSent(rec, name, outcome, why, "yard", map[string]any{"sent": false})
+		}
 		p, err := loadPeer(w.Tx, name)
 		if errors.Is(err, ErrNotFound) {
 			rec.Was = name
-			return w.endSent(rec, name, OutcomeUndelivered, fmt.Sprintf("this yard is not linked with a yard %s any more", name), "yard", nil)
+			return notSent(OutcomeUndelivered, fmt.Sprintf("this yard is not linked with a yard %s any more", name))
 		} else if err != nil {
 			return err
 		}
 		rec.Key = p.Key
-		// A refusal of this yard's own, before anything is queued: the
-		// bead was not sent, and its record and event say so.
-		notSent := func(why string) error {
-			rec.unsent(old)
-			return w.endSent(rec, name, OutcomeRefused, why, "yard", map[string]any{"sent": false})
-		}
 		if !p.carries(PeerBead, false) {
-			return w.endSent(rec, name, OutcomeUndelivered, fmt.Sprintf("the link with %s does not carry %s out (yardr peer allow %s --send %s)", name, PeerBead, name, PeerBead), "yard", nil)
+			return notSent(OutcomeUndelivered, fmt.Sprintf("the link with %s does not carry %s out (yardr peer allow %s --send %s)", name, PeerBead, name, PeerBead))
 		}
 		if len(row.Title) > MaxPeerBeadTitle || len(row.Body) > MaxPeerBeadBody {
-			return notSent(fmt.Sprintf("it is too large: a bead crosses a link with a title of up to %d bytes and a body of up to %d, and this one has %d and %d",
+			return notSent(OutcomeRefused, fmt.Sprintf("it is too large: a bead crosses a link with a title of up to %d bytes and a body of up to %d, and this one has %d and %d",
 				MaxPeerBeadTitle, MaxPeerBeadBody, len(row.Title), len(row.Body)))
 		}
 		if moved != "" {
-			return notSent(moved)
+			return notSent(OutcomeRefused, moved)
 		}
 		if own == "" {
 			return fmt.Errorf("this yard has no key, so bead %s cannot say which yard it comes from: yardr peer key makes one", row.ID)
@@ -534,7 +536,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		})
 		m := PeerMessage{ID: rec.Message, Kind: PeerBead, Body: body}
 		if err := m.check(); err != nil {
-			return notSent("it is too large: " + err.Error())
+			return notSent(OutcomeRefused, "it is too large: "+err.Error())
 		}
 		out, err := w.queuePeer(p, m, "yard")
 		if err != nil || out == nil {

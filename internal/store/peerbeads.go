@@ -267,9 +267,10 @@ type BeadPeer struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
 	HeardAt     *time.Time `json:"heard_at,omitempty"`
-	// Unsent is set when this yard refused the sending before anything was
-	// queued: the bead was not at the peer, At is when it was not sent, and
-	// Stayed the stay it last had there, nil when it had none.
+	// Unsent is set when the sending ended before anything was queued:
+	// refused, or undelivered with the peer gone or its link carrying no
+	// beads out. The bead was not at the peer, At is when it was not sent,
+	// and Stayed the stay it last had there, nil when it had none.
 	Unsent bool      `json:"unsent,omitempty"`
 	Stayed *PeerStay `json:"stayed,omitempty"`
 	// Of a bead sent out, how the peer's bead stands as the peer last said
@@ -438,7 +439,7 @@ func (p BeadPeer) Line() string {
 		return fmt.Sprintf("from %s@%s, for its stage %s", p.Bead, p.Yard(), p.Stage)
 	}
 	if p.Unsent {
-		// Refused here, before it was queued: it was never at that yard.
+		// Ended here, before anything was queued: it was never at that yard.
 		return fmt.Sprintf("not sent to %s %s: %s", p.Yard(), stamp(p.At), p.Detail)
 	}
 	if p.ReturnedAt != nil {
