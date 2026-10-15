@@ -1,6 +1,7 @@
 # The depot's flow, written by yardr depot init. yardr reads it from the base
 # branch; see docs/flows.md.
-backlog -> new | decide
+backlog -> shape | new | decide
+shape -> new on done | decide on question | backlog
 new -> review on done | decide on question | backlog
 review -> review-security on done | new on changes | decide on question
 review-security -> approved on done | new on changes | decide on question

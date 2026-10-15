@@ -461,8 +461,9 @@ section, so a bead sent back says so in the first text its new session
 reads:
 
 ```
-FLOW default · 7 stages (context: your stage's file below says what you must do)
+FLOW default · 8 stages (context: your stage's file below says what you must do)
   backlog           people   New beads wait here, where `yardr bead create` puts them, until the yardmaster has shaped them.
+  shape             agents   A shaper reads the bead and the code it names, and shapes it for a builder.
 > new               agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide            people   A bead here waits for a person: Christopher decides.
   review            agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
@@ -482,7 +483,7 @@ and in its brief. An exec group's script gets no brief and no map.
 
 - **Order.** The flow's stages in the order its file first names them, so
   what a rule leads to comes before the stage of the next rule (`decide`
-  above, which `backlog -> new | decide` names). A train, or any bead of a
+  above, which `backlog -> shape | new | decide` names). A train, or any bead of a
   type with its own flow, gets the map of that flow.
 - **Who.** From the route a bead of this depot and type (and these labels)
   would take in the stage, by the group's runner: `agents`, `script` for an
@@ -639,7 +640,8 @@ move:
 ```
 flow default (repo@2c2a589)
 STAGE            GROUP            MEMBERS            NEXT
-backlog          backlog          mckean,yardmaster  new | decide
+backlog          backlog          mckean,yardmaster  shape | new | decide
+shape            shapers          -                  new on done | decide on question | backlog
 new              yardr-builders   -                  review on done | decide on question | backlog
 decide           decisions        mckean,yardmaster  backlog | new
 review           yardr-reviewers  -                  review-security on done | new on changes | decide on question
@@ -655,7 +657,8 @@ no store pointer overrides it. It governs every bead that is not a train
 
 ```
 # default.flow
-backlog -> new | decide
+backlog -> shape | new | decide
+shape -> new on done | decide on question | backlog
 new -> review on done | decide on question | backlog
 review -> review-security on done | new on changes | decide on question
 review-security -> approved on done | new on changes | decide on question
@@ -666,12 +669,22 @@ merged terminal
 
 | stage | group | runner |
 |---|---|---|
-| backlog | `backlog` | manual (Christopher and the yardmaster, who shapes beads here) |
+| backlog | `backlog` | manual (Christopher and the yardmaster, who picks which beads go to `shape`) |
+| shape | `shapers` | herdr, Muse, limit 2, `prompt=roles/shaper.md` |
 | new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
 | review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
 | review-security | `yardr-security` | herdr, `prompt=roles/review-security.md`: the second review, for security alone ([line.md](line.md#then-once-more-for-security-alone)) |
 | approved | `yardr-refinery` | exec, limit 1, [`contrib/assembly/merge-local`](../contrib/assembly/merge-local) |
 | decide | `decisions` | manual (Christopher and the yardmaster) |
+
+`shape` is where a backlog bead is specified before a builder takes it: a
+shaper reads the bead and the code it names, rewrites the body in the yard's
+shape (goal, where to look, what to do, left out, done when) and estimates
+it, changing no code. The move from `backlog` to `shape` stays a person's
+or the yardmaster's pick, never a route. A bead shaped at `difficulty:1`
+goes to `new` on `done`; a heavier one, a duplicate, or one needing a
+decision only a person can make goes to `decide` on `question`, with the
+question asked on the bead first.
 
 The assembly lands an approved bead and advances it to `merged`, which
 closes it; a red run of the tests sends it back to `new`. The flow has no `merge`
