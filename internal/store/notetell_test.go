@@ -354,3 +354,190 @@ func TestAckNoteFromAPaneIsThatPanesSession(t *testing.T) {
 		t.Fatalf("ack of its own note from the pane: %+v %v", got, err)
 	}
 }
+
+// A note written from a session's or a crew member's pane is stored as
+// that session's actor or that crew member, whatever --actor says: an
+// agent cannot write a note as the operator by naming them. The noted
+// event names it too, as the nudge reads it. From no pane the actor
+// stands as given, session claim or none.
+func TestNoteFromAPaneIsThatPanesActor(t *testing.T) {
+	// This test process is the pane's shell (see expect_test.go). Each
+	// case has its own yard, so only the pane under test is on record.
+	me := os.Getpid()
+	shell := func(extra map[string]any) map[string]any {
+		h := map[string]any{"shell_pid": me}
+		for k, v := range extra {
+			h[k] = v
+		}
+		if st, err := peer.Describe(me); err == nil {
+			h["shell_start"] = st.Start
+		}
+		return h
+	}
+	notedActor := func(t *testing.T, s store.API, ctx context.Context, bead string, seq uint64) string {
+		t.Helper()
+		evs, err := s.Events(ctx, bead, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Kind == "noted" && e.Data["note"] == float64(seq) {
+				return e.Actor
+			}
+		}
+		t.Fatalf("no noted event for note %d in %+v", seq, evs)
+		return ""
+	}
+
+	t.Run("herdr session", func(t *testing.T) {
+		s := storetest.New(t)
+		ctx := context.Background()
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		actor := b.ID + "-new"
+		if err := s.MarkRunning(ctx, sess.ID, shell(map[string]any{"agent": actor})); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, me)
+
+		n, err := s.AddNotedAs(pane, b.ID, "do something else", "op", sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.Author != actor {
+			t.Fatalf("note from the pane as op = %q, want the session's actor %q", n.Author, actor)
+		}
+		if got := notedActor(t, s, ctx, b.ID, n.Seq); got != actor {
+			t.Fatalf("noted event actor = %q, want %q", got, actor)
+		}
+		if notes, _ := s.Notes(ctx, b.ID); notes[len(notes)-1].Author != actor {
+			t.Fatalf("Notes = %+v, want the session's actor", notes)
+		}
+		// Through the other writes the pane's note is that session's too.
+		if err := s.AddNote(pane, b.ID, "the yard's own, supposedly", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if notes, _ := s.Notes(ctx, b.ID); notes[len(notes)-1].Author != actor {
+			t.Fatalf("AddNote from the pane as op = %+v, want %q", notes[len(notes)-1], actor)
+		}
+		if got, err := s.AddNoted(pane, b.ID, "seq and all", "op"); err != nil || got.Author != actor {
+			t.Fatalf("AddNoted from the pane as op = %+v, %v, want %q", got, err, actor)
+		}
+		// A session claim the pane does not bear out is no refusal: the
+		// note lands as the pane's session's, and the claim still says
+		// who is told.
+		stray, err := s.AddNotedAs(pane, b.ID, "words", "op", "no-such-session")
+		if err != nil {
+			t.Fatalf("note from the pane naming another session: %v", err)
+		}
+		if stray.Author != actor || stray.Notify != sess.ID {
+			t.Fatalf("stray note = %+v, want author %q for session %s", stray, actor, sess.ID)
+		}
+	})
+
+	t.Run("exec session", func(t *testing.T) {
+		s := storetest.New(t)
+		ctx := context.Background()
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := map[string]any{"pid": me}
+		if st, err := peer.Describe(me); err == nil {
+			h["start"] = st.Start
+		}
+		if err := s.MarkRunning(ctx, sess.ID, h); err != nil {
+			t.Fatal(err)
+		}
+		n, err := s.AddNotedAs(store.WithCaller(ctx, me), b.ID, "do something else", "op", sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// An exec session's scripts run as the group.
+		if n.Author != "builders" {
+			t.Fatalf("note from the script's pane as op = %q, want builders", n.Author)
+		}
+	})
+
+	t.Run("crew member", func(t *testing.T) {
+		s := storetest.New(t)
+		ctx := context.Background()
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CrewStarted(ctx, "yardmaster", shell(nil)); err != nil {
+			t.Fatal(err)
+		}
+		n, err := s.AddNotedAs(store.WithCaller(ctx, me), b.ID, "do something else", "op", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.Author != "yardmaster" {
+			t.Fatalf("note from the crew pane as op = %q, want yardmaster", n.Author)
+		}
+	})
+
+	t.Run("no pane", func(t *testing.T) {
+		s := storetest.New(t)
+		ctx := context.Background()
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The session has no pane on record: a person's terminal.
+		n, err := s.AddNotedAs(ctx, b.ID, "words", "op", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.Author != "op" {
+			t.Fatalf("note from no pane as op = %q, want op", n.Author)
+		}
+		// A session claim alone, from no pane, rewrites nothing.
+		own, err := s.AddNotedAs(ctx, b.ID, "on it", "op", sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if own.Author != "op" || own.Notify != "" {
+			t.Fatalf("claimed note from no pane = %+v, want author op telling none", own)
+		}
+	})
+}

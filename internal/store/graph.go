@@ -761,10 +761,51 @@ type Note struct {
 	Session string `json:"session,omitempty"`
 }
 
+// paneAuthor is the author a plain note by actor is stored as: the
+// session's actor when the call comes from a bead session's pane, the
+// crew member's name when it comes from a crew pane, whatever actor says
+// (--actor, $YARDR_ACTOR). The pane is told by the store's own records
+// (paneSession, paneCrew), as a move is checked (see Expect): an agent
+// cannot write a note as the operator or the yardmaster by naming them.
+// A call from no pane (a person's terminal), and one from a pane whose
+// actor the store cannot tell, keeps the actor as given.
+func paneAuthor(tx *bolt.Tx, pid int, actor string) (string, error) {
+	if sess, err := paneSession(tx, pid); err != nil {
+		return "", err
+	} else if sess != nil && !sess.Manual() {
+		if a := sessionActor(sess); a != "" {
+			return a, nil
+		}
+	}
+	if r, err := paneCrew(tx, pid); err != nil {
+		return "", err
+	} else if r != nil {
+		return r.Name, nil
+	}
+	return actor, nil
+}
+
+// sessionActor is the actor the session runs as: the agent its runner
+// recorded on its handle (a herdr session runs as it, its YARDR_ACTOR),
+// or its group for an exec session, whose scripts run as the group. ""
+// when the handle names no agent and the runner is none of those.
+func sessionActor(sess *Session) string {
+	if agent, _ := sess.Handle["agent"].(string); agent != "" {
+		return agent
+	}
+	if sess.RunnerName() == "exec" {
+		return sess.Group
+	}
+	return ""
+}
+
 // AddNote puts a plain note on the bead without telling its live session,
 // unlike AddNotedAs. files are the images and pages the note carries, each
 // by its hash as PutBlob answered it, as with yardr bead note --file; a
-// note with any needs words. Left out, the note carries none.
+// note with any needs words. Left out, the note carries none. From a
+// session's or a crew member's pane the note is stored as that session's
+// actor or that crew member, whatever actor says; from anywhere else, as
+// given (paneAuthor).
 func (s *Store) AddNote(ctx context.Context, id, text, actor string, files ...string) error {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
@@ -782,7 +823,11 @@ func (s *Store) AddNote(ctx context.Context, id, text, actor string, files ...st
 		if err != nil {
 			return err
 		}
-		_, err = w.addNotedNotify(row, NoteNote, text, actor, "", refs)
+		author, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		_, err = w.addNotedNotify(row, NoteNote, text, author, "", refs)
 		return err
 	})
 }
@@ -800,7 +845,11 @@ func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, er
 		if err != nil {
 			return err
 		}
-		out, err = w.addNoted(row, NoteNote, text, actor)
+		author, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		out, err = w.addNoted(row, NoteNote, text, author)
 		return err
 	})
 	return out, err
@@ -814,7 +863,9 @@ func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, er
 // nothing: a move's note ends the session in the same write, asks and
 // answers have their own flows, and the daemon notes past its sessions'
 // ends. files are the images the note carries, each by its hash as PutBlob
-// answered it.
+// answered it. From a session's or a crew member's pane the note is stored
+// as that session's actor or that crew member, whatever actor says; from
+// anywhere else, as given (paneAuthor).
 func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error) {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
@@ -833,11 +884,15 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string,
 		if err != nil {
 			return err
 		}
+		author, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
 		notify := ""
 		if row.Session != nil && *row.Session != session {
 			notify = *row.Session
 		}
-		out, err = w.addNotedNotify(row, NoteNote, text, actor, notify, refs)
+		out, err = w.addNotedNotify(row, NoteNote, text, author, notify, refs)
 		return err
 	})
 	return out, err

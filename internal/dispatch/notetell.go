@@ -105,12 +105,13 @@ func (d *Dispatcher) paneHasPrompt(ctx context.Context, r Runner, handle map[str
 	return !known || up
 }
 
-// noteAuthor is a note's author as the nudge names it. The author is the
-// writer's own word (--actor, $YARDR_ACTOR) and the store holds it as
-// written, so in a pane it could say anything, at any length, as a note's
-// text could: only what reads as a name is typed, one word of letters,
-// digits and "-", "_", ".", "@" (a crew member, a session's actor, a
-// name@peer). Anyone else's is on the bead, where the agent reads it.
+// noteAuthor is a note's author as the nudge names it. Outside a pane the
+// author is the writer's own word (--actor, $YARDR_ACTOR) and the store
+// holds it as written, so it could say anything, at any length, as a
+// note's text could: only what reads as a name is typed, one word of
+// letters, digits and "-", "_", ".", "@" (a crew member, a session's
+// actor, a name@peer). Anyone else's is on the bead, where the agent
+// reads it.
 func noteAuthor(author string) string {
 	const unnamed = "someone (the bead says who)"
 	if author == "" || len(author) > 64 {
