@@ -278,6 +278,22 @@ func TestStageBuildRefusesABadTitle(t *testing.T) {
 	}
 }
 
+// A title is text from whoever filed the bead, a linked yard's among them,
+// and may hold a newline: a version on a line of its own below anything
+// else is no version, so nothing else of the title reaches a tag, a gh
+// argument or the signing commands mckean pastes.
+func TestStageBuildRefusesAVersionOnALineOfItsOwn(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.show("yardr $(touch${IFS}pwned)\nv1.2.3", "notes")
+	out := s.run("build", "YARDR_DEPOT_PATH="+checkout)
+	log := s.log()
+	s.mustContain(log, "yardr bead done yardr-rel1 --outcome question --note -")
+	s.mustContain(log, "names no version")
+	s.mustLack(log, "gh release")
+	s.mustLack(out, "built")
+}
+
 func TestStageBuildRefusesADirtyTree(t *testing.T) {
 	s := newStage(t)
 	checkout, _ := s.repo()

@@ -151,7 +151,11 @@ version() {
   title=$(printf '%s' "$show" | jq -r '.title // empty')
   title=$(printf '%s' "$title" | sed 's/ *$//')
   v=${title##* }
-  printf '%s\n' "$v" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+  # grep matches line by line, so a title with a newline in its last word
+  # is refused here first: only the version, whole, reaches a tag, gh or
+  # the signing commands.
+  case $v in *[!v0-9.]*) v_ok="" ;; *) v_ok=1 ;; esac
+  [ -n "$v_ok" ] && printf '%s\n' "$v" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
     fail question "the bead's title names no version (its last word is \"$v\"): title it \"$PRODUCT v<major>.<minor>.<patch>\" and advance the bead back to $MODE"
 }
 
