@@ -103,7 +103,7 @@ func writerAskLine(w store.WriterAsk) string {
 }
 
 func (a *app) printBead(b *store.Bead) error {
-	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil, nil)
+	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
@@ -124,9 +124,10 @@ func printLinks(ls []store.Link) {
 // holding it, with the stages they name. test, when given, is the test
 // command of the bead's depot, for whoever is about to work the bead (prime).
 // routed, when given, is why the bead went to its group or what it waits
-// for, where the route had a choice to make. est, when given, is the
+// for, where the route had a choice to make. waited, when given, is the
+// group it waits for behind a full group. est, when given, is the
 // bead's ETA and late mark, each printed when it has anything to say.
-func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, est *eta.Result, links ...store.Link) error {
+func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
 	return a.out(b, func() {
 		// The title, the body and the reason it closed are a writer's
 		// words, and stand in the output its notes stand in. The title
@@ -171,6 +172,9 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 			fmt.Printf("  originator %s\n", b.Originator)
 		}
 		if line := routed.line(time.Now()); line != "" {
+			fmt.Printf("  %s\n", line)
+		}
+		if line := waited.line(); line != "" {
 			fmt.Printf("  %s\n", line)
 		}
 		if len(b.Labels) > 0 {
@@ -458,6 +462,16 @@ same as the eta and late objects, absent likewise.`,
 			if err != nil {
 				return err
 			}
+			// A bead its blockers hold waits for them, not for its
+			// group: only a ready bead waits behind a full one.
+			var waited *groupWait
+			if len(holding) == 0 {
+				y, err := waitViewOf(c.Context(), st)
+				if err != nil {
+					return err
+				}
+				waited = y.waitFor(b, routed)
+			}
 			notes, err := st.Notes(c.Context(), b.ID)
 			if err != nil {
 				return err
@@ -499,7 +513,7 @@ same as the eta and late objects, absent likewise.`,
 				}{b, fam, disc, train, links, notes, routed, etaObj, lateObj}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, est, links...); err != nil {
+			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, waited, est, links...); err != nil {
 				return err
 			}
 			// An author from another yard says whose word the note is, as
@@ -655,9 +669,43 @@ func (a *app) readyCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				// Then the ready beads held only by their group, in
+				// ready's order, each with the route that matched it:
+				// the same line bead show says of one such bead.
+				type groupLine struct{ id, stage, line string }
+				var extra []groupLine
+				bs, err := st.Ready(c.Context())
+				if err != nil {
+					return err
+				}
+				if len(bs) > 0 {
+					y, err := waitViewOf(c.Context(), st)
+					if err != nil {
+						return err
+					}
+					for i := range bs {
+						b := &bs[i]
+						// The stored routing is read only for a
+						// bead that waits for its group: the
+						// quota it may say holds it too.
+						if y.waitFor(b, nil) == nil {
+							continue
+						}
+						routed, err := routingOf(c.Context(), st, b)
+						if err != nil {
+							return err
+						}
+						if w := y.waitFor(b, routed); w != nil {
+							extra = append(extra, groupLine{b.ID, b.Stage, w.line()})
+						}
+					}
+				}
 				return a.out(ds, func() {
 					for _, d := range ds {
 						fmt.Printf("%s  %s\n", d.To, waitingLine(d))
+					}
+					for _, e := range extra {
+						fmt.Printf("%s  %s  %s\n", e.id, e.stage, e.line)
 					}
 				})
 			}
@@ -668,7 +716,7 @@ func (a *app) readyCmd() *cobra.Command {
 			return a.out(bs, func() { table(beadHeader, beadRows(bs)) })
 		},
 	}
-	cmd.Flags().BoolVar(&waiting, "waiting", false, "list the beads the dependency gate holds instead, one line per holding edge, with why")
+	cmd.Flags().BoolVar(&waiting, "waiting", false, "list the beads that wait instead: one line per holding edge with why, then the ready beads behind a full group")
 	return cmd
 }
 
@@ -912,7 +960,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil, est)
+				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil, nil, est)
 				if pullHead != "" {
 					fmt.Printf("\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}

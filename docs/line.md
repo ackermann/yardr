@@ -706,7 +706,10 @@ conditions. `yardr ready` lists only beads that are ready, so the beads
 the gate holds are read with `yardr ready --waiting`: one line per
 holding edge, with why (`footplate-xq35  waits at approved until
 yardr-x7wf closes`, `footplate-xq35  waits until yardr-x7wf is in
-review`).
+review`). A ready bead held only by its group is listed too, with the
+route that matched it and the group's count and limit
+(`footplate-xq35  new  waits for builders (2 of 2) by route k2abc
+(label difficulty:1, priority 1)`).
 
 Both flags are for kind `blocks` only. `--at` names a stage of the
 target's own flow and `--until` a stage of the blocker's, and a stage

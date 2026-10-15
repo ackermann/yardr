@@ -218,6 +218,129 @@ func TestReadyWaitingListsWhy(t *testing.T) {
 	}
 }
 
+// ready --waiting names a ready bead behind a full group with the route
+// that matched it and the group's count and limit, after the dependency
+// holds; bead show says the same line of the bead. Tonight's case: the
+// bead matched an any-depot label route (priority 1) rather than its
+// depot's own (priority 0), and the label route's group was at its limit.
+func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
+	a, st, ran := quotaCLI(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []store.Group{
+		{Name: "muse-builders", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude"}},
+		{Name: "muse-hosted", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "claude"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	depot, label := "yard", "difficulty:1"
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "muse-hosted"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	labeled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &label, Group: "muse-builders", Priority: 1}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// muse-builders at its limit: the filler holds its one slot.
+	filler, err := st.CreateBead(ctx, store.NewBead{Title: "filler", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Claim(ctx, filler.ID, "muse-builders", "new", "me", store.Routed{Route: labeled.ID}); err != nil {
+		t.Fatal(err)
+	}
+	bead, err := st.CreateBead(ctx, store.NewBead{Title: "behind", Depot: "yard", Stage: "new", Labels: []string{"difficulty:1"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A dependency hold still prints as today, first.
+	blocker, err := st.CreateBead(ctx, store.NewBead{Title: "blocker", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := st.CreateBead(ctx, store.NewBead{Title: "target", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddDep(ctx, blocker.ID, target.ID, store.DepBlocks, "", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "waits for muse-builders (1 of 1) by route " + labeled.ID + " (label difficulty:1, priority 1)"
+	out, err := run(t, a.readyCmd(), "--waiting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantOut := target.ID + "  waits until " + blocker.ID + " closes\n" + bead.ID + "  new  " + want + "\n"; out != wantOut {
+		t.Fatalf("ready --waiting = %q, want %q", out, wantOut)
+	}
+	if out, err := run(t, a.beadCmd(), "show", bead.ID); err != nil || !strings.Contains(out, "\n  "+want+"\n") {
+		t.Fatalf("bead show misses the group line %q: %v\n%s", want, err, out)
+	}
+	// ready alone is unchanged: no line says why anything waits.
+	out, err = run(t, a.readyCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, bead.ID) || strings.Contains(out, "waits") {
+		t.Fatalf("ready =\n%s", out)
+	}
+	if ran() {
+		t.Error("ready --waiting ran the limits command")
+	}
+}
+
+// A bead behind a full group whose stored wait says a quota holds it
+// shows that too, in the same line, from the stored event: nothing is
+// asked of the provider.
+func TestReadyWaitingShowsTheStoredQuotaInTheSameLine(t *testing.T) {
+	a, st, ran := quotaCLI(t)
+	ctx := context.Background()
+	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "g", When: "Weekly<80"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filler, err := st.CreateBead(ctx, store.NewBead{Title: "filler", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Claim(ctx, filler.ID, "g", "new", "me", store.Routed{Route: r.ID}); err != nil {
+		t.Fatal(err)
+	}
+	bead, err := st.CreateBead(ctx, store.NewBead{Title: "behind", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.LogDispatch(ctx, bead.ID, "quota_wait", "yardr", map[string]any{
+		"stage": "new", "route": r.ID, "reason": "g passed over (" + weeklyReason + ")",
+		"passed": []store.PassedGroup{{Group: "g", Reason: weeklyReason}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "waits for g (1 of 1) by route " + r.ID + " (priority 0); quota: g passed over (" + weeklyReason + ")"
+	out, err := run(t, a.readyCmd(), "--waiting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantOut := bead.ID + "  new  " + want + "\n"; out != wantOut {
+		t.Fatalf("ready --waiting = %q, want %q", out, wantOut)
+	}
+	if out, err := run(t, a.beadCmd(), "show", bead.ID); err != nil || !strings.Contains(out, "\n  "+want+"\n") {
+		t.Fatalf("bead show misses the group line %q: %v\n%s", want, err, out)
+	}
+	if ran() {
+		t.Error("ready --waiting ran the limits command")
+	}
+}
+
 // ready --waiting --json carries the holding edges with their stages.
 func TestReadyWaitingJSON(t *testing.T) {
 	st, _ := waitingYard(t)

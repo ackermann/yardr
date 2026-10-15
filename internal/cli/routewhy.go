@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
@@ -109,6 +110,180 @@ func (r *beadRouting) line(now time.Time) string {
 		return ""
 	}
 	return fmt.Sprintf("routed to %s by route %s: %s", r.Group, r.Route, strings.Join(parts, "; "))
+}
+
+// groupWait is why a ready bead no group owns waits for its group: the
+// route that matched it, what of the bead matched, and the group that
+// would take it with its live count and limit. The dispatcher skips such
+// a bead silently on every pass, by design, so no event says it waits;
+// bead show, which reads the bead's events, had nothing to say of it.
+// This is computed instead from the routes, groups and live sessions,
+// the dispatcher's way but read-only: nothing is asked of a provider and
+// no event is written. Bead show says it of one bead, ready --waiting of
+// every such bead, in the same words.
+type groupWait struct {
+	// Group would take the bead; Active of its Limit slots are live.
+	Group  string
+	Active int
+	Limit  int
+	// Route matched the bead; Match is what of it matched, Priority the
+	// route's.
+	Route    string
+	Match    string
+	Priority int
+	// Quota is the stored quota_wait's why, where one of this route and
+	// stage still holds the bead; "" otherwise.
+	Quota string
+}
+
+// line is the wait for a person: "waits for builders (2 of 2) by route
+// k2abc (label difficulty:1, priority 1)".
+func (w *groupWait) line() string {
+	if w == nil {
+		return ""
+	}
+	by := fmt.Sprintf("priority %d", w.Priority)
+	if w.Match != "" {
+		by = w.Match + ", " + by
+	}
+	s := fmt.Sprintf("waits for %s (%d of %d) by route %s (%s)",
+		w.Group, w.Active, w.Limit, w.Route, by)
+	if w.Quota != "" {
+		s += "; quota: " + w.Quota
+	}
+	return s
+}
+
+// routeMatch is what of a bead r matched, as the group wait names it:
+// the filters the route sets, in route list's column order. A route that
+// sets none matches any bead of its stage, and names only its priority.
+func routeMatch(r store.Route) string {
+	var parts []string
+	if r.Type != nil {
+		parts = append(parts, "type "+*r.Type)
+	}
+	if r.Depot != nil {
+		parts = append(parts, "depot "+*r.Depot)
+	}
+	if labels := r.Labels(); len(labels) == 1 {
+		parts = append(parts, "label "+labels[0])
+	} else if len(labels) > 1 {
+		parts = append(parts, "labels "+strings.Join(labels, ", "))
+	}
+	if r.BeadPriority != nil {
+		parts = append(parts, "beads "+r.BeadPriorities())
+	}
+	if r.Originator != nil && *r.Originator != store.OriginatorAny {
+		parts = append(parts, "originator "+*r.Originator)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// waitView is what the group wait is computed from: the routes in match
+// order, the groups by name, the live sessions per group, and the
+// operator. One read of each serves every bead of a listing.
+type waitView struct {
+	routes   []store.Route
+	groups   map[string]store.Group
+	active   map[string]int
+	operator string
+}
+
+// waitViewOf reads the yard the group wait is computed from. The counts
+// are the live sessions per group, as the dispatcher counts them, except
+// the dispatcher reaps first: a session its runner reports gone is ended
+// there and counted here, until the next pass.
+func waitViewOf(ctx context.Context, st store.API) (*waitView, error) {
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dispatch.SortRoutes(routes)
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := st.Sessions(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	y := &waitView{routes: routes, groups: map[string]store.Group{}, active: map[string]int{},
+		operator: settings[store.OperatorSetting]}
+	for _, g := range groups {
+		y.groups[g.Name] = g
+	}
+	for _, s := range sessions {
+		y.active[s.Group]++
+	}
+	return y, nil
+}
+
+// waitFor is why b waits for its group, nil when it waits for none: a
+// bead that is not open, is held or owned, or is of no working type never
+// routes; one no route matches, whose group cannot be read without a
+// provider, whose group is unknown, or whose group has a free slot waits
+// for no group. Readiness is the caller's: bead show reads HoldingDeps,
+// ready lists Ready beads. routed is the bead's stored routing, for the
+// quota a stored wait says holds it.
+func (y *waitView) waitFor(b *store.Bead, routed *beadRouting) *groupWait {
+	if b.Status != "open" || b.Hold || b.Group != nil ||
+		store.NotWork[b.Type] || b.Type == store.TypeQuestion {
+		return nil
+	}
+	r := dispatch.Match(y.routes, *b, y.operator)
+	if r == nil {
+		return nil
+	}
+	g := readOnlyChoice(*r)
+	if g == "" {
+		return nil
+	}
+	grp, ok := y.groups[g]
+	if !ok {
+		return nil
+	}
+	if y.active[g] < grp.Limit {
+		return nil
+	}
+	w := &groupWait{Group: g, Active: y.active[g], Limit: grp.Limit,
+		Route: r.ID, Match: routeMatch(*r), Priority: r.Priority}
+	// A quota the stored wait says holds it, from the stored event, never
+	// by asking the provider: only where it is of this route, in this
+	// stage as routingOf already holds.
+	if routed != nil && routed.Group == "" && routed.Route == r.ID {
+		if why := (store.RouteChoice{Passed: routed.Passed}).Why(); why != "" {
+			w.Quota = why
+		}
+	}
+	return w
+}
+
+// readOnlyChoice is the group of r that would take a bead, without asking
+// any provider: the first group where no condition gates it (Choose takes
+// it unasked), else the route's only group where it names one. "" where
+// the choice needs the windows, a condition on the first of several
+// groups: only the daemon runs the limits command.
+func readOnlyChoice(r store.Route) string {
+	if r.When == "" {
+		return r.Group
+	}
+	var only string
+	n := 0
+	for _, g := range r.Groups() {
+		if g.Name == store.RouteWait {
+			continue
+		}
+		n++
+		only = g.Name
+	}
+	if n == 1 {
+		return only
+	}
+	return ""
 }
 
 // groupProvider is the provider the agents of g burn and whether a source
