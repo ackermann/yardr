@@ -811,12 +811,12 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 // The race leg runs under one machine-wide lock: a gate whose race step
 // starts while another holds the lock waits for it, holds it for the run,
 // then releases it, and says how long it waited. The test holds the lock
-// itself for two seconds, so the run must print a wait of at least one,
-// whatever second it started in; its own home stands in for the yard's, so
-// no real gate waits on it. Once the run's test step starts, the lock is the
-// run's until it ends: the test cannot take it meanwhile, and can once the
-// run has ended. vet and build run while the lock is held: only the race
-// leg waits.
+// past the run's build step, its last step before the race leg, so the wait
+// spans whole seconds however slowly the run started under load; its own
+// home stands in for the yard's, so no real gate waits on it. Once the
+// run's test step starts, the lock is the run's until it ends: the test
+// cannot take it meanwhile, and can once the run has ended. vet and build
+// run while the lock is held: only the race leg waits.
 func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
@@ -876,29 +876,34 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 		out, runErr = cmd.CombinedOutput()
 		close(done)
 	}()
-	// However slowly the run reaches its race step, it is still waiting
-	// when the hold ends two seconds on: a wait that long spans a whole
-	// second, so the run must print one.
-	time.Sleep(2 * time.Second)
+	// The run's build step is its last before the race leg: hold the lock
+	// three seconds past it, so the run is still waiting when the hold
+	// ends however slowly it started, and the wait spans whole seconds.
+	callsPath := filepath.Join(fake, "calls")
+	waitFor := func(what string) {
+		t.Helper()
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			calls, _ := os.ReadFile(callsPath)
+			if strings.Contains(string(calls), what) {
+				return
+			}
+			if time.Now().After(deadline) {
+				cmd.Process.Kill()
+				<-done
+				t.Fatalf("the run never reached %s, output:\n%s", what, out)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	waitFor("build ./...")
+	time.Sleep(3 * time.Second)
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
 	// The run's test step starts once it has the lock: from then until it
 	// ends the lock is the run's, so the test cannot take it meanwhile.
-	callsPath := filepath.Join(fake, "calls")
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		calls, _ := os.ReadFile(callsPath)
-		if strings.Contains(string(calls), "test -race") {
-			break
-		}
-		if time.Now().After(deadline) {
-			cmd.Process.Kill()
-			<-done
-			t.Fatalf("the run never reached its race step, output:\n%s", out)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	waitFor("test -race")
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
 		t.Errorf("took the lock while the run's race step holds it")
 	}
