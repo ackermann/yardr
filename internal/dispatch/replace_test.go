@@ -100,7 +100,7 @@ func TestDaemonChecksItsBinaryBetweenPasses(t *testing.T) {
 }
 
 func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
-	_, _, d := setup(t)
+	s, _, d := setup(t)
 	var calls atomic.Int32
 	bin, path := fakeBinary(t, "old", func([]string) error {
 		calls.Add(1)
@@ -113,12 +113,12 @@ func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
-	time.Sleep(100 * time.Millisecond)
+	until(t, "the daemon to start", func() bool { return len(eventsOf(t, s, "daemon_started")) == 1 })
 	if calls.Load() != 0 {
 		t.Fatal("exec'd an unchanged binary")
 	}
 	installRev(t, path, "new")
-	time.Sleep(200 * time.Millisecond)
+	until(t, "the exec of the new build", func() bool { return calls.Load() == 1 })
 	select {
 	case err := <-done:
 		t.Fatalf("daemon stopped after a failed exec: %v", err)
