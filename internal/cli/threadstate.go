@@ -46,9 +46,9 @@ func stateThread(ctx context.Context, st store.API, home, name, source, arg stri
 		return in[0], arg, nil
 	case 0:
 		return "", "", fmt.Errorf("crew member %s takes no part in a thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source <source> %s makes it a participant; yardr thread list %s shows its threads)",
-			name, arg, name, arg, name)
+			name, printable(arg), name, printable(arg), name)
 	}
-	return "", "", fmt.Errorf("crew member %s takes part in a thread %s in %s: say which with --source", name, arg, strings.Join(in, " and "))
+	return "", "", fmt.Errorf("crew member %s takes part in a thread %s in %s: say which with --source", name, printable(arg), strings.Join(in, " and "))
 }
 
 func (a *app) threadStateCmd() *cobra.Command {
@@ -144,14 +144,14 @@ as none of what it does there does: that takes its identity in the source
 			}
 			res, err := s.SetState(ctx, thread, state, cred)
 			if err != nil {
-				return fmt.Errorf("set %s thread %s to %s: %w", source, thread, state, err)
+				return fmt.Errorf("set %s thread %s to %s: %w", source, printable(thread), state, err)
 			}
 			ts := store.ThreadState{Source: source, Thread: thread, Title: or(res.Thread.Title, p.Title), URL: or(res.Thread.URL, p.URL),
 				State: state, Status: res.Status, Instead: res.Instead}
 			if res.Changed {
 				ts.Was = res.Was
 				if err := st.StateSet(ctx, name, ts, a.who()); err != nil {
-					return fmt.Errorf("%s thread %s is now %s, but could not record it: %w", source, thread, res.Status, err)
+					return fmt.Errorf("%s thread %s is now %s, but could not record it: %w", source, printable(thread), res.Status, err)
 				}
 			}
 			out := map[string]any{"crew": name, "source": source, "thread": thread, "state": state, "status": res.Status,
@@ -166,15 +166,15 @@ as none of what it does there does: that takes its identity in the source
 					fmt.Printf("%s has no %s status here: %s instead\n", source, state, res.Instead)
 				}
 				if !res.Changed {
-					fmt.Printf("%s thread %s was already %s; nothing set\n", source, thread, res.Status)
+					fmt.Printf("%s thread %s was already %s; nothing set\n", source, printable(thread), res.Status)
 					return
 				}
 				// A command that does not say what the thread was in, or
 				// a label, has no "(was …)" rather than "(was -)".
 				if res.Was == "" {
-					fmt.Printf("%s thread %s is now %s\n", source, thread, res.Status)
+					fmt.Printf("%s thread %s is now %s\n", source, printable(thread), res.Status)
 				} else {
-					fmt.Printf("%s thread %s is now %s (was %s)\n", source, thread, res.Status, res.Was)
+					fmt.Printf("%s thread %s is now %s (was %s)\n", source, printable(thread), res.Status, res.Was)
 				}
 				// Its own action is kept from its inbox by its identity in
 				// the source (hookDeliveries); without one the delivery of

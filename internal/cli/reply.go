@@ -233,16 +233,16 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				rec := store.Reply{Source: env.Source, Thread: env.Thread.ID, Title: env.Thread.Title, ThreadURL: env.Thread.URL,
 					URL: m.URL, Key: rp.Key, Message: m.ID, Seq: seq}
 				if err := st.Replied(ctx, name, rec, name); err != nil {
-					return fmt.Errorf("posted %s, but could not record it: %w", m.URL, err)
+					return fmt.Errorf("posted %s, but could not record it: %w", printable(m.URL), err)
 				}
 			}
 			return a.out(map[string]any{"seq": seq, "crew": name, "source": env.Source, "thread": env.Thread.ID,
 				"url": m.URL, "message": m.ID, "repeated": already},
 				func() {
 					if already {
-						fmt.Fprintf(c.ErrOrStderr(), "already posted as %s; not posted again\n", m.URL)
+						fmt.Fprintf(c.ErrOrStderr(), "already posted as %s; not posted again\n", printable(m.URL))
 					}
-					fmt.Println(m.URL)
+					fmt.Println(printable(m.URL))
 				})
 		},
 	}
@@ -445,12 +445,12 @@ peers setting, a person needs nothing, and a bead's agent is refused.`,
 				ms = []hooks.Message{}
 			}
 			return a.out(map[string]any{"seq": seq, "source": env.Source, "thread": env.Thread, "message": env.Message, "messages": ms}, func() {
-				fmt.Printf("%s thread %s", env.Source, env.Thread.ID)
+				fmt.Printf("%s thread %s", env.Source, printable(env.Thread.ID))
 				if env.Thread.Title != "" {
-					fmt.Printf(" %q", env.Thread.Title)
+					fmt.Printf(" %q", printable(env.Thread.Title))
 				}
 				if env.Thread.URL != "" {
-					fmt.Printf("  %s", env.Thread.URL)
+					fmt.Printf("  %s", printable(env.Thread.URL))
 				}
 				fmt.Printf("\n%d message(s)\n", len(ms))
 				for _, m := range ms {

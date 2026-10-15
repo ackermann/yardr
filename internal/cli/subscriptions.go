@@ -890,7 +890,7 @@ member takes part in.`,
 				return err
 			}
 			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
-				fmt.Printf("%s follows %s thread %s\n", args[0], source, args[1])
+				fmt.Printf("%s follows %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
 	}
@@ -910,7 +910,7 @@ member takes part in.`,
 				return err
 			}
 			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
-				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, args[1])
+				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
 	}
@@ -934,8 +934,8 @@ member takes part in.`,
 			return a.out(ps, func() {
 				rows := [][]string{}
 				for _, p := range ps {
-					rows = append(rows, []string{p.Source, p.Thread, p.How, p.Since.Local().Format("01-02 15:04"),
-						or(p.Title, "-")})
+					rows = append(rows, []string{p.Source, printable(p.Thread), p.How, p.Since.Local().Format("01-02 15:04"),
+						printable(or(p.Title, "-"))})
 				}
 				table("SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
 			})

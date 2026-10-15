@@ -131,7 +131,7 @@ of the thread.`,
 				rec := store.Reply{Source: source, In: in, Thread: t.ID, Title: or(t.Title, title), ThreadURL: t.URL,
 					URL: t.URL, Key: rp.Key}
 				if err := st.Opened(ctx, name, rec, name); err != nil {
-					return fmt.Errorf("opened %s, but could not record it: %w", t.URL, err)
+					return fmt.Errorf("opened %s, but could not record it: %w", printable(t.URL), err)
 				}
 			}
 			res := map[string]any{"crew": name, "source": source, "in": in, "thread": t.ID,
@@ -142,9 +142,9 @@ of the thread.`,
 			return a.out(res,
 				func() {
 					if already {
-						fmt.Fprintf(c.ErrOrStderr(), "already opened as %s; not opened again\n", t.URL)
+						fmt.Fprintf(c.ErrOrStderr(), "already opened as %s; not opened again\n", printable(t.URL))
 					}
-					fmt.Println(t.URL)
+					fmt.Println(printable(t.URL))
 				})
 		},
 	}

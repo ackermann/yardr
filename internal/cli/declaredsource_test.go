@@ -217,3 +217,49 @@ func TestSourceRmPrintsNoControlCharacters(t *testing.T) {
 		t.Fatalf("source rm printed no %q:\n%s", want, out)
 	}
 }
+
+// A thread id is the source's own text, and thread list shows it through
+// the printable filter: the reproduce case prints a one-line row with no
+// control characters, while the store keeps the id as it came so it still
+// round-trips to the source.
+func TestThreadListPrintsNoControlCharacters(t *testing.T) {
+	a := declaredYard(t)
+	thread := "t1\r    something else\x1b[2K"
+	followed, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(followed, "\r\x1b") {
+		t.Fatalf("thread follow echoed a control character:\n%q", followed)
+	}
+	out, err := run(t, a.threadCmd(), "list", "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out, "\r\x1b") {
+		t.Fatalf("thread list printed a control character:\n%q", out)
+	}
+	if want := "t1?    something else?[2K"; !strings.Contains(out, want) {
+		t.Fatalf("thread list printed no %q:\n%s", want, out)
+	}
+	rows := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "t1?") {
+			rows++
+		}
+	}
+	if rows != 1 {
+		t.Fatalf("thread list spread the row over %d lines:\n%s", rows, out)
+	}
+	ps, err := a.st.Threads(context.Background(), "ann")
+	if err != nil || len(ps) != 1 || ps[0].Thread != thread {
+		t.Fatalf("threads = %+v %v, want the id as it came", ps, err)
+	}
+	unfollowed, err := run(t, a.threadCmd(), "unfollow", "ann", "--source", "acme", thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(unfollowed, "\r\x1b") {
+		t.Fatalf("thread unfollow echoed a control character:\n%q", unfollowed)
+	}
+}

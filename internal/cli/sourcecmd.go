@@ -1552,10 +1552,11 @@ func sourceRmReferences(ctx context.Context, st store.API, source string) (sourc
 	return left, nil
 }
 
-// printable is a command source rm prints for the operator to copy, with
-// nothing a terminal would act on: a thread id is the source's own text,
-// and one with a carriage return or an escape sequence could show another
-// command than the one printed. --json has the command as it is.
+// printable is source text the CLI prints for the operator — a thread id,
+// title or url, or a command holding one — with nothing a terminal would
+// act on: a thread id is the source's own text, and one with a carriage
+// return or an escape sequence could overwrite or hide what the table
+// shows. --json carries the text as it is.
 func printable(command string) string {
 	return strings.Map(func(r rune) rune {
 		if r == unicode.ReplacementChar || !unicode.IsPrint(r) {

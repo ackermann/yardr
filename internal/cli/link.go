@@ -80,7 +80,7 @@ func linkLine(l store.Link) string {
 	if l.Source == store.SourcePeer {
 		return l.PeerRow()
 	}
-	return fmt.Sprintf("%-7s %s (%s)", l.Kind, l.URL, l.Source)
+	return fmt.Sprintf("%-7s %s (%s)", l.Kind, printable(l.URL), l.Source)
 }
 
 func (a *app) linkCmd() *cobra.Command {
@@ -134,7 +134,7 @@ yard's bead.`,
 				return err
 			}
 			return a.out(ch, func() {
-				fmt.Printf("%s -%s-> %s (%s)", ch.Link.Bead, ch.Link.Kind, ch.Link.URL, ch.Link.Source)
+				fmt.Printf("%s -%s-> %s (%s)", ch.Link.Bead, ch.Link.Kind, printable(ch.Link.URL), ch.Link.Source)
 				// The bead had the other kind of link to this issue, and has
 				// one link per issue.
 				if ch.Replaced != "" {
