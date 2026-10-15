@@ -66,6 +66,10 @@ the wagon changed; the landing run is integrate-train's, on the whole train.
 Everything else is a landing, a wagon with no train included. See
 [docs/line.md](../../docs/line.md#wagons).
 
+A design bead (`YARDR_TYPE=design`) lands one document under `docs/design/`
+and no code: a branch that changes any other path is held before the tests
+run, naming every such path, so code no reviewer read never lands.
+
 **integrate-train** runs once a train's last child has landed on its branch,
 routed for the train flow's `open` stage (type `train`). It fetches the base
 when it is a remote's, rebases `yard/<train>` onto the depot's base and runs

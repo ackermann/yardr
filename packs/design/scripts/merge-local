@@ -21,6 +21,8 @@
 # the depot's test command on exactly what will land, fast-forwards the base
 # to the commit it tested, installs the landed build where the yard's
 # upgrade_from setting names the depot, and advances the bead to merged. A
+# design bead (YARDR_TYPE=design) whose branch changes a path outside
+# docs/design/ is held before the tests run instead, naming every such path. A
 # conflict goes to
 # the mergers (the conflict outcome where the flow names one, else the merge
 # stage), else back to the builders with the conflicting files; a red run
@@ -153,6 +155,23 @@ if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
     conflict "rebase onto $BASE conflicts in: $files
 Rebase $BR onto $BASE, keep both changes' intent, run the tests again."
   fi
+fi
+
+# A design bead lands a document, never code: a design branch that changes a
+# path outside docs/design/ is held here, naming every such path, before the
+# tests run on what cannot land. The branch is final (rebased above), and
+# what lands is the tested commit, so a branch that moves while the tests run
+# is tested and checked again. The type is the exec runner's
+# (YARDR_TYPE=design), the same word the wagon check below reads.
+if [ "${YARDR_TYPE:-}" = design ]; then
+  # No renames: a move across the boundary is a deletion and an addition,
+  # and both sides are judged (a bare --name-only shows the new path alone,
+  # hiding a deletion outside docs/design/).
+  outside=$(git -C "$WT" diff --name-only --no-renames "$BASE"...HEAD | grep -v '^docs/design/')
+  [ -z "$outside" ] ||
+    hold "a design lands one document under docs/design/ and no code, but $BR also changes:
+$outside
+Move those paths to another bead, or drop them from the branch, then unhold."
 fi
 
 # The depot's test command runs on exactly what will land, every time,
