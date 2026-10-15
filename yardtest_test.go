@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // Depot yardr's test command, as it is in this checkout: what a builder and
@@ -35,12 +37,15 @@ func gitT(t *testing.T, dir string, args ...string) string {
 
 // scriptEnv is this test's environment without what the run it is in gave
 // the script it is part of: the base and the landing of an agent's session
-// or the assembly, the socket client and the GOOS of a landing's steps, and
-// a plan. A case sets what it means the script to have.
+// or the assembly, the socket client and the GOOS of a landing's steps, a
+// plan, and the race lock the run's own race leg holds. A case sets what it
+// means the script to have: one that runs the script sets YARDR_RACE_HELD,
+// so its race step shares the hold instead of taking the machine's lock,
+// except the lock's own test, which takes a lock of its own.
 func scriptEnv() []string {
 	return slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS"}, k)
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "YARDR_RACE_HELD"}, k)
 	})
 }
 
@@ -389,7 +394,7 @@ func TestYardTestSelects(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "FAKE=" + fake, "REAL_GO=" + realGo,
+		first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
 			"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, "docs/design/2026-10-12-a.md")
 		if err != nil || first != landing+"nothing compiled changed"+since {
 			t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
@@ -446,7 +451,7 @@ func TestYardTestSelects(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "FAKE=" + fake, "REAL_GO=" + realGo,
+			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.changed)
 			if err != nil || first != landing+c.reason+since+": the whole suite" {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
@@ -600,7 +605,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
-				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line)
+				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line, "YARDR_RACE_HELD=1")
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
@@ -737,7 +742,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
-				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+flakyFail)
+				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+flakyFail, "YARDR_RACE_HELD=1")
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
@@ -800,5 +805,119 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				t.Errorf("left behind: %v", left)
 			}
 		})
+	}
+}
+
+// The race leg runs under one machine-wide lock: a gate whose race step
+// starts while another holds the lock waits for it, holds it for the run,
+// then releases it, and says how long it waited. The test holds the lock
+// itself for two seconds, so the run must print a wait of at least one,
+// whatever second it started in; its own home stands in for the yard's, so
+// no real gate waits on it. Once the run's test step starts, the lock is the
+// run's until it ends: the test cannot take it meanwhile, and can once the
+// run has ended. vet and build run while the lock is held: only the race
+// leg waits.
+func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	lock := filepath.Join(home, ".yardr", "race.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("holding the lock: %v", err)
+	}
+	fake, dir := t.TempDir(), t.TempDir()
+	for name, text := range map[string]string{
+		"go":    "#!/bin/sh\necho \"$*\" >>\"$FAKE/calls\"\nif [ \"$1\" = test ]; then sleep 2; fi\n",
+		"gofmt": "#!/bin/sh\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmp := filepath.Join(fake, "tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A branch that changed go.mod: a plain run tests every package, and
+	// asks go for no list of them.
+	mod := filepath.Join(dir, "go.mod")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", string(script))
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+		"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
+	done := make(chan struct{})
+	var out []byte
+	var runErr error
+	go func() {
+		out, runErr = cmd.CombinedOutput()
+		close(done)
+	}()
+	// However slowly the run reaches its race step, it is still waiting
+	// when the hold ends two seconds on: a wait that long spans a whole
+	// second, so the run must print one.
+	time.Sleep(2 * time.Second)
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	// The run's test step starts once it has the lock: from then until it
+	// ends the lock is the run's, so the test cannot take it meanwhile.
+	callsPath := filepath.Join(fake, "calls")
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		calls, _ := os.ReadFile(callsPath)
+		if strings.Contains(string(calls), "test -race") {
+			break
+		}
+		if time.Now().After(deadline) {
+			cmd.Process.Kill()
+			<-done
+			t.Fatalf("the run never reached its race step, output:\n%s", out)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		t.Errorf("took the lock while the run's race step holds it")
+	}
+	<-done
+	if runErr != nil {
+		t.Fatalf("err %v, output:\n%s", runErr, out)
+	}
+	waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAll(out, -1)
+	if len(waits) != 1 {
+		t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), out)
+	}
+	calls, _ := os.ReadFile(callsPath)
+	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race ./..."; got != want {
+		t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+	}
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Errorf("cannot take the lock after the run ended: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+		t.Errorf("left behind: %v", left)
 	}
 }

@@ -73,15 +73,54 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # beside the log. Then the line that says how long the step took, both runs
 # of it where there were two. A step that failed for good is followed by what
 # of its output says so (failed).
+# racelocked runs the race leg under the machine-wide race lock: one go test
+# -race run at a time on this machine. Five worktrees' race suites side by
+# side on ten cores slow each other past Go's per-package timeout, while one
+# alone takes a third of the time, so the queue costs less than the
+# contention (yardr-cecb). The lock is an flock on one file under the yard's
+# home, which every worktree's gate shares, so a gate that dies releases it;
+# never a file the gate removes again, which a dead gate leaves behind
+# blocking every landing. macOS has no flock binary; perl's flock is the
+# same call, and the perl execs the run, so the run itself holds the lock.
+# It waits without a limit, and says so, with the seconds, when it waited.
+# A run nested in another's race leg shares its hold instead of waiting on
+# it (YARDR_RACE_HELD, which the run's own tests set too): without that the
+# tests, which run this script, would wait on the run they are in.
+racelocked() {
+  lock=$HOME/.yardr/race.lock
+  mkdir -p "$HOME/.yardr"
+  YARDR_RACE_HELD=1
+  export YARDR_RACE_HELD
+  perl -e 'use Fcntl qw(:flock);
+$^F = 100; # fds above $^F close on exec; keep the lock open across it
+$lock = shift;
+open(my $fh, ">>", $lock) or die "test: cannot open $lock: $!\n";
+$t = time;
+flock($fh, LOCK_EX) or die "test: cannot lock $lock: $!\n";
+$w = time - $t;
+warn "test: waited $w s for the race lock\n" if $w > 0;
+exec(@ARGV);
+die "test: cannot run $ARGV[0]: $!\n";' "$lock" "$@"
+}
 again() {
   t0=$(date +%s)
   log=$(mktemp)
-  { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+  # The race leg, and only it, runs under the machine-wide lock: go vet,
+  # go build and the socket leg beside the first run wait for nothing.
+  under=env
+  case " $* " in
+    *" go test -race "*)
+      if [ -z "$YARDR_RACE_HELD" ]; then
+        under=racelocked
+      fi
+      ;;
+  esac
+  { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
   rc=$(cat "$log.rc")
   retried=0
   if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
-    { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+    { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
     rc=$(cat "$log.rc")
     retried=1
   fi
@@ -114,7 +153,7 @@ again() {
           done
           echo "test: running the failed packages again: $pkgs_line" >&2
           # shellcheck disable=SC2086
-          { rc=0; $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+          { rc=0; "$under" $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
           rc=$(cat "$log.rc")
           if [ "$rc" = 0 ]; then
             if [ -n "$tests" ]; then

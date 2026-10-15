@@ -474,6 +474,12 @@ suites, run at once across those depots
 worktrees are bounded only by how many such sessions there are, so keep
 what the test command does when it is run plainly cheap, and leave the whole
 suite to `YARDR_LANDING`. Two yards on one machine are not bounded together.
+Depot yardr's own gate serialises its race leg per machine: one `go test
+-race` run at a time, under a lock file in the yard's home, and a gate that
+has to wait says so (`test: waited 312 s for the race lock`). Race suites
+run side by side slow each other past Go's per-package timeout while one
+alone takes a third of the time, so the queue costs less wall time than the
+contention.
 
 ## Briefs are not config
 
