@@ -92,6 +92,37 @@ func TestMailFile(t *testing.T) {
 	}
 }
 
+// The CLI refuses an over-limit mail or note before uploading its files.
+func TestFileCountLimitsBeforePut(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	report := filepath.Join(t.TempDir(), "report.pdf")
+	if err := os.WriteFile(report, []byte("%PDF-1.4 a report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mailArgs := []string{"mail", "yardmaster", "too many"}
+	for range store.MaxMailFiles + 1 {
+		mailArgs = append(mailArgs, "--file", report)
+	}
+	refusedAs(t, st, "jo", "mail carries at most 64 files, not 65", mailArgs...)
+
+	b, err := api.CreateBead(t.Context(), store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noteArgs := []string{"bead", "note", b.ID, "too many"}
+	for range store.MaxNoteFiles + 1 {
+		noteArgs = append(noteArgs, "--file", report)
+	}
+	refusedAs(t, st, "jo", "a note carries at most 64 files, not 65", noteArgs...)
+
+	got, err := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("the refused commands uploaded blobs: %v", got)
+	}
+}
+
 // yardr mail --file sends a page as it sends an image, with no new flag:
 // the sent mail names "1 page" with the path's base name, and the inbox
 // shows it under the mail's words. Prose named .html goes as a file,

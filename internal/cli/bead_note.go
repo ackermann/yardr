@@ -43,6 +43,9 @@ and takes no text and no --file.`,
 				}
 				return nil
 			}
+			if len(noteFiles) > store.MaxNoteFiles {
+				return fmt.Errorf("a note carries at most %d files, not %d", store.MaxNoteFiles, len(noteFiles))
+			}
 			return cobra.ExactArgs(2)(c, args)
 		},
 		RunE: func(c *cobra.Command, args []string) error {
@@ -82,7 +85,7 @@ and takes no text and no --file.`,
 			}
 			if foreign && len(noteFiles) > 0 {
 				// A note on another yard's question is always refused;
-				// say so before any image is put.
+				// say so before any file is put.
 				_, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session)
 				return err
 			}

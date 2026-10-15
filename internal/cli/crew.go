@@ -1215,6 +1215,9 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			if with != "" {
 				return cobra.NoArgs(c, args)
 			}
+			if len(files) > store.MaxMailFiles {
+				return fmt.Errorf("mail carries at most %d files, not %d", store.MaxMailFiles, len(files))
+			}
 			if len(files) > 0 {
 				return cobra.RangeArgs(1, 2)(c, args)
 			}
