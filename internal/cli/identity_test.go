@@ -224,3 +224,26 @@ func TestStoreSendsTheRunsSession(t *testing.T) {
 		t.Fatalf("the store = %#v, want a client sending session s1", st)
 	}
 }
+
+// A successful pre-run actor lookup is the actor for the whole command.
+// Re-resolving it in who() could time out on a later OS lookup and silently
+// attribute an operation to "unknown" after the command had passed pre-run.
+func TestPreRunActorIsStableForTheCommand(t *testing.T) {
+	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("YARDR_SESSION", "")
+	t.Setenv("YARDR_BEAD", "")
+	t.Setenv("USER", "first")
+	a := &app{}
+	root := a.rootCmd()
+	if err := root.Flags().Set("version", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.PersistentPreRunE(root, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("USER", "second")
+	if got := a.who(); got != "first" {
+		t.Fatalf("who() after pre-run = %q, want the actor resolved at pre-run", got)
+	}
+}

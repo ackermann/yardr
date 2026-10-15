@@ -25,6 +25,10 @@ import (
 type app struct {
 	json  bool
 	actor string
+	// actingAs is the actor resolved once by PersistentPreRunE, so a later
+	// lookup cannot time out and silently change this run's attribution.
+	actingAs    string
+	actorLoaded bool
 	// homeDir is --home: the yard this run and all it starts work in.
 	homeDir string
 	cfg     *config.Config
@@ -106,9 +110,11 @@ func (a *app) rootCmd() *cobra.Command {
 			// lookup hangs past signals, so the command fails here, with
 			// how to name one, instead of hanging wherever it first acts
 			// (yardr-tbm4).
-			if _, err := a.resolveActor(); err != nil {
+			actor, err := a.resolveActor()
+			if err != nil {
 				return err
 			}
+			a.actingAs, a.actorLoaded = actor, true
 			// yardr --version answers as yardr version does: on a home
 			// with no yard, without the onboarding.
 			if showVersion {
@@ -196,11 +202,14 @@ func (a *app) resolveActor() (string, error) {
 }
 
 func (a *app) who() string {
+	if a.actorLoaded {
+		return a.actingAs
+	}
 	who, err := a.resolveActor()
 	if err != nil {
-		// Commands run through the root fail in pre-run instead, so
-		// this is a second lookup failing where the first answered, or
-		// a test's direct subcommand: "unknown", as a failed lookup was.
+		// Commands run through the root fail in pre-run instead. A
+		// direct subcommand call (as in some tests) keeps the old
+		// fallback when it bypasses pre-run.
 		return "unknown"
 	}
 	return who
