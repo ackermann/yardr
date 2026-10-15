@@ -281,6 +281,56 @@ func TestMailWithAFileCrosses(t *testing.T) {
 	}
 }
 
+// An empty file is still a file: its hash names the empty bytes, which
+// cross and arrive under the name the mail gives them.
+func TestEmptyFileCrosses(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	ref, err := south.api.PutBlob(ctx, []byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Bytes != 0 || ref.Kind() != "file" {
+		t.Fatalf("south's empty blob = %+v", ref)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the empty file", "jo", store.BlobFile{Hash: ref.Hash, Name: "empty.dat"}); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+
+	path := north.own.BlobPath(ref.Hash)
+	if got, err := os.ReadFile(path); err != nil || len(got) != 0 {
+		t.Fatalf("north's empty blob = %q, %v", got, err)
+	}
+	e, files := mailed(t, north)
+	if len(files) != 1 || files[0].Hash != ref.Hash || files[0].Name != "empty.dat" || files[0].NotTaken != "" ||
+		e.Data["text"] != "the empty file" {
+		t.Fatalf("north's mail = %+v, files %+v", e, files)
+	}
+}
+
+// The longest allowed name crosses even when JSON expands each character.
+func TestMaxLengthEscapedNameCrosses(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	name := strings.Repeat("<", store.MaxBlobName)
+	if err := store.CheckBlobName(name); err != nil {
+		t.Fatalf("the %d-byte name was refused: %v", len(name), err)
+	}
+	ref, err := south.api.PutBlob(ctx, []byte("%PDF-1.4 the report"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the report", "jo", store.BlobFile{Hash: ref.Hash, Name: name}); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+	_, files := mailed(t, north)
+	if len(files) != 1 || files[0].Hash != ref.Hash || files[0].Name != name || files[0].NotTaken != "" {
+		t.Fatalf("north's mail file = %+v", files)
+	}
+}
+
 // A page over the receiver's cap for a peer's file is refused with the
 // size, as an image is, and the mail says it.
 func TestPageRefusedForWhatItIs(t *testing.T) {

@@ -37,8 +37,9 @@ const (
 	// yard reads a message as large as this from a peer and none larger.
 	MaxPeerFile = 32 << 20
 	// MaxPeerFileBody bounds the body of a message of kind PeerFile: a
-	// file of MaxPeerFile in base64, and room for its name.
-	MaxPeerFileBody = (MaxPeerFile+2)/3*4 + 1<<10
+	// file of MaxPeerFile in base64, and room for the largest name after
+	// JSON escapes it.
+	MaxPeerFileBody = (MaxPeerFile+2)/3*4 + 4<<10
 )
 
 // RefusedNotFile is a message of kind PeerFile that is no file: a body that
@@ -293,7 +294,7 @@ func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 // already are not written again.
 func (s *Store) takeFile(m PeerMessage, limit int64) (reason string, extra map[string]any, err error) {
 	var f peerFile
-	if json.Unmarshal(m.Body, &f) != nil || !blobHash.MatchString(f.Hash) || len(f.Data) == 0 {
+	if json.Unmarshal(m.Body, &f) != nil || !blobHash.MatchString(f.Hash) {
 		return RefusedNotFile, map[string]any{"detail": "the body does not read as a file"}, nil
 	}
 	extra = map[string]any{"hash": f.Hash, "bytes": len(f.Data)}
