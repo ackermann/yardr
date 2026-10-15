@@ -45,6 +45,10 @@ func newTrainYard(t *testing.T, check string) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The test plays the dispatcher (claimFor claims over the socket, as
+	// the dispatcher would), so it holds the daemon lock as the daemon
+	// would: without a holder the daemon's writes are refused.
+	storetest.HoldDaemon(t, home)
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
 	t.Cleanup(func() {
 		// Stop by pid (the pidfile), then remove the state.
