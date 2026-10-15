@@ -807,3 +807,100 @@ func TestDeployPushEndedBySignalHolds(t *testing.T) {
 		t.Fatalf("the note does not name the signal:\n%s", notes)
 	}
 }
+
+// With no DOKKU_AFTER the deploy is as it has always been: the base is
+// pushed and the bead goes to live, with no post-deploy step in the log.
+func TestDeployWithoutAfterStepDeploysAsToday(t *testing.T) {
+	y := newYard(t)
+	sha := y.commit(y.repo, "b.txt", "landed\n")
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "live" {
+		t.Fatalf("bead in %s, want live", b.Stage)
+	}
+	if got := y.deployed(); got != sha {
+		t.Fatalf("the host's main is at %q, want the base %s", got, sha)
+	}
+	if strings.Contains(y.log, "post-deploy") {
+		t.Fatalf("a post-deploy step ran with DOKKU_AFTER unset:\n%s", y.log)
+	}
+}
+
+// With DOKKU_AFTER naming a command that exits 0, the deploy runs it in
+// the depot with the deploy's environment after the push, its output in
+// the log, and the bead goes to live.
+func TestDeployAfterStepPassesGoesLive(t *testing.T) {
+	y := newYard(t)
+	sha := y.commit(y.repo, "b.txt", "landed\n")
+	step := filepath.Join(y.repo, "after.sh")
+	if err := os.WriteFile(step, []byte("#!/bin/sh\necho \"bead=$YARDR_BEAD\"\necho \"depot=$YARDR_DEPOT_PATH\"\n[ \"$(pwd)\" = \"$YARDR_DEPOT_PATH\" ] || { echo NOT-IN-THE-DEPOT; exit 1; }\necho after-ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	y.opts["DOKKU_AFTER"] = step
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "live" {
+		t.Fatalf("bead in %s, want live", b.Stage)
+	}
+	if got := y.deployed(); got != sha {
+		t.Fatalf("the host's main is at %q, want the base %s", got, sha)
+	}
+	for _, want := range []string{"running the post-deploy step", "bead=r-1", "depot=" + y.repo, "after-ok"} {
+		if !strings.Contains(y.log, want) {
+			t.Errorf("the log lacks %q:\n%s", want, y.log)
+		}
+	}
+	if strings.Contains(y.log, "NOT-IN-THE-DEPOT") {
+		t.Errorf("the step did not run in the depot:\n%s", y.log)
+	}
+}
+
+// With DOKKU_AFTER naming a command that fails, the push stands but the
+// bead does not go live: it reports failed (to decide) with the step's
+// last lines in the note, and the yardmaster is mailed.
+func TestDeployAfterStepFailsDecides(t *testing.T) {
+	y := newYard(t)
+	y.lead()
+	sha := y.commit(y.repo, "b.txt", "landed\n")
+	y.opts["DOKKU_AFTER"] = y.write("after.sh", "#!/bin/sh\necho 'rebuilding the public page'\necho 'serve-public: cannot write dist: permission denied'\nexit 1\n", 0o755)
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "decide" || b.Hold || b.Status == "closed" {
+		t.Fatalf("bead %s/%s hold=%v, want open in decide", b.Stage, b.Status, b.Hold)
+	}
+	notes := y.notes("r-1")
+	for _, want := range []string{"post-deploy step", "failed (exit 1)", "serve-public: cannot write dist: permission denied"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the note lacks %q:\n%s", want, notes)
+		}
+	}
+	if !y.mailed() {
+		t.Error("the yardmaster was not mailed")
+	}
+	if got := y.deployed(); got != sha {
+		t.Errorf("the host is at %q, want the pushed base %s", got, sha)
+	}
+	if !strings.Contains(y.log, "serve-public: cannot write dist") {
+		t.Errorf("the step's output is not in the log:\n%s", y.log)
+	}
+}
+
+// A post-deploy step ended by a signal holds the bead where it is, as a
+// push ended by a signal does.
+func TestDeployAfterStepEndedBySignalHolds(t *testing.T) {
+	y := newYard(t)
+	y.commit(y.repo, "b.txt", "landed\n")
+	y.opts["DOKKU_AFTER"] = y.write("after.sh", "#!/bin/sh\nkill -TERM $$\n", 0o755)
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "merged" || !b.Hold {
+		t.Fatalf("bead %s hold=%v, want held in merged", b.Stage, b.Hold)
+	}
+	if notes := y.notes("r-1"); !strings.Contains(notes, "was ended by signal 15") {
+		t.Fatalf("the note does not name the signal:\n%s", notes)
+	}
+}

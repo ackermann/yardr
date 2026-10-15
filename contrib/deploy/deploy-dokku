@@ -21,6 +21,11 @@
 #   DOKKU_URL          where the app is opened, for the note, with {app} for
 #                      the app's name; the note names the host and the app
 #                      when unset
+#   DOKKU_AFTER        a command run in the depot, with the deploy's
+#                      environment, after a deploy's push; the bead goes
+#                      live only when it exits 0. Unset runs nothing. A
+#                      preview never runs it, nor does the run of a child
+#                      of a train, which pushes nothing.
 #   YARDR_NOTIFY       crew member mailed when a deploy fails (default: the
 #                      yard's yardmaster setting, else yardmaster)
 #
@@ -65,9 +70,11 @@
 # A deploy that failed reports failed (to decide, in the design's flow), with
 # the end of the push's output in the note and mail to the yardmaster: the
 # code has landed, so only the host or this setup can be fixed. A push ended
-# by a signal says nothing about the host: the bead is held. Every outcome
-# ends in a done, an advance or a hold: exiting without one counts as a
-# failed session, and three of those hold the bead.
+# by a signal says nothing about the host: the bead is held. A post-deploy
+# step that failed fails the deploy the same way, with the step's last lines
+# in the note; one ended by a signal holds the bead, as a push ended by one
+# does. Every outcome ends in a done, an advance or a hold: exiting without
+# one counts as a failed session, and three of those hold the bead.
 set -u
 # The ranges in the patterns below are ASCII's, and what git and ssh say is
 # read in English.
@@ -110,6 +117,7 @@ APP=${DOKKU_APP:-}
 KNOWN=${DOKKU_KNOWN_HOSTS:-}
 KEY=${DOKKU_KEY_FILE:-}
 URL=${DOKKU_URL:-}
+AFTER=${DOKKU_AFTER:-}
 NOTIFY=${YARDR_NOTIFY:-}
 TAIL=100
 # REF is the branch a run pushes, and FORCED whether it may replace what the
@@ -395,6 +403,35 @@ if [ "$rc" = 0 ] && [ "$MODE" = preview ]; then
   on=
   [ -z "$TRAIN" ] || on=" It holds train $TRAIN's branch so far and this bead's change."
   live "preview $where at $at of $REF in $secs s.$on"
+fi
+# A deploy runs its post-deploy step, if one is named, after a successful
+# push of the base: in the depot, with the deploy's environment, its output
+# in the log. Only a step that exits 0 goes live; a failed one ends the
+# stage as a failed push does, and one ended by a signal holds the bead.
+if [ "$rc" = 0 ] && [ "$MODE" = deploy ] && [ -n "$AFTER" ]; then
+  echo "== running the post-deploy step: $AFTER"
+  t1=$(date +%s)
+  (cd "$REPO" && sh -c "$AFTER") >"$log" 2>&1 </dev/null && arc=0 || arc=$?
+  asecs=$(($(date +%s) - t1))
+  if [ "$arc" = 0 ]; then
+    cat "$log"
+    rm -f "$log"
+  else
+    lines=$(wc -l <"$log" | tr -d ' ')
+    out=$(tail -n "$TAIL" "$log")
+    rm -f "$log"
+    printf '%s\n' "$out"
+  fi
+  echo "== $BEAD took: post-deploy $asecs s (exit $arc)"
+  [ "$arc" = 0 ] || {
+    # A signal says nothing about the host, as with the push.
+    [ "$arc" -le 128 ] || hold "the post-deploy step ($AFTER) was ended by signal $((arc - 128)) (exit $arc) after $asecs s, which says nothing about the host. The push went through; whether the step's work was done is not known, so the bead is not live. Unhold to deploy again.
+Of the step's output, the end:
+$out"
+    if [ "$lines" -gt "$TAIL" ]; then shown="the last $TAIL of $lines lines"; else shown="all"; fi
+    fail "the post-deploy step ($AFTER) failed (exit $arc) after $asecs s. The push went through; the bead is not live." "Of the step's output, $shown:
+$out"
+  }
 fi
 [ "$rc" != 0 ] || live "live $where at $at in $secs s"
 

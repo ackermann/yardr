@@ -41,6 +41,7 @@ trusting the file: the scan believes whoever answers.
 | `DOKKU_KNOWN_HOSTS` | a known-hosts file with the host's ssh key, by its absolute path |
 | `DOKKU_KEY_FILE` | the private key to push with, by its absolute path; ssh's own default keys when unset |
 | `DOKKU_URL` | where the app is opened, for the note, with `{app}` for the app's name; the note names the host and the app when unset |
+| `DOKKU_AFTER` | a command run in the depot, with the deploy's environment, after a deploy's push; the bead goes live only when it exits 0; unset runs nothing |
 | `YARDR_NOTIFY` | crew member mailed when a deploy fails (default: the yard's `yardmaster` setting, else `yardmaster`) |
 
 It resolves `YARDR_BASE` to its commit as it runs and pushes that commit to
@@ -88,6 +89,16 @@ of the push's output, marked as text from the host, and the yardmaster is
 mailed. A flow with no `failed` outcome from the stage gets the bead held
 instead. A push ended by a signal is held too: it says nothing about the
 host.
+
+A deploy whose `DOKKU_AFTER` names a command (say
+`DOKKU_AFTER=$YARDR_DEPOT_PATH/scripts/serve-public.sh` in the group's
+`cmd`, which the runner expands) runs it after a successful push, in the
+depot with the deploy's environment, and goes live only when the step
+exits 0. A failed step reports `failed` with the step's last 100 lines in
+the note, as a failed push does — the push stands, but the bead is not
+live — and a step ended by a signal holds the bead. The step's output is
+in the group's log. A preview never runs it, nor does the run of a child
+of a train, which pushes nothing.
 
 ## A preview of a bead that has not landed
 
