@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -548,8 +549,10 @@ func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
 
 // The workflow artifact already carries everything in dist/. The release
 // step must pass a signature to gh when present, without making an unsigned
-// release fail on an unmatched glob.
-func TestReleaseWorkflowUploadsOptionalMinisignSignature(t *testing.T) {
+// release fail on an unmatched glob, and must leave a release the yard
+// already made alone: it looks first, and creates only when the release is
+// not there yet.
+func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 	workflow, err := os.ReadFile("../../.github/workflows/release.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -579,12 +582,14 @@ func TestReleaseWorkflowUploadsOptionalMinisignSignature(t *testing.T) {
 	}
 	script := strings.Join(lines, "\n")
 	for _, tc := range []struct {
-		name string
-		tag  string
-		sign bool
+		name   string
+		tag    string
+		sign   bool
+		exists bool // gh release view finds the release already made
 	}{
 		{name: "unsigned stable release", tag: "v1.2.3"},
 		{name: "signed prerelease", tag: "v1.2.4-rc.1", sign: true},
+		{name: "release the yard made", tag: "v1.2.5", exists: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -607,9 +612,13 @@ func TestReleaseWorkflowUploadsOptionalMinisignSignature(t *testing.T) {
 			if err := os.Mkdir(bin, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			gh := "#!/bin/sh\nprintf '%s\\0' \"$@\" >\"$GH_CALLS\"\n"
+			gh := "#!/bin/sh\n{ printf '%s\\0' \"$@\"; printf '\\n'; } >>\"$GH_CALLS\"\nif [ \"$1\" = release ] && [ \"$2\" = view ]; then exit \"$GH_VIEW_RC\"; fi\nexit 0\n"
 			if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
 				t.Fatal(err)
+			}
+			viewRC := "1"
+			if tc.exists {
+				viewRC = "0"
 			}
 			calls := filepath.Join(dir, "gh-args")
 			cmd := exec.Command("/bin/bash", "-e", "-c", script)
@@ -617,25 +626,37 @@ func TestReleaseWorkflowUploadsOptionalMinisignSignature(t *testing.T) {
 			cmd.Env = []string{
 				"PATH=" + bin + ":/usr/bin:/bin",
 				"GH_CALLS=" + calls,
+				"GH_VIEW_RC=" + viewRC,
 				"TAG=" + tc.tag,
 			}
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("release step: %v\n%s", err, out)
 			}
-			got, err := os.ReadFile(calls)
+			raw, err := os.ReadFile(calls)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt"}
-			if tc.sign {
-				want = append(want, "dist/checksums.txt.minisig")
+			var got [][]string
+			for _, call := range strings.Split(string(raw), "\n") {
+				if call == "" {
+					continue
+				}
+				got = append(got, strings.Split(strings.TrimSuffix(call, "\x00"), "\x00"))
 			}
-			want = append(want, "--verify-tag", "--generate-notes", "--title", tc.tag)
-			if strings.Contains(tc.tag, "-") {
-				want = append(want, "--prerelease")
+			want := [][]string{{"release", "view", tc.tag}}
+			if !tc.exists {
+				create := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt"}
+				if tc.sign {
+					create = append(create, "dist/checksums.txt.minisig")
+				}
+				create = append(create, "--verify-tag", "--generate-notes", "--title", tc.tag)
+				if strings.Contains(tc.tag, "-") {
+					create = append(create, "--prerelease")
+				}
+				want = append(want, create)
 			}
-			if strings.TrimSuffix(string(got), "\x00") != strings.Join(want, "\x00") {
-				t.Errorf("gh args = %q; want %q", strings.Split(strings.TrimSuffix(string(got), "\x00"), "\x00"), want)
+			if fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
+				t.Errorf("gh calls = %q; want %q", got, want)
 			}
 		})
 	}
