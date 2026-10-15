@@ -794,6 +794,78 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 	}
 }
 
+// The history marks its actor as the notes mark their author: (as
+// <user>) where a link trusts the name, the foreign line otherwise,
+// and neither for a name of this yard.
+func TestBeadPageMarksHistoryActor(t *testing.T) {
+	st, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.GetPeer(ctx, "airy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := own.PeerHeard(ctx, "airy", p.Key, &store.PeerSays{
+		Understands: []string{"ping"},
+		Roster:      []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AllowPeer(ctx, "airy", store.PeerAllow{Trust: map[string]string{"ada": "ada"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range [][2]string{
+		{"from a trusted name", "ada@airy"},
+		{"from a stranger", "jo@airy"},
+		{"this yard's own", "builder"},
+	} {
+		if err := st.AddNote(ctx, b.ID, n[0], n[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(st, home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: st, ts: ts, home: home}
+
+	body := f.get("/beads/" + b.ID).body
+	histAt := strings.Index(body, `id="history"`)
+	if histAt < 0 {
+		t.Fatalf("the page has no history:\n%s", body)
+	}
+	hist := body[histAt:]
+	for _, want := range []string{
+		"ada@airy (as ada)",
+		"jo@airy (" + store.OutsideMail + ")",
+	} {
+		if !strings.Contains(hist, want) {
+			t.Errorf("the history lacks %q", want)
+		}
+	}
+	for _, unmarked := range []string{"ada@airy</span>", "jo@airy</span>", "builder ("} {
+		if strings.Contains(hist, unmarked) {
+			t.Errorf("the history prints %q", unmarked)
+		}
+	}
+}
+
 // unreadableTrusts is a store whose links cannot be read: Peers fails,
 // as the bead's page sees it.
 type unreadableTrusts struct {
@@ -840,6 +912,13 @@ func TestBeadPageMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
 	}
 	if strings.Contains(body, "jo@a (as ") {
 		t.Errorf("the page trusts a name whose trusts it could not read")
+	}
+	hist := body[histAt:]
+	if !strings.Contains(hist, "jo@a ("+store.OutsideMail+")") {
+		t.Errorf("the history marks no foreign actor when the trusts cannot be read")
+	}
+	if strings.Contains(hist, "jo@a</span>") {
+		t.Errorf("the history prints the foreign actor unmarked")
 	}
 }
 

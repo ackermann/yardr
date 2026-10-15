@@ -936,10 +936,11 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	}
 }
 
-// A note by a name of another yard says whose word it is in bead show, as
-// mail does: (as <user>) where a link trusts the name, the foreign line
-// otherwise. A note of this yard's own carries neither, and --json names
-// the author as the note has it.
+// A note by a name of another yard says whose word it is in bead show,
+// as mail does: (as <user>) where a link trusts the name, the foreign
+// line otherwise; bead history marks its actor the same way. A note of
+// this yard's own carries neither, and --json names the author as the
+// note has it.
 func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -994,6 +995,22 @@ func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
 	}
 	if strings.Contains(out, "builder (") {
 		t.Errorf("a note of this yard is marked:\n%s", out)
+	}
+
+	hist, err := run(t, a.beadCmd(), "history", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ada@south (as ada)",
+		"jo@south (" + store.OutsideMail + ")",
+	} {
+		if !strings.Contains(hist, want) {
+			t.Errorf("bead history lacks %q:\n%s", want, hist)
+		}
+	}
+	if strings.Contains(hist, "builder (") {
+		t.Errorf("an event of this yard is marked:\n%s", hist)
 	}
 
 	a.json = true

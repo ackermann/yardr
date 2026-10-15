@@ -535,13 +535,21 @@ kept the previous values says that the body changed, without a diff.`,
 				return err
 			}
 			return a.out(h, func() {
+				// An actor from another yard says whose word the event is,
+				// as a note's author does; with no grants when the trusts
+				// cannot be read.
+				as := trustMarks(c.Context(), st)
+				if as == nil {
+					as = map[string]string{}
+				}
 				for _, ch := range h {
 					what := ch.Text
 					// One line an event: a note is cut short and may break lines.
 					if note := strings.Join(strings.Fields(ch.Note), " "); note != "" {
 						what += ": " + note
 					}
-					fmt.Printf("%s  %-14s %s\n", ch.At.Local().Format("2006-01-02 15:04:05"), ch.Actor, what)
+					actor := store.OneLine(store.MarkedAuthor(ch.Actor, as))
+					fmt.Printf("%s  %-14s %s\n", ch.At.Local().Format("2006-01-02 15:04:05"), actor, what)
 					if ch.Diff != "" {
 						fmt.Println("    " + strings.ReplaceAll(strings.TrimSuffix(ch.Diff, "\n"), "\n", "\n    "))
 					}

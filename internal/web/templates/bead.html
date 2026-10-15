@@ -208,7 +208,7 @@
     <h3 class="label">history</h3>
     {{- range .History}}
     <article class="note" id="h{{.Seq}}">
-      <header class="entry-head"><span class="label">{{.Actor}}{{if .Via}} (via {{.Via}}){{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></header>
+      <header class="entry-head"><span class="label">{{markAuthor .Actor $.Data.Marks}}{{if .Via}} (via {{.Via}}){{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></header>
       <p{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</p>
       {{- with .Note}}
       <p class="entry-note">{{.}}</p>

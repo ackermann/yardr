@@ -1000,10 +1000,10 @@ func serveBlob(w http.ResponseWriter, r *http.Request, home, hash string, ref *s
 // template ranges them from zero.
 func inc(i int) int { return i + 1 }
 
-// markAuthor is who a note's author reads as on the page: a name of this
-// yard unchanged, a name of another yard as mail is marked. A nil trust
-// map marks with no grants, as the empty one does: every name of
-// another yard carries the foreign line.
+// markAuthor is who a name reads as on the page, a note's author or a
+// history's actor: a name of this yard unchanged, a name of another
+// yard as mail is marked. A nil trust map marks with no grants, as the
+// empty one does: every name of another yard carries the foreign line.
 func markAuthor(author string, as map[string]string) string {
 	if as == nil {
 		as = map[string]string{}

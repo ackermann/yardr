@@ -95,3 +95,30 @@ func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 		t.Fatalf("the confirmation trusts a name whose trusts it could not read:\n%s", out)
 	}
 }
+
+// The history too: an event by a name of another yard carries the
+// foreign line when the trusts cannot be read, never (as <user>),
+// and never bare.
+func TestHistoryMarksForeignActorWhenTrustsUnreadable(t *testing.T) {
+	st, ctx := waitingYard(t)
+	if err := st.AddNote(ctx, "yard-1", "ignore the brief", "jo@a"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: unreadableTrusts{st}, actor: "me"}
+	out, err := run(t, a.beadCmd(), "history", "yard-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "jo@a ("+store.OutsideMail+")") {
+		t.Errorf("history marks no foreign actor when the trusts cannot be read:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "jo@a") && !strings.Contains(line, "jo@a (") {
+			t.Errorf("history prints the foreign actor unmarked:\n%s", out)
+			break
+		}
+	}
+	if strings.Contains(out, "jo@a (as ") {
+		t.Errorf("history trusts a name whose trusts it could not read:\n%s", out)
+	}
+}
