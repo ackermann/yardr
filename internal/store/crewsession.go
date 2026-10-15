@@ -72,8 +72,15 @@ func sessionData(user string, data map[string]any) map[string]any {
 	return data
 }
 
-// CrewStartingFor is CrewStarting for one session.
+// CrewStartingFor is CrewStarting for one session. The daemon's alone to
+// record a starting handle: pane checks trust it before the session starts.
+// A nil handle clears one when yardr down closes a start in progress.
 func (s *Store) CrewStartingFor(ctx context.Context, name, user string, handle map[string]any) error {
+	if handle != nil {
+		if err := s.daemonOnly(ctx, "CrewStartingFor"); err != nil {
+			return err
+		}
+	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Starting = handle
 		return nil

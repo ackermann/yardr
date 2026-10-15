@@ -85,9 +85,10 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 			return err
 		},
 		"MarkCleaned":      func() error { return c.MarkCleaned(ctx, s1.ID) },
+		"CrewStartingFor":  func() error { return c.CrewStartingFor(ctx, "yardmaster", "", forged) },
 		"SetCrewHandleFor": func() error { return c.SetCrewHandleFor(ctx, "yardmaster", "", forged) },
 	}
-	for _, method := range []string{"SetHandle", "MarkRunning", "Claim", "MarkCleaned", "SetCrewHandleFor"} {
+	for _, method := range []string{"SetHandle", "MarkRunning", "Claim", "MarkCleaned", "CrewStartingFor", "SetCrewHandleFor"} {
 		err := refused[method]()
 		if err == nil || err.Error() != method+" is the daemon's alone" {
 			t.Errorf("%s over the socket as another caller = %v, want %q", method, err, method+" is the daemon's alone")
@@ -101,6 +102,9 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 	if got, err := st.GetBead(ctx, b2.ID); err != nil || got.Session != nil {
 		t.Errorf("bead two after refused claim = %+v, %v: want it unclaimed", got, err)
 	}
+	if got, err := st.GetCrew(ctx, "yardmaster"); err != nil || got.Starting != nil {
+		t.Errorf("crew member after refused starting handle = %+v, %v: want no starting handle", got, err)
+	}
 
 	// The holder passes: the lock names this process now.
 	me, err := peer.Describe(os.Getpid())
@@ -113,6 +117,7 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 	if _, err := c.Claim(ctx, b2.ID, "builders", "new", "yard"); err != nil {
 		t.Fatal(err)
 	}
+	must(c.CrewStartingFor(ctx, "yardmaster", "", map[string]any{"shell_pid": os.Getpid()}))
 	must(c.SetCrewHandleFor(ctx, "yardmaster", "", map[string]any{"agent": "yard-yardmaster", "pane": "w1:p2"}))
 	if got, err := st.GetSession(ctx, s1.ID); err != nil || got.State != "running" || !got.Cleaned {
 		t.Errorf("session after the holder's writes = %+v, %v: want it running and cleaned", got, err)
@@ -124,5 +129,6 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 	must(st.MarkRunning(ctx, s3.ID, map[string]any{"agent": "yard-three-new"}))
 	must(st.SetHandle(ctx, s3.ID, map[string]any{"agent": "yard-three-new"}))
 	must(st.MarkCleaned(ctx, s3.ID))
+	must(st.CrewStartingFor(ctx, "yardmaster", "", map[string]any{"agent": "yard-yardmaster"}))
 	must(st.SetCrewHandleFor(ctx, "yardmaster", "", map[string]any{"agent": "yard-yardmaster"}))
 }

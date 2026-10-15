@@ -51,6 +51,9 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		"MarkCleaned": func() error {
 			return s.MarkCleaned(other, "no-such-session")
 		},
+		"CrewStartingFor": func() error {
+			return s.CrewStartingFor(other, "nope", "", map[string]any{"shell_pid": os.Getpid()})
+		},
 		"CrewStartedFor": func() error {
 			return s.CrewStartedFor(other, "nope", "", nil)
 		},
@@ -79,7 +82,7 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 			return s.MarkNotifiedFor(other, "nope", "", 1)
 		},
 	}
-	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "MarkCleaned",
+	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "MarkCleaned", "CrewStartingFor",
 		"CrewStartedFor", "CrewSettledFor", "CrewStatusFor", "SetCrewHandleFor",
 		"CrewGoneFor", "CrewLeftFor", "CrewStartFailedFor",
 		"MarkRotationAskedFor", "MarkNotifiedFor"} {
@@ -87,6 +90,12 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		if err == nil || err.Error() != method+" is the daemon's alone" {
 			t.Errorf("%s from another caller = %v, want %q", method, err, method+" is the daemon's alone")
 		}
+	}
+	// yardr down only clears a start in progress; it cannot set a handle a
+	// pane check would trust.
+	if err := s.CrewStartingFor(other, "nope", "", nil); err == nil ||
+		err.Error() == "CrewStartingFor is the daemon's alone" {
+		t.Errorf("clearing a starting handle from another caller = %v, want no daemon refusal", err)
 	}
 
 	// What the daemon does not alone make is not refused as its own:
