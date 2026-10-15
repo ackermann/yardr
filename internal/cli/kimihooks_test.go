@@ -37,7 +37,7 @@ func TestDoctorKimiHooks(t *testing.T) {
 	moshi := `'/opt/homebrew/bin/moshi-hook' kimi-hook`
 	single := hook("SessionStart", herdr("session")) + hook("Stop", herdr("idle")) + hook("Interrupt", herdr("idle"))
 	withStopFailure := single + hook("StopFailure", herdr("idle")) + hook("StopFailure", moshi)
-	withoutStopFailure := single + hook("StopFailure", moshi)
+	withoutStopFailure := single + hook("StopFailure", moshi) + hook("StopFailure", "echo '"+herdrAgentState+"' idle")
 	write := func(config string) {
 		t.Helper()
 		if err := os.WriteFile(file, []byte(config), 0o600); err != nil {
@@ -65,9 +65,14 @@ func TestDoctorKimiHooks(t *testing.T) {
 	if got := notes(); len(got) != 0 {
 		t.Fatalf("with the hook: notes = %q", got)
 	}
+	write(single + hook("StopFailure", "bash '/Users/Jo Doe/.kimi-code/hooks/"+herdrAgentState+"' 'idle'"))
+	if got := notes(); len(got) != 0 {
+		t.Fatalf("with a quoted idle argument: notes = %q", got)
+	}
 
 	// Without it: one note, with the file and the block to append, home
-	// expanded. moshi's StopFailure hook does not count: it is not herdr's.
+	// expanded. Neither moshi's hook nor a command that only mentions the
+	// script counts: neither runs herdr's hook.
 	write(withoutStopFailure)
 	got := notes()
 	if len(got) != 1 {

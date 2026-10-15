@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -27,6 +28,8 @@ func kimiConfig() string {
 // herdrAgentState is the script herdr's Kimi integration runs from its
 // hooks, with the agent's state (session, working, blocked, idle).
 const herdrAgentState = "herdr-agent-state.sh"
+
+var herdrStateCommand = regexp.MustCompile(`^(?:(?:[^\s]*/)?(?:bash|sh)\s+)?(?:'(?:[^']*/)?herdr-agent-state\.sh'|"(?:[^"]*/)?herdr-agent-state\.sh"|(?:[^\s]*/)?herdr-agent-state\.sh)\s+("idle"|'idle'|idle)(?:\s|$)`)
 
 // kimiHookNotes are what yardr doctor notes about Kimi's hooks, when the
 // yard runs on kimi: one line when no StopFailure hook tells herdr the agent
@@ -50,11 +53,12 @@ func kimiHookNotes(uses []harnessUse) []string {
 	var herdr []agents.KimiHook
 	idle := false
 	for _, h := range hooks {
-		if !strings.Contains(h.Command, herdrAgentState) {
+		state, ok := herdrHookState(h.Command)
+		if !ok {
 			continue
 		}
 		herdr = append(herdr, h)
-		if h.Event == "StopFailure" && slices.Contains(strings.Fields(h.Command), "idle") {
+		if h.Event == "StopFailure" && state == "idle" {
 			idle = true
 		}
 	}
@@ -75,6 +79,17 @@ func kimiHookNotes(uses []harnessUse) []string {
 			"each stands once (a second herdr integration install kimi wrote them again)", file, what))
 	}
 	return notes
+}
+
+// herdrHookState returns the state argument when a command invokes the
+// herdr hook directly or through bash/sh. Kimi's hook command is a shell
+// command, so honor its quotes when finding the script and argument.
+func herdrHookState(command string) (string, bool) {
+	m := herdrStateCommand.FindStringSubmatch(command)
+	if m == nil {
+		return "", false
+	}
+	return strings.Trim(m[1], `"'`), true
 }
 
 // doubledHerdrHooks are the events whose herdr hook stands twice, in the
