@@ -74,7 +74,7 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 	})
 	desc, err := peer.Describe(sleep.Process.Pid)
 	must(err)
-	storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start)
+	t.Cleanup(storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start))
 
 	forged := map[string]any{"agent": "jo", "shell_pid": os.Getpid()}
 	refused := map[string]func() error{

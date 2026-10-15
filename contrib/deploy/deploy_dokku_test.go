@@ -162,10 +162,6 @@ func newYard(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The test plays the dispatcher (it claims over the socket, as the
-	// dispatcher would), so it holds the daemon lock as the daemon
-	// would: without a holder the daemon's writes are refused.
-	storetest.HoldDaemon(t, home)
 	t.Cleanup(func() {
 		// Stop by pid (the pidfile), then remove the state.
 		if err := server.Stop(&config.Config{Home: home}); err != nil {
@@ -301,7 +297,11 @@ func (y *yard) deploy(id string) {
 	if err := st.PutGroup(ctx, store.Group{Name: "deploy", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
 		y.t.Fatal(err)
 	}
+	// The claim is the dispatcher's to make, so the test holds the
+	// daemon lock for it, as the daemon would, and lets go again.
+	release := storetest.HoldDaemon(y.t, y.home)
 	sess, err := st.Claim(ctx, id, "deploy", b.Stage, "yard")
+	release()
 	if err != nil {
 		y.t.Fatal(err)
 	}

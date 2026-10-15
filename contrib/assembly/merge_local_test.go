@@ -115,10 +115,6 @@ func newYard(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The test plays the dispatcher (claimFor claims over the socket, as
-	// the dispatcher would), so it holds the daemon lock as the daemon
-	// would: without a holder the daemon's writes are refused.
-	storetest.HoldDaemon(t, home)
 	t.Cleanup(func() {
 		// Stop by pid (the pidfile), then remove the state.
 		if err := server.Stop(&config.Config{Home: home}); err != nil {
@@ -265,7 +261,13 @@ func (y *yard) claimFor(ctx context.Context, group, id string) store.Session {
 	if b.Session != nil {
 		return store.Session{ID: *b.Session}
 	}
+	// The claim is the dispatcher's to make, so the test holds the daemon
+	// lock for it, as the daemon would, and lets go again: a yard under
+	// test must otherwise see no daemon, as the upgrade's health check
+	// does.
+	release := storetest.HoldDaemon(y.t, y.home)
 	sess, err := st.Claim(ctx, b.ID, group, b.Stage, "yard")
+	release()
 	if err != nil {
 		y.t.Fatal(err)
 	}

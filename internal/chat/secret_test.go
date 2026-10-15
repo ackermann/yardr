@@ -81,7 +81,7 @@ func shortYard(t *testing.T) (store.API, string) {
 	s := storetest.Open(t, filepath.Join(home, "yard.db"))
 	var st store.API = s
 	if os.Getenv("YARDR_TEST_RPC") != "" {
-		storetest.HoldDaemon(t, home)
+		t.Cleanup(storetest.HoldDaemon(t, home))
 		dir, err := os.MkdirTemp("", "ys")
 		if err != nil {
 			t.Fatal(err)

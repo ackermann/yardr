@@ -94,10 +94,6 @@ func newYard(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The test plays the dispatcher (it claims over the socket, as the
-	// dispatcher would), so it holds the daemon lock as the daemon
-	// would: without a holder the daemon's writes are refused.
-	storetest.HoldDaemon(t, home)
 	t.Cleanup(func() {
 		if err := server.Stop(&config.Config{Home: home}); err != nil {
 			t.Log(err)
@@ -188,7 +184,11 @@ func (y *yard) returns(opts string, job func(*dispatch.Job)) {
 		y.t.Fatal(err)
 	}
 	b := y.bead()
+	// The claim is the dispatcher's to make, so the test holds the
+	// daemon lock for it, as the daemon would, and lets go again.
+	release := storetest.HoldDaemon(y.t, y.home)
 	sess, err := st.Claim(ctx, b.ID, "return", b.Stage, "yard")
+	release()
 	if err != nil {
 		y.t.Fatal(err)
 	}

@@ -34,7 +34,7 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("describe sleep: %v", err)
 	}
-	storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start)
+	t.Cleanup(storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start))
 
 	other := store.WithCaller(ctx, os.Getpid())
 	calls := map[string]func() error{

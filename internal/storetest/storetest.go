@@ -58,7 +58,7 @@ func NewOwned(t testing.TB) (store.API, *store.Store) {
 	// Over the wire every call has a caller, so the daemon's own writes
 	// would be refused without a holder: the test process holds the
 	// lock, as the daemon does.
-	HoldDaemon(t, home)
+	t.Cleanup(HoldDaemon(t, home))
 	// Unix socket paths are limited to ~108 bytes; t.TempDir is too long.
 	dir, err := os.MkdirTemp("", "ys")
 	if err != nil {
@@ -109,22 +109,24 @@ func RepoFlow(t testing.TB, name string) string {
 	return path
 }
 
-// HoldDaemon holds home's daemon lock as the test process until the test
-// ends, as the daemon holds it: over the socket every call has a caller,
-// so without a holder the daemon's own writes would be refused.
-func HoldDaemon(t testing.TB, home string) {
+// HoldDaemon holds home's daemon lock as the test process, as the daemon
+// holds it, and returns its release: over the socket every call has a
+// caller, so without a holder the daemon's own writes are refused. A
+// test holds it only while it plays the daemon; a yard under test must
+// otherwise see no daemon, as the upgrade's health check does.
+func HoldDaemon(t testing.TB, home string) (release func()) {
 	t.Helper()
 	me := os.Getpid()
 	var start uint64
 	if st, err := peer.Describe(me); err == nil {
 		start = st.Start
 	}
-	HoldDaemonAs(t, home, me, start)
+	return HoldDaemonAs(t, home, me, start)
 }
 
 // HoldDaemonAs is HoldDaemon recording pid with start as the holder, for a
 // test where another process holds the lock.
-func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) {
+func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) (release func()) {
 	t.Helper()
 	lock := config.At(home).DaemonLock()
 	f, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o600)
@@ -139,10 +141,10 @@ func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) {
 	if err := f.Truncate(0); err == nil {
 		_, _ = f.WriteAt([]byte(id), 0)
 	}
-	t.Cleanup(func() {
+	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
-	})
+	}
 }
 
 // Open opens the store at path, closing it when the test ends.
