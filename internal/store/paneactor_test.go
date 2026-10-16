@@ -854,3 +854,103 @@ func TestPeerNoteAndReadFromACrewPaneUseTheCrewActor(t *testing.T) {
 		}
 	})
 }
+
+// The setup-path writes stay anyone's, and from a session's or a crew
+// member's pane are recorded as the pane's actor, whatever --actor says:
+// a crew member setting up the yard is not refused, and cannot pass its
+// writes as the operator by naming them.
+func TestSetupWritesFromAPaneAreThatPanesActor(t *testing.T) {
+	t.Run("crew pane", func(t *testing.T) {
+		api, _ := operatorYard(t)
+		ctx := context.Background()
+		// The grant first, as the operator, from no pane: the pane
+		// revokes it. No call is made, so the base is a dummy.
+		if _, err := api.PutSource(ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", "http://127.0.0.1:9", 1), "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := api.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		f, err := store.ParseFlow(outcomeFlow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = "f1"
+		// The pane goes on record after the setup: over the socket
+		// every call carries this process as its caller.
+		me := os.Getpid()
+		handle := map[string]any{"shell_pid": me}
+		if ps, err := peer.Describe(me); err == nil {
+			handle["shell_start"] = ps.Start
+		}
+		if err := api.CrewStarted(ctx, "yardmaster", handle); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, me)
+		as := func(kind string) {
+			t.Helper()
+			if a := lastKindActor(t, api, ctx, kind); a != "yardmaster" {
+				t.Fatalf("%s event actor = %q, want the pane's actor yardmaster", kind, a)
+			}
+		}
+		if err := api.PutDepot(pane, store.Depot{Name: "yard", Base: "origin/main"}, "jo"); err != nil {
+			t.Fatalf("PutDepot from the pane as the operator: %v", err)
+		}
+		as("depot_updated")
+		if _, err := api.PutFlow(pane, *f, "jo"); err != nil {
+			t.Fatalf("PutFlow from the pane as the operator: %v", err)
+		}
+		as("flow_set")
+		if err := api.SetFlowPointer(pane, "yard", "", "f1", "jo"); err != nil {
+			t.Fatalf("SetFlowPointer from the pane as the operator: %v", err)
+		}
+		as("flow_pointer_set")
+		if err := api.PutGroup(pane, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
+			t.Fatalf("PutGroup from the pane as the operator: %v", err)
+		}
+		as("group_set")
+		limit := 3
+		if _, err := api.SetGroup(pane, "builders", store.GroupEdit{Limit: &limit}, "jo"); err != nil {
+			t.Fatalf("SetGroup from the pane as the operator: %v", err)
+		}
+		as("group_set")
+		if _, err := api.AddRoute(pane, store.Route{Stage: "new", Group: "builders"}, "jo"); err != nil {
+			t.Fatalf("AddRoute from the pane as the operator: %v", err)
+		}
+		as("route_added")
+		if _, err := api.RecordPack(pane, store.PackImport{Pack: "starter", Depot: "yard"}, true, "jo"); err != nil {
+			t.Fatalf("RecordPack from the pane as the operator: %v", err)
+		}
+		as("pack_applied")
+		if recs, _ := api.Packs(ctx); len(recs) != 1 || recs[0].By != "yardmaster" {
+			t.Fatalf("pack record = %+v, want it by yardmaster", recs)
+		}
+		if g, err := api.RevokeSource(pane, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "jo"); err != nil {
+			t.Fatalf("RevokeSource from the pane as the operator: %v", err)
+		} else if len(g.Calls) != 0 {
+			t.Fatalf("grant after the revoke = %+v", g)
+		}
+		as("source_revoked")
+		if err := api.SetCrewEnabled(pane, "clerk", false, "", "jo"); err != nil {
+			t.Fatalf("disabling a crew member from the pane as the operator: %v", err)
+		}
+		as("crew_disabled")
+	})
+
+	t.Run("session pane", func(t *testing.T) {
+		s, ctx, _, _, actor := paneMoveYard(t)
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.PutGroup(pane, store.Group{Name: "reviewers", Runner: "herdr"}, "op"); err != nil {
+			t.Fatalf("PutGroup from the pane as the operator: %v", err)
+		}
+		if a := lastKindActor(t, s, ctx, "group_set"); a != actor {
+			t.Fatalf("group_set event actor = %q, want the pane's actor %q", a, actor)
+		}
+		if err := s.PutDepot(pane, store.Depot{Name: "web", Base: "origin/main"}, "op"); err != nil {
+			t.Fatalf("PutDepot from the pane as the operator: %v", err)
+		}
+		if a := lastKindActor(t, s, ctx, "depot_updated"); a != actor {
+			t.Fatalf("depot_updated event actor = %q, want %q", a, actor)
+		}
+	})
+}

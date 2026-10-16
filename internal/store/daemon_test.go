@@ -105,3 +105,135 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		t.Errorf("EndSession from another caller = %v, want no daemon refusal", err)
 	}
 }
+
+// Pruning the store and asking a crew member's session to restart is the
+// daemon's or the operator's to do: the automatic prune and a rotation
+// restart pass the daemon leg in-process as "yard", while the same calls
+// from a pane or a terminal as anyone else are refused in the operator's
+// words, marked alone — actor "yard" from a pane still faces
+// operatorOnly, resolved to the pane's member.
+func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
+	home := t.TempDir()
+	s := storetest.Open(t, filepath.Join(home, "yard.db"))
+	ctx := context.Background()
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []string{"yardmaster", "clerk"} {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: r, Runner: "herdr"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sleep := exec.Command("sleep", "60")
+	if err := sleep.Start(); err != nil {
+		t.Skipf("no sleep to stand in for the daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sleep.Process.Kill()
+		_ = sleep.Wait()
+	})
+	desc, err := peer.Describe(sleep.Process.Pid)
+	if err != nil {
+		t.Fatalf("describe sleep: %v", err)
+	}
+	t.Cleanup(storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start))
+
+	daemon := store.WithCaller(ctx, sleep.Process.Pid)
+	other := store.WithCaller(ctx, os.Getpid())
+
+	// The daemon leg: the holder's calls as "yard" pass, and the
+	// restart is recorded.
+	if res, err := s.Prune(daemon, store.Retention{}, "yard"); err != nil || res == nil {
+		t.Fatalf("the daemon's prune = %+v, %v", res, err)
+	}
+	if err := s.RequestRestart(daemon, "yardmaster", "rotation", "", "yard"); err != nil {
+		t.Fatalf("the daemon's restart = %v", err)
+	}
+	if err := s.RequestRestartFor(daemon, "clerk", "", "rotation", "", "yard"); err != nil {
+		t.Fatalf("the daemon's restart for a session = %v", err)
+	}
+	// And in-process, as the dispatcher calls them, with no caller.
+	if _, err := s.Prune(ctx, store.Retention{}, "yard"); err != nil {
+		t.Fatalf("the in-process prune = %v", err)
+	}
+	r, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.CrewSession.RestartRequested != "rotation" {
+		t.Fatalf("yardmaster restart requested = %q", r.CrewSession.RestartRequested)
+	}
+	evs, err := s.Events(ctx, r.Journal, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) == 0 || evs[len(evs)-1].Kind != "crew_restart_requested" || evs[len(evs)-1].Actor != "yard" {
+		t.Fatalf("journal's last event = %+v, want crew_restart_requested by yard", evs)
+	}
+
+	alone := func(err error, what string) {
+		t.Helper()
+		if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+			t.Errorf("%s = %v (mark %v, %v), want an operator-only refusal marked alone", what, err, ask, ok)
+		}
+	}
+	head, err := s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// From a terminal as a non-operator: no pane is on record, so the
+	// actor stands as named.
+	if _, err := s.Prune(other, store.Retention{}, "clerk"); err == nil ||
+		err.Error() != "only the operator (jo) may prune the store; this is clerk" {
+		t.Errorf("prune from a terminal as clerk = %v", err)
+	} else {
+		alone(err, "prune from a terminal as clerk")
+	}
+	if err := s.RequestRestart(other, "yardmaster", "x", "", "clerk"); err == nil ||
+		err.Error() != "only the operator (jo) may restart a crew member; this is clerk" {
+		t.Errorf("restart from a terminal as clerk = %v", err)
+	} else {
+		alone(err, "restart from a terminal as clerk")
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Errorf("the terminal refusals logged %d events", now-head)
+	}
+	// The operator from a terminal passes, before any pane is on record.
+	if err := s.RequestRestart(other, "clerk", "x", "", "jo"); err != nil {
+		t.Errorf("restart as the operator = %v", err)
+	}
+	if _, err := s.Prune(other, store.Retention{}, "jo"); err != nil {
+		t.Errorf("prune as the operator = %v", err)
+	}
+	// From the crew member's pane naming "yard": the daemon leg fails
+	// (not the holder) and the pane resolves to the member.
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := s.CrewStarted(ctx, "clerk", handle); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+	head, err = s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Prune(pane, store.Retention{}, "yard"); err == nil ||
+		err.Error() != "only the operator (jo) may prune the store; this is clerk" {
+		t.Errorf("prune from clerk's pane as yard = %v", err)
+	} else {
+		alone(err, "prune from clerk's pane as yard")
+	}
+	if err := s.RequestRestartFor(pane, "clerk", "", "x", "", "yard"); err == nil ||
+		err.Error() != "only the operator (jo) may restart a crew member; this is clerk" {
+		t.Errorf("restart from clerk's pane as yard = %v", err)
+	} else {
+		alone(err, "restart from clerk's pane as yard")
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Errorf("the pane refusals logged %d events", now-head)
+	}
+}

@@ -1217,7 +1217,9 @@ func (r *Depot) IsDir() bool { return r.Kind == DepotDir }
 
 // PutDepot adds or replaces a depot, and logs depot_updated with what it now
 // holds: what tests a depot must not change unseen. A depot given no kind is
-// a git depot.
+// a git depot. From a session's or a crew member's pane the write is
+// recorded as that session's actor or that crew member, whatever actor
+// says; from anywhere else, as given (paneAuthor).
 func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 	if err := checkName("depot name", r.Name); err != nil {
 		return err
@@ -1234,6 +1236,11 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 		return fmt.Errorf("depot %s: kind %q is neither %s nor %s", r.Name, r.Kind, DepotGit, DepotDir)
 	}
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := put(w.Tx, bDepots, r.Name, r); err != nil {
 			return err
 		}
@@ -1280,10 +1287,13 @@ type DepotRemoval struct {
 // or live sessions, and names them: a bead whose depot is gone could not be
 // routed, worked or merged. Closed beads keep the depot's name as history.
 // Only the store changes: the clone, its worktrees and its .yardr/ are not
-// touched.
+// touched. Removing a depot is the operator's to do (operatorOnly).
 func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error) {
 	var out *DepotRemoval
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a depot", Alone); err != nil {
+			return err
+		}
 		// Batch reruns this closure when another call in the batch fails, so
 		// what was removed starts over with each attempt.
 		out = &DepotRemoval{Depot: name, Routes: []string{}, FlowPointers: []FlowPointer{}}

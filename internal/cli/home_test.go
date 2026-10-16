@@ -337,7 +337,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 	if err := os.WriteFile(secret, []byte("s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: secret}, "me"); err != nil {
+	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: secret}, yardOperator(ctx, st)); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, doctor(), "configured      hooks: gh (github)", note+"the server could not listen on 127.0.0.1:8790")
@@ -367,6 +367,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 	// hook add says the same where the receiver does not listen.
 	a2 := a()
 	a2.cfg = cfg
+	a2.actor = yardOperator(ctx, st)
 	out, err := run(t, a2.hookCmd(), "add", "gh2", "--source", "github", "--secret-file", secret)
 	if err != nil || !strings.Contains(out, "note: the server has no address to take webhooks on") {
 		t.Fatalf("hook add: %v\n%s", err, out)

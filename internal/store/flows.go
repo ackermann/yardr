@@ -342,7 +342,9 @@ func (f *Flow) Edges(stage string) []string {
 // flow, while an open bead among them sits in a stage the new version lacks
 // (flowStrays). That is the check SetFlowPointer makes, for the same
 // reason: a configuration command does not move beads, nor leave one in a
-// stage nobody is routed to.
+// stage nobody is routed to. From a session's or a crew member's pane the
+// write is recorded as that session's actor or that crew member, whatever
+// actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error) {
 	if !validFlowName.MatchString(f.Name) {
 		return nil, fmt.Errorf("flow name %q: use letters, digits, '.', '_' or '-'", f.Name)
@@ -351,6 +353,11 @@ func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error
 		return nil, err
 	}
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := put(w.Tx, bFlows, f.Name, f); err != nil {
 			return err
 		}
@@ -444,9 +451,13 @@ func (s *Store) GetFlow(ctx context.Context, name string) (*Flow, error) {
 
 // DeleteFlow removes a named flow. It refuses while a depot or type points at
 // it, or an open bead pins it, and names them: removing the flow would
-// silently change their lifecycle.
+// silently change their lifecycle. Removing a flow is the operator's to do
+// (operatorOnly).
 func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a flow", Alone); err != nil {
+			return err
+		}
 		k := []byte(name)
 		if w.Bucket(bFlows).Get(k) == nil {
 			return fmt.Errorf("flow %s: %w", name, ErrNotFound)
@@ -510,7 +521,9 @@ func (p FlowPointer) String() string {
 // its first stage, and its stage, routed under the old flow, may be nobody's
 // under the new. Refusing keeps a configuration command from moving beads;
 // the operator moves them under the flow they still follow, or pins them
-// to it, and points the depot again.
+// to it, and points the depot again. From a session's or a crew member's
+// pane the write is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error {
 	// Read before the transaction: git must not run inside one. A checkout
 	// git cannot read matters only when a flow is looked for in it, so the
@@ -540,6 +553,11 @@ func (s *Store) SetFlowPointer(ctx context.Context, depot, typ, flow, actor stri
 	}
 	p := FlowPointer{Depot: depot, Type: typ, Flow: flow}
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if w.Bucket(bDepots).Get([]byte(depot)) == nil {
 			return fmt.Errorf("depot %s: %w", depot, ErrNotFound)
 		}

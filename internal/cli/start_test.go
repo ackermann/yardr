@@ -455,6 +455,11 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := stored[store.OperatorSetting]
 	// This daemon holds the lock, as a real one does while it runs.
 	var unlock func()
 	old := spawnDaemon
@@ -530,7 +535,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		ch := make(chan error, 1)
 		ch <- errors.New("exit status 1")
-		return ch, st.SetCrewEnabled(ctx, "yardmaster", true, "", "me")
+		return ch, st.SetCrewEnabled(ctx, "yardmaster", true, "", op)
 	}
 	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.Problem != "the daemon stopped right after it started." ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "no daemon is running on this yard") {

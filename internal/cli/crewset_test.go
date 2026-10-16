@@ -287,7 +287,7 @@ func (m *movingStore) PutCrew(ctx context.Context, def store.CrewMember, actor s
 	if def.Revision != "" && m.moved == 0 {
 		m.moved++
 		// What the daemon does to a running crew member: a write of its own.
-		if err := m.API.SetCrewEnabled(ctx, def.Name, true, "", "yardr"); err != nil {
+		if err := m.API.CrewStartFailed(ctx, def.Name, "boom", 0); err != nil {
 			return nil, err
 		}
 	}

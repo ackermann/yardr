@@ -284,7 +284,7 @@ func TestStatusRunningYard(t *testing.T) {
 	// --unsafe on a loopback address opens nothing to the network.
 	announce(t, home, "[::1]:9002", true, "")
 
-	if _, err := st.PutHook(ctx, store.Hook{Name: "tickets", Source: "linear", SecretFile: "/s"}, "me"); err != nil {
+	if _, err := st.PutHook(ctx, store.Hook{Name: "tickets", Source: "linear", SecretFile: "/s"}, "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Home: home}

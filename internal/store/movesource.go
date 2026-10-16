@@ -36,7 +36,8 @@ func (m *SourceMove) Moved() bool {
 // two share must agree, grants merge, identical subscriptions collapse,
 // and a thread followed under both keeps the participation it has under
 // to. Anything else under from moves to to. With nothing under from,
-// nothing is written. One source_migrated event logs what moved.
+// nothing is written. One source_migrated event logs what moved. Moving a
+// source's records is the operator's to do (operatorOnly).
 func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (*SourceMove, error) {
 	if from == "" || to == "" {
 		return nil, fmt.Errorf("move records from a source to a source, not from %q to %q", from, to)
@@ -49,6 +50,9 @@ func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (
 	}
 	out := &SourceMove{}
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "move a source's records", Alone); err != nil {
+			return err
+		}
 		*out = SourceMove{}
 		var err error
 		if out.Hooks, err = moveHookSource(w.Tx, from, to); err != nil {

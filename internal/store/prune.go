@@ -63,8 +63,15 @@ const pruneBatch = 1000
 // given up for its peer go at the age of events too, though never younger
 // than PeerKeep (prunePeers). A blob goes when no letter left in the log
 // names it, whatever keep says (pruneBlobs). Logs a store_pruned event when
-// anything was removed.
+// anything was removed. Pruning the store is the daemon's or the
+// operator's to do (daemonOrOperator): the automatic prune runs in-process,
+// and anyone else asking must be the operator.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
+	if err := s.read(func(tx *bolt.Tx) error {
+		return s.daemonOrOperator(ctx, tx, actor, "prune the store", Alone)
+	}); err != nil {
+		return nil, err
+	}
 	res := &PruneResult{Expired: map[string]int{}}
 	if keep.Events > 0 {
 		var unreadBound time.Time // zero: unread events hold back for good

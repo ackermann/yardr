@@ -224,6 +224,20 @@ func (s *Store) operatorOnly(ctx context.Context, actor, does string, ask AskCla
 	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does, ask) })
 }
 
+// daemonOrOperator passes the daemon's own call (daemonOnly) or the
+// operator's (operatorOnly, does): a rotation restart and the automatic
+// prune run in-process as "yard", and anyone else asking must be the
+// operator. Over the socket only the daemon-lock holder passes the
+// daemon leg, so actor "yard" from a pane still faces operatorOnly; the
+// daemon leg's refusal is then swallowed in favour of the operator's
+// words.
+func (s *Store) daemonOrOperator(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
+	if err := s.daemonOnly(ctx, does); err == nil {
+		return nil
+	}
+	return operatorOnly(ctx, tx, actor, does, ask)
+}
+
 // daemonOnly refuses a session-lifecycle write from any caller but the
 // daemon: method is the daemon's alone to make. The pane checks trust
 // what these writes record (paneSession, paneCrew), so a pane that could

@@ -566,6 +566,37 @@ func TestSourcePackApplyFoldFailureKeepsTheImport(t *testing.T) {
 	}
 }
 
+// A fold refused to a non-operator fails the import loud: moving links
+// and records from one source to another is the operator's to do. The
+// import itself stays applied and recorded, as with any fold failure,
+// and nothing is folded.
+func TestSourcePackApplyFoldRefusedToNonOperator(t *testing.T) {
+	st := storetest.New(t)
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Home: t.TempDir()}
+	p := load(t, writePack(t, sourcePackFiles()))
+	if _, err := pack.Apply(ctx, st, build(t, st, p, o), pack.ApplyOptions{Actor: "me"}); err != nil {
+		t.Fatalf("the import as me: %v", err)
+	}
+	// Something under the old name after the first import folded.
+	if _, err := st.PutHook(ctx, store.Hook{Name: "acme-declared", Source: "acme-declared", SecretFile: "/s"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pack.Apply(ctx, st, build(t, st, p, o), pack.ApplyOptions{Actor: "yardmaster"})
+	if err == nil || !strings.Contains(err.Error(), "source acme is declared, but its links were not folded in: "+
+		"only the operator may move links from one source to another; this is the crew member yardmaster") {
+		t.Fatalf("err = %v", err)
+	}
+	if h, _ := st.GetHook(ctx, "acme-declared"); h.Source != "acme-declared" {
+		t.Fatalf("hook source = %q, want nothing folded", h.Source)
+	}
+	if recs, _ := st.Packs(ctx); len(recs) != 1 {
+		t.Fatalf("the import was not recorded: %+v", recs)
+	}
+}
+
 // A pack of kind source without sources is no pack: it declares at least
 // one.
 func TestSourcePackWithoutSourcesIsRefused(t *testing.T) {

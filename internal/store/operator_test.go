@@ -53,10 +53,18 @@ func peerKey(t *testing.T) string {
 // that asks nothing first (a pack's import, the web, yardr chat) is held to
 // it as yardr's own commands are (yardr-1379).
 func TestOnlyTheOperatorMay(t *testing.T) {
-	api, _ := operatorYard(t)
+	api, own := operatorYard(t)
 	ctx := context.Background()
 	key := peerKey(t)
 	grant := store.CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{store.OpenThreads: "linear", store.MailPeers: "north"}}
+	if _, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/h1.secret"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// A live process that holds no daemon lock: the daemon-or-operator
+	// writes refuse it as a non-operator, in both modes (over the socket
+	// the test process itself holds the lock, so those two go through
+	// own, where the caller stands as named).
+	other := store.WithCaller(ctx, os.Getppid())
 	writes := map[string]func(actor string) error{
 		"add a user":    func(a string) error { _, err := api.AddUser(ctx, "grace", a); return err },
 		"remove a user": func(a string) error { return api.DeleteUser(ctx, "ada", a) },
@@ -84,6 +92,33 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.AllowOpening(ctx, "yardmaster", []string{"github"}, "pack", a)
 			return err
 		},
+		"remove a group": func(a string) error { _, err := api.DeleteGroup(ctx, "builders", a); return err },
+		"remove a route": func(a string) error { return api.DeleteRoute(ctx, "no-such", a) },
+		"remove a flow":  func(a string) error { return api.DeleteFlow(ctx, "no-such", a) },
+		"remove a depot": func(a string) error { _, err := api.DeleteDepot(ctx, "no-such", a); return err },
+		"remove a hook":  func(a string) error { return api.DeleteHook(ctx, "no-such", a) },
+		"move links from one source to another": func(a string) error {
+			_, err := api.MoveLinkSource(ctx, "acme", "acme2", a)
+			return err
+		},
+		"move a source's records": func(a string) error {
+			_, err := api.MoveSourceRecords(ctx, "acme", "acme2", a)
+			return err
+		},
+		"remove a crew member": func(a string) error { return api.DeleteCrew(ctx, "clerk", "", a) },
+		"add a hook": func(a string) error {
+			_, err := api.PutHook(ctx, store.Hook{Name: "h2", Source: "linear", SecretFile: "/tmp/h2.secret"}, a)
+			return err
+		},
+		"change a hook's source or secret file": func(a string) error {
+			_, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/other.secret"}, a)
+			return err
+		},
+		"enable a crew member": func(a string) error { return api.SetCrewEnabled(ctx, "clerk", true, "", a) },
+		"restart a crew member": func(a string) error {
+			return own.RequestRestart(other, "yardmaster", "because", "", a)
+		},
+		"prune the store": func(a string) error { _, err := own.Prune(other, store.Retention{}, a); return err },
 	}
 	head, err := api.Head(ctx)
 	if err != nil {
@@ -122,6 +157,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 	}
 	if _, err := api.SetPeerIntake(ctx, "north", nil, "yardmaster"); err != nil {
 		t.Errorf("taking none of a peer's beads, as yardmaster: %v", err)
+	}
+	if err := api.SetCrewEnabled(ctx, "clerk", false, "", "yardmaster"); err != nil {
+		t.Errorf("disabling a crew member, as yardmaster: %v", err)
 	}
 	// The operator.
 	if _, err := api.PutCrew(ctx, grant, "jo"); err != nil {
@@ -162,6 +200,121 @@ func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
 	}
 	if _, err := api.GetPeer(ctx, "north"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetPeer after rm = %v", err)
+	}
+}
+
+// Adding a hook, or changing one's source or secret file, is the
+// operator's alone; what one says, makes, maps or acts as is anyone's to
+// change, recorded as the pane's actor from a pane, and a hook that acts
+// as a crew member still speaks as it.
+func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
+	hookYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
+		t.Helper()
+		api, own := operatorYard(t)
+		ctx := context.Background()
+		if _, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/h1.secret"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return api, own, ctx
+	}
+	api, own, ctx := hookYard(t)
+	head, err := api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.PutHook(ctx, store.Hook{Name: "h2", Source: "linear", SecretFile: "/tmp/h2.secret"}, "yardmaster"); err == nil ||
+		err.Error() != "only the operator (jo) may add a hook; this is yardmaster" {
+		t.Errorf("adding a hook as yardmaster = %v", err)
+	}
+	for _, h := range []store.Hook{
+		{Name: "h1", Source: "linear", SecretFile: "/tmp/other.secret"},
+		{Name: "h1", Source: "github", SecretFile: "/tmp/h1.secret"},
+	} {
+		if _, err := api.PutHook(ctx, h, "yardmaster"); err == nil ||
+			err.Error() != "only the operator (jo) may change a hook's source or secret file; this is yardmaster" {
+			t.Errorf("changing %v as yardmaster = %v", h, err)
+		}
+	}
+	// The marks are the store's own: the socket carries a refusal's words
+	// but not its mark, as for every operator-only check, so they are
+	// asked of the store behind the API.
+	if _, err := own.PutHook(ctx, store.Hook{Name: "h3", Source: "linear", SecretFile: "/tmp/h3.secret"}, "yardmaster"); err == nil {
+		t.Errorf("adding a hook as yardmaster through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Errorf("adding a hook as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if _, err := own.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/other.secret"}, "yardmaster"); err == nil {
+		t.Errorf("changing a hook's secret file as yardmaster through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Errorf("changing a hook's secret file as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if now, _ := api.Head(ctx); now != head {
+		t.Fatalf("the refusals logged %d events", now-head)
+	}
+	if h, _ := api.GetHook(ctx, "h1"); h.Source != "linear" || h.SecretFile != "/tmp/h1.secret" {
+		t.Fatalf("the refused changes changed: %+v", h)
+	}
+	// What the hook says is the invoker's to change, as a pack's map
+	// update does. A fresh yard: no pane is on record, so the actor
+	// stands as named.
+	api, _, ctx = hookYard(t)
+	h, err := api.GetHook(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Says = []store.Say{{Where: map[string]string{"stage": "review"}, Outcome: "merged"}}
+	if _, err := api.PutHook(ctx, *h, "yardmaster"); err != nil {
+		t.Fatalf("saying more as yardmaster: %v", err)
+	}
+	// So is whom it acts as, with its map, under today's rule: the crew
+	// member speaks as itself.
+	if err := api.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	h, err = api.GetHook(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.As, h.Map = "yardmaster", map[string]string{"task:new": "started"}
+	if _, err := api.PutHook(ctx, *h, "yardmaster"); err != nil {
+		t.Fatalf("mapping as itself, as yardmaster: %v", err)
+	}
+	if h, _ := api.GetHook(ctx, "h1"); h.As != "yardmaster" || h.Map["task:new"] != "started" || len(h.Says) != 1 {
+		t.Fatalf("the updates did not land: %+v", h)
+	}
+	// Acting as another crew member is still refused as before.
+	h.As = "clerk"
+	if _, err := api.PutHook(ctx, *h, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "may speak as clerk; this is yardmaster") {
+		t.Fatalf("mapping as clerk, as yardmaster = %v", err)
+	}
+	// From the pane the update is the pane's actor's, whatever actor
+	// says. A fresh yard again: the pane goes on record after the
+	// setup, since over the socket every call carries this process as
+	// its caller.
+	api, _, ctx = hookYard(t)
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := api.CrewStarted(ctx, "clerk", handle); err != nil {
+		t.Fatal(err)
+	}
+	h, err = api.GetHook(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Says = []store.Say{{Where: map[string]string{"stage": "new"}, Outcome: "opened"}}
+	if _, err := api.PutHook(store.WithCaller(ctx, me), *h, "jo"); err != nil {
+		t.Fatalf("saying more from clerk's pane as the operator: %v", err)
+	}
+	evs, err := api.EventsOfKind(ctx, "hook_added", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) == 0 || evs[len(evs)-1].Actor != "clerk" {
+		t.Fatalf("hook_added actors = %+v, want the last by clerk", evs)
 	}
 }
 

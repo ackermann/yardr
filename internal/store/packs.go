@@ -176,7 +176,9 @@ func answered(by map[string]map[string]bool) map[string]map[string]bool {
 // stored one, is recorded under the time and actor of this call and logged
 // as pack_applied. One that changed nothing leaves the record as it is and
 // logs pack_unchanged, the only trace such an import leaves. It reports
-// whether the record was written.
+// whether the record was written. From a session's or a crew member's pane
+// the write is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error) {
 	if rec.Pack == "" {
 		return false, fmt.Errorf("pack record: pack is required")
@@ -184,6 +186,11 @@ func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, ac
 	rec = normalPack(rec)
 	written := false
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		written = false
 		if rec.Depot != "" && w.Bucket(bDepots).Get([]byte(rec.Depot)) == nil {
 			return fmt.Errorf("depot %s: %w", rec.Depot, ErrNotFound)

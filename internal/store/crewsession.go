@@ -229,9 +229,14 @@ func (s *Store) CrewStartFailedFor(ctx context.Context, name, user, reason strin
 }
 
 // RequestRestartFor is RequestRestart for one session. A rev other than ""
-// must be the crew member's current revision.
+// must be the crew member's current revision. Asking for a fresh session
+// is the daemon's or the operator's to do (daemonOrOperator): a rotation
+// restart runs in-process, and anyone else asking must be the operator.
 func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error {
 	return s.changeCrewSessionAt(name, user, rev, func(w *wtx, r *CrewMember, st *CrewSession) error {
+		if err := s.daemonOrOperator(ctx, w.Tx, actor, "restart a crew member", Alone); err != nil {
+			return err
+		}
 		t := now()
 		st.RestartRequested, st.RestartRequestedAt = reason, &t
 		return w.event(r.Journal, "crew_restart_requested", actor, sessionData(user, map[string]any{"crew": name, "reason": reason}))

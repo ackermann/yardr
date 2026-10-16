@@ -528,8 +528,12 @@ func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
 
 // DeleteCrew removes the crew member; its journal bead is kept as history.
 // A rev other than "" must be the crew member's current revision.
+// Removing a crew member is the operator's to do (operatorOnly).
 func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
+		if err := w.operatorOnly(ctx, actor, "remove a crew member", Alone); err != nil {
+			return err
+		}
 		if err := w.Bucket(bCrew).Delete([]byte(name)); err != nil {
 			return err
 		}
@@ -592,9 +596,24 @@ func checkCrewRev(name, have, want string) error {
 
 // SetCrewEnabled starts (true) or stops (false) keeping it alive. Enabling
 // also clears every session's failure streak. A rev other than "" must be
-// the crew member's current revision.
+// the crew member's current revision. Enabling one is the operator's to do
+// (operatorOnly): it starts agents. Disabling one is anyone's, as narrowing
+// what is allowed is; from a session's or a crew member's pane the write is
+// recorded as that session's actor or that crew member, whatever actor
+// says, and from anywhere else as given (paneAuthor).
 func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
+		if enabled {
+			if err := w.operatorOnly(ctx, actor, "enable a crew member", Alone); err != nil {
+				return err
+			}
+		} else {
+			resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+			if err != nil {
+				return err
+			}
+			actor = resolved
+		}
 		r.Enabled = enabled
 		if enabled {
 			r.Failures, r.RetryAfter = 0, nil
@@ -683,7 +702,8 @@ func (s *Store) CrewStartFailed(ctx context.Context, name, reason string, backof
 
 // RequestRestart asks the daemon for a fresh session once the current one
 // is idle (or the handoff grace has passed). A rev other than "" must be
-// the crew member's current revision.
+// the crew member's current revision. It asks for the line session, through
+// RequestRestartFor, whose gate covers both.
 func (s *Store) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
 	return s.RequestRestartFor(ctx, name, "", reason, rev, actor)
 }

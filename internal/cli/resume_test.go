@@ -384,7 +384,11 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	if got := keysOf(f); !slices.Equal(got, []string{"style", "about", "try"}) {
 		t.Fatalf("asked %q after a yardmaster that is not up", got)
 	}
-	if err := st.SetCrewEnabled(context.Background(), "yardmaster", true, "", "me"); err != nil {
+	stored, err := st.Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCrewEnabled(context.Background(), "yardmaster", true, "", stored[store.OperatorSetting]); err != nil {
 		t.Fatal(err)
 	}
 	started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())

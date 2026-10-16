@@ -200,10 +200,18 @@ func (g SourceGrant) Words(d *source.Declaration) string {
 
 // RevokeSource takes what of src back from to. Anyone may narrow a grant,
 // as anyone may narrow what a crew member is allowed. It returns what the
-// grantee is left with, Calls empty when that is nothing.
+// grantee is left with, Calls empty when that is nothing. From a session's
+// or a crew member's pane the write is recorded as that session's actor or
+// that crew member, whatever actor says; from anywhere else, as given
+// (paneAuthor).
 func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error) {
 	g := &SourceGrant{}
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		*g = SourceGrant{}
 		ok, err := get(w.Tx, bSourceGrants, to.key(src), g)
 		if err != nil {

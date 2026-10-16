@@ -360,16 +360,18 @@ func TestPackApplyCallsFlag(t *testing.T) {
 }
 
 // Only the operator answers: run by anyone else the import does the rest,
-// grants nothing and records nothing, by flag or in a terminal.
+// grants nothing and records nothing, by flag or in a terminal — and then
+// fails loud folding the pack's source, which is the operator's to do.
 func TestPackApplyOnlyTheOperatorGrantsCalls(t *testing.T) {
 	dir, _ := deskPack(t)
 	a := deskYard(t, dir)
 	a.actor = "boss"
 	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)
-	const says = "group web-builders was not let call read of the source crm: only the operator (me) may grant that, and this is boss."
+	const fold = "source crm is declared, but its links were not folded in: " +
+		"only the operator (me) may move links from one source to another; this is boss"
 	for _, flag := range []string{"builders=crm:read", "builders=crm:none"} {
 		out, err := run(t, a.packCmd(), append(args, "--calls", flag)...)
-		if err != nil || !strings.Contains(out, says) || strings.Contains(out, "may now call") {
+		if err == nil || !strings.Contains(err.Error(), fold) || strings.Contains(out, "may now call") {
 			t.Fatalf("--calls %s: %v\n%s", flag, err, out)
 		}
 		if mayCall(t, a) != "" || callRecord(t, a) != nil {
@@ -379,7 +381,8 @@ func TestPackApplyOnlyTheOperatorGrantsCalls(t *testing.T) {
 	setInteractive(t, true)
 	asked := 0
 	stubAsk(t, func(fields ...huh.Field) error { asked += len(fields); return nil })
-	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web"}, deskFlags...)...); err != nil || asked != 0 || !strings.Contains(out, says) {
+	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web"}, deskFlags...)...); err == nil ||
+		!strings.Contains(err.Error(), fold) || asked != 0 {
 		t.Fatalf("in a terminal: %v, %d asked\n%s", err, asked, out)
 	}
 }

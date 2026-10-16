@@ -174,14 +174,19 @@ func TestHookAddMap(t *testing.T) {
 		t.Errorf("no identity: %v", err)
 	}
 	// Acting as a crew member is speaking as it: its own session or the
-	// operator, not a bead's agent.
+	// operator, not a bead's agent. The hook exists, as the operator
+	// added it, so the agent's add is a map update, which still speaks
+	// as the crew member.
+	if _, err := add("acme", "acme"); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
 	if _, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||
 		!strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new") {
 		t.Errorf("a bead's agent: %v", err)
 	}
-	if hs, _ := st.Hooks(ctx); len(hs) != 0 {
+	if hs, _ := st.Hooks(ctx); len(hs) != 1 || hs[0].As != "" || len(hs[0].Map) != 0 {
 		t.Fatalf("refused hooks were saved: %+v", hs)
 	}
 

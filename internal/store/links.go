@@ -396,6 +396,8 @@ func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*Link
 // refused, and so is a bead that would then track two issues of the new
 // source, naming the bead and the issue. Each moved link logs unlinked and
 // linked on its bead, and the bead is re-minted. Moving back undoes it.
+// Moving links from one source to another is the operator's to do
+// (operatorOnly).
 func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int, error) {
 	if from == "" || to == "" {
 		return 0, fmt.Errorf("move links from a source to a source, not from %q to %q", from, to)
@@ -413,6 +415,9 @@ func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int
 	}
 	var moved int
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "move links from one source to another", Alone); err != nil {
+			return err
+		}
 		var all []linkRow
 		if err := each(w.Tx, bLinks, "", func(_ []byte, l *linkRow) error {
 			all = append(all, *l)

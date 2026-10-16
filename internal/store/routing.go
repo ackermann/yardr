@@ -95,11 +95,18 @@ func IsPersonalRoute(r Route, groups map[string]Group, originator, operator stri
 
 // PutGroup adds or replaces a group, and logs group_set: whoever follows
 // the yard by its events sees a group appear or change as it sees a depot,
-// a flow or a crew member do.
+// a flow or a crew member do. From a session's or a crew member's pane the
+// write is recorded as that session's actor or that crew member, whatever
+// actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 	return s.write(func(w *wtx) error {
 		// Batch reruns this closure, so it writes a copy.
 		g := g
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		return putGroup(w, &g, actor)
 	})
 }
@@ -180,13 +187,20 @@ type GroupChange struct {
 // it, changed a key and put it back would undo what was written in
 // between. The result is held to what PutGroup holds a group to. A group
 // that is so already is not written and logs nothing; one that changes
-// logs group_set, as PutGroup does.
+// logs group_set, as PutGroup does. From a session's or a crew member's
+// pane the write is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor string) (*GroupChange, error) {
 	if e.Limit != nil && *e.Limit < 1 {
 		return nil, fmt.Errorf("group %s: a limit is at least 1", name)
 	}
 	var ch *GroupChange
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		ch = new(GroupChange)
 		if ok, err := get(w.Tx, bGroups, name, &ch.Was); err != nil {
 			return err
@@ -198,9 +212,9 @@ func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor st
 			return err
 		}
 		g := &ch.Is
-		var err error
-		if g.Config, err = MergeConfig(name, g.Config, e.Set, e.Unset); err != nil {
-			return err
+		var cfgErr error
+		if g.Config, cfgErr = MergeConfig(name, g.Config, e.Set, e.Unset); cfgErr != nil {
+			return cfgErr
 		}
 		if e.Limit != nil {
 			g.Limit = *e.Limit
@@ -309,10 +323,13 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 // dispatcher's teardown stops the runner resources. It reports how many
 // beads it released. It logs one group_removed, which names the routes that
 // went with the group, as depot_removed does; a group that was not there
-// logs nothing.
+// logs nothing. Removing a group is the operator's to do (operatorOnly).
 func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	released := 0
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a group", Alone); err != nil {
+			return err
+		}
 		// Batch reruns this closure when another call in the batch fails, so
 		// the count starts over with each attempt.
 		released = 0
@@ -845,6 +862,9 @@ func routeEvent(r Route) map[string]any {
 // user that exists; any takes every originator's. A route without one to a
 // first group that starts no agents is any: a script, people or another
 // yard burn no local subscription, so they take every originator's beads.
+// From a session's or a crew member's pane the write is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, error) {
 	labels := dedupeOrdered(r.Labels())
 	r.Label, r.AndLabels = nil, nil
@@ -858,6 +878,11 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		return nil, fmt.Errorf("bead priority %d: a bead's priority is 0 or more, 0 the most urgent", *r.BeadPriority)
 	}
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		var first Group
 		gs := r.Groups()
 		runners := make(map[string]string, len(gs))
@@ -1213,9 +1238,13 @@ func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow
 }
 
 // DeleteRoute removes a route and logs route_removed with what it matched.
-// A route that was not there logs nothing.
+// A route that was not there logs nothing. Removing a route is the
+// operator's to do (operatorOnly).
 func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 	return s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a route", Alone); err != nil {
+			return err
+		}
 		var r Route
 		if ok, err := get(w.Tx, bRoutes, id, &r); err != nil || !ok {
 			return err

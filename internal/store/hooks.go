@@ -457,6 +457,12 @@ func (h Hook) Said(data map[string]any, stage, beadType string) *Say {
 // crew member (As) is refused when there is no such crew member, or when it has
 // no identity in the hook's source: the source's delivery of a change made
 // as the crew member is kept from the crew member's inbox by that identity alone.
+// Adding a hook, or changing one's source or secret file, is the
+// operator's to do (operatorOnly); what one says, makes, maps or acts as is
+// anyone's to change, recorded from a session's or a crew member's pane as
+// that session's actor or that crew member, whatever actor says, and from
+// anywhere else as given (paneAuthor). A hook that acts as a crew member
+// still speaks as it (maySpeakAs).
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
 	h.Blocked = ""
 	if !hookName.MatchString(h.Name) {
@@ -475,6 +481,27 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		h.Makes = nil
 	}
 	err := s.write(func(w *wtx) error {
+		var was Hook
+		had, err := get(w.Tx, bHooks, h.Name, &was)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !had:
+			if err := w.operatorOnly(ctx, actor, "add a hook", Alone); err != nil {
+				return err
+			}
+		case was.Source != h.Source || was.SecretFile != h.SecretFile:
+			if err := w.operatorOnly(ctx, actor, "change a hook's source or secret file", Alone); err != nil {
+				return err
+			}
+		default:
+			resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+			if err != nil {
+				return err
+			}
+			actor = resolved
+		}
 		keys := whereKeysTx(w.Tx, h.Source)
 		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
 			return err
@@ -511,10 +538,6 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		}
 		if len(h.Makes) > 0 {
 			data["makes"] = MakeLines(h.Makes)
-		}
-		var was Hook
-		if _, err := get(w.Tx, bHooks, h.Name, &was); err != nil {
-			return err
 		}
 		h.Accepted, h.Refused, h.RefusedFor = was.Accepted, was.Refused, was.RefusedFor
 		if err := put(w.Tx, bHooks, h.Name, h); err != nil {
@@ -556,9 +579,13 @@ func (s *Store) GetHook(ctx context.Context, name string) (*Hook, error) {
 
 // DeleteHook removes the hook; deliveries it already accepted stay. The
 // issue moves it had still to make (IssueMoves) are dropped with it, and
-// the hook_removed event says how many.
+// the hook_removed event says how many. Removing a hook is the operator's
+// to do (operatorOnly).
 func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a hook", Alone); err != nil {
+			return err
+		}
 		if w.Bucket(bHooks).Get([]byte(name)) == nil {
 			return fmt.Errorf("hook %s: %w", name, ErrNotFound)
 		}

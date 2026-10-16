@@ -528,7 +528,11 @@ func TestDoctorFailingCrew(t *testing.T) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetCrewEnabled(ctx, "scribe", true, "", "me"); err != nil {
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCrewEnabled(ctx, "scribe", true, "", stored[store.OperatorSetting]); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"scribe", "yardmaster"} {
