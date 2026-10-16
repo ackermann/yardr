@@ -5,26 +5,33 @@ This page follows a bead down the line yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
-backlog ──yardmaster shapes──▶ new ──builder──▶ review ──▶ review-security ──▶ approved ──assembly──▶ merged on main
+backlog ──pick──▶ shape ──shaper──▶ new ──builder──▶ review ──▶ review-security ──▶ approved ──assembly──▶ merged on main
    ▲                       ▲                 │              │                 │
    │                       └──── changes ────┴──────────────┘                 │
    │                       └──────────────── red check or conflict ───────────┘
-   └──────── decide (Christopher) ◀── a question from backlog, new, review, review-security or approved
+   └──────── decide (Christopher) ◀── a question from backlog, shape, new, review, review-security or approved
 ```
 
-## 1. Backlog: the yardmaster shapes the bead
+## 1. Backlog and shape: the bead gets specified
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
 yardmaster (see [crew.md](crew.md), prompt the default pack's
-`~/.yardr/packs/<pack>/roles/yardmaster.md`) reads them and shapes each
-one until a builder could finish it without asking: a goal, where to look,
-what "done" means and how to test it. Large beads are split, and
+`~/.yardr/packs/<pack>/roles/yardmaster.md`) or a person picks each one for
+`shape`; the pick stays a person's, never a route. A bead already specified
+well enough for a builder to finish it without asking skips that step and
+goes straight to `new`: the yardmaster advances it
+(`yardr bead advance <id> --to new`), and Christopher can do the same from
+`yardr review -g backlog`.
+
+In `shape`, a shaper reads the bead and the code it names, and specifies it
+until a builder could finish it without asking: a goal, where to look, what
+"done" means and how to test it. Large beads are split, and
 `yardr dep add` orders them: a bead is only ready once its blockers are
 closed, or a staged edge releases it
-early ([Dependencies](#dependencies)).
-
-A shaped bead is advanced to `new` (`yardr bead advance <id> --to new`).
-Christopher can do the same from `yardr review -g backlog`.
+early ([Dependencies](#dependencies)). A bead specified at `difficulty:1`
+goes to `new` on `done`; a heavier one, a duplicate, or one needing a
+decision only a person can make goes to `decide` on `question`, with the
+question asked on the bead first.
 
 ### Cycles of blockers
 
@@ -545,7 +552,7 @@ the next ready bead at once; the worktree and its branch stay. Beads get held:
   base checked out with uncommitted changes, or the bead's worktree dirty).
 
 The yardmaster watches held beads, finds out why, and either fixes the cause and
-unholds, reshapes the bead, or sends it to `decide`.
+unholds, sends it back to `backlog` to be reshaped, or sends it to `decide`.
 
 Not every failure is the bead's. If herdr is missing or down, no bead is
 held for it: the group logs one `runtime_down`, backs off (30s, doubling to
