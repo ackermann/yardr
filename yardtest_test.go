@@ -101,6 +101,7 @@ func TestYardTestRowsAreThere(t *testing.T) {
 // not run" (exit 2), never "nothing changed"; for a landing it is the whole
 // suite, as a landing of nothing is.
 func TestYardTestSaysItsBase(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go in PATH")
 	}
@@ -529,6 +530,7 @@ echo "ran ${YARDR_TEST_RPC:+rpc }$1"
 // is run again by the same rule, either makes the run red, and the socket
 // step's output follows the whole of the other's.
 func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
+	t.Parallel()
 	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
@@ -689,6 +691,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // time. A package that fails twice fails the step as before, with the failed
 // lines. The plain run does the same as a landing.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
+	t.Parallel()
 	const pkg = "m.test/m"
 	const test = "TestX"
 	flakyFail := "--- FAIL: " + test + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
@@ -1005,6 +1008,7 @@ fi
 // cannot take it meanwhile, and can once the run has ended. vet and build
 // run while the lock is held: only the race leg waits.
 func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
 	}
@@ -1118,6 +1122,7 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 // and the lock in it makes them as the yard makes its own, the home 0700 and
 // the file 0600, whatever the umask.
 func TestYardTestRaceLockIsTheYards(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
 	}
@@ -1252,6 +1257,7 @@ func sleepSite(dur string) string {
 // macOS awk takes no newline in -v, and an allow-list passed that way fails
 // every run on this machine (yardr-v7v8).
 func TestYardTestBudgets(t *testing.T) {
+	t.Parallel()
 	probe, overDirs, sleepSites := yardTestProbe(t)
 	probePath := filepath.Join(t.TempDir(), "probe.sh")
 	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {

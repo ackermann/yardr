@@ -21,9 +21,9 @@ type repoGoFile struct {
 
 // loadRepoGoFiles walks the repository's non-test Go files once for the
 // TestNoGoCodeNames* tests: three walks cost 31 s together under -race, one
-// walk matched thrice costs one. The walkers run beside TestYardTestSelects
-// (t.Parallel), so the walk happens once however they interleave. It skips
-// nothing but .git; a test looks past what its own walk skipped.
+// walk matched thrice costs one. The walkers run beside the package's other
+// slow tests (t.Parallel), so the walk happens once however they interleave.
+// It skips nothing but .git; a test looks past what its own walk skipped.
 var loadRepoGoFiles = sync.OnceValues(func() ([]repoGoFile, error) {
 	var out []repoGoFile
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
@@ -105,6 +105,7 @@ func TestNoGoCodeNamesARole(t *testing.T) {
 // name must keep clear of; it goes when the sources leave the binary
 // (YRD-29).
 func TestCoreComparesNoSourceName(t *testing.T) {
+	t.Parallel()
 	name := regexp.MustCompile(`"github"|"linear"|hooks\.(GitHub|Linear)\b`)
 	var files int
 	err := filepath.WalkDir("internal", func(path string, d fs.DirEntry, err error) error {
