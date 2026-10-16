@@ -253,6 +253,59 @@ func TestPackApplyReplacementCard(t *testing.T) {
 	}
 }
 
+// A previous source removal may leave its command-copy directory behind.
+// A pack that adds that source must card and hold to the files it will
+// replace or remove even though no source record stands.
+func TestPackApplyCardsOrphanCopyDirectory(t *testing.T) {
+	y, _ := runYard(t)
+	dir := filepath.Join(y.Store.home, "sources", "wired")
+	if err := os.MkdirAll(filepath.Join(dir, "wired"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wired", "thread"), []byte("#!/bin/sh\n# left by a removed source\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("left by hand\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	seq := y.ask(t, packAsk(), "yardmaster")
+	got := y.asked(t, seq)
+	carried := got.Ask.Run.Carried[0]
+	if len(carried.Inventory) != 2 || len(carried.Old) != 1 || len(carried.Removed) != 1 {
+		t.Fatalf("the orphan copy inventory = %+v, old %+v, removed %+v", carried.Inventory, carried.Old, carried.Removed)
+	}
+	joined := strings.Join(got.Ask.Run.Does, "\n")
+	for _, want := range []string{
+		"the source wired is not in the yard, but its command copy directory has entries this pack would replace or remove.",
+		"command file wired/thread would change: sha256 ",
+		"the copy would remove extra.txt, which neither declaration names: sha256 ",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(strings.Join(got.Lines(), "\n"), "left by hand") {
+		t.Fatalf("the terminal card omits the orphan file's text:\n%s", strings.Join(got.Lines(), "\n"))
+	}
+	if _, err := y.GetSource(y.ctx, "wired"); err == nil {
+		t.Fatal("the orphan directory had a source record")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("changed after the ask\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "extra.txt") {
+		t.Fatalf("a changed orphan copy: ApproveAsk = %v", err)
+	}
+	seq = y.ask(t, packAsk(), "yardmaster")
+	if err := os.WriteFile(filepath.Join(dir, "added-after-ask.txt"), []byte("also left by hand\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "added-after-ask.txt") {
+		t.Fatalf("an orphan copy added after the ask: ApproveAsk = %v", err)
+	}
+}
+
 func TestPackApplyCarriesRemovedTextUpToThePackPayloadBound(t *testing.T) {
 	y, _ := runYard(t)
 	dir := plantWired(t, y)

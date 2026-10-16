@@ -339,7 +339,15 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 			}
 			seenMap[key] = fingerprint
 		} else if errors.Is(err, ErrNotFound) {
-			seenMap[key] = ""
+			if len(carried[i].Inventory) == 0 {
+				seenMap[key] = ""
+			} else {
+				// A previous removal can leave command copies behind if the
+				// process stopped between deleting the source and its files.
+				// Applying this pack removes that directory too, so hold the
+				// ask to what it contains even though no source record stands.
+				seenMap[key] = seen("no source", carried[i].Inventory)
+			}
 		} else {
 			return AskRun{}, err
 		}
@@ -397,19 +405,20 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 // it would replace: each command file's old and new SHA-256 with its
 // diff, the whole destination inventory, and each entry neither
 // declaration names as removed. It answers the diff and removed bytes
-// the ask carries, for the payload bound. A source the yard has not is
-// untouched.
+// the ask carries, for the payload bound. If no source record stands,
+// it still cards any leftover files the copy step would replace.
 func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packName string) (int, error) {
-	_, was, err := sourceIn(w.Tx, carried.Name)
-	if errors.Is(err, ErrNotFound) {
-		return 0, nil // not in the yard: an adding, held by its absence
-	}
-	if err != nil {
-		return 0, err
+	_, was, sourceErr := sourceIn(w.Tx, carried.Name)
+	sourceMissing := errors.Is(sourceErr, ErrNotFound)
+	if sourceErr != nil && !sourceMissing {
+		return 0, sourceErr
 	}
 	inv, contents, err := w.inventoryOf(carried.Name, true)
 	if err != nil {
 		return 0, err
+	}
+	if sourceMissing && len(inv) == 0 {
+		return 0, nil // no source or leftover copies: an adding, held by its absence
 	}
 	carried.Inventory = inv
 	byPath := map[string]AskInventory{}
@@ -444,6 +453,9 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 		}
 		if hasNew {
 			newSHA = newF.SHA256
+		}
+		if sourceMissing && !hasOld {
+			continue // a new command file is already shown by sourceDoes
 		}
 		if hasOld && oldE.Symlink {
 			return 0, fmt.Errorf("source %s: the copy of %s is a symbolic link, not a regular text file: a card cannot show what it points to, so this pack is the operator's to apply in a terminal (yardr pack check %s)", carried.Name, OneLine(prog), packName)
@@ -533,7 +545,28 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
 	if errors.Is(err, ErrNotFound) {
-		return lines, nil
+		if len(carried.Inventory) == 0 {
+			return lines, nil
+		}
+		extra := []string{fmt.Sprintf("the source %s is not in the yard, but its command copy directory has entries this pack would replace or remove.", carried.Name)}
+		for _, df := range carried.Old {
+			ins, del := udiff.Counts(df.Diff)
+			extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
+				df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
+		}
+		for _, rem := range carried.Removed {
+			kind := ""
+			if rem.Symlink {
+				kind = ", symbolic link"
+			}
+			extra = append(extra, safeSourceCardLine(fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s%s, %d bytes).",
+				rem.Path, rem.SHA256, rem.Mode, kind, rem.Size)))
+		}
+		out := make([]string, 0, len(lines)+len(extra))
+		out = append(out, lines[0])
+		out = append(out, extra...)
+		out = append(out, lines[1:]...)
+		return out, nil
 	}
 	if err != nil {
 		return nil, err
