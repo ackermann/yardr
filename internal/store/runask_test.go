@@ -112,14 +112,14 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 func TestRunAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr source add <file>, yardr pack apply <name>, yardr hook add <name> --source <declared source>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user add <name>, yardr user rm <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>" + "): anything else is run directly, or typed by the operator in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr source add <file>, yardr pack apply <name>, yardr hook add <name> --source <declared source>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
 		actor string
 		want  string
 	}{
-		{"not on the list", func(a *Ask) { a.Run.Argv = []string{"user key mckean crm"} }, "", list},
+		{"not on the list", func(a *Ask) { a.Run.Argv = []string{"user key mckean"} }, "", "one user and one source, not 1 words"},
 		{"another yardr command", func(a *Ask) { a.Run.Argv = []string{"yardr peer list"} }, "", list},
 		{"no yardr command", func(a *Ask) { a.Run.Argv = []string{"rm -rf /"} }, "", list},
 		{"nothing", func(a *Ask) { a.Run.Argv = nil }, "", list},

@@ -171,6 +171,15 @@ is one of the list the yard runs from a card:
       which parts a source tells a user of outside the yard, on their
       phone: a list of notifications, mail and asks with commas between,
       or nothing after tell= for all three again
+  user key <user> <source>
+      the person's own address in the source, as yardr user key gives
+      it: a card of this row is offered by the yard itself, when a
+      delivery reaches it from an address no user has, and carries
+      that address shown on the card; approving writes it into the
+      user's env file (0600) exactly where yardr user key writes it.
+      A --run naming it in a terminal carries no address and is
+      refused: the value there is typed unseen, as yardr user key
+      types it
   user add <name>
       a person becomes a user of the yard, and reads mail from now on
   user rm <name>

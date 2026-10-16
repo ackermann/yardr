@@ -1014,8 +1014,8 @@ func TestTelegramPack(t *testing.T) {
 	}
 	// Its setup notes: the bot and its token, one message to it, the
 	// apply, the token given to the yard by a command or on a card, the
-	// chat id read with the token from the yard's file, the chat id given
-	// the same way, how to test telling; then hearing the operator's chat
+	// chat id claimed on a card from a message to the bot (given by
+	// hand the same way still), how to test telling; then hearing the operator's chat
 	// back, each command in a block of its own: the webhook secret and
 	// hook, the crew member's credential, the yardmaster's subscription,
 	// setWebhook, the try from the phone, and the limits where they are
@@ -1030,8 +1030,8 @@ func TestTelegramPack(t *testing.T) {
 		"/newbot",
 		"press Start",
 		"   ```text\n   /newbot\n   ```",
-		"getUpdates",
-		`"chat":{"id":`,
+		"Is this you?",
+		"first words:",
 		"TELEGRAM_BOT_TOKEN",
 		"TELEGRAM_CHAT_ID",
 		"yardr pack apply telegram --notify mckean=telegram\n",
@@ -1075,7 +1075,7 @@ func TestTelegramPack(t *testing.T) {
 			t.Errorf("setup notes put a secret in a command's arguments: %q", not)
 		}
 	}
-	for _, call := range []string{"getUpdates", "setWebhook", "getWebhookInfo", "deleteWebhook"} {
+	for _, call := range []string{"setWebhook", "getWebhookInfo", "deleteWebhook"} {
 		want := `printf 'url = "https://api.telegram.org/bot%s/` + call + `"`
 		if !strings.Contains(p.SetupText, want) || !strings.Contains(p.SetupText, "| curl -K -") {
 			t.Errorf("setup notes do not give %s its address on curl's stdin", call)

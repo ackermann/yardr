@@ -38,6 +38,9 @@ func runYardCLI(t *testing.T, name, key string) (*cliYard, *store.Bead) {
 	if _, err := y.st.PutSource(ctx, "linear.yaml", runLinear, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := y.st.PutSource(ctx, "pushover.yaml", runPush, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := y.st.GetUser(ctx, "jo"); err != nil {
 		if _, err := y.st.AddUser(ctx, "jo", "jo"); err != nil {
 			t.Fatal(err)
@@ -89,6 +92,19 @@ hook:
   keys: [team, project, label]
 calls:
   viewer: { kind: read, request: { method: GET, path: /viewer } }
+`
+
+// runPush is a source that tells a user, for the user key row: the
+// address a delivery claims is given typed, as the approval writes it.
+const runPush = `name: pushover
+base: https://api.pushover.net/1
+credential: { env: PUSHOVER_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { user: { type: string }, text: { type: string } }
+    request: { method: POST, path: /messages.json, body: { token: "{credential}", user: "{user}", message: "{text}" } }
+notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: text }
 `
 
 // as runs the bead command args as the actor who.
@@ -220,6 +236,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr hook add <name> --source <declared source>":              {"hook add linear --source linear"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]": {"subscribe jo yardr --where label=ui --done --where label=web"},
 		"yardr user set <user> tell=<parts>":                            {"user set jo tell=asks,notifications"},
+		"yardr user key <user> <source>":                                {"user key jo pushover"},
 		"yardr user add <name>":                                         {"user add eve"},
 		"yardr user rm <name>":                                          {"user rm ada"},
 		"yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>": {
@@ -326,6 +343,11 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			} else {
 				runAsk.Carried = carried
 			}
+			// A user key ask carries the address a delivery brought,
+			// as a source add carries its declaration.
+			if strings.HasPrefix(command, "user key ") {
+				runAsk.Value = "u-0f-jo"
+			}
 			seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
 				Run: runAsk}, "yardmaster")
 			if err != nil {
@@ -361,6 +383,10 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			typedArgs := done.Argv[1:]
 			if typedSecret != "" {
 				typedArgs = append(slices.Clone(typedArgs), "--secret-file", typedSecret)
+			}
+			// yardr user key reads its value as a NAME=value line.
+			if strings.HasPrefix(command, "user key ") {
+				cmd.SetIn(strings.NewReader("PUSHOVER_USER=u-0f-jo\n"))
 			}
 			out, err := run(t, cmd, typedArgs...)
 			if err != nil {
@@ -460,6 +486,10 @@ func TestRunListIsTheCLIs(t *testing.T) {
 						}
 						// The one difference: the approval names its ask.
 						delete(e.Data, "approved")
+						// Each yard's env file is in its own home.
+						if file, ok := e.Data["env_file"].(string); ok {
+							e.Data["env_file"] = filepath.Base(file)
+						}
 						changes = append(changes, map[string]any{"kind": e.Kind, "actor": e.Actor, "data": e.Data})
 					}
 				}

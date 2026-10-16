@@ -48,33 +48,39 @@ the operator writes to the bot reaches the yardmaster's inbox.
    yardr bead ask <bead> "The Telegram bot's token" --secret telegram --context "@BotFather answered /newbot with it."
    ```
    The secret goes nowhere else: not into mail, chat, a bead or a pack.
-5. **The chat id.** After step 2 there is a chat, and since step 4 the
-   token sits in the yard's file: ask from there. The token is read
-   from the file and goes to curl as a config line on its stdin,
-   written by the shell itself. It is typed nowhere: an argument can
-   be read by every process on the machine while the command runs, and
-   stays in the shell's history, and a browser keeps it in its own.
-   ```sh
-   printf 'url = "https://api.telegram.org/bot%s/getUpdates"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
-   ```
-   Under `result`, by the operator's message, is
-   `"chat":{"id":123456789,…}`: that number is the operator's chat id.
-   It is where the operator is reached.
-6. **Give the yard the chat id.** The command asks for its value and
-   shows nothing as it is typed or pasted, and the yard's server
-   writes it to a file only you can read
-   (`~/.yardr/users/mckean.env`). The command below is one thing to
-   type, in a block of its own.
+5. **The chat id: write to the bot, and confirm it is you.** No
+   number is looked up and none is pasted. Once hearing is set up
+   (steps 9 to 12 below: the webhook secret, the hook and Telegram
+   told where to send), write anything to the bot from the operator's
+   Telegram account, as in step 2. The delivery reaches the yard from
+   a chat it has no address for, so it is dropped -- and, while the
+   operator has no chat id in telegram, the yard asks the operator on
+   a card, in footplate or in `yardr chat`:
+
+   > A message reached telegram from chat 123456789 (first words:
+   > 'hi'). Is this you?
+
+   The card shows the chat id and at most the first 80 characters of
+   the message; the message itself is kept nowhere else. One such
+   card per source waits at a time.
+6. **Confirm the card, and the yard has the chat id.** Approving the
+   card (`yardr bead answer <bead> <ask> --approve`, or the card's
+   button in footplate) writes `TELEGRAM_CHAT_ID` into the operator's
+   env file (`~/.yardr/users/mckean.env`, mode 0600), exactly where
+   this command writes it:
    ```sh
    yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
    # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
    ```
-   Or have a crew member ask for it, and answer on its card, in
-   footplate or in `yardr chat` (`ctrl+o`), where the field shows dots:
+   That command, typed unseen, is still the way to give or replace
+   the chat id by hand, and a crew member can still ask for it on a
+   card, answered where the field shows dots:
    ```sh
-   yardr bead ask <bead> "Your Telegram chat id" --secret telegram --for-user mckean --context "The chat id under result at getUpdates."
+   yardr bead ask <bead> "Your Telegram chat id" --secret telegram --for-user mckean --context "The chat id the claim card showed, or the one under result at getUpdates."
    ```
-   The secret goes nowhere else: not into mail, chat, a bead or a pack.
+   Declining the claim card drops it and writes nothing. Once the
+   chat id is written, step 7's test message can be sent, and the
+   next message from that chat is heard (step 13).
 7. **One test message.**
    ```sh
    yardr source check telegram --user mckean
@@ -98,7 +104,9 @@ The pack hears one chat: the operator's. A message from any other chat
 is dropped — answered 200, recorded nowhere, never answered — even
 where another user's env file sets the address too: hearing is the
 operator's address alone, and telling another through telegram
-tells them, but hears nothing back. Write to the bot in a private
+tells them, but hears nothing back. While the operator has no chat
+id set, a dropped message offers them the claim card of steps 5
+and 6 instead of being dropped in silence. Write to the bot in a private
 chat, one to one; if the operator's chat id is a group's, every
 member of the group is heard.
 

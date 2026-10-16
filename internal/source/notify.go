@@ -52,6 +52,27 @@ type HearAddress struct {
 // never a person.
 const HearFromOperator = "operator"
 
+// ClaimAddress is the address a delivery from no known user may claim:
+// the envelope field that holds it and the variable it is written under
+// in a user's env file. It is the hear key's field with the notify
+// address's variable (hear is refused unless the two agree), read from
+// the declaration alone and never from service-specific code. ok is
+// false for a source that hears nothing back: such a source drops no
+// delivery for an unknown address, so it offers no claim.
+func (d *Declaration) ClaimAddress() (field, env string, ok bool) {
+	if d == nil || d.Hear == nil || d.Hear.Field == "" {
+		return "", "", false
+	}
+	env = d.Hear.Address.Env
+	if d.Notify != nil && d.Notify.AddressEnv != "" {
+		env = d.Notify.AddressEnv
+	}
+	if env == "" {
+		return "", "", false
+	}
+	return d.Hear.Field, env, true
+}
+
 // notify reads the key that makes a source one a user can be told through.
 // What it refuses is what would fail at every send, or at some: a call that
 // is not there or only reads, a value given to no parameter or to one that

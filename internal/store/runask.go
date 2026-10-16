@@ -93,6 +93,14 @@ type AskRun struct {
 	// Pack is the pack a pack apply ask names, as the server read it
 	// from its own binary; set on that row alone.
 	Pack *AskPack `json:"pack,omitempty"`
+	// Value is the address a user key row carries: the value it writes
+	// under the source's notify variable into the user's env file,
+	// shown on the card in Does as the command's own words never show
+	// it (yardr user key types it unseen). It comes from a delivery
+	// the yard dropped (ClaimAddress), never from a command line: a
+	// --run typed in a terminal carries none, and its card is refused.
+	// No other row keeps it.
+	Value string `json:"value,omitempty"`
 }
 
 // AskPack is a pack apply ask's pack as the yard's server read it: its
@@ -271,6 +279,9 @@ type RunAsked struct {
 	// Pack is the pack a pack apply ask names, for a client to show
 	// the plan behind the card; absent on any other command.
 	Pack *AskPack `json:"pack,omitempty"`
+	// Value is the address a user key ask carries and shows in Does;
+	// absent on any other command.
+	Value string `json:"value,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -280,7 +291,7 @@ func (a Ask) proposed() *RunAsked {
 		return nil
 	}
 	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
-		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack}
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack, Value: a.Run.Value}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
@@ -439,6 +450,16 @@ var runList = []runCommand{{
 	run:         runUserTell,
 	whose:       func(argv []string) string { return argv[2] },
 	commas:      true,
+}, {
+	words:       []string{"user", "key"},
+	use:         "yardr user key <user> <source>",
+	description: "Give a user's own address in a source: typed without echo, or a NAME=value line on standard input",
+	parse:       parseUserKey,
+	checkRun:    checkUserKey,
+	cardRun:     (*wtx).userKeyCard,
+	stale:       (*wtx).userKeyStale,
+	runRun:      runUserKey,
+	whose:       func(argv []string) string { return argv[2] },
 }, {
 	words:       []string{"user", "add"},
 	use:         "yardr user add <name>",
@@ -960,7 +981,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	// The command in the yard's own form, with what the writer carried
 	// beside it: the carried bytes are the row's to keep or throw away,
 	// as Does and Seen are.
-	sent := AskRun{Argv: argv, Carried: run.Carried}
+	sent := AskRun{Argv: argv, Carried: run.Carried, Value: run.Value}
 	check := c.check
 	if c.checkRun != nil {
 		check = func(ctx context.Context, w *wtx, _ []string, actor string) error {

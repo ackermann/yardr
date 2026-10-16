@@ -957,6 +957,21 @@ whom the source hears to the operator, and is left out for every user
 whose env file sets the address. A drop is answered 200, recorded
 nowhere and counted beside refusals, so a stranger's burst is one
 bounded entry; a delivery that matches is recorded and routed as today.
+
+A drop is also how the yard learns an address it has none of. While
+the operator has no address in the source, the first dropped delivery
+offers them a claim on a card -- "A message reached telegram from
+chat 123456789 (first words: 'hi'). Is this you?" -- a run ask of
+`yardr user key <operator> <source>` with the address carried from
+the envelope's `field` and shown on the card, and at most the first
+80 characters of the message beside it; the message is kept nowhere
+else. Approving writes the address under `address.env` into the
+operator's env file (mode 0600) exactly where `yardr user key`
+writes it, and the next delivery from that address is heard;
+declining drops it and writes nothing. One claim per source and the
+operator waits at a time, and none is offered once the operator has
+an address in the source. In this first form the claim is the
+operator's alone, for their own address.
 The telegram pack says `from: operator`: only the operator's chat is
 heard, and telling another through telegram tells them but hears
 nothing back, as does setting another user's address. Refused: a `hear`

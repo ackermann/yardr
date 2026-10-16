@@ -29,6 +29,9 @@ type Store interface {
 	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
 	RejectHook(ctx context.Context, name, reason string, status, count int, last time.Time) error
+	// ClaimAddress offers the operator a claim for an address a
+	// dropped delivery arrived from (store.ClaimAddress).
+	ClaimAddress(ctx context.Context, sourceName, address, text string) (bool, error)
 }
 
 // A refused delivery is logged as a hook_rejected event, so that a hook
@@ -165,6 +168,18 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil && !rc.hears(r.Context(), dec.D, env) {
 		rc.count("stranger")
 		rc.refuse(h, name, "stranger", http.StatusOK)
+		// Offer the operator a claim for the address it arrived from:
+		// the person wrote to the service, and confirming the card is
+		// how the yard learns their address. A claim that cannot be
+		// offered (no operator, one waiting already, an address set
+		// since) leaves the drop as it was, answered 200 either way.
+		if field, _, ok := dec.D.ClaimAddress(); ok {
+			if values := env.Fields[field]; len(values) > 0 && values[0] != "" {
+				if _, err := rc.st.ClaimAddress(r.Context(), dec.D.Name, values[0], env.Text); err != nil {
+					rc.log.Warn("address claim not offered", "hook", name, "source", dec.D.Name, "err", err)
+				}
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
 		return
 	}

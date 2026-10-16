@@ -576,7 +576,7 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"group add builders --runner exec --set cmd=make,check", "group add with runner exec defines what the yard runs: " + alone},
 		{"group add builders --runner herdr --set cmd=make", "group add with cmd defines what the yard runs: " + alone},
 		{"group set builders runner=herdr", "anything else is run directly, or typed by the operator in a terminal"},
-		{"user key mckean crm", "anything else is run directly, or typed by the operator in a terminal"},
+		{"user key mckean crm", "source crm: its declaration has no notify key"},
 	} {
 		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)

@@ -273,7 +273,9 @@ type wtx struct {
 	// hand-made wtx, which asks for none.
 	store *Store
 	// home is the yard's home, for a write that names a file the yard
-	// owns (a hook's secret file): the store's home, set by write.
+	// owns (a hook's secret file, a user's env file): the store's home,
+	// set by write; empty in a wtx a test built by hand, where no such
+	// row runs.
 	home     string
 	mentions *mentionCache // nil outside Store.write: compiled per use
 	// settle are the beads whose stay at a peer ended in this write, by
