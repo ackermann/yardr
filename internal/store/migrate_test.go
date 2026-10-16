@@ -241,7 +241,7 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 				Config: map[string]any{"kind": "claude", "prompt": "/home/jo/.yardr/roles/mayor.md"}}, "me"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.AddSubscription(ctx, tc.member, store.Subscription{Source: "linear", Scope: "involved"}, "me"); err != nil {
+			if err := s.AddSubscription(ctx, tc.member, store.Subscription{Source: "linear", Scope: "involved"}, tc.member); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
@@ -347,6 +347,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	}
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	// The fixtures' subscriptions are the operator's to write.
+	must(s.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1,
 		Config: map[string]any{"cmd": "/home/jo/.yardr/scripts/integrate-epic"}}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
@@ -560,6 +562,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 	}
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	// The fixtures' subscriptions are the operator's to write.
+	must(s.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	f, err := store.ParseFlow("backlog -> new\nnew -> merged on done\nmerged terminal\n")
@@ -803,6 +807,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 	must(err)
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "me"))
+	// The fixtures' subscriptions are the operator's to write.
+	must(s.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"crew_gave_up", "held"},
 		Config: map[string]any{"kind": "claude", "env_file": envFile}}, "me")
@@ -1236,6 +1242,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 	s, err := store.Open(path)
 	must(err)
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
+	// The fixtures' subscriptions are the operator's to write.
+	must(s.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: clone}, "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "docs", Kind: store.DepotDir, Path: elsewhere}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))

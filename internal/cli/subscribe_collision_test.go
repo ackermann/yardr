@@ -17,6 +17,12 @@ func TestUnsubscribeSharedName(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
+	// Commands run as the operator here: the shared names' subscriptions
+	// are the operator's to change, and the tests are the shared-name
+	// mechanics, not the gates.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +79,12 @@ func TestSubscribeSharedNameFlags(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
+	// Commands run as the operator here: the shared names' subscriptions
+	// are the operator's to change, and the tests are the shared-name
+	// mechanics, not the gates.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +124,12 @@ func TestSourceRmSharedNameCommands(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
+	// Commands run as the operator here: the shared names' subscriptions
+	// are the operator's to change, and the tests are the shared-name
+	// mechanics, not the gates.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.PutSource(ctx, "acme.yaml", hookDecl, "me"); err != nil {
 		t.Fatal(err)
 	}

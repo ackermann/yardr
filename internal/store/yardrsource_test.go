@@ -44,7 +44,7 @@ func yardrDepot(t *testing.T, crew ...string) (store.API, context.Context, *stor
 
 func subscribe(t *testing.T, s store.API, name string, sub store.Subscription) {
 	t.Helper()
-	if err := s.AddSubscription(context.Background(), name, sub, "me"); err != nil {
+	if err := s.AddSubscription(context.Background(), name, sub, name); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -236,10 +236,10 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	wantHeard(t, s, b.ID, "yardmaster", "closed:done")
 
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "kind=noted"))
-	if n, err := s.Unwatch(ctx, "yardmaster", b.ID, "me"); err != nil || n != 1 {
+	if n, err := s.Unwatch(ctx, "yardmaster", b.ID, "yardmaster"); err != nil || n != 1 {
 		t.Fatalf("unwatch = %d, %v", n, err)
 	}
-	if _, err := s.Unwatch(ctx, "yardmaster", b.ID, "me"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.Unwatch(ctx, "yardmaster", b.ID, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second unwatch err = %v", err)
 	}
 }
@@ -395,7 +395,10 @@ func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "only manual groups") {
 		t.Fatalf("herdr group subscribe err = %v", err)
 	}
-	subscribe(t, s, "approvers", yardrSub(store.ScopeAll, "state=done"))
+	// The group's subscription is a member's to make.
+	if err := s.AddSubscription(ctx, "approvers", yardrSub(store.ScopeAll, "state=done"), "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
 
 	// Redefining the group keeps its subscriptions.
@@ -414,7 +417,7 @@ func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 	if err != nil || page.Total != 1 {
 		t.Fatalf("yardmaster inbox = %+v, %v", page, err)
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "approvers", store.SourceYardr, "", nil, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "approvers", store.SourceYardr, "", nil, "yardmaster"); err != nil || n != 1 {
 		t.Fatalf("group unsubscribe = %d, %v", n, err)
 	}
 }
@@ -563,11 +566,11 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 		"state=" + store.JoinWhere([]string{"done", "open"}): "only done",
 		"train=" + store.JoinWhere([]string{b.ID, "nope-0"}): "not found",
 	} {
-		if err := s.AddSubscription(ctx, "clerk", yardrSub(store.ScopeAll, sub), "me"); err == nil || !strings.Contains(err.Error(), want) {
+		if err := s.AddSubscription(ctx, "clerk", yardrSub(store.ScopeAll, sub), "clerk"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", sub, err, want)
 		}
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": store.JoinWhere([]string{"session_blocked", "gave_up"})}, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": store.JoinWhere([]string{"session_blocked", "gave_up"})}, "clerk"); err != nil || n != 1 {
 		t.Errorf("removed %d, %v; want the one, by its values in any order", n, err)
 	}
 }

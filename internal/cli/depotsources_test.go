@@ -36,6 +36,10 @@ func sourcesYard(t *testing.T) (a *app, home, sha string) {
 			t.Fatal(err)
 		}
 	}
+	// Imports run as the operator here, as an operator's import does.
+	if err := a.st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	depot := "web"
 	for stage, group := range map[string]string{"new": "web-builders", "review": "web-reviewers"} {
 		if _, err := a.st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me"); err != nil {

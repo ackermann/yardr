@@ -493,7 +493,7 @@ func TestStageMapRefusedLeavesTheRestOfTheImport(t *testing.T) {
 	for _, q := range plan.Questions {
 		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
 	}
-	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, MapRefused: map[string]string{"linear": "not the operator"}, Actor: "builder"})
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, MapRefused: map[string]string{"linear": "not the operator"}, Actor: "boss"})
 	if err != nil {
 		t.Fatal(err)
 	}

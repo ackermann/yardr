@@ -241,6 +241,10 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
+	// Commands run through the root act as the login, so the yard's
+	// operator is who the login would have to be. Naming it here keeps
+	// the test hermetic.
+	t.Setenv("YARDR_ACTOR", "Jo")
 	a := &app{st: st, actor: "me"}
 	own := ownPack(t, packs.Starter, "research")
 	if err := st.SetSetting(ctx, defaultPackSetting, own, "me"); err != nil {

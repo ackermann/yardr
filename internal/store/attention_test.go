@@ -157,7 +157,10 @@ func TestTheClassInAFilterIsOneDepotsAttention(t *testing.T) {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", "kind="+store.KindAttention))
-	subscribe(t, s, "watch", yardrSub(store.ScopeAll, "depot=web", "kind="+store.KindAttention))
+	// The group's subscription is a member's to make.
+	if err := s.AddSubscription(ctx, "watch", yardrSub(store.ScopeAll, "depot=web", "kind="+store.KindAttention), "member"); err != nil {
+		t.Fatal(err)
+	}
 	// The class and a kind beside it, as --where given twice stores them.
 	subscribe(t, s, "both", yardrSub(store.ScopeAll, "depot=yard", "kind="+store.JoinWhere([]string{store.KindAttention, "session_unblocked"})))
 	r, err := s.GetCrew(ctx, "clerk")

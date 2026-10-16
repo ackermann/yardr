@@ -352,10 +352,10 @@ func TestPeerSourceBetweenTwoYards(t *testing.T) {
 	ctx := context.Background()
 	_, err := a.api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo")
 	must(t, err)
-	must(t, a.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"peer": "b"}}, "jo"))
+	must(t, a.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"peer": "b"}}, "clerk"))
 	_, err = b.api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo")
 	must(t, err)
-	must(t, b.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll}, "jo"))
+	must(t, b.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll}, "clerk"))
 
 	mine := a.bead(t, "Add the export")
 	a.pass(t)

@@ -237,6 +237,120 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	}
 }
 
+// An import subscribes the invoker itself: the setup's import, run by the
+// yardmaster taking the pack's crew seat, lands as the operator's would.
+func TestApplySubscribingTheInvokerItselfPasses(t *testing.T) {
+	st, o := yard(t)
+	withLinear(t, st)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	res := applyAs(t, st, build(t, st, load(t, starter), o), answers, "boss")
+	if !res.Wrote() || !res.Recorded {
+		t.Fatalf("result = %+v", res)
+	}
+	boss, err := st.GetCrew(ctx, "boss")
+	if err != nil || len(boss.Subscriptions) != 3 {
+		t.Fatalf("boss = %+v, %v", boss, err)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil || len(recs) != 1 || recs[0].By != "boss" {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+}
+
+// An import creating or changing another crew member's subscription fails
+// loud: no silent skip, which would leave the yard quieter than the pack
+// says without saying so. Nothing is recorded.
+func TestApplyFailsLoudSubscribingAnotherCrew(t *testing.T) {
+	const want = "only boss or the operator (me) changes what boss is told; this is clerk"
+
+	st, o := yard(t)
+	withLinear(t, st)
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	plan := build(t, st, load(t, starter), o)
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, answers), Actor: "clerk"})
+	if res != nil || err == nil || !strings.Contains(err.Error(), "subscription boss ") ||
+		!strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "the import stopped here") {
+		t.Fatalf("create as another crew = %+v, %v; want the refusal loud", res, err)
+	}
+	if recs, _ := st.Packs(ctx); len(recs) != 0 {
+		t.Fatalf("a failed import was recorded: %+v", recs)
+	}
+
+	// A changed scope is a change of the same subscription, and fails the
+	// same way, leaving what was there.
+	dir := copyStarter(t)
+	st, o = yard(t)
+	withLinear(t, st)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	edit(t, dir, "linear: involved", "linear: all")
+	plan = build(t, st, load(t, dir), o)
+	if so := find(t, plan, "subscription", "boss linear all"); so.Action != pack.Change {
+		t.Fatalf("the rescoped subscription = %+v, want a change", so)
+	}
+	res, err = pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, answers), Actor: "clerk"})
+	if res != nil || err == nil || !strings.Contains(err.Error(), "subscription boss linear all") ||
+		!strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "the import stopped here") {
+		t.Fatalf("change as another crew = %+v, %v; want the refusal loud", res, err)
+	}
+	boss, err := st.GetCrew(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subs []string
+	for _, s := range boss.Subscriptions {
+		subs = append(subs, s.String())
+	}
+	if slices.Contains(subs, "linear all") || !slices.Contains(subs, "linear involved") {
+		t.Fatalf("boss's subscriptions after the failed change = %v", subs)
+	}
+}
+
+// A dropped subscription pruned by anyone but the crew member or the
+// operator degrades like any failed removal: it is left, with why, and
+// what is still there stays.
+func TestApplyPruneDegradesRemovingAnotherCrewsSubscription(t *testing.T) {
+	const want = "only boss or the operator (me) changes what boss is told; this is clerk"
+
+	st, o := yard(t)
+	withLinear(t, st)
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	dir := copyStarter(t)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	edit(t, dir, "    subscribe:\n      linear: involved\n", "")
+	plan := build(t, st, load(t, dir), o)
+	if so := find(t, plan, "subscription", "boss linear involved"); so.Action != pack.Dropped {
+		t.Fatalf("the unlisted subscription = %+v, want it dropped", so)
+	}
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Prune: true, Actor: "clerk"})
+	if err == nil || !strings.Contains(err.Error(), "not everything dropped could be removed") || !strings.Contains(err.Error(), want) {
+		t.Fatalf("prune as another crew = %+v, %v; want it left, with why", res, err)
+	}
+	if res == nil || !slices.Equal(res.Left, []string{"subscription boss linear involved"}) {
+		t.Fatalf("result = %+v, want the subscription left", res)
+	}
+	if len(res.PruneErrors) != 1 || !strings.Contains(res.PruneErrors[0], want) {
+		t.Fatalf("prune errors = %v, want the refusal", res.PruneErrors)
+	}
+	boss, err := st.GetCrew(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subs []string
+	for _, s := range boss.Subscriptions {
+		subs = append(subs, s.String())
+	}
+	if !slices.Contains(subs, "linear involved") {
+		t.Fatalf("boss's subscriptions after the refused prune = %v", subs)
+	}
+}
+
 // A pack that dropped a group: the group, its route and its role file,
 // which the last import brought, are reported and left; --prune removes
 // them, and nothing else, not a group of the depot the pack never had.
@@ -1207,7 +1321,12 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 // Without an operator given, the yard's operator setting is who the files
 // name; a yard without one gets "the operator".
 func TestOperatorIsTheYardsSetting(t *testing.T) {
-	st, o := yard(t)
+	// Its own yard, with no operator: yard names one.
+	st := storetest.New(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Depot: "web", Home: t.TempDir()}
 	if got := build(t, st, load(t, starter), o).Fill["operator"]; got != "the operator" {
 		t.Fatalf("operator in a yard without the setting = %q", got)
 	}
@@ -1271,7 +1390,7 @@ func TestApplyMeetsTheStoresConfigCheck(t *testing.T) {
 			for _, q := range plan.Questions {
 				a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
 			}
-			if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "me"}); err == nil ||
+			if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "yardmaster"}); err == nil ||
 				!strings.Contains(err.Error(), `group `+g.Name+`: unknown config key "max-age": nothing reads it. A group of the herdr runner takes:`) {
 				t.Fatalf("an import of a group with a key nothing reads: %v", err)
 			}
@@ -1284,7 +1403,7 @@ func TestApplyMeetsTheStoresConfigCheck(t *testing.T) {
 		t.Fatal("the starter pack plans no herdr group but web-builders to try the refusal on")
 	}
 
-	apply(t, st, build(t, st, load(t, starter), o), nil)
+	applyAs(t, st, build(t, st, load(t, starter), o), nil, "yardmaster")
 	g, err := st.GetGroup(ctx, "web-builders")
 	if err != nil || g.Config["idel"] != "5m" || g.Config["prompt"] == "/old/builder.md" {
 		t.Fatalf("the group the import changed beside its old key: %+v, %v", g, err)

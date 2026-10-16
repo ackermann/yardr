@@ -43,6 +43,10 @@ func declaredYard(t *testing.T) *app {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// Commands run as the operator here, as an operator's commands do.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	return &app{st: st, actor: "me"}
 }
 

@@ -29,6 +29,12 @@ func yard(t *testing.T) (store.API, pack.Options) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// Imports run as the operator here, as an operator's import does: a
+	// crew member's subscriptions are its own or the operator's to
+	// change, and the packs subscribe their crew.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	return st, pack.Options{Depot: "web", Home: t.TempDir()}
 }
 
@@ -129,6 +135,22 @@ func find(t *testing.T, p *pack.Plan, kind, name string) pack.Object {
 // the empty answer (the agent's own model, no members).
 func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) *pack.Result {
 	t.Helper()
+	return applyAs(t, st, p, answers, "me")
+}
+
+// applyAs is apply as actor.
+func applyAs(t *testing.T, st store.API, p *pack.Plan, answers map[string]string, actor string) *pack.Result {
+	t.Helper()
+	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: answered(t, p, answers), Actor: actor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// answered answers every question of the plan as apply does.
+func answered(t *testing.T, p *pack.Plan, answers map[string]string) pack.Answers {
+	t.Helper()
 	a := pack.Answers{}
 	for _, q := range p.Questions {
 		switch q.Field {
@@ -143,11 +165,7 @@ func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) 
 	for k, v := range answers {
 		a[k] = v
 	}
-	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, Actor: "me"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
+	return a
 }
 
 // copyStarter is the starter pack in a directory the test may change.

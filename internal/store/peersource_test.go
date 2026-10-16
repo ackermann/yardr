@@ -19,7 +19,7 @@ func (y *peerYard) hears(t *testing.T, name, scope, where string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := y.api.AddSubscription(y.ctx, name, store.Subscription{Source: store.SourcePeer, Scope: scope, Where: w}, "jo"); err != nil {
+	if err := y.api.AddSubscription(y.ctx, name, store.Subscription{Source: store.SourcePeer, Scope: scope, Where: w}, name); err != nil {
 		t.Fatalf("subscribe %s peer %s %s: %v", name, scope, where, err)
 	}
 }
@@ -87,7 +87,7 @@ func TestPeerSourceDelivery(t *testing.T) {
 	}
 	// A key the source's events do not carry, and a user who takes part in
 	// no thread.
-	if err := y.api.AddSubscription(y.ctx, "deaf", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"team": "ENG"}}, "jo"); err == nil ||
+	if err := y.api.AddSubscription(y.ctx, "deaf", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"team": "ENG"}}, "deaf"); err == nil ||
 		!strings.Contains(err.Error(), `cannot filter peer on "team": use peer, bead, depot, label, stage, action`) {
 		t.Fatalf("a filter on a key the source has not = %v", err)
 	}
@@ -231,7 +231,7 @@ func TestPeerRenameRenamesTheFilter(t *testing.T) {
 	y.hears(t, "yardmaster", store.ScopeAll, "peer=north action=held")
 	y.hears(t, "clerk", store.ScopeAll, "peer=south peer=north")
 	y.hears(t, "southerner", store.ScopeAll, "peer=south")
-	if err := y.api.AddSubscription(y.ctx, "southerner", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"actor": "north"}}, "jo"); err != nil {
+	if err := y.api.AddSubscription(y.ctx, "southerner", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"actor": "north"}}, "southerner"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.api.AddUser(y.ctx, "ada", "jo"); err != nil {
@@ -243,7 +243,7 @@ func TestPeerRenameRenamesTheFilter(t *testing.T) {
 	if err := y.api.PutGroup(y.ctx, store.Group{Name: "watch", Runner: "manual", Members: []string{"southerner"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.api.AddSubscription(y.ctx, "watch", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"peer": "north"}}, "jo"); err != nil {
+	if err := y.api.AddSubscription(y.ctx, "watch", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"peer": "north"}}, "southerner"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -67,7 +67,7 @@ func applyOpen(t *testing.T, st store.API, p *pack.Plan, answers map[string]map[
 	for _, q := range p.Questions {
 		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
 	}
-	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, OpenThreads: answers, Actor: "jo"})
+	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, OpenThreads: answers, Actor: "me"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	}
 
 	// What the crew member may already is no question.
-	if _, err := st.AllowOpening(ctx, "boss", []string{"linear"}, "", "jo"); err != nil {
+	if _, err := st.AllowOpening(ctx, "boss", []string{"linear"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if ot = open(t, build(t, st, load(t, dir), o), "boss"); !reflect.DeepEqual(ot.Has, []string{"linear"}) || len(ot.Asks) != 0 {
@@ -222,7 +222,7 @@ func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	has(t, st, "boss", "linear", "github")
-	if _, err := st.AllowOpening(ctx, "boss", []string{"github"}, "", "jo"); err != nil {
+	if _, err := st.AllowOpening(ctx, "boss", []string{"github"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -248,7 +248,7 @@ func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 		t.Fatalf("boss may open %s", got)
 	}
 	evs, _ := st.EventsSince(ctx, h, 0)
-	if len(evs) != 2 || evs[0].Kind != "open_threads_granted" || evs[0].Actor != "jo" || evs[0].Data["pack"] != "starter" ||
+	if len(evs) != 2 || evs[0].Kind != "open_threads_granted" || evs[0].Actor != "me" || evs[0].Data["pack"] != "starter" ||
 		evs[0].Data["crew"] != "boss" || !reflect.DeepEqual(evs[0].Data["sources"], []any{"linear"}) || evs[1].Kind != "pack_applied" {
 		t.Fatalf("events = %+v", evs)
 	}
@@ -272,7 +272,7 @@ func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 		r, _ := st.GetCrew(ctx, "boss")
 		r.Config[store.OpenThreads] = "linear"
 		return *r
-	}(), "jo"); err != nil {
+	}(), "me"); err != nil {
 		t.Fatal(err)
 	}
 	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
@@ -302,7 +302,7 @@ func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 	// record forgets it and the import asks.
 	r, _ := st.GetCrew(ctx, "boss")
 	delete(r.Config, store.OpenThreads)
-	if _, err := st.PutCrew(ctx, *r, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, *r, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan = build(t, st, load(t, dir), o)
@@ -338,7 +338,7 @@ func TestApplyRefusesAnAnswerThePlanDidNotAsk(t *testing.T) {
 		{map[string]map[string]bool{"scout": {"linear": true}}, "does not ask whether crew member scout may open threads in linear"},
 	} {
 		h := head(t, st)
-		_, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, OpenThreads: c.answers, Actor: "jo"})
+		_, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, OpenThreads: c.answers, Actor: "me"})
 		if err == nil || !strings.Contains(err.Error(), "nothing was changed") || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("%v: %v", c.answers, err)
 		}

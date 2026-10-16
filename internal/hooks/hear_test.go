@@ -131,7 +131,7 @@ func TestHearFromOperatorKeepsToldDropsStranger(t *testing.T) {
 	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "chime", Scope: store.ScopeAll}, "me"); err != nil {
+	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "chime", Scope: store.ScopeAll}, "ann"); err != nil {
 		t.Fatal(err)
 	}
 	r.now = time.Now()

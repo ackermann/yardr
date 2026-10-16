@@ -101,7 +101,7 @@ func TestDeclaredDeliveryRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll,
-		Where: map[string]string{"queue": "triage"}}, "me"); err != nil {
+		Where: map[string]string{"queue": "triage"}}, "ann"); err != nil {
 		t.Fatal(err)
 	}
 	r.now = time.Now()
@@ -164,7 +164,7 @@ func TestDeclaredDeliveryRefused(t *testing.T) {
 	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll}, "me"); err != nil {
+	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll}, "ann"); err != nil {
 		t.Fatal(err)
 	}
 	inbox := func() int {
@@ -586,12 +586,12 @@ func TestDeclaredWhereKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, where := range []map[string]string{{"queue": "triage"}, {"team": "ENG"}, {"type": "ping", "action": "create"}} {
-		if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll, Where: where}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll, Where: where}, "ann"); err != nil {
 			t.Fatalf("where %v: %v", where, err)
 		}
 	}
 	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "acme", Scope: store.ScopeAll,
-		Where: map[string]string{"train": "yard-x"}}, "me"); err == nil ||
+		Where: map[string]string{"train": "yard-x"}}, "ann"); err == nil ||
 		!strings.Contains(err.Error(), `cannot filter acme on "train": use type, action, team, project, repo, label, event, queue`) {
 		t.Fatalf("where train: err = %v", err)
 	}

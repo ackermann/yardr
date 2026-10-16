@@ -1,20 +1,35 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // pack export writes the depot's pack, says what went in and what was left
 // out, and what it wrote reads as a pack; a second export into the same
 // directory is refused.
 func TestPackExport(t *testing.T) {
-	a := packApp(t)
+	// Its own yard, with no operator: the export restores {{operator}}
+	// where the import filled the default. packApp names one. The import
+	// runs as the crew member it seats, whose own subscriptions it writes.
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "boss", cfg: &config.Config{Home: t.TempDir()}}
 	setInteractive(t, false)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)

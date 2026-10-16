@@ -153,18 +153,18 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 	plain := store.Subscription{Source: "linear", Scope: "all"}
 	filtered := store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}
 	for _, s := range []store.Subscription{plain, filtered} {
-		if err := st.AddSubscription(ctx, "yardmaster", s, "me"); err != nil {
+		if err := st.AddSubscription(ctx, "yardmaster", s, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := st.RemoveSubscription(ctx, "yardmaster", plain, "me"); err != nil {
+	if err := st.RemoveSubscription(ctx, "yardmaster", plain, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := st.GetCrew(ctx, "yardmaster")
 	if len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != filtered.String() {
 		t.Fatalf("subscriptions = %v, want the filtered one alone", r.Subscriptions)
 	}
-	if err := st.RemoveSubscription(ctx, "yardmaster", plain, "me"); !errors.Is(err, store.ErrNotFound) {
+	if err := st.RemoveSubscription(ctx, "yardmaster", plain, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("removing it again: %v", err)
 	}
 }

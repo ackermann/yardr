@@ -81,7 +81,7 @@ func TestExportRoundTrip(t *testing.T) {
 	if err := st.SetSetting(ctx, "operator", "ann", "me"); err != nil {
 		t.Fatal(err)
 	}
-	apply(t, st, build(t, st, load(t, starter), o), answers)
+	applyAs(t, st, build(t, st, load(t, starter), o), answers, "ann")
 	roles := config.At(o.Home).PackRoles("starter")
 	builder := filepath.Join(roles, "builder.md")
 	text, err := os.ReadFile(builder)

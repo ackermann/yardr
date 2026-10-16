@@ -29,11 +29,25 @@ func packApp(t *testing.T) *app {
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// Imports run as the operator here, as an operator's import does.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}
 }
 
 func TestPackCheckPrintsThePlan(t *testing.T) {
-	a := packApp(t)
+	// Its own yard, with no operator: the plan fills {{operator}} with
+	// the default, and check writes nothing. packApp names one.
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}
 	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
@@ -675,7 +689,18 @@ func TestPackApplyRolesChoice(t *testing.T) {
 // not overwritten on a plain apply: the error names the file and says where
 // the edit belongs. --yes overwrites it.
 func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
-	a := packApp(t)
+	// Its own yard, with no operator: the copy fills {{operator}} with
+	// the default. packApp names one. The import runs as the crew member
+	// it seats, whose own subscriptions it writes.
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "boss", cfg: &config.Config{Home: t.TempDir()}}
 	setInteractive(t, false)
 	args := append([]string{"apply", "../../packs/starter", "--depot", "web"}, starterFlags...)
 	if out, err := run(t, a.packCmd(), append(args, "--yes")...); err != nil {

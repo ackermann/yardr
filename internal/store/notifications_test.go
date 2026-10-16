@@ -244,7 +244,8 @@ func TestCrewMayNotSubscribeAUser(t *testing.T) {
 	if _, err := s.RemoveSubscriptions(ctx, "ada", store.SourceYardr, "", nil, "ada"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unsubscribing from nothing = %v", err)
 	}
-	// A crew member still subscribes itself and other crew members.
+	// A crew member still subscribes itself; another crew member's
+	// subscriptions are that member's or the operator's to change.
 	if err := s.AddSubscription(ctx, "yardmaster", done, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}

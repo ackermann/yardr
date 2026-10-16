@@ -28,7 +28,7 @@ func linked(t *testing.T, st store.API, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: name, Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: name, Key: yardkey.Public(k)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return yardkey.Public(k)
@@ -52,7 +52,7 @@ func applyExpose(t *testing.T, st store.API, p *pack.Plan, answers map[string]ma
 	for _, q := range p.Questions {
 		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
 	}
-	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, Expose: answers, Actor: "jo"})
+	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, Expose: answers, Actor: "me"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestImportAsksToExposeACrewMemberPerPeer(t *testing.T) {
 	// An answer the plan does not ask for is refused before anything is
 	// written.
 	for _, bad := range []map[string]map[string]bool{{"boss": {"west": true}}, {"clerk": {"north": true}}} {
-		if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers{}, Expose: bad, Actor: "jo"}); err == nil || !strings.Contains(err.Error(), "the plan does not ask whether crew member") {
+		if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers{}, Expose: bad, Actor: "me"}); err == nil || !strings.Contains(err.Error(), "the plan does not ask whether crew member") {
 			t.Fatalf("answers %v: %v", bad, err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestImportAsksToExposeACrewMemberPerPeer(t *testing.T) {
 		t.Fatalf("north exposes %q, south %q", exposedOn(t, st, "north"), exposedOn(t, st, "south"))
 	}
 	evs, _ := st.EventsSince(ctx, h, 0)
-	if len(evs) != 2 || evs[0].Kind != "peer_allowed" || evs[0].Actor != "jo" || evs[0].Data["peer"] != "north" ||
+	if len(evs) != 2 || evs[0].Kind != "peer_allowed" || evs[0].Actor != "me" || evs[0].Data["peer"] != "north" ||
 		!reflect.DeepEqual(evs[0].Data["expose"], []any{"boss"}) || evs[1].Kind != "pack_applied" {
 		t.Fatalf("events = %+v", evs)
 	}
@@ -162,7 +162,7 @@ func TestImportAsksToExposeACrewMemberPerPeer(t *testing.T) {
 
 	// The no is the yard's that got it: it follows a rename, and a new yard
 	// under the old name is asked about.
-	if _, err := st.RenamePeer(ctx, "south", "west", "jo"); err != nil {
+	if _, err := st.RenamePeer(ctx, "south", "west", "me"); err != nil {
 		t.Fatal(err)
 	}
 	linked(t, st, "south")
@@ -172,7 +172,7 @@ func TestImportAsksToExposeACrewMemberPerPeer(t *testing.T) {
 
 	// A yes taken back by hand is not given again unasked: it is asked,
 	// and forgotten by an import that gets no answer.
-	if _, err := st.AllowPeer(ctx, "north", store.PeerAllow{NoExpose: []string{"boss"}}, "jo"); err != nil {
+	if _, err := st.AllowPeer(ctx, "north", store.PeerAllow{NoExpose: []string{"boss"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan = build(t, st, load(t, dir), o)

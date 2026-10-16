@@ -3,10 +3,12 @@ package store_test
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -25,7 +27,7 @@ func member(t *testing.T, s store.API, name string, noID bool, subs ...store.Sub
 		}
 	}
 	for _, sub := range subs {
-		if err := s.AddSubscription(ctx, name, sub, "me"); err != nil {
+		if err := s.AddSubscription(ctx, name, sub, name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -141,7 +143,7 @@ func TestHookWhere(t *testing.T) {
 	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved,
 		Where: map[string]string{"label": "Bug", "action": "create"}})
 	for _, bad := range []map[string]string{{"state": "Todo"}, {"team": ""}} {
-		err := s.AddSubscription(ctx, "all", store.Subscription{Source: "linear", Scope: "all", Where: bad}, "me")
+		err := s.AddSubscription(ctx, "all", store.Subscription{Source: "linear", Scope: "all", Where: bad}, "all")
 		if err == nil {
 			t.Errorf("accepted --where %v", bad)
 		}
@@ -194,7 +196,7 @@ func TestGitHubWhereKeys(t *testing.T) {
 		{Source: "github", Scope: "all", Where: map[string]string{"stage": "review"}},
 		{Source: store.SourceYardr, Scope: "all", Where: map[string]string{"state": "approved"}},
 	} {
-		if err := s.AddSubscription(ctx, "all", bad, "me"); err == nil {
+		if err := s.AddSubscription(ctx, "all", bad, "all"); err == nil {
 			t.Errorf("accepted %s --where %v", bad.Source, bad.Where)
 		}
 	}
@@ -227,7 +229,7 @@ func TestGitHubWhereHeadRepo(t *testing.T) {
 	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
 		Where: map[string]string{"head_repo": "acme/webapp"}})
 	if err := s.AddSubscription(context.Background(), "all", store.Subscription{Source: "linear", Scope: "all",
-		Where: map[string]string{"head_repo": "acme/webapp"}}, "me"); err == nil {
+		Where: map[string]string{"head_repo": "acme/webapp"}}, "all"); err == nil {
 		t.Error("accepted linear --where head_repo")
 	}
 	opened := func(headRepo string) hooks.Envelope {
@@ -260,7 +262,7 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "mayr-id", Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	record(t, own, hooks.Envelope{Source: "linear", Type: "comment", Text: "unrelated"})
@@ -279,7 +281,7 @@ func TestHookDeliveryInInbox(t *testing.T) {
 
 	// A subscription applies from when it is made: earlier deliveries were
 	// decided at ingest.
-	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeAll}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeAll}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if page, _ := s.Inbox(ctx, "yardmaster", 0); page.Total != 1 {
@@ -300,7 +302,7 @@ func TestHookDeliveryToAGitHubApp(t *testing.T) {
 	if err := s.SetIdentity(ctx, "ment", "github", store.Identity{Key: "yardr[bot]"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSubscription(ctx, "ment", store.Subscription{Source: "github", Scope: store.ScopeAll}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "ment", store.Subscription{Source: "github", Scope: store.ScopeAll}, "ment"); err != nil {
 		t.Fatal(err)
 	}
 	comment := func(actor string, mentions ...string) hooks.Envelope {
@@ -341,12 +343,12 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 	all := store.Subscription{Source: "linear", Scope: store.ScopeAll}
 	eng := store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"team": "ENG"}}
 	for _, sub := range []store.Subscription{all, all, eng, {Source: "token", Scope: store.ScopeMentions}} {
-		if err := s.AddSubscription(ctx, "yardmaster", sub, "me"); err != nil {
+		if err := s.AddSubscription(ctx, "yardmaster", sub, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, bad := range []store.Subscription{{Source: "linear", Scope: "some"}, {Scope: "all"}} {
-		if err := s.AddSubscription(ctx, "yardmaster", bad, "me"); err == nil {
+		if err := s.AddSubscription(ctx, "yardmaster", bad, "yardmaster"); err == nil {
 			t.Errorf("accepted %+v", bad)
 		}
 	}
@@ -359,13 +361,13 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 		t.Fatalf("after redefine: %+v %+v", r.Identities, r.Subscriptions)
 	}
 
-	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", map[string]string{"team": "ENG"}, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", map[string]string{"team": "ENG"}, "yardmaster"); err != nil || n != 1 {
 		t.Fatalf("unsubscribe where: %d %v", n, err)
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "mentions", nil, "me"); !errors.Is(err, store.ErrNotFound) {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "mentions", nil, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unsubscribe other scope: %d %v", n, err)
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, "yardmaster"); err != nil || n != 1 {
 		t.Fatalf("unsubscribe source: %d %v", n, err)
 	}
 	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "me"); err != nil {
@@ -436,6 +438,12 @@ func TestUserIdentity(t *testing.T) {
 func TestUnsubscribeSameNameGroupAndCrew(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
+	// The shared names' subscriptions are the operator's to change here,
+	// as the groups have no members: the test is the shared-name
+	// mechanics, not the gates.
+	if err := s.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	sub := store.Subscription{Source: "acme", Scope: store.ScopeAll}
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
@@ -564,5 +572,247 @@ func TestUnsubscribeSharedNamePropagatesRemovalErrors(t *testing.T) {
 				t.Fatalf("group subscriptions = %v, %v; want %v", g, err, tc.group)
 			}
 		})
+	}
+}
+
+// What a crew member is told is its own to decide, or the operator's for
+// it: another crew member, a user, a bead's agent or nobody is refused,
+// and the refusal logs no event. Under a name a crew member and a manual
+// group share, the side a change lands on is gated as that side alone
+// would be. From a pane the change is checked and recorded as the pane's
+// actor, whatever --actor says.
+func TestCrewSubscriptionIsTheMembersOrTheOperators(t *testing.T) {
+	api, _ := operatorYard(t)
+	ctx := context.Background()
+	sub := store.Subscription{Source: "linear", Scope: store.ScopeInvolved}
+	const want = "only yardmaster or the operator (jo) changes what yardmaster is told"
+	head, err := api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, actor := range []string{"clerk", "ada", "yard-10-new", ""} {
+		this := actor
+		if this == "" {
+			this = "nobody"
+		}
+		if err := api.AddSubscription(ctx, "yardmaster", sub, actor); err == nil || err.Error() != want+"; this is "+this {
+			t.Errorf("subscribe as %q = %v, want %q", actor, err, want+"; this is "+this)
+		}
+		if _, err := api.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, actor); err == nil || err.Error() != want+"; this is "+this {
+			t.Errorf("unsubscribe as %q = %v, want %q", actor, err, want+"; this is "+this)
+		}
+	}
+	if now, _ := api.Head(ctx); now != head {
+		t.Errorf("the refusals logged %d events", now-head)
+	}
+	if r, _ := api.GetCrew(ctx, "yardmaster"); len(r.Subscriptions) != 0 {
+		t.Fatalf("a refused subscription was kept: %v", r.Subscriptions)
+	}
+	// The member itself, and the operator for it.
+	if err := api.AddSubscription(ctx, "yardmaster", sub, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := api.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, "yardmaster"); err != nil || n != 1 {
+		t.Fatalf("the member's unsubscribe = %d, %v", n, err)
+	}
+	if err := api.AddSubscription(ctx, "yardmaster", sub, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := api.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, "jo"); err != nil || n != 1 {
+		t.Fatalf("the operator's unsubscribe = %d, %v", n, err)
+	}
+
+	// Under a shared name the side a change lands on is gated as that
+	// side alone; landing on both is refused first, to be repeated for
+	// one.
+	if err := api.PutGroup(ctx, store.Group{Name: "both", Runner: "manual"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "both", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.AddSubscriptionKind(ctx, "both", "crew", store.Subscription{Source: "linear", Scope: store.ScopeAll}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.AddSubscriptionKind(ctx, "both", "group", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.RemoveSubscriptions(ctx, "both", "linear", "all", nil, "clerk"); err == nil ||
+		err.Error() != "only both or the operator (jo) changes what both is told; this is clerk" {
+		t.Errorf("the crew side's unsubscribe as clerk = %v", err)
+	}
+	if _, err := api.RemoveSubscriptions(ctx, "both", "linear", "mentions", nil, "clerk"); err == nil ||
+		err.Error() != "only a member of both or the operator (jo) changes what both is told; this is clerk" {
+		t.Errorf("the group side's unsubscribe as clerk = %v", err)
+	}
+	if _, err := api.RemoveSubscriptions(ctx, "both", "linear", "", nil, "clerk"); err == nil || !strings.Contains(err.Error(), "--group") {
+		t.Errorf("unsubscribe both as clerk = %v, want the refusal naming both", err)
+	}
+
+	// With no operator named, the member still changes its own, and
+	// another crew member is still refused.
+	plain := storetest.New(t)
+	pctx := context.Background()
+	for _, r := range []string{"a", "b"} {
+		if _, err := plain.PutCrew(pctx, store.CrewMember{Name: r, Runner: "herdr"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plain.AddSubscription(pctx, "a", sub, "b"); err == nil ||
+		err.Error() != "only a or the operator changes what a is told; this is b" {
+		t.Errorf("another crew member, with no operator = %v", err)
+	}
+	if err := plain.AddSubscription(pctx, "a", sub, "a"); err != nil {
+		t.Errorf("the member itself, with no operator: %v", err)
+	}
+
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	// Another crew member's pane, naming the member: refused as the
+	// pane's crew member, and nothing is written.
+	s, _ := operatorYard(t)
+	if err := s.CrewStarted(pctx, "clerk", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(pctx, me)
+	head, err = s.Head(pctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const paneWant = "only yardmaster or the operator (jo) changes what yardmaster is told; this is clerk"
+	if err := s.AddSubscription(pane, "yardmaster", sub, "yardmaster"); err == nil || err.Error() != paneWant {
+		t.Errorf("subscribe faked from clerk's pane = %v, want %q", err, paneWant)
+	}
+	if _, err := s.RemoveSubscriptions(pane, "yardmaster", "linear", "", nil, "yardmaster"); err == nil || err.Error() != paneWant {
+		t.Errorf("unsubscribe faked from clerk's pane = %v, want %q", err, paneWant)
+	}
+	if now, _ := s.Head(pctx); now != head {
+		t.Errorf("the pane's refusals logged %d events", now-head)
+	}
+	// The member's own pane, naming another: the change passes and is
+	// recorded as the member.
+	s, _ = operatorYard(t)
+	if err := s.CrewStarted(pctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane = store.WithCaller(pctx, me)
+	if err := s.AddSubscription(pane, "yardmaster", sub, "yard-10-new"); err != nil {
+		t.Fatalf("subscribe from yardmaster's own pane, naming another: %v", err)
+	}
+	if a := lastKindActor(t, s, pctx, "subscribed"); a != "yardmaster" {
+		t.Errorf("subscribed event actor = %q, want the pane's actor %q", a, "yardmaster")
+	}
+}
+
+// What a manual group tells its members is a member's to decide, or the
+// operator's for them: whoever is neither is refused, and the refusal
+// logs no event. A group with no members is the operator's alone, not
+// anyone's as a move is. From a pane the change is checked and recorded
+// as the pane's actor, whatever --actor says.
+func TestManualGroupSubscriptionIsAMembersOrTheOperators(t *testing.T) {
+	api, _ := operatorYard(t)
+	ctx := context.Background()
+	if _, err := api.AddUser(ctx, "bob", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"yardmaster", "ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutGroup(ctx, store.Group{Name: "lonely", Runner: "manual"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	sub := store.Subscription{Source: "linear", Scope: store.ScopeAll}
+	const want = "only a member of reviewers or the operator (jo) changes what reviewers is told"
+	head, err := api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, actor := range []string{"clerk", "bob", "yard-10-new", ""} {
+		this := actor
+		if this == "" {
+			this = "nobody"
+		}
+		if err := api.AddSubscription(ctx, "reviewers", sub, actor); err == nil || err.Error() != want+"; this is "+this {
+			t.Errorf("subscribe as %q = %v, want %q", actor, err, want+"; this is "+this)
+		}
+		if _, err := api.RemoveSubscriptions(ctx, "reviewers", "linear", "", nil, actor); err == nil || err.Error() != want+"; this is "+this {
+			t.Errorf("unsubscribe as %q = %v, want %q", actor, err, want+"; this is "+this)
+		}
+	}
+	// No members is the operator's alone: a non-member is refused in the
+	// same words, and the operator passes.
+	if err := api.AddSubscription(ctx, "lonely", sub, "clerk"); err == nil ||
+		err.Error() != "only a member of lonely or the operator (jo) changes what lonely is told; this is clerk" {
+		t.Errorf("subscribe a memberless group as clerk = %v", err)
+	}
+	if err := api.AddSubscription(ctx, "lonely", sub, "jo"); err != nil {
+		t.Errorf("subscribe a memberless group as the operator: %v", err)
+	}
+	if now, _ := api.Head(ctx); now != head+1 {
+		t.Errorf("the refusals logged %d events besides the operator's subscribe", now-head-1)
+	}
+	if g, _ := api.GetGroup(ctx, "reviewers"); len(g.Subscriptions) != 0 {
+		t.Fatalf("a refused subscription was kept: %v", g.Subscriptions)
+	}
+	// A crew member that is one, a user that is one, and the operator.
+	if err := api.AddSubscription(ctx, "reviewers", sub, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	other := store.Subscription{Source: "github", Scope: store.ScopeAll}
+	if err := api.AddSubscription(ctx, "reviewers", other, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := api.RemoveSubscriptions(ctx, "reviewers", "linear", "", nil, "ada"); err != nil || n != 1 {
+		t.Fatalf("a member's unsubscribe = %d, %v", n, err)
+	}
+	if n, err := api.RemoveSubscriptions(ctx, "reviewers", "github", "", nil, "jo"); err != nil || n != 1 {
+		t.Fatalf("the operator's unsubscribe = %d, %v", n, err)
+	}
+
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	// Another crew member's pane, naming a member: refused as the pane's
+	// crew member, and nothing is written.
+	s, _ := operatorYard(t)
+	pctx := context.Background()
+	if err := s.PutGroup(pctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"yardmaster", "ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStarted(pctx, "clerk", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(pctx, me)
+	head, err = s.Head(pctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const paneWant = "only a member of reviewers or the operator (jo) changes what reviewers is told; this is clerk"
+	if err := s.AddSubscription(pane, "reviewers", sub, "ada"); err == nil || err.Error() != paneWant {
+		t.Errorf("subscribe faked from clerk's pane = %v, want %q", err, paneWant)
+	}
+	if now, _ := s.Head(pctx); now != head {
+		t.Errorf("the pane's refusal logged %d events", now-head)
+	}
+	// A member's own pane, naming another: the change passes and is
+	// recorded as the member.
+	s, _ = operatorYard(t)
+	if err := s.PutGroup(pctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"yardmaster", "ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStarted(pctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane = store.WithCaller(pctx, me)
+	if err := s.AddSubscription(pane, "reviewers", sub, "yard-10-new"); err != nil {
+		t.Fatalf("subscribe from a member's own pane, naming another: %v", err)
+	}
+	if a := lastKindActor(t, s, pctx, "subscribed"); a != "yardmaster" {
+		t.Errorf("subscribed event actor = %q, want the pane's actor %q", a, "yardmaster")
 	}
 }

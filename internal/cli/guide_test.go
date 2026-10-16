@@ -125,6 +125,12 @@ func setupYard(t *testing.T, f *former) (home string, st store.API, repo string)
 	t.Helper()
 	home = newHome(t)
 	st = storetest.New(t)
+	// Commands run through the root resolve no struct actor: they act as
+	// the login. The setup's import subscribes the yard it makes, so it
+	// acts as the crew member the pack seats, as the yardmaster's own
+	// setup does; a user or the operator would be offered their own
+	// pages instead. Naming it here keeps the setup hermetic.
+	t.Setenv("YARDR_ACTOR", "yardmaster")
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -487,6 +493,11 @@ func TestSetupTalkToTheYardmaster(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "app", "title": "Say hello", "goal": "HELLO.md says hello."}, goes: []string{goYardmaster}}
 	home, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
+	// The setup runs as me, who is its operator here: the import
+	// subscribes the yard it makes.
+	if err := st.SetSetting(context.Background(), store.OperatorSetting, "me", "Jo"); err != nil {
+		t.Fatal(err)
+	}
 	focused := stubFocus(t)
 	chats := stubChat(t)
 	t.Setenv("HERDR_ENV", "1")

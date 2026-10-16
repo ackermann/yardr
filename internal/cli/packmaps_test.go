@@ -159,6 +159,17 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	a := mapApp(t, "linear")
 	ctx := context.Background()
+	// Boss already hears what the pack says: its subscriptions would fail
+	// another session's import loud, and the test is the stage map.
+	for _, sub := range []store.Subscription{
+		{Source: "linear", Scope: store.ScopeInvolved},
+		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": "web", "stage": "decide"}},
+		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": "web", "state": store.StateDone}},
+	} {
+		if err := a.st.AddSubscription(ctx, "boss", sub, "boss"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	a.actor = "web-builder-1"
 	const refusal = "only boss's own session or the operator (me) may speak as boss; this is web-builder-1"
 	out := applyStarter(t, a)

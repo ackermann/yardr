@@ -472,7 +472,7 @@ func TestSourcePackApplyFoldsDeclaredRecords(t *testing.T) {
 	if _, err := st.PutHook(ctx, store.Hook{Name: "acme-declared", Source: "acme-declared", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme-declared", Scope: store.ScopeInvolved}, "me"); err != nil {
+	if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme-declared", Scope: store.ScopeInvolved}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.FollowThread(ctx, "yardmaster", "acme-declared", "42", "me"); err != nil {

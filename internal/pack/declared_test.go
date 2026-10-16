@@ -460,7 +460,7 @@ func TestDeclaredSourceRefusedLeavesTheRestOfTheImport(t *testing.T) {
 	for _, q := range plan.Questions {
 		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
 	}
-	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, SourceRefused: map[string]string{"pushover": "not the operator"}, Actor: "builder"})
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, SourceRefused: map[string]string{"pushover": "not the operator"}, Actor: "yardmaster"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestDeclaredSourceRefusedLeavesTheRestOfTheImport(t *testing.T) {
 
 	// Without the refusal the store holds the same line, and says whose it is.
 	plan = build(t, st, p, o)
-	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "builder"}); err == nil || !strings.Contains(err.Error(), "adding a source is the operator's (me)") {
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "yardmaster"}); err == nil || !strings.Contains(err.Error(), "adding a source is the operator's (me)") {
 		t.Fatalf("err = %v, want the store's refusal", err)
 	}
 

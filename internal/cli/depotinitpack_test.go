@@ -36,6 +36,10 @@ func packYard(t *testing.T, files map[string]string) (a *app, repo string) {
 	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "web", Path: repo, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// Imports run as the operator here, as an operator's import does.
+	if err := a.st.SetSetting(context.Background(), store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	return a, repo
 }
 
@@ -329,6 +333,10 @@ func TestDepotInitPackRefusals(t *testing.T) {
 // no step calls one "missing".
 func TestDepotInitSaysUnusedSourcesOnceAsOptional(t *testing.T) {
 	a, _, _, _, _ := stageYard(t)
+	// The import runs as the operator, as an operator's import does.
+	if err := a.st.SetSetting(context.Background(), store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
 	setInteractive(t, false)
 	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
 	out, err := run(t, a.depotCmd(), args...)

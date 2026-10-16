@@ -596,7 +596,7 @@ func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "telegram",
-		Scope: store.ScopeAll, Where: map[string]string{"type": "message", "chat": "123456789"}}, "me"); err != nil {
+		Scope: store.ScopeAll, Where: map[string]string{"type": "message", "chat": "123456789"}}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	r.now = time.Now()

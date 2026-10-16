@@ -193,7 +193,7 @@ func TestHookQuietReachesSubscribers(t *testing.T) {
 	sub := func(name, kind string) {
 		t.Helper()
 		if err := s.AddSubscription(ctx, name, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
-			Where: map[string]string{"kind": kind}}, "me"); err != nil {
+			Where: map[string]string{"kind": kind}}, name); err != nil {
 			t.Fatal(err)
 		}
 	}

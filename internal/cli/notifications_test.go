@@ -279,17 +279,22 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 // land: a yes is the subscribe it shows, for the user and the setup's depot.
 // It is not offered again to who has it, nor to who is no user.
 func TestSetupOffersToBeToldOfLandedBeads(t *testing.T) {
-	f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello.", "landed": true},
+	f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello.", "landed": true, "link": false},
 		goes: []string{goHere, goHere, goHere, goHere, goHere, goHere, goHere}}
 	home, st, _ := setupYard(t, f)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "me", "Jo"); err != nil {
 		t.Fatal(err)
 	}
+	// The setup runs as me, who is its operator here: the import
+	// subscribes the yard it makes. Linking is declined.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "Jo"); err != nil {
+		t.Fatal(err)
+	}
 	out := setup(t, st, "--actor", "me")
 	wantText(t, out, "The forms end here.", "$ yardr --home "+home+" subscribe me yardr --done --where depot=web-app",
 		"me subscribed: yardr all depot=web-app state=done")
-	if keys := keysOf(f); keys[len(keys)-1] != "landed" {
+	if keys := keysOf(f); len(keys) < 2 || keys[len(keys)-2] != "landed" || keys[len(keys)-1] != "link" {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	if u, err := st.GetUser(ctx, "me"); err != nil || len(u.Subscriptions) != 1 || u.Subscriptions[0].String() != "yardr all depot=web-app state=done" {

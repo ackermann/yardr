@@ -48,7 +48,7 @@ func TestMoveSourceRecords(t *testing.T) {
 	if _, err := s.PutCrew(ctx, *r, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear-declared", Scope: store.ScopeInvolved}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear-declared", Scope: store.ScopeInvolved}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FollowThread(ctx, "yardmaster", "linear-declared", "issue-1", "me"); err != nil {

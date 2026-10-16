@@ -149,7 +149,7 @@ func checkFields(t *testing.T, st store.API, ctx context.Context, source, glob s
 	}
 	for _, k := range slices.Sorted(maps.Keys(set)) {
 		sub := store.Subscription{Source: source, Scope: store.ScopeAll, Where: map[string]string{k: "x"}}
-		if err := st.AddSubscription(ctx, "filters", sub, "me"); err != nil {
+		if err := st.AddSubscription(ctx, "filters", sub, "filters"); err != nil {
 			t.Errorf("the %s adapter sets field %q (%s), which is no where key of %s: %v", source, k, set[k], source, err)
 		}
 	}

@@ -220,7 +220,7 @@ func TestIssueBodyEditDeliversOnlyNewMentions(t *testing.T) {
 		if err := r.st.SetIdentity(ctx, name, "github", store.Identity{Key: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "github", Scope: store.ScopeMentions}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "github", Scope: store.ScopeMentions}, name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -459,7 +459,7 @@ func TestDelegateReachesInbox(t *testing.T) {
 		if err := r.st.SetIdentity(ctx, "yardmaster", "acme", store.Identity{ID: yardmaster}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme", Scope: store.ScopeInvolved}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme", Scope: store.ScopeInvolved}, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 		r.now = time.Now()

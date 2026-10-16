@@ -464,7 +464,7 @@ func TestIssueMoveDoesNotEcho(t *testing.T) {
 			member(t, s, name, false)
 		}
 		for _, sub := range []store.Subscription{all, {Source: "linear", Scope: store.ScopeAll}} {
-			if err := s.AddSubscription(ctx, name, sub, "me"); err != nil {
+			if err := s.AddSubscription(ctx, name, sub, name); err != nil {
 				t.Fatal(err)
 			}
 		}
