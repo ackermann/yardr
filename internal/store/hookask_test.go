@@ -451,6 +451,21 @@ func TestHookAskGenericSource(t *testing.T) {
 	}
 }
 
+// A chmod of a command copy under the hook's source after the ask
+// makes the approval stale: the card's source fingerprint holds the
+// whole destination inventory (path, sha256, mode), as a source set or
+// grant card's does.
+func TestHookAskStaleOnChmod(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	seq := y.ask(t, hookRunAsk("hook add wired --source wired"), "yardmaster")
+	if err := os.Chmod(filepath.Join(dir, "wired", "normalize"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written from another declaration of the source wired: it was replaced since")
+}
+
 // A source the loose road added (a source add run ask) takes a hook
 // the same way once it stands declared.
 func TestHookAskAfterSourceAdd(t *testing.T) {

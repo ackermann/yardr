@@ -74,7 +74,11 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 		// sentence, so the approval is held to it as stale.
 		seenMap := map[string]string{"hook " + name: seen(was.Source, was.SecretFile)}
 		if src, _, err := sourceIn(w.Tx, sourceName); err == nil {
-			seenMap["source "+sourceName] = sourceSeen(src)
+			fingerprint, err := w.sourceSeen(src)
+			if err != nil {
+				return AskRun{}, err
+			}
+			seenMap["source "+sourceName] = fingerprint
 		}
 		return AskRun{
 			Argv:   argv,
@@ -91,6 +95,10 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 	if d.Hook == nil {
 		return AskRun{}, fmt.Errorf("source %s: its declaration has no hook key, so the yard hears nothing from it", sourceName)
 	}
+	fingerprint, err := w.sourceSeen(src)
+	if err != nil {
+		return AskRun{}, err
+	}
 	return AskRun{
 		Argv: argv,
 		Does: []string{
@@ -100,7 +108,7 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 		},
 		Back:   runCommandLine([]string{"hook", "rm", name}),
 		BackBy: "only the operator",
-		Seen:   map[string]string{"source " + sourceName: sourceSeen(src), "hook " + name: ""},
+		Seen:   map[string]string{"source " + sourceName: fingerprint, "hook " + name: ""},
 	}, nil
 }
 
