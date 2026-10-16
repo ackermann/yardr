@@ -107,17 +107,20 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 			return err
 		}
 		actor = resolved
-		return putGroup(w, &g, actor)
+		return putGroup(w, &g, actor, false)
 	})
 }
 
 // putGroup is PutGroup in a transaction: g is stored as it is given but for
-// its subscriptions, which are the stored group's, and a limit of 0 on a
-// new group, which is the default 1. A negative limit is refused. Its
-// config is held to ConfigKeys here, whoever writes it (the CLI, the group
-// form, a pack); a key the stored group has already, with the same value,
-// is kept unasked.
-func putGroup(w *wtx, g *Group, actor string) error {
+// its subscriptions, which are the stored group's. limitExplicit says the
+// caller named this limit: SetGroup with a limit in its edit, which 0
+// pauses through. A limit of 0 that is not named is no limit named: the
+// default 1, except a replace never unpauses, so a paused group put back
+// without a limit stays paused. A negative limit is refused. Its config is
+// held to ConfigKeys here, whoever writes it (the CLI, the group form, a
+// pack); a key the stored group has already, with the same value, is kept
+// unasked.
+func putGroup(w *wtx, g *Group, actor string, limitExplicit bool) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
 	}
@@ -133,9 +136,11 @@ func putGroup(w *wtx, g *Group, actor string) error {
 	if err != nil {
 		return err
 	}
-	if g.Limit == 0 && !replaced {
-		// 0 is no limit named for a group that is new: it starts with
-		// one session, as before. 0 on a group that exists pauses it.
+	if g.Limit == 0 && !limitExplicit && (!replaced || old.Limit != 0) {
+		// 0 is no limit named: the default 1, for a group that is new
+		// and for a replaced one, as before. A paused group put back
+		// without a limit is the exception: the replace keeps the
+		// pause instead of unpausing it.
 		g.Limit = 1
 	}
 	if g.Name == RouteWait && !replaced {
@@ -241,7 +246,7 @@ func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor st
 			ch.Is = ch.Was
 			return nil
 		}
-		return putGroup(w, g, actor)
+		return putGroup(w, g, actor, e.Limit != nil)
 	})
 	if err != nil {
 		return nil, err

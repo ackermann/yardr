@@ -121,7 +121,7 @@ func TestGroupSetRefuses(t *testing.T) {
 
 // A limit of 0 pauses: group set stores it, and the group reads as paused
 // in group list and group show; setting it back resumes. group add refuses
-// --limit 0 for a new name, and replaces with it for one that exists.
+// --limit 0, for a new name and an existing one: 0 is set, not written whole.
 func TestGroupLimitZeroPauses(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--limit", "2", "--set", `cmd="true"`)
@@ -139,11 +139,10 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 	}
 	refusedAs(t, st, "jo", "group rewound is new: it starts with limit 1 or more; pause it after with yardr group set rewound --limit 0",
 		"group", "add", "rewound", "--runner", "exec", "--set", `cmd="true"`, "--limit", "0")
-	if out := mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`, "--limit", "0"); !strings.Contains(out, "limit 0 (paused)") {
-		t.Fatalf("group add --limit 0 on an existing group:\n%s", out)
-	}
-	if g := group(t, st, "tick"); g.Limit != 0 {
-		t.Fatalf("replaced limit = %d, want 0", g.Limit)
+	refusedAs(t, st, "jo", "group tick exists: 0 pauses, and is set with yardr group set tick --limit 0",
+		"group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`, "--limit", "0")
+	if g := group(t, st, "tick"); g.Limit != 2 {
+		t.Fatalf("a refused group add changed the limit to %d", g.Limit)
 	}
 }
 

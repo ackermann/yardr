@@ -84,10 +84,11 @@ func TestSetGroupKeepsTheRest(t *testing.T) {
 	}
 }
 
-// A limit of 0 pauses: SetGroup stores it, PutGroup keeps it on a group
-// that exists, and every claim is refused while the group's live session
-// runs on and its bead advances. A new group that names no limit still
-// starts with 1, and a negative limit is refused everywhere.
+// A limit of 0 pauses, and only SetGroup sets one: it is stored, every
+// claim is refused, and the group's live session runs on while its bead
+// advances. 0 through PutGroup is no limit named: a new group starts with
+// 1, and so does a replaced one — except a paused group put back, which
+// stays paused. A negative limit is refused everywhere.
 func TestGroupLimitZeroPauses(t *testing.T) {
 	s, ctx := flowDepot(t)
 	must := func(err error) {
@@ -108,6 +109,12 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 	}
 	if _, err := s.GetGroup(ctx, "bad"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a refused group was stored: %v", err)
+	}
+	// Replaced without a limit, a running group keeps the default 1: 0
+	// pauses only through SetGroup, never by omission.
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"))
+	if g, err := s.GetGroup(ctx, "builders"); err != nil || g.Limit != 1 {
+		t.Fatalf("replaced without a limit = %+v, %v; want limit 1", g, err)
 	}
 
 	b1, err := s.CreateBead(ctx, store.NewBead{Title: "one", Depot: "yard", Stage: "new"}, "jo")

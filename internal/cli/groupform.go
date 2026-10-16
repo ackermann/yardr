@@ -248,14 +248,18 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 			return nil, err
 		}
 	}
+	keeping := editing && ans.Limit == "0" // a paused group keeps its pause
 	if err := ask(huh.NewInput().Title("Limit").Description("How many beads this group works at once; 0 pauses it.").
 		Value(&ans.Limit).Validate(func(s string) error {
 		n, err := strconv.Atoi(s)
 		switch {
 		case err != nil || n < 0:
 			return errors.New("a whole number, 0 or more")
-		case n == 0 && !editing:
-			return fmt.Errorf("a new group starts with 1 or more; pause it after with yardr group set %s --limit 0", ans.Name)
+		case n == 0 && !keeping:
+			if !editing {
+				return fmt.Errorf("a new group starts with 1 or more; pause it after with yardr group set %s --limit 0", ans.Name)
+			}
+			return fmt.Errorf("0 pauses, and is set with yardr group set %s --limit 0", ans.Name)
 		}
 		return nil
 	})); err != nil {

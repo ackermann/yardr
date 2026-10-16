@@ -541,10 +541,14 @@ yardmaster):
 			}
 			g.Name = args[0]
 			if c.Flags().Changed("limit") && g.Limit == 0 {
-				// 0 pauses a group that exists; a new one starts with
-				// one session, and is paused after.
-				if _, err := st.GetGroup(c.Context(), g.Name); errors.Is(err, store.ErrNotFound) {
+				// 0 pauses, and is set with group set: group add writes
+				// the group whole, with limit 1 or more.
+				_, err := st.GetGroup(c.Context(), g.Name)
+				switch {
+				case errors.Is(err, store.ErrNotFound):
 					return fmt.Errorf("group %s is new: it starts with limit 1 or more; pause it after with yardr group set %s --limit 0", g.Name, g.Name)
+				case err == nil:
+					return fmt.Errorf("group %s exists: 0 pauses, and is set with yardr group set %s --limit 0", g.Name, g.Name)
 				}
 			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)
@@ -559,7 +563,7 @@ yardmaster):
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
-	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions (0 pauses the group); for a peer group, how many beads may be at that yard at once")
+	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions (0 pauses, and is set with yardr group set); for a peer group, how many beads may be at that yard at once")
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable); a value that is JSON (true, 3, [\"a\"]) keeps its type, so a string that reads as JSON is written as one: 'cmd=\"true\"'")
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
