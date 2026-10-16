@@ -33,6 +33,10 @@ func script(t *testing.T, args ...string) (string, error) {
 // before its own `down`, the yard is taken down when the test ends.
 func bare(t *testing.T) string {
 	t.Helper()
+	// A test with a bare yard shares nothing with another's (a directory of
+	// its own under /tmp, matched by that directory), so it runs beside
+	// them from here on.
+	t.Parallel()
 	out, err := script(t, "bare")
 	if err != nil {
 		t.Fatalf("isolated-yard bare: %v\n%s", err, out)
@@ -189,6 +193,7 @@ func TestDownStopsAServerStartedFromAnotherBinary(t *testing.T) {
 // `up` did not make: not a directory that only has the name of one, and not
 // one that carries another yard's mark.
 func TestDownRefusesWhatUpDidNotMake(t *testing.T) {
+	t.Parallel()
 	plain, err := os.MkdirTemp("/tmp", "iy.")
 	if err != nil {
 		t.Fatal(err)
@@ -244,6 +249,7 @@ func match(t *testing.T, home string, lines ...string) (string, error) {
 // process with any YARDR_HOME was one of the yard. The home is compared as
 // a string: what a pattern would read as an operator is a character here.
 func TestMatchComparesTheHomeAsAString(t *testing.T) {
+	t.Parallel()
 	for _, home := range []string{
 		"/tmp/iy.Ab12Cd",
 		"/tmp/iy.a[b]",
@@ -279,6 +285,7 @@ func TestMatchComparesTheHomeAsAString(t *testing.T) {
 // yardr-6gyb: nothing may match every process. No home, "/" and what is no
 // absolute path are refused, with a message and no pid.
 func TestMatchRefusesAHomeThatWouldMatchEverything(t *testing.T) {
+	t.Parallel()
 	for _, home := range []string{"", "/", "//", "/tmp/", "tmp/iy.a", "."} {
 		out, err := match(t, home, "1 YARDR_HOME=/tmp/iy.a/y", "2 YARDR_HOME=/y", "3 YARDR_HOME=")
 		if err == nil || !strings.Contains(out, "isolated-yard: ") {
@@ -290,6 +297,7 @@ func TestMatchRefusesAHomeThatWouldMatchEverything(t *testing.T) {
 // The list of a yard's processes is refused, not empty and not everyone's,
 // for what is not an isolated yard.
 func TestPidsRefusesWhatIsNoYard(t *testing.T) {
+	t.Parallel()
 	unmarked, err := os.MkdirTemp("/tmp", "iy.")
 	if err != nil {
 		t.Fatal(err)
@@ -343,8 +351,10 @@ func TestDownRefusesWhenPsFails(t *testing.T) {
 func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 	d := bare(t)
 	in(t, d, "yardr", "init", "--harness", "claude", "--operator", "jo")
-	// doctor exits 1 here (no depot yet); the probe is what matters.
-	_, _ = exec.Command(filepath.Join(d, "e"), "yardr", "doctor").CombinedOutput()
+	// doctor exits 1 here (no depot yet); the probe is what matters. Its
+	// output is kept for the failure below: without the probe's start the
+	// log alone does not say whether doctor ran it.
+	doctorOut, doctorErr := exec.Command(filepath.Join(d, "e"), "yardr", "doctor").CombinedOutput()
 	in(t, d, "claude", "-p", "say ok")
 	// One real start: the stand-in with no probe args, its stdin closed
 	// so it exits.
@@ -355,7 +365,7 @@ func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 	}
 	for _, probe := range []string{`args=["--version"]`, `args=["-p" "say ok"]`} {
 		if !strings.Contains(string(log), probe) {
-			t.Errorf("agents.log has no start with %s:\n%s", probe, log)
+			t.Errorf("agents.log has no start with %s (doctor err %v):\n%s\ndoctor said:\n%s", probe, doctorErr, log, doctorOut)
 		}
 	}
 	out, err := script(t, "down", d)

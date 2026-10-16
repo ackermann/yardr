@@ -57,7 +57,10 @@ func TestMain(m *testing.M) {
 		k, v, _ := strings.Cut(kv, "=")
 		os.Setenv(k, v)
 	}
-	flag.Set("test.parallel", "4")
+	// Each test has a yard, a repository and a server of its own, and most
+	// of its time is waiting for the processes it starts. Eight at once is
+	// the knee: four takes twice as long, ten no less (yardr-mzjv).
+	flag.Set("test.parallel", "8")
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)

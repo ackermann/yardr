@@ -42,6 +42,7 @@ func buildWith(t *testing.T, env []string, args ...string) (string, error) {
 }
 
 func TestBuildStampsTheVersionAndPacksTheArchive(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -136,6 +137,7 @@ func members(t *testing.T, archive string) {
 }
 
 func TestBuildRefusesAVersionThatIsNoTag(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"", "1.2.3", "v1.2", "vnext", "v1.2.3 x"} {
 		dist := filepath.Join(t.TempDir(), "dist")
 		out, err := build(t, v, dist)
@@ -227,6 +229,7 @@ func binary(t *testing.T, archive string) string {
 }
 
 func TestBuildSignsAndNotarizesTheDarwinBinaryBeforeItPacksIt(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -283,6 +286,7 @@ func TestBuildSignsAndNotarizesTheDarwinBinaryBeforeItPacksIt(t *testing.T) {
 }
 
 func TestBuildFailsWithTheNotaryLogWhenAppleRefuses(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -309,6 +313,7 @@ func TestBuildFailsWithTheNotaryLogWhenAppleRefuses(t *testing.T) {
 // Half a signing setup, or a whole one where there is no codesign, is an
 // error before anything is built: nothing is called and no out-dir made.
 func TestBuildRefusesSigningItCannotDo(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		env  []string
 		want string
@@ -339,6 +344,7 @@ func TestBuildRefusesSigningItCannotDo(t *testing.T) {
 }
 
 func TestBuildSaysThatUnsignedDarwinBinariesAreNotSigned(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -387,6 +393,7 @@ func verify(dir, public string) (string, error) {
 }
 
 func TestBuildSignsTheChecksumsWithTheMinisignKey(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -432,6 +439,7 @@ func TestBuildSignsTheChecksumsWithTheMinisignKey(t *testing.T) {
 // A key given by a path relative to where the script was started is found,
 // though the script works from the repository's root.
 func TestBuildFindsAMinisignKeyGivenByARelativePath(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -456,6 +464,7 @@ func TestBuildFindsAMinisignKeyGivenByARelativePath(t *testing.T) {
 // Without a key the build says so, once, and leaves no signature: not one
 // of its own, and not the one an earlier build signed other checksums with.
 func TestBuildSaysThatUnsignedChecksumsAreNotSigned(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -479,6 +488,7 @@ func TestBuildSaysThatUnsignedChecksumsAreNotSigned(t *testing.T) {
 // A key that is named and cannot be used is an error before anything is
 // built, as half a signing setup for the darwin binaries is.
 func TestBuildRefusesAMinisignKeyItCannotSignWith(t *testing.T) {
+	t.Parallel()
 	// A PATH with what the script needs up to its checks, and no minisign.
 	bare := t.TempDir()
 	for _, name := range []string{"sh", "grep", "uname", "dirname"} {
@@ -525,6 +535,7 @@ func TestBuildRefusesAMinisignKeyItCannotSignWith(t *testing.T) {
 // A key minisign cannot sign with fails the build, and the checksums that
 // were to be signed are not left behind as if the release were whole.
 func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds yardr")
 	}
@@ -553,6 +564,7 @@ func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
 // already made alone: it looks first, and creates only when the release is
 // not there yet.
 func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
+	t.Parallel()
 	workflow, err := os.ReadFile("../../.github/workflows/release.yml")
 	if err != nil {
 		t.Fatal(err)

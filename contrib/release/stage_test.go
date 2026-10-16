@@ -120,6 +120,10 @@ func sumCmd(t *testing.T) string {
 
 func newStage(t *testing.T) *stage {
 	t.Helper()
+	// A stage run's world is temp dirs of its own (the stand-ins, their
+	// canned answers, the repositories), so it runs beside the others from
+	// here on.
+	t.Parallel()
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq is not on PATH, which the stage script needs")
 	}
