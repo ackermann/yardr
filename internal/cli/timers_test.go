@@ -196,6 +196,7 @@ func TestTimersAreSeen(t *testing.T) {
 }
 
 func TestParseAt(t *testing.T) {
+	t.Parallel()
 	loc := time.FixedZone("x", 2*3600)
 	now := time.Date(2026, 10, 5, 14, 30, 0, 0, loc)
 	for in, want := range map[string]time.Time{
@@ -217,6 +218,7 @@ func TestParseAt(t *testing.T) {
 }
 
 func TestParseUnless(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string][2]string{
 		"":                             {"", ""},
 		"bead=yardr-1a2b":              {"yardr-1a2b", ""},

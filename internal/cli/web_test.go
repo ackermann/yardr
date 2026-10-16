@@ -42,6 +42,7 @@ func TestWebServeRefusesNonLoopback(t *testing.T) {
 // web_addr where it has one; an --addr given stands, and without the flag
 // the default stays on loopback.
 func TestWebAddr(t *testing.T) {
+	t.Parallel()
 	def := (&app{}).webCmd().Commands()[0].Flags().Lookup("addr").DefValue
 	if def != "127.0.0.1:8791" {
 		t.Fatalf("the default --addr is %s", def)
@@ -300,6 +301,7 @@ func TestStatusAndDoctorSayActsAsFromSetting(t *testing.T) {
 }
 
 func TestWebAnswersTo(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		unsafe bool
 		names  []string
@@ -545,6 +547,7 @@ func TestStatusAndDoctorSayJWTFrom(t *testing.T) {
 }
 
 func TestUnsafeWarning(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		port, as, issuer string
 		want             string
@@ -560,6 +563,7 @@ func TestUnsafeWarning(t *testing.T) {
 }
 
 func TestWebOpenNote(t *testing.T) {
+	t.Parallel()
 	plain := webView{URL: "http://192.168.7.7:9001/", PID: 4242, Addr: "0.0.0.0:9001"}
 	if got, want := webOpenNote(plain), "http://192.168.7.7:9001/ (pid 4242) is open to the network, no login: it was started with --unsafe, "+
 		"and anyone who can reach this machine on port 9001 can read the yard"; got != want {

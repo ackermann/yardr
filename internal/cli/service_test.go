@@ -115,6 +115,7 @@ func plutilLint(t *testing.T, plist string) {
 // installed it, the home, the PATH, the log, started at login and started
 // again only after a failure.
 func TestServiceFilesGolden(t *testing.T) {
+	t.Parallel()
 	env := []string{"HOME=/Users/jo", "PATH=/Users/jo/go/bin:/opt/homebrew/bin:/usr/bin:/bin", "YARDR_HOME=/Users/jo/.yardr"}
 	for _, c := range []struct {
 		file, manager, kind, name string
@@ -143,6 +144,7 @@ func TestServiceFilesGolden(t *testing.T) {
 // What a path or a value may hold is written so that the manager reads it
 // back as it was: XML's characters in a plist, quotes, % and $ in a unit.
 func TestServiceFilesEscape(t *testing.T) {
+	t.Parallel()
 	home := `/Users/jo/My Yards & <co>/50% "new" -- $x`
 	u := &unit{Kind: svcDaemon, Manager: launchd, Name: "dev.yardr.daemon.x-00000000", Home: home, Program: home + "/bin/yardr",
 		Args: []string{"daemon"}, Env: []string{"PATH=" + home + "/bin:/usr/bin", "YARDR_HOME=" + home}, Log: home + "/daemon.log"}
@@ -213,6 +215,7 @@ func TestServiceNameWithoutHome(t *testing.T) {
 // The environment a service gets is the server's and where herdr is, and
 // nothing else of the shell: no credential, no identity.
 func TestServiceEnv(t *testing.T) {
+	t.Parallel()
 	got := serviceEnv([]string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOME=/elsewhere", "YARDR_ACTOR=me", "YARDR_SESSION=s1",
 		"GITHUB_TOKEN=secret", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "HERDR_SOCKET_PATH=/tmp/h.sock",
 		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config"}, "/Users/jo/.yardr", kindOf(svcDaemon))

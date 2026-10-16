@@ -12,6 +12,7 @@ import (
 // firstLine cut at 100 bytes, so a line of multi-byte characters (the row of
 // "─" a harness draws) ended inside one and printed as "�…" (yardr-tpxc).
 func TestFirstLineCutsBetweenCharacters(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, in, want string }{
 		{"short", "  one line  ", "one line"},
 		{"first of several", "one\ntwo\n", "one"},
@@ -40,6 +41,7 @@ func TestFirstLineCutsBetweenCharacters(t *testing.T) {
 // the help with it: release stayed behind in both when the arrival hold
 // went (yardr-2ya6).
 func TestCrewHelpNamesOnlyStoredKeys(t *testing.T) {
+	t.Parallel()
 	cmd := (&app{}).crewCmd()
 	add, _, err := cmd.Find([]string{"add"})
 	if err != nil {

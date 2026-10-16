@@ -8,6 +8,7 @@ import (
 )
 
 func TestGroupFormRoundTrip(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Name: "builders", Runner: "herdr", Limit: 2, Config: map[string]any{
 		"kind": "claude", "prompt": "roles/builder.md", "keep": true,
 		"args": []any{"--permission-mode", "auto", "--model", "opus", "--verbose"},
@@ -33,6 +34,7 @@ func TestGroupFormRoundTrip(t *testing.T) {
 }
 
 func TestGroupFormNotify(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{"notify": true}}
 	a := answersFrom(g)
 	if !a.Notify || a.Other["notify"] != nil {
@@ -48,6 +50,7 @@ func TestGroupFormNotify(t *testing.T) {
 }
 
 func TestGroupFormMembers(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{}, Members: []string{"mckean", "yardmaster"}}
 	a := answersFrom(g)
 	if a.Members != "mckean, yardmaster" {
@@ -67,6 +70,7 @@ func TestGroupFormMembers(t *testing.T) {
 }
 
 func TestDescribe(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "codex", "model": "gpt-x"}}
 	if got := describe(g); got != "herdr · codex · gpt-x · limit 1" {
 		t.Fatalf("describe = %q", got)

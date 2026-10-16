@@ -22,6 +22,7 @@ import (
 // The sandbox origin's flags default to their own loopback port and no
 // public name; the default address parses, as the run links build on it.
 func TestPagesFlagsDefault(t *testing.T) {
+	t.Parallel()
 	flags := (&app{}).webCmd().Commands()[0].Flags()
 	if def := flags.Lookup("pages-addr").DefValue; def != "127.0.0.1:8789" {
 		t.Fatalf("the default --pages-addr is %s", def)

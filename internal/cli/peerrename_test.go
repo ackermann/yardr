@@ -168,6 +168,7 @@ func TestPeerRenameCommand(t *testing.T) {
 // rename help must not still promise that a crew member with one keeps it
 // (yardr-74fz).
 func TestPeerRenameHelpNamesNoReleaseSetting(t *testing.T) {
+	t.Parallel()
 	cmd := (&app{}).peerCmd()
 	rename, _, err := cmd.Find([]string{"rename"})
 	if err != nil {

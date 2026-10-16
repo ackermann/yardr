@@ -93,6 +93,7 @@ func TestPackNameIsNeverADirectory(t *testing.T) {
 // The help of pack check, apply and show names every pack the binary
 // carries, so a pack added to it is added to the help with it.
 func TestPackHelpNamesEveryEmbeddedPack(t *testing.T) {
+	t.Parallel()
 	entries, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {
 		t.Fatal(err)

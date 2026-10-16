@@ -64,6 +64,7 @@ func ownDepotFiles(t *testing.T, depot store.Depot) {
 // script is none, nor is a Makefile without a test target, and a repository
 // that says nothing gets none.
 func TestGuessTest(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		files map[string]string
 		want  string
@@ -123,6 +124,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 // This repository's own flows: every stage that is not terminal has a stage
 // file, and no stage file is an orphan.
 func TestThisRepoHasItsStageFiles(t *testing.T) {
+	t.Parallel()
 	tree, err := store.ReadFlowDir(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)

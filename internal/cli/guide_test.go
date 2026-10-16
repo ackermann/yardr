@@ -677,6 +677,7 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 }
 
 func TestDepotNameFor(t *testing.T) {
+	t.Parallel()
 	for dir, want := range map[string]string{"/a/Web App": "web-app", "/a/yardr": "yardr", "/a/_x.Y_": "x.y", "/a/über": "ber"} {
 		if got := depotNameFor(dir); got != want {
 			t.Errorf("depotNameFor(%q) = %q, want %q", dir, got, want)

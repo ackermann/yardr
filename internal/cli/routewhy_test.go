@@ -282,6 +282,7 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 // doctor notes a route whose condition is on a group no source answers
 // for, with a limits source in the yard and with none.
 func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
+	t.Parallel()
 	_, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	cfg := &config.Config{Home: t.TempDir()}
@@ -336,6 +337,7 @@ func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
 // doctor notes a comparison that names a source with no limits of its own,
 // and stays quiet where the source answers for itself.
 func TestDoctorNotesARouteWhoseConditionNamesNoSuchSource(t *testing.T) {
+	t.Parallel()
 	_, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	cfg := &config.Config{Home: t.TempDir()}

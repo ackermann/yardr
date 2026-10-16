@@ -149,6 +149,7 @@ OUTCOMES:`)
 
 // A path of more than eight stages keeps its first two and its last five.
 func TestFlowMapTextLongPath(t *testing.T) {
+	t.Parallel()
 	m := &store.FlowMap{Name: "f", Stages: []store.FlowMapStage{{Name: "only", Who: "nobody", Current: true}}}
 	for i, s := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
 		m.Path = append(m.Path, store.PathStep{Stage: s})

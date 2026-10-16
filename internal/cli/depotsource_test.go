@@ -40,10 +40,20 @@ func sourcesLine(t *testing.T, a *app, prefix string) string {
 }
 
 // refused runs depot source and wants an error holding each of want, with
-// depot sources as it was.
-func refused(t *testing.T, a *app, args []string, want ...string) {
+// depot sources as it was. It returns the listing after, for a test with
+// one refusal after another to hand to refusedSince.
+func refused(t *testing.T, a *app, args []string, want ...string) string {
 	t.Helper()
 	before, _ := run(t, a.depotSourcesCmd(), "web")
+	return refusedSince(t, a, before, args, want...)
+}
+
+// refusedSince is refused against a listing taken before: a test with one
+// refusal after another hands each the listing the last left, and lists
+// once per refusal instead of twice. It returns the listing after. The
+// listing is taken anew after anything that changes the depot.
+func refusedSince(t *testing.T, a *app, before string, args []string, want ...string) string {
+	t.Helper()
 	out, err := run(t, a.depotSourceCmd(), args...)
 	if err == nil {
 		t.Fatalf("depot source %v is not refused:\n%s", args, out)
@@ -53,9 +63,11 @@ func refused(t *testing.T, a *app, args []string, want ...string) {
 			t.Errorf("depot source %v: %v\nlacks %q", args, err, w)
 		}
 	}
-	if after, _ := run(t, a.depotSourcesCmd(), "web"); after != before {
+	after, _ := run(t, a.depotSourcesCmd(), "web")
+	if after != before {
 		t.Errorf("the refused depot source %v changed the depot:\n%s\nwas:\n%s", args, after, before)
 	}
+	return after
 }
 
 // A group's role switches to the depot's own and back to the pack's: the
@@ -152,10 +164,10 @@ func TestDepotSourceRoleAgainstTheRecord(t *testing.T) {
 func TestDepotSourceRoleRefusals(t *testing.T) {
 	a, home, _ := sourcesYard(t)
 	ctx := context.Background()
-	refused(t, a, []string{"web", "role", "web-builders", "pack"}, "no pack is imported into depot web")
-	refused(t, a, []string{"web", "role", "nobody", "depot"}, "depot web has no role nobody")
-	refused(t, a, []string{"web", "role", "web-builders", "home"}, "depot or pack")
-	refused(t, a, []string{"web", "role", "web-builders"}, "give role")
+	before := refused(t, a, []string{"web", "role", "web-builders", "pack"}, "no pack is imported into depot web")
+	before = refusedSince(t, a, before, []string{"web", "role", "nobody", "depot"}, "depot web has no role nobody")
+	before = refusedSince(t, a, before, []string{"web", "role", "web-builders", "home"}, "depot or pack")
+	refusedSince(t, a, before, []string{"web", "role", "web-builders"}, "give role")
 
 	// A group prompted from the home, with a role neither the depot nor the
 	// pack has, and one whose prompt is no role at all.
@@ -171,8 +183,8 @@ func TestDepotSourceRoleRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	refused(t, a, []string{"web", "role", "web-planners", "depot"}, "depot web has no .yardr/roles/planner.md on its base main")
-	refused(t, a, []string{"web", "role", "web-plain", "depot"}, "names no role")
+	before = refused(t, a, []string{"web", "role", "web-planners", "depot"}, "depot web has no .yardr/roles/planner.md on its base main")
+	refusedSince(t, a, before, []string{"web", "role", "web-plain", "depot"}, "names no role")
 
 	setInteractive(t, false)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
@@ -264,9 +276,9 @@ func TestDepotSourceFlowOfAType(t *testing.T) {
 func TestDepotSourceFlowRefusals(t *testing.T) {
 	a, _, _ := sourcesYard(t)
 	ctx := context.Background()
-	refused(t, a, []string{"web", "flow", "pack"}, "no pack is imported into depot web")
-	refused(t, a, []string{"web", "flow", "--type", "bug", "depot"}, "depot web has no .yardr/flows/type/bug.flow on its base main")
-	refused(t, a, []string{"web", "flow", "builders", "depot"}, "give role")
+	before := refused(t, a, []string{"web", "flow", "pack"}, "no pack is imported into depot web")
+	before = refusedSince(t, a, before, []string{"web", "flow", "--type", "bug", "depot"}, "depot web has no .yardr/flows/type/bug.flow on its base main")
+	refusedSince(t, a, before, []string{"web", "flow", "builders", "depot"}, "give role")
 	// api is a dir depot pointed at a store flow, with no flow file of its own.
 	if _, err := run(t, a.depotSourceCmd(), "api", "flow", "depot"); err == nil || !strings.Contains(err.Error(), "depot api has no .yardr/flows/default.flow in its directory") {
 		t.Errorf("a depot without a flow file: %v", err)

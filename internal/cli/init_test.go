@@ -359,6 +359,9 @@ func TestDefaultOperatorBlockedLookup(t *testing.T) {
 		<-release
 		return nil, errors.New("released")
 	}
+	// The bound still binds: it is only shorter, as in the config
+	// package's own test of it.
+	stub(t, &config.UserLookupTimeout, 50*time.Millisecond)
 	t.Setenv("USER", "kim")
 	t.Setenv("LOGNAME", "")
 	start := time.Now()
@@ -373,8 +376,8 @@ func TestDefaultOperatorBlockedLookup(t *testing.T) {
 	if got := defaultOperator(); got != "operator" {
 		t.Fatalf("nothing set: defaultOperator = %q, want operator", got)
 	}
-	if elapsed := time.Since(start); elapsed >= 5*time.Second {
-		t.Fatalf("nothing set: defaultOperator took %v, want the 2s bound", elapsed)
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("nothing set: defaultOperator took %v, want the 50ms bound", elapsed)
 	}
 }
 
@@ -557,6 +560,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 }
 
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"/tmp/y3": "/tmp/y3", "/tmp/my yard": "'/tmp/my yard'",
 		"/tmp/it's": `'/tmp/it'\''s'`, "": "''"} {
 		if got := shellQuote(in); got != want {

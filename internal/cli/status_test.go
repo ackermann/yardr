@@ -398,6 +398,7 @@ func workYard(t *testing.T, st store.API, depot string, groups []store.Group, cl
 }
 
 func TestSessionRunsHereUsesGroupForLegacySession(t *testing.T) {
+	t.Parallel()
 	groups := map[string]string{"local": "herdr", "remote": store.PeerRunner, "people": "manual"}
 	for _, tc := range []struct {
 		name string

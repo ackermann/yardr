@@ -17,8 +17,11 @@ import (
 )
 
 // A second daemon on the same home exits with "already running" before it
-// touches the store; once the first one lets go, the next one starts.
+// touches the store; once the first one lets go, the next one starts. The
+// wait for a lingering holder is lockDaemon's own test's; this one refuses
+// at once.
 func TestSecondDaemonRefused(t *testing.T) {
+	stub(t, &daemonLockWait, 0)
 	home, err := os.MkdirTemp("", "yd")
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +61,7 @@ func TestSecondDaemonRefused(t *testing.T) {
 // The lock waits out a holder that lets go within the wait: a replaced
 // daemon's new image takes the lock its old image held.
 func TestDaemonLockWaits(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "daemon.lock")
 	unlock, err := lockDaemon(path, 0)
 	if err != nil {

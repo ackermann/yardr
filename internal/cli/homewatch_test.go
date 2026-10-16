@@ -76,6 +76,7 @@ func stopped(t *testing.T, ctx context.Context, logged *syncBuffer, want string)
 // A daemon whose home was removed under it kept running, like the server
 // (yardr-npdr): a detached process no command of the yard could reach.
 func TestDaemonStopsWhenItsHomeIsRemoved(t *testing.T) {
+	t.Parallel()
 	cfg, ctx, logged := daemonHome(t)
 	if err := os.RemoveAll(cfg.Home); err != nil {
 		t.Fatal(err)
@@ -85,6 +86,7 @@ func TestDaemonStopsWhenItsHomeIsRemoved(t *testing.T) {
 
 // The home's name holds another yard now, with a daemon lock of its own.
 func TestDaemonStopsWhenItsLockIsAnothers(t *testing.T) {
+	t.Parallel()
 	cfg, ctx, logged := daemonHome(t)
 	// Renamed over, in one step: removed and then written, a check that fell
 	// between the two saw no lock and said "is gone" (yardr-5vsd).
@@ -99,6 +101,7 @@ func TestDaemonStopsWhenItsLockIsAnothers(t *testing.T) {
 }
 
 func TestDaemonRunsOnWhileItsHomeStands(t *testing.T) {
+	t.Parallel()
 	cfg, ctx, logged := daemonHome(t)
 	// A second daemon that is refused opens the lock file; nothing is lost.
 	if _, err := lockDaemon(cfg.DaemonLock(), 0); err == nil {

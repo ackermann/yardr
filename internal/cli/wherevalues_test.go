@@ -133,6 +133,7 @@ func TestSubscribeWhereValueIsWhole(t *testing.T) {
 // A kind somebody has among the several of a subscription that filters on
 // kinds alone reaches someone, so it is not listed as reaching no one.
 func TestSubscribeMatrixReachesThroughSeveralKinds(t *testing.T) {
+	t.Parallel()
 	crew := []store.CrewMember{{Name: "clerk", Subscriptions: []store.Subscription{
 		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": store.JoinWhere([]string{"stranded", "unrouted"})}},
 		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": store.JoinWhere([]string{"held", "gave_up"}), "depot": "web"}},

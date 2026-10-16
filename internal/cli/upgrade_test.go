@@ -320,6 +320,7 @@ func TestUpgradeCheckSinceFlag(t *testing.T) {
 }
 
 func TestUpgradeSincePreservesInstallStartPrecision(t *testing.T) {
+	t.Parallel()
 	installStart := time.Date(2026, 10, 14, 9, 2, 11, 875000000, time.UTC)
 	got, err := upgradeSince(installStart.Format(time.RFC3339Nano))
 	if err != nil || !got.Equal(installStart) {
@@ -480,6 +481,7 @@ func TestUpgradeCheckViewServiceCurrent(t *testing.T) {
 
 // dialAddr asks a view that listens on every interface on loopback.
 func TestDialAddr(t *testing.T) {
+	t.Parallel()
 	for addr, want := range map[string]string{
 		"127.0.0.1:8791": "127.0.0.1:8791",
 		"0.0.0.0:8791":   "127.0.0.1:8791",

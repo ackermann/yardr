@@ -83,6 +83,7 @@ func TestDefaultClaudeAccount(t *testing.T) {
 // nothing else: a group with no file, or one that cannot be read, has no
 // account to show.
 func TestGroupFolderAccount(t *testing.T) {
+	t.Parallel()
 	login := t.TempDir()
 	if err := os.WriteFile(filepath.Join(login, ".claude.json"),
 		[]byte(`{"oauthAccount":{"emailAddress":"hal@example.com"}}`), 0o600); err != nil {

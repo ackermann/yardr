@@ -340,12 +340,13 @@ func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") 
 // whose user lookup blocks (yardr-tbm4).
 var currentUser = user.Current
 
-// userLookupTimeout bounds the OS user lookup in LookupUsername, and so in
-// Actor and the login name. Under Codex's sandbox getpwuid can hang (in
-// notify_register_check), past signals, so an unbounded lookup hangs the
-// command past killing. A variable so the test fails in milliseconds
-// (yardr-tbm4).
-var userLookupTimeout = 2 * time.Second
+// UserLookupTimeout bounds the OS user lookup in LookupUsername, and so
+// in Actor and the login name. Under Codex's sandbox getpwuid can hang
+// (in notify_register_check), past signals, so an unbounded lookup hangs
+// the command past killing. A variable so the tests fail in milliseconds:
+// this package's, and internal/cli's, which cannot see an unexported one
+// (yardr-tbm4, yardr-8ms7).
+var UserLookupTimeout = 2 * time.Second
 
 // errUserLookupTimeout is the LookupUsername error when the lookup does not
 // answer in time. Callers fall through to their next name; Actor, which has
@@ -353,7 +354,7 @@ var userLookupTimeout = 2 * time.Second
 var errUserLookupTimeout = errors.New("the system's user lookup did not answer")
 
 // LookupUsername is the username lookup answers with, bounded by
-// userLookupTimeout: errUserLookupTimeout when it does not answer in time,
+// UserLookupTimeout: errUserLookupTimeout when it does not answer in time,
 // the lookup's error when it answers with none. The one bounded lookup,
 // shared by Actor and the login name (yardr-tbm4, yardr-8ms7).
 func LookupUsername(lookup func() (*user.User, error)) (string, error) {
@@ -376,7 +377,7 @@ func LookupUsername(lookup func() (*user.User, error)) (string, error) {
 			return "", r.err
 		}
 		return r.name, nil
-	case <-time.After(userLookupTimeout):
+	case <-time.After(UserLookupTimeout):
 		// The lookup stays stuck where it is; the buffered send lets it
 		// go, and the goroutine with it, if it ever answers.
 		return "", errUserLookupTimeout

@@ -25,6 +25,7 @@ func summaryT(cfg map[string]any) map[string]map[string]any {
 // crew show lists the env_file's key names, never its values, and says
 // why a runner would refuse the file.
 func TestEnvFileSummaryShowsKeysNotValues(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(p, []byte("LINEAR_API_KEY=lin_api_s3cret\nGH_TOKEN=ghp_s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)

@@ -278,7 +278,7 @@ summary() {
 # a row whose package is gone fails nothing, since no result line maps to
 # it, but delete it anyway.
 over60='
-internal/cli yardr-cayh 834 sequential tests at 0.14 s mean, no t.Parallel; 118 s alone
+internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
 contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
 internal/store yardr-3cc4 798 sequential tests plus the index walk after every write; 90 s alone
 . yardr-1x36 three whole-repo walks plus the gate-script runs; 31 s alone, 65-94 s in full runs

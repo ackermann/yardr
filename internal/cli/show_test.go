@@ -15,6 +15,7 @@ import (
 )
 
 func TestShowNumbers(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[any]string{
 		float64(2366465): "2366465",
 		float64(-3):      "-3",

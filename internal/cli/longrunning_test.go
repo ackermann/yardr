@@ -32,6 +32,7 @@ func find(root *cobra.Command, words ...string) *cobra.Command {
 // verbs beside the command that runs it: start, stop, status, install and
 // uninstall, with the flags the row hands on.
 func TestLongRunningTable(t *testing.T) {
+	t.Parallel()
 	var names, files []string
 	root := (&app{st: storetest.New(t), actor: "me"}).rootCmd()
 	cfg := &config.Config{Home: "/h"}

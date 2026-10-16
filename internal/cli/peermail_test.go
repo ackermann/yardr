@@ -242,6 +242,7 @@ func TestPeerAllowMailLimit(t *testing.T) {
 // The line of yardr peer show says what came in the hour once the peer is
 // over what the link takes, and no more of an hour that has passed.
 func TestMailLineCountsTheRefused(t *testing.T) {
+	t.Parallel()
 	since := time.Date(2026, 10, 12, 20, 0, 0, 0, time.Local)
 	p := store.Peer{Name: "airy", MailLimit: 40, MailSince: &since, Mails: 43, Files: 12}
 	if got, want := mailLine(p, since.Add(20*time.Minute)), "takes 40 mails and asks an hour, and 2560 files; 43 came since 20:00, 3 of them refused, as is what comes until 21:00"; got != want {

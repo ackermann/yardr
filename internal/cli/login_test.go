@@ -120,6 +120,7 @@ func loginOf(t *testing.T, units []loginUnit, part string) loginUnit {
 // only after a failure, so that herdr server stop and herdr update are not
 // fought; and nothing that names a yard.
 func TestHerdrServiceFilesGolden(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ file, manager, name, log string }{
 		{"herdr.plist", launchd, "dev.yardr.herdr", "/Users/jo/Library/Logs/dev.yardr.herdr.log"},
 		{"herdr.service", systemd, "yardr-herdr.service", ""},

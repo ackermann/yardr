@@ -546,6 +546,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 // The background daemon keeps the starter's environment but not its
 // identity, and works for the home it was started for.
 func TestDaemonEnv(t *testing.T) {
+	t.Parallel()
 	got := daemonEnv([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARDR_BEAD=b", "YARDR_SESSION=s",
 		"YARDR_CREW=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, "/y")
 	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y"}
@@ -557,6 +558,7 @@ func TestDaemonEnv(t *testing.T) {
 // A start that failed before the upgrade is in the journal under the kind
 // that release logged, and is still the reason doctor and init give.
 func TestLastStartFailureReadsTheOldKind(t *testing.T) {
+	t.Parallel()
 	st, owned := storetest.NewOwned(t)
 	ctx := context.Background()
 	r, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")

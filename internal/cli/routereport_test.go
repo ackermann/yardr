@@ -445,6 +445,7 @@ func TestRouteReportOriginator(t *testing.T) {
 // A bead with no stored originator counts under the operator's, and the
 // originator filter keeps one person's beads.
 func TestSummarizeRouteEventsOriginator(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	bead := "yard-a"
 	evs := []store.Event{
@@ -1093,6 +1094,7 @@ func TestSummarizeRouteEventsReviewFixes(t *testing.T) {
 }
 
 func TestFixSHAs(t *testing.T) {
+	t.Parallel()
 	sha40 := "0123456789abcdef0123456789abcdef01234567"
 	for _, tc := range []struct {
 		text string

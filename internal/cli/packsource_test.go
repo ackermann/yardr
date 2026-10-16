@@ -63,6 +63,7 @@ func pushoverPack(t *testing.T) string {
 // source and of the push send through, to the byte, and the one the
 // pushover pack brings.
 func TestThePushoverPageHasTheTestedDeclaration(t *testing.T) {
+	t.Parallel()
 	want, err := os.ReadFile("testdata/pushover.yaml")
 	if err != nil {
 		t.Fatal(err)

@@ -151,6 +151,7 @@ func TestSubscribeBareTakesNoFlags(t *testing.T) {
 // A group and crew member may share a name. Their marks must stay in their
 // own columns even though the group also delivers to that crew member.
 func TestSubscribeMatrixSameNameGroupAndCrew(t *testing.T) {
+	t.Parallel()
 	crew := []store.CrewMember{{Name: "reviewers"}}
 	groups := []store.Group{{
 		Name: "reviewers", Runner: "manual", Members: []string{"reviewers"},

@@ -381,6 +381,7 @@ func TestDoctorPeers(t *testing.T) {
 // said it: each name with what it is, a person for a user, and the peer's
 // line of what they do. That its link takes no mail is said once, for all.
 func TestPeerShowExposes(t *testing.T) {
+	t.Parallel()
 	p := store.Peer{Name: "north"}
 	if got := exposesLine(p); got != "" {
 		t.Fatalf("a peer that has not said = %q", got)

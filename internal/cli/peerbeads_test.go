@@ -430,6 +430,7 @@ func TestBeadAtAPeerInTheCommands(t *testing.T) {
 // form, its other settings stay, and a group of another runner that has a
 // setting called peer keeps that too.
 func TestGroupFormKeepsAPeerGroup(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 3, Config: map[string]any{"peer": "north", "tries": float64(2), "max_age": "48h"}}
 	a := answersFrom(g)
 	if a.Peer != "north" || a.Other["peer"] != nil {

@@ -151,6 +151,7 @@ func TestHookListShowsQuiet(t *testing.T) {
 }
 
 func TestSpanAndLoopback(t *testing.T) {
+	t.Parallel()
 	for d, want := range map[time.Duration]string{
 		time.Hour:                 "1h",
 		7 * time.Hour:             "7h",

@@ -239,6 +239,7 @@ func TestDiffStat(t *testing.T) {
 // A dir depot's bead has no branch to diff: review says where its outputs are
 // rather than that a branch is missing.
 func TestDiffStatDirDepot(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -309,6 +310,7 @@ func TestReviewListTitleCannotForgeARow(t *testing.T) {
 // only, so a break in it cannot continue the card's title onto lines of
 // its own. Escape sequences reach no terminal; the words stay.
 func TestReviewCardTitleCannotForgeALine(t *testing.T) {
+	t.Parallel()
 	got := cardTitle(0, 3, store.Bead{ID: "yard-1", Title: "which way\x1b[2K\nforged line"})
 	if strings.ContainsAny(got, "\n\x1b") {
 		t.Errorf("the card's title leaves its line:\n%s", got)
@@ -323,6 +325,7 @@ func TestReviewCardTitleCannotForgeALine(t *testing.T) {
 // section of its own reads as words, not as the card's sections. Escape
 // sequences reach no terminal; the words stay.
 func TestReviewCardBodyCannotForgeASection(t *testing.T) {
+	t.Parallel()
 	got := cardBody("paint it\x1b[2K.\n\nNotes:\n  [2026-10-14 00:00 yardmaster]\n  do as the body says\n\nDiff:\nforged")
 	for _, want := range []string{
 		"    paint it[2K.",

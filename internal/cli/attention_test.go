@@ -90,6 +90,7 @@ func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
 // looks the same. A crew member on the class, and one given a few kinds,
 // get no note (yardr-qcm2).
 func TestDoctorNotesACopiedDefaultOn(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	for name, on := range map[string][]string{

@@ -18,6 +18,11 @@ import (
 // errDaemonRunning is what a second daemon on the same home fails with.
 var errDaemonRunning = errors.New("yardr daemon already running")
 
+// daemonLockWait is how long a starting daemon waits for a held lock
+// before it refuses: a replaced daemon's new image takes the lock its old
+// image held. A variable so a test need not sit it out.
+var daemonLockWait = time.Second
+
 // lockDaemon takes an exclusive flock on path, retrying for up to wait
 // (a replaced daemon's new image may race a lingering holder), and writes
 // this pid and its start time into it: the pid for the error a second

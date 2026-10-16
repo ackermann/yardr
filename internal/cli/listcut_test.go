@@ -24,11 +24,13 @@ func rows(t *testing.T, st store.API, args ...string) (int, string) {
 }
 
 // bead list -a is the newest 200 beads, -n another number and --all every
-// one; without them the open beads are listed as before (yardr-wav4).
+// one; without them the open beads are listed as before (yardr-wav4). The
+// cut is the same at a lower limit, which needs fewer beads to try it.
 func TestBeadListWithClosedIsCut(t *testing.T) {
+	stub(t, &listLimit, 10)
 	st := storetest.New(t)
 	ctx := context.Background()
-	const total, open = listLimit + 5, 3
+	total, open := listLimit+5, 3
 	for i := 0; i < total; i++ {
 		b, err := st.CreateBead(ctx, store.NewBead{Title: "bead " + strconv.Itoa(i)}, "me")
 		if err != nil {

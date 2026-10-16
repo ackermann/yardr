@@ -23,6 +23,7 @@ func machineOf(t *testing.T) map[string]need {
 // herdr's fetch is not in a harness file, so nothing checks it when yardr
 // starts: this does.
 func TestHerdrFetch(t *testing.T) {
+	t.Parallel()
 	if err := herdrFetch.Check("herdr"); err != nil {
 		t.Fatal(err)
 	}

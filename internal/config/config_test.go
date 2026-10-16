@@ -47,22 +47,22 @@ func TestActorFallsBackToLogin(t *testing.T) {
 // bounds it at 2 s and fails with how to name one instead of hanging; a
 // named actor never reaches the lookup.
 func TestActorLookupTimeout(t *testing.T) {
-	if userLookupTimeout != 2*time.Second {
-		t.Fatalf("userLookupTimeout = %v, want 2s", userLookupTimeout)
+	if UserLookupTimeout != 2*time.Second {
+		t.Fatalf("UserLookupTimeout = %v, want 2s", UserLookupTimeout)
 	}
 	t.Setenv("YARDR_ACTOR", "")
 	t.Setenv("USER", "")
 	release := make(chan struct{})
 	t.Cleanup(func() {
 		currentUser = user.Current
-		userLookupTimeout = 2 * time.Second
+		UserLookupTimeout = 2 * time.Second
 		close(release)
 	})
 	currentUser = func() (*user.User, error) {
 		<-release
 		return nil, errors.New("released")
 	}
-	userLookupTimeout = 50 * time.Millisecond
+	UserLookupTimeout = 50 * time.Millisecond
 	start := time.Now()
 	got, err := Actor()
 	if elapsed := time.Since(start); elapsed >= time.Second {

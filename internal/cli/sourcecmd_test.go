@@ -627,6 +627,7 @@ func TestSourceCommandFiles(t *testing.T) {
 // word: that line would stay in the shell's history. It reads the token
 // blind, as the packs' setup pages do.
 func TestSourceSetHelpReadsTokenBlind(t *testing.T) {
+	t.Parallel()
 	a := &app{st: storetest.New(t), actor: "jo"}
 	set, _, err := a.sourceCmd().Find([]string{"set"})
 	if err != nil {

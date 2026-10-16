@@ -128,6 +128,7 @@ func TestUpgradeRestoreOn(t *testing.T) {
 }
 
 func TestUpgradeRejectsNonPositiveTimeout(t *testing.T) {
+	t.Parallel()
 	for _, timeout := range []time.Duration{0, -time.Second} {
 		err := (&app{}).upgradeRun(context.Background(), config.At(t.TempDir()), timeout, false, "")
 		if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
@@ -181,6 +182,7 @@ func TestUpgradePollFailure(t *testing.T) {
 // A service restart that never brings the view back fails the install gate,
 // even when the installed binary's check skips the missing view.
 func TestUpgradePollRestartFailureFailsSkippedView(t *testing.T) {
+	t.Parallel()
 	results := upgradePollWithRestartFailures(
 		[]upgradePollResult{{home: "/h", ok: true}},
 		[]error{fmt.Errorf("the web view did not answer /health")},
@@ -234,6 +236,7 @@ func TestUpgradePollDeadlineCancelsCheck(t *testing.T) {
 // A second upgrade refuses on the lock beside the binary, naming the
 // holder's pid, as a second daemon does.
 func TestUpgradeLockRefusesSecond(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yardr.upgrade.lock")
 	unlock, err := lockDaemon(path, 0)
 	if err != nil {
@@ -267,6 +270,7 @@ func TestDoctorUpgradeFailed(t *testing.T) {
 // The next successful upgrade logs the marked event and clears it: told
 // only where every direct send succeeded, untold otherwise.
 func TestUpgradeLogMarked(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home := t.TempDir()
 	st := storetest.New(t)
@@ -347,6 +351,7 @@ func TestUpgradeHatch(t *testing.T) {
 // The beads changed in the window are the distinct beads of the events
 // since the recorded head.
 func TestUpgradeBeadsSince(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {

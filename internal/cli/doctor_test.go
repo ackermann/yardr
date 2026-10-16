@@ -437,8 +437,10 @@ func TestDoctorVersionCheck(t *testing.T) {
 	if got := versionLine("\n  " + strings.Repeat("─", 90) + "\nmore"); got != strings.Repeat("─", 60)+"…" {
 		t.Errorf("versionLine = %q", got)
 	}
-	// A hang ends on the timeout, the script's sleep with it.
-	stub(t, &versionTimeout, 300*time.Millisecond)
+	// A hang ends on the timeout, the script's sleep with it. The script
+	// sleeps 30 s, so the verdict does not depend on how long the timeout
+	// is: a short one only hurries it.
+	stub(t, &versionTimeout, 100*time.Millisecond)
 	began := time.Now()
 	check("kimi", versionCheck{versionHangs, ""})
 	if d := time.Since(began); d > 5*time.Second {
@@ -504,12 +506,12 @@ func TestDoctorVersionCheck(t *testing.T) {
 	// kimi is looked at: in so short a time the others may hang too.
 	tools["kimi"] = toolHangs
 	fakeTools(t, tools)
-	stub(t, &versionTimeout, 300*time.Millisecond)
+	stub(t, &versionTimeout, 100*time.Millisecond)
 	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 300ms. On macOS that can be a quarantined binary "+
+	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 100ms. On macOS that can be a quarantined binary "+
 		"waiting on a Gatekeeper dialog nobody sees: run kimi once in a terminal and answer it")
 	if s := states(); s["kimi"] != versionHangs {
 		t.Fatalf("states = %v", s)
@@ -774,6 +776,7 @@ func TestDoctorHerdrLoginService(t *testing.T) {
 // A yard of dir depots lands nothing: no landing step, no route for approved,
 // and its last step is a bead through to done.
 func TestSetupStepsDirDepot(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -1144,15 +1147,17 @@ func TestDoctorTry(t *testing.T) {
 	// Then a call that hangs, with a timeout it is quick to run out of.
 	// Only kimi is looked at: in so short a time the others may hang too.
 	// Its output is not asserted because a slow start can time out before
-	// the script prints anything.
+	// the script prints anything. The hanging script sleeps 30 s, so any
+	// short timeout names the hang; 300 ms is what the version check's
+	// hanging test waits.
 	tools["kimi"] = tryTool(called, "echo 'thinking'; sleep 30")
 	fakeTools(t, tools)
-	stub(t, &tryTimeout, 2*time.Second)
+	stub(t, &tryTimeout, 300*time.Millisecond)
 	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--try")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  kimi        tried: one real call did not end within 2s")
+	wantText(t, out, "FAULT  kimi        tried: one real call did not end within 300ms")
 	rep, _ = doctorJSON(t, st, "--try")
 	if !slices.ContainsFunc(rep.Machine, func(n need) bool { return n.Harness == "kimi" && n.Try != nil && n.Try.State == tryHangs }) {
 		t.Fatalf("kimi's call is not one that hangs: %+v", rep.Machine)

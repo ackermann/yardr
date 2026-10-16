@@ -114,6 +114,7 @@ func TestPeerAllowTrust(t *testing.T) {
 // name no more. doctor says of one that is left all the same that it names
 // someone gone, and how it is taken off.
 func TestDoctorTrustOfSomeoneGone(t *testing.T) {
+	t.Parallel()
 	p := store.Peer{Name: "north", Trust: map[string]string{"ada": "jo", "bo": "gone", "cy": "jo"},
 		Said: &store.PeerSaid{At: time.Now(), PeerSays: store.PeerSays{Roster: []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser}, {Name: "bo", Kind: store.RosterUser}}}}}
 	got := trustNotes(p, []string{"jo"}, "yardr")

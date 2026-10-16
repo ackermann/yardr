@@ -79,6 +79,7 @@ func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 // doctor says which crew member's env_command names a program it does not
 // find, and runs none to tell.
 func TestDoctorNotesAMissingEnvCommand(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	ran := filepath.Join(t.TempDir(), "ran")

@@ -64,6 +64,7 @@ func TestPackAtURL(t *testing.T) {
 // A name imported from a URL is read from it again: with the server gone the
 // error says the URL and what fetching it said.
 func TestPackNameImportedFromAGoneURL(t *testing.T) {
+	t.Parallel()
 	srv := serveStarter(t)
 	base := srv.URL + "/starter/"
 	ctx := context.Background()

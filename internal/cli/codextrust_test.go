@@ -16,6 +16,7 @@ import (
 // The folders Codex's config trusts: a table per folder with trust_level
 // "trusted", in either kind of string, and nothing else.
 func TestCodexTrusted(t *testing.T) {
+	t.Parallel()
 	config := `model = "gpt-5"
 [projects."/a/b"]
 trust_level = "trusted"

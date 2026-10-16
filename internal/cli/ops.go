@@ -111,7 +111,7 @@ func (a *app) daemonCmd() *cobra.Command {
 			// self-replace keeps the pid but execs a new image: the lock's
 			// descriptor is close-on-exec, so the exec releases it and the
 			// new build takes it here again, after the old image is gone.
-			unlock, err := lockDaemon(cfg.DaemonLock(), time.Second)
+			unlock, err := lockDaemon(cfg.DaemonLock(), daemonLockWait)
 			if err != nil {
 				return err
 			}

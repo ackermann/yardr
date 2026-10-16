@@ -269,6 +269,7 @@ func TestPrimeCrewOpenAsksOverflow(t *testing.T) {
 // heading it changes nothing, and whatever the section holds is replaced
 // by the one line.
 func TestWithoutFirstRun(t *testing.T) {
+	t.Parallel()
 	const edited = "# Yardmaster\n\nYou coordinate the work.\n\n## The work\n\nTriage.\n"
 	if got := withoutFirstRun(edited); got != edited {
 		t.Errorf("a role without the section changed:\n%s", got)

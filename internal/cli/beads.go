@@ -19,8 +19,9 @@ import (
 
 // listLimit is how many rows a listing that includes what is closed or
 // ended shows unless told otherwise: a yard keeps all of those, and reading
-// them all took a second at 20,000 beads (yardr-wav4).
-const listLimit = 200
+// them all took a second at 20,000 beads (yardr-wav4). A variable so the
+// cut is tested with fewer rows than it cuts in the yard.
+var listLimit = 200
 
 // listCut is the flags two listings share, bead list and session list:
 // -a for what is closed or ended too, the newest listLimit of it, -n for

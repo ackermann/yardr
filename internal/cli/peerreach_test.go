@@ -223,6 +223,7 @@ func mustNotes(t *testing.T, st store.API, id string) []store.Note {
 // the roster's person. doctor says of one that is left all the same what
 // it stands on no more, and how it is taken off.
 func TestDoctorReachOnNothing(t *testing.T) {
+	t.Parallel()
 	p := store.Peer{Name: "north", Send: []string{store.PeerAsk},
 		Trust: map[string]string{"ada": "jo", "bo": "jo", "cy": "ada"},
 		Reach: map[string]string{"ada": "jo", "bo": "jo", "cy": "jo", "di": "jo"},
