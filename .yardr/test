@@ -254,7 +254,8 @@ packagebudget() {
 # reads literal durations in *_test.go files; a sleep it cannot read, such
 # as a variable, is not judged. A row whose site is gone fails nothing
 # here; the root package's test counts the rows against the tree, so delete
-# the row with the fix.
+# the row with the fix. Each row covers one site, including when a file has
+# two sleeps with the same duration.
 longsleeps='
 yardtest_test.go 3000 the race-lock test holds the lock 3 s past the build step so the wait spans whole seconds however slowly the run started
 internal/dispatch/peerhold_test.go 2000 yardr-j41w counts poll rates over real time, about 20 asks in 2 s
@@ -291,7 +292,7 @@ sleepbudget() {
       if ($0 ~ /^[^ ]+ [0-9]+ /) {
         f = $0; sub(/ .*/, "", f)
         m = $0; sub(/^[^ ]+ /, "", m); sub(/ .*/, "", m)
-        over[f SUBSEP m] = 1
+        over[f SUBSEP m]++
       }
       next
     }
@@ -307,11 +308,15 @@ sleepbudget() {
       } else n = 1
       gsub(/ /, "", n); gsub(/ /, "", unit); sub(/^time\./, "", unit)
       if (n !~ /^[0-9.]+$/ || !(unit in ms)) next
-      dur = int(n * ms[unit] + 0.5)
+      dur = n * ms[unit]
       if (dur <= 500) next
       key = f SUBSEP dur
       if (key in over) {
-        if (!(key in seen)) { seen[key] = 1; nseen++ }
+        seen[key]++
+        if (seen[key] > over[key]) {
+          printf "test: %s:%s sleeps %s, over the 500 ms budget (docs/testing.md R2)\n", f, line, e
+          bad++
+        } else nseen++
         next
       }
       printf "test: %s:%s sleeps %s, over the 500 ms budget (docs/testing.md R2)\n", f, line, e

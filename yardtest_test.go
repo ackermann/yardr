@@ -1037,7 +1037,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 		}
 		overDirs = append(overDirs, f[0])
 	}
-	keys := map[[2]string]bool{}
+	keys := map[[2]string]int{}
 	for _, line := range strings.Split(long, "\n") {
 		f := strings.Fields(line)
 		if len(f) == 0 || f[0] == "longsleeps='" || line == "'" {
@@ -1049,12 +1049,16 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 		if _, err := strconv.Atoi(f[1]); err != nil {
 			t.Fatalf("longsleeps row %q: the milliseconds are a number", line)
 		}
-		keys[[2]string{f[0], f[1]}] = true
+		keys[[2]string{f[0], f[1]}]++
 	}
 	if len(overDirs) == 0 || len(keys) == 0 {
 		t.Fatal("the probe found no allow-list rows: move it with .yardr/test")
 	}
-	return took + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, len(keys)
+	sites := 0
+	for _, n := range keys {
+		sites += n
+	}
+	return took + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // sleepSite is one sleep line for a fixture, built from parts so this file
@@ -1112,7 +1116,7 @@ func TestYardTestBudgets(t *testing.T) {
 	t.Run("an over-budget site fails the sleep budget", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "bad_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t"+
-			sleepSite("2 * time.Second")+"\n\t"+sleepSite("600 * time.Millisecond")+"\n\t"+sleepSite("time.Second")+"\n}\n")
+			sleepSite("2 * time.Second")+"\n\t"+sleepSite("600 * time.Millisecond")+"\n\t"+sleepSite("time.Second")+"\n\t"+sleepSite("500.4 * time.Millisecond")+"\n}\n")
 		out, code := run(dir, "sleepbudget")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
@@ -1121,10 +1125,21 @@ func TestYardTestBudgets(t *testing.T) {
 			"bad_test.go:9 sleeps 2 * time.Second, over the 500 ms budget (docs/testing.md R2)",
 			"bad_test.go:10 sleeps 600 * time.Millisecond, over the 500 ms budget (docs/testing.md R2)",
 			"bad_test.go:11 sleeps time.Second, over the 500 ms budget (docs/testing.md R2)",
+			"bad_test.go:12 sleeps 500.4 * time.Millisecond, over the 500 ms budget (docs/testing.md R2)",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output %q, want it to contain %q", out, want)
 			}
+		}
+	})
+
+	t.Run("a duplicate allowed duration does not cover another site", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "yardtest_test.go", "package p\n\nimport \"time\"\n\nfunc f() {\n\t"+
+			sleepSite("3 * time.Second")+"\n\t"+sleepSite("3 * time.Second")+"\n}\n")
+		out, code := run(dir, "sleepbudget")
+		if code != 1 || !strings.Contains(out, "yardtest_test.go:7 sleeps 3 * time.Second, over the 500 ms budget") {
+			t.Errorf("exit %d, output %q, want the second 3 s sleep to fail", code, out)
 		}
 	})
 
