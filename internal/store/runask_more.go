@@ -1,6 +1,7 @@
 // The rows of the list after the first five (runList): a user added and
-// removed, a crew member's grants, a setting, a peer renamed, a bead's
-// originator, and another's timer removed. Each has what a row has: how
+// removed, a crew member's grants, a crew member's identity in a source, a
+// setting, a peer renamed, a bead's originator, and another's timer
+// removed. Each has what a row has: how
 // its words are read into one stored form, the command's own check as
 // the asker, the card the yard writes from its records, why an approval
 // of an older card is refused, and the store function that makes the
@@ -421,6 +422,157 @@ func grantSettingText(v any, set bool) string {
 		return fmt.Sprint(v)
 	}
 	return string(b)
+}
+
+// parseCrewIdentity reads the words of crew identity <name> with its
+// --source and --id and --key, one of the two at least. What is stored is
+// the name, the source and each of the two given, each once, in that
+// order. Listing (--source left out) and removing (--rm) are no run ask:
+// one needs no approval, and the other is the operator's to type.
+func parseCrewIdentity(rest []string) ([]string, error) {
+	const use = "yardr crew identity <name> --source <source> [--id <id>] [--key <key>]"
+	args, values, err := runWords(use, "crew identity", "the operator's", rest, map[string]bool{"--source": true, "--id": true, "--key": true})
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case len(args) != 1:
+		return nil, fmt.Errorf("--run takes %s: one crew member, not %d words", use, len(args))
+	case len(values["--source"]) != 1:
+		return nil, fmt.Errorf("--run takes %s: one --source, not %d", use, len(values["--source"]))
+	case len(values["--id"]) > 1:
+		return nil, fmt.Errorf("--run takes %s: --id once, not %d times", use, len(values["--id"]))
+	case len(values["--key"]) > 1:
+		return nil, fmt.Errorf("--run takes %s: --key once, not %d times", use, len(values["--key"]))
+	case len(values["--id"]) == 0 && len(values["--key"]) == 0:
+		return nil, fmt.Errorf("--run takes %s: --id and/or --key", use)
+	}
+	out := []string{args[0], "--source", values["--source"][0]}
+	for _, flag := range []string{"--id", "--key"} {
+		if len(values[flag]) > 0 {
+			out = append(out, flag, values[flag][0])
+		}
+	}
+	return out, nil
+}
+
+// crewIdentityOf is the crew member, the source and the id and key of a
+// parsed crew identity, each "" when the command leaves it out.
+func crewIdentityOf(argv []string) (name, source, id, key string) {
+	name = argv[2]
+	for i := 3; i+1 < len(argv); i += 2 {
+		switch argv[i] {
+		case "--source":
+			source = argv[i+1]
+		case "--id":
+			id = argv[i+1]
+		case "--key":
+			key = argv[i+1]
+		}
+	}
+	return name, source, id, key
+}
+
+// checkCrewIdentity is saying who a crew member is in a source's own
+// check as the asker.
+func checkCrewIdentity(ctx context.Context, w *wtx, argv []string, actor string) error {
+	return w.operatorOnly(ctx, actor, "say who a crew member is in a source", Askable)
+}
+
+// identitySays is the id and/or key as a card names them.
+func identitySays(id, key string) string {
+	switch {
+	case id != "" && key != "":
+		return id + " / " + key
+	case id != "":
+		return id
+	default:
+		return key
+	}
+}
+
+// crewIdentityCard is the card of crew identity: which crew member and
+// which source, that mentions and assignments of the id or key there are
+// then addressed to it, and what stood. Asking refuses an identity that
+// would change nothing.
+func (w *wtx) crewIdentityCard(argv []string, asking bool) (AskRun, error) {
+	name, source, id, key := crewIdentityOf(argv)
+	src, _, err := sourceIn(w.Tx, source)
+	if err != nil {
+		return AskRun{}, err
+	}
+	var r CrewMember
+	if ok, err := get(w.Tx, bCrew, name, &r); err != nil {
+		return AskRun{}, err
+	} else if !ok {
+		return AskRun{}, fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+	}
+	unfolded, folded := key, foldIdentityKey(w.Tx, source, key)
+	key = folded
+	who := identitySays(id, key)
+	cur, had := r.Identities[source]
+	if asking && had && cur.ID == id && cur.Key == key {
+		return AskRun{}, fmt.Errorf("crew member %s is %s in %s already: the command would change nothing", name, who, source)
+	}
+	does := []string{fmt.Sprintf("says the crew member %s is %s in %s: the yard treats mentions and assignments of %s there as addressed to it.", name, who, source, who)}
+	if unfolded != folded {
+		does = append(does, fmt.Sprintf("%s carries keys lowercase, so %s is stored as %s.", source, unfolded, folded))
+	}
+	if had {
+		does = append(does, fmt.Sprintf("It is %s in %s now.", identitySays(cur.ID, cur.Key), source))
+	} else {
+		does = append(does, fmt.Sprintf("It has no identity in %s now.", source))
+	}
+	back := []string{"crew", "identity", name, "--source", source}
+	if had {
+		if cur.ID != "" {
+			back = append(back, "--id", cur.ID)
+		}
+		if cur.Key != "" {
+			back = append(back, "--key", cur.Key)
+		}
+	} else {
+		back = append(back, "--rm")
+	}
+	return AskRun{
+		Argv:   argv,
+		Does:   does,
+		Back:   runCommandLine(back),
+		BackBy: "only the operator",
+		Seen:   map[string]string{"crew " + name: seen(cur.ID, cur.Key), "source " + source: sourceSeen(src)},
+	}, nil
+}
+
+// crewIdentityStale says why the ask seq for crew identity is approved no
+// more: the source is another under its name, or the crew member holds
+// another identity there than the card says.
+func (w *wtx) crewIdentityStale(seq uint64, was, now AskRun) error {
+	name, source, _, _ := crewIdentityOf(was.Argv)
+	if err := w.staleSource(seq, source, was, now); err != nil {
+		return err
+	}
+	if key := "crew " + name; was.Seen[key] != now.Seen[key] {
+		match := func(e Event) bool { return e.Data["crew"] == name && e.Data["source"] == source }
+		set, removed := lastEvent(w.Tx, "identity_set", match), lastEvent(w.Tx, "identity_removed", match)
+		switch {
+		case set != nil && (removed == nil || set.Seq > removed.Seq):
+			return fmt.Errorf("ask %d was written when the crew member %s held another identity in %s: it was set since%s. %s", seq, name, source, since(set), nothingRan)
+		case removed != nil:
+			return fmt.Errorf("ask %d was written when the crew member %s held another identity in %s: it was removed since%s. %s", seq, name, source, since(removed), nothingRan)
+		}
+		return fmt.Errorf("ask %d was written when the crew member %s held another identity in %s. %s", seq, name, source, nothingRan)
+	}
+	return staleCard(seq, was, now)
+}
+
+// runCrewIdentity says who the crew member is in the source as actor
+// through setCrewIdentity, and answers the identity as it is stored.
+func runCrewIdentity(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	name, source, id, key := crewIdentityOf(argv)
+	if err := w.setCrewIdentity(ctx, name, source, Identity{ID: id, Key: key}, actor, by); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("crew member %s is %s in %s", name, identitySays(id, foldIdentityKey(w.Tx, source, key)), source), nil
 }
 
 // parseSettingSet reads the words of settings set <key> <value>. What is

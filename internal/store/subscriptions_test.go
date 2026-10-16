@@ -435,7 +435,11 @@ func TestUserIdentity(t *testing.T) {
 	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-jo"}, "ada"); err != nil {
 		t.Fatalf("the operator sets jo's identity: %v", err)
 	}
-	if err := s.SetIdentity(ctx, "nobody", "linear", store.Identity{ID: "x"}, "me"); !errors.Is(err, store.ErrNotFound) {
+	if err := s.SetIdentity(ctx, "nobody", "linear", store.Identity{ID: "x"}, "me"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (ada) may say who a crew member is in a source") {
+		t.Fatalf("a name that is no party as a user: %v", err)
+	}
+	if err := s.SetIdentity(ctx, "nobody", "linear", store.Identity{ID: "x"}, "ada"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a name that is no party: %v", err)
 	}
 }

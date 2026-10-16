@@ -322,6 +322,15 @@ var runList = []runCommand{{
 	run:         runCrewGrant,
 	commas:      true,
 }, {
+	words:       []string{"crew", "identity"},
+	use:         "yardr crew identity <name> --source <source> [--id <id>] [--key <key>]",
+	description: "Who a crew member is in a source (no --source: list)",
+	parse:       parseCrewIdentity,
+	check:       checkCrewIdentity,
+	card:        (*wtx).crewIdentityCard,
+	stale:       (*wtx).crewIdentityStale,
+	run:         runCrewIdentity,
+}, {
 	words:       []string{"settings", "set"},
 	use:         "yardr settings set <key> <value>",
 	description: "Change a setting, as the operator; an empty value unsets it",

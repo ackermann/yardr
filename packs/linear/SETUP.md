@@ -57,6 +57,11 @@ means in Linear is a flow pack's to say, not this file's.
    ```sh
    yardr crew identity <name> --source linear --id <user id> --key <handle>
    ```
+   A crew member setting itself up proposes it instead, from its session,
+   and the operator approves it on the card:
+   ```sh
+   yardr bead ask <bead> "Who am I in Linear?" --run "crew identity <name> --source linear --id <user id> --key <handle>"
+   ```
    A mention is matched by the handle when the delivery carries markdown
    only, and by the id otherwise: with the id alone, the test of 11 Oct
    saw a mention arrive as `participant` instead of `mentioned`.

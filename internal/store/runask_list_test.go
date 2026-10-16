@@ -1411,6 +1411,33 @@ func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
 					t.Fatal(err)
 				}
 			}, "was written when the crew member yardmaster was another: its definition was set since"},
+		{"an identity set since",
+			func(t *testing.T, y *askYard) {
+				if _, err := y.PutSource(y.ctx, "crm.yaml", runCRM, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			func(y *askYard) string { return "crew identity yardmaster --source crm --id u1 --key boss" },
+			func(t *testing.T, y *askYard) {
+				if err := y.SetIdentity(y.ctx, "yardmaster", "crm", Identity{ID: "u2"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the crew member yardmaster held another identity in crm: it was set since"},
+		{"an identity removed since",
+			func(t *testing.T, y *askYard) {
+				if _, err := y.PutSource(y.ctx, "crm.yaml", runCRM, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if err := y.SetIdentity(y.ctx, "yardmaster", "crm", Identity{ID: "u1"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			func(y *askYard) string { return "crew identity yardmaster --source crm --id u2" },
+			func(t *testing.T, y *askYard) {
+				if err := y.SetIdentity(y.ctx, "yardmaster", "crm", Identity{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the crew member yardmaster held another identity in crm: it was removed since"},
 		{"a setting changed since", nil,
 			func(y *askYard) string { return "settings set max_sessions 20" },
 			func(t *testing.T, y *askYard) {
@@ -1449,5 +1476,164 @@ func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
 			c.since(t, y)
 			y.refusedStale(t, seq, c.want)
 		})
+	}
+}
+
+// A crew member's identity in a source is asked in the yard's form, shown
+// with what stood and the command that takes it back, approved in one
+// write through setCrewIdentity, and read back as stored. A second ask
+// changes it, and its take-back is the identity that stood.
+func TestRunAskCrewIdentity(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "crew identity --key boss --source crm yardmaster --id u1"), "yardmaster")
+	r := y.asked(t, seq)
+	run := r.Ask.Run
+	if want := []string{"crew", "identity", "yardmaster", "--source", "crm", "--id", "u1", "--key", "boss"}; !slices.Equal(run.Argv, want) {
+		t.Fatalf("the ask holds %q, want %q", run.Argv, want)
+	}
+	if want := []string{
+		"says the crew member yardmaster is u1 / boss in crm: the yard treats mentions and assignments of u1 / boss there as addressed to it.",
+		"It has no identity in crm now.",
+	}; !slices.Equal(run.Does, want) {
+		t.Fatalf("the card says %q, want %q", run.Does, want)
+	}
+	if run.Back != "yardr crew identity yardmaster --source crm --rm" || run.BackBy != "only the operator" {
+		t.Fatalf("the take-back is %q by %q", run.Back, run.BackBy)
+	}
+	if len(run.Seen["crew yardmaster"]) != 64 || len(run.Seen["source crm"]) != 64 {
+		t.Fatalf("the ask keeps seen %q, want SHA-256 hashes of the crew member and the source", run.Seen)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "crew member yardmaster is u1 / boss in crm" {
+		t.Fatalf("the approval ran %q", done.Result)
+	}
+	member, err := y.GetCrew(y.ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := member.Identities["crm"]; got != (Identity{ID: "u1", Key: "boss"}) {
+		t.Fatalf("the crew member is %+v in crm, want u1 / boss", got)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "identity_set", 10)
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("identity_set events = %d, %v", len(evs), err)
+	}
+	y.approved(t, evs[len(evs)-1], seq)
+	seq = y.ask(t, listAsk("mckean", "crew identity yardmaster --source crm --key chief"), "yardmaster")
+	got := y.asked(t, seq).Ask.Run
+	if want := "yardr crew identity yardmaster --source crm --id u1 --key boss"; got.Back != want {
+		t.Fatalf("the second ask's take-back is %q, want %q", got.Back, want)
+	}
+	if want := "It is u1 / boss in crm now."; !slices.Contains(got.Does, want) {
+		t.Fatalf("the second card says %q, want it to hold %q", got.Does, want)
+	}
+}
+
+// Saying who a crew member is in a source is refused past its row: a
+// source the yard declares not, a crew member the yard has not (a user's
+// name among them), an asker who may say it themselves, an identity that
+// would change nothing, and a command beside the row's form.
+func TestRunAskCrewIdentityRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	for _, c := range []struct{ command, actor, want string }{
+		{"crew identity yardmaster --source erp --id u1", "yardmaster", "source erp: not found"},
+		{"crew identity nobody --source crm --id u1", "yardmaster", "crew member nobody: not found"},
+		{"crew identity ada --source crm --id u1", "yardmaster", "crew member ada: not found"},
+		{"crew identity yardmaster --source crm --id u1", "mckean", "needs no approval: run it yourself"},
+		{"crew identity yardmaster --id u1", "yardmaster", "one --source, not 0"},
+		{"crew identity yardmaster", "yardmaster", "one --source, not 0"},
+		{"crew identity yardmaster --source crm", "yardmaster", "--id and/or --key"},
+		{"crew identity yardmaster --source crm --id u1 --id u2", "yardmaster", "--id once, not 2 times"},
+		{"crew identity yardmaster --source crm --key b1 --key b2", "yardmaster", "--key once, not 2 times"},
+		{"crew identity yardmaster --source crm --source erp --id u1", "yardmaster", "one --source, not 2"},
+		{"crew identity yardmaster --source crm --id u1 --rm", "yardmaster", "crew identity with --rm is the operator's to type in a terminal"},
+		{"crew identity --source crm --id u1", "yardmaster", "one crew member, not 0 words"},
+		{"crew identity a b --source crm --id u1", "yardmaster", "one crew member, not 2 words"},
+		{"crew identity yardmaster --source crm --key a[bot]", "yardmaster", "'[' is none of their characters"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), c.actor); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q as %s = %v, want %q", c.command, c.actor, err, c.want)
+		}
+	}
+	if err := y.SetIdentity(y.ctx, "yardmaster", "crm", Identity{ID: "u1", Key: "boss"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", "crew identity yardmaster --source crm --id u1 --key boss"), "yardmaster"); err == nil || !strings.Contains(err.Error(), "is u1 / boss in crm already") {
+		t.Errorf("asking the identity that stands = %v, want it refused as changing nothing", err)
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// A key the source carries lowercase is stored folded however it was
+// typed, as a terminal stores it, and the card says so.
+func TestRunAskCrewIdentityFoldsTheKey(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	const folding = `name: folding
+base: https://folding.example.com/v1
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+identity:
+  fold: lower
+`
+	if _, err := y.PutSource(y.ctx, "folding.yaml", folding, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, listAsk("mckean", "crew identity yardmaster --source folding --key YardMaster"), "yardmaster")
+	run := y.asked(t, seq).Ask.Run
+	if want := "folding carries keys lowercase, so YardMaster is stored as yardmaster."; !slices.Contains(run.Does, want) {
+		t.Fatalf("the card says %q, want it to hold %q", run.Does, want)
+	}
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	} else if done.Result != "crew member yardmaster is yardmaster in folding" {
+		t.Fatalf("the approval ran %q", done.Result)
+	}
+	r, err := y.GetCrew(y.ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Identities["folding"]; got != (Identity{Key: "yardmaster"}) {
+		t.Fatalf("the crew member is %+v in folding, want the folded key", got)
+	}
+}
+
+// Saying who a crew member is in a source is an operator-only action that
+// may be asked. Its run row must use the same check as SetIdentity for
+// both the proposer and the operator.
+func TestRunAskCrewIdentityUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	c, argv, err := parseRun([]string{"crew identity yardmaster --source crm --id u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.check == nil {
+		t.Fatal("crew identity has no asker permission check")
+	}
+	var askerErr, operatorErr error
+	if err := y.write(func(w *wtx) error {
+		askerErr = c.check(y.ctx, w, argv, "yardmaster")
+		operatorErr = c.check(y.ctx, w, argv, "mckean")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	directErr := y.SetIdentity(y.ctx, "yardmaster", "crm", Identity{ID: "u1"}, "yardmaster")
+	if directErr == nil || askerErr == nil || askerErr.Error() != directErr.Error() {
+		t.Fatalf("run row check = %v, direct crew identity = %v", askerErr, directErr)
+	}
+	if class, ok := IsOperatorOnly(askerErr); !ok || class != Askable {
+		t.Fatalf("crew identity refusal = %v; operator-only class is %v, %v", askerErr, class, ok)
+	}
+	if operatorErr != nil {
+		t.Errorf("operator's crew identity check = %v, want allowed", operatorErr)
 	}
 }

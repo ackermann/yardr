@@ -418,9 +418,9 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	if _, err := api.PutHook(ctx, *h, "yardmaster"); err != nil {
 		t.Fatalf("saying more as yardmaster: %v", err)
 	}
-	// So is whom it acts as, with its map, under today's rule: the crew
-	// member speaks as itself.
-	if err := api.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "yardmaster"); err != nil {
+	// Whom it acts as is the operator's to say; with its map, under
+	// today's rule, the crew member speaks as itself.
+	if err := api.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	h, err = api.GetHook(ctx, "h1")

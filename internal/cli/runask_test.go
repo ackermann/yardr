@@ -56,6 +56,15 @@ const runCRM = `name: crm
 base: https://crm.example.com/v1
 credential: { env: CRM_TOKEN, header: "Authorization: Bearer {credential}" }
 idempotency: Idempotency-Key
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Crm-Signature, encoding: hex }
+    delivery: { header: Crm-Delivery }
+  bodies: repeat
+  normalize: [normalize]
+  keys: [queue]
 calls:
   find: { kind: read, request: { method: GET, path: /contacts } }
   note: { kind: update, request: { method: POST, path: /notes, body: { text: hello } } }
@@ -192,6 +201,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr user rm <name>":                                          {"user rm ada"},
 		"yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>": {
 			"crew set yardmaster peers=airy",
+		},
+		"yardr crew identity <name> --source <source> [--id <id>] [--key <key>]": {
+			"crew identity yardmaster --source crm --id u1 --key boss",
 		},
 		"yardr settings set <key> <value>":             {"settings set max_sessions 20"},
 		"yardr peer rename <old> <new>":                {"peer rename airy north"},
@@ -350,7 +362,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added"} {
+					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "identity_set", "identity_removed"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)
@@ -369,7 +381,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				text, err := json.Marshal(map[string]any{"peers": peers, "sources": sources, "grants": grants,
 					"subscriptions": jo.Subscriptions, "tell": jo.Tell, "changes": changes, "users": users,
-					"crew":     map[string]any{"name": crew.Name, "runner": crew.Runner, "journal": crew.Journal, "config": crew.Config},
+					"crew":     map[string]any{"name": crew.Name, "runner": crew.Runner, "journal": crew.Journal, "config": crew.Config, "identities": crew.Identities},
 					"settings": settings, "timers": timerIDs, "journal": journal.Originator})
 				if err != nil {
 					t.Fatal(err)

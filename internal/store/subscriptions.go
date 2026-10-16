@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // Identity is who a crew member is in a source, so a delivery can tell when it
@@ -214,27 +216,12 @@ func (s Subscription) same(o Subscription) bool {
 
 // SetIdentity records who the crew member, or else the user, called name
 // is in source; a zero identity removes it. The two share one space of
-// names, so a name is one of them. A user's is theirs and the operator's
-// to say (mayIdentify).
+// names, so a name is one of them. A crew member's is the operator's to
+// say, and a run ask may propose it (setCrewIdentity); a user's is theirs
+// and the operator's to say (mayIdentify).
 func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error {
 	if source == "" {
 		return fmt.Errorf("identity: source is required")
-	}
-	// set changes the identities of a party of that kind, and says what
-	// the event is.
-	set := func(ids *map[string]Identity, kind, party string) (string, map[string]any, error) {
-		if id.zero() {
-			if _, ok := (*ids)[source]; !ok {
-				return "", nil, fmt.Errorf("%s %s has no %s identity: %w", kind, name, source, ErrNotFound)
-			}
-			delete(*ids, source)
-			return "identity_removed", map[string]any{party: name, "source": source}, nil
-		}
-		if *ids == nil {
-			*ids = map[string]Identity{}
-		}
-		(*ids)[source] = id
-		return "identity_set", map[string]any{party: name, "source": source, "id": id.ID, "key": id.Key}, nil
 	}
 	var user bool
 	if err := s.read(func(tx *bolt.Tx) error {
@@ -252,7 +239,8 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 			if err := w.mayIdentify(ctx, name, actor); err != nil {
 				return err
 			}
-			kind, data, err := set(&u.Identities, "user", "user")
+			id.Key = foldIdentityKey(w.Tx, source, id.Key)
+			kind, data, err := setIdentityIn(&u.Identities, name, source, id, "user", "user")
 			if err != nil {
 				return err
 			}
@@ -262,13 +250,78 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 			return w.event("", kind, actor, data)
 		})
 	}
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		kind, data, err := set(&r.Identities, "crew member", "crew")
-		if err != nil {
-			return err
-		}
-		return w.event(r.Journal, kind, actor, data)
+	return s.write(func(w *wtx) error {
+		return w.setCrewIdentity(ctx, name, source, id, actor, nil)
 	})
+}
+
+// setIdentityIn changes the identities of a party of that kind, and says
+// what the event is.
+func setIdentityIn(ids *map[string]Identity, name, source string, id Identity, kind, party string) (string, map[string]any, error) {
+	if id.zero() {
+		if _, ok := (*ids)[source]; !ok {
+			return "", nil, fmt.Errorf("%s %s has no %s identity: %w", kind, name, source, ErrNotFound)
+		}
+		delete(*ids, source)
+		return "identity_removed", map[string]any{party: name, "source": source}, nil
+	}
+	if *ids == nil {
+		*ids = map[string]Identity{}
+	}
+	(*ids)[source] = id
+	return "identity_set", map[string]any{party: name, "source": source, "id": id.ID, "key": id.Key}, nil
+}
+
+// setCrewIdentity records who the crew member name is in source, as the
+// operator: a mention or an assignment of the id or key there is then
+// addressed to it, so whoever sets it sends what is meant for another to
+// it, or blinds it to what is meant for it. by is the ask the change was
+// approved on, nil for a change typed in a terminal.
+func (w *wtx) setCrewIdentity(ctx context.Context, name, source string, id Identity, actor string, by *approvedOn) error {
+	if err := w.operatorOnly(ctx, actor, "say who a crew member is in a source", Askable); err != nil {
+		return err
+	}
+	var r CrewMember
+	if ok, err := get(w.Tx, bCrew, name, &r); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+	}
+	id.Key = foldIdentityKey(w.Tx, source, id.Key)
+	kind, data, err := setIdentityIn(&r.Identities, name, source, id, "crew member", "crew")
+	if err != nil {
+		return err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	r.Revision = newRevision()
+	if err := put(w.Tx, bCrew, name, r); err != nil {
+		return err
+	}
+	return w.event(r.Journal, kind, actor, data)
+}
+
+// foldIdentityKey is the key as the source's deliveries carry it: a source
+// the yard declares whose identity folds lower keeps one spelling however
+// it was typed. The CLI folds the key before the store by the same rule
+// (hooks.KeyFolderFor, which the store does not read); folding here too
+// keeps what a run ask approves as a terminal would store it. A source the
+// yard declares not, or whose declaration this yardr does not read, keeps
+// the key as given.
+func foldIdentityKey(tx *bolt.Tx, name, key string) string {
+	if key == "" {
+		return ""
+	}
+	src := new(Source)
+	if ok, err := get(tx, bSources, name, src); err != nil || !ok {
+		return key
+	}
+	d, err := src.Declaration()
+	if err != nil || d.Identity == nil || d.Identity.Fold != source.FoldLower {
+		return key
+	}
+	return strings.ToLower(key)
 }
 
 // mayIdentify refuses a change of who the user name is in a source by

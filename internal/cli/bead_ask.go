@@ -152,6 +152,9 @@ is one of the list the yard runs from a card:
   crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>
       a crew member may open threads or set the status of threads in the
       sources, or mail crew members of the peers
+  crew identity <name> --source <source> [--id <id>] [--key <key>]
+      who the crew member is in the source: mentions and assignments of
+      the id or key there are then addressed to it
   settings set <key> <value>
       the yard's own setting changes; who the operator is and the settings
       of where the yard reads and serves from are the operator's alone

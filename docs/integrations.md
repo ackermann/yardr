@@ -180,7 +180,14 @@ as a user id when the payload carries the rich text, and as the
 profile key (`@yardr`) when it carries markdown only, so a Linear identity
 wants both. GitHub's reports logins in lowercase, so a GitHub identity is
 `--key <login>`; a GitHub App's is `--key '<slug>[bot]'`, and `@<slug>`
-mentions it.
+mentions it. Saying who a crew member is in a source is the operator's,
+and a crew member that needs its identity set proposes the command with a
+run ask (`yardr bead ask <id> "<question>" --run "crew identity <name>
+--source <source> --id <id> --key <key>"`,
+[chat.md](chat.md#questions-for-you)): the card says which crew member and
+which source, and that mentions and assignments of the id or key there
+will be addressed to it. A source the yard declares not, and a crew
+member the yard has not, are refused.
 
 With that, for each crew member subscribed to the source:
 

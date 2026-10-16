@@ -310,6 +310,7 @@ or decline it. The command is one of a fixed list:
 | `user add <name>` | a user added: they read mail from now on, and are told nothing from before | only the operator, with `user rm` |
 | `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the mail stays in the log | only the operator, with `user add`, which starts them fresh |
 | `crew set <name> open_threads=<sources> \| set_state=<sources> \| peers=<peers>` | what a crew member may newly do outside the yard | anyone where grants were given, only the operator where they were taken, with the grants that stood, which the card names |
+| `crew identity <name> --source <source> [--id <id>] [--key <key>]` | who the crew member is in the source: mentions and assignments of the id or key there are then addressed to it | only the operator, with the identity that stood, which the card names, or `--rm` where none did |
 | `settings set <key> <value>` | a setting changed | only the operator, with the value that stood, which the card names |
 | `peer rename <old> <new>` | a link renamed: its key, address and what it carries stay the same | only the operator, with the name that stood |
 | `bead update <bead> --originator <user>` | whose a bead is for | only the operator, with the originator that stood; a bead that was for no one can only be for another after |

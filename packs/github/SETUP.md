@@ -90,8 +90,14 @@ file's.
    yardr crew identity <name> --source github --key <login>
    yardr crew identity <name> --source github --key '<slug>[bot]'
    ```
-   A login is kept lowercase, however it was typed. What the bot does is
-   then its own, and @\<slug\> in a comment mentions it.
+   A crew member setting itself up proposes the login instead, from its
+   session, and the operator approves it on the card:
+   ```sh
+   yardr bead ask <bead> "Who am I on GitHub?" --run "crew identity <name> --source github --key <login>"
+   ```
+   A bot login (`<slug>[bot]`) has characters no run ask carries, so it
+   stays typed. A login is kept lowercase, however it was typed. What the
+   bot does is then its own, and @\<slug\> in a comment mentions it.
 5. **The grants.** Opening issues and setting their status are the
    operator's to grant:
    ```sh
