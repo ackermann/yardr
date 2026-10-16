@@ -839,6 +839,16 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 // command wrote besides, added to --json's output; after prints it, below
 // the import's result.
 func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
+	// The apply lock (config.ApplyLock), from the import's final check
+	// through its last write: its questions were asked and its import
+	// confirmed in planImport, before this. The server's carrying out
+	// of an approved apply holds the same lock, so the two never
+	// interleave on the same files and records (yardr-bht9 3.5).
+	release, err := config.AcquireApplyLock(i.plan.Home)
+	if err != nil {
+		return err
+	}
+	defer release()
 	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, Expose: i.expose.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
 	if err != nil {
 		if res != nil {

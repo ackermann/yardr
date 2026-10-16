@@ -443,7 +443,8 @@ env_file; what the new file changes of its calls is printed.`,
 			// to add, as the declaration is: they are looked at before the
 			// store is asked, and copied after it has answered.
 			home := ""
-			if d.HasCommandFiles() || (before != nil && before.HasCommandFiles()) {
+			copies := d.HasCommandFiles() || (before != nil && before.HasCommandFiles())
+			if copies {
 				cfg, err := config.Load()
 				if err != nil {
 					return err
@@ -461,11 +462,27 @@ env_file; what the new file changes of its calls is printed.`,
 					return err
 				}
 			}
+			// The apply lock (config.ApplyLock), from the storing
+			// through the copy: the server's carrying out of an
+			// approved apply holds the same lock for the same files
+			// and records, so the two never interleave (yardr-bht9 3.5).
+			if home == "" {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				home = cfg.Home
+			}
+			release, err := config.AcquireApplyLock(home)
+			if err != nil {
+				return err
+			}
+			defer release()
 			saved, err := st.PutSource(c.Context(), args[0], string(text), a.who())
 			if err != nil {
 				return err
 			}
-			if home != "" {
+			if copies {
 				// CopyCommandFiles makes the directory anew, so the files of
 				// the declaration this one replaces are gone with it.
 				if err := d.CopyCommandFiles(declDir, home); err != nil {
@@ -755,6 +772,25 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
+			// The apply lock (config.ApplyLock) before the source is
+			// read and its command files decided on, held through the
+			// delete and the files' removal: a remove that read
+			// files=false before a carrying out gave the source
+			// command files would delete the source and leave the
+			// copies the carrying out wrote (yardr-bht9 3.5). The
+			// carrying out holds the same lock, as do a terminal pack
+			// apply and source add.
+			cfg := a.cfg
+			if cfg == nil {
+				if cfg, err = config.Load(); err != nil {
+					return err
+				}
+			}
+			release, err := config.AcquireApplyLock(cfg.Home)
+			if err != nil {
+				return err
+			}
+			defer release()
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
 				return err
@@ -772,10 +808,6 @@ the variable and whether the env_file sets it. The value is never printed.
 				return err
 			}
 			if files {
-				cfg, err := config.Load()
-				if err != nil {
-					return err
-				}
 				if err := source.RemoveCommandFiles(cfg.Home, args[0]); err != nil {
 					return err
 				}

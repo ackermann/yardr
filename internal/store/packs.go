@@ -55,7 +55,13 @@ type PackImport struct {
 	// may open threads in: the yard's crew member -> source -> whether the
 	// operator said yes. A source nobody was asked about is not in it, so a
 	// later import asks.
-	OpenThreads map[string]map[string]bool `json:"open_threads,omitempty"`
+	// ApprovedBead and ApprovedAsk name the run ask this import was
+	// approved on, where it was carried out from one (yardr-bht9 3.5):
+	// the pack_applied event then carries it, as a run ask's own events
+	// do. They are the carrying out's alone and are never stored.
+	ApprovedBead string                     `json:"-"`
+	ApprovedAsk  uint64                     `json:"-"`
+	OpenThreads  map[string]map[string]bool `json:"open_threads,omitempty"`
 	// Calls are the answers to what the pack asked that its groups'
 	// sessions and its crew may call of a declared source: the grantee, as
 	// Grantee.String says it of the yard's group or crew member ("group
@@ -204,6 +210,9 @@ func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, ac
 		data := map[string]any{"pack": rec.Pack, "depot": rec.Depot, "source": rec.Source}
 		if rec.Commit != "" {
 			data["commit"] = rec.Commit
+		}
+		if rec.ApprovedBead != "" {
+			data["approved"] = &approvedOn{Bead: rec.ApprovedBead, Ask: rec.ApprovedAsk}
 		}
 		if had && !changed && old.same(rec) {
 			return w.event("", "pack_unchanged", actor, data)

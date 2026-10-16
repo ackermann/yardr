@@ -1238,10 +1238,22 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		by := OneLine(ViaMark(who(c.Note.Author), c.Note.Via))
 		switch {
 		case r.Ask.Run != nil && c.Answer.Ran != nil:
-			out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
-			// A command that changed several things printed a line for each.
-			for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
-				out = append(out, "      "+NoteLetters(line))
+			// An approved apply the server has not carried out yet reads
+			// as being carried out, and one whose carrying out failed as
+			// failed: the three readings of a run ask (yardr-bht9 3.5).
+			switch {
+			case c.Answer.Ran.Failed:
+				out = append(out, fmt.Sprintf("  %s approved, failed: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
+			case c.Answer.Ran.Result == CarryPending:
+				out = append(out, fmt.Sprintf("  %s approved, being carried out: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
+			default:
+				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
+			}
+			if c.Answer.Ran.Result != CarryPending {
+				// A command that changed several things printed a line for each.
+				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
+					out = append(out, "      "+NoteLetters(line))
+				}
 			}
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 		case r.Ask.Secret != nil:

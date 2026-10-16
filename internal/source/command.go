@@ -240,7 +240,7 @@ func writeCommandFiles(home, name string, copies []commandCopy) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, c.data, 0o700); err != nil {
+		if err := os.WriteFile(path, c.data, CopyMode); err != nil {
 			return err
 		}
 	}
@@ -251,6 +251,62 @@ func writeCommandFiles(home, name string, copies []commandCopy) error {
 // declaration named no file has nothing to remove.
 func RemoveCommandFiles(home, name string) error {
 	return os.RemoveAll(filepath.Join(home, "sources", name))
+}
+
+// FileCopy is one command file's bytes to stand as a source's copy under
+// <home>/sources/<name>/: the program as a declaration names it, and the
+// bytes the yard runs. A run ask that adds a source carries these (design
+// yardr-bht9 3.5): the carrying out writes exactly them.
+type FileCopy struct {
+	Program string
+	Data    []byte
+}
+
+// CopyMode is the mode of every command copy, the one the card of a run
+// ask that adds a source shows and the one every copy is written with, so
+// the yard can run it and nobody else can read it.
+const CopyMode = 0o700
+
+// WriteCopies writes files as the copies of the source name under home:
+// the destination is removed first and every file is written, mode
+// CopyMode, as writeCommandFiles writes a terminal add's copies, so a
+// partial copy left by a stopped carrying out is repaired whole, never
+// resumed into.
+func WriteCopies(home, name string, files []FileCopy) error {
+	copies := make([]commandCopy, len(files))
+	for i, f := range files {
+		copies[i] = commandCopy{f.Program, f.Data}
+	}
+	return writeCommandFiles(home, name, copies)
+}
+
+// VerifyCopies holds the copies of the source name under home to want,
+// each program with the SHA-256 its bytes must hash to: every one stands,
+// hashes so, and stands at CopyMode, the mode the card showed. It answers
+// the first copy that does not, naming it.
+func VerifyCopies(home, name string, want map[string]string) error {
+	for prog, sum := range want {
+		path := filepath.Join(home, "sources", name, prog)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("source %s: the copy of %s does not stand: %v", name, prog, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("source %s: the copy of %s is not a regular file", name, prog)
+		}
+		if info.Mode().Perm() != CopyMode {
+			return fmt.Errorf("source %s: the copy of %s stands at mode %04o, not %04o", name, prog, info.Mode().Perm(), CopyMode)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("source %s: the copy of %s is not read: %v", name, prog, err)
+		}
+		got := sha256.Sum256(data)
+		if hex.EncodeToString(got[:]) != sum {
+			return fmt.Errorf("source %s: the copy of %s hashes to %s, not %s", name, prog, hex.EncodeToString(got[:]), sum)
+		}
+	}
+	return nil
 }
 
 // CommandFile is the program of one command of the declaration, for

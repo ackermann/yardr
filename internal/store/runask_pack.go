@@ -53,6 +53,16 @@ type PackReader func(ctx context.Context, name string, yard API) (*PackReading, 
 // the server.
 func (s *Store) SetPackReader(r PackReader) { s.packReader = r }
 
+// ReadPack reads the embedded pack of a name through the registered
+// reading, for the server's carrying out of an approved pack apply:
+// the same reading the approval was held to, taken again.
+func (s *Store) ReadPack(ctx context.Context, name string) (*PackReading, error) {
+	if s.packReader == nil {
+		return nil, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store", name)
+	}
+	return s.packReader(ctx, name, s)
+}
+
 // packReaderOf is the reading registered on the store this write
 // belongs to, nil where there is none.
 func (w *wtx) packReaderOf() PackReader {
@@ -746,7 +756,7 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 // the yard's server does the applying after this write (B3), and
 // nothing of the pack is written here.
 func runPackApply(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error) {
-	return "approved, to be carried out", nil
+	return CarryPending, nil
 }
 
 // packApplyStale says why a pack approval is refused: the build or the

@@ -200,7 +200,7 @@ func runSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 		return "", err
 	}
 	if len(d.Commands()) > 0 {
-		return "approved, to be carried out", nil
+		return CarryPending, nil
 	}
 	if len(d.Calls) == 0 {
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), nil
@@ -661,7 +661,7 @@ func commandSays(d *source.Declaration, carried AskSource) []string {
 			}
 			named = append(named, fmt.Sprintf("%s (%s, %s)", showCommand(c.Argv), c.Key, handed))
 		}
-		out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s", prog, andList(named), hashes[prog]))
+		out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s, mode 0700", prog, andList(named), hashes[prog]))
 	}
 	return out
 }

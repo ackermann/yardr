@@ -216,6 +216,36 @@ func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }
 // names the holder's pid and the start time it recorded (see DaemonStart).
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
 
+// ApplyLock is the file the carrying out of an approved pack or source
+// ask and the terminal paths that write the same files and records (a
+// pack apply, a source add, a source rm) hold one exclusive flock on for
+// their whole write phase (design yardr-bht9 3.5). It sits beside
+// DaemonLock, and an flock dies with its process, so a dead holder never
+// wedges the yard.
+func (c *Config) ApplyLock() string { return filepath.Join(c.Home, "apply.lock") }
+
+// AcquireApplyLock takes the yard's apply lock (ApplyLock), waiting while
+// another process holds it, and returns its release. The home is made
+// first, as Load makes it, since a terminal command may reach for the
+// lock of a home nothing has created yet.
+func AcquireApplyLock(home string) (func(), error) {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(At(home).ApplyLock(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}
+
 // DaemonRunning reports whether a process holds an exclusive flock on lock,
 // the daemon on its DaemonLock or a long-running command on its record,
 // without taking it or creating the file.

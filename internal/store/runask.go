@@ -230,11 +230,22 @@ func (r AskRun) TakenBack() string { return or(r.BackBy, "anyone") + " can take 
 // shortens it.
 func (r AskRun) Command() string { return runCommandLine(r.Argv) }
 
+// CarryPending is what an approval of a pack apply, or of a source add
+// that names commands, records until the yard's server has carried it
+// out (design yardr-bht9 3.5): the ask reads as being carried out while
+// its answer holds these words, and as ran or failed once the carrying
+// out completes it.
+const CarryPending = "approved, to be carried out"
+
 // AskRan is what an approved run ask ran: the command, which is the one the
 // ask stored, and what it prints at a terminal, made by the server.
 type AskRan struct {
 	Argv   []string `json:"argv"`
 	Result string   `json:"result"`
+	// Failed says the carrying out of an approved apply failed: Result
+	// then holds the failure in words, and the card reads as failed, not
+	// as ran. Absent on every approval that ran in its own write.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // Command is the command that ran, whole.
@@ -1130,6 +1141,13 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	if err != nil {
 		return nil, err
+	}
+	// An approval the yard carries out after this write leaves its
+	// carrying record in it, for the server to take up (carry.go).
+	if needsCarry(was) {
+		if err := w.recordCarry(row.ID, seq, was, actor); err != nil {
+			return nil, err
+		}
 	}
 	text, err := json.Marshal(Answer{Ask: seq, Ran: &AskRan{Argv: argv, Result: result}})
 	if err != nil {

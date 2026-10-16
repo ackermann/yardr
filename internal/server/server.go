@@ -131,6 +131,12 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	st.SetYard(c.PeerKey(), yards.Says().Yardr)
 	// How a pack apply ask reads the packs this build embeds.
 	st.SetPackReader(packReaderFor(c.Home))
+	// The carrying out of approved applies (carry.go): this start's
+	// boot takes up what an earlier one left, before it serves.
+	boot := newBoot()
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	go runCarryWatcher(watchCtx, st, c.Home, boot, log)
 
 	// We own the store, so a socket file left behind is stale.
 	_ = os.Remove(c.Socket())
