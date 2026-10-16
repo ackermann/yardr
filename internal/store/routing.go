@@ -1030,23 +1030,6 @@ func describeKey(r Route, operator string) string {
 	return strings.Join([]string{r.Stage, typ, label, beads, orig}, ", ")
 }
 
-// setGroups is r's chain as `yardr route set` takes it, for the tie
-// refusal's replacement line.
-func setGroups(r Route) string {
-	gs := r.Groups()
-	parts := []string{"--group " + quoteRouteShellArg(gs[0].String())}
-	for _, g := range gs[1:] {
-		parts = append(parts, "--else "+quoteRouteShellArg(g.String()))
-	}
-	return strings.Join(parts, " ")
-}
-
-// quoteRouteShellArg keeps the route-set hint one argument per group even
-// when a group name or quota window contains shell syntax.
-func quoteRouteShellArg(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // checkRouteTie refuses r where a route of the same scope already takes
 // the same beads (the same match key) at the same priority: two such
 // routes are ordered by id, which nobody chose, so one of them would
@@ -1078,12 +1061,15 @@ func checkRouteTie(tx *bolt.Tx, r Route, operator string) error {
 	base := fmt.Sprintf("route %s already takes these beads %s at priority %d (%s) to %s",
 		tie.ID, scope, tie.Priority, describeKey(*tie, operator), tie.GroupList())
 	if sameChain(*tie, r) {
-		return fmt.Errorf("%s: the same route. Change one route's priority, change what beads it takes, or replace it: yardr route set %s %s",
-			base, tie.ID, setGroups(r))
+		if tie.Note == r.Note {
+			return fmt.Errorf("%s: the same route; no add is needed", base)
+		}
+		return fmt.Errorf("%s: the same route's note differs. An operator or yardmaster can replace it with `yardr route rm %s`; then retry this add",
+			base, tie.ID)
 	}
 	return fmt.Errorf("%s. Two routes that take the same beads at the same priority are ordered by id, which nobody chose. "+
-		"Change one route's priority, change what beads it takes, or replace it: yardr route set %s %s",
-		base, tie.ID, setGroups(r))
+		"Change the new route's priority or filters, or have an operator or yardmaster remove the standing route with `yardr route rm %s` before retrying this add",
+		base, tie.ID)
 }
 
 // quotaGroupsOK is nil when the groups of r, a route with --else or a

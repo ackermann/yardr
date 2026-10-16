@@ -70,7 +70,9 @@ func winner(t *testing.T, s store.API, ctx context.Context, b store.Bead) *store
 // bead with no depot has the default.
 func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
 	s, ctx := defaultsYard(t)
-	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
+	// The default has the higher priority, but an own route's key sets it
+	// aside regardless of the ranking each would have alone.
+	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers", Priority: 3})
 	own := mustRoute(t, s, ctx, store.Route{Stage: "review", Depot: routePtr("web"), Group: "web-reviewers"})
 
 	routes, err := s.Routes(ctx)
@@ -219,7 +221,7 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		want := []string{"route " + first.ID + " already takes these beads in depot web at priority 0",
 			"(new, any type, no label, any bead priority, the operator's beads) to builders",
 			"Two routes that take the same beads at the same priority are ordered by id, which nobody chose",
-			"yardr route set " + first.ID + " --group 'spare'"}
+			"yardr route rm " + first.ID}
 		if err == nil {
 			t.Fatalf("the tying route was added, want a refusal naming %q", want[0])
 		}
@@ -245,8 +247,17 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"}, "jo")
 		if err == nil || !strings.Contains(err.Error(), "route "+first.ID+" already takes these beads") ||
-			!strings.Contains(err.Error(), "the same route") {
+			!strings.Contains(err.Error(), "the same route") || !strings.Contains(err.Error(), "no add is needed") {
 			t.Fatalf("the duplicate: %v, want the same route named", err)
+		}
+	})
+	t.Run("the same route with a changed note", func(t *testing.T) {
+		s, ctx := defaultsYard(t)
+		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Note: "old note"})
+		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Note: "new note"}, "jo")
+		if err == nil || !strings.Contains(err.Error(), "the same route's note differs") ||
+			!strings.Contains(err.Error(), "yardr route rm "+first.ID) {
+			t.Fatalf("the changed note: %v, want a route replacement command naming %s", err, first.ID)
 		}
 	})
 	t.Run("a quota threshold is the chain, not the key", func(t *testing.T) {
@@ -269,19 +280,6 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "spare", Label: &hard, AndLabels: []string{size}}, "jo")
 		if err == nil || !strings.Contains(err.Error(), "route "+first.ID+" already takes these beads") {
 			t.Fatalf("the same labels in another order: %v, want a tie naming %s", err, first.ID)
-		}
-	})
-	t.Run("the replacement hint quotes a group name", func(t *testing.T) {
-		s, ctx := defaultsYard(t)
-		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
-		quoted := "b'c"
-		if err := s.PutGroup(ctx, store.Group{Name: quoted, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
-			t.Fatal(err)
-		}
-		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: quoted}, "jo")
-		want := "yardr route set " + first.ID + ` --group 'b'\''c'`
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("the tying route: %v, want a shell-safe replacement hint containing %q", err, want)
 		}
 	})
 	t.Run("naming the operator is naming nobody", func(t *testing.T) {
@@ -341,6 +339,13 @@ func TestRouteNoteIsStoredAndLogged(t *testing.T) {
 	bead := store.Bead{Stage: "new", Type: "task", Priority: store.DefaultPriority}
 	if got := winner(t, s, ctx, bead); got == nil || got.ID != saved.ID {
 		t.Errorf("a bead took %+v, want the noted route %s: the note takes no part in matching", got, saved.ID)
+	}
+	if err := s.DeleteRoute(ctx, saved.ID, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := s.EventsOfKind(ctx, "route_removed", 1)
+	if err != nil || len(removed) != 1 || removed[0].Data["note"] != saved.Note {
+		t.Fatalf("route_removed = %+v, %v, want the route's note", removed, err)
 	}
 }
 
