@@ -37,6 +37,11 @@ import (
 type AskSecret struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
+	// Hook is the hook whose signing secret is asked for, "" for a
+	// credential: Source is then the hook's source, Env the one name
+	// the value is given under (hookSecretEnv), and the value goes to
+	// the hook's secret file (HookSecretFile), never to an env file.
+	Hook string `json:"hook,omitempty"`
 	// Login is the waiting login the value goes to, the reference its
 	// leader printed in its input need. Set instead of a source.
 	Login string `json:"login,omitempty"`
@@ -62,6 +67,9 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 // line names the command that does. A login input goes to the login that
 // waits, and names it.
 func (s AskSecret) Line() string {
+	if s.Hook != "" {
+		return fmt.Sprintf("a secret: the signing secret for the hook %s (POST /hooks/%s), for the source %s (%s)", s.Hook, s.Hook, s.Source, s.Host)
+	}
 	if s.Login != "" {
 		return fmt.Sprintf("a secret: %s, for the waiting login %s", s.Names(), s.Login)
 	}
@@ -81,7 +89,10 @@ type SecretAsked struct {
 	Env    []string `json:"env"`
 	User   string   `json:"user,omitempty"`
 	Login  string   `json:"login,omitempty"`
-	Line   string   `json:"line"`
+	// Hook is the hook whose signing secret is asked for; absent on any
+	// other secret.
+	Hook string `json:"hook,omitempty"`
+	Line string `json:"line"`
 }
 
 // asked is the secret of the ask a as a client shows it, nil for an ask
@@ -90,7 +101,7 @@ func (a Ask) asked() *SecretAsked {
 	if a.Secret == nil {
 		return nil
 	}
-	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Login: a.Secret.Login, Line: a.Secret.Line()}
+	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Login: a.Secret.Login, Hook: a.Secret.Hook, Line: a.Secret.Line()}
 }
 
 // sourceHost is where the calls of the source d declares go: the scheme and
@@ -131,6 +142,9 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	if err != nil {
 		return nil, err
 	}
+	if hook := strings.TrimSpace(sec.Hook); hook != "" {
+		return w.askedHookSecret(d, hook, sec, to)
+	}
 	if user := strings.TrimSpace(sec.User); user != "" {
 		return w.askedAddress(d, user, sec.Env, to)
 	}
@@ -158,6 +172,47 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 		return nil, fmt.Errorf("a secret is the operator's to give (%s): setting a source's credential is theirs alone, so %s cannot be asked for one", operator, to)
 	}
 	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d)}, nil
+}
+
+// hookSecretEnv is the one name a hook's signing secret is given under:
+// the hook's name as a variable, so a giving typed as NAME=value lines
+// names it and a card's "gave <name>" says which hook it was for.
+func hookSecretEnv(hook string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "_").Replace(hook)) + "_SIGNING_SECRET"
+}
+
+// askedHookSecret checks an ask for the signing secret of the hook hook
+// of the source d declares, asked of to, and answers it as the ask
+// stores it: the hook, the source by its own name, the one name the
+// value is given under and the host. It refuses a hook name no hook
+// may take, a hook the yard has already (its replacement, secret
+// included, stays the operator's in a terminal), a source whose
+// declaration has no hook key, a user beside the hook, and anyone but
+// the operator as the one asked: giving is the operator's alone, as
+// adding the hook is.
+func (w *wtx) askedHookSecret(d *source.Declaration, hook string, sec AskSecret, to string) (*AskSecret, error) {
+	switch {
+	case strings.TrimSpace(sec.User) != "":
+		return nil, fmt.Errorf("a hook's signing secret is the operator's to give, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
+	case !hookName.MatchString(hook):
+		return nil, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", hook)
+	case d.Hook == nil:
+		return nil, fmt.Errorf("source %s: its declaration has no hook key, so the yard hears nothing from it and there is no signing secret to ask for", d.Name)
+	}
+	if w.Bucket(bHooks).Get([]byte(hook)) != nil {
+		return nil, fmt.Errorf("hook %s is in the yard already: replacing it, secret included, is the operator's to type in a terminal (yardr hook add %s --source %s --secret-file <file>)", hook, hook, d.Name)
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case operator == "":
+		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
+	case to != operator:
+		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a hook's signing secret is theirs alone, so %s cannot be asked for one", operator, to)
+	}
+	return &AskSecret{Source: d.Name, Env: []string{hookSecretEnv(hook)}, Host: sourceHost(d), Hook: hook}, nil
 }
 
 // askedLogin checks an ask for the input of the waiting login sec names,
@@ -244,6 +299,11 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // pane of an agent). It sets no notify: that the user is told through the
 // source is a second thing, and theirs to say.
 //
+// An ask for a hook's signing secret (AskSecret.Hook) is given the same
+// way into the hook's secret file the yard owns (giveHookSecret), by the
+// operator alone: the hook the ask names must still be the yard's to
+// add, and the hook add that names the file is a second ask.
+//
 // An ask for a waiting login's input (AskSecret.Login) is handed to the
 // login that waits under its reference (LoginWait) and goes to no file: the
 // answer note holds the names and never the value, as any giving does, and
@@ -308,6 +368,8 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	// what the transaction would take back.
 	if sec.User != "" {
 		err = w.mayTell(ctx, sec.User, actor)
+	} else if sec.Hook != "" {
+		err = w.operatorOnly(ctx, actor, "give a hook's signing secret", Alone)
 	} else if sec.Login != "" {
 		err = w.maySource(ctx, actor, "answering the login", Alone)
 	} else {
@@ -340,10 +402,44 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 		return err
 	}
+	if sec.Hook != "" {
+		return w.giveHookSecret(home, sec, &src, values, k)
+	}
 	if sec.User != "" {
 		return w.keyUser(ctx, home, sec.User, sec.Source, values, actor, k)
 	}
 	return w.keySource(ctx, home, sec.Source, values, actor, k)
+}
+
+// giveHookSecret is giveSecret for a hook's signing secret: the value
+// goes to the hook's secret file the yard owns (HookSecretFile), in the
+// order keySource keeps: the answer note is put first and the file's
+// rename last, so the store never says "gave" of a value the file does
+// not hold, and a commit that fails after the rename leaves the value
+// in the file with the ask open (KeyNotRecorded, through k). It refuses
+// a hook the yard has taken since the ask, as askedHookSecret refused
+// one it had then: the hook that stands names its own secret file.
+func (w *wtx) giveHookSecret(home string, sec *AskSecret, src *Source, values map[string]string, k *sourceKey) error {
+	if w.Bucket(bHooks).Get([]byte(sec.Hook)) != nil {
+		return fmt.Errorf("hook %s is in the yard already: its signing secret is the file it names, changed in a terminal", sec.Hook)
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return err
+	}
+	if d.Hook == nil {
+		return fmt.Errorf("source %s: its declaration has no hook key now, so there is no signing secret to give", sec.Source)
+	}
+	k.src, k.hook, k.names = src, sec.Hook, slices.Clone(sec.Env)
+	file, renamed, err := writeHookSecret(home, sec.Hook, values[sec.Env[0]])
+	k.file, k.renamed = file, k.renamed || renamed
+	if err != nil {
+		return err
+	}
+	if afterKeyRename != nil {
+		return afterKeyRename()
+	}
+	return nil
 }
 
 // giveLogin is giveSecret for an ask for a waiting login's input: the value

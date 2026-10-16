@@ -381,6 +381,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		return oneLine(fmt.Sprintf("%s gave %s, %s's own address in the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.User, ask.Secret.Source, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.Login != "":
 		return oneLine(fmt.Sprintf("%s gave %s to the waiting login %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Login, askSeq, bead))
+	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.Hook != "":
+		return oneLine(fmt.Sprintf("%s gave %s, the signing secret for the hook %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Hook, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil:
 		return oneLine(fmt.Sprintf("%s gave %s for the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Source, askSeq, bead))
 	case ans.Later:

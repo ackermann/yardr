@@ -401,6 +401,15 @@ var runList = []runCommand{{
 	stale:       (*wtx).packApplyStale,
 	runRun:      runPackApply,
 }, {
+	words:       []string{"hook", "add"},
+	use:         "yardr hook add <name> --source <declared source>",
+	description: "Create or replace a webhook endpoint POST /hooks/<name>",
+	parse:       parseHookAdd,
+	check:       checkHookAdd,
+	card:        (*wtx).hookAddCard,
+	stale:       (*wtx).hookAddStale,
+	run:         runHookAdd,
+}, {
 	words:       []string{"subscribe"},
 	use:         "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
 	description: "Deliver a source's events to a crew member's inbox, or a user's as notifications (no arguments: who is told what)",

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -29,6 +32,83 @@ const MaxHookPayload = 1 << 20
 
 // hookName is what may appear in /hooks/<name>.
 var hookName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+// HookSecretFile is the file the yard owns for the hook name's signing
+// secret: <home>/hooks/<name>.secret. A hook made from a card names it,
+// and a secret ask for the hook writes it (writeHookSecret); a hook made
+// in a terminal names a file of the operator's instead.
+func HookSecretFile(home, name string) string {
+	return filepath.Join(home, "hooks", name+".secret")
+}
+
+// writeHookSecret writes the hook name's signing secret to its file
+// under home (HookSecretFile), mode 0600, as WriteEnvFile writes an env
+// file: whole to a second file beside it, synced and renamed into
+// place, so a reader sees the old file or the new one. A file that is
+// there is held to the rule it is read under and refused, not repaired,
+// when it breaks it; so is a symbolic link. renamed says the rename was
+// done. Errors name the hook and the file, never the value.
+func writeHookSecret(home, name, value string) (file string, renamed bool, err error) {
+	file = HookSecretFile(home, name)
+	switch {
+	case value == "":
+		return file, false, fmt.Errorf("hook %s: the signing secret is empty, and nothing is written", name)
+	case strings.ContainsAny(value, "\r\n"):
+		return file, false, fmt.Errorf("hook %s: the signing secret has a line break in it, and nothing is written", name)
+	case strings.TrimSpace(value) != value:
+		return file, false, fmt.Errorf("hook %s: the signing secret begins or ends with white space, and nothing is written", name)
+	}
+	if st, err := os.Lstat(file); err == nil {
+		if st.Mode()&os.ModeSymlink != 0 {
+			return file, false, fmt.Errorf("hook %s: the secret file %s is a symbolic link, and the yard writes through none", name, file)
+		}
+		if !st.Mode().IsRegular() {
+			return file, false, fmt.Errorf("hook %s: the secret file %s is not a regular file", name, file)
+		}
+		if perm := st.Mode().Perm(); perm&0o077 != 0 {
+			return file, false, fmt.Errorf("hook %s: the secret file %s is open to others (mode %04o); chmod 600 it", name, file, perm)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return file, false, fmt.Errorf("hook %s: %w", name, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return file, false, fmt.Errorf("hook %s: %w", name, err)
+	}
+	tmp := filepath.Join(filepath.Dir(file), "."+filepath.Base(file)+".new")
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return file, false, fmt.Errorf("hook %s: %w", name, err)
+	}
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return file, false, fmt.Errorf("hook %s: %w", name, err)
+	}
+	err = func() error {
+		defer f.Close()
+		if err := f.Chmod(0o600); err != nil {
+			return err
+		}
+		if _, err := f.WriteString(value); err != nil {
+			return err
+		}
+		return f.Sync()
+	}()
+	if err == nil {
+		err = os.Rename(tmp, file)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return file, false, fmt.Errorf("hook %s: %w", name, err)
+	}
+	dir, err := os.Open(filepath.Dir(file))
+	if err == nil {
+		err = dir.Sync()
+		dir.Close()
+	}
+	if err != nil {
+		return file, true, fmt.Errorf("hook %s: %w", name, err)
+	}
+	return file, true, nil
+}
 
 // Hook is a named webhook endpoint. The secret stays in SecretFile, read
 // when a delivery is verified, so it never enters the store, the event log
@@ -464,6 +544,24 @@ func (h Hook) Said(data map[string]any, stage, beadType string) *Say {
 // anywhere else as given (paneAuthor). A hook that acts as a crew member
 // still speaks as it (maySpeakAs).
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
+	var out *Hook
+	err := s.write(func(w *wtx) error {
+		var err error
+		out, err = w.putHook(ctx, h, actor, nil, Alone)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// putHook is PutHook inside the transaction, so that an approved run
+// ask adds the hook in the write that records its approval: by is then
+// the ask it was approved on, which the event carries, and add is the
+// mark its new-hook check carries (Alone from a terminal, Askable from
+// a card: a new hook a crew member may propose, a replacement never).
+func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn, add AskClass) (*Hook, error) {
 	h.Blocked = ""
 	if !hookName.MatchString(h.Name) {
 		return nil, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", h.Name)
@@ -480,51 +578,54 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	if len(h.Makes) == 0 {
 		h.Makes = nil
 	}
-	err := s.write(func(w *wtx) error {
+	{
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		actor = resolved
 		var was Hook
 		had, err := get(w.Tx, bHooks, h.Name, &was)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		switch {
 		case !had:
-			if err := w.operatorOnly(ctx, actor, "add a hook", Alone); err != nil {
-				return err
+			if err := w.operatorOnly(ctx, actor, "add a hook", add); err != nil {
+				return nil, err
 			}
 		case was.Source != h.Source || was.SecretFile != h.SecretFile:
 			if err := w.operatorOnly(ctx, actor, "change a hook's source or secret file", Alone); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		keys := whereKeysTx(w.Tx, h.Source)
 		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
-			return err
+			return nil, err
 		}
 		if err := h.checkMakes(keys); err != nil {
-			return err
+			return nil, err
 		}
 		if err := h.checkCI(w.Tx); err != nil {
-			return err
+			return nil, err
 		}
 		data := map[string]any{"hook": h.Name, "source": h.Source}
+		if by != nil {
+			data["approved"] = by
+		}
 		if h.As != "" {
 			var r CrewMember
 			if ok, err := get(w.Tx, bCrew, h.As, &r); err != nil {
-				return err
+				return nil, err
 			} else if !ok {
-				return fmt.Errorf("hook %s: --as %s: crew member %s: %w", h.Name, h.As, h.As, ErrNotFound)
+				return nil, fmt.Errorf("hook %s: --as %s: crew member %s: %w", h.Name, h.As, h.As, ErrNotFound)
 			}
 			// A hook that acts as a crew member speaks as it.
 			if err := maySpeakAs(ctx, w.Tx, h.As, actor); err != nil {
-				return fmt.Errorf("hook %s: %w", h.Name, err)
+				return nil, fmt.Errorf("hook %s: %w", h.Name, err)
 			}
 			if r.Identities[h.Source].zero() {
-				return fmt.Errorf("hook %s: --as %s: crew member %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr crew identity %s --source %s --id <its id there>",
+				return nil, fmt.Errorf("hook %s: --as %s: crew member %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr crew identity %s --source %s --id <its id there>",
 					h.Name, h.As, h.As, h.Source, h.As, h.Source)
 			}
 			data["as"] = h.As
@@ -540,14 +641,13 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		}
 		h.Accepted, h.Refused, h.RefusedFor = was.Accepted, was.Refused, was.RefusedFor
 		if err := put(w.Tx, bHooks, h.Name, h); err != nil {
-			return err
+			return nil, err
 		}
-		return w.event("", "hook_added", actor, data)
-	})
-	if err != nil {
-		return nil, err
+		if err := w.event("", "hook_added", actor, data); err != nil {
+			return nil, err
+		}
+		return &h, nil
 	}
-	return &h, nil
 }
 
 func (s *Store) Hooks(ctx context.Context) ([]Hook, error) {

@@ -65,6 +65,17 @@ What you do:
 - **Decisions.** Anything that is Christopher's to decide goes to stage `decide`
   with the question and the options in the bead. Until yard has channels to reach
   people (yard-1), also say it in your pane.
+- **Hooks.** Set up a hook (`POST /hooks/<name>`) by two asks on one bead,
+  the secret first: ask for its signing secret
+  (`yardr bead ask <id> "…" --secret-hook <name> --source <source>
+  --context "…"`), then for the hook itself
+  (`yardr bead ask <id> "…" --run "hook add <name> --source <source>"
+  --context "…"`). Christopher pastes the secret where the service shows
+  it, typed unseen; the yard's server keeps it in
+  `<home>/hooks/<name>.secret` (mode 0600), which the hook names, and it
+  is in no note or pane. Never handle the secret yourself, and never mail
+  a line for him to paste into a terminal. `--map`, `--as` and replacing a
+  hook stay his in a terminal (docs/integrations.md, a pack's SETUP.md).
 - **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,
   `yardr bead list --stage review`. `--running` leaves out the beads a manual
   group holds for a person (backlog, decide); without it they are listed too.

@@ -1300,6 +1300,24 @@ A file open to others is refused (`… is open to others (mode 0644); chmod
 rewriting the file ([subscriptions.md](subscriptions.md#the-secret-file)).
 One hook serves every crew member.
 
+A crew member sets the hook up without handling the secret, by two asks
+on one bead, the secret first. It asks for the signing secret
+(`yardr bead ask <id> "…" --secret-hook linear --source linear --context
+"…"`): the operator pastes the secret where the service shows it, typed
+unseen (`yardr bead answer <id> <ask> --secret`, or `ctrl+o` in chat), and
+the yard's server writes it to `<home>/hooks/linear.secret` (mode 0600),
+which the hook then names; the value is in no note, event, mail, brief or
+pane. It then asks for the hook itself
+(`yardr bead ask <id> "…" --run "hook add linear --source linear" --context
+"…"`): the card says `POST /hooks/linear`, the source, and that it takes
+the source's signing secret from that file, and approving it
+(`yardr bead answer <id> <ask> --approve`) makes the hook, which takes
+deliveries only with the secret standing in its file. The asks are refused
+for a source the yard does not declare, one whose declaration has no hook
+key, and a hook the yard has already; `--map` and `--as` stay in a
+terminal, as a replacement does. The steps by hand above stay the way to
+make or replace one in a terminal.
+
 *(in Linear)* Settings → API → Webhooks: the URL
 `https://<public host>/hooks/linear`, the events Issues and Comments. Its
 signing secret is what goes in the file.

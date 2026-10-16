@@ -30,6 +30,18 @@ means in Linear is a flow pack's to say, not this file's.
    # hook linear saved: POST /hooks/linear (linear)
    ```
    One hook serves every crew member.
+
+   A crew member sets the hook up without handling the secret, by two
+   asks on one bead, the secret first: it asks for the signing secret
+   (`yardr bead ask <id> "…" --secret-hook linear --source linear
+   --context "…"`) and then for the hook itself
+   (`yardr bead ask <id> "…" --run "hook add linear --source linear"
+   --context "…"`). The operator pastes the secret where Linear shows
+   it, typed unseen; the yard's server writes it to
+   `<home>/hooks/linear.secret` (mode 0600), which the hook then names,
+   and it is in no note or pane. Approving the hook then makes
+   `POST /hooks/linear`. `--map` and `--as` stay in a terminal, as a
+   replacement does: the steps by hand above stay the way to do those.
 3. **The crew member's key.** `LINEAR_API_KEY` in an env file of the crew
    member's own, mode 0600, never in the store. A new file takes its
    mode from the shell's umask, so narrow it first. The token is never

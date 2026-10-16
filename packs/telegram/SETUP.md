@@ -137,6 +137,13 @@ no status and no bead link to a chat.
    yardr hook add telegram --source telegram --secret-file ~/.yardr/telegram.secret
    ```
    One hook serves the yard. `yardr hook list` shows it with STATE `ok`.
+
+   A crew member sets the hook up by two asks on one bead, the secret
+   first (`--secret-hook telegram --source telegram`, then `--run "hook
+   add telegram --source telegram"`): the operator gives the secret
+   typed unseen, the server keeps it in `<home>/hooks/telegram.secret`
+   (mode 0600), and approving the hook makes `POST /hooks/telegram`.
+   The steps by hand stay the way by hand.
 10. **The crew member's credential.** The yardmaster answers with the
    bot's token, as every reply is answered with the crew member's own
    credential: there is one bot for the whole yard and it speaks as the

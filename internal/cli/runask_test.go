@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,9 @@ func runYardCLI(t *testing.T, name, key string) (*cliYard, *store.Bead) {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "crm.yaml", runCRM, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.PutSource(ctx, "linear.yaml", runLinear, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.GetUser(ctx, "jo"); err != nil {
@@ -68,6 +72,23 @@ hook:
 calls:
   find: { kind: read, request: { method: GET, path: /contacts } }
   note: { kind: update, request: { method: POST, path: /notes, body: { text: hello } } }
+`
+
+const runLinear = `name: linear
+base: https://api.linear.app
+credential: { env: LINEAR_API_KEY }
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery: { header: Linear-Delivery }
+    timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
+  bodies: unique
+  normalize: [linear/normalize]
+  keys: [team, project, label]
+calls:
+  viewer: { kind: read, request: { method: GET, path: /viewer } }
 `
 
 // as runs the bead command args as the actor who.
@@ -172,7 +193,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
 	return map[string]*cobra.Command{"peer": a.peerCmd(), "source": a.sourceCmd(), "subscribe": a.subscribeCmd(),
-		"user": a.userCmd(), "bead": a.beadCmd(), "crew": a.crewCmd(), "settings": a.settingsCmd(), "timer": a.timerCmd()}
+		"user": a.userCmd(), "bead": a.beadCmd(), "crew": a.crewCmd(), "settings": a.settingsCmd(), "timer": a.timerCmd(), "hook": a.hookCmd()}
 }
 
 // The store's list of commands a run ask may name is held to the CLI: each
@@ -194,8 +215,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call> --group <group>|--crew <crew member>": {"source grant crm note --crew yardmaster --group builders"},
-		"yardr source add <file>": {"source add " + addedFile},
-		"yardr pack apply <name>": {"pack apply telegram"},
+		"yardr source add <file>":                                       {"source add " + addedFile},
+		"yardr pack apply <name>":                                       {"pack apply telegram"},
+		"yardr hook add <name> --source <declared source>":              {"hook add linear --source linear"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]": {"subscribe jo yardr --where label=ui --done --where label=web"},
 		"yardr user set <user> tell=<parts>":                            {"user set jo tell=asks,notifications"},
 		"yardr user add <name>":                                         {"user add eve"},
@@ -279,6 +301,25 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				return evs[0].Seq
 			}
 			markApproved, markTyped := lastSeq(approved), lastSeq(typed)
+			// A hook takes its signing secret first: on the approved
+			// yard it is given on its card, and at a terminal it stands
+			// in the file the command names.
+			var typedSecret string
+			if use == "yardr hook add <name> --source <declared source>" {
+				secretSeq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "The signing secret for it?", To: "jo",
+					Context: []string{"why"}, Secret: &store.AskSecret{Source: "linear", Hook: "linear"}}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: the secret ask: %v", use, err)
+				}
+				if _, err := approved.st.GiveSecret(ctx, ab.ID, secretSeq,
+					map[string]string{"LINEAR_SIGNING_SECRET": "drift-signing-secret"}, "jo"); err != nil {
+					t.Fatalf("%s: giving the secret: %v", use, err)
+				}
+				typedSecret = filepath.Join(t.TempDir(), "linear.secret")
+				if err := os.WriteFile(typedSecret, []byte("drift-signing-secret"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			runAsk := &store.AskRun{Argv: []string{command}}
 			if carried, err := sourceAddCarried(command); err != nil {
 				t.Fatal(err)
@@ -317,7 +358,11 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			if cmd == nil {
 				t.Fatalf("%s: this test has no command of internal/cli for %q", use, done.Argv[0])
 			}
-			out, err := run(t, cmd, done.Argv[1:]...)
+			typedArgs := done.Argv[1:]
+			if typedSecret != "" {
+				typedArgs = append(slices.Clone(typedArgs), "--secret-file", typedSecret)
+			}
+			out, err := run(t, cmd, typedArgs...)
 			if err != nil {
 				t.Fatalf("yardr %s: %v", strings.Join(done.Argv, " "), err)
 			}
@@ -394,9 +439,17 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				hooks, err := y.st.Hooks(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var hookRows []map[string]any
+				for _, h := range hooks {
+					hookRows = append(hookRows, map[string]any{"name": h.Name, "source": h.Source, "file": filepath.Base(h.SecretFile)})
+				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "identity_set", "identity_removed"} {
+					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)
@@ -413,7 +466,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if len(changes) != strings.Count(done.Result, "\n")+1 {
 					t.Errorf("%s: %d changes were logged for %q", use, len(changes), done.Result)
 				}
-				text, err := json.Marshal(map[string]any{"peers": peers, "sources": sources, "grants": grants,
+				text, err := json.Marshal(map[string]any{"peers": peers, "sources": sources, "grants": grants, "hooks": hookRows,
 					"subscriptions": jo.Subscriptions, "tell": jo.Tell, "changes": changes, "users": users,
 					"crew":     map[string]any{"name": crew.Name, "runner": crew.Runner, "journal": crew.Journal, "config": crew.Config, "identities": crew.Identities},
 					"settings": settings, "timers": timerIDs, "journal": journal.Originator})
@@ -425,6 +478,82 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			if a, b := state(approved, markApproved), state(typed, markTyped); a != b {
 				t.Errorf("%s: approved, the yard holds\n%s\nand typed at a terminal\n%s", use, a, b)
 			}
+		}
+	}
+}
+
+// A hook is set up from the terminal as two asks on one bead, the
+// secret first: bead ask --secret-hook, bead ask --run "hook add ...",
+// bead answer --secret, bead answer --approve. The secret stands in
+// the hook's file alone.
+func TestBeadAskHookSetup(t *testing.T) {
+	key := airyKey(t)
+	y, b := runYardCLI(t, "hooks", key)
+	ctx := context.Background()
+	const secret = "cli-hook-signing-secret"
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "The signing secret for Linear", "--secret-hook", "linear", "--source", "linear",
+		"--context", "it is shown once where the webhook is made")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: a secret, the signing secret for the hook linear (POST /hooks/linear)\n"; out != want {
+		t.Fatalf("the secret ask printed %q, want %q", out, want)
+	}
+	out, err = y.as(t, "yardmaster", "ask", b.ID, "Set up the Linear webhook?",
+		"--context", "the signing secret is asked for above; give it first", "--run", "hook add linear --source linear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 2 on " + b.ID + " for jo: to approve, yardr hook add linear --source linear\n"; out != want {
+		t.Fatalf("the hook ask printed %q, want %q", out, want)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "2", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "give its signing secret") {
+		t.Fatalf("approving before the giving = %v", err)
+	}
+	out, err = answerFrom(t, y.a, "LINEAR_SIGNING_SECRET="+secret+"\n", b.ID, "1", "--secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out, "jo gave LINEAR_SIGNING_SECRET · it is set in ") || strings.Contains(out, secret) {
+		t.Fatalf("the giving printed %q", out)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "2", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "jo approved it, and the yard ran it") ||
+		!strings.Contains(out, "hook linear saved: POST /hooks/linear (linear)") || strings.Contains(out, secret) {
+		t.Fatalf("the approval printed %q", out)
+	}
+	hook, err := y.st.GetHook(ctx, "linear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hook.Source != "linear" || filepath.Base(hook.SecretFile) != "linear.secret" {
+		t.Fatalf("the hook = %+v", hook)
+	}
+	if st, err := os.Stat(hook.SecretFile); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("the secret file: %v, %v", st, err)
+	}
+	if raw, err := os.ReadFile(hook.SecretFile); err != nil || string(raw) != secret {
+		t.Fatalf("the secret file holds %q, %v", raw, err)
+	}
+	notes, err := y.st.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Text, secret) {
+			t.Fatalf("note %d holds the secret", n.Seq)
+		}
+	}
+	for _, args := range [][]string{
+		{"ask", b.ID, "No source", "--secret-hook", "linear", "--context", "x"},
+		{"ask", b.ID, "Map stays put", "--context", "x", "--run", "hook add linear --source linear --map action=open"},
+	} {
+		if _, err := y.as(t, "yardmaster", args...); err == nil {
+			t.Errorf("bead %v was taken", args)
 		}
 	}
 }

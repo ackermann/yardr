@@ -373,6 +373,9 @@ type SourceKeyed struct {
 	Source *Source  `json:"source"`
 	Given  []string `json:"given"`
 	File   string   `json:"file"`
+	// Hook is the hook whose signing secret was given; set instead of a
+	// credential's state, with File the hook's secret file.
+	Hook string `json:"hook,omitempty"`
 	// Login is the waiting login the value was handed to; set instead of a
 	// file, and "" for a source's credential or a user's address.
 	Login string `json:"login,omitempty"`
@@ -417,7 +420,11 @@ func (s *Store) KeySource(ctx context.Context, name string, values map[string]st
 // state read as a call would read it, after the write: the words never
 // hold a value.
 func (k *sourceKey) keyed() *SourceKeyed {
-	out := &SourceKeyed{Source: k.src, Given: k.names, File: k.file}
+	out := &SourceKeyed{Source: k.src, Given: k.names, File: k.file, Hook: k.hook}
+	if k.hook != "" {
+		out.State = fmt.Sprintf("the signing secret for the hook %s is set in %s", k.hook, k.file)
+		return out
+	}
 	if u := k.user; u != nil {
 		out.User = u.Name
 		out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
@@ -441,8 +448,11 @@ func (k *sourceKey) keyed() *SourceKeyed {
 // set). It outlives the transaction: a batch may run either twice, and
 // renamed stays true once any run renamed the file.
 type sourceKey struct {
-	src     *Source
-	user    *User
+	src  *Source
+	user *User
+	// hook is the hook whose signing secret was given, "" for a
+	// credential: File is then the hook's secret file.
+	hook    string
 	names   []string
 	file    string
 	renamed bool

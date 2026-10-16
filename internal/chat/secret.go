@@ -46,6 +46,7 @@ type secretField struct {
 	ask    uint64
 	source string
 	login  string
+	hook   string
 	env    []string
 	values map[string]string
 	in     textinput.Model
@@ -64,6 +65,9 @@ func (s *secretField) label() string {
 	}
 	if s.login != "" {
 		return label + " for the waiting login " + s.login + "  "
+	}
+	if s.hook != "" {
+		return label + " for the hook " + s.hook + "  "
 	}
 	return label + " for " + s.source + "  "
 }
@@ -146,7 +150,7 @@ func (m *Model) ask() tea.Cmd {
 	in.EchoMode = textinput.EchoPassword
 	in.EchoCharacter = '•'
 	in.Cursor.Style = look.cursor
-	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source, login: r.Ask.Secret.Login,
+	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source, login: r.Ask.Secret.Login, hook: r.Ask.Secret.Hook,
 		env: r.Ask.Secret.Env, values: map[string]string{}, in: in}
 	m.secret.fit(max(m.width, 10))
 	m.notice = ""
@@ -216,6 +220,9 @@ func (m *Model) give() tea.Cmd {
 		}
 		if s.login != "" {
 			return gaveMsg{text: without(fmt.Sprintf("%s gave %s · it went to the waiting login %s, and is kept nowhere", me, strings.Join(keyed.Given, " and "), keyed.Login), s.values)}
+		}
+		if s.hook != "" {
+			return gaveMsg{text: without(fmt.Sprintf("%s gave %s · it is set in %s", me, strings.Join(keyed.Given, " and "), keyed.File), s.values)}
 		}
 		text := fmt.Sprintf("%s gave %s · it is set in %s", me, strings.Join(keyed.Given, " and "), keyed.File)
 		if keyed.Missing != "" {

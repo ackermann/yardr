@@ -271,7 +271,10 @@ type wtx struct {
 	// store is the store this write belongs to, for the readings only a
 	// process registers on it (SetPackReader); nil in a migration's
 	// hand-made wtx, which asks for none.
-	store    *Store
+	store *Store
+	// home is the yard's home, for a write that names a file the yard
+	// owns (a hook's secret file): the store's home, set by write.
+	home     string
 	mentions *mentionCache // nil outside Store.write: compiled per use
 	// settle are the beads whose stay at a peer ended in this write, by
 	// UUID: what that does to each is done after it (settleSent).
@@ -289,7 +292,7 @@ type wtx struct {
 func (s *Store) write(fn func(*wtx) error) error {
 	var settle, queued []string
 	err := s.db.Batch(func(tx *bolt.Tx) error {
-		w := &wtx{Tx: tx, store: s, mentions: &s.mentions}
+		w := &wtx{Tx: tx, store: s, home: s.home, mentions: &s.mentions}
 		err := fn(w)
 		settle, queued = w.settle, w.queued // of the run that is committed: a batch may run fn twice
 		return err

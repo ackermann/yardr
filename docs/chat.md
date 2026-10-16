@@ -285,7 +285,15 @@ login: `--secret-login <login>` asks for the input of the harness login
 that waits under that reference, the one its leader's input need names. Its
 line reads `a secret: INPUT, for the waiting login <login>`, the value is
 handed to the login and kept nowhere, to no note and no file, and a giving
-with no login waiting under it is refused naming that. Typing it again replaces it. If the yard says the value is
+with no login waiting under it is refused naming that. One more kind is a
+hook's signing secret: `--secret-hook <hook> --source <source>` asks for the
+value the service signs its webhooks with. Its line reads `a secret: the
+signing secret for the hook <hook> (POST /hooks/<hook>), for the source
+<source> (…)`, the yard's server writes it to `<home>/hooks/<hook>.secret`
+(mode 0600), which the hook then names, and it is refused for a source the
+yard does not declare, one whose declaration has no hook key, and a hook the
+yard has already. A hook is set up by two asks on one bead, this one first:
+give the secret here, then approve the hook's own run ask below. Typing it again replaces it. If the yard says the value is
 written and could not be recorded, give it again. Words, a pick, and a
 decline's words are refused on such an ask and kept nowhere, so the value
 cannot land in a note by mistake: `--later` puts it aside as any ask, and
@@ -306,6 +314,7 @@ or decline it. The command is one of a fixed list:
 | `source grant <source> read\|<call> --group <group>\|--crew <crew member>` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change | anyone, with `yardr source revoke` |
 | `source add <file>` | a new source the file declares: the ask carries the declaration and each command file it names, and the card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it | only the operator, with `yardr source rm <name>` |
 | `pack apply <name>` | a pack yardr embeds, with no flag: of kind source, or of a depot kind re-applied to the one depot that holds it where its plan asks nothing; the card is written from the server's own binary, shows each declared source whole and, for a depot pack, each object and changed file's diff, and is carried out by the server after approval | only the operator: for a source, with `yardr source rm <name>`; a depot import has no one command back, and `yardr pack check <name> --depot <depot>` shows where it stands |
+| `hook add <name> --source <declared source>` | a new webhook endpoint `POST /hooks/<name>` for the declared source, verified with its signing secret given on the hook's own secret card into the file the yard owns for it; the card names that file, which the hook then names | only the operator, with `yardr hook rm <name>` |
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
 | `user set <user> tell=<parts>` | which parts a source tells a user of outside the yard, on their phone: a list of `notifications`, `mail` and `asks`, or nothing after `tell=` for all three | that user or the operator, with the `tell=` that stood, which the card names |
 | `user add <name>` | a user added: they read mail from now on, and are told nothing from before | only the operator, with `user rm` |
@@ -318,7 +327,7 @@ or decline it. The command is one of a fixed list:
 | `timer rm <id>` | another's timer removed, and what it would have told | whoever can add it back; the card says who, or that no one can |
 
 Anything else that is the operator's is still typed by you: a replacement
-by `source add`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
+by `source add`, a hook's replacement and its `--map` and `--as`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
 `--reach`, `--expose`, or `--send`/`--receive` of a kind other than mail
 or ping, a user's `notify` and `env_file`, `group add` with `--runner exec`
 or `cmd=`, `group set` with `cmd=`, the `operator` setting and the settings

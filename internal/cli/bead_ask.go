@@ -28,7 +28,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret, askForUser, askRun, askSecretLogin string
+	var askSecret, askForUser, askRun, askSecretLogin, askSecretHook, askHookSource string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -116,6 +116,19 @@ operator, takes no --env and no --for-user, and is refused when no login
 waits under the reference at the giving. The yardmaster asks one per input
 need of a login it relays.
 
+--secret-hook <hook> --source <source> asks the operator for the signing
+secret of the hook <hook> of the declared source <source>: the value the
+service signs its webhooks with, pasted from where the service shows it.
+The yard's server writes it to the file it owns for the hook,
+<home>/hooks/<hook>.secret (mode 0600), which the hook then names; the
+value is in no note, event, mail, brief or pane, as for --secret. It is
+asked of the operator, takes no --env and no --for-user, and is refused
+for a source the yard does not declare, one whose declaration has no
+hook key, and a hook the yard has already. The hook itself is a second
+ask on the same bead (--run "hook add <hook> --source <source>"), asked
+after this one: the operator gives the secret first, then approves the
+hook, whose approval runs only with the secret standing in its file.
+
 --run "<command>" proposes one yardr command that is the operator's to
 give, for the operator to approve: a crew member that needs it asks this
 way instead of mailing the person a line to paste into a terminal. The
@@ -146,6 +159,11 @@ is one of the list the yard runs from a card:
       object and each changed file's diff; the approval is carried out
       by the server after it; a directory, URL or imported pack, any
       flag, a first install and a plan that asks stay in a terminal
+  hook add <name> --source <declared source>
+      a new webhook endpoint POST /hooks/<name> for the declared
+      source, verified with its signing secret given on the hook's own
+      secret card (--secret-hook) into the file the yard owns for it;
+      --map, --as and a replacement stay in a terminal
   subscribe <user> yardr [--done] [--where <key>=<value>]
       a user is told of the yard's own events in their inbox; with --done,
       --where or both
@@ -255,6 +273,11 @@ what the person asked does, and this is the asker's own.`,
     --context "It is on the first page of the service after login."
   yardr bead ask yardr-k3vd "The code the sign-in page showed" --secret-login claude-a1b2c3d4 \
     --context "The login waits for what the sign-in page showed."
+  yardr bead ask yardr-k3vd "The signing secret for Linear" --secret-hook linear --source linear \
+    --context "It is shown once where the webhook is made in Linear."
+  yardr bead ask yardr-k3vd "Set up the Linear webhook?" \
+    --context "The signing secret is asked for on the ask above; give it first." \
+    --run "hook add linear --source linear"
   yardr bead ask yardr-k3vd "Take more mail from airy?" \
     --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
     --run "peer allow airy --mail-limit 300"
@@ -294,7 +317,7 @@ what the person asked does, and this is the asker's own.`,
 			return cobra.ExactArgs(2)(c, args)
 		},
 		PreRunE: func(c *cobra.Command, args []string) error {
-			if len(askEnv) > 0 && askSecret == "" && !c.Flags().Changed("secret-login") {
+			if len(askEnv) > 0 && askSecret == "" && !c.Flags().Changed("secret-login") && !c.Flags().Changed("secret-hook") {
 				return fmt.Errorf("--env narrows a secret ask: it goes with --secret <source>")
 			}
 			switch {
@@ -304,14 +327,28 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--for-user takes no --env: the source's notify key names the one variable that is a user's address")
 			case c.Flags().Changed("secret") && c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--secret asks for a source's credential and --secret-login for a waiting login's input: one of the two")
+			case c.Flags().Changed("secret") && c.Flags().Changed("secret-hook"):
+				return fmt.Errorf("--secret asks for a source's credential and --secret-hook for a hook's signing secret: one of the two")
+			case c.Flags().Changed("secret-login") && c.Flags().Changed("secret-hook"):
+				return fmt.Errorf("--secret-login asks for a waiting login's input and --secret-hook for a hook's signing secret: one of the two")
 			case c.Flags().Changed("secret-login") && len(askEnv) > 0:
 				return fmt.Errorf("--secret-login takes no --env: a login input is the one name it is asked for")
 			case c.Flags().Changed("secret-login") && askForUser != "":
 				return fmt.Errorf("--secret-login takes no --for-user: a login input is the operator's login's to take")
+			case c.Flags().Changed("secret-hook") && len(askEnv) > 0:
+				return fmt.Errorf("--secret-hook takes no --env: the signing secret is one value")
+			case c.Flags().Changed("secret-hook") && askForUser != "":
+				return fmt.Errorf("--secret-hook takes no --for-user: a signing secret is the operator's to give")
+			case c.Flags().Changed("secret-hook") && askHookSource == "":
+				return fmt.Errorf("--secret-hook needs --source <source>: the declared source the hook serves")
+			case !c.Flags().Changed("secret-hook") && c.Flags().Changed("source"):
+				return fmt.Errorf("--source names the hook's source: it goes with --secret-hook <hook>")
 			case c.Flags().Changed("run") && c.Flags().Changed("secret"):
 				return fmt.Errorf("--run proposes a command and --secret asks for a value: one of the two")
 			case c.Flags().Changed("run") && c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--run proposes a command and --secret-login asks for a value: one of the two")
+			case c.Flags().Changed("run") && c.Flags().Changed("secret-hook"):
+				return fmt.Errorf("--run proposes a command and --secret-hook asks for a value: one of the two; ask for the hook's secret and the hook as two asks, the secret first")
 			}
 			return nil
 		},
@@ -378,6 +415,9 @@ what the person asked does, and this is the asker's own.`,
 			}
 			if c.Flags().Changed("secret-login") {
 				q.Secret = &store.AskSecret{Login: askSecretLogin}
+			}
+			if c.Flags().Changed("secret-hook") {
+				q.Secret = &store.AskSecret{Source: askHookSource, Hook: askSecretHook}
 			}
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
@@ -460,6 +500,10 @@ what the person asked does, and this is the asker's own.`,
 					if askNew {
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
+					if secret.Hook != "" {
+						fmt.Printf("%s for %s: a secret, the signing secret for the hook %s (POST /hooks/%s)\n", on, who, secret.Hook, secret.Hook)
+						return
+					}
 					if secret.Login != "" {
 						fmt.Printf("%s for %s: a secret, %s for the waiting login %s\n", on, who, secret.Names(), secret.Login)
 						return
@@ -493,6 +537,8 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
+	ask.Flags().StringVar(&askSecretHook, "secret-hook", "", "with --source: ask for the signing secret of this hook of a declared source: answered with a value typed unseen, kept in the hook's secret file")
+	ask.Flags().StringVar(&askHookSource, "source", "", "with --secret-hook: the declared source the hook serves")
 	ask.Flags().StringVar(&askSecretLogin, "secret-login", "", "ask for the input of the harness login waiting under this reference (its leader's input need names it): handed to the login, kept nowhere")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
@@ -823,6 +869,19 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	if err != nil {
 		return err
 	}
+	if secret.Hook != "" {
+		values, err := readHookKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+		if err != nil {
+			return err
+		}
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		if err != nil {
+			return secretErr(err)
+		}
+		return a.out(keyed, func() {
+			fmt.Printf("%s gave %s · it is set in %s\n", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
+		})
+	}
 	if secret.Login != "" {
 		values, err := readLoginKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin()))
 		if err != nil {
@@ -905,6 +964,48 @@ func readLoginKeys(secret *store.AskSecret, in io.Reader, typed func(prompt stri
 			values[n] = v
 		} else {
 			return nil, fmt.Errorf("the waiting login %s: nothing was typed for %s, and nothing is handed over", secret.Login, n)
+		}
+	}
+	return values, nil
+}
+
+// readHookKeys reads the value a hook-signing-secret ask asks for, as
+// readLoginKeys reads a login's: unseen from a terminal, or as a
+// NAME=value line from anything else. The ask names the one name. No
+// error holds the value.
+func readHookKeys(secret *store.AskSecret, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
+	values := map[string]string{}
+	if typed == nil {
+		env, err := config.ParseEnv(in, "standard input")
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range env {
+			k, v, _ := strings.Cut(e, "=")
+			if !slices.Contains(secret.Env, k) {
+				return nil, fmt.Errorf("the hook %s: standard input sets a name that was not asked for (%s)", secret.Hook, strings.Join(secret.Env, ", "))
+			}
+			values[k] = v
+		}
+		for _, n := range secret.Env {
+			if _, ok := values[n]; !ok {
+				return nil, fmt.Errorf("the hook %s: standard input has no line %s=<value>", secret.Hook, n)
+			}
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("the hook %s: standard input has no NAME=value line, and nothing is written", secret.Hook)
+		}
+		return values, nil
+	}
+	for _, n := range secret.Env {
+		v, err := typed(fmt.Sprintf("%s for the hook %s (nothing is shown as you type): ", n, secret.Hook))
+		if err != nil {
+			return nil, fmt.Errorf("the hook %s: reading %s: %w", secret.Hook, n, err)
+		}
+		if v = strings.TrimSpace(v); v != "" {
+			values[n] = v
+		} else {
+			return nil, fmt.Errorf("the hook %s: nothing was typed for %s, and nothing is written", secret.Hook, n)
 		}
 	}
 	return values, nil
