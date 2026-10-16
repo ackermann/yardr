@@ -1531,6 +1531,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	type raceRun struct {
 		cmd *exec.Cmd
 		out *os.File
+		in  *os.File
 	}
 	start := func(bead string, args ...string) raceRun {
 		t.Helper()
@@ -1539,18 +1540,38 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { os.Remove(out.Name()) })
-		cmd := exec.CommandContext(ctx, driver, args...)
-		cmd.Dir = wt
-		cmd.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead)
-		cmd.Stdout, cmd.Stderr = out, out
-		if err := cmd.Start(); err != nil {
+		in, release, err := os.Pipe()
+		if err != nil {
 			out.Close()
 			t.Fatal(err)
 		}
-		return raceRun{cmd, out}
+		cmd := exec.CommandContext(ctx, driver, args...)
+		cmd.Dir = wt
+		cmd.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			in.Close()
+			release.Close()
+			out.Close()
+			t.Fatal(err)
+		}
+		in.Close()
+		return raceRun{cmd, out, release}
 	}
 	finish := func(q raceRun) (int, []byte) {
 		t.Helper()
+		q.in.Close()
 		err := q.cmd.Wait()
 		q.out.Close()
 		out, _ := os.ReadFile(q.out.Name())
@@ -1620,9 +1641,21 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 		}
 	}
 	newest := func(names []string) string { return names[len(names)-1] }
-	// The holder takes the lock first and holds it past the queueing.
-	holder := start("holder-bead", "sh", "-c", "sleep 5")
+	// The holder takes the lock first and waits for the test to release it.
+	holder := start("holder-bead", "sh", "-c", "read _ || true")
 	known := waitTicket(nil)
+	holderFile := filepath.Join(home, ".yardr", "race.holder")
+	holderDeadline := time.Now().Add(30 * time.Second)
+	for {
+		b, err := os.ReadFile(holderFile)
+		if err == nil && strings.Contains(string(b), "bead=holder-bead\n") {
+			break
+		}
+		if time.Now().After(holderDeadline) {
+			t.Fatalf("the holder never acquired the lock and recorded itself: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	// A waiter killed with KILL leaves its ticket behind; the queue
 	// must skip it.
 	dead := start("dead-bead", "sh", "-c", "echo dead >>"+quote(order))
