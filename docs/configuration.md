@@ -448,6 +448,8 @@ yardr never runs it. It hands it to whoever does:
 `--test` drops it. `yardr depot init` sets it for a git depot that has none,
 as a guess from the repository
 ([below](#seeding-a-depot-yardr-depot-init)).
+Only the operator may change an existing depot's path, base or test command;
+anyone may add one or re-add it with those values unchanged.
 
 **What the starter pack does with it.** Its builder and reviewer roles say
 to run it in the worktree before handing on. Its merge script, `merge-local`,
