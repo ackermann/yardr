@@ -404,9 +404,12 @@ func sleeper(t *testing.T, home string) int {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// Reaped as they die: `down` waits on kill -0, which answers for a
+	// sleeper it just stopped until the test ends, burning the whole 5 s
+	// wait every time.
+	go cmd.Wait()
 	t.Cleanup(func() {
-		cmd.Process.Kill()
-		cmd.Wait()
+		cmd.Process.Kill() // the wait above reaps it
 	})
 	return cmd.Process.Pid
 }
