@@ -12,16 +12,21 @@
 # is right; a leaf package takes seconds. It is also what a wagon of a train
 # passes to land on its train's branch.
 #
-# With YARDR_LANDING=1, as the assembly sets it for what lands on main, it is
-# the whole suite instead: the race detector on every package, vet for linux
-# too, and, when the plain selection holds store, dispatch or bdp, those
-# suites again over the socket, beside the first run of the tests. Without a
-# comparable base there is no selection and they run whole, as they always
-# have. Except
-# when the branch changed nothing that is compiled: then every program and
-# every test binary is built from the source the base passed the whole suite
-# with, only a test that opens a changed file by path can differ, and the
-# run is the plain one. The first line says which it is, and why.
+# With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
+# landing that changes code runs the plain selection plus always the six
+# black-box suites (docs/testing.md R5), vet for linux too, and, when the
+# plain selection holds store, dispatch or bdp, those suites again over
+# the socket, beside the first run of the tests. The whole suite still
+# runs when there is no comparable base, when nothing changed, and when
+# what changed cannot be selected: go.mod or go.sum, a deletion, or a
+# file no row knows, each of which the selection itself would test as
+# everything. When the branch changed nothing that is compiled, every
+# program and every test binary is built from the source the base
+# passed with, only a test that opens a changed file by path can
+# differ, and the run is the plain selection alone. The whole suite
+# otherwise runs only on a quiet machine (docs/testing.md R6) and
+# where someone runs YARDR_LANDING=1 on the base itself. The first
+# line says which run it is, and why.
 #
 # What the branch touched is what changed since the base: YARDR_BASE (an
 # agent's session and the assembly have it: main, or the train's branch for
@@ -890,16 +895,51 @@ formatted() {
     exit 1
   fi
 }
-# whole is a landing's whole suite, after a line that says why it is that
-# ($1), and the end of the run. The store, dispatch and bdp suites run again
-# over the socket beside the first run only when the plain selection holds
-# one of them (yardr-022s): over-the-socket behaviour cannot differ from what
-# the base passed except through a package none of the three imports, which
-# is the same reach the plain run already accepts everywhere else. Without a
-# comparable base there is no selection, so they run whole, as they always
-# have; otherwise one line says whether the leg runs and why.
+# The six black-box suites (docs/testing.md R5): each builds the tree's
+# binary and drives it without importing the changed packages, so the
+# plain selection alone misses them. A landing that changes code runs
+# them always, beside what the selection picked. Their directories, in
+# the order the log names them.
+blackbox='contrib/assembly contrib/peer contrib/deploy contrib/server-yard contrib/isolated-yard contrib/release'
+# addblackbox adds the six suites' packages to the selection in $tmp/run:
+# the import path of each directory, from the list pick already made, so
+# the run holds each once however the selection named it. A suite that
+# is no package here fails the run: silently skipping it would reopen
+# the hole the six close.
+addblackbox() {
+  root=$(git rev-parse --show-toplevel)
+  for d in $blackbox; do
+    p=$(awk -F'|' -v root="$root" -v want="$d" '
+      {
+        dir = substr($2, length(root) + 2); if (dir == "") dir = "."
+        if (dir == want) { p = $1; sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); print p; exit }
+      }' "$tmp/pkgs")
+    if [ -z "$p" ]; then
+      echo "test: the black-box suite $d is no package here" >&2
+      exit 1
+    fi
+    grep -qx "$p" "$tmp/run" || echo "$p" >>"$tmp/run"
+  done
+}
+# whole is a landing's run, after a line that says why it is that ($1),
+# and the end of the run. Without $2 it is the whole suite; with $2
+# "selection" it is the plain selection plus the six black-box suites.
+# The store, dispatch and bdp suites run again over the socket beside
+# the first run only when the plain selection holds one of them
+# (yardr-022s): over-the-socket behaviour cannot differ from what the
+# base passed except through a package none of the three imports, which
+# is the same reach the plain run already accepts everywhere else.
+# Without a comparable base there is no selection, so they run whole,
+# as they always have; otherwise one line says whether the leg runs
+# and why. The gate is judged on the plain selection, before the six
+# are added: none of the six is one of the three, so adding them first
+# would not change it, and judging it first keeps the line honest.
 whole() {
-  echo "test: YARDR_LANDING is set, and $1: the whole suite"
+  if [ "$2" = selection ]; then
+    echo "test: YARDR_LANDING is set, and $1: the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)"
+  else
+    echo "test: YARDR_LANDING is set, and $1: the whole suite"
+  fi
   leg=beside
   if [ -n "$from" ]; then
     # The gate: the plain selection, which a landing over an embedded or
@@ -926,7 +966,19 @@ whole() {
   else
     echo "test: no comparable base: running the socket suites beside the first run"
   fi
-  [ -z "$YARDR_TEST_PLAN" ] || exit 0
+  if [ "$2" = selection ] && [ -n "$from" ]; then
+    addblackbox
+  fi
+  if [ -n "$YARDR_TEST_PLAN" ]; then
+    if [ "$2" = selection ] && [ -n "$tmp" ]; then
+      listed
+      [ ! -s "$tmp/rows" ] || cat "$tmp/rows"
+      pkgs=$(sort -u "$tmp/run")
+      # shellcheck disable=SC2086
+      echo "test: testing, with -race, what changed, what imports it and what reads it:" $pkgs
+    fi
+    exit 0
+  fi
   listed
   # gofmt first: CI fails on it, so this must too.
   formatted
@@ -935,6 +987,12 @@ whole() {
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
   again env GOOS=linux go vet ./...
   sleepbudget
+  if [ "$2" = selection ] && [ -n "$tmp" ]; then
+    [ ! -s "$tmp/rows" ] || cat "$tmp/rows"
+    pkgs=$(sort -u "$tmp/run")
+    # shellcheck disable=SC2086
+    echo "test: testing, with -race, what changed, what imports it and what reads it:" $pkgs
+  fi
   # The same suites through the unix-socket client, beside the first run and
   # not after it (yardr-9xd9): both mostly wait, so a landing is as long as
   # the slower of the two instead of their sum. The socket step's output is
@@ -955,7 +1013,12 @@ whole() {
     socket=$!
   fi
   first=0
-  again go test -race ./... || first=$?
+  if [ "$2" = selection ] && [ -n "$pkgs" ]; then
+    # shellcheck disable=SC2086
+    again go test -race $pkgs || first=$?
+  else
+    again go test -race ./... || first=$?
+  fi
   if [ "$leg" != beside ]; then
     exit "$first"
   fi
@@ -1171,18 +1234,21 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
   }' "$tmp/reads" "$tmp/deleted" "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
 }
 if [ -n "$YARDR_LANDING" ]; then
-  # A landing is the whole suite unless nothing compiled changed. What is
-  # compiled: a .go file, go.mod and go.sum, and a file a package embeds. A
-  # file the table does not know may be read by any test, as in a plain run.
-  # A deleted file is no longer in any package's list of what it embeds, so
-  # it cannot be told whether it was. And a landing that changes nothing at
-  # all is somebody asking for the whole suite (CI on main, a release).
-  # go list is asked only when no .go file changed: the source it reads is
-  # then the base's.
+  # A landing that changes code runs the selection plus the six
+  # black-box suites (docs/testing.md R5). What cannot be selected
+  # still runs the whole suite: go.mod and go.sum move every package,
+  # a file the table does not know may be read by any test, as in a
+  # plain run, and a deleted file is no longer in any package's list
+  # of what it embeds, so it cannot be told whether it was. A landing
+  # that changes nothing at all is somebody asking for the whole
+  # suite (CI on main, a release, the quiet run on the base). What is
+  # compiled, for the selection: a .go file and a file a package
+  # embeds. go list is asked only when no .go file changed, until the
+  # pick below: the source it reads is then the base's.
   if [ -z "$changed" ]; then
     whole "nothing changed $since"
   fi
-  file=$(printf '%s\n' "$changed" | grep -x -e go.mod -e go.sum -e '.*\.go' | head -n 1)
+  file=$(printf '%s\n' "$changed" | grep -x -e go.mod -e go.sum | head -n 1)
   if [ -n "$file" ]; then
     whole "$file changed $since"
   fi
@@ -1191,12 +1257,16 @@ if [ -n "$YARDR_LANDING" ]; then
     whole "$file was deleted $since"
   fi
   pick
-  if [ -s "$tmp/embedded" ]; then
-    whole "$(cat "$tmp/embedded"), which a package embeds, changed $since"
-  fi
   if [ -s "$tmp/stray" ]; then
     read -r file <"$tmp/stray"
     whole "$file, which is read by no known package, changed $since"
+  fi
+  file=$(printf '%s\n' "$changed" | grep -x -e '.*\.go' | head -n 1)
+  if [ -n "$file" ]; then
+    whole "$file changed $since" selection
+  fi
+  if [ -s "$tmp/embedded" ]; then
+    whole "$(cat "$tmp/embedded"), which a package embeds, changed $since" selection
   fi
   echo "test: YARDR_LANDING is set, and nothing compiled changed $since"
   listed

@@ -4,7 +4,7 @@ worktree.
 Before the bead leaves as `done`:
 
 - the work is committed on the branch, and the depot's test command passes
-  on the last commit (`sh .yardr/test` in the worktree). The whole suite
+  on the last commit (`sh .yardr/test` in the worktree). The landing run
   runs once, on what lands (`YARDR_LANDING=1`); it is yours only for a
   change the plain run cannot see (the builder's role says which);
 - a note on the bead says what changed, what was verified (the exact

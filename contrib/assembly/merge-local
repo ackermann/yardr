@@ -37,7 +37,8 @@
 # The test command runs with YARDR_LANDING=1 for what lands on the depot's
 # base, and without it for a wagon of a train (type wagon, landing on its
 # train's branch): what a depot's command makes of that is its own (a quick
-# run for the wagon, the whole suite where the base moves). The train is
+# run for the wagon, the landing run where the base moves; depot yardr's
+# is the selection plus the six black-box suites). The train is
 # tested and reviewed as a whole before the depot's base moves. See
 # docs/line.md, "Wagons".
 #

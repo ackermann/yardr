@@ -2,13 +2,17 @@ The depot's test command is `sh .yardr/test`, run in the worktree after the
 last commit. It runs gofmt, go vet, go build, then go test -race on the
 packages changed since the base (`YARDR_BASE`, which your session has; its
 first line says what it compared with), every package that imports one, and
-the packages its table says read a changed file by path. The whole suite
-(`YARDR_LANDING=1 sh .yardr/test`: every package, vet for linux too, and
-the store, dispatch and bdp suites again through the unix-socket client) is
-the assembly's: it runs once, on exactly what lands, and a red one comes
-back to you. A landing that changes nothing compiled (no .go file, go.mod
-or go.sum, no embedded file, no file the table has no row for, nothing
-deleted) is the plain run there too; its first line says which it is. Run it yourself only when the change is of a kind the plain
+the packages its table says read a changed file by path. The landing run
+(`YARDR_LANDING=1 sh .yardr/test` on a code change: the selection plus
+the six black-box suites, vet for linux too, and the store, dispatch and
+bdp suites again through the unix-socket client when the selection
+holds one of them) is the assembly's: it runs once, on exactly what
+lands, and a red one comes back to you. The whole suite (every package)
+runs on a quiet machine, not at each landing. A landing that changes
+nothing compiled (no .go file, no embedded file) is the plain run
+there too; its first line says which it is, as it does for a landing
+whose change cannot be selected (go.mod or go.sum, a deleted file, a
+file the table has no row for), which is still the whole suite. Run the landing run yourself only when the change is of a kind the plain
 run cannot see: cross-package behaviour or tests in packages it skips, race
 coverage outside the packages it selects, a test that reads a file by path
 which the table in `.yardr/test` has no row for (add the row too), code a

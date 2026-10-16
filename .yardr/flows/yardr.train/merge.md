@@ -12,9 +12,10 @@ landed on `main`, so read its children's beads for its side. Do not push
 
 Before the train leaves as `done`, the branch is rebased onto `main` and the
 landing test command passes on it (`YARDR_LANDING=1 sh .yardr/test`). The
-command runs the whole suite when compiled content changed, and the plain
-selection when nothing compiled changed (docs/line.md, "One whole-suite run
-per bead"). One note on the train begins exactly `merge re-review:`. It lists
+command runs the selection plus the six black-box suites when compiled
+content changed, and the plain selection alone when nothing compiled
+changed (docs/line.md, "The landing run, and the whole suite on a quiet
+machine"). One note on the train begins exactly `merge re-review:`. It lists
 the old tip (`old tip: <sha>`), every conflicting file, what each side wanted,
 how both were kept, and the test result.
 

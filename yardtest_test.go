@@ -180,7 +180,9 @@ func TestYardTestSaysItsBase(t *testing.T) {
 // test reads by path runs that test's package, a file nobody is known to
 // read runs everything, a file the table says no test reads runs nothing.
 // YARDR_TEST_PLAN makes the script say so and stop. A landing selects the
-// same when nothing compiled changed, and is the whole suite otherwise.
+// same when nothing compiled changed, the selection plus the six
+// black-box suites when code changed, and the whole suite when what
+// changed cannot be selected.
 func TestYardTestSelects(t *testing.T) {
 	t.Parallel()
 	script, rows := yardTestRows(t)
@@ -322,12 +324,17 @@ func TestYardTestSelects(t *testing.T) {
 			}
 		})
 	}
-	// A landing (YARDR_LANDING=1): the first line says whether anything
-	// compiled changed, and with what. When nothing did, the rest is a plain
-	// run's; otherwise it is the whole suite and the rest is the socket
-	// gate's line: the leg runs only when the plain selection holds store,
-	// dispatch or bdp.
+	// A landing (YARDR_LANDING=1): the first line says what runs, and why.
+	// When nothing compiled changed, the rest is a plain run's. A code
+	// landing runs the selection plus the six black-box suites and says
+	// so, with the socket gate's line (the leg runs only when the plain
+	// selection holds store, dispatch or bdp), the rows that fired, and
+	// the testing line naming every package. What cannot be selected
+	// (go.mod, go.sum, a deletion, a file no row knows, nothing at all)
+	// is the whole suite, and its rest is the gate's line alone.
 	const landing = pre + "YARDR_LANDING is set, and "
+	const wholeSuffix = ": the whole suite"
+	const selectionSuffix = ": the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)"
 	const skipSocket = pre + "the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
 	const runSocketStore = pre + "the plain selection holds store: running the socket suites beside the first run"
 	const runSocketAll = pre + "the plain selection holds store dispatch bdp: running the socket suites beside the first run"
@@ -342,37 +349,54 @@ func TestYardTestSelects(t *testing.T) {
 				pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
 				tested + " m.test/m"}},
 		{"a landing of the starter pack and what no test reads", []string{"packs/starter/roles/builder.md", ".github/a.yml"},
-			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + since + selectionSuffix, []string{
+				skipSocket,
+				pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
+				pre + ".github/a.yml changed: no test reads it",
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli m.test/m/internal/pack m.test/m/packs m.test/m/packtop"}},
 		{"a landing of what no test reads", []string{".github/a.yml"},
 			landing + "nothing compiled changed" + since, []string{
 				pre + ".github/a.yml changed: no test reads it",
 				pre + "no package changed since " + short + "; no tests to run"}},
 		{"a landing of a go file", []string{"docs/web.md", "alone/p.go"},
-			landing + "alone/p.go changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "alone/p.go changed" + since + selectionSuffix, []string{
+				skipSocket,
+				pre + "docs/web.md changed: read by the tests of .",
+				tested + " m.test/m m.test/m/alone m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard"}},
 		{"a landing of a test file", []string{"alone/p_test.go"},
-			landing + "alone/p_test.go changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "alone/p_test.go changed" + since + selectionSuffix, []string{
+				skipSocket,
+				tested + " m.test/m/alone m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard"}},
 		{"a landing of go.mod", []string{"go.mod", "docs/web.md"},
-			landing + "go.mod changed" + since + ": the whole suite", []string{runSocketAll}},
+			landing + "go.mod changed" + since + wholeSuffix, []string{runSocketAll}},
 		{"a landing of go.sum", []string{"go.sum"},
-			landing + "go.sum changed" + since + ": the whole suite", []string{runSocketAll}},
+			landing + "go.sum changed" + since + wholeSuffix, []string{runSocketAll}},
 		{"a landing of an embedded file", []string{"docs/web.md", "emb/a.txt"},
-			landing + "emb/a.txt, which a package embeds, changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "emb/a.txt, which a package embeds, changed" + since + selectionSuffix, []string{
+				skipSocket,
+				pre + "docs/web.md changed: read by the tests of .",
+				tested + " m.test/m m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/emb m.test/m/top"}},
 		{"a landing of a file no row knows", []string{"docs/web.md", "contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{runSocketAll}},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + wholeSuffix, []string{runSocketAll}},
 		// What embedded a file that is gone cannot be asked any more.
 		{"a landing that deletes a file", []string{"-docs/web.md"},
-			landing + "docs/web.md was deleted" + since + ": the whole suite", []string{skipSocket}},
+			landing + "docs/web.md was deleted" + since + wholeSuffix, []string{skipSocket}},
 		{"a landing of nothing", nil,
-			landing + "nothing changed" + since + ": the whole suite", []string{skipSocket}},
-		// A Go change enters the whole suite while its plain selection
-		// excludes the socket suites: the gate skips the leg. A change to
-		// internal/rpc selects store as an importer: the leg runs.
+			landing + "nothing changed" + since + wholeSuffix, []string{skipSocket}},
+		// A Go change runs the selection plus the six while its plain
+		// selection excludes the socket suites: the gate skips the leg.
+		// A change to internal/rpc selects store as an importer: the
+		// gate runs the leg, still on the plain selection alone.
 		{"a landing touching internal/cli skips the socket suites", []string{"internal/cli/p.go"},
-			landing + "internal/cli/p.go changed" + since + ": the whole suite", []string{skipSocket}},
+			landing + "internal/cli/p.go changed" + since + selectionSuffix, []string{
+				skipSocket,
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"}},
 		{"a landing touching internal/rpc runs the socket suites", []string{"internal/rpc/p.go"},
-			landing + "internal/rpc/p.go changed" + since + ": the whole suite", []string{runSocketStore}},
+			landing + "internal/rpc/p.go changed" + since + selectionSuffix, []string{
+				runSocketStore,
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"}},
 		{"a landing of an unknown file runs the socket suites", []string{"contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{runSocketAll}},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + wholeSuffix, []string{runSocketAll}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1"}, c.changed...)
@@ -418,26 +442,33 @@ func TestYardTestSelects(t *testing.T) {
 			t.Errorf("the steps the output times: %q, want %q", took, want)
 		}
 	})
-	// Run, not planned, a landing over a change the socket suites cannot
-	// reach starts no socket leg, and one over internal/rpc starts it
-	// beside the first run. The go it runs is the real one for the list
-	// of packages and writes down every other call.
+	// Run, not planned, a landing over a code change runs the selection
+	// plus all six black-box suites (the first line and the go test call
+	// both name them), beside the socket leg when the plain selection
+	// holds one of its packages: a change the socket suites cannot
+	// reach starts no leg, and one over internal/rpc starts it. A
+	// landing over an unknown file is still the whole suite. The go it
+	// runs is the real one for the list of packages and writes down
+	// every other call.
+	const selCLI = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"
+	const selRPC = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"
 	for _, c := range []struct {
 		name    string
 		changed string
 		reason  string
+		suffix  string
 		line    string
 		calls   []string
 		steps   []string
 	}{
-		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", skipSocket,
-			[]string{"vet ./...", "linux vet ./...", "test -race ./..."},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./..."}},
-		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", runSocketStore,
-			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
+		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", selectionSuffix, skipSocket,
+			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selCLI}},
+		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
+			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selRPC,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
-		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", runSocketAll,
+		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
@@ -458,7 +489,7 @@ func TestYardTestSelects(t *testing.T) {
 			}
 			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.changed)
-			if err != nil || first != landing+c.reason+since+": the whole suite" {
+			if err != nil || first != landing+c.reason+since+c.suffix {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
 			if !strings.Contains(rest, c.line+"\n") {

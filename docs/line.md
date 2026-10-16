@@ -182,37 +182,47 @@ their importers), leaves a note with what it changed and verified, ending
 in a test line (the command, the commit, the result with counts), and
 reports `yardr bead done`, which the flow sends to `review`.
 
-### One whole-suite run per bead
+### The landing run, and the whole suite on a quiet machine
 
-The whole suite (`go test -race` on every package and, beside it since
-yardr-9xd9, the store, dispatch and bdp suites again over the socket; the
-socket step's output is printed when the first has ended, and the run is
-red when either is) runs once per bead, in the assembly,
-on exactly the commit that lands (section 4): the assembly runs the same
-`.yardr/test` with `YARDR_LANDING=1`. Until 5 Oct 2026 the whole suite ran
-three times, for the builder, the reviewer and the assembly: about 16 of a
-bead's 37 minutes at the median. The builder now runs the script plainly,
-and the reviewer runs it plainly or not at all: not at all when the
-builder's test line names the commit under review and the reviewer
-committed nothing.
+The landing run (`go test -race` on the selection plus the six
+black-box suites, vet for linux too, and, beside it since yardr-9xd9,
+the store, dispatch and bdp suites again over the socket when the plain
+selection holds one of them; the socket step's output is printed when
+the first has ended, and the run is red when either is) runs once per
+bead, in the assembly, on exactly the commit that lands (section 4):
+the assembly runs the same `.yardr/test` with `YARDR_LANDING=1`. The
+whole suite (`go test -race` on every package) no longer gates each
+bead: it runs on a quiet machine as a backstop
+([testing.md](testing.md), R6), and where someone runs
+`YARDR_LANDING=1` on the base itself. Until 5 Oct 2026 the whole suite
+ran three times, for the builder, the reviewer and the assembly: about
+16 of a bead's 37 minutes at the median. The builder now runs the
+script plainly, and the reviewer runs it plainly or not at all: not at
+all when the builder's test line names the commit under review and the
+reviewer committed nothing.
 
-A landing that changes nothing compiled is not the whole suite (since
-yardr-bxh2, 13 Oct 2026). With `YARDR_LANDING=1` the script first asks what
-changed since `YARDR_BASE`, as a plain run does; the assembly has just
-rebased the branch onto the base, so that is what the landing adds. It runs
-the plain selection (gofmt, vet, build, and the tests of the packages the
-table names for the changed files) when every changed file is in a row of
-the table, and the whole suite when one of them is:
+With `YARDR_LANDING=1` the script first asks what changed since
+`YARDR_BASE`, as a plain run does; the assembly has just rebased the
+branch onto the base, so that is what the landing adds. A landing that
+changes code -- a `.go` file or a file a package embeds -- runs the
+plain selection plus always the six suites that build the tree's
+binary and drive it without importing the changed packages
+(`contrib/assembly`, `contrib/peer`, `contrib/deploy`,
+`contrib/server-yard`, `contrib/isolated-yard`, `contrib/release`:
+[testing.md](testing.md), R5). A landing that changes nothing compiled
+runs the plain selection alone (since yardr-bxh2, 13 Oct 2026:
+gofmt, vet, build, and the tests of the packages the table names for
+the changed files). It is the whole suite when what changed cannot be
+selected, or there is nothing to select from:
 
-- a `.go` file, `go.mod` or `go.sum`;
-- a file a package embeds;
+- `go.mod` or `go.sum`, which move every package;
 - a file in no row of the table, which any test may read;
-- deleted: what embedded a file that is gone cannot be asked any more.
+- deleted: what embedded a file that is gone cannot be asked any more;
+- nothing changed at all, or the base is not there to compare with,
+  which is how CI, a release and the quiet run on the base run it.
 
-It is also the whole suite when nothing changed at all or the base is not
-there to compare with, which is how CI and a release run it. The first line
-of the output says which run it is and names the file that made it the
-whole suite:
+The first line of the output says which run it is and names the file
+that decided it:
 
 ```text
 test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e
@@ -221,54 +231,60 @@ test: testing, with -race, what changed, what imports it and what reads it: yard
 ```
 
 ```text
-test: YARDR_LANDING is set, and internal/store/beads.go changed since main (YARDR_BASE), from 51c8a9e: the whole suite
+test: YARDR_LANDING is set, and internal/store/beads.go changed since main (YARDR_BASE), from 51c8a9e: the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)
+test: the plain selection holds store: running the socket suites beside the first run
 ```
 
-Such a landing is still tested as it lands: every program and every test
-binary is built from the source the base has, and the base passed the whole
-suite when that source last changed. Only a test that opens a changed file
-by path can differ, and those run. On 12 Oct 2026 eleven of 66 landings were
-the whole suite for one file under `docs/design/`, 66 minutes of the day's
-298 ([the design](design/2026-10-12-yardr-1vt3-landing-several-at-once.md),
-section 3.1). When it goes wrong, a row of the table names too few packages:
-the test that reads the changed file fails at the next landing that runs the
-whole suite, on a bead that did not cause it, and the fix is the row.
+Such a landing is still tested as it lands: every program and every
+test binary is built from the source the base has, and the base is
+kept green by the quiet whole-suite run. Only a test that opens a
+changed file by path can differ in a nothing-compiled landing, and
+those run. On 12 Oct 2026 eleven of 66 landings were the whole suite
+for one file under `docs/design/`, 66 minutes of the day's 298
+([the design](design/2026-10-12-yardr-1vt3-landing-several-at-once.md),
+section 3.1). When it goes wrong, a row of the table names too few
+packages: the test that reads the changed file fails at the next
+quiet whole-suite run, on a base that did not cause it, and the fix
+is the row.
 
-What that costs is that some faults are now found one stage later, in the
-assembly, where a red run takes a place in the serial queue and sends the
-bead back to a builder. They are the faults a plain run of depot yardr's
-script cannot see:
+What the incremental landing costs is that some faults are found
+later than the landing that caused them -- at the quiet run, with no
+bead to send back -- instead of in the assembly. They are the faults
+neither the selection nor the six can see:
 
-- a test that reads a file by path, when the table in `.yardr/test` leaves
-  it out. `go list` knows what a package imports and embeds, not what its
-  tests open, so the script has a table of path to packages (the starter
-  pack runs `internal/pack` and `internal/cli`, whose tests read it;
-  `.yardr/flows/` runs the packages that read the repository's own flows),
-  and a changed file that is neither Go, embedded nor in the table runs
-  every package. What is left is a row that names too few packages;
-- a test that reaches code by building the binary instead of importing it
-  (`contrib/assembly`, `contrib/isolated-yard`, the ask harness);
-- store, dispatch or bdp behaviour that differs over the unix socket: those
-  suites run only for a landing;
-- a test in a package the branch neither changed nor is imported by, which
-  fails for a reason no import shows (shared state on disk, timing under the
-  load of the whole run).
+- a test that reads a file by path, when the table in `.yardr/test`
+  leaves its reader out. `go list` knows what a package imports and
+  embeds, not what its tests open, so the script has a table of path
+  to packages (the starter pack runs `internal/pack` and
+  `internal/cli`, whose tests read it; `.yardr/flows/` runs the
+  packages that read the repository's own flows), and a changed file
+  that is neither Go, embedded nor in the table still runs every
+  package. What is left is a row that names too few packages;
+- store, dispatch or bdp behaviour over the unix socket that the
+  gate skips: the socket leg runs at a landing only when the plain
+  selection already holds one of the three, the same reach the plain
+  run accepts everywhere else;
+- a test in a package the branch neither changed nor is imported by,
+  and none of the six, which fails for a reason no import shows
+  (shared state on disk, timing under the load of the whole run).
 
-For these the builder runs the whole suite itself, `YARDR_LANDING=1 sh
-.yardr/test` (step 3 of the builder's role), which is the whole suite for
-a branch that changes something compiled, as these do. An edit to
-`.yardr/test` on a branch is tested by the builder's own
-run alone: the assembly runs the copy `main` has. A reviewer's `review:`
-commits get a plain run too, so a fault in one of them is the assembly's to
-find.
+A test that reaches code only by building the binary is no longer in
+this list: the six always run at a code landing and exercise the new
+binary. For the rest the builder previews the landing itself,
+`YARDR_LANDING=1 sh .yardr/test` (step 3 of the builder's role),
+which is the selection plus the six for a branch that changes
+something compiled, as these do. An edit to `.yardr/test` on a branch
+is tested by the builder's own run alone: the assembly runs the copy
+`main` has. A reviewer's `review:` commits get a plain run too, so a
+fault in one of them is the assembly's to find.
 
-How many whole suites run at once is the assembly group's `limit`: every
-depot of this yard lands through one group
-([configuration.md](configuration.md#tests)). A depot whose landing is short
-may have an exec group of its own with the same script, so that it does not
-wait behind a long suite: this yard did so for footplate on 12 Oct 2026
-(`yardr group add footplate-assembly`, and a route for stage `approved`,
-depot footplate, priority 10).
+How many landing runs go at once is the assembly group's `limit`:
+every depot of this yard lands through one group
+([configuration.md](configuration.md#tests)). A depot whose landing
+is short may have an exec group of its own with the same script, so
+that it does not wait behind a long one: this yard did so for
+footplate on 12 Oct 2026 (`yardr group add footplate-assembly`, and a
+route for stage `approved`, depot footplate, priority 10).
 
 ### What the tests do not catch
 
@@ -289,7 +305,7 @@ outcome applies). It is the last review of whether the bead does what it
 says, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, tries the change, runs the depot's
 test command if it committed or the builder's test line is not for the
-commit under review (the whole suite is the assembly's), and then:
+commit under review (the landing run is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `review-security`) when the diff touches anything

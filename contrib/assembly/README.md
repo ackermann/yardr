@@ -18,7 +18,11 @@ reports `failed` (back to `new`). It asks the flow first (`prime --bead
 --json`), so a flow with no `merge` raises no refused move. It then runs the
 depot's test command (`YARDR_TEST`,
 from `yardr depot add --test`) in the worktree, on exactly what will land,
-with `YARDR_LANDING=1` set: red reports `failed` (back to `new`, or `open`
+with `YARDR_LANDING=1` set: for depot yardr that run is the selection
+plus the six black-box suites, the whole suite running on a quiet
+machine instead (docs/line.md, "The landing run, and the whole suite
+on a quiet machine"); what it means is the depot command's own. Red
+reports `failed` (back to `new`, or `open`
 for a train), and a command that says it could not run (exit 2) holds the
 bead; one that exits 2 for a failing test, as make does, is wrapped
 (`--test 'make test || exit 1'`). Where the command is the path of a file

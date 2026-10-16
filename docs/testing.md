@@ -47,10 +47,10 @@ fresh leg from a quoted line. The assembly's runs are outside this rule:
 the landing always runs, on exactly what lands, every time, including
 after a merger's rebase that changed nothing
 (`contrib/assembly/merge-local`: the test command "runs on exactly what
-will land, every time"), and its whole-suite gate differs from any plain
-run (`whole()` in `.yardr/test`: every package with `-race`, vet for
-linux too, the socket leg beside), so no plain test line ever satisfies
-it. The test line carries the leg's wall time and race-lock wait,
+will land, every time"), and its landing gate differs from any plain
+run (`whole()` in `.yardr/test`: the selection plus the six black-box
+suites with `-race`, vet for linux too, the socket leg beside), so no
+plain test line ever satisfies it. The test line carries the leg's wall time and race-lock wait,
 written by `.yardr/test` itself so every note holds them: `test: sh
 .yardr/test @ <sha>: pass, <n> packages ok, 0 failed, 112 s, waited 40
 s`. The fields are the result, the packages passed and failed, the
@@ -62,9 +62,11 @@ plus always the six black-box suites (contrib/assembly, contrib/peer,
 contrib/deploy, contrib/server-yard, contrib/isolated-yard,
 contrib/release), plus the socket leg as today. Each of the six builds
 the tree's binary and drives it without importing the changed packages,
-so the pick alone misses them. This takes effect with the incremental
-landing, which lands after the quiet whole-suite run below; until then
-the landing runs the whole suite.
+so the pick alone misses them. A landing that changed nothing compiled
+runs the plain selection alone, as before; one whose change cannot be
+selected (go.mod or go.sum, a deletion, a file no row knows) and one
+with nothing to compare with still run the whole suite. The whole
+suite otherwise runs only on a quiet machine (R6 below).
 
 R6. The whole suite still runs, but on a quiet machine, not on a timer
 and not as a gate on any bead. The daemon's trigger

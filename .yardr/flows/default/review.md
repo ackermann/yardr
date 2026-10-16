@@ -14,7 +14,7 @@ Before the bead leaves, the depot's test command has passed on the branch as
 it now is: the builder's test line names the commit under review and you
 committed nothing, or you ran it yourself (`sh .yardr/test` in the worktree)
 and your note ends with its line, `test: <command> @ <commit>: pass`. The
-whole suite is not the review's: it runs once, on what lands. One note on the bead says how the
+landing run is not the review's: it runs once, on what lands. One note on the bead says how the
 review ended. Outcomes:
 
 - `done`, approved, and it needs the security review: the note says what

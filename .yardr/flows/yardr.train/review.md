@@ -19,9 +19,10 @@ name each in your note.
    child" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, on the train
    branch. Run `YARDR_LANDING=1 sh .yardr/test` after your changes. It runs
-   the whole suite when the train changed compiled content; when nothing
-   compiled changed, it runs the plain selection instead (docs/line.md,
-   "One whole-suite run per bead").
+   the selection plus the six black-box suites when the train changed
+   compiled content; when nothing compiled changed, it runs the plain
+   selection alone instead (docs/line.md, "The landing run, and the whole
+   suite on a quiet machine").
 
 Approval here is the last review before the train lands on `main`. Before the
 train leaves, one note on it says how the review ended. Outcomes:
