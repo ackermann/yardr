@@ -574,6 +574,8 @@ agent's help, until `yardr user device rm`. Row by row:
 | `peer allow <peer> --send <kinds>` or `--receive <kinds>`: what a link carries widened | Mail may flow where it did not: out to a linked yard's crew through a crew member the holder directs by mail, or in from the linked yard. Nothing of the holder's own |
 | `source set <source> calls_per_hour=<n>` or `updates_per_hour=<n>`: a source's calls an hour raised | Calls that are granted already may be made more often. Only the operator lowers it again |
 | `source grant <source> read\|<call> --crew <name>` or `--group <name>`: a grant of a source's calls | The yard's credential for that source now works for a crew member or a group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
+| `source add <file>`: a new source the file declares | A source the holder names stands that did not, its declaration and each command file it names installed as the card showed them. The yard's own credential for it is still unset, so nothing is read or written until the operator gives a key and grants a call; but what then runs and where it sends are the file the holder had installed |
+| `pack apply <name>`, with no flag: a pack yardr embeds | Of kind source, the pack's sources added, or replaced with their diffs on the card, with the pack's command files installed from the yardr build the yard runs. Of a depot kind, re-applied where its plan asks nothing, the plan's objects created and changed as the card showed them: flows, groups, roles and scripts. Either still grants no call, makes no hook and sets no credential's file |
 | `subscribe <user> yardr …`, asked of the operator: a subscription to the yard's own events, the operator's or another user's | That user is told of more of what happens in the yard, as notifications in their inbox and, where a source tells them, outside the yard. The holder reads those events in the stream already |
 | `user set <user> tell=<parts>`, asked of the operator: which parts a source tells the operator or another user of outside the yard | That user's phone is told of more or of less, and what still waited to be told of a part that is dropped is not told. Where it is told and with which address stay as they are, and the inbox and the queue of decisions are filled as before. The holder gains nothing to read |
 | `user add <name>`: a user added | A user the holder names reads mail from now on, and may be subscribed to the yard's events. The holder reads the yard's mail already; the user is told nothing outside the yard until `notify` is set, which no run ask holds |
@@ -588,10 +590,11 @@ agent's help, until `yardr user device rm`. Row by row:
 What it still cannot have run, because no run ask may hold it: adding a
 device or pairing one, adding a link or trusting a name of another yard,
 giving one reach or exposing one, changing the operator, changing through
-which source a user is told or where their address is read from, adding,
-replacing or removing a source, reading a source's credential or setting
-where it is read from or the command that mints one, defining what a group
-runs or a crew member is, and applying a pack. So it cannot make itself a
+which source a user is told or where their address is read from, replacing
+a source from a file or removing one, reading a source's credential or
+setting where it is read from or the command that mints one, defining what
+a group runs or a crew member is, and applying a pack yardr does not embed,
+with any flag, or where its plan asks. So it cannot make itself a
 second way in — no new device, no new credential, and the operator stands
 — and removing the device ends what it could do. What a grant let happen
 in between has happened, and what an approval changed stays until it is
