@@ -591,7 +591,9 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 
 // A subscription stored before a key could take several values matches as
 // it did: its record is as that build wrote it, one string for each key,
-// and a comma, a bar or a space in the string separates nothing.
+// and a comma, a bar, a space or a line break in the string separates
+// nothing. The comma and the bar ride a label; the space and the break
+// ride an actor, since a label holds neither (yardr-edhj).
 func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yardr.db")
@@ -603,7 +605,7 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"old", "odd", "line"} {
+	for _, name := range []string{"old", "odd", "said", "line"} {
 		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -613,8 +615,9 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 	}
 	stored := map[string]string{
 		"old":  `{"source":"yardr","scope":"all","where":{"depot":"yard","kind":"noted","label":"ui"}}`,
-		"odd":  `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"ui,api|x y"}}`,
-		"line": `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"line1\nline2"}}`,
+		"odd":  `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"ui,api|xy"}}`,
+		"said": `{"source":"yardr","scope":"all","where":{"kind":"noted","actor":"jo bloggs"}}`,
+		"line": `{"source":"yardr","scope":"all","where":{"kind":"noted","actor":"line1\nline2"}}`,
 	}
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -643,7 +646,7 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	beads := map[string]string{}
-	for _, label := range []string{"ui", "api", "ui,api|x y", "line1\nline2"} {
+	for _, label := range []string{"ui", "api", "ui,api|xy"} {
 		b, err := s.CreateBead(ctx, store.NewBead{Title: label, Depot: "yard", Labels: []string{label}}, "jane")
 		if err != nil {
 			t.Fatal(err)
@@ -656,16 +659,32 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 		}
 		beads[label] = b.ID
 	}
+	// The space and the break ride notes' actors, on a bead no label
+	// filter hears: a note by half the stored value must not match.
+	chat, err := s.CreateBead(ctx, store.NewBead{Title: "chat", Depot: "yard", Labels: []string{"chat"}}, "jane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, actor := range []string{"jo bloggs", "jo", "line1\nline2", "line1"} {
+		if err := s.AddNote(ctx, chat.ID, "hi", actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.SetHold(ctx, chat.ID, true, store.Expect{}, "jane"); err != nil {
+		t.Fatal(err)
+	}
 	wantHeard(t, s, beads["ui"], "old", "noted:all")
 	wantHeard(t, s, beads["api"], "old")
-	wantHeard(t, s, beads["ui,api|x y"], "old")
+	wantHeard(t, s, beads["ui,api|xy"], "old")
 	wantHeard(t, s, beads["ui"], "odd")
 	wantHeard(t, s, beads["api"], "odd")
-	wantHeard(t, s, beads["ui,api|x y"], "odd", "noted:all")
-	wantHeard(t, s, beads["line1\nline2"], "line", "noted:all")
+	wantHeard(t, s, beads["ui,api|xy"], "odd", "noted:all")
+	wantHeard(t, s, chat.ID, "said", "noted:all")
+	wantHeard(t, s, beads["ui"], "said")
+	wantHeard(t, s, chat.ID, "line", "noted:all")
 	wantHeard(t, s, beads["ui"], "line")
 	r, err := s.GetCrew(ctx, "odd")
-	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all kind=noted label=ui,api|x y" {
+	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all kind=noted label=ui,api|xy" {
 		t.Fatalf("odd's subscriptions = %v, %v", r, err)
 	}
 	// Nor was a record rewritten to be read.
