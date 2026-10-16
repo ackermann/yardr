@@ -263,7 +263,7 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 		return "", failWords(err.Error(), terminal)
 	}
 	// The pack's side, held whole: the build and the bytes as carded.
-	if reading.Label != run.Pack.Label || !sameSources(reading.Sources, run.Carried) {
+	if reading.Name != run.Pack.Name || reading.Kind != run.Pack.Kind || reading.Label != run.Pack.Label || !sameSources(reading.Sources, run.Carried) {
 		return "", staleWords(fmt.Sprintf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs", rec.Ask, name, run.Pack.Label, reading.Label), terminal)
 	}
 	if reading.Depot != run.Pack.Depot {
@@ -415,14 +415,25 @@ func sameSources(a, b []store.AskSource) bool {
 // "already as the pack says" means — each carded unchanged must
 // rebuild unchanged, and each dropped must still read dropped.
 func holdDepotObjects(carded, rebuilt *store.AskPlan) error {
+	for _, lines := range [][]string{rebuilt.Missing, rebuilt.Asks, rebuilt.Refused, rebuilt.Edited, rebuilt.NonText} {
+		if len(lines) > 0 {
+			return fmt.Errorf("the plan now asks, refuses, or needs a hand-edited or non-text file: %s", strings.Join(lines, "; "))
+		}
+	}
 	byKey := map[string]store.AskPlanObject{}
 	for _, o := range rebuilt.Objects {
 		byKey[o.Kind+"\x00"+o.Name] = o
 	}
+	cardedKeys := make(map[string]bool, len(carded.Objects))
 	for _, obj := range carded.Objects {
-		rb, ok := byKey[obj.Kind+"\x00"+obj.Name]
+		key := obj.Kind + "\x00" + obj.Name
+		cardedKeys[key] = true
+		rb, ok := byKey[key]
 		if !ok {
 			return fmt.Errorf("the object %s %s is no longer in the plan", obj.Kind, obj.Name)
+		}
+		if !sameStrings(rb.Keeps, obj.Keeps) || !sameStrings(rb.Shadows, obj.Shadows) {
+			return fmt.Errorf("the object %s %s keeps or shadows differently than the card", obj.Kind, obj.Name)
 		}
 		sameChange := rb.Action == obj.Action && rb.FileNewSHA == obj.FileNewSHA && rb.Text == obj.Text && sameChanges(rb.Changes, obj.Changes)
 		// A changed file not yet installed stands at the card's old
@@ -449,6 +460,11 @@ func holdDepotObjects(carded, rebuilt *store.AskPlan) error {
 			}
 		}
 	}
+	for key, obj := range byKey {
+		if !cardedKeys[key] {
+			return fmt.Errorf("the object %s %s was not on the card", obj.Kind, obj.Name)
+		}
+	}
 	cardedGov, _ := json.Marshal(carded.Governs)
 	rebuiltGov, _ := json.Marshal(rebuilt.Governs)
 	if string(cardedGov) != string(rebuiltGov) {
@@ -465,10 +481,16 @@ func verifyDepotObjects(carded, after *store.AskPlan) error {
 	for _, o := range after.Objects {
 		byKey[o.Kind+"\x00"+o.Name] = o
 	}
+	cardedKeys := make(map[string]bool, len(carded.Objects))
 	for _, obj := range carded.Objects {
-		rb, ok := byKey[obj.Kind+"\x00"+obj.Name]
+		key := obj.Kind + "\x00" + obj.Name
+		cardedKeys[key] = true
+		rb, ok := byKey[key]
 		if !ok {
 			return fmt.Errorf("the object %s %s is gone after the import", obj.Kind, obj.Name)
+		}
+		if !sameStrings(rb.Keeps, obj.Keeps) || !sameStrings(rb.Shadows, obj.Shadows) {
+			return fmt.Errorf("the object %s %s keeps or shadows differently after the import", obj.Kind, obj.Name)
 		}
 		switch obj.Action {
 		case "create", "change", "unchanged":
@@ -481,10 +503,27 @@ func verifyDepotObjects(carded, after *store.AskPlan) error {
 			}
 		}
 	}
+	for key, obj := range byKey {
+		if !cardedKeys[key] {
+			return fmt.Errorf("the object %s %s was not on the card", obj.Kind, obj.Name)
+		}
+	}
 	return nil
 }
 
 func sameChanges(a, b []store.AskChange) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

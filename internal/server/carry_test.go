@@ -295,6 +295,35 @@ func TestCarryPackStaleCopiesFail(t *testing.T) {
 	}
 }
 
+func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
+	ctx := context.Background()
+	for _, change := range []string{"name", "kind"} {
+		t.Run(change, func(t *testing.T) {
+			st, home, bead := carryYard(t)
+			seq := askApprove(t, st, bead, packAskOf("telegram"))
+			reading, err := st.ReadPack(ctx, "telegram")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if change == "name" {
+				reading.Name = "different"
+			} else {
+				reading.Kind = "depot"
+			}
+			st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) {
+				return reading, nil
+			})
+			drain(t, st, home, "boot-one")
+			if rec := carryState(t, st, bead, seq); rec.State != store.CarryFailed {
+				t.Fatalf("a changed pack %s was carried out: %+v", change, rec)
+			}
+			if _, err := st.GetSource(ctx, "telegram"); err == nil {
+				t.Fatal("the changed pack was applied")
+			}
+		})
+	}
+}
+
 // The three states a stop inside a source's write leaves are each
 // finished by the taken-up carrying out: the pack's text with no
 // command files, with a subset of them, and — on a replacement — with
@@ -814,5 +843,35 @@ func TestDepotPlanHolding(t *testing.T) {
 	}}
 	if err := holdDepotObjects(carded, changed); err == nil || !strings.Contains(err.Error(), "builders") {
 		t.Fatalf("a moved object held: %v", err)
+	}
+	extra := &store.AskPlan{Objects: []store.AskPlanObject{
+		{Kind: "file", Name: "roles/a.md", Action: "change", FileOldSHA: "a", FileNewSHA: "b", Text: "new\n"},
+		{Kind: "group", Name: "builders", Action: "unchanged"},
+		{Kind: "file", Name: "roles/gone.md", Action: "dropped"},
+		{Kind: "group", Name: "reviewers", Action: "create"},
+	}}
+	if err := holdDepotObjects(carded, extra); err == nil || !strings.Contains(err.Error(), "reviewers") {
+		t.Fatalf("an object not on the card held: %v", err)
+	}
+	extraAfter := &store.AskPlan{Objects: []store.AskPlanObject{
+		{Kind: "file", Name: "roles/a.md", Action: "unchanged", FileOldSHA: "b", FileNewSHA: "b", Text: "new\n"},
+		{Kind: "group", Name: "builders", Action: "unchanged"},
+		{Kind: "file", Name: "roles/gone.md", Action: "dropped"},
+		{Kind: "group", Name: "reviewers", Action: "unchanged"},
+	}}
+	if err := verifyDepotObjects(carded, extraAfter); err == nil || !strings.Contains(err.Error(), "reviewers") {
+		t.Fatalf("an object not on the card verified: %v", err)
+	}
+	newAsk := &store.AskPlan{Objects: carded.Objects, Asks: []string{"let builders open threads in linear"}}
+	if err := holdDepotObjects(carded, newAsk); err == nil || !strings.Contains(err.Error(), "linear") {
+		t.Fatalf("a new plan ask held: %v", err)
+	}
+	shadowed := &store.AskPlan{Objects: []store.AskPlanObject{
+		carded.Objects[0],
+		{Kind: "group", Name: "builders", Action: "unchanged", Shadows: []string{".yardr/roles/builders.md"}},
+		carded.Objects[2],
+	}}
+	if err := holdDepotObjects(carded, shadowed); err == nil || !strings.Contains(err.Error(), "builders") {
+		t.Fatalf("a changed shadowing held: %v", err)
 	}
 }
