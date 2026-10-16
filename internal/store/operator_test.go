@@ -187,6 +187,7 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 // else is refused in words naming both, and the pane's actor is who is
 // checked, whatever --actor says (yardr-g7kq).
 func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
+	t.Parallel()
 	api, own := operatorYard(t)
 	ctx := context.Background()
 	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "brakeman", Runner: "herdr"}, "jo"); err != nil {
