@@ -644,7 +644,7 @@ backlog          backlog          mckean,yardmaster  shape | new | decide
 shape            shapers          -                  new on done | decide on question | backlog
 new              yardr-builders   -                  review on done | decide on question | backlog
 decide           decisions        mckean,yardmaster  backlog | new
-review           yardr-reviewers  -                  review-security on done | new on changes | decide on question
+review           yardr-reviewers  -                  review-security on done | approved on done-safe | new on changes | decide on question
 review-security  yardr-security   -                  approved on done | new on changes | decide on question
 approved         yardr-refinery   -                  merged on done | new on failed | decide on question
 merged           -                -                  (terminal: closes the bead)
@@ -660,7 +660,7 @@ no store pointer overrides it. It governs every bead that is not a train
 backlog -> shape | new | decide
 shape -> new on done | decide on question | backlog
 new -> review on done | decide on question | backlog
-review -> review-security on done | new on changes | decide on question
+review -> review-security on done | approved on done-safe | new on changes | decide on question
 review-security -> approved on done | new on changes | decide on question
 approved -> merged on done | new on failed | decide on question
 decide -> backlog | new

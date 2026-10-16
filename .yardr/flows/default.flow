@@ -3,7 +3,7 @@
 backlog -> shape | new | decide
 shape -> new on done | decide on question | backlog
 new -> review on done | decide on question | backlog
-review -> review-security on done | new on changes | decide on question
+review -> review-security on done | approved on done-safe | new on changes | decide on question
 review-security -> approved on done | new on changes | decide on question
 approved -> merged on done | new on failed | decide on question
 decide -> backlog | new

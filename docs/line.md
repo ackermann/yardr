@@ -5,6 +5,7 @@ This page follows a bead down the line yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
+                                                       ╭─── done-safe ─────────────────╮
 backlog ──pick──▶ shape ──shaper──▶ new ──builder──▶ review ──▶ review-security ──▶ approved ──assembly──▶ merged on main
    ▲                       ▲                 │              │                 │
    │                       └──── changes ────┴──────────────┘                 │
@@ -291,7 +292,10 @@ test command if it committed or the builder's test line is not for the
 commit under review (the whole suite is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
-  done` (to `review-security`);
+  done` (to `review-security`) when the diff touches anything
+  security-relevant, or `--outcome done-safe` (straight to `approved`)
+  when it touches nothing on the stage file's list; in doubt it reports
+  `done`;
 - **sends back**: concrete findings, then `--outcome changes` (to `new`);
   the bead returns to
   the builders, in the same worktree. After two send-backs it holds the bead
@@ -311,7 +315,8 @@ the range-diff and advances to `approved`; otherwise it sends the bead to
 
 ### Then once more, for security alone
 
-A bead is reviewed twice, one review after the other (design
+A bead whose diff touches anything security-relevant is reviewed twice,
+one review after the other (design
 [yardr-ndv0](design/2026-10-12-yardr-ndv0-parallel-reviews.md), 12 Oct
 2026). `review` asks whether the bead does what it says, is right and is
 tested. `review-security` asks one other question of the same diff: what
@@ -331,7 +336,9 @@ anything larger back to `new` with `changes` (the bead then passes `review`
 again), and takes a question to `decide`. It is kept from becoming a second
 general review: a change that touches nothing on the list is passed with
 one line saying so, and the tests are not run again for a branch it did not
-change. Every bead passes it. The two run one after the other and not at
+change. A diff that touches nothing on the list goes straight from `review`
+to `approved` on `done-safe`, and only beads the reviewer sends on with
+`done` pass the second review. The two run one after the other and not at
 once, so that both may commit on the one branch; the design has what a gate
 for reviews at once would take.
 
