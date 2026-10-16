@@ -534,12 +534,16 @@ func (w *wtx) crewIdentityCard(argv []string, asking bool) (AskRun, error) {
 	} else {
 		back = append(back, "--rm")
 	}
+	fingerprint, err := w.sourceSeen(src)
+	if err != nil {
+		return AskRun{}, err
+	}
 	return AskRun{
 		Argv:   argv,
 		Does:   does,
 		Back:   runCommandLine(back),
 		BackBy: "only the operator",
-		Seen:   map[string]string{"crew " + name: seen(cur.ID, cur.Key), "source " + source: sourceSeen(src)},
+		Seen:   map[string]string{"crew " + name: seen(cur.ID, cur.Key), "source " + source: fingerprint},
 	}, nil
 }
 
