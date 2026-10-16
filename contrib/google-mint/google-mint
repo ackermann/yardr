@@ -16,10 +16,10 @@
 # printed, neither on stdout nor on stderr, nor written anywhere.
 #
 # Needs gws and curl on PATH: GWS_BIN names another gws, else the one
-# on PATH, else /opt/homebrew/bin/gws. GOOGLE_TOKEN_ENDPOINT names
-# another token endpoint than https://oauth2.googleapis.com/token, for
-# a test's stand-in. The scope is the call's; Google's token narrows by
-# the gws grant, not by call, so it is read and ignored.
+# on PATH, else /opt/homebrew/bin/gws. GOOGLE_TOKEN_ENDPOINT may name a
+# loopback HTTP endpoint for a test's stand-in. The scope is the call's;
+# Google's token narrows by the gws grant, not by call, so it is read
+# and ignored.
 set -eu
 
 fail() { echo "google-mint: $*" >&2; exit 1; }
@@ -61,6 +61,17 @@ account=$(first "$input" GOOGLE_ACCOUNT)
 [ -n "$account" ] || fail "its inputs name no GOOGLE_ACCOUNT"
 printf '%s' "$input" | grep -q '"scope"' || fail "reads {inputs, scope} on stdin, and got no scope"
 endpoint=${GOOGLE_TOKEN_ENDPOINT:-https://oauth2.googleapis.com/token}
+if [ "$endpoint" != "https://oauth2.googleapis.com/token" ]; then
+  # The override is for the test stand-in only. Keep refresh credentials
+  # from being sent to an endpoint supplied by the process environment.
+  case $endpoint in
+    http://127.0.0.1:*)
+      port=${endpoint#http://127.0.0.1:}
+      case $port in ''|*[!0-9]*) fail "GOOGLE_TOKEN_ENDPOINT is only allowed for a loopback test endpoint" ;; esac
+      ;;
+    *) fail "GOOGLE_TOKEN_ENDPOINT is only allowed for a loopback test endpoint" ;;
+  esac
+fi
 
 # Whose login gws holds: the exchange below mints for whoever that is,
 # so another account than the inputs name is refused, not minted.
@@ -95,7 +106,9 @@ out=$(printf 'grant_type=refresh_token&client_id=%s&client_secret=%s&refresh_tok
   fail "could not reach $endpoint (curl exit $?)"
 code=$(printf '%s' "$out" | tail -n 1)
 body=$(printf '%s' "$out" | sed '$d')
-[ "$code" = "200" ] || fail "minting a token was answered $code: $(printf '%s' "$body" | head -c 500)"
+# The response body is untrusted and could echo the refresh credentials.
+# Report only the status code on failure.
+[ "$code" = "200" ] || fail "minting a token was answered $code"
 token=$(first "$body" access_token)
 expires_in=$(num "$body" expires_in)
 [ -n "$token" ] && [ -n "$expires_in" ] || fail "minting a token came back with no token"

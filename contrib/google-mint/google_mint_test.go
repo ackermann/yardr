@@ -91,6 +91,9 @@ func (f *fakeToken) handler(w http.ResponseWriter, r *http.Request) {
 	case "error":
 		w.WriteHeader(500)
 		io.WriteString(w, `{"error":"internal"}`)
+	case "echo-request":
+		w.WriteHeader(400)
+		_, _ = w.Write(body)
 	case "bad-json":
 		io.WriteString(w, `{`)
 	case "no-token":
@@ -252,23 +255,24 @@ func TestGoogleMintRefusals(t *testing.T) {
 		mode  string
 		want  string
 	}{
-		"no account":        {`{"inputs":{},"scope":""}`, nil, "good", "its inputs name no GOOGLE_ACCOUNT"},
-		"no scope":          {`{"inputs":{"GOOGLE_ACCOUNT":"op@example.com"}}`, nil, "good", "got no scope"},
-		"no JSON":           {`{`, nil, "good", "its inputs name no GOOGLE_ACCOUNT"},
-		"nothing":           {``, nil, "good", "got nothing"},
-		"no gws":            {stdinFor("op@example.com", ""), []string{"GWS_BIN=/nonexistent/gws"}, "good", "GWS_BIN=/nonexistent/gws is no program to run"},
-		"status fails":      {stdinFor("op@example.com", ""), []string{"GWS_STATUS_EXIT=1"}, "good", "gws auth status failed (exit 1)"},
-		"status no user":    {stdinFor("op@example.com", ""), []string{"GWS_STATUS_BODY=no-user"}, "good", "gws auth status answered with no user"},
-		"status bad JSON":   {stdinFor("op@example.com", ""), []string{"GWS_STATUS_BODY=bad-json"}, "good", "gws auth status answered with no user"},
-		"export fails":      {stdinFor("op@example.com", ""), []string{"GWS_EXPORT_EXIT=1"}, "good", "gws auth export failed (exit 1)"},
-		"export no refresh": {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=no-refresh"}, "good", "gws auth export answered with no refresh credentials"},
-		"export bad JSON":   {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=bad-json"}, "good", "gws auth export answered with no refresh credentials"},
-		"export weird":      {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=weird-chars"}, "good", "what gws answered is no refresh credentials"},
-		"token refused":     {stdinFor("op@example.com", ""), nil, "bad-request", "minting a token was answered 400"},
-		"token failing":     {stdinFor("op@example.com", ""), nil, "error", "minting a token was answered 500"},
-		"token bad JSON":    {stdinFor("op@example.com", ""), nil, "bad-json", "minting a token came back with no token"},
-		"token no token":    {stdinFor("op@example.com", ""), nil, "no-token", "minting a token came back with no token"},
-		"token weird":       {stdinFor("op@example.com", ""), nil, "weird-token", "the token Google answered is no token"},
+		"no account":           {`{"inputs":{},"scope":""}`, nil, "good", "its inputs name no GOOGLE_ACCOUNT"},
+		"no scope":             {`{"inputs":{"GOOGLE_ACCOUNT":"op@example.com"}}`, nil, "good", "got no scope"},
+		"no JSON":              {`{`, nil, "good", "its inputs name no GOOGLE_ACCOUNT"},
+		"nothing":              {``, nil, "good", "got nothing"},
+		"no gws":               {stdinFor("op@example.com", ""), []string{"GWS_BIN=/nonexistent/gws"}, "good", "GWS_BIN=/nonexistent/gws is no program to run"},
+		"status fails":         {stdinFor("op@example.com", ""), []string{"GWS_STATUS_EXIT=1"}, "good", "gws auth status failed (exit 1)"},
+		"status no user":       {stdinFor("op@example.com", ""), []string{"GWS_STATUS_BODY=no-user"}, "good", "gws auth status answered with no user"},
+		"status bad JSON":      {stdinFor("op@example.com", ""), []string{"GWS_STATUS_BODY=bad-json"}, "good", "gws auth status answered with no user"},
+		"export fails":         {stdinFor("op@example.com", ""), []string{"GWS_EXPORT_EXIT=1"}, "good", "gws auth export failed (exit 1)"},
+		"export no refresh":    {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=no-refresh"}, "good", "gws auth export answered with no refresh credentials"},
+		"export bad JSON":      {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=bad-json"}, "good", "gws auth export answered with no refresh credentials"},
+		"export weird":         {stdinFor("op@example.com", ""), []string{"GWS_EXPORT=weird-chars"}, "good", "what gws answered is no refresh credentials"},
+		"token refused":        {stdinFor("op@example.com", ""), nil, "bad-request", "minting a token was answered 400"},
+		"token echoes request": {stdinFor("op@example.com", ""), nil, "echo-request", "minting a token was answered 400"},
+		"token failing":        {stdinFor("op@example.com", ""), nil, "error", "minting a token was answered 500"},
+		"token bad JSON":       {stdinFor("op@example.com", ""), nil, "bad-json", "minting a token came back with no token"},
+		"token no token":       {stdinFor("op@example.com", ""), nil, "no-token", "minting a token came back with no token"},
+		"token weird":          {stdinFor("op@example.com", ""), nil, "weird-token", "the token Google answered is no token"},
 	} {
 		endpoint.setMode(tc.mode)
 		stdout, stderr, err := mint(t, tc.stdin, srv.URL, tc.env...)
@@ -291,10 +295,25 @@ func TestGoogleMintRefusals(t *testing.T) {
 		if name == "export fails" && strings.Contains(stderr, "not logged in") {
 			t.Errorf("a failed export repeats gws: %q", stderr)
 		}
-		// The refusal of the token endpoint carries Google's error,
-		// which holds no secret.
-		if name == "token refused" && !strings.Contains(stderr, "invalid_grant") {
-			t.Errorf("a refused exchange names no error: %q", stderr)
+		// A response body is untrusted and could echo the form's secrets;
+		// only the status code is reported.
+		if (name == "token refused" || name == "token echoes request") && strings.Contains(stderr, "invalid_grant") {
+			t.Errorf("a refused exchange repeated the response body: %q", stderr)
+		}
+	}
+}
+
+func TestGoogleMintRejectsRemoteTokenEndpoint(t *testing.T) {
+	stdout, stderr, err := mint(t, stdinFor("op@example.com", ""), "https://attacker.example/token")
+	if err == nil || !strings.Contains(stderr, "GOOGLE_TOKEN_ENDPOINT is only allowed for a loopback test endpoint") {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	for _, secret := range []string{fakeClientID, fakeClientSecret, fakeRefresh, fakeAccess} {
+		if strings.Contains(stderr, secret) {
+			t.Fatalf("stderr shows %q", secret)
 		}
 	}
 }
