@@ -15,8 +15,10 @@ which the table in `.yardr/test` has no row for (add the row too), code a
 test reaches by building the binary instead of importing it, or store,
 dispatch or bdp behaviour over the socket. The assembly runs `.yardr/test`
 as it is on main, so an edit to it on the branch is tested by your run
-alone. The test line counts the packages go test printed `ok` and `FAIL`
-for: `test: sh .yardr/test @ <commit>: pass, <n> packages ok, 0 failed`.
+alone. The run ends with its test line, printed by the script itself: `test: sh
+.yardr/test @ <commit>: pass, <n> packages ok, 0 failed, 112 s, waited 40
+s` -- the result, the packages `ok` and `FAIL`, the wall seconds, and the
+seconds queued on the race lock. A note carries it whole.
 
 Anything that starts agents is tested in an isolated yard, never the
 operator's herdr session or yard. From the worktree:

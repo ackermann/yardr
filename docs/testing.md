@@ -38,10 +38,24 @@ budget comply until they breach it, and the budget is their backstop then.
 
 R4. One plain race leg per sha, in builder and review stages only. A stage
 whose branch is unchanged since a green test line on that sha does not
-rerun the plain suite; a stage that committed still runs it on its new
-sha. The assembly's runs are outside this rule: the landing always runs
-the base's script with `YARDR_LANDING=1` on exactly what lands, every
-time, including after a rebase that changed nothing.
+rerun the plain suite; a stage that committed -- a review fix, a security
+fix -- still runs it on its new sha. That covers a repeat builder pass
+too: a pass with no new commit since a green line does not rerun
+(yardr-dx5f ran one sha three times across a hold and unhold). Every
+note says `reran` or `names this tip`, so the re-measure can tell a
+fresh leg from a quoted line. The assembly's runs are outside this rule:
+the landing always runs, on exactly what lands, every time, including
+after a merger's rebase that changed nothing
+(`contrib/assembly/merge-local`: the test command "runs on exactly what
+will land, every time"), and its whole-suite gate differs from any plain
+run (`whole()` in `.yardr/test`: every package with `-race`, vet for
+linux too, the socket leg beside), so no plain test line ever satisfies
+it. The test line carries the leg's wall time and race-lock wait,
+written by `.yardr/test` itself so every note holds them: `test: sh
+.yardr/test @ <sha>: pass, <n> packages ok, 0 failed, 112 s, waited 40
+s`. The fields are the result, the packages passed and failed, the
+run's wall seconds, and the seconds it queued on the machine-wide race
+lock.
 
 R5. The landing runs the incremental selection -- today's package pick --
 plus always the six black-box suites (contrib/assembly, contrib/peer,

@@ -35,7 +35,13 @@
 # file sleeps over budget at a site that is not.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
-# took 14 s), so a landing's log shows where a run's time went.
+# took 14 s), so a landing's log shows where a run's time went. The run ends
+# with its test line, the line a note carries whole: `test: sh .yardr/test @
+# <sha>: pass, <n> packages ok, 0 failed, 112 s, waited 40 s` -- the result,
+# the packages go test printed `ok` and `FAIL` for across the run's legs, the
+# wall seconds, and the seconds queued on the machine-wide race lock
+# (docs/testing.md R4 names the fields). A plan (YARDR_TEST_PLAN=1) and a run
+# that could not start (exit 2) print none.
 #
 # A red run ends with the lines that say what failed, since a note carries
 # only the end of the output. Exit 2 is "could not run", which the assembly
@@ -47,6 +53,24 @@ set -e
 # The settings of the yard's server are not the tests': a server one of them
 # starts would listen on this yard's webhook address (config.ServerSettings).
 unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
+# The run's own test line is printed by finish, on exit, from these: the wall
+# seconds since started, the race-lock seconds the legs waited, and the
+# packages go test printed `ok` and `FAIL` for. tmp is pick's, below.
+started=$(date +%s)
+waited_total=0 pkgs_ok=0 pkgs_failed=0
+tmp=
+finish() {
+  rc=$?
+  trap - EXIT
+  [ -z "$tmp" ] || [ ! -d "$tmp" ] || rm -rf "$tmp"
+  # No line for a plan, which stops before the steps, or for exit 2, which is
+  # "could not run": the base is not there, and nothing ran.
+  if [ -z "$YARDR_TEST_PLAN" ] && [ "$rc" != 2 ]; then
+    summary "$rc"
+  fi
+  exit "$rc"
+}
+trap 'finish' EXIT
 # took says how long a step ($2) took, in whole seconds since $1 (date +%s).
 took() { echo "test: $2 took $(($(date +%s) - $1)) s"; }
 # listed says how long choosing the packages took, where they were chosen
@@ -130,12 +154,26 @@ again() {
   { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
   rc=$(cat "$log.rc")
   if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
+  waited_total=$((waited_total + $(waitcount "$log")))
+  step_ok=0
+  case " $* " in
+    *" go test "*)
+      step_ok=$(okcount "$log")
+      ;;
+  esac
   retried=0
   if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
     { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
     rc=$(cat "$log.rc")
     if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
+    waited_total=$((waited_total + $(waitcount "$log")))
+    case " $* " in
+      *" go test "*)
+        # The first run is discarded with its log: count this one instead.
+        step_ok=$(okcount "$log")
+        ;;
+    esac
     retried=1
   fi
   if [ "$rc" != 0 ] && [ "$retried" = 0 ]; then
@@ -170,6 +208,10 @@ again() {
           { rc=0; "$under" $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
           rc=$(cat "$log.rc")
           if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
+          waited_total=$((waited_total + $(waitcount "$log")))
+          # The rerun ran only the failed packages: its passes add to the
+          # first run's.
+          step_ok=$((step_ok + $(okcount "$log")))
           if [ "$rc" = 0 ]; then
             if [ -n "$tests" ]; then
               echo "test: flaky: $tests_line ($pkgs_line) passed on rerun"
@@ -188,6 +230,14 @@ again() {
     packagebudget "$acc" || rc=$?
   fi
   [ "$rc" = 0 ] || failed "$log" "$@"
+  case " $* " in
+    *" go test "*)
+      # The failures are the final log's: a package that passed on rerun is
+      # passed, not failed.
+      pkgs_ok=$((pkgs_ok + step_ok))
+      pkgs_failed=$((pkgs_failed + $(failcount "$log")))
+      ;;
+  esac
   rm -f "$log" "$log.rc" "$acc"
   return "$rc"
 }
@@ -199,6 +249,22 @@ failed() {
   shift
   echo "test: FAILED: $*"
   grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" | head -n 60 || true
+}
+# waitcount prints the race-lock seconds one step's log ($1) holds: the
+# `test: waited N s` lines its race legs printed, 0 when there are none.
+waitcount() { grep -E '^test: waited [0-9]+ s for the race lock$' "$1" | awk '{s+=$3} END {print s+0}'; }
+# okcount prints the packages one go test log ($1) passed: the `ok` lines. A
+# package with no tests prints `?`, not `ok`, and is not counted.
+okcount() { grep -c -E '^ok[[:space:]]' "$1" || true; }
+# failcount prints the packages one go test log ($1) failed: the FAIL lines,
+# as the flaky retry reads them.
+failcount() { grep -c -E '^FAIL[[:space:]]+[^[:space:]]+' "$1" || true; }
+# summary prints the run's test line ($1 is its exit status: 0 passed): the
+# result, the packages passed and failed, the wall seconds, and the seconds
+# queued on the race lock. A note carries it whole (docs/testing.md R4).
+summary() {
+  if [ "$1" = 0 ]; then res=pass; else res=fail; fi
+  echo "test: sh .yardr/test @ $(git rev-parse --short HEAD): $res, $pkgs_ok packages ok, $pkgs_failed failed, $(($(date +%s) - started)) s, waited $waited_total s"
 }
 # The packages over the 60 s budget (docs/testing.md R1): a directory, the
 # bead that brings it under budget, and why it is over. Four are over even
@@ -404,6 +470,10 @@ whole() {
   second=0
   wait "$socket" || second=$?
   cat "$beside"
+  # The socket leg ran in the background, where the run's totals are its own
+  # copy: count its packages here, from what it printed.
+  pkgs_ok=$((pkgs_ok + $(okcount "$beside")))
+  pkgs_failed=$((pkgs_failed + $(failcount "$beside")))
   rm -f "$beside"
   [ "$first" = 0 ] || exit "$first"
   exit "$second"
@@ -516,7 +586,6 @@ changed=$(git diff --name-only "$from")
 # there are, embedded the first changed file a package embeds.
 pick() {
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
 printf '%s\n' "$reads" >"$tmp/reads"
 printf '%s\n' "$changed" >"$tmp/changed"
 git diff --name-only --diff-filter=D "$from" >"$tmp/deleted"

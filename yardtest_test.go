@@ -817,6 +817,131 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	}
 }
 
+// The run ends with its own test line (docs/testing.md R4), the line a note
+// carries whole: the result, the packages passed and failed, the wall
+// seconds, and the seconds queued on the race lock, at the short sha. A
+// package that passed on rerun counts as passed; a plan and a run that
+// could not start print none.
+func TestYardTestPrintsItsTestLine(t *testing.T) {
+	const flaky = "test: flaky: TestX (m.test/m/a) passed on rerun"
+	line := regexp.MustCompile(`^test: sh \.yardr/test @ ([0-9a-f]+): (pass|fail), ([0-9]+) packages ok, ([0-9]+) failed, ([0-9]+) s, waited ([0-9]+) s$`)
+	for _, c := range []struct {
+		name  string
+		fails string // how often the test step fails: 0 (green), 1 (flaky), 2 (red)
+		wait  string // a race-lock wait the step reports, "" for none
+		code  int
+		res   string // want result
+		pok   string // want packages ok
+		pfail string // want failed
+		pwait string // want waited seconds
+		flaky bool
+		env   []string // variables of the script's environment beyond the base
+		nosum bool     // want no test line at all
+	}{
+		{"green", "0", "", 0, "pass", "2", "0", "0", false, nil, false},
+		{"a wait is summed", "0", "3", 0, "pass", "2", "0", "3", false, nil, false},
+		{"a pass on rerun counts as passed", "1", "", 0, "pass", "2", "0", "0", true, nil, false},
+		{"red", "2", "", 1, "fail", "0", "1", "0", false, nil, false},
+		{"a plan prints none", "0", "", 0, "", "", "", "", false, []string{"YARDR_TEST_PLAN=1"}, true},
+		{"exit 2 prints none", "0", "", 2, "", "", "", "", false, []string{"YARDR_BASE=nowhere"}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			script, err := os.ReadFile(yardTest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake, dir := t.TempDir(), t.TempDir()
+			// A go whose test step reports a wait the way the race lock
+			// would, then fails its first few runs with one package's
+			// FAIL lines and passes with two packages' ok lines.
+			goFake := `#!/bin/sh
+if [ "$1" = test ]; then
+  n=$(cat "$FAKE/n" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" >"$FAKE/n"
+  [ -z "$FAKE_WAIT" ] || echo "test: waited $FAKE_WAIT s for the race lock"
+  if [ "$n" -le "$FAKE_FAILS" ]; then
+    echo "--- FAIL: TestX (0.00s)"
+    echo "FAIL"
+    printf 'FAIL\tm.test/m/a 0.123s\n'
+    exit 1
+  fi
+  printf 'ok  \tm.test/m/a\t1.234s\nok  \tm.test/m/b\t0.123s\n'
+fi
+`
+			for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tmp := filepath.Join(fake, "tmp")
+			if err := os.Mkdir(tmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// A branch that changed go.mod: a plain run tests every
+			// package, and asks go for no list of them.
+			mod := filepath.Join(dir, "go.mod")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitT(t, dir, "init", "-q", "-b", "main")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "base")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			short := gitT(t, dir, "rev-parse", "--short", "HEAD")
+			cmd := exec.Command("sh", "-c", string(script))
+			cmd.Dir = dir
+			// The case's own variables come last, so a landing's nowhere
+			// base wins over the commit below.
+			env := scriptEnv()
+			cmd.Env = append(env,
+				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_FAILS="+c.fails, "FAKE_WAIT="+c.wait, "YARDR_RACE_HELD=1")
+			cmd.Env = append(cmd.Env, c.env...)
+			b, err := cmd.CombinedOutput()
+			out := string(b)
+			code := 0
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if code != c.code {
+				t.Errorf("exit %d, want %d", code, c.code)
+			}
+			if c.nosum {
+				if strings.Contains(out, "sh .yardr/test @") {
+					t.Errorf("the output has a test line, want none:\n%s", out)
+				}
+				return
+			}
+			// The test line closes the run: its last line, at this sha.
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			m := line.FindStringSubmatch(lines[len(lines)-1])
+			if m == nil {
+				t.Fatalf("last line %q, want the test line", lines[len(lines)-1])
+			}
+			if m[1] != short || m[2] != c.res || m[3] != c.pok || m[4] != c.pfail || m[6] != c.pwait {
+				t.Errorf("test line %q, want @ %s: %s, %s packages ok, %s failed, waited %s s",
+					lines[len(lines)-1], short, c.res, c.pok, c.pfail, c.pwait)
+			}
+			if strings.Contains(out, flaky) != c.flaky {
+				t.Errorf("the output has the flaky line: %v, want %v", !c.flaky, c.flaky)
+			}
+			if t.Failed() {
+				t.Logf("output:\n%s", out)
+			}
+			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+				t.Errorf("left behind: %v", left)
+			}
+		})
+	}
+}
+
 // The race leg runs under one machine-wide lock: a gate whose race step
 // starts while another holds the lock waits for it, holds it for the run,
 // then releases it, and says how long it waited. The test holds the lock
