@@ -132,7 +132,16 @@ runlogged() {
 # never a file the gate removes again, which a dead gate leaves behind
 # blocking every landing. The file is the yard's, 0600 in a 0700 home, as
 # its other files are. macOS has no flock binary; perl's flock is the
-# same call. The perl holds the lock itself while the worker it forked runs
+# same call.
+# In front of the flock is a ticket queue, so waiters take the lock in
+# arrival order: each writes a timestamped ticket with its pid, start time,
+# bead and worktree, and only the oldest live ticket may take the flock. A
+# dead waiter's ticket is skipped and removed. Waiting gates print their
+# place and the holder at once and then each minute. The holder records
+# itself beside the lock for that line.
+# sh .yardr/test --race-queue shows the holder and waiters, oldest first,
+# without creating a ticket or leaving a lock held.
+# The perl holds the lock itself while the worker it forked runs
 # the race leg under it: the worker closes the lock's fd before it execs,
 # so nothing the leg starts can hold the lock past the leg, however long it
 # outlives it (an orphaned sleep once did: yardr-tsms). It runs in its own
@@ -147,25 +156,331 @@ runlogged() {
 # tests, which run this script, would wait on the run they are in.
 racelocked() {
   lock=$HOME/.yardr/race.lock
-  status=$1
-  shift
-  mkdir -p -m 700 "$HOME/.yardr"
-  # One hold across the whole race leg, including its failed-test retry
-  # and package-budget re-measurement: this process keeps the lock while
-  # the worker runs under it, and the worker calls again() with
-  # YARDR_RACE_HELD set, so those commands share this hold instead of
-  # waiting on it.
-  perl -e 'use Fcntl qw(:DEFAULT :flock);
-use POSIX qw(:sys_wait_h setpgid);
-use Errno qw(EINTR);
+  if [ "$1" = "--show-queue" ]; then
+    mode=--show-queue
+  else
+    mode=
+    status=$1
+    shift
+    mkdir -p -m 700 "$HOME/.yardr"
+  fi
+  race_perl='use POSIX qw(:sys_wait_h setpgid);
+use Fcntl qw(:DEFAULT :flock);
+use Errno qw(EINTR EWOULDBLOCK EAGAIN);
+use Time::HiRes qw(gettimeofday);
 $lock = shift;
+$yard = $lock;
+$yard =~ s{/[^/]+$}{};
+$yard = "." if $yard eq $lock;
+$qdir = "$yard/race.queue";
+$holder = "$yard/race.holder";
+# How a queued pid is told live: /proc where the kernel has it, else ps
+# where ps can stat this process, else a bare kill, as the yard liveness
+# checks do where the OS tells no start time.
+$have_proc = (-d "/proc" && -f "/proc/self/stat") ? 1 : 0;
+$have_ps = 0;
+if (!$have_proc) {
+  my $probe = qx(ps -p $$ -o lstart= 2>/dev/null);
+  $have_ps = 1 if defined($probe) && $probe =~ /\S/;
+}
+# proc_stat is what the OS says of a pid: its state letter, its start
+# time (compared for equality only) and whether a process is there at
+# all. An undef start means the OS told none: the pid stands alone.
+sub proc_stat {
+  my ($pid) = @_;
+  return (undef, undef, 0) unless defined($pid) && $pid =~ /^\d+$/ && $pid > 0;
+  if ($have_proc) {
+    open(my $fh, "<", "/proc/$pid/stat") or return (undef, undef, 0);
+    my $line = <$fh>;
+    close($fh);
+    if (defined($line) && $line =~ /\)\s+(.*)$/) {
+      my @f = split(/\s+/, $1);
+      return (substr($f[0], 0, 1), $f[19], 1) if @f >= 20;
+    }
+    return (undef, undef, 1);
+  }
+  if ($have_ps) {
+    my $out = qx(ps -p $pid -o state= -o lstart= 2>/dev/null);
+    if ($? == -1) {
+      return (undef, undef, kill(0, $pid) ? 1 : 0);
+    }
+    return (undef, undef, 0) unless defined($out) && $out =~ /\S/;
+    if ($out =~ /^\s*(\S+)\s+(.+?)\s*$/) {
+      return (substr($1, 0, 1), $2, 1);
+    }
+    return (undef, undef, 1);
+  }
+  return (undef, undef, kill(0, $pid) ? 1 : 0);
+}
+# alive tells a queued pid from a later process that reused it: the pid
+# is there, not a zombie, and where both start times are known they
+# match. A recorded start of "" is from where the OS told none.
+sub alive {
+  my ($pid, $recorded) = @_;
+  my ($state, $start, $exists) = proc_stat($pid);
+  return 0 unless $exists;
+  return 0 if defined($state) && $state eq "Z";
+  if (defined($recorded) && $recorded ne "" && defined($start) && $start ne "") {
+    return 0 unless $start eq $recorded;
+  }
+  return 1;
+}
+sub my_start {
+  my (undef, $start, undef) = proc_stat($$);
+  return defined($start) ? $start : "";
+}
+# read_kv parses a ticket or holder file, key=value a line; undef when
+# the file is gone.
+sub read_kv {
+  my ($path) = @_;
+  open(my $fh, "<", $path) or return undef;
+  my %kv;
+  while (my $line = <$fh>) {
+    chomp($line);
+    $kv{$1} = $2 if $line =~ /^([a-z]+)=(.*)$/;
+  }
+  close($fh);
+  return \%kv;
+}
+# ids is the pid and recorded start a queue entry names: from its
+# content, or the filename pid where the content is not readable.
+sub ids {
+  my ($name) = @_;
+  my $kv = read_kv("$qdir/$name");
+  my ($fpid) = $name =~ /-(\d+)$/;
+  my $pid = (defined($kv) && defined($kv->{pid}) && $kv->{pid} =~ /^\d+$/) ? $kv->{pid} : $fpid;
+  my $start = (defined($kv) && defined($kv->{start})) ? $kv->{start} : "";
+  return ($pid, $start, $kv);
+}
+# queued names the queue entries oldest first: zero-padded seconds and
+# nanoseconds, then the pid, so the names sort in arrival order.
+sub queued {
+  opendir(my $dh, $qdir) or return ();
+  my @names = sort grep(/^\d+-\d+$/, readdir($dh));
+  closedir($dh);
+  return @names;
+}
+# front is the oldest live ticket, dead ones ahead of it removed; ()
+# when the queue is empty.
+sub front {
+  for my $n (queued()) {
+    my ($pid, $start, $kv) = ids($n);
+    return ($n, $kv) if alive($pid, $start);
+    unlink("$qdir/$n");
+  }
+  return ();
+}
+# fullclean removes every dead ticket but $mine, which needs no check.
+sub fullclean {
+  my ($mine) = @_;
+  for my $n (queued()) {
+    next if defined($mine) && $n eq $mine;
+    my ($pid, $start) = ids($n);
+    unlink("$qdir/$n") unless alive($pid, $start);
+  }
+}
+# place counts the live tickets ahead of $mine, plus one; dead ones
+# found on the way are removed.
+sub place {
+  my ($mine) = @_;
+  my $n = 1;
+  for my $t (queued()) {
+    last if $t ge $mine;
+    my ($pid, $start) = ids($t);
+    if (alive($pid, $start)) { $n++ } else { unlink("$qdir/$t") }
+  }
+  return $n;
+}
+sub ordinal {
+  my ($n) = @_;
+  return "${n}th" if $n % 100 >= 11 && $n % 100 <= 13;
+  my $d = $n % 10;
+  return "${n}st" if $d == 1;
+  return "${n}nd" if $d == 2;
+  return "${n}rd" if $d == 3;
+  return "${n}th";
+}
+sub fmt_age {
+  my ($s) = @_;
+  $s = 0 if !defined($s) || $s < 0;
+  return "$s s" if $s < 60;
+  return sprintf("%d m", int($s / 60)) if $s < 3600;
+  return sprintf("%d h %d m", int($s / 3600), int(($s % 3600) / 60));
+}
+# who names a ticket or holder for a line: its bead, else its pid.
+sub who {
+  my ($kv, $pid) = @_;
+  my $bead = (defined($kv) && defined($kv->{bead})) ? $kv->{bead} : "";
+  return $bead if $bead ne "";
+  return "pid $pid";
+}
+# holder_info names the live holder and its age, or () when none is recorded.
+sub holder_info {
+  my $kv = read_kv($holder);
+  return () unless defined($kv);
+  return () unless alive($kv->{pid}, $kv->{start});
+  my $since = (defined($kv->{since}) && $kv->{since} =~ /^\d+$/) ? $kv->{since} : time;
+  return (who($kv, $kv->{pid}), fmt_age(time - $since));
+}
+# identity is the bead and worktree this run records in its ticket and
+# its holder file.
+sub identity {
+  my $bead = defined($ENV{YARDR_BEAD}) ? $ENV{YARDR_BEAD} : "";
+  my $dir = POSIX::getcwd();
+  $dir = defined($ENV{PWD}) ? $ENV{PWD} : "" unless defined($dir);
+  $bead =~ s/[\r\n]+/ /g;
+  $dir =~ s/[\r\n]+/ /g;
+  return ($bead, $dir);
+}
+# mkticket queues this waiter behind the tickets there are: a file
+# <seconds><nanoseconds>-<pid> holding its pid and start time, its bead
+# and its worktree. It arrives by rename, so a listing never sees it
+# half written.
+sub mkticket {
+  if (!-d $qdir) {
+    mkdir($qdir, 0700) or $!{EEXIST} or die "test: cannot make $qdir: $!\n";
+  }
+  my ($s, $us) = gettimeofday();
+  my $name = sprintf("%010d%09d-%d", $s, $us * 1000, $$);
+  my ($bead, $dir) = identity();
+  my $start = my_start();
+  for (1..10) {
+    my $tmp = "$qdir/.tmp-$$-$s-" . int(rand(1000000));
+    if (sysopen(my $fh, $tmp, O_WRONLY | O_CREAT | O_EXCL, 0600)) {
+      print $fh "pid=$$\nstart=$start\nbead=$bead\ndir=$dir\ncreated=$s\n";
+      if (!close($fh)) { unlink($tmp); die "test: cannot write $tmp: $!\n"; }
+      if (!rename($tmp, "$qdir/$name")) { unlink($tmp); die "test: cannot queue in $qdir: $!\n"; }
+      return $name;
+    }
+    die "test: cannot write in $qdir: $!\n" unless $!{EEXIST};
+  }
+  die "test: cannot write in $qdir: no name free\n";
+}
+# write_holder records this holder beside the lock: its pid and start,
+# its bead, its worktree and when it took the lock. It is read for
+# display only: a reader that finds it half written or stale says the
+# holder is unknown, and the queue never waits on it.
+sub write_holder {
+  my ($bead, $dir) = identity();
+  sysopen(my $fh, $holder, O_WRONLY | O_CREAT | O_TRUNC, 0600) or do { cleanup(); die "test: cannot write $holder: $!\n"; };
+  print $fh "pid=$$\nstart=" . my_start() . "\nbead=$bead\ndir=$dir\nsince=" . time . "\n";
+  close($fh) or do { cleanup(); die "test: cannot write $holder: $!\n"; };
+}
+# cleanup leaves the queue as this waiter found it: its ticket gone,
+# and the holder file gone where it names this holder. A TERM or INT on
+# the way in takes this path too; a KILL leaves a ticket the next
+# waiter skips and removes.
+sub cleanup {
+  unlink("$qdir/$mine") if defined($mine);
+  my $kv = read_kv($holder);
+  if (defined($kv) && defined($kv->{pid}) && $kv->{pid} eq $$) {
+    my $ms = my_start();
+    my $hs = defined($kv->{start}) ? $kv->{start} : "";
+    unlink($holder) if $hs eq "" || $ms eq "" || $hs eq $ms;
+  }
+}
+# status_line says where this waiter stands and who holds the lock, as
+# in: test: race lock: 3rd in line, held by yardr-cayh for 6 m.
+sub status_line {
+  my ($me) = @_;
+  my $ord = ordinal(place($me));
+  my ($who, $age) = holder_info();
+  if (defined($who)) {
+    warn "test: race lock: $ord in line, held by $who for $age\n";
+  } else {
+    warn "test: race lock: $ord in line, holder unknown\n";
+  }
+}
+# show_queue prints the holder and the waiters with their beads and
+# ages, and takes nothing: the --race-queue view. Dead tickets are
+# skipped, not removed.
+sub show_queue {
+  my $hkv = read_kv($holder);
+  my $live = defined($hkv) && alive($hkv->{pid}, $hkv->{start});
+  my $held;
+  my $why = "";
+  if (sysopen(my $fh, $lock, O_RDONLY)) {
+    if (flock($fh, LOCK_EX | LOCK_NB)) {
+      $held = 0;
+      flock($fh, LOCK_UN);
+    } elsif ($!{EWOULDBLOCK} || $!{EAGAIN}) {
+      $held = 1;
+    } else {
+      $held = undef;
+      $why = "$!";
+    }
+    close($fh);
+  } elsif ($!{ENOENT}) {
+    $held = 0;
+  } else {
+    $held = undef;
+    $why = "$!";
+  }
+  if ($live) {
+    my $since = (defined($hkv->{since}) && $hkv->{since} =~ /^\d+$/) ? $hkv->{since} : time;
+    my $hdir = defined($hkv->{dir}) ? $hkv->{dir} : "?";
+    print "test: race lock: held by " . who($hkv, $hkv->{pid}) . " for " . fmt_age(time - $since) . " ($hdir)\n";
+  } elsif ($held) {
+    print "test: race lock: held, holder unknown\n";
+  } elsif (defined($held) && !$held) {
+    print "test: race lock: free\n";
+  } else {
+    print "test: race lock: state unknown: cannot probe $lock: $why\n";
+  }
+  my $i = 0;
+  for my $n (queued()) {
+    my ($pid, $start, $kv) = ids($n);
+    next unless alive($pid, $start);
+    $i++;
+    my ($cs) = $n =~ /^(\d{10})/;
+    my $age = defined($cs) ? time - $cs : 0;
+    my $dir = (defined($kv) && defined($kv->{dir})) ? $kv->{dir} : "?";
+    print "test: race lock: " . ordinal($i) . " in line: " . who($kv, $pid) . " waiting " . fmt_age($age) . " ($dir)\n";
+  }
+}
+if (@ARGV && $ARGV[0] eq "--show-queue") {
+  show_queue();
+  exit(0);
+}
 $script = shift;
 $status = shift;
 sysopen(my $fh, $lock, O_WRONLY | O_APPEND | O_CREAT, 0600) or die "test: cannot open $lock: $!\n";
+$SIG{TERM} = sub { cleanup(); exit(143); };
+$SIG{INT} = sub { cleanup(); exit(130); };
 $t = time;
-flock($fh, LOCK_EX) or die "test: cannot lock $lock: $!\n";
+$mine = mkticket();
+$status_at = 0;
+for (;;) {
+  if (!-e "$qdir/$mine") {
+    $mine = mkticket();
+    next;
+  }
+  my ($first) = front();
+  if (defined($first) && $first eq $mine) {
+    if (flock($fh, LOCK_EX | LOCK_NB)) {
+      fullclean($mine);
+      my ($again) = front();
+      if (defined($again) && $again eq $mine) {
+        last;
+      }
+      flock($fh, LOCK_UN);
+    } elsif ($!{EINTR} || $!{EWOULDBLOCK} || $!{EAGAIN}) {
+      # Busy or interrupted: wait.
+    } else {
+      my $e = "$!";
+      cleanup();
+      die "test: cannot lock $lock: $e\n";
+    }
+  }
+  if ($status_at == 0 || time - $status_at >= 60) {
+    status_line($mine);
+    $status_at = time;
+  }
+  sleep(1);
+}
 $w = time - $t;
 warn "test: waited $w s for the race lock\n" if $w > 0;
+write_holder();
 $ENV{YARDR_RACE_HELD} = 1;
 $ENV{YARDR_TEST_RACE_LEG} = 1;
 # The worker must not inherit the lock: the child closes it before it
@@ -179,7 +494,7 @@ sub forward {
 $SIG{TERM} = sub { forward("TERM") };
 $SIG{INT} = sub { forward("INT") };
 $pid = fork();
-die "test: cannot fork: $!\n" unless defined $pid;
+if (!defined($pid)) { cleanup(); die "test: cannot fork: $!\n"; }
 if ($pid == 0) {
   setpgid(0, 0) or die "test: cannot set worker process group: $!\n";
   close($fh);
@@ -191,10 +506,16 @@ if ($pid == 0) {
 do { $kid = waitpid($pid, 0) } while ($kid == -1 && $! == EINTR);
 $st = $?;
 $pid = 0;
+cleanup();
 $SIG{TERM} = "DEFAULT";
 $SIG{INT} = "DEFAULT";
 if (WIFSIGNALED($st)) { exit(128 + WTERMSIG($st)) }
-exit(WEXITSTATUS($st));' "$lock" "$0" "$status" "$@"
+exit(WEXITSTATUS($st));'
+  if [ -n "$mode" ]; then
+    perl -e "$race_perl" "$lock" "$mode"
+  else
+    perl -e "$race_perl" "$lock" "$0" "$status" "$@"
+  fi
 }
 again() {
   t0=$(date +%s)
@@ -662,6 +983,15 @@ if [ -n "$YARDR_TEST_RACE_LEG" ]; then
   rc=0
   again "$@" || rc=$?
   printf '%s %s\n' "$pkgs_ok" "$pkgs_failed" >"$status"
+  trap - EXIT
+  exit "$rc"
+fi
+# A read-only look at the machine race lock: who holds it and waits, oldest
+# first. It takes no ticket and holds no lock, so it runs anywhere, without a
+# base, and prints no test line: it looked, it ran nothing.
+if [ "$1" = "--race-queue" ]; then
+  racelocked --show-queue
+  rc=$?
   trap - EXIT
   exit "$rc"
 fi

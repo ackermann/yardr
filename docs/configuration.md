@@ -481,7 +481,12 @@ Depot yardr's own gate serialises its race leg per machine: one `go test
 has to wait says so (`test: waited 312 s for the race lock`). Race suites
 run side by side slow each other past Go's per-package timeout while one
 alone takes a third of the time, so the queue costs less wall time than the
-contention.
+contention. Waiters take the lock in arrival order, on tickets in
+`~/.yardr/race.queue/` (a dead waiter's ticket is skipped and removed, never
+blocking); a waiting gate says its place and the holder, at once and then
+each minute (`test: race lock: 3rd in line, held by yardr-cayh for 6 m`),
+and `sh .yardr/test --race-queue` shows the holder and the queue, oldest
+first, without taking anything.
 
 ## Briefs are not config
 

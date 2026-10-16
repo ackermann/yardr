@@ -1149,8 +1149,8 @@ fi
 }
 
 // The race lock is a file of the yard's: a gate that makes the yard's home
-// and the lock in it makes them as the yard makes its own, the home 0700 and
-// the file 0600, whatever the umask.
+// and the lock in it makes them as the yard makes its own, the home and the
+// ticket queue 0700 and the lock file 0600, whatever the umask.
 func TestYardTestRaceLockIsTheYards(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
@@ -1200,8 +1200,9 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 		t.Fatalf("err %v, output:\n%s", err, out)
 	}
 	for path, want := range map[string]os.FileMode{
-		filepath.Join(home, ".yardr"):              0o700,
-		filepath.Join(home, ".yardr", "race.lock"): 0o600,
+		filepath.Join(home, ".yardr"):               0o700,
+		filepath.Join(home, ".yardr", "race.lock"):  0o600,
+		filepath.Join(home, ".yardr", "race.queue"): 0o700,
 	} {
 		fi, err := os.Stat(path)
 		if err != nil {
@@ -1472,6 +1473,381 @@ exec "$@"
 				t.Errorf("left behind: %v", left)
 			}
 		})
+	}
+}
+
+// raceTicketName matches a queue ticket: <seconds><nanoseconds>-<pid>.
+var raceTicketName = regexp.MustCompile(`^\d+-\d+$`)
+
+// raceLockDriver cuts racelocked out of .yardr/test into a driver script,
+// failing when the script no longer holds that shape, and returns the
+// driver with a home for it to lock under. Each test locks under its own
+// home, never the yard's.
+func raceLockDriver(t *testing.T) (driver, home string) {
+	t.Helper()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, fn, ok := strings.Cut(string(b), "racelocked() {")
+	if ok {
+		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
+	}
+	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") || !strings.Contains(fn, "race.queue") {
+		t.Fatalf("cannot cut racelocked out of %s: move the probe with the script", yardTest)
+	}
+	home = t.TempDir()
+	driver = filepath.Join(t.TempDir(), "driver.sh")
+	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nracelocked \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return driver, home
+}
+
+// The race lock serves waiters in arrival order, and says so: waiters
+// queued behind a held lock in a known order take it in that order, each
+// printing its place and the holder. A waiter killed with KILL while
+// queued leaves a ticket the next waiter skips and removes, and one killed
+// with TERM removes its own ticket and exits 143. A ticket carries the
+// waiter's bead and worktree. Its own home stands in for the yard's, so no
+// real gate waits on it.
+func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	driver, home := raceLockDriver(t)
+	qdir := filepath.Join(home, ".yardr", "race.queue")
+	wt, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := filepath.Join(t.TempDir(), "order")
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	type raceRun struct {
+		cmd *exec.Cmd
+		out *os.File
+	}
+	start := func(bead string, args ...string) raceRun {
+		t.Helper()
+		out, err := os.CreateTemp("", "racequeue")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(out.Name()) })
+		cmd := exec.CommandContext(ctx, driver, args...)
+		cmd.Dir = wt
+		cmd.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead)
+		cmd.Stdout, cmd.Stderr = out, out
+		if err := cmd.Start(); err != nil {
+			out.Close()
+			t.Fatal(err)
+		}
+		return raceRun{cmd, out}
+	}
+	finish := func(q raceRun) (int, []byte) {
+		t.Helper()
+		err := q.cmd.Wait()
+		q.out.Close()
+		out, _ := os.ReadFile(q.out.Name())
+		if ctx.Err() != nil {
+			t.Fatalf("a run waits past 60 s:\n%s", out)
+		}
+		if err == nil {
+			return 0, out
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode(), out
+		}
+		t.Fatalf("racelocked: %v\n%s", err, out)
+		return 0, nil
+	}
+	tickets := func() []string {
+		t.Helper()
+		entries, err := os.ReadDir(qdir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			t.Fatal(err)
+		}
+		var names []string
+		for _, e := range entries {
+			if raceTicketName.MatchString(e.Name()) {
+				names = append(names, e.Name())
+			}
+		}
+		slices.Sort(names)
+		return names
+	}
+	// waitTicket waits for a ticket beyond those known. Starting each
+	// waiter after the last one's ticket is visible queues them in a
+	// known order, whatever the clock's grain.
+	waitTicket := func(known []string) []string {
+		t.Helper()
+		seen := map[string]bool{}
+		for _, n := range known {
+			seen[n] = true
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			got := tickets()
+			for _, n := range got {
+				if !seen[n] {
+					return got
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no new ticket after %v", known)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	killTicket := func(name string, sig syscall.Signal) {
+		t.Helper()
+		_, s, _ := strings.Cut(name, "-")
+		pid, err := strconv.Atoi(s)
+		if err != nil {
+			t.Fatalf("ticket %q names no pid", name)
+		}
+		if err := syscall.Kill(pid, sig); err != nil {
+			t.Fatalf("kill %d: %v", pid, err)
+		}
+	}
+	newest := func(names []string) string { return names[len(names)-1] }
+	// The holder takes the lock first and holds it past the queueing.
+	holder := start("holder-bead", "sh", "-c", "sleep 5")
+	known := waitTicket(nil)
+	// A waiter killed with KILL leaves its ticket behind; the queue
+	// must skip it.
+	dead := start("dead-bead", "sh", "-c", "echo dead >>"+quote(order))
+	known = waitTicket(known)
+	killTicket(newest(known), syscall.SIGKILL)
+	if code, _ := finish(dead); code != 137 {
+		t.Errorf("a waiter killed with KILL exits %d, want 137", code)
+	}
+	w2 := start("w2-bead", "sh", "-c", "echo w2 >>"+quote(order))
+	known = waitTicket(known)
+	w3 := start("w3-bead", "sh", "-c", "echo w3 >>"+quote(order))
+	known = waitTicket(known)
+	// A ticket carries the waiter's bead and worktree.
+	found := false
+	for _, n := range tickets() {
+		b, _ := os.ReadFile(filepath.Join(qdir, n))
+		if strings.Contains(string(b), "bead=w2-bead\n") {
+			found = true
+			if !strings.Contains(string(b), "dir="+wt+"\n") {
+				t.Errorf("the w2 ticket names no worktree %q:\n%s", wt, b)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no ticket carries bead=w2-bead")
+	}
+	// A waiter killed with TERM removes its own ticket and exits 143.
+	term := start("term-bead", "sh", "-c", "echo term >>"+quote(order))
+	known = waitTicket(known)
+	termTicket := newest(known)
+	killTicket(termTicket, syscall.SIGTERM)
+	if code, _ := finish(term); code != 143 {
+		t.Errorf("a waiter killed with TERM exits %d, want 143", code)
+	}
+	if slices.Contains(tickets(), termTicket) {
+		t.Errorf("the TERM killed waiter's ticket is still queued")
+	}
+	if code, out := finish(holder); code != 0 {
+		t.Fatalf("the holder exits %d, want 0:\n%s", code, out)
+	}
+	w2code, w2out := finish(w2)
+	w3code, w3out := finish(w3)
+	if w2code != 0 || w3code != 0 {
+		t.Fatalf("the waiters exit %d and %d, want 0:\n%s\n%s", w2code, w3code, w2out, w3out)
+	}
+	// The survivors ran in arrival order, past the killed tickets.
+	if body, _ := os.ReadFile(order); string(body) != "w2\nw3\n" {
+		t.Errorf("the runs ordered %q, want %q", body, "w2\nw3\n")
+	}
+	// Each printed its place and the holder while it waited.
+	for out, want := range map[string]string{
+		string(w2out): `(?m)^test: race lock: 2nd in line, held by holder-bead for \d+ s$`,
+		string(w3out): `(?m)^test: race lock: 3rd in line, held by holder-bead for \d+ s$`,
+	} {
+		if ok, _ := regexp.MatchString(want, out); !ok {
+			t.Errorf("a waiter printed no %q:\n%s", want, out)
+		}
+		if !strings.Contains(out, "test: waited ") {
+			t.Errorf("a waiter printed no waited line:\n%s", out)
+		}
+	}
+	// Nothing is left behind: no ticket, live or dead, and no holder.
+	if got := tickets(); len(got) != 0 {
+		t.Errorf("tickets left behind: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".yardr", "race.holder")); !os.IsNotExist(err) {
+		t.Errorf("the holder file is left behind")
+	}
+}
+
+// raceOwnStart is this process's start time as the queue's perl reads it:
+// the lstart ps reports, or the starttime in /proc/<pid>/stat.
+func raceOwnStart(t *testing.T, pid int) string {
+	t.Helper()
+	if b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
+		s := string(b)
+		i := strings.LastIndexByte(s, ')')
+		if i < 0 {
+			t.Fatalf("unexpected /proc stat %q", s)
+		}
+		if f := strings.Fields(s[i+1:]); len(f) >= 20 {
+			return f[19]
+		}
+		t.Fatalf("unexpected /proc stat %q", s)
+	}
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output()
+	if err != nil {
+		t.Fatalf("ps: %v", err)
+	}
+	if start := strings.TrimSpace(string(out)); start != "" {
+		return start
+	}
+	t.Fatalf("ps tells no start time for pid %d", pid)
+	return ""
+}
+
+// raceDeadPID is a pid with no process behind it: a child already reaped.
+func raceDeadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
+}
+
+// The --race-queue view prints the holder and the waiters with their
+// beads and ages, oldest first, skipping dead tickets without taking
+// anything. Synthetic tickets stand in for queued runs: the test's own
+// pid is the live one, a reaped child the dead one. Its own home stands
+// in for the yard's, so no real gate waits on it.
+func TestYardTestRaceQueueView(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	driver, home := raceLockDriver(t)
+	yard := filepath.Join(home, ".yardr")
+	qdir := filepath.Join(yard, "race.queue")
+	if err := os.MkdirAll(qdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	self := os.Getpid()
+	now := time.Now().Unix()
+	write := func(dir, name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ticket := func(when int64, pid int, start, bead, dir string) {
+		t.Helper()
+		write(qdir, strconv.FormatInt(when, 10)+"000000000-"+strconv.Itoa(pid),
+			"pid="+strconv.Itoa(pid)+"\nstart="+start+"\nbead="+bead+"\ndir="+dir+"\ncreated="+strconv.FormatInt(when, 10)+"\n")
+	}
+	live := raceOwnStart(t, self)
+	ticket(now-400, raceDeadPID(t), "bogus", "gone-bead", "/wt/gone")
+	ticket(now-300, self, live, "old-bead", "/wt/old")
+	ticket(now-30, self, live, "new-bead", "/wt/new")
+	write(yard, "race.holder",
+		"pid="+strconv.Itoa(self)+"\nstart="+live+"\nbead=holder-bead\ndir=/wt/holder\nsince="+strconv.FormatInt(now-360, 10)+"\n")
+	view := func() string {
+		t.Helper()
+		cmd := exec.Command(driver, "--show-queue")
+		cmd.Env = append(scriptEnv(), "HOME="+home)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("--show-queue: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+	// The lock held for real: holder and waiters, the dead skipped.
+	lock, err := os.OpenFile(filepath.Join(yard, "race.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	out := view()
+	for _, want := range []string{
+		`(?m)^test: race lock: held by holder-bead for 6 m \(/wt/holder\)$`,
+		`(?m)^test: race lock: 1st in line: old-bead waiting 5 m \(/wt/old\)$`,
+		`(?m)^test: race lock: 2nd in line: new-bead waiting 3\d s \(/wt/new\)$`,
+	} {
+		if ok, _ := regexp.MatchString(want, out); !ok {
+			t.Errorf("the view prints no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "gone-bead") {
+		t.Errorf("the view lists the dead ticket:\n%s", out)
+	}
+	// The lock free and no holder recorded: free, the waiters still listed.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	lock.Close()
+	if err := os.Remove(filepath.Join(yard, "race.holder")); err != nil {
+		t.Fatal(err)
+	}
+	out = view()
+	if !strings.Contains(out, "test: race lock: free\n") {
+		t.Errorf("the free lock views as:\n%s", out)
+	}
+	if !strings.Contains(out, "old-bead") || !strings.Contains(out, "new-bead") {
+		t.Errorf("the view lost the waiters:\n%s", out)
+	}
+	// Nothing anywhere: free alone, and the view took nothing.
+	if err := os.Remove(filepath.Join(yard, "race.lock")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(qdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.Remove(filepath.Join(qdir, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out := view(); out != "test: race lock: free\n" {
+		t.Errorf("the empty view prints %q", out)
+	}
+	if entries, _ := os.ReadDir(qdir); len(entries) != 0 {
+		t.Errorf("the view left %d queue entries", len(entries))
+	}
+	if _, err := os.Stat(filepath.Join(yard, "race.holder")); !os.IsNotExist(err) {
+		t.Errorf("the view left a holder file")
+	}
+	if _, err := os.Stat(filepath.Join(yard, "race.lock")); !os.IsNotExist(err) {
+		t.Errorf("the view left a lock file")
+	}
+	// The script's own flag reaches the view without a base and prints
+	// no test line, leaving the home it looked at untouched.
+	empty := t.TempDir()
+	cmd := exec.Command("sh", yardTest, "--race-queue")
+	cmd.Env = append(scriptEnv(), "HOME="+empty)
+	outb, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sh .yardr/test --race-queue: %v\n%s", err, outb)
+	}
+	if string(outb) != "test: race lock: free\n" {
+		t.Errorf("sh .yardr/test --race-queue prints %q", outb)
+	}
+	if entries, _ := os.ReadDir(empty); len(entries) != 0 {
+		t.Errorf("--race-queue made %d entries in the home", len(entries))
 	}
 }
 
