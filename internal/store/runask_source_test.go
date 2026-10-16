@@ -165,6 +165,28 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 	}
 }
 
+func TestSourceAddCardNamesCredentialForAbsoluteCommands(t *testing.T) {
+	decl := wiredDecl
+	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
+		decl = strings.ReplaceAll(decl, path, "/opt/"+path)
+	}
+	d, err := source.Parse("wired.yaml", []byte(decl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(sourceDoes(d, AskSource{Name: d.Name, Text: decl}), "\n")
+	for _, want := range []string{
+		"(limits.command): the program is the operator's own, handed no credential",
+		"(thread.reply): the program is the operator's own, handed the credential",
+		"(hook.normalize): the program is the operator's own, handed no credential",
+		"(events.pr): the program is the operator's own, handed the credential",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+}
+
 func TestSourceAddCardShowsEveryCredentialPlacement(t *testing.T) {
 	y, _ := runYard(t)
 	decl := strings.Replace(wiredDecl,

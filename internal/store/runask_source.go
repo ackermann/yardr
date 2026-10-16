@@ -641,7 +641,11 @@ func commandSays(d *source.Declaration, carried AskSource) []string {
 		group := byProgram[prog]
 		if !group[0].Relative() {
 			for _, c := range group {
-				out = append(out, fmt.Sprintf("command %s (%s): the program is the operator's own.", showCommand(c.Argv), c.Key))
+				handed := "handed no credential"
+				if commandGetsCredential(c.Key) {
+					handed = "handed the credential"
+				}
+				out = append(out, fmt.Sprintf("command %s (%s): the program is the operator's own, %s.", showCommand(c.Argv), c.Key, handed))
 			}
 			continue
 		}
