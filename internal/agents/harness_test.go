@@ -209,13 +209,15 @@ func TestDialogs(t *testing.T) {
 	}
 }
 
-// Claude Code's login screen is the one a file names (yardr-m519): its menu
+// Claude Code's login screen is one a file names (yardr-m519): its menu
 // of login methods and its browser sign-in, as 2.1.288 drew them with no
-// credentials. No other kind names one.
+// credentials. Muse's is the other (yardr-dx5f): its two login methods,
+// each with and without the hint that follows the selection, and its
+// footer, as 1.4.9 drew them. No other kind names one.
 func TestLogin(t *testing.T) {
 	for _, h := range Harnesses {
-		if (len(h.Login) > 0) != (h.Kind == "claude") {
-			t.Errorf("%s: login %+v; only claude's file names one", h.Kind, h.Login)
+		if (len(h.Login) > 0) != (h.Kind == "claude" || h.Kind == "muse") {
+			t.Errorf("%s: login %+v; only claude's and muse's files name one", h.Kind, h.Login)
 		}
 	}
 	claude, _ := Lookup("claude")
@@ -236,6 +238,30 @@ func TestLogin(t *testing.T) {
 		"Please run /login to continue":                                         false,
 	} {
 		if got := at(line); got != want {
+			t.Errorf("%q is of the login screen: %v, want %v", line, got, want)
+		}
+	}
+	muse, _ := Lookup("muse")
+	museAt := func(line string) bool {
+		for _, l := range muse.Login {
+			if l.Matches(line) {
+				return true
+			}
+		}
+		return false
+	}
+	for line, want := range map[string]bool{
+		"Log in with browser · Enter to choose":          true,
+		"Log in with browser":                            true,
+		"Set an API key · Enter to choose":               true,
+		"Set an API key":                                 true,
+		"↓↑ to select · Esc to quit":                     true,
+		"Muse Code 1.4.9":                                false,
+		"❯ Log in with browser · Enter to choose":        false,
+		"Use Up/Down or 1/2, then Enter. Esc quits.":     false,
+		"muse-spark-1.3 · max · /tmp/work · Auto-review": false,
+	} {
+		if got := museAt(line); got != want {
 			t.Errorf("%q is of the login screen: %v, want %v", line, got, want)
 		}
 	}
@@ -463,10 +489,13 @@ func TestLoadRefuses(t *testing.T) {
 // The model of a session is read from one line of the agent's own file: the
 // string at the field's path, in a line of the type asked for. A line of
 // another type, one without the field, one that is not JSON and a name the
-// harness made up itself name none.
+// harness made up itself name none. Muse's lines name their type
+// "payload_type" (type_field): its startup metadata and its nested
+// permission records name none.
 func TestModelIn(t *testing.T) {
 	claude, _ := Lookup("claude")
 	codex, _ := Lookup("codex")
+	muse, _ := Lookup("muse")
 	for _, c := range []struct {
 		src        *ModelSource
 		line, want string
@@ -480,13 +509,24 @@ func TestModelIn(t *testing.T) {
 		{claude.Model, ``, ""},
 		{codex.Model, `{"type":"turn_context","payload":{"model":"gpt-6-luna"}}`, "gpt-6-luna"},
 		{codex.Model, `{"type":"session_meta","payload":{"model":"other"}}`, ""},
+		{muse.Model, `{"payload_type":"run.model.configured","payload":{"record":{"model_id":"muse-spark-1.3-contributor"}}}`, "muse-spark-1.3-contributor"},
+		{muse.Model, `{"payload_type":"runtime.session.metadata","payload":{"record":{"model_id":"muse-spark-1.3"}}}`, ""},
+		{muse.Model, `{"children":[{"child_index":0,"record_json":"{\"payload_type\":\"runtime.session.permission_format_declared\"}"}]}`, ""},
+		{muse.Model, `{"type":"run.model.configured","payload":{"record":{"model_id":"muse-spark-1.3"}}}`, ""},
+		{muse.Model, `{"payload_type":"run.model.configured","payload":{"record":{"model_id":7}}}`, ""},
+		{muse.Model, `{"payload_type":"run.model.configured`, ""},
 		{&ModelSource{Field: "model"}, `{"type":"anything","model":"m"}`, "m"},
+		{&ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"a","model":"m"}`, "m"},
+		{&ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"b","model":"m"}`, ""},
 	} {
 		if got := c.src.ModelIn([]byte(c.line)); got != c.want {
 			t.Errorf("%s in %s: %q, want %q", c.src.Field, c.line, got, c.want)
 		}
 	}
 	if got, want := codex.Model.Pattern("/h", "x1"), "/h/sessions/*/*/*/rollout-*-x1.jsonl"; got != want {
+		t.Errorf("pattern %q, want %q", got, want)
+	}
+	if got, want := muse.Model.Pattern("/h", "x1"), "/h/sessions/*/*/*/x1/session.jsonl"; got != want {
 		t.Errorf("pattern %q, want %q", got, want)
 	}
 }

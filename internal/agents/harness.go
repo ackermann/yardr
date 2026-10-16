@@ -154,13 +154,17 @@ type Offer struct {
 // herdr reports for the pane goes, under the harness's own directory: the
 // one HomeEnv names in the environment, else Home in the user's home. The
 // model is the string at Field, a path of keys joined by dots, in the first
-// line whose "type" is Type (any line, for no Type) that has one.
+// line whose type is Type (any line, for no Type) that has one. The type is
+// read from the key TypeField names, "type" when the file names none.
 type ModelSource struct {
 	Home    string `yaml:"home" json:"home"`
 	HomeEnv string `yaml:"home_env" json:"home_env,omitempty"`
 	Glob    string `yaml:"glob" json:"glob"`
 	Type    string `yaml:"type" json:"type,omitempty"`
-	Field   string `yaml:"field" json:"field"`
+	// TypeField is the key a line's type is read from, "type" when the
+	// file names none. Muse's lines name theirs "payload_type".
+	TypeField string `yaml:"type_field" json:"type_field,omitempty"`
+	Field     string `yaml:"field" json:"field"`
 }
 
 // sessionID is where a ModelSource's Glob takes the session id.
@@ -181,7 +185,11 @@ func (s ModelSource) ModelIn(line []byte) string {
 	if json.Unmarshal(line, &v) != nil {
 		return ""
 	}
-	if t, _ := v["type"].(string); s.Type != "" && t != s.Type {
+	key := s.TypeField
+	if key == "" {
+		key = "type"
+	}
+	if t, _ := v[key].(string); s.Type != "" && t != s.Type {
 		return ""
 	}
 	keys := strings.Split(s.Field, ".")

@@ -65,11 +65,38 @@ offers:
   - model: muse-wonder-1.0
     label: Wonder 1.0
 
-# No model: the model a session's agent reports is in its session file
-# (~/.local/share/muse/sessions/*/*/*/<id>/session.jsonl), but as JSON in
-# JSON (children[].record_json holds the event whose payload names it),
-# past what a dotted field path reads.
-#
+# The model the agent runs, as its session file says it: the model_id of
+# the first run.model.configured line, which is what the run was started
+# or reconfigured with. The lines name their type "payload_type", not
+# "type" (read live, Muse Code 1.4.9, 16 Oct 2026:
+# ~/.local/share/muse/sessions/<y>/<m>/<d>/<id>/session.jsonl).
+# runtime.session.metadata is not read: it names the startup model, and a
+# live session reconfigured mid-run (01a12592) still shows its startup
+# model there while run.model.configured names the running one. `muse
+# --help` names no environment variable for the home, so there is no
+# home_env. herdr 0.9.0 reports no session id for Muse panes, so this
+# reads nothing until herdr learns its sessions.
+model:
+  home: .local/share/muse
+  glob: sessions/*/*/*/{session}/session.jsonl
+  type_field: payload_type
+  type: run.model.configured
+  field: payload.record.model_id
+
+# Muse's login screen, drawn in place of its input when it has no login
+# (read live, Muse Code 1.4.9, 16 Oct 2026, with no credentials: empty
+# HOME, TBH_CREDENTIAL_BACKEND=file, past the trust dialog with Enter):
+# two login methods and a footer, each row indented two spaces. The
+# selected method is marked by style alone (no cursor glyph, before or
+# after the arrow keys move it), and the "· Enter to choose" hint follows
+# the selection, so each method matches with and without it. The "Muse
+# Code 1.4.9" header above them names the app, not the screen, and its
+# version changes, so it is no line here. yardr types nothing there and
+# tells of it as not logged in.
+login:
+  - pattern: '^(Log in with browser|Set an API key)'
+  - pattern: '^↓↑ to select · Esc to quit'
+
 # No errors: no line a Muse pane stops on was read. `muse exec` fails out
 # loud (missing meta credentials, a model that does not exist), but the
 # TUI shows its login screen for the first and answers anyway for the

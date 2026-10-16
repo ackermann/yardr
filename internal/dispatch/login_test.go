@@ -177,6 +177,57 @@ func TestLoginScreenWhileBlockedIsNoWaitForAHuman(t *testing.T) {
 	}
 }
 
+// A Muse pane at its login screen is held the same way, and the hint
+// names Muse's own command (yardr-dx5f).
+func TestLoginScreenMuseNamesItsOwnCommand(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	f.sent, f.blocked = true, true
+	f.login = "Log in with browser · Enter to choose"
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	r.Handle["kind"] = "muse"
+	must(t, s.SetCrewHandle(ctx, "yardmaster", r.Handle))
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if len(f.nudges) != 0 || f.submits != 0 {
+		t.Fatalf("typed into a login screen: nudges %v, Enter sent %d times", f.nudges, f.submits)
+	}
+	n, ev := kindCount(t, s, r.Journal, "nudge_held")
+	if n != 1 || ev.Data["reason"] != dispatch.ReasonNotLoggedIn {
+		t.Fatalf("nudge_held events = %d, last %+v; want the one for the login", n, ev.Data)
+	}
+	hint, _ := ev.Data["hint"].(string)
+	if !strings.Contains(hint, "run muse in another terminal and log in there") {
+		t.Errorf("hint names no login command of the kind: %q", hint)
+	}
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+		t.Fatal(err)
+	} else if r.Handle[dispatch.HarnessLoginKey] != "Log in with browser · Enter to choose" {
+		t.Errorf("handle mark = %v, want the login line", r.Handle[dispatch.HarnessLoginKey])
+	}
+
+	// Logged in and past it: the prime arrives, the mark goes with it,
+	// and no second event tells of the login.
+	f.login, f.blocked, f.shown = "", false, true
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if n, _ := kindCount(t, s, r.Journal, "session_prompted"); n != 1 {
+		t.Fatalf("session_prompted events = %d, want 1", n)
+	}
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+		t.Fatal(err)
+	} else if _, ok := r.Handle[dispatch.HarnessLoginKey]; ok {
+		t.Errorf("handle still marked after the login: %v", r.Handle[dispatch.HarnessLoginKey])
+	}
+	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 1 {
+		t.Errorf("nudge_held events = %d, want still the one", n)
+	}
+}
+
 // An agent that works is past any login screen seen before: the mark goes,
 // while the login told of stays told.
 func TestWorkingClearsTheLoginMark(t *testing.T) {

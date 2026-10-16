@@ -192,6 +192,9 @@ func printHarness(h agents.Harness, has bool) {
 		line := "first line"
 		if m.Type != "" {
 			line = "first line of type " + m.Type
+			if m.TypeField != "" && m.TypeField != "type" {
+				line = "first line whose " + m.TypeField + " is " + m.Type
+			}
 		}
 		fmt.Printf("  %s/%s: %s of the %s that names one\n", dir, m.Glob, m.Field, line)
 	}

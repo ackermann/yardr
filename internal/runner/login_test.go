@@ -31,6 +31,45 @@ Paste code here if prompted>
 `
 )
 
+// Muse's login screen as 1.4.9 drew it with no credentials (16 Oct 2026,
+// empty HOME, TBH_CREDENTIAL_BACKEND=file, past the trust dialog with
+// Enter): two login methods and a footer, each row indented two spaces.
+// Transcribed from the terminal's stream into lines, as `herdr pane read`
+// shows them. The selected method is marked by style alone (no cursor
+// glyph, before or after the arrow keys move it), and the "· Enter to
+// choose" hint follows the selection: the second menu is the first after
+// one Down. The header above names the app and its version.
+//
+// Without the login lines the screen reads as no input at all (see
+// below), so a nudge would be typed into the menu.
+const (
+	museLoginMenu = `  Muse Code 1.4.9
+  Log in with browser · Enter to choose
+  Set an API key
+  ↓↑ to select · Esc to quit
+`
+	museLoginMenuSecond = `  Muse Code 1.4.9
+  Log in with browser
+  Set an API key · Enter to choose
+  ↓↑ to select · Esc to quit
+`
+	// A normal Muse pane, idle and working (Muse Code 1.4.9): the voice
+	// prompt above the input, the running model and directory below it,
+	// and the line it works behind.
+	museIdlePane = `── Voice input (alt(option)+v to start) ──…
+❯
+───…
+    muse-spark-1.3 · max · /private/tmp/abc/work · Auto-review
+`
+	museWorkingPane = `❯ Read the brief.
+◆ Thinking (3s · esc to interrupt)
+── Voice input (alt(option)+v to start) ──…
+❯
+───…
+    muse-spark-1.3 · max · /private/tmp/abc/work · Auto-review
+`
+)
+
 func TestLoginLine(t *testing.T) {
 	below := strings.Repeat("⏺ talked about the brief\n", 25)
 	for _, c := range []struct {
@@ -45,6 +84,11 @@ func TestLoginLine(t *testing.T) {
 		// The same words further up are what the agent printed while it
 		// still worked, not the screen it sits at now.
 		{"login words above the pane's end", "claude", "Select login method:\n" + below + "────\n❯ \n", ""},
+		{"muse menu", "muse", museLoginMenu, "↓↑ to select · Esc to quit"},
+		{"muse menu, second method selected", "muse", museLoginMenuSecond, "↓↑ to select · Esc to quit"},
+		{"muse idle pane", "muse", museIdlePane, ""},
+		{"muse working pane", "muse", museWorkingPane, ""},
+		{"muse words above the pane's end", "muse", "Set an API key\n" + below + "────\n❯ \n", ""},
 		{"another kind's pane", "kimi", claudeLoginMenu, ""},
 		{"a kind with no file", "acme", claudeLoginMenu, ""},
 		{"no kind", "", claudeLoginMenu, ""},
@@ -58,6 +102,12 @@ func TestLoginLine(t *testing.T) {
 	// screen, so the first prompt is typed into the menu.
 	if text, known := inputText(claudeLoginMenu, "claude"); !known || !strings.Contains(text, "1. Claude account with subscription") {
 		t.Errorf("the menu's option reads as input %q, known %v", text, known)
+	}
+	// Muse's menu carries no input mark at all, so without its login
+	// lines the screen reads as no input, and what has a nudge for the
+	// agent types it into the menu.
+	if text, known := inputText(museLoginMenu, "muse"); known || text != "" {
+		t.Errorf("the muse menu reads as input %q, known %v; want no input", text, known)
 	}
 }
 

@@ -85,7 +85,9 @@ func TestHarnessListAndShow(t *testing.T) {
 		"trust: yardr answers its folder-trust dialog", "input begins with:    ❯", "a message it took:    ❯",
 		"before an error line: any of ◆", "unattended: --yolo", "model flag: --model", "one shot:   exec <prompt>",
 		`permission "yolo": --yolo`, `permission "no approval": --disable-approval`,
-		"no source known: nothing is recorded and nothing compared",
+		"~/.local/share/muse/sessions/*/*/*/{session}/session.jsonl: payload.record.model_id of the first line whose payload_type is run.model.configured",
+		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
+		"  ^(Log in with browser|Set an API key)", "  ^↓↑ to select · Esc to quit",
 		"none known: nothing is reported, and session_idle with its tail is what there is",
 		"muse-spark-1.3-contributor (Spark 1.3 Contributor), recommended for a yardmaster", "muse-wonder-1.0 (Wonder 1.0)")
 	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")

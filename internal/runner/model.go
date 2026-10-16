@@ -29,8 +29,12 @@ import (
 //	        assistant message, which is what the API answered with
 //	codex   ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl: the
 //	        model of the first turn_context
+//	muse    ~/.local/share/muse/sessions/<y>/<m>/<d>/<id>/session.jsonl:
+//	        the model_id of the first run.model.configured line, which is
+//	        what the run was started or reconfigured with
 //
-// A kind whose file names no source reports nothing.
+// A kind whose file names no source reports nothing, as does one herdr
+// reports no session id for (muse, until herdr learns its sessions).
 func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error) {
 	name, _ := handle["agent"].(string)
 	if name == "" {
