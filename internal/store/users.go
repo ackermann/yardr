@@ -240,7 +240,9 @@ func operatorOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, 
 	if ym == "" {
 		ym = "yardmaster"
 	}
-	if resolved == ym {
+	// The setting names a crew member; a matching user name or stale
+	// setting is not a delegation.
+	if resolved == ym && tx.Bucket(bCrew).Get([]byte(ym)) != nil {
 		return nil
 	}
 	return &OperatorOnlyError{msg: fmt.Sprintf("only %s or the yardmaster (%s) may %s", operator, ym, does), ask: ask}

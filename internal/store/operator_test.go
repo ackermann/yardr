@@ -252,6 +252,19 @@ func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
 	if actor := lastKindActor(t, api, ctx, "route_removed"); actor != "clerk" {
 		t.Fatalf("route_removed actor = %q, want clerk", actor)
 	}
+	// The setting names a crew member, so naming a user does not make
+	// that user a route remover.
+	if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	nonCrew := add("builders")
+	const nonCrewRefuse = "only the operator (jo) or the yardmaster (ada) may remove a route"
+	if err := api.DeleteRoute(ctx, nonCrew, "ada"); err == nil || err.Error() != nonCrewRefuse {
+		t.Fatalf("DeleteRoute as a user named by the setting = %v, want %q", err, nonCrewRefuse)
+	}
+	if !slices.Contains(ids(), nonCrew) {
+		t.Fatalf("the refused removal removed route %s", nonCrew)
+	}
 	// The operator still removes.
 	if err := api.DeleteRoute(ctx, add("builders"), "jo"); err != nil {
 		t.Fatalf("DeleteRoute as the operator: %v", err)
