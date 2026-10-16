@@ -146,12 +146,16 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 		if err != nil {
 			return AskRun{}, err
 		}
+		fingerprint, err := w.sourceSeen(src)
+		if err != nil {
+			return AskRun{}, err
+		}
 		return AskRun{
 			Argv:    run.Argv,
 			Does:    []string{fmt.Sprintf("source %s is in the yard already.", d.Name)},
 			Back:    runCommandLine([]string{"source", "rm", d.Name}),
 			BackBy:  "the operator",
-			Seen:    map[string]string{"source " + d.Name: w.sourceSeen(src)},
+			Seen:    map[string]string{"source " + d.Name: fingerprint},
 			Carried: []AskSource{carried},
 		}, nil
 	}

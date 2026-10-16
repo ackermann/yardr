@@ -203,21 +203,23 @@ type AskFileDiff struct {
 // the whole destination, so the card names it with its hash. Text
 // stands behind the tap where it is text within the bound.
 type AskRemoved struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Mode   string `json:"mode"`
-	Size   int64  `json:"size"`
-	Text   string `json:"text,omitempty"`
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Mode    string `json:"mode"`
+	Size    int64  `json:"size"`
+	Symlink bool   `json:"symlink,omitempty"`
+	Text    string `json:"text,omitempty"`
 }
 
 // AskInventory is one file under a source's copies as an ask found it:
 // its path under <home>/sources/<name>/, its SHA-256 and its mode. A
 // chmod after the ask changes the mode, and with it the approval.
 type AskInventory struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Mode   string `json:"mode"`
-	Size   int64  `json:"size"`
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Mode    string `json:"mode"`
+	Size    int64  `json:"size"`
+	Symlink bool   `json:"symlink,omitempty"`
 }
 
 // TakenBack is the card's line for the command that takes the change back,

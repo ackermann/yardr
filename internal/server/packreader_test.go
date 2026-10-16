@@ -96,11 +96,22 @@ func TestPackApplyTelegramCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Add the telegram source?", To: "mckean",
-		Context: []string{"yardr has no source that tells a user outside the yard"},
-		Run:     &store.AskRun{Argv: []string{"pack apply telegram"}}}, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Add the Google source?", To: "mckean",
+		Context: []string{"the yard has no source that tells a user outside the yard"},
+		Run:     &store.AskRun{Argv: []string{"pack apply google"}}}, "yardmaster"); err == nil || !strings.Contains(err.Error(), "card would run to 75 lines") {
+		t.Fatalf("the too-long Google card: AddAsk = %v", err)
+	}
+	var telegramSeq uint64
+	for _, name := range []string{"linear", "github", "pushover", "telegram"} {
+		seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Add the " + name + " source?", To: "mckean",
+			Context: []string{"the yard has no source that tells a user outside the yard"},
+			Run:     &store.AskRun{Argv: []string{"pack apply " + name}}}, "yardmaster")
+		if err != nil {
+			t.Fatalf("ask for embedded source pack %s: %v", name, err)
+		}
+		if name == "telegram" {
+			telegramSeq = seq
+		}
 	}
 	notes, err := st.Notes(ctx, b.ID)
 	if err != nil {
@@ -108,7 +119,7 @@ func TestPackApplyTelegramCard(t *testing.T) {
 	}
 	var joined string
 	for _, r := range store.ResolveAsks(notes, notes[0].At) {
-		if r.Note.Seq == seq && r.Ask.Run != nil {
+		if r.Note.Seq == telegramSeq && r.Ask.Run != nil {
 			joined = strings.Join(r.Ask.Run.Does, "\n")
 		}
 	}
@@ -126,7 +137,7 @@ func TestPackApplyTelegramCard(t *testing.T) {
 			t.Errorf("the telegram card lacks %q:\n%s", want, joined)
 		}
 	}
-	done, err := st.ApproveAsk(ctx, b.ID, seq, "mckean")
+	done, err := st.ApproveAsk(ctx, b.ID, telegramSeq, "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

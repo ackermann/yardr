@@ -121,11 +121,18 @@ func Unified(old, new string) string {
 
 // Counts are a diff's insertions and deletions, by line.
 func Counts(diff string) (ins, del int) {
-	for _, l := range strings.Split(diff, "\n") {
+	lines := strings.Split(diff, "\n")
+	// The first two lines are the file headers. Skip by position instead
+	// of by prefix: a changed source line can itself start with "++" or
+	// "--" and still counts as one insertion or deletion.
+	for i, l := range lines {
+		if i < 2 {
+			continue
+		}
 		switch {
-		case strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
+		case strings.HasPrefix(l, "+"):
 			ins++
-		case strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
+		case strings.HasPrefix(l, "-"):
 			del++
 		}
 	}

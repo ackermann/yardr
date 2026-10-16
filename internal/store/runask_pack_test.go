@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // packReaderOf returns a reader of one fake embedded pack, wired, whose
@@ -251,6 +253,59 @@ func TestPackApplyReplacementCard(t *testing.T) {
 	}
 }
 
+func TestPackApplyCarriesRemovedTextUpToThePackPayloadBound(t *testing.T) {
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	text := strings.Repeat("a removed line\n", 800) // larger than the loose-file limit
+	if err := os.WriteFile(filepath.Join(dir, "large-extra.txt"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	seq := y.ask(t, packAsk(), "yardmaster")
+	got := y.asked(t, seq)
+	for _, rem := range got.Ask.Run.Carried[0].Removed {
+		if rem.Path == "large-extra.txt" {
+			if rem.Text != text {
+				t.Fatalf("carried removed text has %d bytes, want %d", len(rem.Text), len(text))
+			}
+			return
+		}
+	}
+	t.Fatalf("the pack card omitted the removed text: %+v", got.Ask.Run.Carried[0].Removed)
+}
+
+func TestPackReplacementDiffShowsWholeDeclarationKeys(t *testing.T) {
+	oldCalls, err := source.Parse("old", []byte(tgDecl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newText := strings.Replace(tgDecl, `text: "hi {text}"`, `text: "hello {text}"`, 1)
+	newCalls, err := source.Parse("new", []byte(newText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := strings.Join(packDeclDiffLines("tg", oldCalls, newCalls), "\n")
+	for _, want := range []string{`"text":"hi {text}"`, `"text":"hello {text}"`, `"chat_id":"{chat}"`} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("the calls change omits %q:\n%s", want, calls)
+		}
+	}
+
+	oldHook, err := source.Parse("old", []byte(wiredDecl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newText = strings.Replace(wiredDecl, "X-Wired-Secret", "X-New-Secret", 1)
+	newHook, err := source.Parse("new", []byte(newText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := strings.Join(packDeclDiffLines("wired", oldHook, newHook), "\n")
+	if !strings.Contains(hook, "X-Wired-Secret") || !strings.Contains(hook, "X-New-Secret") {
+		t.Errorf("the hook change omits its old or new verification header:\n%s", hook)
+	}
+}
+
 // A chmod of a command copy after the ask makes the approval stale, and
 // so does a changed copy and a changed entry neither declaration names:
 // the refusal names the file that moved.
@@ -290,6 +345,68 @@ func TestPackApplyStaleCopy(t *testing.T) {
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {
 		t.Fatalf("the ask is %s after refused approvals", r.State)
+	}
+}
+
+func TestPackApplyReplacementCardsSymlinksWithoutFollowingThem(t *testing.T) {
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	target := filepath.Join(t.TempDir(), "private.txt")
+	if err := os.WriteFile(target, []byte("outside secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "outside.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	seq := y.ask(t, packAsk(), "yardmaster")
+	got := y.asked(t, seq)
+	var removed *AskRemoved
+	for i := range got.Ask.Run.Carried[0].Removed {
+		if got.Ask.Run.Carried[0].Removed[i].Path == "outside.txt" {
+			removed = &got.Ask.Run.Carried[0].Removed[i]
+		}
+	}
+	if removed == nil || !removed.Symlink || removed.Text != "" {
+		t.Fatalf("the symbolic link inventory = %+v", got.Ask.Run.Carried[0].Removed)
+	}
+	if strings.Contains(strings.Join(got.Lines(), "\n"), "outside secret") {
+		t.Fatalf("the card read the link target outside the source copies:\n%s", strings.Join(got.Lines(), "\n"))
+	}
+
+	other := filepath.Join(t.TempDir(), "other.txt")
+	if err := os.WriteFile(other, []byte("other\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "outside.txt") {
+		t.Fatalf("a moved symbolic link: ApproveAsk = %v", err)
+	}
+}
+
+func TestPackApplyRefusesChangedCommandSymlink(t *testing.T) {
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	target := filepath.Join(t.TempDir(), "replacement")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(dir, "wired", "thread")
+	if err := os.Remove(command); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, command); err != nil {
+		t.Fatal(err)
+	}
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	if _, err := y.AddAsk(y.ctx, y.bead, packAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "is a symbolic link") {
+		t.Fatalf("a command copy symbolic link = %v", err)
 	}
 }
 

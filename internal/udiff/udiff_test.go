@@ -17,6 +17,10 @@ func TestUnified(t *testing.T) {
 	if ins, del := Counts(got); ins != 1 || del != 1 {
 		t.Fatalf("Counts = %d, %d, want 1, 1", ins, del)
 	}
+	prefixed := Unified("--old\n", "++new\n")
+	if ins, del := Counts(prefixed); ins != 1 || del != 1 {
+		t.Fatalf("Counts of lines beginning with diff marks = %d, %d, want 1, 1", ins, del)
+	}
 	if got := Unified("", "x\n"); !strings.Contains(got, "+x") {
 		t.Fatalf("an added file diffed = %q", got)
 	}

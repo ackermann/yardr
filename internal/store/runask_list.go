@@ -41,11 +41,15 @@ func seen(parts ...any) string {
 // name, method and path and send another body, and every sentence then
 // reads as before; a copy changed, added, removed or chmodded under it
 // reads as nothing on the card, and is caught here alone.
-func (w *wtx) sourceSeen(src *Source) string {
-	if inv := w.inventoryOf(src.Name); len(inv) > 0 {
-		return seen(src.Text, src.EnvFile, src.MintCommand, inv)
+func (w *wtx) sourceSeen(src *Source) (string, error) {
+	inv, _, err := w.inventoryOf(src.Name, false)
+	if err != nil {
+		return "", err
 	}
-	return seen(src.Text, src.EnvFile, src.MintCommand)
+	if len(inv) > 0 {
+		return seen(src.Text, src.EnvFile, src.MintCommand, inv), nil
+	}
+	return seen(src.Text, src.EnvFile, src.MintCommand), nil
 }
 
 // lastEvent is the newest event of the kind kind that match takes, among
@@ -252,12 +256,16 @@ func (w *wtx) sourceLimitCard(argv []string, asking bool) (AskRun, error) {
 	if asking && n == has {
 		return AskRun{}, fmt.Errorf("source %s: %s is %d already, so the command would change nothing", name, key, has)
 	}
+	fingerprint, err := w.sourceSeen(src)
+	if err != nil {
+		return AskRun{}, err
+	}
 	return AskRun{
 		Argv:   argv,
 		Does:   []string{limitSays(key, fmt.Sprintf("the source %s (%s)", name, sourceHost(d)), n, has)},
 		Back:   runCommandLine([]string{"source", "set", name, key + "=" + strconv.Itoa(has)}),
 		BackBy: "only the operator",
-		Seen:   map[string]string{"source " + name: w.sourceSeen(src)},
+		Seen:   map[string]string{"source " + name: fingerprint},
 	}, nil
 }
 
@@ -424,7 +432,11 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	} else if ok {
 		may = fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of)
 	}
-	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: w.sourceSeen(src)}}
+	fingerprint, err := w.sourceSeen(src)
+	if err != nil {
+		return AskRun{}, err
+	}
+	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: fingerprint}}
 	back := []string{"source", "revoke", name, what}
 	for _, t := range to {
 		as, fingerprint, err := w.granteeSeen(t)

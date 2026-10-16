@@ -13,7 +13,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,45 +92,121 @@ func checkPackApply(ctx context.Context, w *wtx, run AskRun, actor string) error
 // It covers each relative program a declaration names and every entry
 // neither declaration names alike, so a copy added, removed, changed
 // or chmodded is seen. Empty where the yard has no copies.
-func (w *wtx) inventoryOf(name string) []AskInventory {
+func (w *wtx) inventoryOf(name string, carryContents bool) ([]AskInventory, map[string][]byte, error) {
 	if w.store == nil || w.store.home == "" {
-		return nil
+		return nil, nil, nil
 	}
 	root := filepath.Join(w.store.home, "sources", name)
+	rootInfo, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("source %s: cannot inspect its command copy directory: %w", name, err)
+	}
+	if !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, fmt.Errorf("source %s: its command copy destination is not a directory: pack apply cannot card what it would remove", name)
+	}
 	var out []AskInventory
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	contents := map[string][]byte{}
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			rel, _ := filepath.Rel(root, path)
+			return fmt.Errorf("source %s: cannot inventory command copy %s: %w", name, OneLine(filepath.ToSlash(rel)), walkErr)
+		}
+		if path == root || d.IsDir() {
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
+			return fmt.Errorf("source %s: cannot inspect command copy %s: %w", name, OneLine(path), err)
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return nil
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		var data []byte
+		symlink := info.Mode()&os.ModeSymlink != 0
+		switch {
+		case symlink:
+			// Hash the link itself, not the file it points to. Reading a
+			// link target could disclose a file outside the source copies.
+			var target string
+			target, err = os.Readlink(path)
+			if err == nil {
+				var current fs.FileInfo
+				current, err = os.Lstat(path)
+				if err == nil && !os.SameFile(info, current) {
+					err = fmt.Errorf("entry changed while it was being inventoried")
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("source %s: cannot inventory symbolic link %s: %w", name, OneLine(rel), err)
+			}
+			data = []byte(target)
+		case info.Mode().IsRegular():
+			data, err = readInventoryFile(path, info)
+			if err != nil {
+				return fmt.Errorf("source %s: cannot inventory command copy %s: %w", name, OneLine(rel), err)
+			}
+			if carryContents {
+				contents[rel] = data
+			}
+		default:
+			return fmt.Errorf("source %s: command copy %s is not a regular file or symbolic link: pack apply cannot card what it would remove", name, OneLine(rel))
 		}
 		sum := sha256.Sum256(data)
-		out = append(out, AskInventory{Path: filepath.ToSlash(rel), SHA256: hex.EncodeToString(sum[:]),
-			Mode: fmt.Sprintf("%04o", info.Mode().Perm()), Size: info.Size()})
+		out = append(out, AskInventory{Path: rel, SHA256: hex.EncodeToString(sum[:]),
+			Mode: fmt.Sprintf("%04o", info.Mode().Perm()), Size: int64(len(data)), Symlink: symlink})
 		return nil
 	})
+	if err != nil {
+		return nil, nil, err
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out
+	return out, contents, nil
 }
 
-// standingCopy is the bytes of one of a source's copies as it stands,
-// "" and false where it is not there.
-func (w *wtx) standingCopy(name, prog string) ([]byte, bool) {
-	if w.store == nil || w.store.home == "" {
-		return nil, false
+// readInventoryFile reads only the regular file the directory walk saw.
+// Opening through a symlink, or racing a replacement while reading, makes
+// the inventory incomplete and refuses the ask.
+func readInventoryFile(path string, want fs.FileInfo) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(w.store.home, "sources", name, filepath.FromSlash(prog)))
-	return data, err == nil
+	opened, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(want, opened) || opened.Mode().Perm() != want.Mode().Perm() {
+		_ = f.Close()
+		return nil, fmt.Errorf("entry changed while it was being inventoried")
+	}
+	data, readErr := io.ReadAll(f)
+	after, statErr := f.Stat()
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if statErr != nil {
+		return nil, statErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(want, pathInfo) || after.Size() != opened.Size() || pathInfo.Size() != after.Size() ||
+		!after.ModTime().Equal(opened.ModTime()) || !pathInfo.ModTime().Equal(after.ModTime()) ||
+		after.Mode().Perm() != opened.Mode().Perm() || pathInfo.Mode().Perm() != after.Mode().Perm() || int64(len(data)) != after.Size() {
+		return nil, fmt.Errorf("entry changed while it was being inventoried")
+	}
+	return data, nil
 }
 
 // packBytesSeen fingerprints a pack reading: its sources' texts, each
@@ -255,11 +333,16 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	for i := range carried {
 		key := "source " + carried[i].Name
 		if src, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
-			seenMap[key] = w.sourceSeen(src)
-		} else {
+			fingerprint, err := w.sourceSeen(src)
+			if err != nil {
+				return AskRun{}, err
+			}
+			seenMap[key] = fingerprint
+		} else if errors.Is(err, ErrNotFound) {
 			seenMap[key] = ""
+		} else {
+			return AskRun{}, err
 		}
-		_ = i
 	}
 	card := AskRun{Argv: run.Argv, Seen: seenMap, Carried: carried,
 		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Label: reading.Label}}
@@ -298,8 +381,11 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 		card.Back = fmt.Sprintf("no one command takes it back: read the standing state with yardr pack check %s --depot %s in a terminal", name, reading.Depot)
 		card.BackBy = "the operator"
 	}
+	for i := range card.Does {
+		card.Does[i] = safeSourceCardLine(card.Does[i])
+	}
 	if payload > MaxRunPackFiles {
-		return AskRun{}, fmt.Errorf("pack %s: its command files with their diffs run to %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr pack check %s shows it there)", name, payload, MaxRunPackFiles, name)
+		return AskRun{}, fmt.Errorf("pack %s: its carried file texts and diffs run to %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr pack check %s shows it there)", name, payload, MaxRunPackFiles, name)
 	}
 	if len(card.Does) > MaxRunSourceCardLines {
 		return AskRun{}, fmt.Errorf("pack %s: its card would run to %d lines: a card is read whole, so this is the operator's to type in a terminal (yardr pack check %s shows it there)", name, len(card.Does), name)
@@ -314,12 +400,17 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 // the ask carries, for the payload bound. A source the yard has not is
 // untouched.
 func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packName string) (int, error) {
-	src, was, err := sourceIn(w.Tx, carried.Name)
-	if err != nil {
+	_, was, err := sourceIn(w.Tx, carried.Name)
+	if errors.Is(err, ErrNotFound) {
 		return 0, nil // not in the yard: an adding, held by its absence
 	}
-	_ = src
-	inv := w.inventoryOf(carried.Name)
+	if err != nil {
+		return 0, err
+	}
+	inv, contents, err := w.inventoryOf(carried.Name, true)
+	if err != nil {
+		return 0, err
+	}
 	carried.Inventory = inv
 	byPath := map[string]AskInventory{}
 	for _, e := range inv {
@@ -354,12 +445,15 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 		if hasNew {
 			newSHA = newF.SHA256
 		}
+		if hasOld && oldE.Symlink {
+			return 0, fmt.Errorf("source %s: the copy of %s is a symbolic link, not a regular text file: a card cannot show what it points to, so this pack is the operator's to apply in a terminal (yardr pack check %s)", carried.Name, OneLine(prog), packName)
+		}
 		if oldSHA == newSHA {
 			continue
 		}
 		var oldText, newText string
 		if hasOld {
-			data, _ := w.standingCopy(carried.Name, prog)
+			data := contents[prog]
 			if !utf8.Valid(data) {
 				return 0, fmt.Errorf("source %s: the copy of %s that stands is not valid UTF-8 text: a card carries text only, so this pack is the operator's to apply in a terminal (yardr pack check %s)", carried.Name, prog, packName)
 			}
@@ -376,8 +470,8 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 		if union[e.Path] {
 			continue
 		}
-		rem := AskRemoved{Path: e.Path, SHA256: e.SHA256, Mode: e.Mode, Size: e.Size}
-		if data, ok := w.standingCopy(carried.Name, e.Path); ok && utf8.Valid(data) && len(data) <= MaxRunSourceCommandFile {
+		rem := AskRemoved{Path: e.Path, SHA256: e.SHA256, Mode: e.Mode, Size: e.Size, Symlink: e.Symlink}
+		if data, ok := contents[e.Path]; ok && utf8.Valid(data) {
 			rem.Text = string(data)
 			payload += len(rem.Text)
 		}
@@ -394,8 +488,10 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 	for i := range carried {
 		if _, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
 			replaces++
-		} else {
+		} else if errors.Is(err, ErrNotFound) {
 			adds++
+		} else {
+			return nil, err
 		}
 		commands += len(decls[carried[i].Name].Commands())
 		for _, f := range carried[i].Files {
@@ -436,8 +532,11 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 	full := sourceDoes(d, carried)
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
-	if err != nil {
+	if errors.Is(err, ErrNotFound) {
 		return lines, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	var extra []string
 	extra = append(extra, fmt.Sprintf("it would replace the source %s the yard has under that name.", carried.Name))
@@ -457,12 +556,16 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 	}
 	for _, df := range carried.Old {
 		ins, del := udiff.Counts(df.Diff)
-		extra = append(extra, fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
-			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del))
+		extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
+			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
 	}
 	for _, rem := range carried.Removed {
-		extra = append(extra, fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s, %d bytes).",
-			rem.Path, rem.SHA256, rem.Mode, rem.Size))
+		kind := ""
+		if rem.Symlink {
+			kind = ", symbolic link"
+		}
+		extra = append(extra, safeSourceCardLine(fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s%s, %d bytes).",
+			rem.Path, rem.SHA256, rem.Mode, kind, rem.Size)))
 	}
 	// After the credential line, which is the first of lines.
 	out := make([]string, 0, len(lines)+len(extra))
@@ -479,112 +582,66 @@ func packDeclDiffLines(name string, was, now *source.Declaration) []string {
 	if was == nil {
 		return []string{fmt.Sprintf("source %s: the yard's declaration is one this yardr does not read, and the pack's replaces it.", name)}
 	}
-	cred := func(d *source.Declaration) string {
-		if d.Credential == nil {
-			return ""
-		}
-		s := strings.Join(d.Credential.Envs(), ", ")
-		if d.Credential.Header != "" {
-			s += " in header " + d.Credential.Header
-		}
-		if d.Credential.InPath {
-			s += " in the request path"
-		}
-		if len(d.Credential.Mint) > 0 {
-			s += " minted from " + strings.Join(d.Credential.Mint, ", ")
-		}
-		return s
-	}
-	calls := func(d *source.Declaration) string {
-		parts := make([]string, len(d.Calls))
-		for i, c := range d.Calls {
-			parts[i] = fmt.Sprintf("%s (%s %s %s)", c.Name, c.Kind, c.Request.Method, c.Request.Path)
-		}
-		return strings.Join(parts, ", ")
-	}
-	cmds := func(argv []string) string { return showCommand(argv) }
-	thread := func(d *source.Declaration) string {
-		if d.Thread == nil {
-			return ""
-		}
-		var parts []string
-		for _, c := range d.Commands() {
-			if strings.HasPrefix(c.Key, "thread.") {
-				parts = append(parts, c.Key+" "+cmds(c.Argv))
-			}
-		}
-		return strings.Join(parts, ", ")
-	}
 	var out []string
-	for _, f := range []struct{ key, old, new string }{
-		{"base", was.Base, now.Base},
-		{"credential", cred(was), cred(now)},
-		{"check", was.Check, now.Check},
-		{"idempotency", was.Idempotency, now.Idempotency},
-		{"calls", calls(was), calls(now)},
-		{"notify", notifySummary(was), notifySummary(now)},
-		{"hear", hearSummary(was), hearSummary(now)},
-		{"limits", limitsSummary(was), limitsSummary(now)},
-		{"thread", thread(was), thread(now)},
-		{"link", linkSummary(was), linkSummary(now)},
-		{"identity", identitySummary(was), identitySummary(now)},
-		{"hook", hookSummary(was), hookSummary(now)},
-		{"events", eventsSummary(was), eventsSummary(now)},
-	} {
-		if f.old != f.new {
-			out = append(out, fmt.Sprintf("source %s %s: %s -> %s.", name, f.key, or(f.old, "none"), or(f.new, "none")))
+	for _, key := range []string{"base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "identity", "hook", "events"} {
+		old, new := declarationKey(was, key), declarationKey(now, key)
+		if old != new {
+			out = append(out, safeSourceCardLine(fmt.Sprintf("source %s %s: %s -> %s.", name, key, or(old, "none"), or(new, "none"))))
 		}
 	}
 	return out
 }
 
-func notifySummary(d *source.Declaration) string {
-	if d.Notify == nil {
+// declarationKey is the complete value of one behavior-bearing top-level
+// key, as compact JSON. A shortened summary can say old and new are alike
+// while a parameter, body, hook rule or thread command changed.
+func declarationKey(d *source.Declaration, key string) string {
+	var v any
+	switch key {
+	case "base":
+		v = d.Base
+	case "credential":
+		v = d.Credential
+	case "check":
+		v = d.Check
+	case "idempotency":
+		v = d.Idempotency
+	case "calls":
+		if len(d.Calls) == 0 {
+			return ""
+		}
+		calls := append([]source.Call(nil), d.Calls...)
+		for i := range calls {
+			calls[i].About = "" // author's description does not change what a call does
+		}
+		v = calls
+	case "notify":
+		v = d.Notify
+	case "hear":
+		v = d.Hear
+	case "limits":
+		v = d.Limits
+	case "thread":
+		v = d.Thread
+	case "link":
+		v = d.Link
+	case "identity":
+		v = d.Identity
+	case "hook":
+		v = d.Hook
+	case "events":
+		v = d.Events
+	default:
 		return ""
 	}
-	return fmt.Sprintf("the call %s, whose %s takes the address read as %s", d.Notify.Call, d.Notify.Address, d.Notify.AddressEnv)
-}
-
-func hearSummary(d *source.Declaration) string {
-	if d.Hear == nil {
+	if v == nil {
 		return ""
 	}
-	return fmt.Sprintf("field %s, addresses read as %s, from %s", d.Hear.Field, d.Hear.Address.Env, d.Hear.From)
-}
-
-func limitsSummary(d *source.Declaration) string {
-	if d.Limits == nil {
-		return ""
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<unreadable %s>", key)
 	}
-	return showCommand(d.Limits.Command)
-}
-
-func linkSummary(d *source.Declaration) string {
-	if d.Link == nil {
-		return ""
-	}
-	return fmt.Sprintf("host %s, issue %s", d.Link.Host, d.Link.Issue)
-}
-
-func identitySummary(d *source.Declaration) string {
-	if d.Identity == nil {
-		return ""
-	}
-	return "fold " + d.Identity.Fold
-}
-
-func hookSummary(d *source.Declaration) string {
-	if d.Hook == nil {
-		return ""
-	}
-	return fmt.Sprintf("scheme %s, normalize %s, keys %s", d.Hook.Verify.Scheme, showCommand(d.Hook.Normalize), strings.Join(d.Hook.Keys, ", "))
-}
-
-func eventsSummary(d *source.Declaration) string {
-	if d.Events == nil {
-		return ""
-	}
-	return fmt.Sprintf("runs %s, head from %s", strings.Join(d.Events.Runs, ", "), strings.Join(d.Events.HeadFrom, ", "))
+	return string(raw)
 }
 
 // packDepotDoes is the card of a depot pack: the pack line with its
@@ -739,10 +796,14 @@ func inventoryMoved(was, now []AskInventory) string {
 		wasBy[e.Path] = true
 		if n, ok := nowBy[e.Path]; !ok {
 			return fmt.Sprintf("the command copy %s was removed", e.Path)
+		} else if n.Symlink != e.Symlink {
+			return fmt.Sprintf("the command copy %s changed type", e.Path)
 		} else if n.SHA256 != e.SHA256 {
 			return fmt.Sprintf("the command copy %s changed", e.Path)
 		} else if n.Mode != e.Mode {
 			return fmt.Sprintf("the command copy %s changed mode %s -> %s (a chmod)", e.Path, e.Mode, n.Mode)
+		} else if n.Size != e.Size {
+			return fmt.Sprintf("the command copy %s changed size %d -> %d", e.Path, e.Size, n.Size)
 		}
 	}
 	for _, e := range now {

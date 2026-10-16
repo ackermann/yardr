@@ -1444,8 +1444,10 @@ yard.
 pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
 --run "pack apply <name>"`, [chat.md](chat.md#questions-for-you)), for
 the operator to approve on a card: a pack of kind `source` (linear,
-github, google, pushover and telegram), or a pack of a depot kind
+github, pushover and telegram), or a pack of a depot kind
 re-applied to the one depot that holds it where its plan asks nothing.
+The Google source pack's card exceeds the 40-line limit, so apply it in a
+terminal.
 The card is written by the yard's server from its own binary: it shows
 each declared source whole as a `source add` card does, what a source it
 would replace changes to with each command file's diff, and for a depot
