@@ -57,7 +57,7 @@ func TestRouteAddTakesOriginator(t *testing.T) {
 			row = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := id + " new - - - - hal 0 hal-builders"; row != want {
+	if want := id + " new - default - - hal 0 hal-builders"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
 	out, err = run(t, a.groupCmd(), "show", "hal-builders")
@@ -140,7 +140,7 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		}
 	}
 	errs.Reset()
-	if _, err := run(t, a.routeCmd(), "add", "--stage", "review", "--group", "ops"); err != nil {
+	if _, err := run(t, a.routeCmd(), "add", "--stage", "review", "--group", "ops", "--priority", "1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := errs.String(); strings.Contains(got, "login_for=me") {

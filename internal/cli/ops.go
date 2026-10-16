@@ -921,9 +921,16 @@ given more than once, and the bead must have every one. --bead-priority
 --originator <user> takes only that user's beads, and --originator any
 every originator's; a route without it takes only the operator's beads, so
 no general route swallows another person's work. A named originator must be
-a user that exists. Of the routes that match a bead, the one with the
-highest --priority takes it, and among those the one that asks for more:
-each label counts, and a named originator counts as one.`,
+a user that exists. Without --depot a route is a yard default: it serves
+every depot that does not state its own route for the same beads (the
+same stage, type, labels, bead priority and originator); with --depot it
+is that depot's own, and sets a default aside only for those beads and
+only there. Of the routes that match a bead, in its depot's effective
+routes, the one with the highest --priority takes it, and among those
+the one that asks for more: each label counts, and a named originator
+counts as one. A route that takes the same beads at the same priority
+as one of the same scope already standing is refused, naming it: the
+two would be ordered by id, which nobody chose.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10
@@ -1010,7 +1017,11 @@ each label counts, and a named originator counts as one.`,
 					if r.Originator != nil {
 						orig = *r.Originator
 					}
-					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), or(r.LabelList(), "-"),
+					depot := "default"
+					if r.Depot != nil {
+						depot = *r.Depot
+					}
+					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), depot, or(r.LabelList(), "-"),
 						or(r.BeadPriorities(), "-"), or(orig, "-"), strconv.Itoa(r.Priority), r.GroupList()})
 				}
 				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP", rows)

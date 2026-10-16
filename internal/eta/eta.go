@@ -552,10 +552,81 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 			b.Stage, span(age), span(c.ClaimP90), label, *b.Group)}
 }
 
+// routeKey is which beads a route takes beside its scope, as
+// store.Route's key is: stage, type, the set of labels, bead priority and
+// the originator resolved as matchesOriginator resolves it. It mirrors
+// the store's key, which this package cannot import.
+type routeKey struct {
+	stage           string
+	typ             string
+	hasType         bool
+	labels          string
+	beadPriority    int
+	hasBeadPriority bool
+	originator      string
+}
+
+func (r Route) resolvedOriginator(operator string) string {
+	if r.Originator == nil {
+		return operator
+	}
+	return *r.Originator
+}
+
+func (r Route) routeKey(operator string) routeKey {
+	k := routeKey{stage: r.Stage, originator: r.resolvedOriginator(operator)}
+	if r.Type != nil {
+		k.typ, k.hasType = *r.Type, true
+	}
+	if len(r.Labels) > 0 {
+		sorted := slices.Clone(r.Labels)
+		slices.Sort(sorted)
+		k.labels = strings.Join(slices.Compact(sorted), "\x00")
+	}
+	if r.BeadPriority != nil {
+		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true
+	}
+	return k
+}
+
+// effectiveRoutes are a depot's routes as store.EffectiveRoutes computes
+// them: its own routes plus every yard default whose key no own route
+// states; the defaults alone for a bead with no depot. Routes arrive in
+// match order and keep it.
+func effectiveRoutes(routes []Route, depot *string, operator string) []Route {
+	if depot == nil {
+		var out []Route
+		for _, r := range routes {
+			if r.Depot == nil {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	own := map[routeKey]bool{}
+	for _, r := range routes {
+		if r.Depot != nil && *r.Depot == *depot {
+			own[r.routeKey(operator)] = true
+		}
+	}
+	var out []Route
+	for _, r := range routes {
+		switch {
+		case r.Depot != nil && *r.Depot == *depot:
+			out = append(out, r)
+		case r.Depot == nil && !own[r.routeKey(operator)]:
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // matchRoute is the first route in match order that applies to the bead:
-// what store.MatchRoute answers. It mirrors that function, which this
-// package cannot import; eta_test pins the two equal.
+// what store.MatchRoute answers, inside the bead's depot's effective
+// routes. It mirrors that function, which this package cannot import;
+// eta_test pins the two equal.
 func matchRoute(routes []Route, stage, typ string, depot *string, labels []string, priority int, originator, operator string) *Route {
+	routes = effectiveRoutes(routes, depot, operator)
 	for i := range routes {
 		r := &routes[i]
 		if r.Stage != stage {

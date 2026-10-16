@@ -152,7 +152,11 @@ func TestRouteGatesOneExecGroupAndEndsInWait(t *testing.T) {
 	if _, err := add("a@machine.load<80", "wait"); err != nil {
 		t.Fatalf("a group that starts agents gated on a source: %v", err)
 	}
-	if _, err := add("refinery", "wait"); err != nil {
+	// In a yard of its own: beside the gated route above it would take
+	// the same beads at the same priority, which the tie refusal now
+	// refuses, and gating alone is what is on trial here.
+	_, addAlone := quotaGroups(t)
+	if _, err := addAlone("refinery", "wait"); err != nil {
 		t.Fatalf("one exec group with wait and no condition: %v", err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "wait", Runner: "herdr"}, "jo"); err == nil ||
@@ -211,7 +215,11 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 	if _, err := add("c"); err != nil {
 		t.Fatal(err)
 	}
-	r, err := add("a@Weekly<80", "b")
+	// At another priority than the plain route to c: the two take the
+	// same beads, which the tie refusal now refuses at one priority,
+	// and the runner rule is what is on trial here.
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80", Priority: 1,
+		Else: []store.RouteGroup{{Name: "b"}}}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

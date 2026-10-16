@@ -13,7 +13,7 @@ change:
 |---|---|---|
 | `group_set` | `group add`, for a new group and for one it changes, `group set` when it changes something, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
 | `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
-| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)) |
+| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)); `note` where the route carries one |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
 
 Removing a group or a route that is not there logs nothing. A depot's routes
@@ -127,17 +127,41 @@ login made for a group sits in a folder on this machine, which whoever
 runs the machine can read: bringing a subscription trusts the operator the
 way the machine's own login does.
 
-Of the routes that match a bead, the one with the highest `--priority`
-takes it; among routes of one priority, the one that asks for more, where
-the type, the depot, the bead priority, each label and a named originator
-count as one (`any` counts as none). So a route for two labels is read
-before a route for one of them, and a bead with both goes to the first;
-an exact originator route beats an `any` route of the same priority.
-Routes that ask for as much are read oldest first. A route for urgent
+A route with no `--depot` is a yard default: it serves every depot that
+does not state its own route for the same beads. Which beads a route
+takes, beside its depot, is its match key: its stage, its type, its set
+of labels, its bead priority and its originator as above. A depot's own
+route sets a default aside only where the two state the same key, and
+only in that depot; an own route with any other key leaves every default
+in place, so the yard's `difficulty:3` route in `new` keeps taking hard
+beads in a depot that routes its plain `new` beads itself, until that
+depot states `new` with the label `difficulty:3` for itself. A bead with
+no depot has the defaults alone. `yardr route list` prints a default's
+depot as `default`.
+
+Of the routes that match a bead, in its depot's effective routes (its
+own routes plus the defaults none of them sets aside), the one with the
+highest `--priority` takes it; among routes of one priority, the one
+that asks for more, where the type, the depot, the bead priority, each
+label and a named originator count as one (`any` counts as none). So a
+route for two labels is read before a route for one of them, and a bead
+with both goes to the first; an exact originator route beats an `any`
+route of the same priority. Routes that ask for as much are read with
+an own route before a default, then oldest first. A route for urgent
 beads that is to win over a route for a label therefore needs a higher
 `--priority`, as in the example. `yardr route list` prints the routes in
 that order, the labels in the column `LABEL`, the bead priorities as
 `P0-P1` in the column `BEADS` and the originator in `ORIGINATOR`.
+
+Adding a route that states the same key at the same priority as a route
+of the same scope already standing (two defaults, or two own routes of
+one depot) is refused, naming the standing route: the two would be
+ordered by id, which nobody chose, and one of them would route nothing.
+The same key, priority and group chain is the same route, and is
+refused in the same words. A default and an own route of the same key
+never tie: the own route sets the default aside in its depot, which is
+the override working as meant. A standby route is added at a lower
+priority, where the list shows it ranked and harmless.
 
 The labels are yours: yardr gives none of them a meaning, and matches each
 exactly. A view that shows who works a stage of a flow (`yardr flow show`,

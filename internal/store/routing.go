@@ -407,6 +407,13 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 // but for the originator: a route without one takes only the operator's
 // beads, a named one only that user's, and "any" every originator's.
 //
+// Depot is the route's scope as well as a match filter: a route that names
+// a depot is that depot's own, and one that names none is a yard default,
+// serving every depot that does not state its own route for the same beads
+// (EffectiveRoutes). Which beads a route takes beside its scope is its
+// match key (matchKey); the group chain, the priority and the note are
+// what an own route overrides in a default it sets aside.
+//
 // A route may name further groups after the first (Else), and each group it
 // names may carry a condition on the windows of its provider's usage limits
 // or of a source's own (When, RouteGroup.When); wait ends it. Group, When
@@ -433,6 +440,9 @@ type Route struct {
 	Originator *string `json:"originator,omitempty"`
 	Group      string  `json:"group"`
 	Priority   int     `json:"priority"`
+	// Note says in words what the priority and the chain cannot: why this
+	// route ranks as it does. It takes no part in matching.
+	Note string `json:"note,omitempty"`
 	// When is Group's condition, as RouteGroup.When is a further group's.
 	When string       `json:"when,omitempty"`
 	Else []RouteGroup `json:"else,omitempty"`
@@ -864,6 +874,9 @@ func routeEvent(r Route) map[string]any {
 			data[k] = *p
 		}
 	}
+	if r.Note != "" {
+		data["note"] = r.Note
+	}
 	return data
 }
 
@@ -879,6 +892,11 @@ func routeEvent(r Route) map[string]any {
 // user that exists; any takes every originator's. A route without one to a
 // first group that starts no agents is any: a script, people or another
 // yard burn no local subscription, so they take every originator's beads.
+// A route that takes the same beads (the same match key) at the same
+// priority as one of the same scope already standing is refused, the
+// standing route named (checkRouteTie): the two would be ordered by id,
+// which nobody chose. A route with no depot is a yard default, one with
+// a depot that depot's own; the two scopes never tie.
 // From a session's or a crew member's pane the write is recorded as that
 // session's actor or that crew member, whatever actor says; from anywhere
 // else, as given (paneAuthor).
@@ -949,6 +967,13 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 			any := OriginatorAny
 			r.Originator = &any
 		}
+		operator, err := operatorIn(w.Tx)
+		if err != nil {
+			return err
+		}
+		if err := checkRouteTie(w.Tx, r, operator); err != nil {
+			return err
+		}
 		r.ID = newEdgeID()
 		if err := put(w.Tx, bRoutes, r.ID, r); err != nil {
 			return err
@@ -959,6 +984,100 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		return nil, err
 	}
 	return &r, nil
+}
+
+// sameScope reports whether a and b stand in one scope: both yard
+// defaults, or both own routes of one depot. A default and an own route
+// of the same key never tie: the own route sets the default aside in its
+// depot (EffectiveRoutes), which is the override working as meant.
+func sameScope(a, b Route) bool {
+	if a.Depot == nil || b.Depot == nil {
+		return a.Depot == nil && b.Depot == nil
+	}
+	return *a.Depot == *b.Depot
+}
+
+// sameChain reports whether a and b name the same groups in the same
+// order with the same conditions.
+func sameChain(a, b Route) bool { return slices.Equal(a.Groups(), b.Groups()) }
+
+// describeKey is a route's match key in words, as the tie refusal names
+// it: the stage, the type, the labels, the bead priority and whose beads,
+// each as any or none where the route sets none.
+func describeKey(r Route, operator string) string {
+	typ := "any type"
+	if r.Type != nil {
+		typ = "type " + *r.Type
+	}
+	label := "no label"
+	if ls := r.Labels(); len(ls) == 1 {
+		label = "label " + ls[0]
+	} else if len(ls) > 1 {
+		label = "labels " + strings.Join(ls, ", ")
+	}
+	beads := "any bead priority"
+	if r.BeadPriority != nil {
+		beads = "beads " + r.BeadPriorities()
+	}
+	orig := "the operator's beads"
+	switch resolved := r.resolvedOriginator(operator); {
+	case resolved == OriginatorAny:
+		orig = "every originator's beads"
+	case resolved == operator:
+	default:
+		orig = resolved + "'s beads"
+	}
+	return strings.Join([]string{r.Stage, typ, label, beads, orig}, ", ")
+}
+
+// setGroups is r's chain as `yardr route set` takes it, for the tie
+// refusal's replacement line.
+func setGroups(r Route) string {
+	gs := r.Groups()
+	parts := []string{"--group '" + gs[0].String() + "'"}
+	for _, g := range gs[1:] {
+		parts = append(parts, "--else '"+g.String()+"'")
+	}
+	return strings.Join(parts, " ")
+}
+
+// checkRouteTie refuses r where a route of the same scope already takes
+// the same beads (the same match key) at the same priority: two such
+// routes are ordered by id, which nobody chose, so one of them would
+// route nothing and nothing would say so. The same key, priority and
+// chain is the same route. A route of another scope, another key or
+// another priority stands: whether two routes of different keys ever
+// meet depends on beads not yet made, and they are ranked in the open
+// (priority, specificity, own before default, then id).
+func checkRouteTie(tx *bolt.Tx, r Route, operator string) error {
+	key := r.matchKey(operator)
+	var tie *Route
+	if err := each(tx, bRoutes, "", func(_ []byte, o *Route) error {
+		if tie != nil || o.Priority != r.Priority || !sameScope(*o, r) || o.matchKey(operator) != key {
+			return nil
+		}
+		c := *o
+		tie = &c
+		return nil
+	}); err != nil {
+		return err
+	}
+	if tie == nil {
+		return nil
+	}
+	scope := "as a yard default"
+	if r.Depot != nil {
+		scope = "in depot " + *r.Depot
+	}
+	base := fmt.Sprintf("route %s already takes these beads %s at priority %d (%s) to %s",
+		tie.ID, scope, tie.Priority, describeKey(*tie, operator), tie.GroupList())
+	if sameChain(*tie, r) {
+		return fmt.Errorf("%s: the same route. Change one route's priority, change what beads it takes, or replace it: yardr route set %s %s",
+			base, tie.ID, setGroups(r))
+	}
+	return fmt.Errorf("%s. Two routes that take the same beads at the same priority are ordered by id, which nobody chose. "+
+		"Change one route's priority, change what beads it takes, or replace it: yardr route set %s %s",
+		base, tie.ID, setGroups(r))
 }
 
 // quotaGroupsOK is nil when the groups of r, a route with --else or a
@@ -1090,7 +1209,12 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 }
 
 // SortRoutes orders routes so the first match wins: higher priority first,
-// then the more specific route (more filters set), then by id for stability.
+// then the more specific route (more filters set), then an own route (one
+// that names a depot) before a yard default, then by id for stability. The
+// own-before-default leg is reached only by two routes as specific as each
+// other that state different keys; two that state the same key never stand
+// in one depot's effective set together (EffectiveRoutes), and the add
+// refuses two of one scope that state it at one priority (checkRouteTie).
 // Each label is a filter, so a route that asks for two sorts before a route
 // that asks for one of them. A named originator counts as one filter; any
 // and none count as none, so an exact originator route beats an any route
@@ -1117,6 +1241,9 @@ func SortRoutes(rs []Route) {
 		}
 		if si, sj := spec(rs[i]), spec(rs[j]); si != sj {
 			return si > sj
+		}
+		if (rs[i].Depot == nil) != (rs[j].Depot == nil) {
+			return rs[i].Depot != nil
 		}
 		return rs[i].ID < rs[j].ID
 	})
@@ -1150,15 +1277,101 @@ func (r Route) MatchesOriginator(originator, operator string) bool {
 	}
 }
 
-// MatchRoute returns the first route (in SortRoutes order) that applies to b.
-// It reads b's stage, type, depot, labels, priority and originator, so
-// whoever asks for a bead it has only part of fills those in; a bead that
-// is no bead of the yard's (a view's stand-in for "a bead of this depot")
-// has no labels, no originator and DefaultPriority, as a bead made without
-// any, and reads as the operator's.
-func MatchRoute(sorted []Route, b Bead, operator string) *Route {
-	for i := range sorted {
-		r := &sorted[i]
+// routeKey is which beads a route takes beside its scope: its stage, its
+// type (unset is any type), its set of labels (order does not matter), its
+// bead priority (unset is any) and its originator as MatchesOriginator
+// resolves it (unset is the operator, any is every originator, a name is
+// that user; a route that names the operator and one that names nobody
+// therefore state the same key while that user is operator). The depot
+// itself, the priority, the group chain and the note are left out: those
+// are what an override overrides.
+type routeKey struct {
+	stage           string
+	typ             string
+	hasType         bool
+	labels          string // the labels sorted, joined; "" for none
+	beadPriority    int
+	hasBeadPriority bool
+	originator      string
+}
+
+// resolvedOriginator is whose beads the route takes as one word of its
+// key: the operator where it names nobody, any where it names any, else
+// the user it names.
+func (r Route) resolvedOriginator(operator string) string {
+	if r.Originator == nil {
+		return operator
+	}
+	return *r.Originator
+}
+
+func (r Route) matchKey(operator string) routeKey {
+	k := routeKey{stage: r.Stage, originator: r.resolvedOriginator(operator)}
+	if r.Type != nil {
+		k.typ, k.hasType = *r.Type, true
+	}
+	if ls := r.Labels(); len(ls) > 0 {
+		sorted := slices.Clone(ls)
+		slices.Sort(sorted)
+		k.labels = strings.Join(slices.Compact(sorted), "\x00")
+	}
+	if r.BeadPriority != nil {
+		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true
+	}
+	return k
+}
+
+// EffectiveRoutes are the routes of the depot a bead names: its own routes
+// plus every yard default whose match key no own route states. An own
+// route therefore sets a default aside only for the beads it states, and
+// only in its depot; a depot that states no route for a key keeps the
+// default, and a bead with no depot (nil) has the defaults alone. A route
+// naming another depot is never in the set. The result keeps the order of
+// routes: MatchRoute ranks it, and a listing sorts it with SortRoutes.
+// This is the one computation every match goes through.
+func EffectiveRoutes(routes []Route, depot *string, operator string) []Route {
+	if depot == nil {
+		var out []Route
+		for _, r := range routes {
+			if r.Depot == nil {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	own := map[routeKey]bool{}
+	for _, r := range routes {
+		if r.Depot != nil && *r.Depot == *depot {
+			own[r.matchKey(operator)] = true
+		}
+	}
+	var out []Route
+	for _, r := range routes {
+		switch {
+		case r.Depot != nil && *r.Depot == *depot:
+			out = append(out, r)
+		case r.Depot == nil && !own[r.matchKey(operator)]:
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// MatchRoute returns the first route that applies to b, in its depot's
+// effective routes (EffectiveRoutes) ranked as SortRoutes ranks. It reads
+// b's stage, type, depot, labels, priority and originator, and no flow: a
+// bead that pins a flow and one that follows its depot's pointer for the
+// same depot, type and stage take the same winner, and a label is what
+// separates them. Whoever asks for a bead it has only part of fills those
+// in; a bead that is no bead of the yard's (a view's stand-in for "a bead
+// of this depot") has no labels, no originator and DefaultPriority, as a
+// bead made without any, and reads as the operator's. routes is the yard's
+// routes in any order.
+func MatchRoute(routes []Route, b Bead, operator string) *Route {
+	eff := EffectiveRoutes(routes, b.Depot, operator)
+	SortRoutes(eff)
+	for i := range eff {
+		r := &eff[i]
 		if r.Stage != b.Stage {
 			continue
 		}

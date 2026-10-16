@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -196,7 +197,7 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 		{[]string{"--group", "a"}, ""},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", "1"}, tc.args...)...)
+		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(added + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}
@@ -240,7 +241,7 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		args  []string
 		first string // the conditioned group the warning compares with
 		warn  string // the group warned of, "" for none
@@ -256,7 +257,7 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 		{args: []string{"--group", "own@Weekly<80", "--else", "spare@Weekly<80", "--else", "spare-twin"}, first: "spare", warn: "spare-twin"},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...)
+		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}

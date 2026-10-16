@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -75,10 +76,10 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 			plain = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := r.ID + " new - - - - - 0 a@Weekly<80,5h<90 else b"; row != want {
+	if want := r.ID + " new - default - - - 0 a@Weekly<80,5h<90 else b"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
-	if !strings.HasSuffix(plain, " review - - - - any 0 people") {
+	if !strings.HasSuffix(plain, " review - default - - any 0 people") {
 		t.Errorf("a route with one group lists as %q, want its group alone", plain)
 	}
 	if out, err := run(t, a.groupCmd(), "show", "b"); err != nil || !strings.Contains(out, r.ID) {
@@ -166,7 +167,7 @@ func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		args []string
 		want string
 	}{
@@ -175,7 +176,7 @@ func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
 		{[]string{"--group", "a@machine.load<80,Weekly<80", "--else", "b"}, "a@machine.load<80,Weekly<80 else b"},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, tc.args...)...)
+		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}
