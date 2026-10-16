@@ -339,6 +339,8 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--secret-hook takes no --env: the signing secret is one value")
 			case c.Flags().Changed("secret-hook") && askForUser != "":
 				return fmt.Errorf("--secret-hook takes no --for-user: a signing secret is the operator's to give")
+			case c.Flags().Changed("secret-hook") && strings.TrimSpace(askSecretHook) == "":
+				return fmt.Errorf("--secret-hook needs a hook name: lowercase letters, digits, - and _")
 			case c.Flags().Changed("secret-hook") && askHookSource == "":
 				return fmt.Errorf("--secret-hook needs --source <source>: the declared source the hook serves")
 			case !c.Flags().Changed("secret-hook") && c.Flags().Changed("source"):

@@ -143,7 +143,7 @@ no status and no bead link to a chat.
    add telegram --source telegram"`): the operator gives the secret
    typed unseen, the server keeps it in `<home>/hooks/telegram.secret`
    (mode 0600), and approving the hook makes `POST /hooks/telegram`.
-   The steps by hand stay the way by hand.
+   The manual steps above remain available.
 10. **The crew member's credential.** The yardmaster answers with the
    bot's token, as every reply is answered with the crew member's own
    credential: there is one bot for the whole yard and it speaks as the

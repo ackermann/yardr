@@ -142,7 +142,11 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	if err != nil {
 		return nil, err
 	}
-	if hook := strings.TrimSpace(sec.Hook); hook != "" {
+	if sec.Hook != "" {
+		hook := strings.TrimSpace(sec.Hook)
+		if hook == "" {
+			return nil, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", sec.Hook)
+		}
 		return w.askedHookSecret(d, hook, sec, to)
 	}
 	if user := strings.TrimSpace(sec.User); user != "" {
@@ -178,7 +182,11 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 // the hook's name as a variable, so a giving typed as NAME=value lines
 // names it and a card's "gave <name>" says which hook it was for.
 func hookSecretEnv(hook string) string {
-	return strings.ToUpper(strings.NewReplacer("-", "_").Replace(hook)) + "_SIGNING_SECRET"
+	name := strings.ToUpper(strings.NewReplacer("-", "_").Replace(hook))
+	if name[0] >= '0' && name[0] <= '9' {
+		name = "_" + name
+	}
+	return name + "_SIGNING_SECRET"
 }
 
 // askedHookSecret checks an ask for the signing secret of the hook hook

@@ -550,11 +550,20 @@ func TestBeadAskHookSetup(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"ask", b.ID, "No source", "--secret-hook", "linear", "--context", "x"},
+		{"ask", b.ID, "No hook name", "--secret-hook", "", "--source", "linear", "--context", "x"},
 		{"ask", b.ID, "Map stays put", "--context", "x", "--run", "hook add linear --source linear --map action=open"},
 	} {
 		if _, err := y.as(t, "yardmaster", args...); err == nil {
 			t.Errorf("bead %v was taken", args)
 		}
+	}
+}
+
+func TestReadHookKeysDigitLeadingName(t *testing.T) {
+	const key, value = "_3JIRA_SIGNING_SECRET", "digit-leading-hook-secret"
+	got, err := readHookKeys(&store.AskSecret{Hook: "3jira", Env: []string{key}}, strings.NewReader(key+"="+value+"\n"), nil)
+	if err != nil || got[key] != value {
+		t.Fatalf("readHookKeys = %v, %v", got, err)
 	}
 }
 

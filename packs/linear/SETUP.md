@@ -40,8 +40,8 @@ means in Linear is a flow pack's to say, not this file's.
    it, typed unseen; the yard's server writes it to
    `<home>/hooks/linear.secret` (mode 0600), which the hook then names,
    and it is in no note or pane. Approving the hook then makes
-   `POST /hooks/linear`. `--map` and `--as` stay in a terminal, as a
-   replacement does: the steps by hand above stay the way to do those.
+   `POST /hooks/linear`. `--map` and `--as`, and replacing a hook, stay
+   in a terminal; the manual steps above remain available.
 3. **The crew member's key.** `LINEAR_API_KEY` in an env file of the crew
    member's own, mode 0600, never in the store. A new file takes its
    mode from the shell's umask, so narrow it first. The token is never

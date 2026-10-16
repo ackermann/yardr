@@ -37,8 +37,8 @@ file's.
    first (`--secret-hook gh --source github`, then `--run "hook add gh
    --source github"`): the operator pastes the secret typed unseen, the
    server keeps it in `<home>/hooks/gh.secret` (mode 0600), and
-   approving the hook makes `POST /hooks/gh`. The steps by hand stay
-   the way by hand; `--map`, `--says` and `--as` stay in a terminal.
+   approving the hook makes `POST /hooks/gh`. The manual steps above
+   remain available; `--map`, `--says` and `--as` stay in a terminal.
 3. **The crew member's credential.** A token in an env file of the crew
    member's own, mode 0600, never in the store. A new file takes its
    mode from the shell's umask, so narrow it first. The token is never

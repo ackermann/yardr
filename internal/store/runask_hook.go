@@ -132,6 +132,12 @@ func runHookAdd(ctx context.Context, w *wtx, argv []string, actor string, by *ap
 	if d.Hook == nil {
 		return "", fmt.Errorf("source %s: its declaration has no hook key, so the yard hears nothing from it", sourceName)
 	}
+	if by == nil {
+		return "", fmt.Errorf("hook %s: approval needs the answered secret ask for source %s on this bead", name, sourceName)
+	}
+	if err := w.hookSecretAskBefore(by.Bead, by.Ask, name, sourceName); err != nil {
+		return "", err
+	}
 	file := HookSecretFile(w.home, name)
 	secret, _, err := config.ReadSecretFile(file)
 	if err != nil {
@@ -145,4 +151,34 @@ func runHookAdd(ctx context.Context, w *wtx, argv []string, actor string, by *ap
 		return "", err
 	}
 	return fmt.Sprintf("hook %s saved: POST /hooks/%s (%s)", saved.Name, saved.Name, saved.Source), nil
+}
+
+// hookSecretAskBefore holds a hook approval to the newest earlier secret
+// ask for its name on the same bead: it must name this source and have
+// been answered. The file alone cannot show which card it was given for,
+// and may already hold a secret from a different setup.
+func (w *wtx) hookSecretAskBefore(bead string, before uint64, name, source string) error {
+	row, err := w.loadBead(bead)
+	if err != nil {
+		return err
+	}
+	notes, err := beadNotes(w.Tx, row.UUID)
+	if err != nil {
+		return err
+	}
+	var latest *ResolvedAsk
+	resolved := ResolveAsks(notes, now())
+	for i := range resolved {
+		ask := &resolved[i]
+		if ask.Note.Seq >= before || ask.AskErr != nil || ask.Ask.Secret == nil || ask.Ask.Secret.Hook != name {
+			continue
+		}
+		if latest == nil || ask.Note.Seq > latest.Note.Seq {
+			latest = ask
+		}
+	}
+	if latest == nil || latest.Ask.Secret.Source != source || latest.State != AskAnswered {
+		return fmt.Errorf("hook %s: give its signing secret on the hook's secret card for %s first; it must be an answered ask for source %s on this bead", name, name, source)
+	}
+	return nil
 }

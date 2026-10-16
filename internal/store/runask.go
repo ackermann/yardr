@@ -403,7 +403,7 @@ var runList = []runCommand{{
 }, {
 	words:       []string{"hook", "add"},
 	use:         "yardr hook add <name> --source <declared source>",
-	description: "Create or replace a webhook endpoint POST /hooks/<name>",
+	description: "Create a webhook endpoint POST /hooks/<name> (a replacement stays in a terminal)",
 	parse:       parseHookAdd,
 	check:       checkHookAdd,
 	card:        (*wtx).hookAddCard,

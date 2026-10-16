@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -91,7 +92,7 @@ func TestHookAskSetup(t *testing.T) {
 			t.Fatalf("the card says:\n%s\nwant %q", does, want)
 		}
 	}
-	if runAsk.Ask.Run.Description != "Create or replace a webhook endpoint POST /hooks/<name>" ||
+	if runAsk.Ask.Run.Description != "Create a webhook endpoint POST /hooks/<name> (a replacement stays in a terminal)" ||
 		runAsk.Ask.Run.Back != "yardr hook rm linear" {
 		t.Fatalf("the run ask = %+v", runAsk.Ask.Run)
 	}
@@ -164,6 +165,164 @@ func TestHookAskSetup(t *testing.T) {
 		t.Fatal(err)
 	} else if bytes.Contains(raw, []byte(hookSecretValue)) {
 		t.Fatal("the store file holds the secret")
+	}
+}
+
+// A private file left at the conventional path does not stand in for the
+// secret ask on this bead, and a secret asked for another source cannot
+// authorize this hook.
+func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
+	t.Run("preexisting file", func(t *testing.T) {
+		y := hookYard(t)
+		file := HookSecretFile(y.home, "linear")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(hookSecretValue), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		seq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil ||
+			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
+			t.Fatalf("approval with only a preexisting file = %v", err)
+		}
+		if _, err := y.GetHook(y.ctx, "linear"); err == nil {
+			t.Fatal("approval without its secret card made a hook")
+		}
+	})
+
+	t.Run("wrong source", func(t *testing.T) {
+		y := hookYard(t)
+		if _, err := y.PutSource(y.ctx, "tracker.yaml", trackerDecl, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		secretSeq := y.ask(t, hookSecretAsk("tracker", "linear"), "yardmaster")
+		if _, err := y.GiveSecret(y.ctx, y.bead, secretSeq,
+			map[string]string{"LINEAR_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		runSeq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err == nil ||
+			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
+			t.Fatalf("approval with a secret card for another source = %v", err)
+		}
+		if _, err := y.GetHook(y.ctx, "linear"); err == nil {
+			t.Fatal("approval with a secret card for another source made a hook")
+		}
+	})
+
+	t.Run("secret asked after hook", func(t *testing.T) {
+		y := hookYard(t)
+		runSeq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
+		secretSeq := y.ask(t, hookSecretAsk("linear", "linear"), "yardmaster")
+		if _, err := y.GiveSecret(y.ctx, y.bead, secretSeq,
+			map[string]string{"LINEAR_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err == nil ||
+			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
+			t.Fatalf("approval with a later secret ask = %v", err)
+		}
+	})
+}
+
+// Hook names may begin with a digit. Its input name still has to be a
+// valid KEY for the non-terminal NAME=value path.
+func TestHookAskDigitLeadingName(t *testing.T) {
+	y := hookYard(t)
+	secretSeq := y.ask(t, hookSecretAsk("linear", "3jira"), "yardmaster")
+	if got := strings.Join(y.asked(t, secretSeq).Ask.Secret.Env, ","); got != "_3JIRA_SIGNING_SECRET" {
+		t.Fatalf("the secret input name is %q", got)
+	}
+	if _, err := y.GiveSecret(y.ctx, y.bead, secretSeq,
+		map[string]string{"_3JIRA_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	runSeq := y.ask(t, hookRunAsk("hook add 3jira --source linear"), "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Hook secret writes refuse unsafe existing files without touching them or
+// repeating the value in the refusal.
+func TestWriteHookSecretRefusesUnsafeFiles(t *testing.T) {
+	const old = "old-hook-secret"
+	for _, mode := range []struct {
+		name string
+		perm os.FileMode
+		want string
+	}{
+		{name: "open to others", perm: 0o644, want: "is open to others (mode 0644); chmod 600 it"},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			home := t.TempDir()
+			file := HookSecretFile(home, "linear")
+			if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(old), mode.perm); err != nil {
+				t.Fatal(err)
+			}
+			_, renamed, err := writeHookSecret(home, "linear", hookSecretValue)
+			if err == nil || renamed || !strings.Contains(err.Error(), mode.want) || strings.Contains(err.Error(), hookSecretValue) {
+				t.Fatalf("writeHookSecret = renamed %v, err %v", renamed, err)
+			}
+			if got, err := os.ReadFile(file); err != nil || string(got) != old {
+				t.Fatalf("the refused write changed the file: %q, %v", got, err)
+			}
+			if _, err := os.Lstat(filepath.Join(filepath.Dir(file), ".linear.secret.new")); !os.IsNotExist(err) {
+				t.Fatalf("the refused write left a temporary file: %v", err)
+			}
+		})
+	}
+
+	t.Run("symbolic link", func(t *testing.T) {
+		home := t.TempDir()
+		file := HookSecretFile(home, "linear")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "target.secret")
+		if err := os.WriteFile(target, []byte(old), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, file); err != nil {
+			t.Fatal(err)
+		}
+		_, renamed, err := writeHookSecret(home, "linear", hookSecretValue)
+		if err == nil || renamed || !strings.Contains(err.Error(), "is a symbolic link") || strings.Contains(err.Error(), hookSecretValue) {
+			t.Fatalf("writeHookSecret = renamed %v, err %v", renamed, err)
+		}
+		if got, err := os.ReadFile(target); err != nil || string(got) != old {
+			t.Fatalf("the symlink target changed: %q, %v", got, err)
+		}
+	})
+}
+
+// If recording fails after the private file is renamed, the ask stays open
+// and the refusal identifies the file and name without repeating the value.
+func TestGiveHookSecretNotRecorded(t *testing.T) {
+	y := hookYard(t)
+	seq := y.ask(t, hookSecretAsk("linear", "linear"), "yardmaster")
+	full := errors.New("no space left on device")
+	afterKeyRename = func() error { return full }
+	t.Cleanup(func() { afterKeyRename = nil })
+	_, err := y.GiveSecret(y.ctx, y.bead, seq,
+		map[string]string{"LINEAR_SIGNING_SECRET": hookSecretValue}, "mckean")
+	var half *KeyNotRecorded
+	if !errors.As(err, &half) || !errors.Is(err, full) || strings.Contains(err.Error(), hookSecretValue) {
+		t.Fatalf("err = %v, want KeyNotRecorded with no secret", err)
+	}
+	file := HookSecretFile(y.home, "linear")
+	if raw, err := os.ReadFile(file); err != nil || string(raw) != hookSecretValue {
+		t.Fatalf("the file holds %q, %v", raw, err)
+	}
+	if r := y.resolved(t)[0]; r.State != AskOpen || len(r.Answers) != 0 {
+		t.Fatalf("the ask is %s with %d answers, want open with none", r.State, len(r.Answers))
+	}
+	if n := len(answerNotes(t, y)); n != 0 {
+		t.Fatalf("%d answer notes after a giving that was not recorded", n)
 	}
 }
 

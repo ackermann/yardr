@@ -24,7 +24,7 @@ func (a *app) hookCmd() *cobra.Command {
 	var maps, says, makes []string
 	add := &cobra.Command{
 		Use:   "add <name>",
-		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
+		Short: "Create a webhook endpoint POST /hooks/<name> (a replacement stays in a terminal)",
 		Long: `A hook receives webhooks from one source on the yardr server's hook listener,
 which runs when the yard has an address for it: yardr settings set hook_addr
 127.0.0.1:8790, or YARDR_HOOK_ADDR in the environment the server starts in,
