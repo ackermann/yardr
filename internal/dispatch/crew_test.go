@@ -41,6 +41,7 @@ type crewRunner struct {
 	drop        int                 // deliveries of the first prompt the agent still drops
 	blind       bool                // the pane cannot be read
 	typed       bool                // the first prompt is in the agent's input, not submitted
+	typedErr    error               // the agent's input cannot be looked in for the prompt
 	stick       int                 // deliveries of the first prompt the agent still leaves in its input
 	deaf        bool                // Enter does not submit what is in the input
 	submits     int                 // times Enter was sent
@@ -139,7 +140,7 @@ func (f *crewRunner) InputText(context.Context, map[string]any) (string, bool, e
 func (f *crewRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.typed, nil
+	return f.typed, f.typedErr
 }
 
 func (f *crewRunner) SubmitPrompt(context.Context, map[string]any) error {
@@ -853,6 +854,9 @@ func TestCrewTrustDialogRefusedAfterCountedSend(t *testing.T) {
 		}},
 		{"prompt typed", false, func(_ *testing.T, _ store.API, f *crewRunner) {
 			f.typed = true
+		}},
+		{"typed look fails", false, func(_ *testing.T, _ store.API, f *crewRunner) {
+			f.typedErr = errors.New("input cannot be read")
 		}},
 		{"worked since the current start", true, func(t *testing.T, s store.API, _ *crewRunner) {
 			must(t, s.CrewStatus(context.Background(), "yardmaster", "working"))

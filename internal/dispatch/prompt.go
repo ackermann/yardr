@@ -667,9 +667,11 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	}
 	shown, known := promptShown(ctx, r, handle, p)
 	sub, _ := r.(PromptSubmitter)
-	typed := false
+	typed, typedKnown := false, known
 	if sub != nil && known && !shown {
-		typed, _ = sub.PromptTyped(ctx, handle, p)
+		var err error
+		typed, err = sub.PromptTyped(ctx, handle, p)
+		typedKnown = err == nil
 	}
 	// Typed text was sent by someone, as a delivery of the dispatcher's was,
 	// and as the runner's own was that it could not confirm.
@@ -709,7 +711,8 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// delivery the agent dropped, or a start that could not look,
 			// on a session whose history says it never worked and whose
 			// live pane has no echo of the prompt.
-			bypass := trustBypass && sent && handle[PromptStarted] != true && known && !shown && !typed
+			// A look for typed text that failed rules nothing out.
+			bypass := trustBypass && sent && handle[PromptStarted] != true && known && typedKnown && !shown && !typed
 			if ta, ok := r.(TrustAcceptor); ok && trustAllowed && (!sent || bypass) && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
 				pass.trustedBypass = bypass
