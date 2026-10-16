@@ -157,10 +157,11 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	env.Delivery = delivery
 	deriveTrain(env)
-	// A declared source that hears only its told addresses drops a
-	// delivery from any other after verification: answered 200, so the
-	// service does not retry it, recorded nowhere, and counted in sums
-	// beside refusals, so a stranger's burst is one bounded entry.
+	// A declared source that hears only the addresses its users' env files
+	// set drops a delivery from any other after verification: answered
+	// 200, so the service does not retry it, recorded nowhere, and
+	// counted in sums beside refusals, so a stranger's burst is one
+	// bounded entry.
 	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil && !rc.hears(r.Context(), dec.D, env) {
 		rc.count("stranger")
 		rc.refuse(h, name, "stranger", http.StatusOK)
@@ -225,13 +226,14 @@ func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
 	return AdapterFor(name, d, rc.home)
 }
 
-// hears reports whether the delivery's envelope carries the address of a
-// user told through the source: one of fields[field] equals what the
-// user's env file sets under hear.address.env, read as the daemon reads it
-// when telling. With from: operator only the operator's address hears. A
-// user whose file is missing or unreadable hears nothing, as does a yard
-// whose operator or users are unreadable: a stranger is dropped, never
-// answered with an error the service would retry.
+// hears reports whether the delivery's envelope carries an address a
+// user's env file sets: one of fields[field] equals what the file sets
+// under hear.address.env, read as the daemon reads it when telling,
+// whatever the user is told through. With from: operator only the
+// operator's address hears. A user whose file is missing or unreadable
+// hears nothing, as does a yard whose operator or users are unreadable: a
+// stranger is dropped, never answered with an error the service would
+// retry.
 func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envelope) bool {
 	values := env.Fields[d.Hear.Field]
 	if len(values) == 0 {
@@ -251,9 +253,6 @@ func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envel
 		operator = settings[store.OperatorSetting]
 	}
 	for _, u := range users {
-		if u.Notify != d.Name {
-			continue
-		}
 		if onlyOperator && u.Name != operator {
 			continue
 		}

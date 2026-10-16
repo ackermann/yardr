@@ -27,7 +27,7 @@ printf '{"type":"message","action":"create","text":"hi","fields":{"chat":["%s"]}
 // chimeText is a declared source that tells and receives: notify through
 // the message call with the chat id under CHIME_CHAT, a secret-verified
 // hook with keys [chat], and hear on the chat field. from narrows whom it
-// hears; "" hears every user told through it.
+// hears; "" hears every user whose env file sets the address.
 func chimeText(from string) string {
 	hear := "  field: chat\n  address: { env: CHIME_CHAT }\n"
 	if from != "" {
@@ -114,9 +114,10 @@ func tellChime(t *testing.T, r *depot, user, chat string) {
 
 // A source with hear and from: operator keeps a delivery from the
 // operator's chat, and drops one from any other chat: answered 200,
-// recorded nowhere, counted beside refusals. A user told through the
-// source is still told, but their chat is dropped like a stranger's.
-func TestHearFromOperatorKeepsToldDropsStranger(t *testing.T) {
+// recorded nowhere, counted beside refusals. Another user's chat is
+// dropped like a stranger's, though their env file sets the address and
+// they are told through the source.
+func TestHearFromOperatorKeepsOperatorDropsStranger(t *testing.T) {
 	r := hearDepot(t, chimeNormalize, "operator")
 	ctx := context.Background()
 	const marker = "MARKER-4wta-must-not-be-kept"
@@ -148,7 +149,7 @@ func TestHearFromOperatorKeepsToldDropsStranger(t *testing.T) {
 	if page.Total != 1 {
 		t.Fatalf("ann's inbox holds %d, want the delivery", page.Total)
 	}
-	// Another told user's chat is dropped like a stranger's, and a
+	// Another user's chat is dropped like a stranger's, and a
 	// stranger's too: answered 200, recorded nowhere.
 	for _, chat := range []string{"222", "999"} {
 		r.now = r.now.Add(time.Second)
@@ -210,9 +211,10 @@ func TestHearFromOperatorKeepsToldDropsStranger(t *testing.T) {
 	}
 }
 
-// Without from every user told through the source is heard: another told
-// user's chat is recorded, and only a stranger's is dropped.
-func TestHearWithoutFromHearsEveryToldUser(t *testing.T) {
+// Without from every user whose env file sets the address is heard, told
+// through the source or told nowhere: another user's chat is recorded,
+// and only a stranger's is dropped.
+func TestHearWithoutFromHearsEveryAddress(t *testing.T) {
 	r := hearDepot(t, chimeNormalize, "")
 	ctx := context.Background()
 	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
@@ -223,9 +225,13 @@ func TestHearWithoutFromHearsEveryToldUser(t *testing.T) {
 	}
 	tellChime(t, r, "op", "111")
 	tellChime(t, r, "zed", "222")
+	// Told nowhere: hearing follows the address.
+	if _, err := r.st.SetUser(ctx, "zed", map[string]string{store.UserNotify: ""}, "zed"); err != nil {
+		t.Fatal(err)
+	}
 	r.now = time.Now()
 	if code := r.chime(t, "222", "zed's line"); code != http.StatusOK {
-		t.Fatalf("another told user's chat answered %d", code)
+		t.Fatalf("another user's chat answered %d", code)
 	}
 	if code := r.chime(t, "999", "a stranger's line"); code != http.StatusOK {
 		t.Fatalf("a stranger's chat answered %d", code)
@@ -239,7 +245,7 @@ func TestHearWithoutFromHearsEveryToldUser(t *testing.T) {
 }
 
 // A delivery whose envelope carries no field to match is dropped: nothing
-// of it can be a told address.
+// of it can be a user's address.
 func TestHearWithoutFieldDrops(t *testing.T) {
 	const fieldless = `#!/bin/sh
 printf '%s' '{"type":"message","action":"create","text":"hi"}'
@@ -262,17 +268,16 @@ printf '%s' '{"type":"message","action":"create","text":"hi"}'
 	}
 }
 
-// A user told through the source whose address cannot be read hears
-// nothing: the delivery is dropped, never answered with an error the
-// service would retry.
+// A user whose address cannot be read hears nothing: the delivery is
+// dropped, never answered with an error the service would retry.
 func TestHearUnreadableAddressDrops(t *testing.T) {
 	r := hearDepot(t, chimeNormalize, "")
 	ctx := context.Background()
 	if _, err := r.st.AddUser(ctx, "ghost", "me"); err != nil {
 		t.Fatal(err)
 	}
-	// Told through chime at a file that is not there: the store keeps the
-	// path and never reads it, so this is set, not refused.
+	// An env file that is not there: the store keeps the path and never
+	// reads it, so this is set, not refused.
 	if _, err := r.st.SetUser(ctx, "ghost", map[string]string{store.UserNotify: "chime",
 		store.UserEnvFile: filepath.Join(t.TempDir(), "missing.env")}, "ghost"); err != nil {
 		t.Fatal(err)

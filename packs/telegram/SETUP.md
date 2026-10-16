@@ -18,13 +18,21 @@ the operator writes to the bot reaches the yardmaster's inbox.
    open the bot and press Start, or send it anything. Until the operator
    has written to it there is no chat, and the yard's messages have
    nowhere to go.
-3. **Apply the pack.** As the operator, with the operator told through
-   it. The steps use `mckean` as the operator's user name; replace it
-   with the operator's user name in this yard if it differs.
+3. **Apply the pack.** As the operator. The steps use
+   `mckean` as the operator's user name; replace it with the
+   operator's user name in this yard if it differs.
    ```sh
    yardr pack apply telegram --notify mckean=telegram
    # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
    # user mckean: told outside the yard: through telegram, which is not set up: user mckean has no env_file: yardr user key mckean telegram gives TELEGRAM_CHAT_ID
+   ```
+   `--notify` is telling, and telling through telegram is optional:
+   hearing the chat back (steps 8 on) wants only the chat id in the
+   operator's env file (step 6), whatever tells them. To keep being
+   told through pushover and chat through telegram, apply without it:
+   ```sh
+   yardr pack apply telegram
+   # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
    ```
 4. **Give the yard the bot's token.** No file is written by hand: the
    command asks for its value and shows nothing as it is typed or
@@ -78,8 +86,8 @@ the operator writes to the bot reaches the yardmaster's inbox.
    not take or a chat that never wrote to the bot, so look at steps 1,
    2, 4 and 5 again.
 
-Mail to the user and their own timers are told from now on. To see who
-is told through what:
+Where the operator is told through telegram, mail to the user and
+their own timers are told from now on. To see who is told through what:
 ```sh
 yardr user list
 ```
@@ -88,10 +96,11 @@ yardr user list
 
 The pack hears one chat: the operator's. A message from any other chat
 is dropped — answered 200, recorded nowhere, never answered — even
-where another user is told through telegram too: telling another
-through telegram tells them, but hears nothing back. Write to the bot
-in a private chat, one to one; if the operator's chat id is a group's,
-every member of the group is heard.
+where another user's env file sets the address too: hearing is the
+operator's address alone, and telling another through telegram
+tells them, but hears nothing back. Write to the bot in a private
+chat, one to one; if the operator's chat id is a group's, every
+member of the group is heard.
 
 The yardmaster treats a line from your chat as your word, as your mail:
 it discusses, shapes, builds and lands what you ask there. A number in
@@ -211,10 +220,9 @@ no status and no bead link to a chat.
     ```sh
     printf 'url = "https://api.telegram.org/bot%s/deleteWebhook"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
-    Setting the operator's `notify` to empty disconnects the phone both ways
-    with one switch: telling ends, and with it hearing, since the chat is
-    heard while the operator is told through telegram. Use the operator's
-    user name from step 3:
-    ```sh
-    yardr user set mckean notify=
-    ```
+    So does taking the address out of the operator's env file: delete
+    the `TELEGRAM_CHAT_ID` line from `~/.yardr/users/mckean.env` (the
+    operator's user name from step 3), and the chat is heard no more.
+    Setting the operator's `notify` to empty ends telling alone now:
+    hearing follows the address, not `notify`, so the chat is heard
+    while the address is set, whatever the operator is told through.

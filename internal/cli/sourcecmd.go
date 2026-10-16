@@ -362,18 +362,20 @@ and repeat, a command that is no list of strings or has no program, a key
 that is not lowercase letters, digits and _. A pack for a depot brings no
 hook key; a pack of kind source may, with the normalize file.
 
-A source that tells people and receives can hear only its told addresses
-back: a hear key drops a delivery from anything but a told user's address,
-after verification.
+A source that tells people and receives can hear only its addresses
+back: a hear key drops a delivery from anything but an address a user's
+env file sets, after verification, whatever the user is told through.
 
   hear:
     field: chat
     address: { env: PHONE_CHAT }
     from: operator
 
-fields[field] must hold the address the user's env file sets under
-address.env, read as telling reads it; from narrows whom the source hears
-to the operator, and is left out for every user told through it. A drop is
+fields[field] must hold the address a user's env file sets under
+address.env, read as telling reads it; setting the address is the consent
+to be heard, and telling is a separate choice. from narrows whom the
+source hears to the operator, and is left out for every user whose env
+file sets the address. A drop is
 answered 200, recorded nowhere and counted beside refusals, so a
 stranger's burst is one bounded entry; a delivery that matches is recorded
 and routed as today. Refused: a hear without a hook key or a notify key; a
@@ -1261,11 +1263,11 @@ func notifyLine(d *source.Declaration) string {
 }
 
 // hearLine says in a line which deliveries of a source are kept: one whose
-// envelope field holds a told address, read as telling reads it; anything
-// else is dropped after verification.
+// envelope field holds an address a user's env file sets, read as telling
+// reads it; anything else is dropped after verification.
 func hearLine(d *source.Declaration) string {
 	h := d.Hear
-	who := "a told user's env_file"
+	who := "a user's env_file"
 	if h.From == source.HearFromOperator {
 		who = "the operator's env_file"
 	}

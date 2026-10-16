@@ -107,10 +107,10 @@ func TestTelegramPackDeclaration(t *testing.T) {
 		t.Fatal("the pack declares no hear key")
 	}
 	if hr.Field != "chat" || hr.Address.Env != "TELEGRAM_CHAT_ID" || hr.From != source.HearFromOperator {
-		t.Errorf("hear = %+v, want the chat of the told address, from operator", hr)
+		t.Errorf("hear = %+v, want chat of TELEGRAM_CHAT_ID, from operator", hr)
 	}
 	if d.Notify == nil {
-		t.Error("the pack lost its notify key: telling is what hears the chat")
+		t.Error("the pack lost its notify key: hear matches the address it names")
 	}
 }
 
@@ -575,11 +575,73 @@ func strangerUpdate(t *testing.T, body []byte, updateID int, chat int64, marker 
 	return out
 }
 
+// hearPushover is a source that tells a user and hears nothing back: the
+// operator's notify in the test below, so the test pins that a chat is
+// heard by its address, whatever the user is told through.
+const hearPushover = `name: pushover
+base: https://api.pushover.net/1
+credential: { env: PUSHOVER_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { user: { type: string }, text: { type: string } }
+    request: { method: POST, path: /messages.json, body: { user: "{user}", text: "{text}" } }
+notify:
+  call: message
+  address: { param: user, env: PUSHOVER_USER }
+  text: text
+`
+
+// A chat is heard by its address, not by notify: the operator, told
+// through pushover with TELEGRAM_CHAT_ID in their env file, is heard on
+// telegram; another user whose file sets the address is dropped under
+// from: operator, and a chat no file sets is dropped as a stranger's.
+func TestTelegramPackHearsAddressWhateverNotify(t *testing.T) {
+	r := telegramDepot(t)
+	ctx := context.Background()
+	if _, err := r.st.PutSource(ctx, "pushover.yaml", hearPushover, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.AddUser(ctx, "zed", "op"); err != nil {
+		t.Fatal(err)
+	}
+	tellTelegram(t, r, "op", "123456789")
+	tellTelegram(t, r, "zed", "222222222")
+	// The operator is told through pushover: hearing follows the address.
+	if _, err := r.st.SetUser(ctx, "op", map[string]string{store.UserNotify: "pushover"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	r.now = time.Now()
+	// The operator's line is heard, though told through pushover.
+	if code, ans := telegramPost(t, r, fixture(t, "telegram_message_text.json")); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
+		t.Fatalf("the operator's chat answered %d %s", code, ans)
+	}
+	// Another user's address is dropped under from: operator, and a chat
+	// no env file sets is dropped as a stranger's.
+	zed := []byte(`{"update_id":9401,"message":{"message_id":1,"from":{"id":222222222,"first_name":"Zed"},"chat":{"id":222222222,"first_name":"Zed","type":"private"},"date":1760379600,"text":"zed is heard nowhere"}}`)
+	if code, ans := telegramPost(t, r, zed); code != http.StatusOK || !strings.Contains(ans, `"dropped"`) {
+		t.Fatalf("another user's chat answered %d %s", code, ans)
+	}
+	if code, ans := telegramPost(t, r, fixture(t, "telegram_message_stranger.json")); code != http.StatusOK || !strings.Contains(ans, `"dropped"`) {
+		t.Fatalf("a chat no file sets answered %d %s", code, ans)
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("want 1 hook event, got %d", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 2 {
+		t.Fatalf("stranger count %d, want 2", got)
+	}
+}
+
 // A line from the operator's chat reaches the yardmaster's inbox as a
-// thread delivery; the chat of another user told through telegram, and a
-// stranger's, are dropped by the hear key: answered 200, recorded nowhere,
-// with none of their text kept. Every recorded kind is tried as a
-// stranger's, and a retry of the operator's Update arrives once.
+// thread delivery; the chat of another user whose env file sets the
+// address, and a stranger's, are dropped by the hear key: answered 200,
+// recorded nowhere, with none of their text kept. Every recorded kind is
+// tried as a stranger's, and a retry of the operator's Update arrives
+// once.
 func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 	r := telegramDepot(t)
 	ctx := context.Background()
@@ -635,10 +697,10 @@ func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 	if events() != 1 {
 		t.Fatalf("the retry recorded: %d hook events", events())
 	}
-	// Another told user's chat is dropped like a stranger's.
+	// Another user's chat is dropped like a stranger's.
 	zed := []byte(`{"update_id":9401,"message":{"message_id":1,"from":{"id":222222222,"first_name":"Zed"},"chat":{"id":222222222,"first_name":"Zed","type":"private"},"date":1760379600,"text":"MARKER-naq1-zed-text-must-not-be-kept"}}`)
 	if code, ans := telegramPost(t, r, zed); code != http.StatusOK || !strings.Contains(ans, `"dropped"`) {
-		t.Fatalf("another told user's chat answered %d %s", code, ans)
+		t.Fatalf("another user's chat answered %d %s", code, ans)
 	}
 	// A stranger's Update of every recorded kind is dropped.
 	kinds := []string{

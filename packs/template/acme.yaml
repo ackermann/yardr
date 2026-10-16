@@ -187,12 +187,13 @@ notify:
   text: text
   link: link
 
-# ---- which told addresses are heard back ----------------------------------
+# ---- which addresses are heard back ---------------------------------------
 # Drop the whole key where the source tells no person, or hears every
 # delivery back: without it every verified delivery is kept. With it a
-# delivery is kept only when its field holds the address of a user told
-# through the source; from narrows whom it hears to the operator, and is
-# left out for every user told through it.
+# delivery is kept only when its field holds an address a user's env file
+# sets, whatever the user is told through; from narrows whom it hears to
+# the operator, and is left out for every user whose env file sets the
+# address.
 
 hear:
   field: channel

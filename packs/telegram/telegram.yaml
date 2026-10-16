@@ -75,12 +75,12 @@ thread:
   read:   [telegram/thread, read]       # in  {thread}                         out {messages: []} always
 
 # ---- which chats are heard ------------------------------------------------
-# The mirror of notify: a delivery is kept only when its chat is the
-# address of a user told through this source, read from the user's env
-# file as telling reads it. Anyone can find the bot's name and write to
-# it, so any other chat is dropped: answered 200, recorded nowhere.
+# Not the mirror of notify: a delivery is kept only when its chat is the
+# address of a user whose env file sets the address, read from the file
+# as telling reads it. Anyone can find the bot's name and write to it,
+# so any other chat is dropped: answered 200, recorded nowhere.
 
 hear:
   field: chat
   address: { env: TELEGRAM_CHAT_ID }
-  from: operator                        # his chat alone; another told user's is dropped like a stranger's
+  from: operator                        # his chat alone; another user's is dropped like a stranger's

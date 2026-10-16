@@ -927,9 +927,10 @@ hook:
   of kind `source` may bring it with the normalize file
   ([packs.md](packs.md#an-integration-pack-kind-source)).
 
-A source that tells people and receives can hear only its told addresses
-back: a `hear` key, beside `hook`, drops a delivery from anything but a
-told user's address, after verification.
+A source that tells people and receives can hear only its addresses
+back: a `hear` key, beside `hook`, drops a delivery from anything but an
+address a user's env file sets, after verification, whatever the user is
+told through.
 
 ```yaml
 hear:
@@ -938,18 +939,20 @@ hear:
   from: operator
 ```
 
-`fields[field]` must hold the address the user's env file sets under
-`address.env`, read as telling reads it; `from` narrows whom the source
-hears to the operator, and is left out for every user told through it.
-A drop is answered 200, recorded nowhere and counted beside refusals,
-so a stranger's burst is one bounded entry; a delivery that matches is
-recorded and routed as today. The telegram pack says `from: operator`:
-only the operator's chat is heard, and telling another through telegram
-tells them but hears nothing back. Refused: a `hear` without a `hook`
-key or a `notify` key; a field that is no key of `hook.keys`; an address
-that is not the one `notify` reads; a `from` that is not `operator`. A
-pack of kind `source` may bring the key; a pack for a depot brings no
-`hear` key, as it brings no `hook` key.
+`fields[field]` must hold the address a user's env file sets under
+`address.env`, read as telling reads it; setting the address is the
+consent to be heard, and telling is a separate choice. `from` narrows
+whom the source hears to the operator, and is left out for every user
+whose env file sets the address. A drop is answered 200, recorded
+nowhere and counted beside refusals, so a stranger's burst is one
+bounded entry; a delivery that matches is recorded and routed as today.
+The telegram pack says `from: operator`: only the operator's chat is
+heard, and telling another through telegram tells them but hears
+nothing back, as does setting another user's address. Refused: a `hear`
+without a `hook` key or a `notify` key; a field that is no key of
+`hook.keys`; an address that is not the one `notify` reads; a `from`
+that is not `operator`. A pack of kind `source` may bring the key; a
+pack for a depot brings no `hear` key, as it brings no `hook` key.
 
 #### Pull requests and CI
 
@@ -1622,8 +1625,10 @@ them whole):
   chat as his word, as his mail. A number in the chat answers no ask;
   approving a run and giving a secret stay the operator's at the
   terminal. Pictures and files arrive as a bracketed note, and nothing
-  is fetched. `yardr user set <name> notify=` disconnects the phone both
-  ways with one switch.
+  is fetched. `yardr user set <name> notify=` ends telling alone: the
+  chat is heard while the address is set, whatever tells them, and
+  ending hearing takes `deleteWebhook`, or the address out of the env
+  file.
 
 A line from the phone, sent to the isolated yard, was recorded as
 
@@ -1686,7 +1691,7 @@ will be given in; `thread.id` the same for every delivery of one issue;
 | a stage map | the status keys and the `link` key | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
 | `yardr source check` making its check call | the `check` key, naming a read call that takes no required parameter | nothing: `source check` reads the declaration (below) |
 | telling a user through the service | the `notify` key: the update call that tells, and which of its parameters take the address, title, text and link | an update call with a string parameter for each |
-| hearing only told addresses back | the `hear` key | the `notify` and `hook` keys, and the field under `hook.keys` |
+| hearing only set addresses back | the `hear` key | the `notify` and `hook` keys, and the field under `hook.keys` |
 | reading a pull request and its CI back | the `events` key: the run and head types, and the `pr` and `ci` commands | nothing: the daemon reads a train's pull request and CI through them, and the brief carries the snapshot |
 
 **The envelope a normalize command prints.** Its stdin is

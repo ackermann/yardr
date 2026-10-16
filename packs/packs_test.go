@@ -1056,9 +1056,10 @@ func TestTelegramPack(t *testing.T) {
 		"posts twice",
 		"a bot cannot read a chat's history",
 		"reply --to` is refused for telegram",
-		"disconnects the phone both ways",
+		"told through pushover and chat through telegram",
 		"Setting the operator's `notify` to empty",
-		"yardr user set mckean notify=",
+		"ends telling alone now",
+		"whatever the operator is told through",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

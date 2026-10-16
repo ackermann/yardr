@@ -163,7 +163,7 @@ func TestSourceShowHearEveryToldUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "  hear: keeps a delivery whose chat is the PUSHOVER_USER of a told user's env_file; anything else is dropped after verification\n"; !strings.Contains(out, want) {
+	if want := "  hear: keeps a delivery whose chat is the PUSHOVER_USER of a user's env_file; anything else is dropped after verification\n"; !strings.Contains(out, want) {
 		t.Fatalf("show lacks %q:\n%s", want, out)
 	}
 }

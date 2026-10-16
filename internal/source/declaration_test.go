@@ -1157,10 +1157,10 @@ func TestParseEventsRefusals(t *testing.T) {
 	}
 }
 
-// A hear key: the envelope field that must hold a told address, the
+// A hear key: the envelope field that must hold a user's address, the
 // variable it is under in a user's env file, and from, which narrows whom
-// the source hears to the operator. Without from every user told through
-// the source is heard.
+// the source hears to the operator. Without from every user whose env
+// file sets the address is heard.
 func TestParseHear(t *testing.T) {
 	base := pushover + "hook:\n" +
 		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
@@ -1186,7 +1186,7 @@ func TestParseHear(t *testing.T) {
 // or hear nothing: no field, no address, a field the envelope carries
 // under no key the file names, an address that is not the one telling
 // reads, a from that is no role, and a hear without the hook that
-// receives or the notify that tells.
+// receives or the notify that names the address.
 func TestParseHearRefusals(t *testing.T) {
 	hooked := "hook:\n" +
 		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
@@ -1197,7 +1197,7 @@ func TestParseHearRefusals(t *testing.T) {
 	// unnotified is the file without its notify key: pushover ends in it.
 	unnotified := strings.SplitN(pushover, "notify:\n", 2)[0] + hooked + "hear:\n" + good
 	for name, tc := range map[string]struct{ text, want string }{
-		"no field":                        {with("  address: { env: PUSHOVER_USER }\n"), "hear.field: missing: the envelope field that must hold a told address (chat)"},
+		"no field":                        {with("  address: { env: PUSHOVER_USER }\n"), "hear.field: missing: the envelope field that must hold a user's address (chat)"},
 		"no address":                      {with("  field: chat\n"), "hear.address: missing: { env: <the name the address is under in a user's env file> }"},
 		"an address with no env":          {with("  field: chat\n  address: {}\n"), "hear.address.env: missing: the name of the variable the address is in, in a user's env file"},
 		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, address, from)"},
@@ -1211,7 +1211,7 @@ func TestParseHearRefusals(t *testing.T) {
 		"hear without hook": {pushover + "hear:\n" + good,
 			"hear: needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any"},
 		"hear without notify": {unnotified,
-			"hear: needs notify: hear keeps the deliveries from a told address, and this file has no notify key to tell any"},
+			"hear: needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one"},
 		"hear with hook alone": {"name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\nhear:\n" + good,
 			"hear: is for the calls of a source, and this file declares none (it has hook alone)"},
 	} {

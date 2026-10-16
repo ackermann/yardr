@@ -26,21 +26,22 @@ type Notify struct {
 }
 
 // Hear says which deliveries of the source the yard keeps: one whose
-// envelope field holds the address of a user told through the source. A
-// delivery from anything else is dropped after verification: answered
-// 200, recorded nowhere, and counted in sums beside refusals.
+// envelope field holds an address a user's env file sets, whatever the
+// user is told through. A delivery from anything else is dropped after
+// verification: answered 200, recorded nowhere, and counted in sums
+// beside refusals.
 type Hear struct {
-	// Field is the envelope field that must hold a told address.
+	// Field is the envelope field that must hold a user's address.
 	Field string `json:"field"`
 	// Address is where that address is read from: the variable of the
 	// user's own env file, the same one telling reads.
 	Address HearAddress `json:"address"`
 	// From narrows whom the source hears: HearFromOperator, or "" for
-	// every user told through it.
+	// every user whose env file sets the address.
 	From string `json:"from,omitempty"`
 }
 
-// HearAddress is where a told address is read from: the variable of the
+// HearAddress is where the address is read from: the variable of the
 // user's own env file, as notify.address says it.
 type HearAddress struct {
 	Env string `json:"env"`
@@ -159,13 +160,14 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 	return n
 }
 
-// hear reads the key that makes a source one that hears only its told
-// addresses back. What it refuses is what would fail at every delivery,
-// or hear nothing: a key beside field, address and from, a field the
-// envelope carries under no key the file names, an address that is not
-// the one telling reads, and a from that is no role the yard has. Without
-// a hook key there is no delivery to hear, and without a notify key no
-// user is told through the source, so with neither is hear refused too.
+// hear reads the key that makes a source one that hears only the
+// addresses its users' env files set. What it refuses is what would fail
+// at every delivery, or hear nothing: a key beside field, address and
+// from, a field the envelope carries under no key the file names, an
+// address that is not the one telling reads, and a from that is no role
+// the yard has. Without a hook key there is no delivery to hear, and
+// without a notify key no address is named to match, so with neither is
+// hear refused too.
 func (r *reader) hear(d *Declaration, e entry) *Hear {
 	h := &Hear{}
 	var field, address, env *entry
@@ -200,7 +202,7 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 		return h
 	}
 	if field == nil {
-		r.errf(e.v, join(e.path, "field"), "missing: the envelope field that must hold a told address (chat)")
+		r.errf(e.v, join(e.path, "field"), "missing: the envelope field that must hold a user's address (chat)")
 	}
 	if address == nil {
 		r.errf(e.v, join(e.path, "address"), "missing: { env: <the name the address is under in a user's env file> }")
@@ -213,7 +215,7 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 		r.errf(field.v, field.path, "%s is no key the envelope carries: hook.keys names %s", h.Field, or(strings.Join(d.Hook.Keys, ", "), "none"))
 	}
 	if d.Notify == nil {
-		r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from a told address, and this file has no notify key to tell any")
+		r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
 	} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
 		r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
 	}

@@ -86,7 +86,7 @@ type Declaration struct {
 	Notify *Notify `json:"notify,omitempty"`
 	// Hear is which deliveries of the source the yard keeps, nil for a
 	// source that keeps every delivery it verifies: one whose envelope
-	// field holds the address of a user told through the source.
+	// field holds an address a user's env file sets.
 	Hear *Hear `json:"hear,omitempty"`
 	// Limits is the command that says what a harness kind's subscription
 	// still carries, nil for a source that cannot: see internal/limits.
