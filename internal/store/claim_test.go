@@ -218,6 +218,11 @@ func TestClaimAddressDropsControlCharacters(t *testing.T) {
 	if created, err := y.ClaimAddress(y.ctx, "chime", "123\x1b[31m", "hi"); err != nil || created {
 		t.Fatalf("a claim for an address with a control character = %v, %v", created, err)
 	}
+	for _, address := range []string{" 123", "123 ", "\u00a0123"} {
+		if created, err := y.ClaimAddress(y.ctx, "chime", address, "hi"); err != nil || created {
+			t.Fatalf("a claim for a padded address %q = %v, %v", address, created, err)
+		}
+	}
 	if q := claimQueue(t, y); len(q.Open) != 0 {
 		t.Fatalf("open asks = %d, want none", len(q.Open))
 	}

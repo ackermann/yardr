@@ -87,8 +87,11 @@ func claimPending(tx *bolt.Tx, operator, sourceName string) (bool, error) {
 // "yard"), on a question bead titled with the question, as a stage
 // ask is the yard's on its bead.
 func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text string) (bool, error) {
-	address = strings.TrimSpace(address)
-	if address == "" || strings.ContainsAny(address, " \t\r\n") || claimPlain(address) != address {
+	// Keep the normalized event's address byte-for-byte: trimming here
+	// could approve a different value than the one the next delivery
+	// carries. Values with surrounding whitespace cannot be written as-is,
+	// so do not offer a claim for them.
+	if address == "" || strings.TrimSpace(address) != address || strings.ContainsAny(address, " \t\r\n") || claimPlain(address) != address {
 		return false, nil
 	}
 	src, err := s.GetSource(ctx, sourceName)
