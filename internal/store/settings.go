@@ -367,6 +367,13 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: QuietLandingsSetting, Help: "how many code landings on a depot's base pass before the daemon owes the whole suite a run on a quiet machine (docs/testing.md R6): ten, about two hours of landings at the 60-140 a day of 14-16 Oct 2026, so a quiet spell is used within hours; 0 turns the quiet run off; the daemon reads it on every event it judges",
+		Default: strconv.Itoa(DefaultQuietLandings), Check: func(v string) error {
+			if n, err := strconv.Atoi(v); err != nil || n < 0 {
+				return fmt.Errorf("%s %q: a whole number, 0 (off) or more", QuietLandingsSetting, v)
+			}
+			return nil
+		}},
 }
 
 // SettingOf is the setting key names.

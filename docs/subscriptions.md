@@ -8,7 +8,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 | source | what it delivers | how a crew member subscribes |
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
-| `yardr` | yardr's own events: bead events (created, advanced, noted, closed, …), and `install_failed`, `rolled_back` and `hook_quiet`, about no bead | `yardr subscribe <name> yardr …`, `yardr bead watch` |
+| `yardr` | yardr's own events: bead events (created, advanced, noted, closed, …), and `install_failed`, `rolled_back`, `hook_quiet` and the quiet whole-suite run's `quiet_started`, `quiet_passed` and `quiet_failed`, about no bead | `yardr subscribe <name> yardr …`, `yardr bead watch` |
 | `peer` | what a linked yard says of the beads this yard has away at it: arrived, advanced, held, unheld, gave_up ([below](#the-peer-source)) | `yardr subscribe <name> peer …`, `yardr thread follow <name> --source peer <bead>` |
 | `--on` on the crew member | event kinds, or `attention`, the class of kinds that need someone (the default); every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
@@ -491,7 +491,7 @@ note neither delivery took: see "Done waits for unread notes" in
 [line.md](line.md)), `install_failed`
 (an install of a new yardr failed), `rolled_back` (a failed install put
 the previous build back) and `hook_quiet` (a hook that used to deliver
-delivered nothing for longer than its usual gap: [below](#a-quiet-hook)).
+delivered nothing for longer than its usual gap: [below](#a-quiet-hook)), and `quiet_failed` (a whole-suite run on a quiet machine found its depot's base red: [testing.md](testing.md)).
 The list is yardr's, one for the yard and
 every release's own: no command changes it.
 
@@ -850,7 +850,15 @@ yardr events          # … hook_quiet  yard  gap=1h hook=linear last=2026-10-14
 ```
 
 The daemon logs it once per quiet spell, not on every pass: a delivery
-ends the spell, and the next quiet logs anew. It is of the class
+ends the spell, and the next quiet logs anew.
+
+A quiet whole-suite run (testing.md R6) is told the same way, about no
+bead: `quiet_started` carries `depot`, `base` and `landings` (how many
+landings owed it), and its end is `quiet_passed` or `quiet_failed`, each
+carrying `depot`, `base`, `commit`, `wall_s` and `load`; a failure also
+carries `packages`, the packages that failed, and `reason`. `quiet_failed`
+is of the class `attention`, so the yardmaster hears of a red base
+through its default `--on`. It is of the class
 [`attention`](#the-class-attention), so the yardmaster hears it through
 its default `--on`, and it matches a yardr subscription on kind alone,
 like the upgrade's failure kinds: `yardr subscribe <name> yardr --where

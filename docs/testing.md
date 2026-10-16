@@ -67,15 +67,25 @@ landing, which lands after the quiet whole-suite run below; until then
 the landing runs the whole suite.
 
 R6. The whole suite still runs, but on a quiet machine, not on a timer
-and not as a gate on any bead. It starts on yard events, never by
-polling and never on a timer: the landing queue empty and no builder or
-reviewer sessions running, observed through the event stream, firing only
-when at least N code landings passed since the last whole-suite run. It
-takes the machine-wide race lock, so it never overlaps a landing leg,
-and it is single-flight: while one quiet run runs, a further event does
-not start a second. A red base raises an event naming the failing
-packages and the base commit. `YARDR_LANDING=1` stays the one command
-anyone can run.
+and not as a gate on any bead. The daemon's trigger
+(`internal/dispatch/quiet.go`) subscribes to the event stream and judges
+the yard on each event that can make it quiet or owe a run -- a bead
+advancing, a bead closing, a session ending -- never by polling and
+never on a timer. A run starts only when all hold at once, in one depot:
+no bead waits in `approved` for the assembly, no bead session of the
+depot is live, and at least `quiet_landings` code landings (ten while
+unset: about two hours at the 60-140 landings a day of 14-16 Oct 2026)
+have landed on the base since the last quiet run started there. A
+threshold reached while the yard is busy stays in the log and fires at
+the next quiet event. The run tests the depot's base in a worktree of
+its own with `YARDR_LANDING=1`, holding the machine-wide race lock for
+its whole length, so it never overlaps a landing leg, and it is
+single-flight: while one quiet run runs, a further event does not start
+a second, and the trigger re-arms only when the first finishes. A green
+run is logged and told as `quiet_passed`, a red base as `quiet_failed`
+naming the failing packages and the base commit, each with its wall
+time and starting load. `YARDR_LANDING=1` stays the one command anyone
+can run.
 
 R7. The rules are judged by re-measurement: the same per-package table one
 week after the last fix bead lands, against the design's table and its

@@ -172,7 +172,7 @@ var DispatchKinds = []string{
 	"gave_up", "backoff", "capped", "quota_wait", "unrouted", "no_runner", "bad_depot", "bad_flow", "stranded",
 	"crew_blocked", "nudge_held", "human_notified", "waited",
 	"train_branched", "bad_train", "wagon_without_train", "hook_rule",
-	HookQuiet,
+	HookQuiet, QuietStarted, QuietPassed, QuietFailed,
 }
 
 // LogDispatch records a dispatcher or runner decision. It accepts only

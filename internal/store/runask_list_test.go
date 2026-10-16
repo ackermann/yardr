@@ -1135,6 +1135,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		NameSetting:           Askable,
 		UpgradeFromSetting:    Alone,
 		UpgradeRestoreSetting: Alone,
+		QuietLandingsSetting:  Alone,
 	}
 	for _, setting := range KnownSettings {
 		class, ok := want[setting.Key]

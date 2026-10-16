@@ -212,6 +212,14 @@ type Dispatcher struct {
 	// what yardr has to type there, before an event says so (default 10m).
 	// See inputHeld.
 	DraftWait time.Duration
+	// QuietRun runs one whole-suite run on a quiet machine for a depot and
+	// says how it ended (see quiet.go); nil runs the depot's test command
+	// with YARDR_LANDING=1 in a worktree of its base. Tests set it, so no
+	// real suite runs.
+	QuietRun func(ctx context.Context, depot store.Depot) (QuietResult, error)
+
+	quietMu      sync.Mutex
+	quietRunning bool // a quiet whole-suite run is in flight (quiet.go)
 
 	ruleCursor uint64 // the last event put to its hook's table (rules.go)
 	// madeTo is hook -> the seq of the last event its table of what its
@@ -609,6 +617,9 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		}
 	}
 	d.noteStart(ctx)
+	// The whole suite's backstop (quiet.go): event-driven, beside the
+	// reconcile loop, never judged by its tick.
+	go d.runQuietTrigger(ctx)
 	var check <-chan time.Time
 	if d.Binary != nil {
 		t := time.NewTicker(d.CheckBinary)
