@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -188,6 +189,12 @@ func serviceInstalled(cfg *config.Config, kind string) bool {
 // credential but the kind's own, no identity.
 func serviceEnv(environ []string, home string, k *longRunning) []string {
 	env := append(server.ServerEnv(environ, home), k.vars(environ)...)
+	// These process hooks help tests stop a detached process, but a login
+	// service outlives the process that installed it.
+	env = slices.DeleteFunc(env, func(kv string) bool {
+		key, _, _ := strings.Cut(kv, "=")
+		return config.IsVar(key, config.TestOwnerEnv, config.TestHomeCheckEnv)
+	})
 	for _, kv := range environ {
 		if k, _, _ := strings.Cut(kv, "="); k == "HERDR_SOCKET_PATH" || k == "XDG_CONFIG_HOME" || config.IsVar(k, "INBOX_RETENTION") {
 			env = append(env, kv)

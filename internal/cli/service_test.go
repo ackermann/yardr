@@ -218,7 +218,7 @@ func TestServiceEnv(t *testing.T) {
 	t.Parallel()
 	got := serviceEnv([]string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOME=/elsewhere", "YARDR_ACTOR=me", "YARDR_SESSION=s1",
 		"GITHUB_TOKEN=secret", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "HERDR_SOCKET_PATH=/tmp/h.sock",
-		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config"}, "/Users/jo/.yardr", kindOf(svcDaemon))
+		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config", "YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s"}, "/Users/jo/.yardr", kindOf(svcDaemon))
 	want := []string{"HERDR_SOCKET_PATH=/tmp/h.sock", "HOME=/Users/jo", "PATH=/bin", "XDG_CONFIG_HOME=/Users/jo/.config",
 		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d"}
 	if !slices.Equal(got, want) {
