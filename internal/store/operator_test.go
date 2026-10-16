@@ -102,7 +102,7 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		"change a depot's path": func(a string) error {
 			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, a)
 		},
-		"remove a hook":  func(a string) error { return api.DeleteHook(ctx, "no-such", a) },
+		"remove a hook": func(a string) error { return api.DeleteHook(ctx, "no-such", a) },
 		"move links from one source to another": func(a string) error {
 			_, err := api.MoveLinkSource(ctx, "acme", "acme2", a)
 			return err
