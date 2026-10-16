@@ -118,33 +118,45 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # never a file the gate removes again, which a dead gate leaves behind
 # blocking every landing. The file is the yard's, 0600 in a 0700 home, as
 # its other files are. macOS has no flock binary; perl's flock is the
-# same call. The perl holds the lock itself while the run, forked without
-# the lock's fd, runs under it: nothing the run starts can hold the lock
-# past the run, however long it outlives it (an orphaned sleep once did:
-# yardr-tsms). The perl exits with the run's status, 128+n for a run ended
-# by signal n, and forwards TERM and INT to the run, so a killed gate still
-# stops it. It waits without a limit, and says so, with the seconds, when
-# it waited.
+# same call. The perl holds the lock itself while the worker it forked runs
+# the race leg under it: the worker closes the lock's fd before it execs,
+# so nothing the leg starts can hold the lock past the leg, however long it
+# outlives it (an orphaned sleep once did: yardr-tsms). One hold covers the
+# leg, its failed-test retry and the package-budget re-measurement, which
+# share it through YARDR_RACE_HELD instead of waiting on it again. The perl
+# exits with the worker's status, 128+n for a worker ended by signal n, and
+# forwards TERM and INT to it, so a killed gate still stops the leg. It
+# waits without a limit, and says so, with the seconds, when it waited.
 # A run nested in another's race leg shares its hold instead of waiting on
 # it (YARDR_RACE_HELD, which the run's own tests set too): without that the
 # tests, which run this script, would wait on the run they are in.
 racelocked() {
   lock=$HOME/.yardr/race.lock
+  status=$1
+  shift
   mkdir -p -m 700 "$HOME/.yardr"
-  YARDR_RACE_HELD=1
-  export YARDR_RACE_HELD
+  # One hold across the whole race leg, including its failed-test retry
+  # and package-budget re-measurement: this process keeps the lock while
+  # the worker runs under it, and the worker calls again() with
+  # YARDR_RACE_HELD set, so those commands share this hold instead of
+  # waiting on it.
   perl -e 'use Fcntl qw(:DEFAULT :flock);
 use POSIX qw(:sys_wait_h);
 use Errno qw(EINTR);
 $lock = shift;
+$script = shift;
+$status = shift;
 sysopen(my $fh, $lock, O_WRONLY | O_APPEND | O_CREAT, 0600) or die "test: cannot open $lock: $!\n";
 $t = time;
 flock($fh, LOCK_EX) or die "test: cannot lock $lock: $!\n";
 $w = time - $t;
 warn "test: waited $w s for the race lock\n" if $w > 0;
-# The run must not inherit the lock: the child closes it before it execs,
-# so the lock dies with this process, whatever the run leaves behind.
-# TERM and INT go to the run too, so a killed gate still stops it.
+$ENV{YARDR_RACE_HELD} = 1;
+$ENV{YARDR_TEST_RACE_LEG} = 1;
+# The worker must not inherit the lock: the child closes it before it
+# execs, so the lock dies with this process, whatever the worker leaves
+# behind. TERM and INT go to the worker too, so a killed gate still stops
+# the leg.
 $SIG{TERM} = sub { kill("TERM", $pid) if $pid };
 $SIG{INT} = sub { kill("INT", $pid) if $pid };
 $pid = fork();
@@ -153,8 +165,8 @@ if ($pid == 0) {
   close($fh);
   $SIG{TERM} = "DEFAULT";
   $SIG{INT} = "DEFAULT";
-  exec(@ARGV);
-  die "test: cannot run $ARGV[0]: $!\n";
+  exec("/bin/sh", $script, $status, @ARGV);
+  die "test: cannot run $script: $!\n";
 }
 do { $kid = waitpid($pid, 0) } while ($kid == -1 && $! == EINTR);
 $st = $?;
@@ -162,7 +174,7 @@ $pid = 0;
 $SIG{TERM} = "DEFAULT";
 $SIG{INT} = "DEFAULT";
 if (WIFSIGNALED($st)) { exit(128 + WTERMSIG($st)) }
-exit(WEXITSTATUS($st));' "$lock" "$@"
+exit(WEXITSTATUS($st));' "$lock" "$0" "$status" "$@"
 }
 again() {
   t0=$(date +%s)
@@ -177,14 +189,22 @@ again() {
     *" go test -race "*)
       race=1
       if [ -z "$YARDR_RACE_HELD" ]; then
-        under=racelocked
+        status=$(mktemp)
+        # Run the leg and its retries and package-budget checks in the lock
+        # holder. The worker writes package counts back; this process owns
+        # the summary and accounts for the lock wait.
+        { rc=0; racelocked "$status" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+        rc=$(cat "$log.rc")
+        waited_total=$((waited_total + $(waitcount "$log")))
+        child_ok=0 child_failed=0
+        if [ -s "$status" ]; then read -r child_ok child_failed <"$status"; fi
+        pkgs_ok=$((pkgs_ok + child_ok))
+        pkgs_failed=$((pkgs_failed + child_failed))
+        took "$t0" "$*"
+        [ "$rc" = 0 ] || failed "$log" "$@"
+        rm -f "$log" "$log.rc" "$acc" "$status"
+        return "$rc"
       fi
-      # The leg's hold for what runs after the step, the package budget's
-      # re-run: the step runs in a pipe, so the hold racelocked sets dies
-      # with its subshell, and the re-run shares this one instead of
-      # waiting on the lock again.
-      YARDR_RACE_HELD=1
-      export YARDR_RACE_HELD
       ;;
   esac
   { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
@@ -259,14 +279,14 @@ again() {
         ;;
     esac
   fi
-  took "$t0" "$*"
+  [ -n "$race_leg_child" ] || took "$t0" "$*"
   # The package budget, after a green race leg: a leg whose tests failed
   # is already red without it. The leg's command goes with, for the
   # re-run's flags.
   if [ "$rc" = 0 ] && [ "$race" = 1 ]; then
     packagebudget "$acc" "$@" || rc=$?
   fi
-  [ "$rc" = 0 ] || failed "$log" "$@"
+  [ -n "$race_leg_child" ] || [ "$rc" = 0 ] || failed "$log" "$@"
   case " $* " in
     *" go test "*)
       # The failures are the final log's: a package that passed on rerun is
@@ -317,7 +337,7 @@ contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards;
 contrib/shot yardr-c2vt 72.6 s in a loaded full landing run on 16 Oct; alone not yet measured; yardr-c2vt measures it and removes this row or keeps it with the number
 '
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
-# -race leg's output ($1): only the ok lines carry judged seconds, a
+# -race leg's output ($1): only the ok lines carry judged durations, a
 # package whose tests failed being already red without it. Cached packages
 # print no seconds and are not judged. The allow-list goes by file, as the
 # reads table does: awk takes no newline in -v.
@@ -338,18 +358,35 @@ packagebudget() {
   over=$(mktemp)
   unsorted=$(mktemp)
   awk '
+    function seconds(s, total, n) {
+      if (s == "") return -1
+      total = 0
+      while (match(s, /^[0-9]+([.][0-9]+)?/)) {
+        n = substr(s, 1, RLENGTH) + 0
+        s = substr(s, RLENGTH + 1)
+        if (s ~ /^h/) { total += n * 3600; sub(/^h/, "", s) }
+        else if (s ~ /^ms/) { total += n / 1000; sub(/^ms/, "", s) }
+        else if (s ~ /^m/) { total += n * 60; sub(/^m/, "", s) }
+        else if (s ~ /^µs/) { total += n / 1000000; sub(/^µs/, "", s) }
+        else if (s ~ /^us/) { total += n / 1000000; sub(/^us/, "", s) }
+        else if (s ~ /^ns/) { total += n / 1000000000; sub(/^ns/, "", s) }
+        else if (s ~ /^s/) { total += n; sub(/^s/, "", s) }
+        else return -1
+      }
+      return s == "" ? total : -1
+    }
     FILENAME == ARGV[1] {
       if ($0 ~ /^[^ ]+ /) { dir = $0; sub(/ .*/, "", dir); over[dir] = 1 }
       next
     }
-    /^ok[ \t]/ && $3 ~ /^[0-9.]+s$/ {
-      pkg = $2; secs = $3; sub(/s$/, "", secs)
+    /^ok[ \t]/ {
+      pkg = $2; secs = seconds($3)
       if (pkg == "yardr.dev/yardr") dir = "."
       else if (pkg ~ /^yardr\.dev\/yardr\//) { dir = pkg; sub(/^yardr\.dev\/yardr\//, "", dir) }
       else next
-      if (secs + 0 > 60 && !(dir in over) && !(dir in bad)) {
+      if (secs > 60 && !(dir in over) && !(dir in bad)) {
         bad[dir] = 1
-        printf "%s %s\n", pkg, secs
+        printf "%s %.9g\n", pkg, secs
       }
     }' "$allow" "$legout" >"$unsorted" || { rm -f "$allow" "$over" "$unsorted"; return 1; }
   rm -f "$allow"
@@ -383,7 +420,26 @@ packagebudget() {
     # shellcheck disable=SC2086
     { rrc=0; $prefix $flags -count=1 "$pkg" </dev/null 2>&1 || rrc=$?; echo "$rrc" >"$run.rc"; } | tee "$run"
     rrc=$(cat "$run.rc")
-    alone=$(awk '/^ok[ \t]/ && $3 ~ /^[0-9.]+s$/ { s = $3; sub(/s$/, "", s); print s; exit }' "$run")
+    alone=$(awk '
+      function seconds(s, total, n) {
+        if (s == "") return -1
+        total = 0
+        while (match(s, /^[0-9]+([.][0-9]+)?/)) {
+          n = substr(s, 1, RLENGTH) + 0
+          s = substr(s, RLENGTH + 1)
+          if (s ~ /^h/) { total += n * 3600; sub(/^h/, "", s) }
+          else if (s ~ /^ms/) { total += n / 1000; sub(/^ms/, "", s) }
+          else if (s ~ /^m/) { total += n * 60; sub(/^m/, "", s) }
+          else if (s ~ /^µs/) { total += n / 1000000; sub(/^µs/, "", s) }
+          else if (s ~ /^us/) { total += n / 1000000; sub(/^us/, "", s) }
+          else if (s ~ /^ns/) { total += n / 1000000000; sub(/^ns/, "", s) }
+          else if (s ~ /^s/) { total += n; sub(/^s/, "", s) }
+          else return -1
+        }
+        return s == "" ? total : -1
+      }
+      /^ok[ \t]/ { s = seconds($3); if (s >= 0) { printf "%.9g\n", s; exit } }
+    ' "$run")
     if [ "$rrc" = 0 ] && [ -n "$alone" ]; then
       if awk -v s="$alone" 'BEGIN { exit !(s + 0 > 60) }'; then
         echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1)"
@@ -573,6 +629,22 @@ whole() {
   [ "$first" = 0 ] || exit "$first"
   exit "$second"
 }
+# The lock holder re-enters the script here to run the race leg, its normal
+# failed-test retries, and packagebudget() under one hold. Keep the test
+# counts for the caller, which prints the run's summary.
+if [ -n "$YARDR_TEST_RACE_LEG" ]; then
+  status=$1
+  shift
+  unset YARDR_TEST_RACE_LEG
+  YARDR_RACE_HELD=1
+  export YARDR_RACE_HELD
+  race_leg_child=1
+  rc=0
+  again "$@" || rc=$?
+  printf '%s %s\n' "$pkgs_ok" "$pkgs_failed" >"$status"
+  trap - EXIT
+  exit "$rc"
+fi
 # What the branch changed: against the base, from where the branch left it.
 # For a wagon of a train that is the tip of its train's branch, so a wagon is
 # tested for what it changed, not for the train's earlier wagons again.

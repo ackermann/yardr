@@ -12,13 +12,12 @@ with why and which bead brings it under. A fix deletes its entries; a row
 whose site is gone is deleted with the fix, not left for later.
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
-The wall is the slowest package, so one package over budget is every run
-over budget. The gate judges an over-budget package by running it again
-alone, under the race leg's hold: over 60 s a second time fails the run,
-naming both times, and under passes with a `test: R1:` line naming both,
-the run having been loaded. Load multiplies every package up to ~2.5x
-(dispatch is 68 s alone, 79-94 s in full runs), so the run's time alone
-fails nothing.
+The wall is the slowest package. When a non-allow-listed package takes over
+60 s in the race leg, the gate runs it again alone under the leg's lock.
+Over 60 s alone fails the run and names both times; 60 s or less passes
+with a `test: R1:` line naming both times and marking the first run as loaded.
+Load multiplies package times up to ~2.5x (dispatch is 68 s alone, 79-94 s
+in full runs), so the first run's time by itself does not fail the gate.
 
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. Exactly 500 ms complies; over fails unless

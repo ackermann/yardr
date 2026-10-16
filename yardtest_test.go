@@ -1005,9 +1005,9 @@ fi
 // past the run's build step, its last step before the race leg, so the wait
 // spans whole seconds however slowly the run started under load; its own
 // home stands in for the yard's, so no real gate waits on it. Once the
-// run's test step starts, the lock is the run's until it ends: the test
-// cannot take it meanwhile, and can once the run has ended. vet and build
-// run while the lock is held: only the race leg waits.
+// race leg starts, the lock is the run's until its budget checks end: the
+// test cannot take it during the race run or its isolated rerun, and can
+// once the leg has ended. Vet and build run before the lock is held.
 func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
@@ -1032,7 +1032,21 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	}
 	fake, dir := t.TempDir(), t.TempDir()
 	for name, text := range map[string]string{
-		"go":    "#!/bin/sh\necho \"$*\" >>\"$FAKE/calls\"\nif [ \"$1\" = test ]; then sleep 2; fi\n",
+		"go": `#!/bin/sh
+echo "$*" >>"$FAKE/calls"
+if [ "$1" = test ]; then
+  case "$*" in
+  *"-count=1"*)
+    echo 'ok  yardr.dev/yardr/internal/web 12.3s'
+    sleep 2
+    ;;
+  *)
+    sleep 2
+    echo 'ok  yardr.dev/yardr/internal/web 1m1.2s'
+    ;;
+  esac
+fi
+`,
 		"gofmt": "#!/bin/sh\n",
 	} {
 		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
@@ -1046,16 +1060,22 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	// A branch that changed go.mod: a plain run tests every package, and
 	// asks go for no list of them.
 	mod := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mod, []byte("module yardr.dev/yardr\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
-	if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+	if err := os.WriteFile(mod, []byte("module yardr.dev/yardr\n\ngo 1.21\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", string(script))
+	cmd := exec.Command("sh", ".yardr/test")
 	cmd.Dir = dir
 	cmd.Env = append(scriptEnv(),
 		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -1093,11 +1113,15 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
-	// The run's test step starts once it has the lock: from then until it
-	// ends the lock is the run's, so the test cannot take it meanwhile.
+	// The race leg starts once it has the lock. It keeps it through the
+	// package-budget rerun, so the test cannot take it during either run.
 	waitFor("test -race")
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
-		t.Errorf("took the lock while the run's race step holds it")
+		t.Errorf("took the lock while the race run holds it")
+	}
+	waitFor("test -race -count=1")
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		t.Errorf("took the lock while the package-budget rerun holds it")
 	}
 	<-done
 	if runErr != nil {
@@ -1107,8 +1131,12 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	if len(waits) != 1 {
 		t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), out)
 	}
+	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
+	if !summary.MatchString(string(out)) {
+		t.Errorf("the summary does not include the race-lock wait:\n%s", out)
+	}
 	calls, _ := os.ReadFile(callsPath)
-	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race ./..."; got != want {
+	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race ./...\ntest -race -count=1 yardr.dev/yardr/internal/web"; got != want {
 		t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 	}
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
@@ -1146,6 +1174,12 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 	}
 	// A branch that changed go.mod: a plain run tests every package.
 	mod := filepath.Join(dir, "go.mod")
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1155,7 +1189,7 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 	if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", "umask 022; "+string(script))
+	cmd := exec.Command("sh", "-c", "umask 022; sh .yardr/test")
 	cmd.Dir = dir
 	cmd.Env = append(scriptEnv(),
 		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -1183,8 +1217,10 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 // lock at once, so a second run gets it within a second (an orphaned sleep
 // once held it past the run: yardr-tsms). The holder also ends as a shell
 // would: the run's exit status, 128+n for a run ended by signal n, and a
-// TERM to the holder stops the run with it. Its own home stands in for the
-// yard's, so no real gate waits on it.
+// TERM to the holder stops the run with it. The holder speaks the worker
+// protocol, status file first and the run re-execed with YARDR_TEST_RACE_LEG;
+// the probe answers as a worker that runs no leg, so it pins the holder
+// alone. Its own home stands in for the yard's, so no real gate waits on it.
 func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
@@ -1200,12 +1236,15 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 	if ok {
 		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
 	}
-	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") {
+	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") || !strings.Contains(fn, "YARDR_TEST_RACE_LEG") {
 		t.Fatalf("cannot cut racelocked out of %s: move the probe with the script", yardTest)
 	}
 	home := t.TempDir()
+	statusFile := filepath.Join(home, "status")
 	driver := filepath.Join(t.TempDir(), "driver.sh")
-	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nracelocked \"$@\"\n"), 0o755); err != nil {
+	// The probe worker runs no leg: it drops the status file and runs
+	// the command, and the file stays unwritten.
+	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nif [ -n \"$YARDR_TEST_RACE_LEG\" ]; then shift; exec \"$@\"; fi\nracelocked \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
@@ -1218,7 +1257,7 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer os.Remove(outFile.Name())
-		cmd := exec.CommandContext(ctx, driver, args...)
+		cmd := exec.CommandContext(ctx, driver, append([]string{statusFile}, args...)...)
 		cmd.Env = append(scriptEnv(), "HOME="+home)
 		cmd.Stdout, cmd.Stderr = outFile, outFile
 		start := time.Now()
@@ -1315,14 +1354,18 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name  string
-		alone string // the re-run's seconds: fast passes, over fails
+		alone string // the re-run's Go duration: fast passes, over fails
 		ok    bool
 		want  string // the verdict line
 	}{
-		{"under alone passes", "12.3", true,
+		{"under alone passes", "12.3s", true,
 			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"},
-		{"over alone fails naming both", "66.6", false,
+		{"over alone fails naming both", "1m6.6s", false,
 			"test: yardr.dev/yardr/internal/web took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
+		{"sub-second alone passes", "750ms", true,
+			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 0.75 s alone: under budget, loaded run"},
+		{"microsecond alone passes", "750µs", true,
+			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 0.00075 s alone: under budget, loaded run"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fake, dir := t.TempDir(), t.TempDir()
@@ -1331,17 +1374,22 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 			// with YARDR_RACE_HELD; a perl that logs every hold and runs
 			// the rest, as racelocked calls it.
 			goFake := `#!/bin/sh
-echo "$* held=${YARDR_RACE_HELD-unset}" >>"$FAKE/calls"
+echo "$* held=${YARDR_RACE_HELD-unset} lock=${FAKE_LOCK_HELD-unset}" >>"$FAKE/calls"
 if [ "$1" = test ]; then
   case "$*" in
-  *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/web\t%ss\n' "$FAKE_ALONE" ;;
-  *) printf 'ok  \tyardr.dev/yardr/internal/web\t61.2s\n' ;;
+  *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/web\t%s\n' "$FAKE_ALONE" ;;
+  *) printf 'ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n' ;;
   esac
 fi
 `
 			perlFake := `#!/bin/sh
 echo "hold $3" >>"$FAKE/locks"
 shift 3
+FAKE_LOCK_HELD=1
+export FAKE_LOCK_HELD
+YARDR_RACE_HELD=1
+YARDR_TEST_RACE_LEG=1
+export YARDR_RACE_HELD YARDR_TEST_RACE_LEG
 exec "$@"
 `
 			for name, text := range map[string]string{"go": goFake, "perl": perlFake, "gofmt": "#!/bin/sh\n"} {
@@ -1357,6 +1405,12 @@ exec "$@"
 			// A branch that changed go.mod: a plain run tests every
 			// package, and asks go for no list of them.
 			mod := filepath.Join(dir, "go.mod")
+			if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1366,10 +1420,11 @@ exec "$@"
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command("sh", "-c", string(script))
+			cmd := exec.Command("sh", ".yardr/test")
 			cmd.Dir = dir
 			// No YARDR_RACE_HELD: the race leg takes the lock itself, as
-			// a top-level run does, and the re-run shares the hold.
+			// a top-level run does, and its worker keeps that hold through
+			// the package re-measurement.
 			cmd.Env = append(scriptEnv(),
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
@@ -1385,10 +1440,10 @@ exec "$@"
 			// The re-run is the leg's flags and -count=1 on the one
 			// package, inside the hold the leg set.
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			wantCalls := "vet ./... held=unset\n" +
-				"build ./... held=unset\n" +
-				"test -race ./... held=1\n" +
-				"test -race -count=1 yardr.dev/yardr/internal/web held=1"
+			wantCalls := "vet ./... held=unset lock=unset\n" +
+				"build ./... held=unset lock=unset\n" +
+				"test -race ./... held=1 lock=1\n" +
+				"test -race -count=1 yardr.dev/yardr/internal/web held=1 lock=1"
 			if got := strings.TrimSpace(string(calls)); got != wantCalls {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
 			}
@@ -1594,10 +1649,10 @@ if [ -n "$FAKE_FAIL" ]; then
   exit 1
 fi
 case " $FAKE_OVER " in
-*" $pkg "*) secs=66.6 ;;
-*) secs=12.3 ;;
+ *" $pkg "*) secs=1m6.6s ;;
+ *) secs=12.3s ;;
 esac
-printf 'ok  \t%s\t%ss\n' "$pkg" "$secs"
+printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 `
 		if err := os.WriteFile(filepath.Join(fake, "go"), []byte(goFake), 0o755); err != nil {
 			t.Fatal(err)
@@ -1612,11 +1667,11 @@ printf 'ok  \t%s\t%ss\n' "$pkg" "$secs"
 	t.Run("the package budget judges race legs by re-measuring alone", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "red.txt",
-			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
-				"ok  \tyardr.dev/yardr\t65.5s\n"+
-				"ok  \tyardr.dev/yardr/internal/web\t61.2s\n"+
-				"ok  \tyardr.dev/yardr/internal/pack\t61.5s\n"+
-				"ok  \tyardr.dev/yardr/internal/store\t60.1s\n"+
+			"ok  \tyardr.dev/yardr/internal/cli\t1m58.3s\n"+
+				"ok  \tyardr.dev/yardr\t1m5.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n"+
+				"ok  \tyardr.dev/yardr/internal/pack\t1m1.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/store\t1m0.1s\n"+
 				"ok  \tyardr.dev/yardr/internal/rpc\t60s\n"+
 				"ok  \tyardr.dev/yardr/internal/bdp\t(cached)\n"+
 				"?   \tyardr.dev/yardr/internal/harnesses\t[no test files]\n"+
@@ -1661,7 +1716,7 @@ printf 'ok  \t%s\t%ss\n' "$pkg" "$secs"
 
 	t.Run("a package under budget alone passes", func(t *testing.T) {
 		dir := t.TempDir()
-		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/web\t61.2s\n")
+		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
 		fake, env := r1go(t)
 		out, code := runEnv(dir, append(env, "FAKE_OVER="),
 			"packagebudget", "loaded.txt", "go", "test", "-race", "./...")
