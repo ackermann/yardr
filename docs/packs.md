@@ -469,16 +469,34 @@ The plan makes the same check for every flow of the pack, over the beads
 that would follow it by a pointer or a pin, and marks the import
 **refused**, naming the beads: move or pin them first.
 
-**Routes.** Each stage with a group gets the one route `depot, stage ->
-group` (with the type, for a type's flow). A route the depot has for the
-stage is that route: unchanged when it leads to the same group, else
-replaced. `yardr route add` mints a new id per call, so a replacement is
-an add and a delete of every route the depot had for the stage; two routes
-for one depot and stage never remain. A stage with no group clears the
-matching depot, stage and type routes, so its beads wait for a hand. The
-route's priority is kept when a stage has a group. Routes with a label or a
-bead priority (`--bead-priority`), and routes for stages the pack lacks, are
-left alone.
+**Routes.** The planner asks, for each stage, what the depot's effective
+routes do with a plain bead of that stage (and the flow's type) — its own
+routes plus every yard default no own route of the same key sets aside.
+Where a plain yard default (one group, no condition) already works the
+stage for the group the pack binds, the plan writes no route and says
+`stage <stage> of flow <flow>: worked by yard default <id> to <group>; no
+route written`: a fresh depot inherits the yard's defaults for the stages
+every depot shares, and re-applying a pack resurrects no copy a migration
+removed. Where the winner leads elsewhere, or no route wins, the plan
+writes the depot's own route `depot, stage -> group` (with the type, for
+a type's flow) as it always has, and that own route sets the default aside
+for this depot alone. A route the depot has for the stage is that route:
+unchanged when it leads to the same group, else replaced. `yardr route
+add` mints a new id per call, so a replacement is an add and a delete of
+every route the depot had for the stage; two routes for one depot and
+stage never remain. A stage with no group clears the matching depot,
+stage and type routes, so its beads wait for a hand. The route's priority
+is kept when a stage has a group. Routes that ask something of the single
+bead (a label, a bead priority or a named originator), routes for stages
+the pack lacks, and a stage whose effective winner carries a quota
+condition or further groups, are left alone, of either scope, each listed
+as not in the pack with its scope; a pack writes no route over a condition
+it cannot say. An import never writes or removes a yard default: where
+fitting the pack would have to change or remove one — a stage the pack
+routes to nobody that a default works — the plan is refused and says so,
+for a hand to remove the default. Export follows the same effective
+winner: a stage worked plainly through a yard default is exported with
+that default's group, the route itself not left out.
 
 **Crew members.** A crew member of the pack is taken by a crew member of the yard:
 `--crew yardmaster=boss`. Without the flag it is the yard's crew member

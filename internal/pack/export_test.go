@@ -322,20 +322,23 @@ func route(t *testing.T, st store.API, r store.Route) {
 }
 
 // A stage gets the group that works it today only where that is one plain
-// route of the depot. MatchRoute's winner decides between the depot's
-// route and a yard-wide one; a yard-wide or quotaed winner, and a filtered
-// route that wins for only some beads before a whole-flow route, leave the
-// stage with no group, and every such route is listed with its groups and
-// why.
+// route in the depot's effective set. An own route of a default's key sets
+// that default aside for this depot alone, so the own route works a stage
+// even under a higher-priority default of the same key, and a plain yard
+// default alone works its stage and is followed. A quotaed winner, and a
+// filtered route that wins for only some beads before a whole-flow route,
+// leave the stage with no group, and every such route is listed with its
+// groups and why.
 func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	st, home := handYard(t)
 	depot, label := "web", "hard"
-	// a: the depot's route beats a yard-wide one of the same priority.
+	// a: the depot's route sets aside a yard default of the same key.
 	route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
 	route(t, st, store.Route{Stage: "a", Group: "wide"})
-	// b: a yard-wide route alone.
+	// b: a yard default alone: the pack follows it.
 	route(t, st, store.Route{Stage: "b", Group: "wide"})
-	// c: a yard-wide route of a higher priority beats the depot's.
+	// c: a yard default of a higher priority is still set aside by the
+	// depot's own route of the same key.
 	route(t, st, store.Route{Stage: "c", Depot: &depot, Group: "web-one"})
 	route(t, st, store.Route{Stage: "c", Group: "wide", Priority: 5})
 	// d: the depot's route has a further group.
@@ -355,20 +358,15 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	for _, s := range p.Flows[0].Stages {
 		got[s.Name] = s.Group
 	}
-	for stage, want := range map[string]string{"a": "one", "b": "", "c": "", "d": "", "e": "", "f": "one", "done": ""} {
+	for stage, want := range map[string]string{"a": "one", "b": "wide", "c": "one", "d": "", "e": "", "f": "one", "done": ""} {
 		if got[stage] != want {
 			t.Errorf("stage %s has group %q in the pack, want %q", stage, got[stage], want)
 		}
 	}
-	if len(p.Groups) != 1 || p.Groups[0].Name != "one" {
-		t.Errorf("groups = %+v, want the one a followed route leads to", p.Groups)
+	if len(p.Groups) != 2 {
+		t.Errorf("groups = %+v, want the two a followed route leads to", p.Groups)
 	}
 	for _, want := range [][]string{
-		{"route every depot, stage a -> wide", "yard-wide"},
-		{"stage b of flow hand: no group in the pack", "yard-wide route (wide)"},
-		{"route every depot, stage b -> wide", "yard-wide"},
-		{"stage c of flow hand: no group in the pack", "yard-wide route (wide)"},
-		{"route depot web stage c -> web-one", "another route of the stage"},
 		{"stage d of flow hand: no group in the pack", "web-one else other"},
 		{"route depot web stage d -> web-one else other", "further groups"},
 		{"stage e of flow hand: no group in the pack", "only some of its beads"},
@@ -376,7 +374,6 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 		{"route depot web stage e -> web-one", "another route of the stage"},
 		{"route depot web stage f label hard -> web-two", "label"},
 		{"route depot web stage f type train -> web-two", "type train"},
-		{"group wide: not in the pack"},
 		{"group other: not in the pack"},
 		{"group web-two: not in the pack"},
 	} {
@@ -384,8 +381,10 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 			t.Errorf("left out lacks %q", want)
 		}
 	}
-	if leftHas(ex, "stage a of flow hand") || leftHas(ex, "route depot web stage a ->") {
-		t.Errorf("stage a is routed and its route followed, yet listed")
+	if leftHas(ex, "stage a of flow hand") || leftHas(ex, "route depot web stage a ->") ||
+		leftHas(ex, "stage b of flow hand") || leftHas(ex, "route yard default stage b") ||
+		leftHas(ex, "stage c of flow hand") || leftHas(ex, "route depot web stage c ->") {
+		t.Errorf("a followed stage or route is listed as left out:\n%s", strings.Join(ex.Left, "\n"))
 	}
 	if t.Failed() {
 		t.Log(strings.Join(ex.Left, "\n"))

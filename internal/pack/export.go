@@ -299,7 +299,7 @@ func (e *exporter) stageFile(g store.DepotFlow, repo *store.RepoFlows, stage str
 
 // routeName says a route by what it asks of a bead, as a plan does.
 func (e *exporter) routeName(r store.Route) string {
-	name := "every depot, stage " + r.Stage
+	name := "yard default stage " + r.Stage
 	if r.Depot != nil {
 		name = "depot " + *r.Depot + " stage " + r.Stage
 	}
@@ -322,21 +322,27 @@ func (e *exporter) routeName(r store.Route) string {
 // say so. Routes are followed, not carried: an import makes the one route
 // depot, stage (and type) -> group, and nothing else.
 //
-// The routes of a stage are those that may take a bead of the flow there:
-// the depot's and the yard-wide ones (no depot), which route this depot's
-// beads as any other's. In MatchRoute's order, a filtered route (label,
-// bead priority, named originator or a type without a flow of its own)
-// before the first route that takes every bead can win for only some of
-// the stage's beads, so the stage is unrouted. Otherwise the first route
-// that takes every bead is what works the stage; it is exported when it is
-// the depot's and plain (no condition, no further group). A yard-wide or
-// quotaed winner is written with no group. Every route that is not exported
-// is listed with its groups and why.
+// The routes of a stage are this depot's effective routes (its own, plus
+// every yard default no own route of the same key sets aside). In
+// MatchRoute's order, a filtered route (label, bead priority, named
+// originator or a type without a flow of its own) before the first route
+// that takes every bead can win for only some of the stage's beads, so
+// the stage is unrouted. Otherwise the first route that takes every bead
+// is what works the stage; it is exported when it is plain (no condition,
+// no further group), whether it is the depot's own or a yard default the
+// pack follows. A quotaed winner is written with no group. Every route
+// that is not exported is listed with its groups and why.
 func (e *exporter) routes() error {
-	routes, err := e.st.Routes(e.ctx)
+	all, err := e.st.Routes(e.ctx)
 	if err != nil {
 		return err
 	}
+	settings, err := e.st.Settings(e.ctx)
+	if err != nil {
+		return err
+	}
+	depotName := e.depot.Name
+	routes := store.EffectiveRoutes(all, &depotName, settings[store.OperatorSetting])
 	store.SortRoutes(routes)
 	// The types with a flow of their own: a route for one is that flow's.
 	own := map[string]bool{}
@@ -404,8 +410,6 @@ func (e *exporter) routes() error {
 				e.left("%s: no group in the pack: the yard routes it to nobody", where)
 			case some:
 				e.left("%s: no group in the pack: a route takes only some of its beads (a label, a bead priority, an originator or a type), which a pack's stage cannot say; its beads wait for a hand until the importer routes them", where)
-			case cands[0].Depot == nil:
-				e.left("%s: no group in the pack: what works it is a yard-wide route (%s), which an import leaves alone and no pack carries; its beads wait for a hand until the importer routes them", where, cands[0].GroupList())
 			case cands[0].Quotaed():
 				e.left("%s: no group in the pack: what works it is a route with a condition or further groups (%s), and a pack names one group for a stage; its beads wait for a hand until the importer routes them", where, cands[0].GroupList())
 			default:
@@ -441,17 +445,18 @@ func (e *exporter) routes() error {
 }
 
 // routeWhy says why a route of a stage of a flow for typ is none a pack
-// carries; "" for a plain route of the depot, which is one.
+// carries; "" for a plain route of the depot or a plain yard default the
+// pack follows, which are the ones it does.
 func routeWhy(r store.Route, typ string) string {
 	switch {
 	case r.ByBead():
 		return "it asks for a label, a bead priority or an originator, and a pack says nothing of the single bead"
 	case r.Type != nil && *r.Type != typ:
 		return "it is for beads of type " + *r.Type + " alone, which follow the depot's flow, and a pack routes a stage for every bead of its flow"
-	case r.Depot == nil:
-		return "it is yard-wide (no depot): it routes every depot's beads, an import leaves it alone, and a fresh yard has none"
 	case r.Quotaed():
 		return "it has a condition or further groups, and a pack names one group for a stage"
+	case r.Depot == nil:
+		return "it is a yard default (no depot): it serves every depot that does not state its own route for the same beads, an import leaves it alone, and no pack carries it"
 	}
 	return ""
 }

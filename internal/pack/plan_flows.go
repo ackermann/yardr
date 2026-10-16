@@ -180,12 +180,38 @@ func (b *planner) routes(flows []Flow) error {
 		return err
 	}
 	store.SortRoutes(have)
+	settings, err := b.st.Settings(b.ctx)
+	if err != nil {
+		return err
+	}
+	operator := settings[store.OperatorSetting]
+	// winner is what this depot's effective routes do with a plain bead
+	// of the stage (and the flow's type): no labels, the default bead
+	// priority, the operator's beads, as the flow view's probe bead is.
+	// It is the planner's one question for a stage (design yardr-w6mh
+	// section 3.8), asked through MatchRoute, which resolves inside
+	// EffectiveRoutes, so the plan, the dispatcher and every view agree.
+	winner := func(f Flow, s Stage) *store.Route {
+		depot := b.o.Depot
+		return store.MatchRoute(have, store.Bead{Stage: s.Name, Type: f.Type, Depot: &depot, Priority: store.DefaultPriority}, operator)
+	}
 	taken := map[string]bool{}
 	for _, f := range flows {
 		for _, s := range f.Stages {
 			if s.Group == "" {
 				if !s.End {
 					b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s names no group: the pack routes it to nobody, and a bead there waits for a hand", s.Name, f.Name))
+				}
+				// A pack import may never remove a yard default: a stage
+				// the pack routes to nobody that a default works can only
+				// be cleared by a hand removing that default, so the plan
+				// stops and says so instead of writing over it.
+				if !s.End {
+					if w := winner(f, s); w != nil && w.Depot == nil {
+						taken[w.ID] = true
+						b.plan.Refused = append(b.plan.Refused, fmt.Sprintf("stage %s of flow %s: the pack routes it to nobody, but yard default %s works it to %s; a pack import may not remove a yard default: remove it by hand (yardr route rm %s), or give the stage a group in the pack", s.Name, f.Name, w.ID, w.GroupList(), w.ID))
+						continue
+					}
 				}
 				// A stage in the flow with no group still replaces the yard's
 				// route for that depot, stage and type. Leaving that route in
@@ -225,6 +251,28 @@ func (b *planner) routes(flows []Flow) error {
 			if g.People || g.Run != "" {
 				op.Originator = store.OriginatorAny
 			}
+			w := winner(f, s)
+			// A winner with a condition or further groups is left to its
+			// chain: a pack names one group for a stage and cannot say a
+			// condition, so it writes no route over it, of either scope.
+			// The route is listed below as not in the pack.
+			if w != nil && w.Quotaed() {
+				scope := "own route"
+				if w.Depot == nil {
+					scope = "yard default"
+				}
+				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by %s %s to %s, which has a condition or further groups a pack cannot say; no route written", s.Name, f.Name, scope, w.ID, w.GroupList()))
+				continue
+			}
+			// A plain yard default that already works the stage for the
+			// group the pack binds leaves the stage to it: no own route
+			// is written, so a fresh depot inherits the default and a
+			// re-apply resurrects no copy the migration removed.
+			if w != nil && w.Depot == nil && w.Worker() == op.Group && plainRouteForStage(*w, f.Type, operator) {
+				taken[w.ID] = true
+				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by yard default %s to %s; no route written", s.Name, f.Name, w.ID, w.Worker()))
+				continue
+			}
 			// The depot's routes for the stage (and type), routes by label,
 			// bead priority or named originator aside: those say something
 			// the pack does not.
@@ -234,6 +282,11 @@ func (b *planner) routes(flows []Flow) error {
 					old = append(old, r)
 					taken[r.ID] = true
 				}
+			}
+			// A default the new own route sets aside for this depot has
+			// been dealt with by writing that route: it is not left alone.
+			if w != nil && w.Depot == nil {
+				taken[w.ID] = true
 			}
 			var changes []Diff
 			if len(old) > 0 {
@@ -259,10 +312,23 @@ func (b *planner) routes(flows []Flow) error {
 		}
 	}
 	for _, r := range have {
-		if r.Depot == nil || *r.Depot != b.o.Depot || taken[r.ID] {
+		if taken[r.ID] {
 			continue
 		}
+		if r.Depot != nil && *r.Depot != b.o.Depot {
+			continue
+		}
+		// What is left alone is listed with its scope: routes that ask
+		// something of the single bead and routes for stages the pack
+		// lacks, of either scope, and a quota winner left to its chain.
+		// A default handled above (worked by it, or set aside by the
+		// own route just planned) is taken and does not appear here.
 		name := "depot " + b.o.Depot + " stage " + r.Stage
+		depot := b.o.Depot
+		if r.Depot == nil {
+			name = "yard default stage " + r.Stage
+			depot = ""
+		}
 		if r.Type != nil {
 			name += " type " + *r.Type
 		}
@@ -276,9 +342,23 @@ func (b *planner) routes(flows []Flow) error {
 			name += " originator " + *r.Originator
 		}
 		b.add(Object{Kind: "route", Name: name + " -> " + r.GroupList(), Action: NotInPack,
-			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})
+			Route: &RouteOp{Stage: r.Stage, Depot: depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})
 	}
 	return nil
+}
+
+// plainRouteForStage reports whether r takes every plain bead of a stage
+// of a flow for typ: no condition or further group, no label, no bead
+// priority, and an originator that is the operator's or every originator's.
+// Such a default already says what a pack's stage route would say.
+func plainRouteForStage(r store.Route, typ, operator string) bool {
+	if r.Quotaed() || len(r.Labels()) > 0 || r.BeadPriority != nil {
+		return false
+	}
+	if r.Type != nil && *r.Type != typ {
+		return false
+	}
+	return r.Originator == nil || *r.Originator == store.OriginatorAny || *r.Originator == operator
 }
 
 func deref(p *string) string {
