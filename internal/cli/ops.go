@@ -1206,11 +1206,6 @@ group until its session ends; the next claim takes the new chain.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			fl := c.Flags()
-			for _, name := range []string{"stage", "type", "depot", "label", "bead-priority", "originator"} {
-				if fl.Changed(name) {
-					return fmt.Errorf("--%s is which beads the route takes, which route set does not change; restate the route with yardr route rm %s and yardr route add", name, args[0])
-				}
-			}
 			if !fl.Changed("group") && !fl.Changed("else") && !fl.Changed("priority") && !fl.Changed("note") {
 				return fmt.Errorf("nothing to set: give --group, --else, --priority or --note")
 			}
@@ -1267,20 +1262,21 @@ group until its session ends; the next claim takes the new chain.`,
 	f.StringArrayVar(&further, "else", nil, "a further group, tried when the ones before it are passed over; replaces the further groups, so name every one wanted (--else '' drops them)")
 	f.IntVarP(&priority, "priority", "p", 0, "higher wins when several routes match")
 	f.StringVar(&note, "note", "", "why this route ranks as it does, in words (--note '' drops it)")
-	// The route's identity, which route set refuses with the remove-and-add
-	// spelling: hidden, since no value of them is ever set here.
-	var stage, typ, depot, originator string
-	var labels []string
-	var beadPriority int
-	f.StringVar(&stage, "stage", "", "")
-	f.StringVar(&typ, "type", "", "")
-	f.StringVar(&depot, "depot", "", "")
-	f.StringArrayVar(&labels, "label", nil, "")
-	f.IntVar(&beadPriority, "bead-priority", 0, "")
-	f.StringVar(&originator, "originator", "", "")
-	for _, name := range []string{"stage", "type", "depot", "label", "bead-priority", "originator"} {
-		_ = f.MarkHidden(name)
-	}
+	// The route's identity is no flag of route set, so naming one fails
+	// the parse before RunE: the failure carries the remove-and-add
+	// spelling instead of the unknown flag. No flag is hidden to do it:
+	// help lists every flag yardr takes.
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		name, ok := strings.CutPrefix(err.Error(), "unknown flag: --")
+		if !ok || !slices.Contains([]string{"stage", "type", "depot", "label", "bead-priority", "originator"}, name) {
+			return err
+		}
+		id := "<id>"
+		if args := c.Flags().Args(); len(args) == 1 {
+			id = args[0]
+		}
+		return fmt.Errorf("--%s is which beads the route takes, which route set does not change; restate the route with yardr route rm %s and yardr route add", name, id)
+	})
 	return cmd
 }
 

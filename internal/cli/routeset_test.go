@@ -105,6 +105,11 @@ func TestRouteSetRefusesIdentityChanges(t *testing.T) {
 		!strings.Contains(err.Error(), "route no-such-route: not found") {
 		t.Errorf("route set of an unknown route: %v", err)
 	}
+	// Any other unknown flag fails as a flag, with no spelling.
+	if _, err := run(t, a.routeCmd(), "set", id, "--bogus"); err == nil ||
+		!strings.Contains(err.Error(), "unknown flag: --bogus") {
+		t.Errorf("route set --bogus: %v", err)
+	}
 	routes, err := st.Routes(ctx)
 	if err != nil || len(routes) != 1 || routes[0].Priority != 0 {
 		t.Errorf("a refused set moved the route: %+v, %v", routes, err)
