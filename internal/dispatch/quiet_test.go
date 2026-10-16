@@ -22,18 +22,20 @@ import (
 // quietYard is a yard with one git depot, a threshold of two landings and
 // a stand-in whole-suite run.
 type quietYard struct {
-	s     store.API
-	d     *dispatch.Dispatcher
-	mu    sync.Mutex
-	calls int
-	block chan struct{} // when set, the stand-in run waits on it
-	res   dispatch.QuietResult
-	err   error
+	s       store.API
+	d       *dispatch.Dispatcher
+	mu      sync.Mutex
+	calls   int
+	started chan struct{} // the stand-in suite has entered its run
+	block   chan struct{} // when set, the stand-in run waits on it
+	res     dispatch.QuietResult
+	err     error
 }
 
 func newQuietYard(t *testing.T) *quietYard {
 	t.Helper()
-	y := &quietYard{res: dispatch.QuietResult{Commit: "abc123", Wall: time.Second, Load: "1.00"}}
+	y := &quietYard{res: dispatch.QuietResult{Commit: "abc123", Wall: time.Second, Load: "1.00"},
+		started: make(chan struct{}, 1)}
 	y.s = storetest.New(t)
 	ctx := context.Background()
 	// A git depot, as the store asks of one: a repository on its base.
@@ -55,6 +57,10 @@ func newQuietYard(t *testing.T) *quietYard {
 			y.calls++
 			block := y.block
 			y.mu.Unlock()
+			select {
+			case y.started <- struct{}{}:
+			default:
+			}
 			if block != nil {
 				select {
 				case <-block:
@@ -234,9 +240,10 @@ func TestQuietRunIsSingleFlight(t *testing.T) {
 	y.land(t, "one")
 	y.land(t, "two")
 	dispatch.QuietMaybe(y.d, ctx)
-	deadline := time.Now().Add(10 * time.Second)
-	for y.runCalls() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-y.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("quiet run did not start")
 	}
 	if n := y.runCalls(); n != 1 {
 		t.Fatalf("calls = %d, want the run started", n)

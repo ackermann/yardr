@@ -15,7 +15,41 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
+
+func TestLandingsSinceQuietKeepsOlderDepotMarker(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	if err := s.PutDepot(ctx, store.Depot{Name: "target", Base: "main"}, "review"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "before quiet run", Depot: "target"}, "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Advance(ctx, b.ID, "merged", store.Expect{}, "review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogDispatch(ctx, "", store.QuietStarted, "review", map[string]any{"depot": "target"}); err != nil {
+		t.Fatal(err)
+	}
+	// Other depots can run often enough that a bounded global tail no
+	// longer contains target's marker.
+	for i := 0; i < 501; i++ {
+		if err := s.LogDispatch(ctx, "", store.QuietStarted, "review", map[string]any{"depot": "other"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	since, err := (&Dispatcher{Store: s}).landingsSinceQuiet(ctx, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if since != 0 {
+		t.Fatalf("landings since target's quiet run = %d, want 0", since)
+	}
+}
 
 func TestQuietCommandCancelsItsProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

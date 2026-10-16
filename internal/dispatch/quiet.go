@@ -185,7 +185,10 @@ func (d *Dispatcher) quietReady(ctx context.Context, depot store.Depot, n int) (
 // counted toward the next run, never covered unseen.
 func (d *Dispatcher) landingsSinceQuiet(ctx context.Context, depot string) (int, error) {
 	var epoch uint64
-	started, err := d.Store.EventsOfKind(ctx, store.QuietStarted, 500)
+	// Keep a marker for every depot. A fixed cap could drop a quieter
+	// depot's last start behind runs from other depots, then count its old
+	// landings again and schedule a redundant suite run.
+	started, err := d.Store.EventsOfKind(ctx, store.QuietStarted, int(^uint(0)>>1))
 	if err != nil {
 		return 0, err
 	}
