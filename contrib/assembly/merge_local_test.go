@@ -124,7 +124,9 @@ func newYard(t *testing.T) *yard {
 	})
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
+	// The test names itself to the servers it starts, so a run killed by its
+	// timeout leaves none behind (storetest.TestOwnerEnv).
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
 
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.

@@ -791,19 +791,21 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 	}
 }
 
-// ServerEnv keeps PATH, HOME and the yardr knobs, replaces the home with
-// the one served, and drops everything else: a credential from a
-// crew member's pane, the starter's identity, the shell's own.
+// ServerEnv keeps PATH, HOME and the yardr knobs, passes the test process
+// that started it through, replaces the home with the one served, and drops
+// everything else: a credential from a crew member's pane, the starter's
+// identity, the shell's own.
 func TestServerEnv(t *testing.T) {
 	got := ServerEnv([]string{"PATH=/bin", "HOME=/Users/jo", "GITHUB_TOKEN=ghp_x", "LINEAR_API_KEY=lin_x",
 		"YARDR_HOME=y1", "YARDR_ACTOR=yardmaster", "YARDR_CREW=yardmaster", "YARDR_BEAD=web-3",
 		"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
 		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3",
 		"YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
-		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
+		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
+		"SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
 	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2",
 		"YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_EVENT_RETENTION=1d",
-		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_HOME=/y1"}
+		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654", "YARDR_HOME=/y1"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("ServerEnv =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -836,6 +838,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_EVENT_RETENTION", "1d")
 	t.Setenv("YARDR_HOOK_PAYLOAD_RETENTION", "2d")
 	t.Setenv("YARDR_PPROF", "/y1/pprof.sock")
+	t.Setenv("YARDR_TEST_OWNER", "4242 987654")
 	t.Chdir(t.TempDir())
 	if err := Start(context.Background(), c); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -863,14 +866,15 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		// environment has each of them, blank, when a session runs it
 		// (config.BlankServerSettings), whichever this test sets.
 		switch {
-		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.ServerSettings...):
+		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.TestOwnerEnv), config.IsVar(k, config.ServerSettings...):
 		case k == "PWD", k == "OLDPWD", k == "SHLVL", k == "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)
 		}
 	}
 	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
-		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock"} {
+		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock",
+		"YARDR_TEST_OWNER=4242 987654"} {
 		if !slices.Contains(env, kv) {
 			t.Errorf("server lacks %s:\n%s", kv, strings.Join(env, "\n"))
 		}

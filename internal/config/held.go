@@ -5,7 +5,11 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 // HomeCheck is how often a server and a daemon look whether the home they
@@ -79,6 +83,62 @@ func (h *Held) Lost() string {
 		}
 	}
 	return ""
+}
+
+// TestOwnerEnv names the test-only variable in which a test names its
+// process to the server and the daemon it starts: "<pid> <start>", the pid
+// and the start time peer.Describe reports for it (the daemon-lock idiom).
+// A test binary killed by its timeout runs no cleanup, so without the watch
+// the server and the daemon it started outlive it, their homes intact and
+// nothing ending them. A real yard never sets it; it is deliberately not a
+// ServerSetting, so it is never blanked into work sessions nor baked into
+// login-service files.
+const TestOwnerEnv = "TEST_OWNER"
+
+// TestOwner is the owner the test process named in TestOwnerEnv: false when
+// the variable is missing or malformed, in which case there is no watch.
+func TestOwner() (pid int, start uint64, ok bool) {
+	raw := Getenv(TestOwnerEnv)
+	if raw == "" {
+		return 0, 0, false
+	}
+	fields := strings.Fields(raw)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil || pid <= 0 {
+		return 0, 0, false
+	}
+	start, err = strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return pid, start, true
+}
+
+// WatchOwner looks every interval and sends once, on the channel it
+// returns, when the owner process (pid with start, as TestOwner reports it)
+// is gone; it ends with that, or when ctx does. The server and the daemon
+// watch the test process that started them so, on the home-check tick.
+func WatchOwner(ctx context.Context, every time.Duration, pid int, start uint64) <-chan struct{} {
+	gone := make(chan struct{}, 1)
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if !peer.Alive(pid, start) {
+					gone <- struct{}{}
+					return
+				}
+			}
+		}
+	}()
+	return gone
 }
 
 // Watch looks every interval and sends what was lost, once, on the channel

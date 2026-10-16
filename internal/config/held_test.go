@@ -88,6 +88,47 @@ func TestHeldHomeLost(t *testing.T) {
 	}
 }
 
+// TestOwner is the "<pid> <start>" a test names to the server and the
+// daemon it starts; missing or malformed means no watch.
+func TestTestOwner(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		value     string
+		wantPid   int
+		wantStart uint64
+		wantOK    bool
+	}{
+		{"set", "4242 987654", 4242, 987654, true},
+		{"missing", "", 0, 0, false},
+		{"only a pid", "4242", 0, 0, false},
+		{"not a pid", "x 987654", 0, 0, false},
+		{"not a start", "4242 x", 0, 0, false},
+		{"no pid", "0 987654", 0, 0, false},
+		{"three fields", "4242 987654 1", 0, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("YARDR_TEST_OWNER", tc.value)
+			pid, start, ok := TestOwner()
+			if pid != tc.wantPid || start != tc.wantStart || ok != tc.wantOK {
+				t.Fatalf("TestOwner() = (%d, %d, %v)", pid, start, ok)
+			}
+		})
+	}
+}
+
+func TestTestOwnerUnset(t *testing.T) {
+	v, had := os.LookupEnv("YARDR_TEST_OWNER")
+	os.Unsetenv("YARDR_TEST_OWNER")
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("YARDR_TEST_OWNER", v)
+		}
+	})
+	if pid, start, ok := TestOwner(); ok {
+		t.Fatalf("TestOwner() = (%d, %d, true) without the variable", pid, start)
+	}
+}
+
 func TestWatchSaysOnceWhatWasLost(t *testing.T) {
 	c, h, _ := held(t)
 	ctx, cancel := context.WithCancel(context.Background())

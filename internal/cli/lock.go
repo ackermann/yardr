@@ -76,6 +76,8 @@ const homeCheck = config.HomeCheck
 // Like the server (see config.Held), a daemon is started detached and
 // nothing else stops one whose home was removed under it. The lock must be
 // held already. release ends the watch.
+// A daemon a test starts stops the same way when the test process it was
+// told about (YARDR_TEST_OWNER) is gone, as the server does.
 func whileHomeStands(ctx context.Context, cfg *config.Config, every time.Duration, log *slog.Logger) (context.Context, func(), error) {
 	held, err := cfg.Hold(cfg.DaemonLock())
 	if err != nil {
@@ -83,10 +85,20 @@ func whileHomeStands(ctx context.Context, cfg *config.Config, every time.Duratio
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	gone := held.Watch(ctx, every)
+	owner, ownerStart, watched := config.TestOwner()
+	var ownerGone <-chan struct{}
+	if watched {
+		ownerGone = config.WatchOwner(ctx, every, owner, ownerStart)
+	} else if raw := config.Getenv(config.TestOwnerEnv); raw != "" {
+		log.Warn("ignoring a malformed YARDR_TEST_OWNER", "value", raw)
+	}
 	go func() {
 		select {
 		case why := <-gone:
 			log.Warn("the yardr daemon's home is no longer its own; stopping", "home", cfg.Home, "reason", why)
+			cancel()
+		case <-ownerGone:
+			log.Warn("the test that started the yardr daemon is gone; stopping", "owner", owner)
 			cancel()
 		case <-ctx.Done():
 		}

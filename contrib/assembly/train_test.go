@@ -53,7 +53,9 @@ func newTrainYard(t *testing.T, check string) *yard {
 		}
 		os.RemoveAll(home)
 	})
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
+	// The test names itself to the servers it starts, so a run killed by its
+	// timeout leaves none behind (storetest.TestOwnerEnv).
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")

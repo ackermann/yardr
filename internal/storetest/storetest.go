@@ -147,6 +147,20 @@ func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) (release fun
 	}
 }
 
+// TestOwnerEnv is the YARDR_TEST_OWNER assignment for the yardr a test
+// starts: this test process's pid and the start time the OS reports for it
+// (the daemon-lock idiom), so that the server and the daemon stop by
+// themselves when the test binary is killed and runs no cleanup. The suites
+// that start a real yardr add it to their commands' environment.
+func TestOwnerEnv(t testing.TB) string {
+	t.Helper()
+	var start uint64
+	if st, err := peer.Describe(os.Getpid()); err == nil {
+		start = st.Start
+	}
+	return config.Env(config.TestOwnerEnv, strconv.Itoa(os.Getpid())+" "+strconv.FormatUint(start, 10))[0]
+}
+
 // Open opens the store at path, closing it when the test ends.
 func Open(t testing.TB, path string) *store.Store {
 	t.Helper()

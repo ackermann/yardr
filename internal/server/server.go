@@ -237,6 +237,20 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	watch, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	gone := held.Watch(watch, r.homeCheck)
+	// A test names its process to the server it starts (YARDR_TEST_OWNER),
+	// which stops when the owner is gone: a test binary killed by its
+	// timeout runs no cleanup, and the home it leaves intact gives the home
+	// watch nothing to act on. A real yard never sets the variable, and a
+	// stray value cannot stop it: a malformed one is a warning, never a
+	// stop. The watch stops through the normal path (lost stays false):
+	// the home, socket and pidfiles are still this server's.
+	owner, ownerStart, watched := config.TestOwner()
+	var ownerGone <-chan struct{}
+	if watched {
+		ownerGone = config.WatchOwner(watch, r.homeCheck, owner, ownerStart)
+	} else if raw := config.Getenv(config.TestOwnerEnv); raw != "" {
+		log.Warn("ignoring a malformed YARDR_TEST_OWNER", "value", raw)
+	}
 	var serveErr error
 	stopped := false // Serve has returned
 wait:
@@ -256,6 +270,9 @@ wait:
 			if ul, ok := ln.(*net.UnixListener); ok {
 				ul.SetUnlinkOnClose(false)
 			}
+			break wait
+		case <-ownerGone:
+			log.Warn("the test that started the yardr server is gone; stopping", "owner", owner)
 			break wait
 		case serveErr = <-served:
 			stopped = true
@@ -594,15 +611,17 @@ func Start(ctx context.Context, c *config.Config) error {
 // ServerEnv is the environment a detached server starts with, from the
 // starter's environ: PATH and HOME (git, which reads the depots' .yardr/ from
 // their base, needs both), the settings the server reads
-// (config.ServerSettings), and the home it serves, in place of whatever
-// YARDR_HOME said. Nothing else: no credential, no identity (the starter's actor,
+// (config.ServerSettings), the test process that started it
+// (config.TestOwnerEnv), which the server stops with when that test is
+// killed, and the home it serves, in place of whatever YARDR_HOME said.
+// Nothing else: no credential, no identity (the starter's actor,
 // bead, session and branch are the starter's, not the server's), no agent's
 // settings. The settings reach it from an operator's shell only: a session
 // or a script is started without them (config.WithoutServerSettings).
 func ServerEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.ServerSettings...) {
+		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.TestOwnerEnv) || config.IsVar(k, config.ServerSettings...) {
 			env = append(env, kv)
 		}
 	}

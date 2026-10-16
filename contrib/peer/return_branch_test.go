@@ -102,7 +102,9 @@ func newYard(t *testing.T) *yard {
 	})
 	dir := t.TempDir()
 	y := &yard{t: t, home: home, repo: filepath.Join(dir, "repo"), remote: filepath.Join(dir, "remote.git")}
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
+	// The test names itself to the servers it starts, so a run killed by its
+	// timeout leaves none behind (storetest.TestOwnerEnv).
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
 	y.yardr("init", "--harness", "claude", "--dir", home)
 	y.git(dir, "init", "-q", "--bare", "-b", "main", y.remote)
 	y.git(dir, "clone", "-q", y.remote, y.repo)
