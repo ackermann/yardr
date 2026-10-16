@@ -310,8 +310,10 @@ the old tip from the merger's note and runs
 conflict-resolution changes: that both sides' intent was kept, the merger's
 note names every conflicting file, and the test result is credible. It does
 not redo the original feature review. If the resolution is sound, it notes
-the range-diff and advances to `approved`; otherwise it sends the bead to
-`new` or `decide` with a concrete finding.
+the range-diff and reports `done-safe` to go straight to `approved` if the
+resolution touches nothing on the security list, or `done` to send it through
+`review-security` if it does; otherwise it sends the bead to `new` or `decide`
+with a concrete finding.
 
 ### Then once more, for security alone
 
