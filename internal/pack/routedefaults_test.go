@@ -164,6 +164,43 @@ func TestPackWritesOwnRouteWhereItsBindingDiffersFromTheDefault(t *testing.T) {
 	}
 }
 
+// A default restricted to the operator does not work a people stage for
+// every originator. The pack writes its any-originator route and leaves the
+// narrower default alone.
+func TestPackDoesNotLeavePeopleStageToOperatorOnlyDefault(t *testing.T) {
+	st, o := yard(t)
+	mustGroup(t, st, store.Group{Name: "people", Runner: "manual"})
+	operator := "me"
+	def := mustDefaultRoute(t, st, store.Route{Stage: "decide", Group: "people", Originator: &operator})
+
+	plan := build(t, st, load(t, writePack(t, smallFiles(small))), o)
+	var found bool
+	for _, obj := range plan.Objects {
+		if obj.Kind == "route" && obj.Route != nil && obj.Route.Depot == "web" && obj.Route.Stage == "decide" && obj.Route.Group == "people" {
+			found = true
+			if obj.Action != pack.Create || obj.Route.Originator != store.OriginatorAny {
+				t.Errorf("people-stage route = %+v, want a new any-originator route", obj)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the plan does not create a people-stage route; routes:\n%s", strings.Join(routeActions(plan), "\n"))
+	}
+	if !slices.Contains(actions(plan, pack.NotInPack), "route yard default stage decide originator me -> people") {
+		t.Errorf("the narrower default %s is not listed as left alone: %v", def.ID, actions(plan, pack.NotInPack))
+	}
+	apply(t, st, plan, nil)
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	depot := "web"
+	bead := store.Bead{Stage: "decide", Type: "task", Depot: &depot, Originator: "another-user", Priority: store.DefaultPriority}
+	if r := store.MatchRoute(routes, bead, "me"); r == nil || r.Depot == nil || r.Group != "people" {
+		t.Errorf("a non-operator bead in decide took %+v, want the pack's own people route", r)
+	}
+}
+
 // A stage whose effective winner carries a quota chain is left to that
 // chain, of either scope: the pack writes no route over a condition it
 // cannot say, and the chain route is listed as not in the pack.

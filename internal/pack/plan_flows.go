@@ -268,7 +268,7 @@ func (b *planner) routes(flows []Flow) error {
 			// group the pack binds leaves the stage to it: no own route
 			// is written, so a fresh depot inherits the default and a
 			// re-apply resurrects no copy the migration removed.
-			if w != nil && w.Depot == nil && w.Worker() == op.Group && plainRouteForStage(*w, f.Type, operator) {
+			if w != nil && w.Depot == nil && w.Worker() == op.Group && plainRouteForStage(*w, f.Type, operator, op.Originator) {
 				taken[w.ID] = true
 				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by yard default %s to %s; no route written", s.Name, f.Name, w.ID, w.Worker()))
 				continue
@@ -283,9 +283,10 @@ func (b *planner) routes(flows []Flow) error {
 					taken[r.ID] = true
 				}
 			}
-			// A default the new own route sets aside for this depot has
-			// been dealt with by writing that route: it is not left alone.
-			if w != nil && w.Depot == nil {
+			// Only an own route with the same match key sets a default
+			// aside. A typed or originator-filtered default can still work
+			// other beads, so leave it listed when this route has another key.
+			if w != nil && w.Depot == nil && sameStageRouteKey(*w, s.Name, f.Type, operator, op.Originator) {
 				taken[w.ID] = true
 			}
 			var changes []Diff
@@ -347,18 +348,46 @@ func (b *planner) routes(flows []Flow) error {
 	return nil
 }
 
-// plainRouteForStage reports whether r takes every plain bead of a stage
-// of a flow for typ: no condition or further group, no label, no bead
-// priority, and an originator that is the operator's or every originator's.
-// Such a default already says what a pack's stage route would say.
-func plainRouteForStage(r store.Route, typ, operator string) bool {
+// plainRouteForStage reports whether r has no quota chain or bead filter
+// and covers every originator the pack's route covers. A default may cover
+// more types or, for an operator-only pack route, more originators; if it
+// works the stage for the same group, the pack can leave it in place.
+func plainRouteForStage(r store.Route, typ, operator, originator string) bool {
 	if r.Quotaed() || len(r.Labels()) > 0 || r.BeadPriority != nil {
 		return false
 	}
 	if r.Type != nil && *r.Type != typ {
 		return false
 	}
+	if originator == store.OriginatorAny {
+		return r.Originator != nil && *r.Originator == store.OriginatorAny
+	}
 	return r.Originator == nil || *r.Originator == store.OriginatorAny || *r.Originator == operator
+}
+
+// sameStageRouteKey reports whether r has the match key of the own route
+// the pack would write: the same stage and type, no bead filters, and the
+// same resolved originator. Only that own route sets r aside as a default.
+func sameStageRouteKey(r store.Route, stage, typ, operator, originator string) bool {
+	if r.Stage != stage || len(r.Labels()) > 0 || r.BeadPriority != nil {
+		return false
+	}
+	if typ == "" {
+		if r.Type != nil {
+			return false
+		}
+	} else if r.Type == nil || *r.Type != typ {
+		return false
+	}
+	gotOriginator := operator
+	if r.Originator != nil {
+		gotOriginator = *r.Originator
+	}
+	wantOriginator := operator
+	if originator != "" {
+		wantOriginator = originator
+	}
+	return gotOriginator == wantOriginator
 }
 
 func deref(p *string) string {
