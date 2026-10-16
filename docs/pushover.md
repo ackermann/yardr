@@ -141,7 +141,7 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
   a source for a user whose mail must not.
 - **When**: once it has been in the inbox for 20 seconds and is still
   unread. What was read by then (`yardr chat` showing it, `yardr inbox
-  --ack`) is not sent, nor is an ask that was answered by then. Everything due for one user goes as one message, and
+  --ack <seq>`) is not sent, nor is an ask that was answered by then. Everything due for one user goes as one message, and
   a burst waits until nothing new came for 20 seconds, 60 at most.
 - **How many**: at most 20 messages an hour for one user. The twentieth
   begins "The 20th message this hour, and the last: what comes next waits

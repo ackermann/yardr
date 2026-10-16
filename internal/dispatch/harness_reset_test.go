@@ -636,7 +636,7 @@ func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) 
 	p.say(kimiOpen)
 	*now = noon().Add(43*time.Minute + time.Second)
 	must(t, d.Reconcile(ctx))
-	want := agent + ": " + resetLine + " 1 new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled."
+	want := agent + ": " + resetLine + " 1 new in your inbox: run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled."
 	if len(f.nudges) != 2 || f.nudges[1] != want {
 		t.Fatalf("nudges = %q, want the line at the reset with the inbox's count", f.nudges)
 	}

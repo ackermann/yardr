@@ -1021,9 +1021,11 @@ func (a *app) inboxCmd() *cobra.Command {
 	var limit int
 	var forUser string
 	cmd := &cobra.Command{
-		Use:   "inbox",
+		Use:   "inbox [--ack <seq>]",
 		Short: "Unread events and mail: a crew member's, or your own as a user",
-		Long: `Show a crew member's unacknowledged events, oldest first. --ack marks everything shown as handled.
+		Long: `Show a crew member's unacknowledged events, oldest first. --ack <seq>
+marks everything through <seq> as handled, and nothing newer: name the
+last seq you have handled, so what arrived since stays unread.
 Answer mail with yardr reply <seq>, the number its line starts with.
 A crew member with conversation sessions has one slice per session: --for
 shows a conversation's, else the line session's (a session reads its own
@@ -1039,18 +1041,36 @@ under its name and unread count:
                  (yardr subscribe <you> ...): one line each, in the
                  mail's order, with nobody to answer
 
---mail and --notifications show one part. --ack marks the unread shown as
-read, in the parts shown only: with --notifications your mail stays
-unread, and with --mail your notifications do. Nothing nudges a person:
+--mail and --notifications show one part. --ack <seq> marks read what is
+through <seq>, in the parts shown only: with --notifications your mail stays
+unread, and with --mail your notifications do. What is newer than the seq
+stays unread, and the command says how much. Nothing nudges a person:
 yardr doctor and bare yardr say what waits.`,
 		Example: `  yardr inbox
-  yardr inbox --mail --ack
-  yardr inbox --notifications -n 50 --ack`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
+  yardr inbox --ack 412
+  yardr inbox --mail --ack 412
+  yardr inbox --notifications -n 50 --ack 412`,
+		Args: func(c *cobra.Command, args []string) error {
+			if len(args) > 1 {
+				return fmt.Errorf("yardr inbox takes at most the seq --ack acknowledges through")
+			}
+			if len(args) == 1 && !ack {
+				return fmt.Errorf("a seq names what --ack acknowledges through: yardr inbox --ack %s", args[0])
+			}
+			return nil
+		},
+		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			var through uint64
+			if ack && len(args) == 1 {
+				v, err := strconv.ParseUint(args[0], 10, 64)
+				if err != nil || v == 0 {
+					return fmt.Errorf("--ack %q: want the seq to acknowledge through, as the inbox's first column prints it", args[0])
+				}
+				through = v
 			}
 			if member == "" && config.Getenv("CREW") == "" {
 				u, err := a.actingUser(c.Context(), st)
@@ -1064,7 +1084,7 @@ yardr doctor and bare yardr say what waits.`,
 					return fmt.Errorf("--crew is required (or set YARDR_CREW): %s is no user, who would read their own (yardr user list)", a.who())
 				}
 				// Neither flag is both parts, as both flags are.
-				return a.userInbox(c.Context(), st, u.Name, limit, ack, mail || !notes, notes || !mail)
+				return a.userInbox(c.Context(), st, u.Name, limit, ack, through, mail || !notes, notes || !mail)
 			}
 			if mail || notes {
 				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a crew member's has one")
@@ -1078,10 +1098,33 @@ yardr doctor and bare yardr say what waits.`,
 			if err != nil {
 				return err
 			}
-			if ack && len(page.Events) > 0 {
-				if err := st.AckInboxFor(c.Context(), name, user, page.Events[len(page.Events)-1].Seq); err != nil {
+			if ack && through == 0 {
+				// Bare --ack: refuse, naming the newest seq and the
+				// command to ack through it, in this inbox's scope.
+				scope := "yardr inbox"
+				if member != "" {
+					scope += " --crew " + member
+				}
+				if c.Flags().Changed("for") {
+					scope += " --for " + forUser
+				}
+				return ackRefused(scope, page.Last)
+			}
+			acked, newer := 0, 0
+			if ack && page.Total > 0 {
+				// Past the newest unread the seq cannot go: a future
+				// seq must not pre-acknowledge mail not yet written.
+				if t := min(through, page.Last); t > 0 {
+					if err := st.AckInboxFor(c.Context(), name, user, t); err != nil {
+						return err
+					}
+				}
+				after, err := st.InboxFor(c.Context(), name, user, 1)
+				if err != nil {
 					return err
 				}
+				newer = after.Total
+				acked = page.Total - newer
 			}
 			return a.out(page, func() {
 				if page.Total == 0 {
@@ -1095,18 +1138,40 @@ yardr doctor and bare yardr say what waits.`,
 					fmt.Printf("… %d more\n", rest)
 				}
 				if ack {
-					fmt.Printf("acknowledged %d\n", len(page.Events))
+					fmt.Printf("acknowledged %d\n", acked)
+					if newer > 0 {
+						fmt.Print(newerUnreadLine(newer))
+					}
 				}
 			})
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "crew member (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&forUser, "for", "", "a crew member's conversation session for this user (default $YARDR_CREW_FOR, else the line session)")
-	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's: the unread shown as read, in the parts shown)")
+	cmd.Flags().BoolVar(&ack, "ack", false, "mark handled through <seq>, and nothing newer (a user's: read, in the parts shown)")
 	cmd.Flags().BoolVar(&mail, "mail", false, "a user's inbox: the mail only")
 	cmd.Flags().BoolVar(&notes, "notifications", false, "a user's inbox: the notifications only")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "how many to show")
 	return cmd
+}
+
+// ackRefused refuses a bare --ack: it names the newest unread seq the
+// inbox holds and the command to ack through it. scope is yardr inbox in
+// the inbox's scope (--crew, --for, --mail, --notifications as given).
+func ackRefused(scope string, newest uint64) error {
+	if newest == 0 {
+		return fmt.Errorf("--ack takes the seq to acknowledge through, and the inbox holds nothing unread: nothing to acknowledge")
+	}
+	return fmt.Errorf("--ack takes the seq to acknowledge through: the newest unread is %d, so %s --ack %d", newest, scope, newest)
+}
+
+// newerUnreadLine says how many entries newer than an acked-through seq
+// stay unread.
+func newerUnreadLine(n int) string {
+	if n == 1 {
+		return "1 newer stays unread\n"
+	}
+	return fmt.Sprintf("%d newer stay unread\n", n)
 }
 
 // printInboxEvent prints one event of member's inbox. home is the yard's
@@ -1177,7 +1242,7 @@ the reason where the file's path would be.
 
 --with <name> sends nothing and prints the mail between you and that crew member
 or user, both directions, oldest first: seq, time, whether its receiver has
-read it (acknowledged it with yardr inbox --ack), sender and text. --after
+read it (acknowledged it with yardr inbox --ack <seq>), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
 {seq, at, from, to, text, read}, with files on mail that carries any. --with <name>@<peer> prints the mail
 between you and a crew member or person of a linked yard; what you wrote says queued,
@@ -1560,7 +1625,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name, user string) er
 		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)
 		if user != "" {
 			fmt.Printf("This session talks with `%s`; the inbox below is your conversation with them, and "+
-				"`yardr inbox --ack` marks only it as handled.\n\n", user)
+				"`yardr inbox --ack <seq>` marks only it as handled, through the seq you name.\n\n", user)
 		}
 		if role != "" {
 			fmt.Printf("## Your role\n\n%s\n\n", role)
@@ -1676,7 +1741,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name, user string) er
 		}
 		fmt.Printf(`## How you work
 
-- yardr inbox / yardr inbox --ack: your events and mail; ack what you have handled.
+- yardr inbox / yardr inbox --ack <seq>: your events and mail; ack through the last seq you have handled.
   yardr nudges you when something new arrives and you are idle.
 - yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
   next and what to watch (max 16 KB); yardr starts your next session from it.

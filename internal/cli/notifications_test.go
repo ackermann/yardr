@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -123,8 +124,9 @@ func TestUserSubscribes(t *testing.T) {
 }
 
 // A user's inbox is shown in two parts, Mail and Notifications, each with
-// its unread count; --mail and --notifications show one, and --ack marks
-// read what the parts shown hold and nothing of the other.
+// its unread count; --mail and --notifications show one, and --ack <seq>
+// marks read what is through the seq in the parts shown and nothing of
+// the other.
 func TestUserInboxParts(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
@@ -182,19 +184,19 @@ func TestUserInboxParts(t *testing.T) {
 
 	// Acknowledging the notifications shown, the oldest of three, leaves
 	// the rest of them and all of the mail.
-	out = mustAs(t, st, "jo", "inbox", "--notifications", "-n", "1", "--ack")
-	wantText(t, out, "Notifications: 3 unread\n", row+"1 on", "… 2 more unread\n", "acknowledged 1\n")
+	out = mustAs(t, st, "jo", "inbox", "--notifications", "-n", "1", "--ack", fmt.Sprint(page.Notifications[0].Seq))
+	wantText(t, out, "Notifications: 3 unread\n", row+"1 on", "… 2 more unread\n", "acknowledged 1\n", "2 newer stay unread\n")
 	if m, n := counts(); m != 2 || n != 2 || strings.Contains(out, row+"2") {
 		t.Fatalf("after --notifications -n 1 --ack: %d mail, %d notifications unread\n%s", m, n, out)
 	}
-	out = mustAs(t, st, "jo", "inbox", "--notifications", "--ack")
+	out = mustAs(t, st, "jo", "inbox", "--notifications", "--ack", fmt.Sprint(page.Notifications[2].Seq))
 	wantText(t, out, "Notifications: 2 unread\n", "(read) "+row+"1 on", row+"2 on", row+"3 on", "acknowledged 2\n")
 	if m, n := counts(); m != 2 || n != 0 {
 		t.Fatalf("after --notifications --ack: %d mail, %d notifications unread", m, n)
 	}
 	// And the mail, which leaves a notification that came since.
 	note("four")
-	out = mustAs(t, st, "jo", "inbox", "--mail", "--ack")
+	out = mustAs(t, st, "jo", "inbox", "--mail", "--ack", fmt.Sprint(box.Last))
 	wantText(t, out, "Mail: 2 unread\n", "acknowledged 2\n")
 	if m, n := counts(); m != 0 || n != 1 {
 		t.Fatalf("after --mail --ack: %d mail, %d notifications unread", m, n)
@@ -213,7 +215,15 @@ func TestUserInboxParts(t *testing.T) {
 	if err := st.Mail(ctx, "jo", "still there?", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	out = mustAs(t, st, "jo", "inbox", "--ack")
+	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notesBox, err := st.UserNotifications(ctx, "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = mustAs(t, st, "jo", "inbox", "--ack", fmt.Sprint(max(mailBox.Last, notesBox.Last)))
 	if strings.Count(out, "acknowledged 1\n") != 2 {
 		t.Fatalf("inbox --ack:\n%s", out)
 	}
@@ -265,11 +275,19 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 			t.Fatalf("bare yardr as %s:\n%s", who, out)
 		}
 	}
-	mustAs(t, st, "jo", "inbox", "--notifications", "--ack")
+	notesBox, err := st.UserNotifications(ctx, "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--notifications", "--ack", fmt.Sprint(notesBox.Last))
 	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from yardmaster, ada (yardr inbox).\n") {
 		t.Fatalf("bare yardr after the notifications were read:\n%s", bare)
 	}
-	mustAs(t, st, "jo", "inbox", "--mail", "--ack")
+	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--mail", "--ack", fmt.Sprint(mailBox.Last))
 	if bare := mustAs(t, st, "jo"); strings.Contains(bare, "for jo") || strings.Contains(bare, "(yardr inbox)") {
 		t.Fatalf("bare yardr with nothing unread:\n%s", bare)
 	}

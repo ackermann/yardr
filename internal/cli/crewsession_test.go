@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestCrewSetServingKeys(t *testing.T) {
 }
 
 // inbox --for shows a conversation's slice, and a session reads its own
-// from $YARDR_CREW_FOR; --ack there leaves the line's unread.
+// from $YARDR_CREW_FOR; --ack <seq> there leaves the line's unread.
 func TestInboxForShowsSlice(t *testing.T) {
 	st := sessionYard(t)
 	mustAs(t, st, "hal", "mail", "yardmaster", "hal asks about deploys")
@@ -59,7 +60,11 @@ func TestInboxForShowsSlice(t *testing.T) {
 	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "hal asks about deploys") {
 		t.Errorf("inbox with YARDR_CREW_FOR=hal:\n%s", out)
 	}
-	mustAs(t, st, "jo", "inbox", "--crew", "yardmaster", "--for", "hal", "--ack")
+	halBox, err := st.InboxFor(context.Background(), "yardmaster", "hal", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--crew", "yardmaster", "--for", "hal", "--ack", fmt.Sprint(halBox.Last))
 	t.Setenv("YARDR_CREW_FOR", "")
 	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "jo notes the freeze") {
 		t.Errorf("line inbox after hal's ack:\n%s", out)

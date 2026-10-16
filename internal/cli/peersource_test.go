@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -165,7 +166,11 @@ func TestPeerSourceCommands(t *testing.T) {
 	if got := mustAs(t, st, "jo", "subscribe", "clerk", "peer", "--scope", "all", "--where", "peer=nord", "--where", "action=held", "--where", "action=gave_up"); !strings.Contains(got, "clerk already subscribed") {
 		t.Fatalf("clerk's filter after the rename:\n%s", got)
 	}
-	mustAs(t, st, "jo", "inbox", "--crew", "clerk", "--ack")
+	clerkBox, err := st.InboxFor(ctx, "clerk", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--crew", "clerk", "--ack", fmt.Sprint(clerkBox.Last))
 	event("nord", "e2", "gave_up", "build", true)
 	if inbox := mustAs(t, st, "jo", "inbox", "--crew", "clerk"); !regexp.MustCompile(regexp.QuoteMeta("  peer nord: "+id+" was given up on there, in the stage build, held (there web-0wzb): yardr thread show ") + `\d+  \[all\]\n`).MatchString(inbox) {
 		t.Fatalf("clerk's inbox after the rename:\n%s", inbox)

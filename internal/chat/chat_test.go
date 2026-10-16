@@ -353,7 +353,7 @@ func TestCrewMailReadReceiptStaysInConversation(t *testing.T) {
 	}
 }
 
-// Mail acknowledged elsewhere (yardr inbox --ack in another terminal) is
+// Mail acknowledged elsewhere (yardr inbox --ack <seq> in another terminal) is
 // no longer counted, and mail from someone who is no crew member is named
 // with where to read it.
 func TestUnreadElsewhere(t *testing.T) {

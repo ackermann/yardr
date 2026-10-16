@@ -118,7 +118,7 @@ func TestUserCommands(t *testing.T) {
 }
 
 // A crew member's session and a user mail a user; a bead's agent does not.
-// Each user reads their own mail with yardr inbox, and --ack marks it read.
+// Each user reads their own mail with yardr inbox, and --ack <seq> marks it read.
 func TestMailAUser(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "user", "add", "ada")
@@ -163,8 +163,12 @@ func TestMailAUser(t *testing.T) {
 		t.Fatalf("inbox --crew yardmaster:\n%s", out)
 	}
 
-	// --ack marks what is shown: the first of two, then the rest.
-	if out := mustAs(t, st, "jo", "inbox", "-n", "1", "--ack"); !strings.Contains(out, "noted, until when?") ||
+	// --ack through the first of two, then the rest.
+	mailBox, err := st.UserInbox(context.Background(), "jo", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := mustAs(t, st, "jo", "inbox", "-n", "1", "--ack", fmt.Sprint(mailBox.Mail[0].Seq)); !strings.Contains(out, "noted, until when?") ||
 		!strings.Contains(out, "… 1 more unread") || !strings.Contains(out, "acknowledged 1") {
 		t.Fatalf("inbox -n 1 --ack:\n%s", out)
 	}
@@ -174,7 +178,11 @@ func TestMailAUser(t *testing.T) {
 	if unread < 0 || read < unread {
 		t.Fatalf("unread is not first:\n%s", out)
 	}
-	mustAs(t, st, "jo", "inbox", "--ack")
+	mailBox, err = st.UserInbox(context.Background(), "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--ack", fmt.Sprint(mailBox.Last))
 	if out := mustAs(t, st, "jo", "inbox"); !strings.HasPrefix(out, "Mail: nothing unread; the latest read:\n") || strings.Count(out, "(read)") != 2 {
 		t.Fatalf("after the ack:\n%s", out)
 	}
@@ -262,9 +270,17 @@ func TestMailWith(t *testing.T) {
 	}
 	// The yardmaster acknowledges the first mail, jo theirs.
 	t.Setenv("YARDR_CREW", "yardmaster")
-	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack")
+	crewBox, err := st.InboxFor(context.Background(), "yardmaster", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack", fmt.Sprint(crewBox.Events[0].Seq))
 	t.Setenv("YARDR_CREW", "")
-	mustAs(t, st, "jo", "inbox", "--ack")
+	mailBox, err := st.UserInbox(context.Background(), "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--ack", fmt.Sprint(mailBox.Last))
 
 	out := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -353,7 +369,7 @@ func TestUnreadMailIsSaid(t *testing.T) {
 	}
 	before, _ := st.Head(ctx)
 	out, rep = doctor("jo")
-	wantText(t, out, "note   mail        3 unread from yardmaster, ada for jo: ", " inbox reads them, --ack marks them read")
+	wantText(t, out, "note   mail        3 unread from yardmaster, ada for jo: ", " inbox reads them, --ack <seq> marks them read")
 	if m := rep.State.Mail; m == nil || m.Unread != 3 || strings.Join(m.From, ",") != "yardmaster,ada" {
 		t.Fatalf("mail = %+v", rep.State.Mail)
 	}
@@ -384,7 +400,11 @@ func TestUnreadMailIsSaid(t *testing.T) {
 		t.Fatalf("reading wrote to the store: head %d, was %d", after, before)
 	}
 
-	mustAs(t, st, "jo", "inbox", "--ack")
+	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "inbox", "--ack", fmt.Sprint(mailBox.Last))
 	if out, _ = doctor("jo"); !strings.Contains(out, "nothing unread for jo") {
 		t.Fatalf("after the ack:\n%s", out)
 	}

@@ -183,7 +183,7 @@ alike share one line, under the last of them:
 
 | Line | Means |
 |---|---|
-| `read` | the crew member acknowledged it (`yardr inbox --ack`) |
+| `read` | the crew member acknowledged it (`yardr inbox --ack <seq>`) |
 | `sent; <name> is idle` | it is in the inbox, and the daemon nudges the idle session |
 | `sent; <name> is working and reads mail when idle` | mail does not interrupt a turn |
 | `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |

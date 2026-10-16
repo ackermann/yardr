@@ -26,7 +26,7 @@ const (
 const (
 	// PushGrace is how long what landed in a user's inbox waits before it
 	// is told outside the yard. What the user acknowledged meanwhile (a
-	// conversation open in yardr chat, yardr inbox --ack) is not told, and
+	// conversation open in yardr chat, yardr inbox --ack <seq>) is not told, and
 	// neither is an ask they answered, declined or put aside meanwhile.
 	PushGrace = 20 * time.Second
 	// PushesPerHour is the most messages one user is sent in an hour. What

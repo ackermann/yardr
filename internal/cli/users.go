@@ -203,7 +203,7 @@ What is told, of the parts tell names: mail to the user (their own too, and
 a timer they set), the notifications of their subscriptions and the asks
 for them, by the daemon, once each is 20
 seconds old and still unread. What was acknowledged by then (yardr chat
-showing it, yardr inbox --ack) is not told. All that is due goes as one
+showing it, yardr inbox --ack <seq>) is not told. All that is due goes as one
 message: who it is from or which bead, what happened, and the start of the
 text; several are counted and named. At most 20 messages an hour; what is
 over waits and goes as one. A send that fails is tried again for up to 8
@@ -538,12 +538,11 @@ type userBox struct {
 
 // userInbox is yardr inbox run as a user: of each part asked for, the
 // unread and the latest read, under the part's name and unread count. With
-// ack the unread shown are marked read, in the parts shown only: each part
-// has a cursor of its own.
-func (a *app) userInbox(ctx context.Context, st store.API, name string, limit int, ack, mail, notes bool) error {
+// ack what is through the seq is marked read, in the parts shown only:
+// each part has a cursor of its own.
+func (a *app) userInbox(ctx context.Context, st store.API, name string, limit int, ack bool, through uint64, mail, notes bool) error {
 	var box userBox
 	var err error
-	acked := map[string]int{}
 	if mail {
 		if box.Mailbox, err = st.UserInbox(ctx, name, limit); err != nil {
 			return err
@@ -554,8 +553,28 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 			return err
 		}
 	}
+	if ack && through == 0 {
+		// Bare --ack: refuse, naming the newest seq the parts shown
+		// hold and the command to ack through it.
+		var newest uint64
+		if mail {
+			newest = max(newest, box.Last)
+		}
+		if notes {
+			newest = max(newest, box.Notifications.Last)
+		}
+		scope := "yardr inbox"
+		if mail && !notes {
+			scope += " --mail"
+		}
+		if notes && !mail {
+			scope += " --notifications"
+		}
+		return ackRefused(scope, newest)
+	}
 	// Both are read before either is acknowledged: an ack is logged, and
 	// what is shown is the inbox as it was found.
+	rest, acked, newer := map[string]int{}, map[string]int{}, map[string]int{}
 	if mail {
 		// The unread come first, oldest first.
 		shown := 0
@@ -564,10 +583,21 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 				shown++
 			}
 		}
-		if acked["mail"] = shown; ack && shown > 0 {
-			if err := st.AckUserInbox(ctx, name, box.Mail[shown-1].Seq); err != nil {
+		rest["mail"] = box.Unread - shown
+		if ack && box.Unread > 0 {
+			// Past the newest unread the seq cannot go: a future
+			// seq must not pre-acknowledge mail not yet written.
+			if t := min(through, box.Last); t > 0 {
+				if err := st.AckUserInbox(ctx, name, t); err != nil {
+					return err
+				}
+			}
+			after, err := st.UserInbox(ctx, name, 1)
+			if err != nil {
 				return err
 			}
+			newer["mail"] = after.Unread
+			acked["mail"] = box.Unread - newer["mail"]
 		}
 	}
 	if notes {
@@ -580,10 +610,19 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 				shown++
 			}
 		}
-		if acked["notifications"] = shown; ack && shown > 0 {
-			if err := st.AckUserNotifications(ctx, name, ns[len(ns)-1].Seq); err != nil {
+		rest["notifications"] = box.Notifications.Unread - shown
+		if ack && box.Notifications.Unread > 0 {
+			if t := min(through, box.Notifications.Last); t > 0 {
+				if err := st.AckUserNotifications(ctx, name, t); err != nil {
+					return err
+				}
+			}
+			after, err := st.UserNotifications(ctx, name, 1)
+			if err != nil {
 				return err
 			}
+			newer["notifications"] = after.Unread
+			acked["notifications"] = box.Notifications.Unread - newer["notifications"]
 		}
 	}
 	return a.out(box, func() {
@@ -607,7 +646,7 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 					fmt.Printf("    %s\n", line)
 				}
 			}
-			partFoot(box.Unread-acked["mail"], acked["mail"], ack)
+			partFoot(rest["mail"], acked["mail"], ack, newer["mail"])
 		}
 		if mail && notes {
 			fmt.Println()
@@ -622,7 +661,7 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 				}
 				fmt.Printf("%6d %s  %s%s\n", n.Seq, n.At.Local().Format(mailTime), state, n.Text)
 			}
-			partFoot(p.Unread-acked["notifications"], acked["notifications"], ack)
+			partFoot(rest["notifications"], acked["notifications"], ack, newer["notifications"])
 		}
 	})
 }
@@ -658,14 +697,17 @@ func partHead(part string, shown, unread int) string {
 	return fmt.Sprintf("%s: %d unread", part, unread)
 }
 
-// partFoot says, under a part, what of its unread was not shown and what
-// an ack marked read.
-func partFoot(rest, shown int, ack bool) {
+// partFoot says, under a part, what of its unread was not shown, what an
+// ack marked read, and what newer than the ack's seq stays unread.
+func partFoot(rest, ackedCount int, ack bool, newer int) {
 	if rest > 0 {
 		fmt.Printf("… %d more unread\n", rest)
 	}
 	if ack {
-		fmt.Printf("acknowledged %d\n", shown)
+		fmt.Printf("acknowledged %d\n", ackedCount)
+		if newer > 0 {
+			fmt.Print(newerUnreadLine(newer))
+		}
 	}
 }
 
@@ -771,7 +813,7 @@ func (m *mailState) line(yardr string) docLine {
 	if m.Unread == 0 {
 		return docLine{tagOK, "mail", "nothing unread for " + m.User}
 	}
-	return docLine{tagNote, "mail", fmt.Sprintf("%s for %s: %s inbox reads them, --ack marks them read", m.unread(), m.User, yardr)}
+	return docLine{tagNote, "mail", fmt.Sprintf("%s for %s: %s inbox reads them, --ack <seq> marks them read", m.unread(), m.User, yardr)}
 }
 
 // partyNotes are what yardr doctor notes about the yard's names: a

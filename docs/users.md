@@ -24,7 +24,7 @@ yardr user device rm ada phone           # the operator or ada: the token is ref
 
 yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
-yardr inbox --mail --ack                 # one part, and mark what it shows as read
+yardr inbox --mail --ack 412             # one part, and mark read what is through 412
 yardr subscribe ada yardr --done         # ada is told of every bead that becomes done
 yardr mail --with yardmaster                  # the exchange with the yardmaster, both directions
 yardr mail --with yardmaster --after 412 --json
@@ -262,9 +262,12 @@ A part with nothing in it is `Mail: none` or `Notifications: none`. The
 first column is the seq, the same in both parts: it orders a mail and a
 notification against each other.
 
-**Each part is acknowledged apart.** `--ack` marks the unread it shows as
-read: with `--mail` the mail, with `--notifications` the notifications,
-with neither both, since both were shown. Acknowledging the mail leaves the
+**Each part is acknowledged apart.** `--ack <seq>` marks read what is
+through `<seq>`: with `--mail` the mail, with `--notifications` the
+notifications, with neither both. Name the last seq you have read, so what
+arrived since stays unread; the command says how much newer stays unread.
+`--ack` with no seq is refused, naming the newest seq and the command to
+ack through it. Acknowledging the mail leaves the
 notifications unread, and the other way round: a user has two positions,
 one a part. So a stream of notifications nobody reads does not hold back
 what counts as read mail, and reading through the notifications marks no
@@ -403,7 +406,7 @@ No link is sent. The source cuts a title or a text to what its call takes
 
 **When.** The daemon sends, so it must be running. A thing is told once it
 has been in the inbox for 20 seconds and is still unread: what was
-acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack`, is
+acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack <seq>`, is
 not told. An ask is told once it has been in the queue for 20 seconds and is
 still open: one that was answered, declined, put aside or taken back by
 then is not told, and reading the inbox does not answer it. It is told once, and not
@@ -815,9 +818,9 @@ to `mckean@airy`, in the order written. The yardmaster reads the same with
 `--json`, [`Conversation`](api.md#conversation) and [`yardr
 chat`](chat.md#a-name-trusted-as-a-user-of-this-yard) have the same letters.
 
-**Read** means acknowledged by the receiver, with `yardr inbox --ack`: a
+**Read** means acknowledged by the receiver, with `yardr inbox --ack <seq>`: a
 user's own, for the mail part of [the inbox](#the-inbox), or a crew member's,
-whose acknowledgement covers its whole inbox through the last event shown.
+whose acknowledgement covers its whole inbox through the seq named.
 Mail to a party that has since been removed counts as unread.
 An acknowledgement that passes mail is an event, `mail_read` (with `reader`
 and `through`), so a view that follows the stream learns of it. One that

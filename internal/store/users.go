@@ -81,7 +81,7 @@ type Letter struct {
 	From string    `json:"from"`
 	To   string    `json:"to"`
 	Text string    `json:"text"`
-	// Read is whether the receiver acknowledged it (yardr inbox --ack).
+	// Read is whether the receiver acknowledged it (yardr inbox --ack <seq>).
 	// Mail to a party that is gone was never read as far as the store
 	// knows.
 	Read bool `json:"read"`

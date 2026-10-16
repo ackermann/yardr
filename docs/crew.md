@@ -191,7 +191,9 @@ shared like the journal, and a conversation session's first prompt
 names its person and its slice.
 
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
-  inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
+  inbox`, mark handled with `yardr inbox --ack <seq>`, through the last seq
+  handled: what arrived since stays unread, and the command says how much.
+  The cursor is stored, so
   nothing is lost or repeated across restarts. A mail counts as read, where
   a conversation shows it, once the acknowledgement has passed it.
 - **Mail to and from a user:** `yardr mail <user>` writes to a person of the

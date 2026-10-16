@@ -639,7 +639,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	if page.Total > len(page.Events) {
 		more = ", …"
 	}
-	msg := fmt.Sprintf("yardr: %d new in your inbox (%s%s). Run yardr inbox to read them, and yardr inbox --ack when handled.",
+	msg := fmt.Sprintf("yardr: %d new in your inbox (%s%s). Run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled.",
 		page.Total, strings.Join(kinds, ", "), more)
 	if len(outside) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s.", strings.Join(outside, ", "), store.OutsideMail)

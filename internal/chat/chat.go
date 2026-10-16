@@ -880,7 +880,7 @@ func (m *Model) ack() tea.Cmd {
 }
 
 // acked takes the user's mail through seq as read, by this view or by
-// anything else that acknowledged it (yardr inbox --ack).
+// anything else that acknowledged it (yardr inbox --ack <seq>).
 func (m *Model) acked(through uint64) {
 	m.cursor = max(m.cursor, through)
 	m.asked = max(m.asked, m.cursor)

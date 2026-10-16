@@ -351,7 +351,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, s *memberSess
 		return false, nil
 	}
 	window, _ := s.st.Handle[harnessResetWindow].(string)
-	prompt := resetLine(kind, window) + fmt.Sprintf(" %d new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled.", total)
+	prompt := resetLine(kind, window) + fmt.Sprintf(" %d new in your inbox: run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled.", total)
 	typed, err := d.nudge(ctx, runner, s, prompt)
 	if err != nil || !typed {
 		return false, err
