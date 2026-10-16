@@ -29,6 +29,15 @@ import (
 // push the yard's part of the card out of sight.
 const MaxRunContext = 5
 
+// Source-add cards carry the declaration and its command files as text.
+// Keep their bounds shared with the CLI that reads the files.
+const (
+	MaxRunSourceDeclaration = 8192
+	MaxRunSourceCommandFile = 8192
+	MaxRunSourceTexts       = 32 << 10
+	MaxRunSourceCardLines   = 40
+)
+
 // runContextLines is how many lines the context holds. A context line is
 // one line, and the limit counts lines, not entries.
 func runContextLines(context []string) int {

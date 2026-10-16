@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -105,7 +106,7 @@ func TestSourceAddAskCard(t *testing.T) {
 	joined := strings.Join(got.Ask.Run.Does, "\n")
 	for _, want := range []string{
 		"source tg: its calls go to https://api.telegram.org",
-		"sent in the request path (credential.in_path: true)",
+		"sent in the request path wherever the declaration puts {credential} (credential.in_path: true)",
 		"call message (update): POST /bot{credential}/sendMessage",
 		"chat (string, required, pattern ^[0-9]+$)",
 		"text (string, required, at most 100)",
@@ -132,16 +133,28 @@ func TestSourceAddAskCard(t *testing.T) {
 // Every command key's file stands on the card with its hash whole.
 func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 	y, _ := runYard(t)
-	ask := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
+	decl := wiredDecl
+	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
+		decl = strings.ReplaceAll(decl, path, "wired/shared")
+	}
+	shared := map[string]string{"wired/shared": "#!/bin/sh\n# shared\n"}
+	ask := sourceAddAsk(carriedOf(t, decl, shared))
 	ask.Run.Argv = []string{"source add wired.yaml"}
 	seq := y.ask(t, ask, "yardmaster")
 	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
-	for _, want := range []string{"(limits.command)", "(thread.reply)", "(hook.normalize)", "(events.pr)", "(events.ci)", "scheme secret", "bodies are unique"} {
+	for _, want := range []string{
+		"(limits.command, handed no credential)",
+		"(thread.reply, handed the credential)",
+		"(hook.normalize, handed no credential)",
+		"(events.pr, handed the credential)",
+		"(events.ci, handed the credential)",
+		"scheme secret", "bodies are unique",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
 		}
 	}
-	for prog, body := range wiredFiles {
+	for prog, body := range shared {
 		sum := sha256.Sum256([]byte(body))
 		if want := "command file " + prog + ":"; !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
@@ -149,6 +162,82 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 		if want := "sha256 " + hex.EncodeToString(sum[:]); !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestSourceAddCardShowsEveryCredentialPlacement(t *testing.T) {
+	y, _ := runYard(t)
+	decl := strings.Replace(wiredDecl,
+		`credential: { env: WIRED_TOKEN, header: "Authorization: Bearer {credential}" }`,
+		`credential: { env: WIRED_TOKEN, header: "Authorization: Bearer {credential}", in_path: true }`, 1)
+	decl = strings.Replace(decl,
+		`ping: { kind: read, request: { method: GET, path: /me } }`,
+		`ping: { kind: update, request: { method: POST, path: "/bot{credential}/me", body: { token: "{credential}", fixed: 1 } } }`, 1)
+	carried := carriedOf(t, decl, wiredFiles)
+	ask := sourceAddAsk(carried)
+	ask.Run.Argv = []string{"source add wired.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
+	for _, want := range []string{
+		`sent in the header "Authorization: Bearer {credential}" on every call`,
+		"in the request path wherever the declaration puts {credential}",
+		"as a leaf of the body of call ping",
+		`"token":"{credential}"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestSourceAddCardLineBound(t *testing.T) {
+	y, _ := runYard(t)
+	var decl strings.Builder
+	decl.WriteString("name: many\nbase: https://many.example.com\ncalls:\n")
+	for i := 0; i < 18; i++ {
+		fmt.Fprintf(&decl, "  call%d: { kind: read, request: { method: GET, path: /call%d } }\n", i, i)
+	}
+	carried := carriedOf(t, decl.String(), nil)
+	ask := sourceAddAsk(carried)
+	ask.Run.Argv = []string{"source add many.yaml"}
+	_, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster")
+	if err == nil || !strings.Contains(err.Error(), "card would run to") || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("AddAsk = %v, want the card line bound refusal", err)
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused ask left %d notes, %v", len(notes), err)
+	}
+}
+
+func TestSourceAddTerminalCardTreatsTextAsData(t *testing.T) {
+	y, _ := runYard(t)
+	text := strings.Replace(phoneDecl, `path: /me`, `path: /me, query: { format: "\u001b[2J" }`, 1)
+	text = strings.ReplaceAll(text, "\n", "\r\n")
+	text += "# file text: ◆ forged\r\n"
+	seq := y.ask(t, sourceAddAsk(carriedOf(t, text, nil)), "yardmaster")
+	lines := strings.Join(y.asked(t, seq).Lines(), "\n")
+	if strings.ContainsAny(lines, "\x1b\r\u202e") {
+		t.Fatalf("untrusted source text reached the terminal as a control:\n%q", lines)
+	}
+	if strings.Contains(lines, "◆") {
+		t.Fatalf("untrusted source text can forge a file mark:\n%s", lines)
+	}
+	if !strings.Contains(lines, `format="\x1b[2J"`) {
+		t.Fatalf("the source's query is absent from the card:\n%s", lines)
+	}
+
+	carried := carriedOf(t, wiredDecl, map[string]string{
+		"wired/limits":    "#!/bin/sh\n# forged ◆\r\x1b[2J\u202e\n",
+		"wired/thread":    wiredFiles["wired/thread"],
+		"wired/normalize": wiredFiles["wired/normalize"],
+		"wired/events":    wiredFiles["wired/events"],
+	})
+	wired := sourceAddAsk(carried)
+	wired.Run.Argv = []string{"source add wired.yaml"}
+	wseq := y.ask(t, wired, "yardmaster")
+	wiredLines := strings.Join(y.asked(t, wseq).Lines(), "\n")
+	if strings.ContainsAny(wiredLines, "\x1b\r\u202e") || strings.Contains(wiredLines, "◆") {
+		t.Fatalf("untrusted command text reached the terminal:\n%q", wiredLines)
 	}
 }
 

@@ -1156,7 +1156,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			out = append(out, "  what the command does: "+OneLine(NoteLetters(r.Ask.Run.Description)))
 		}
 		for _, does := range r.Ask.Run.Does {
-			out = append(out, "  the yard says: "+does)
+			out = append(out, "  the yard says: "+safeSourceCardLine(does))
 		}
 		// What an adding ask carries stands whole in a terminal under
 		// the yard's sentences, deeper than any of them, for checking
@@ -1164,12 +1164,12 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		for _, carried := range r.Ask.Run.Carried {
 			out = append(out, "  the declaration of source "+OneLine(carried.Name)+", whole as carried:")
 			for _, line := range strings.Split(strings.TrimRight(carried.Text, "\n"), "\n") {
-				out = append(out, "      "+line)
+				out = append(out, "      "+NoteLetters(line))
 			}
 			for _, f := range carried.Files {
 				out = append(out, "  the command file "+OneLine(f.Program)+" (sha256 "+OneLine(f.SHA256)+"), whole as carried:")
 				for _, line := range strings.Split(strings.TrimRight(f.Text, "\n"), "\n") {
-					out = append(out, "      "+line)
+					out = append(out, "      "+NoteLetters(line))
 				}
 			}
 		}

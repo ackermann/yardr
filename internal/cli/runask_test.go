@@ -454,3 +454,34 @@ func TestBeadAskRunSourceAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSourceAddCarriedReadBounds(t *testing.T) {
+	dir := t.TempDir()
+	commaPath := filepath.Join(dir, "bad,name.yaml")
+	if err := os.WriteFile(commaPath, []byte("name: skipped\nbase: https://skipped.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if carried, err := sourceAddCarried("source add " + commaPath); err != nil || carried != nil {
+		t.Fatalf("an invalid run command carried %v, %v", carried, err)
+	}
+
+	decl := filepath.Join(dir, "large.yaml")
+	if err := os.WriteFile(decl, []byte(strings.Repeat("a", store.MaxRunSourceDeclaration+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceAddCarried("source add " + decl); err == nil || !strings.Contains(err.Error(), "8192 bytes") || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("an oversized declaration read = %v", err)
+	}
+
+	decl = filepath.Join(dir, "command.yaml")
+	program := filepath.Join(dir, "script")
+	if err := os.WriteFile(decl, []byte("name: large\nlimits:\n  command: [script, \"{provider}\"]\n  kinds: { kimi: kimi }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(program, []byte(strings.Repeat("a", store.MaxRunSourceCommandFile+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceAddCarried("source add " + decl); err == nil || !strings.Contains(err.Error(), "8192 bytes") || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("an oversized command file read = %v", err)
+	}
+}

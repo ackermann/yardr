@@ -13,18 +13,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/source"
-)
-
-// The bounds of a card that adds a source from a loose file (3.3): past
-// them the text is a document to read at a desk, not a card.
-const (
-	maxCarriedText  = 8192
-	maxCarriedFile  = 8192
-	maxCarriedTotal = 32 << 10
 )
 
 // parseSourceAdd reads the words of source add <file>: one file, named as
@@ -47,37 +41,37 @@ func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSourc
 		return nil, AskSource{}, false, false, fmt.Errorf("--run takes yardr source add <file> with the declaration of one source carried on the ask, and this carries %d", len(run.Carried))
 	}
 	carried = run.Carried[0]
-	if len(carried.Text) > maxCarriedText {
-		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", carried.Name, len(carried.Text), maxCarriedText, file)
+	if len(carried.Text) > MaxRunSourceDeclaration {
+		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", OneLine(carried.Name), len(carried.Text), MaxRunSourceDeclaration, file)
 	}
 	d, err = source.Parse(file, []byte(carried.Text))
 	if err != nil {
-		return nil, AskSource{}, false, false, err
+		return nil, AskSource{}, false, false, fmt.Errorf("%s", OneLine(err.Error()))
 	}
 	if carried.Name != d.Name {
-		return nil, AskSource{}, false, false, fmt.Errorf("the ask carries the source %s, and its declaration names %s: the two must be one", carried.Name, d.Name)
+		return nil, AskSource{}, false, false, fmt.Errorf("the ask carries the source %s, and its declaration names %s: the two must be one", OneLine(carried.Name), d.Name)
 	}
 	total := len(carried.Text)
 	byProgram := map[string]AskFile{}
 	for _, f := range carried.Files {
 		if _, twice := byProgram[f.Program]; twice {
-			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries the command file %s twice", d.Name, f.Program)
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries the command file %s twice", d.Name, OneLine(f.Program))
 		}
 		byProgram[f.Program] = f
-		if len(f.Text) > maxCarriedFile {
-			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, f.Program, len(f.Text), maxCarriedFile, file)
+		if len(f.Text) > MaxRunSourceCommandFile {
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, OneLine(f.Program), len(f.Text), MaxRunSourceCommandFile, file)
 		}
 		if !utf8.ValidString(f.Text) {
-			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is not valid UTF-8 text: a card carries text only, so add it with yardr source add %s in a terminal", d.Name, f.Program, file)
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is not valid UTF-8 text: a card carries text only, so add it with yardr source add %s in a terminal", d.Name, OneLine(f.Program), file)
 		}
 		sum := sha256.Sum256([]byte(f.Text))
 		if got := hex.EncodeToString(sum[:]); got != f.SHA256 {
-			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s with sha256 %s, and its bytes hash to %s: nothing was stored", d.Name, f.Program, f.SHA256, got)
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s with sha256 %s, and its bytes hash to %s: nothing was stored", d.Name, OneLine(f.Program), OneLine(f.SHA256), got)
 		}
 		total += len(f.Text)
 	}
-	if total > maxCarriedTotal {
-		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration with its command files is %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, total, maxCarriedTotal, file)
+	if total > MaxRunSourceTexts {
+		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration with its command files is %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, total, MaxRunSourceTexts, file)
 	}
 	// The files the declaration names, each once, in its own order.
 	var programs []string
@@ -95,12 +89,12 @@ func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSourc
 	if !absolute {
 		for _, prog := range programs {
 			if _, ok := byProgram[prog]; !ok {
-				return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration names the command file %s, and the ask carries no bytes for it", d.Name, prog)
+				return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration names the command file %s, and the ask carries no bytes for it", d.Name, OneLine(prog))
 			}
 		}
 		for prog := range byProgram {
 			if !seenProg[prog] {
-				return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s, and its declaration names no such command file", d.Name, prog)
+				return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s, and its declaration names no such command file", d.Name, OneLine(prog))
 			}
 		}
 		// Store the files in the declaration's order, as the card groups them.
@@ -161,9 +155,13 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 			Carried: []AskSource{carried},
 		}, nil
 	}
+	does := sourceDoes(d, carried)
+	if len(does) > MaxRunSourceCardLines {
+		return AskRun{}, fmt.Errorf("source %s: its card would run to %d lines: a card is read whole, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, len(does), run.Argv[2])
+	}
 	return AskRun{
 		Argv:    run.Argv,
-		Does:    sourceDoes(d, carried),
+		Does:    does,
 		Back:    runCommandLine([]string{"source", "rm", d.Name}),
 		BackBy:  "the operator",
 		Seen:    map[string]string{"source " + d.Name: ""},
@@ -235,17 +233,20 @@ func sourceDoes(d *source.Declaration, carried AskSource) []string {
 		var fills []string
 		if n.Title != "" {
 			fills = append(fills, "the title fills "+n.Title)
+		} else {
+			fills = append(fills, "it takes no title")
 		}
 		if n.Text != "" {
 			fills = append(fills, "the text fills "+n.Text)
+		} else {
+			fills = append(fills, "it takes no text")
 		}
 		if n.Link != "" {
 			fills = append(fills, "the link fills "+n.Link)
+		} else {
+			fills = append(fills, "it takes no link")
 		}
 		line := fmt.Sprintf("it can tell a user: the call %s, whose %s takes the person's address, read as %s from the person's own env file; %s", n.Call, n.Address, n.AddressEnv, strings.Join(fills, " and "))
-		if n.Link == "" {
-			line += ", and it takes no link"
-		}
 		does = append(does, line+".")
 	} else {
 		does = append(does, "it can tell no user.")
@@ -256,24 +257,38 @@ func sourceDoes(d *source.Declaration, carried AskSource) []string {
 			who = "only the operator's"
 		}
 		does = append(does, fmt.Sprintf("it hears deliveries: only one whose %s is the address of a user told through it, read as %s, and %s: another's, and a stranger's, is dropped after verification.", d.Hear.Field, d.Hear.Address.Env, who))
+	} else {
+		does = append(does, "it hears no deliveries.")
 	}
 	if d.Limits != nil {
 		does = append(does, limitsSays(d))
+	} else {
+		does = append(does, "it names no limits command.")
 	}
 	if d.Thread != nil {
 		does = append(does, threadSays(d))
+	} else {
+		does = append(does, "it speaks in no threads.")
 	}
 	if d.Link != nil {
 		does = append(does, linkSays(d))
+	} else {
+		does = append(does, "its issues are no bead's link.")
 	}
 	if d.Identity != nil {
 		does = append(does, fmt.Sprintf("its identity keys fold to lowercase (identity fold: %s), so one spelling is stored however it was typed.", d.Identity.Fold))
+	} else {
+		does = append(does, "its identity keys keep their case.")
 	}
 	if d.Hook != nil {
 		does = append(does, hookSays(d))
+	} else {
+		does = append(does, "it sends no hook deliveries into the yard.")
 	}
 	if d.Events != nil {
 		does = append(does, eventsSays(d))
+	} else {
+		does = append(does, "it sends no pull-request or CI events.")
 	}
 	does = append(does, commandSays(d, carried)...)
 	var owed []string
@@ -286,7 +301,18 @@ func sourceDoes(d *source.Declaration, carried AskSource) []string {
 	if len(owed) > 0 {
 		does = append(does, "still owed after it: "+strings.Join(owed, "; and ")+".")
 	}
+	// Declaration text is outside input. Keep each yard sentence to one
+	// terminal-safe line so a value cannot forge another part of the card.
+	for i := range does {
+		does[i] = safeSourceCardLine(does[i])
+	}
 	return does
+}
+
+func safeSourceCardLine(s string) string {
+	s = NoteLetters(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.ReplaceAll(s, "\t", " ")
 }
 
 // credentialSays is the source and its credential in one sentence: where
@@ -308,15 +334,20 @@ func credentialSays(d *source.Declaration) string {
 	if len(c.Mint) > 0 {
 		s += fmt.Sprintf(", minted from %s: a mint runs only where the yard's own mint_command is the operator's already, and this adds none", strings.Join(c.Mint, " and "))
 	}
-	switch {
-	case c.Header != "":
-		s += fmt.Sprintf(", sent in the header %q.", c.Header)
-	case c.InPath:
-		s += ", sent in the request path (credential.in_path: true): a call's path holds it, so it stands in the logs of every server on the way."
-	case bodyHoldsCredential(d):
-		s += ", sent as a leaf of a call's body, named on that call."
-	default:
+	var placements []string
+	if c.Header != "" {
+		placements = append(placements, fmt.Sprintf("in the header %q on every call", c.Header))
+	}
+	if c.InPath {
+		placements = append(placements, "in the request path wherever the declaration puts {credential} (credential.in_path: true): it stands in the logs of every server on the way")
+	}
+	if calls := bodyCredentialCalls(d); len(calls) > 0 {
+		placements = append(placements, "as a leaf of the body of call "+andList(calls))
+	}
+	if len(placements) == 0 {
 		s += ", and no call's header, path or body holds it."
+	} else {
+		s += ", sent " + andList(placements) + "."
 	}
 	var lacks []string
 	if c.UpdateEnv == "" {
@@ -334,9 +365,7 @@ func credentialSays(d *source.Declaration) string {
 	return s
 }
 
-// bodyHoldsCredential reports whether a call's body holds the credential
-// as a whole leaf.
-func bodyHoldsCredential(d *source.Declaration) bool {
+func bodyCredentialCalls(d *source.Declaration) []string {
 	var holds func(v any) bool
 	holds = func(v any) bool {
 		switch v := v.(type) {
@@ -357,12 +386,13 @@ func bodyHoldsCredential(d *source.Declaration) bool {
 		}
 		return false
 	}
+	var calls []string
 	for i := range d.Calls {
 		if holds(d.Calls[i].Request.Body) {
-			return true
+			calls = append(calls, d.Calls[i].Name)
 		}
 	}
-	return false
+	return calls
 }
 
 // callSaysWhole is one call in two sentences: its method and path whole
@@ -381,7 +411,7 @@ func callSaysWhole(d *source.Declaration, c *source.Call) []string {
 	if len(c.Request.Query) > 0 {
 		var qs []string
 		for _, q := range c.Request.Query {
-			qs = append(qs, q.Key+"="+q.Value)
+			qs = append(qs, displaySourceValue(q.Key)+"="+displaySourceValue(q.Value))
 		}
 		sends = "and sends the query " + strings.Join(qs, ", ") + "."
 	}
@@ -394,13 +424,15 @@ func callSaysWhole(d *source.Declaration, c *source.Call) []string {
 		second = fmt.Sprintf("call %s sends no body", c.Name)
 	}
 	if len(c.Answer.Select) > 0 {
-		second += fmt.Sprintf(". Its answer keeps %s", strings.Join(c.Answer.Select, ", "))
+		selects := make([]string, len(c.Answer.Select))
+		for i, name := range c.Answer.Select {
+			selects[i] = displaySourceValue(name)
+		}
+		second += fmt.Sprintf(". Its answer keeps %s", strings.Join(selects, ", "))
 	} else {
 		second += ". Its answer is returned as it comes"
 	}
-	if c.Answer.Max != source.AnswerMax {
-		second += fmt.Sprintf(", at most %d bytes", c.Answer.Max)
-	}
+	second += fmt.Sprintf(", at most %d bytes", c.Answer.Max)
 	return []string{first, second + "."}
 }
 
@@ -413,18 +445,31 @@ func paramSays(p source.Param) string {
 	}
 	s := fmt.Sprintf("%s (%s, %s", p.Name, p.Type, given)
 	if p.Pattern != "" {
-		s += ", pattern " + p.Pattern
+		s += ", pattern " + displaySourceValue(p.Pattern)
 	}
 	if p.Max > 0 {
 		s += fmt.Sprintf(", at most %d", p.Max)
 	}
 	if len(p.Values) > 0 {
-		s += ", one of " + strings.Join(p.Values, ", ")
+		values := make([]string, len(p.Values))
+		for i, value := range p.Values {
+			values[i] = displaySourceValue(value)
+		}
+		s += ", one of " + strings.Join(values, ", ")
 	}
 	if p.Log {
 		s += ", its value is kept in the record of each call"
 	}
 	return s + ")"
+}
+
+func displaySourceValue(s string) string {
+	if s == "" || strings.ContainsAny(s, " ,=\\\"\r\n\t") || strings.IndexFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.IsSpace(r) || unicode.Is(unicode.Bidi_Control, r)
+	}) >= 0 {
+		return strconv.Quote(s)
+	}
+	return s
 }
 
 // checkSays is the source's check call and idempotency header, or that it
@@ -445,14 +490,14 @@ func checkSays(d *source.Declaration) string {
 // limitsSays is the limits command whole with the kinds it answers for.
 func limitsSays(d *source.Declaration) string {
 	if d.Limits.Self() {
-		return fmt.Sprintf("its limits command [%s] says what the source itself carries, asked by the source's name.", strings.Join(d.Limits.Command, " "))
+		return fmt.Sprintf("its limits command %s says what the source itself carries, asked by the source's name.", showCommand(d.Limits.Command))
 	}
 	kinds := d.Limits.KindNames()
 	asked := make([]string, len(kinds))
 	for i, k := range kinds {
 		asked[i] = fmt.Sprintf("%s as %s", k, d.Limits.Kinds[k])
 	}
-	return fmt.Sprintf("its limits command [%s] says what the subscription of %s still carries.", strings.Join(d.Limits.Command, " "), strings.Join(asked, ", "))
+	return fmt.Sprintf("its limits command %s says what the subscription of %s still carries.", showCommand(d.Limits.Command), strings.Join(asked, ", "))
 }
 
 // threadSays is how the source speaks in threads beside its commands: the
@@ -462,9 +507,13 @@ func threadSays(d *source.Declaration) string {
 	var parts []string
 	if t.Place != "" {
 		parts = append(parts, fmt.Sprintf("a place to open one is called %s", t.Place))
+	} else {
+		parts = append(parts, "it names no place to open one")
 	}
 	if len(t.States) > 0 {
 		parts = append(parts, fmt.Sprintf("the words state takes are %s", strings.Join(t.States, ", ")))
+	} else {
+		parts = append(parts, "it names no state words")
 	}
 	if t.Labels {
 		parts = append(parts, "it takes labels (label:<name> adds one, never removes)")
@@ -486,12 +535,16 @@ func linkSays(d *source.Declaration) string {
 	if l.Fold != "" {
 		fold = fmt.Sprintf("the groups fold %s", l.Fold)
 	}
-	s := fmt.Sprintf("its issues are a bead's link: host %s, the expression %s reads an issue, the one fixed form %s and the thread id %s; %s.", l.Host, l.Issue, l.Fixed, l.Thread, fold)
+	s := fmt.Sprintf("its issues are a bead's link: host %s, the expression %s reads an issue, the one fixed form %s and the thread id %s; %s.", l.Host, displaySourceValue(l.Issue), displaySourceValue(l.Fixed), displaySourceValue(l.Thread), fold)
 	if l.Pull != nil {
-		s += fmt.Sprintf(" Its pull requests read %s, with the fixed form %s and the thread id %s.", l.Pull.Issue, l.Pull.Fixed, l.Pull.Thread)
+		s += fmt.Sprintf(" Its pull requests read %s, with the fixed form %s and the thread id %s.", displaySourceValue(l.Pull.Issue), displaySourceValue(l.Pull.Fixed), displaySourceValue(l.Pull.Thread))
+	} else {
+		s += " It names no pull-request shape."
 	}
 	if l.Repos != "" {
-		s += fmt.Sprintf(" A repository's path matches %s.", l.Repos)
+		s += fmt.Sprintf(" A repository's path matches %s.", displaySourceValue(l.Repos))
+	} else {
+		s += " It keeps no repositories."
 	}
 	return s
 }
@@ -530,7 +583,7 @@ func hookSays(d *source.Declaration) string {
 	if len(h.Keys) > 0 {
 		keys = fmt.Sprintf("its events may carry the fields %s", strings.Join(h.Keys, ", "))
 	}
-	return fmt.Sprintf("what it sends in: %s; %s; %s; bodies are %s; the command [%s] turns a verified body into the envelope, handed no credential; %s.", verified, named, timed, h.Bodies, strings.Join(h.Normalize, " "), keys)
+	return fmt.Sprintf("what it sends in: %s; %s; %s; bodies are %s; the command %s turns a verified body into the envelope, handed no credential; %s.", verified, named, timed, h.Bodies, showCommand(h.Normalize), keys)
 }
 
 // eventsSays is what the source sends of pull requests and CI, with the
@@ -540,18 +593,23 @@ func eventsSays(d *source.Declaration) string {
 	var parts []string
 	if len(e.Runs) > 0 {
 		parts = append(parts, fmt.Sprintf("the envelope types %s are runs", strings.Join(e.Runs, ", ")))
+	} else {
+		parts = append(parts, "no envelope type is a run")
 	}
 	if len(e.HeadFrom) > 0 {
 		parts = append(parts, fmt.Sprintf("%s tell a head", strings.Join(e.HeadFrom, ", ")))
+	} else {
+		parts = append(parts, "no envelope type tells a head")
 	}
 	if len(e.PR) > 0 {
-		parts = append(parts, fmt.Sprintf("the command [%s] reads the pull request, handed the credential", strings.Join(e.PR, " ")))
+		parts = append(parts, fmt.Sprintf("the command %s reads the pull request, handed the credential", showCommand(e.PR)))
+	} else {
+		parts = append(parts, "it names no pull-request read-back command")
 	}
 	if len(e.CI) > 0 {
-		parts = append(parts, fmt.Sprintf("the command [%s] reads CI, handed the credential", strings.Join(e.CI, " ")))
-	}
-	if len(parts) == 0 {
-		return "what it sends of pull requests and CI: it names no run type and no read-back command."
+		parts = append(parts, fmt.Sprintf("the command %s reads CI, handed the credential", showCommand(e.CI)))
+	} else {
+		parts = append(parts, "it names no CI read-back command")
 	}
 	return "what it sends of pull requests and CI: " + strings.Join(parts, "; ") + "."
 }
@@ -583,21 +641,45 @@ func commandSays(d *source.Declaration, carried AskSource) []string {
 		group := byProgram[prog]
 		if !group[0].Relative() {
 			for _, c := range group {
-				out = append(out, fmt.Sprintf("command [%s] (%s): the program is the operator's own.", strings.Join(c.Argv, " "), c.Key))
+				out = append(out, fmt.Sprintf("command %s (%s): the program is the operator's own.", showCommand(c.Argv), c.Key))
 			}
 			continue
 		}
 		var named []string
 		for _, c := range group {
-			named = append(named, fmt.Sprintf("[%s] (%s)", strings.Join(c.Argv, " "), c.Key))
+			handed := "handed no credential"
+			if commandGetsCredential(c.Key) {
+				handed = "handed the credential"
+			}
+			named = append(named, fmt.Sprintf("%s (%s, %s)", showCommand(c.Argv), c.Key, handed))
 		}
-		handed := "handed the credential"
-		if len(group) == 1 && group[0].Key == "hook.normalize" {
-			handed = "handed no credential"
-		}
-		out = append(out, fmt.Sprintf("command file %s: %s, %s: sha256 %s", prog, andList(named), handed, hashes[prog]))
+		out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s", prog, andList(named), hashes[prog]))
 	}
 	return out
+}
+
+// commandGetsCredential follows the runners: limits and hook.normalize see
+// no credential; thread and events read-back commands do.
+func commandGetsCredential(key string) bool {
+	switch key {
+	case "thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
+		return true
+	default:
+		return false
+	}
+}
+
+func showCommand(argv []string) string {
+	words := make([]string, len(argv))
+	for i, word := range argv {
+		words[i] = word
+		if strings.ContainsAny(word, " ,[]\\\"\t\r\n") || strings.IndexFunc(word, func(r rune) bool {
+			return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r)
+		}) >= 0 {
+			words[i] = strconv.Quote(word)
+		}
+	}
+	return "[" + strings.Join(words, ", ") + "]"
 }
 
 // putCarriedSource stores the declaration text declares under d's name,

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -697,6 +698,17 @@ func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*sto
 // command. A file that cannot be read or does not parse is refused
 // here, in the parser's words, and nothing is stored.
 func sourceAddCarried(command string) ([]store.AskSource, error) {
+	// Match parseRow's character gate before touching a path: a command
+	// the store will reject must not make the CLI read a file first.
+	if strings.ContainsRune(command, ',') {
+		return nil, nil
+	}
+	for _, r := range command {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" \t._/=-@:", r) {
+			continue
+		}
+		return nil, nil
+	}
 	words := strings.Fields(command)
 	if len(words) > 0 && words[0] == "yardr" {
 		words = words[1:]
@@ -705,19 +717,20 @@ func sourceAddCarried(command string) ([]store.AskSource, error) {
 		return nil, nil
 	}
 	file := words[2]
-	text, err := os.ReadFile(file)
+	text, err := readSourceAskFile(file, store.MaxRunSourceDeclaration, "the declaration")
 	if err != nil {
 		return nil, err
 	}
 	d, err := source.Parse(file, text)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s", store.OneLine(err.Error()))
 	}
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		return nil, err
 	}
 	declDir := filepath.Dir(abs)
+	total := len(text)
 	var programs []string
 	seen := map[string]bool{}
 	for _, c := range d.Commands() {
@@ -728,14 +741,42 @@ func sourceAddCarried(command string) ([]store.AskSource, error) {
 	}
 	var files []store.AskFile
 	for _, prog := range programs {
-		data, err := os.ReadFile(filepath.Join(declDir, prog))
+		path := filepath.Join(declDir, prog)
+		data, err := readSourceAskFile(path, store.MaxRunSourceCommandFile, "source "+d.Name+" command file "+store.OneLine(prog))
 		if err != nil {
-			return nil, fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, prog, err)
+			return nil, fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, store.OneLine(prog), err)
+		}
+		total += len(data)
+		if total > store.MaxRunSourceTexts {
+			return nil, fmt.Errorf("source %s: its declaration with command files exceeds %d bytes together: a card carries at most that, so add it with yardr source add %s in a terminal", d.Name, store.MaxRunSourceTexts, file)
 		}
 		sum := sha256.Sum256(data)
 		files = append(files, store.AskFile{Program: prog, Text: string(data), SHA256: hex.EncodeToString(sum[:])})
 	}
 	return []store.AskSource{{Name: d.Name, Text: string(text), Files: files}}, nil
+}
+
+func readSourceAskFile(file string, limit int, what string) ([]byte, error) {
+	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: %s is not a regular file", store.OneLine(file), what)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("%s exceeds %d bytes: a run ask carries at most that, so add it with yardr source add %s in a terminal", what, limit, store.OneLine(file))
+	}
+	return data, nil
 }
 
 // askedRun reads the command the ask seq on the bead id proposes, as the
