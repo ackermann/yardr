@@ -125,22 +125,20 @@ func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
 		}
 	}
 
-	sleep := exec.Command("sleep", "60")
-	if err := sleep.Start(); err != nil {
-		t.Skipf("no sleep to stand in for the daemon: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = sleep.Process.Kill()
-		_ = sleep.Wait()
-	})
-	desc, err := peer.Describe(sleep.Process.Pid)
+	daemonPID := os.Getpid()
+	desc, err := peer.Describe(daemonPID)
 	if err != nil {
-		t.Fatalf("describe sleep: %v", err)
+		t.Skipf("describe the test process as the daemon: %v", err)
 	}
-	t.Cleanup(storetest.HoldDaemonAs(t, home, sleep.Process.Pid, desc.Start))
+	t.Cleanup(storetest.HoldDaemonAs(t, home, daemonPID, desc.Start))
 
-	daemon := store.WithCaller(ctx, sleep.Process.Pid)
-	other := store.WithCaller(ctx, os.Getpid())
+	daemon := store.WithCaller(ctx, daemonPID)
+	panePID := os.Getppid()
+	paneDesc, err := peer.Describe(panePID)
+	if err != nil {
+		t.Skipf("describe the parent process as the crew pane: %v", err)
+	}
+	other := store.WithCaller(ctx, panePID)
 
 	// The daemon leg: the holder's calls as "yard" pass, and the
 	// restart is recorded.
@@ -208,15 +206,11 @@ func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
 	}
 	// From the crew member's pane naming "yard": the daemon leg fails
 	// (not the holder) and the pane resolves to the member.
-	me := os.Getpid()
-	handle := map[string]any{"shell_pid": me}
-	if ps, err := peer.Describe(me); err == nil {
-		handle["shell_start"] = ps.Start
-	}
+	handle := map[string]any{"shell_pid": panePID, "shell_start": paneDesc.Start}
 	if err := s.CrewStarted(ctx, "clerk", handle); err != nil {
 		t.Fatal(err)
 	}
-	pane := store.WithCaller(ctx, me)
+	pane := store.WithCaller(ctx, panePID)
 	head, err = s.Head(ctx)
 	if err != nil {
 		t.Fatal(err)
