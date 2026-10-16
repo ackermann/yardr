@@ -253,6 +253,41 @@ func (c *Call) param(name string) (*Param, bool) {
 	return nil, false
 }
 
+// usesParam reports whether the request sends name in its path, query or
+// body. Declaring a parameter alone does not put its value in the request.
+func (c *Call) usesParam(name string) bool {
+	mark := "{" + name + "}"
+	if strings.Contains(c.Request.Path, mark) {
+		return true
+	}
+	for _, q := range c.Request.Query {
+		if strings.Contains(q.Value, mark) {
+			return true
+		}
+	}
+	var inBody func(any) bool
+	inBody = func(v any) bool {
+		switch v := v.(type) {
+		case string:
+			return strings.Contains(v, mark)
+		case map[string]any:
+			for _, child := range v {
+				if inBody(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if inBody(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return inBody(c.Request.Body)
+}
+
 // Line is the call in a line: "POST /messages.json".
 func (r Request) Line() string { return r.Method + " " + r.Path }
 
@@ -622,6 +657,8 @@ func (r *reader) hookRegisterCheck(d *Declaration, hookE entry) {
 			r.errf(hookE.v, key, "the parameter %s is %s: what the yard gives is text, so it is a string", name, p.Type)
 		case fills[name] != "":
 			r.errf(hookE.v, key, "the parameter %s is filled by %s already", name, fills[name])
+		case !c.usesParam(name):
+			r.errf(hookE.v, key, "the call %s does not send parameter %s in its path, query or body", c.Name, name)
 		default:
 			fills[name] = key
 		}

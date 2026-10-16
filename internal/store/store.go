@@ -166,6 +166,9 @@ type Store struct {
 	// that counts it. Filing writes blobs before that transaction, so without
 	// this lock concurrent batches could both keep files the write later refuses.
 	peerFileMu sync.Mutex
+	// askLocks keep an external hook registration together with answers to
+	// that ask, and with removal of the hook it is registering.
+	askLocks keyedLocks
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}

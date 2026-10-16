@@ -608,6 +608,8 @@ func (s *Store) AddAnswerExpected(ctx context.Context, id string, ans Answer, ac
 }
 
 func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, revision string) error {
+	unlock := s.askLocks.lock(askLockKey(id, ans.Ask))
+	defer unlock()
 	if err := answerShape(id, &ans); err != nil {
 		return err
 	}
@@ -847,6 +849,8 @@ func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, 
 		// A bead's handle never holds an "@" (validID).
 		return fmt.Errorf("ask %d on %s was asked in another yard, and is taken back there by whoever asked it", seq, id)
 	}
+	unlock := s.askLocks.lock(askLockKey(id, seq))
+	defer unlock()
 	return s.writeVia(ctx, func(w *wtx) error {
 		who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {

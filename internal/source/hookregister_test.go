@@ -46,9 +46,27 @@ func TestParseHookRegister(t *testing.T) {
 		"url is no parameter": {registerText(`
   register: { call: setwebhook, url: uri, secret: secret_token }
 `), "is no parameter of the call setwebhook"},
+		"url is not sent": {
+			strings.Replace(registerText(`
+  register: { call: setwebhook, url: url, secret: secret_token }
+`), `url: "{url}", `, "", 1),
+			"does not send parameter url",
+		},
+		"secret is not sent": {
+			strings.Replace(registerText(`
+  register: { call: setwebhook, url: url, secret: secret_token }
+`), `secret_token: "{secret_token}", `, "", 1),
+			"does not send parameter secret_token",
+		},
 		"no secret for scheme secret": {registerText(`
   register: { call: setwebhook, url: url }
 `), "missing: the parameter that takes the hook's secret"},
+		"service-made signature registers later": {
+			strings.Replace(registerText(`
+  register: { call: setwebhook, url: url, secret: secret_token }
+`), "scheme: secret", "scheme: hmac-sha256", 1),
+			"registering a hook is supported only with verify.scheme secret",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Parse("bot.yaml", []byte(tc.text))

@@ -544,6 +544,8 @@ func (h Hook) Said(data map[string]any, stage, beadType string) *Say {
 // anywhere else as given (paneAuthor). A hook that acts as a crew member
 // still speaks as it (maySpeakAs).
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
+	unlock := s.askLocks.lock(hookLockKey(h.Name))
+	defer unlock()
 	var out *Hook
 	err := s.write(func(w *wtx) error {
 		var err error
@@ -681,6 +683,8 @@ func (s *Store) GetHook(ctx context.Context, name string) (*Hook, error) {
 // the hook_removed event says how many. Removing a hook is the operator's
 // to do (operatorOnly).
 func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
+	unlock := s.askLocks.lock(hookLockKey(name))
+	defer unlock()
 	return s.write(func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {

@@ -207,6 +207,67 @@ func TestHookRegisterFailureLeavesHookAndRetries(t *testing.T) {
 	}
 }
 
+func TestHookRegisterMakesFreshSecretForReaddedHook(t *testing.T) {
+	var hits []registerHit
+	status := http.StatusOK
+	y := registerYard(t, &hits, &status)
+	firstAsk := y.ask(t, Ask{Question: "Set the bot hook up?", To: "mckean", Context: []string{"a", "b"}, Run: &AskRun{Argv: []string{"hook add bot --source bot"}}}, "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, firstAsk, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	first, _, err := config.ReadSecretFile(HookSecretFile(y.home, "bot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.DeleteHook(y.ctx, "bot", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	secondAsk := y.ask(t, Ask{Question: "Set the bot hook up again?", To: "mckean", Context: []string{"a", "b"}, Run: &AskRun{Argv: []string{"hook add bot --source bot"}}}, "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, secondAsk, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := config.ReadSecretFile(HookSecretFile(y.home, "bot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) == string(second) {
+		t.Fatal("a new hook registration reused the removed hook's secret")
+	}
+	if got := hits[1].body["secret_token"]; got != string(second) {
+		t.Fatalf("re-registration sent %v, not the new hook secret", got)
+	}
+}
+
+func TestHookRegisterRefusesBadParametersBeforeSavingHook(t *testing.T) {
+	var hits []registerHit
+	status := http.StatusOK
+	y := registerYard(t, &hits, &status)
+	src, err := y.GetSource(y.ctx, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(src.Text, "secret_token: {type: string, max: 256}", "secret_token: {type: string, max: 8}", 1)
+	if text == src.Text {
+		t.Fatal("test could not narrow the secret parameter")
+	}
+	if _, err := y.PutSource(y.ctx, "bot.yaml", text, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	ask := y.ask(t, Ask{Question: "Set the bot hook up?", To: "mckean", Context: []string{"a", "b"}, Run: &AskRun{Argv: []string{"hook add bot --source bot"}}}, "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean"); err == nil || !strings.Contains(err.Error(), "at most 8") {
+		t.Fatalf("invalid secret parameter = %v", err)
+	}
+	if _, err := y.GetHook(y.ctx, "bot"); err == nil {
+		t.Fatal("a hook was saved although the register call could not take its secret")
+	}
+	if _, err := os.Stat(HookSecretFile(y.home, "bot")); !os.IsNotExist(err) {
+		t.Fatalf("secret file exists after a refused registration: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("invalid registration made %d service calls", len(hits))
+	}
+}
+
 func TestHookRegisterNeedsPublicURL(t *testing.T) {
 	y := hookYard(t)
 	text := `

@@ -227,6 +227,9 @@ func (r *reader) hook(e entry) *Hook {
 	if register != nil && h.Register != nil && h.Verify.Scheme == HookSecret && h.Register.Secret == "" {
 		r.errf(register.v, join(register.path, "secret"), "missing: the parameter that takes the hook's secret, which the yard makes with scheme %s", HookSecret)
 	}
+	if register != nil && h.Register != nil && h.Verify.Scheme != HookSecret {
+		r.errf(register.v, register.path, "registering a hook is supported only with verify.scheme %s; a service-made signature still takes a typed secret", HookSecret)
+	}
 	return h
 }
 

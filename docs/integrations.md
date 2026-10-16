@@ -938,7 +938,9 @@ hook:
   With a signature the service makes (`hmac-sha256`) the typed secret
   stays, and registering is a later bead. Refused: a register call
   that is no call of the file or is a read, a `url` or `secret` that is
-  no string parameter of it, and a required parameter nothing fills.
+  no string parameter of it, one the call does not send, a register key
+  with a scheme other than `secret`, and a required parameter nothing
+  fills.
 - **Refused when the file is added**: a scheme that is neither
   `hmac-sha256` nor `secret`, `signed`, `encoding` or `prefix` with scheme
   `secret`, a signature that covers anything but the body, an encoding

@@ -91,6 +91,18 @@ func Do(ctx context.Context, d *Declaration, name string, params map[string]stri
 	return DoKeyed(ctx, d, name, params, credential, "")
 }
 
+// ValidateCallParams checks parameters against the named call without
+// making a request. A caller that must write something before making the
+// request can refuse bad values before that write.
+func ValidateCallParams(d *Declaration, name string, params map[string]string) error {
+	c, ok := d.Call(name)
+	if !ok {
+		return fmt.Errorf("source %s, call %s: the source has no call of that name", d.Name, name)
+	}
+	_, err := c.values(params)
+	return err
+}
+
 // DoKeyed is Do with the key of an update: where d names the header the
 // service takes one in (Idempotency) and the call is an update, key is
 // sent in it, and the service writes once however often it gets the key.

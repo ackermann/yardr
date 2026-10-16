@@ -257,8 +257,8 @@ func (w *wtx) hookAddedBy(bead string, seq uint64, name string) bool {
 // the yard registers itself (a register call with scheme secret), for
 // ApproveAsk to make in phases. A bead or ask that is not there, and
 // any other command, is the plain approval's to refuse or run.
-func (s *Store) hookRegisterTarget(id string, seq uint64) bool {
-	is := false
+func (s *Store) hookRegisterTarget(id string, seq uint64) (string, bool) {
+	var name string
 	_ = s.read(func(tx *bolt.Tx) error {
 		w := &wtx{Tx: tx, home: s.home, store: s}
 		row, err := w.loadBead(id)
@@ -279,12 +279,12 @@ func (s *Store) hookRegisterTarget(id string, seq uint64) bool {
 			}
 			_, d, err := sourceIn(tx, argv[4])
 			if err == nil && d.Hook.RegistersSecret() {
-				is = true
+				name = argv[2]
 			}
 		}
 		return nil
 	})
-	return is
+	return name, name != ""
 }
 
 // hookRegisterJob is one phased registration between its writes: the
@@ -450,21 +450,40 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 			return nil, w.hookAddStale(seq, was, card)
 		}
 	}
-	secret, _, err := config.ReadSecretFile(file)
-	switch {
-	case err == nil && len(secret) > 0:
-		// A retry keeps the secret that stands.
-	case err == nil || errors.Is(err, os.ErrNotExist):
+	var secret []byte
+	writeSecret := true
+	if had {
+		var err error
+		secret, _, err = config.ReadSecretFile(file)
+		switch {
+		case err == nil && len(secret) > 0:
+			// A retry keeps the secret belonging to the hook this ask added.
+			writeSecret = false
+		case err == nil || errors.Is(err, os.ErrNotExist):
+			// The hook stands but its secret does not; make one for the retry.
+		default:
+			return nil, fmt.Errorf("hook %s: %w", name, err)
+		}
+	}
+	if writeSecret {
 		made, err := makeHookSecret()
 		if err != nil {
 			return nil, err
 		}
-		if _, _, err := writeHookSecret(w.home, name, made); err != nil {
+		secret = []byte(made)
+	}
+	reg := d.Hook.Register
+	params := map[string]string{reg.URL: publicURL}
+	if reg.Secret != "" {
+		params[reg.Secret] = string(secret)
+	}
+	if err := source.ValidateCallParams(d, reg.Call, params); err != nil {
+		return nil, fmt.Errorf("hook %s: the register call parameters cannot be sent: %w. Nothing was registered", name, err)
+	}
+	if writeSecret {
+		if _, _, err := writeHookSecret(w.home, name, string(secret)); err != nil {
 			return nil, err
 		}
-		secret = []byte(made)
-	default:
-		return nil, fmt.Errorf("hook %s: %w", name, err)
 	}
 	if !had {
 		if _, err := w.putHook(ctx, Hook{Name: name, Source: sourceName, SecretFile: file}, actor, by, Askable); err != nil {
@@ -480,9 +499,10 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 // the ask is still open.
 func (w *wtx) finishHookRegister(ctx context.Context, id string, seq uint64, actor string, job *hookRegisterJob, result string) (*AskApproved, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err == nil && who != "" {
-		actor = who
+	if err != nil {
+		return nil, err
 	}
+	actor = who
 	row, err := w.loadBead(id)
 	if err != nil {
 		return nil, err
@@ -491,10 +511,25 @@ func (w *wtx) finishHookRegister(ctx context.Context, id string, seq uint64, act
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range ResolveAsks(notes, now()) {
-		if r.Note.Seq == seq && r.State == AskAnswered {
-			return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, r.Current.Note.Author)
+	var ask *ResolvedAsk
+	resolved := ResolveAsks(notes, now())
+	for i := range resolved {
+		if resolved[i].Note.Seq == seq {
+			ask = &resolved[i]
+			break
 		}
+	}
+	switch {
+	case ask == nil:
+		return nil, fmt.Errorf("bead %s has no ask %d", row.ID, seq)
+	case ask.AskErr != nil:
+		return nil, ask.AskErr
+	case ask.State == AskDeclined:
+		return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*ask.Current))
+	case ask.State == AskTakenBack:
+		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*ask.Current))
+	case ask.State == AskAnswered:
+		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, ask.Current.Note.Author)
 	}
 	text, err := json.Marshal(Answer{Ask: seq, Ran: &AskRan{Argv: job.argv, Result: result}})
 	if err != nil {
