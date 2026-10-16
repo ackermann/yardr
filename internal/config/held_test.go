@@ -132,6 +132,7 @@ func TestTestHomeCheck(t *testing.T) {
 		{"no unit", "2", 0, false},
 		{"zero", "0s", 0, false},
 		{"negative", "-1s", 0, false},
+		{"longer than real tick", "2m", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("YARDR_TEST_HOME_CHECK", tc.value)

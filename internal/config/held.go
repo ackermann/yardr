@@ -98,24 +98,26 @@ const TestOwnerEnv = "TEST_OWNER"
 // TestHomeCheckEnv names the test-only variable in which a test shortens
 // the home-check tick of the server or daemon it starts through the real
 // CLI, where the test cannot set the interval itself: a duration such as
-// "1s", parsed as time.ParseDuration parses it. The end-to-end owner test
-// (contrib/assembly/owner_test.go) leaves the real minute that way. A real
-// yard never sets it; like TestOwnerEnv it is deliberately not a
-// ServerSettings, so it is never blanked into work sessions nor baked into
-// login-service files.
+// "1s", parsed as time.ParseDuration parses it, and no longer than the
+// real minute. The end-to-end owner test (contrib/assembly/owner_test.go)
+// leaves the real minute that way. A real yard never sets it; like
+// TestOwnerEnv it is deliberately not in ServerSettings, so it is never
+// blanked into work sessions nor baked into login-service files.
 const TestHomeCheckEnv = "TEST_HOME_CHECK"
 
 // TestHomeCheck is the tick the test process named in TestHomeCheckEnv:
 // false when the variable is missing or malformed, in which case the watch
 // keeps the real minute. A tick that is not positive is malformed: a zero
-// tick would spin the watch.
+// tick would spin the watch. A tick over HomeCheck is malformed too: it
+// must not lengthen a real yard's watch if the test-only variable is set by
+// mistake.
 func TestHomeCheck() (time.Duration, bool) {
 	raw := Getenv(TestHomeCheckEnv)
 	if raw == "" {
 		return 0, false
 	}
 	every, err := time.ParseDuration(raw)
-	if err != nil || every <= 0 {
+	if err != nil || every <= 0 || every > HomeCheck {
 		return 0, false
 	}
 	return every, true
