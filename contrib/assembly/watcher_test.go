@@ -224,7 +224,6 @@ func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, limit string) (int, int) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return 0, 0
 }
 
 // killWatcherSleepers kills every "sleep <limit>" it sees: a failing run's
