@@ -420,14 +420,15 @@ them under the flow they follow now, or pin them to it (yardr bead update
 	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
 	rm := &cobra.Command{
 		Use:   "rm <name>",
-		Short: "Remove a depot from the store with its routes and flow pointers (refused while it has open beads or live sessions)",
+		Short: "Remove a depot from the store with its routes and flow pointers (refused while it has open beads or live sessions, or while upgrade_from names it)",
 		Example: `  yardr depot rm yard          # registered under the wrong name; nothing uses it
   yardr depot rm legacy --json # what went with it: its routes and flow pointers
 
 Only the store changes. The clone, its worktrees and its .yardr/ stay where
 they are; remove them yourself if you want them gone. Closed beads keep the
 depot's name as history. A depot with open beads or live sessions is refused and
-the beads and sessions named: close or move the beads first.`,
+the beads and sessions named: close or move the beads first. One upgrade_from
+names is refused too: clear the setting first (yardr settings set upgrade_from "").`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

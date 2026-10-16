@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 24 {
-		t.Fatalf("a new store is stamped %d; want 24", got)
+	if got := schemaOf(t, fixture); got != 25 {
+		t.Fatalf("a new store is stamped %d; want 25", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 24 {
-				t.Fatalf("schema after Open = %d; want 24", got)
+			if got := schemaOf(t, path); got != 25 {
+				t.Fatalf("schema after Open = %d; want 25", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 24 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 25 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 24 {
-				t.Fatalf("schema after Open = %d; want 24", got)
+			if got := schemaOf(t, path); got != 25 {
+				t.Fatalf("schema after Open = %d; want 25", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -509,8 +509,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 24 {
-		t.Fatalf("schema after Open = %d; want 24", got)
+	if got := schemaOf(t, path); got != 25 {
+		t.Fatalf("schema after Open = %d; want 25", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -718,8 +718,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 24 {
-		t.Fatalf("schema after Open = %d; want 24", got)
+	if got := schemaOf(t, path); got != 25 {
+		t.Fatalf("schema after Open = %d; want 25", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -949,8 +949,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 24 {
-			t.Fatalf("%s: schema = %d; want 24", pass, got)
+		if got := schemaOf(t, path); got != 25 {
+			t.Fatalf("%s: schema = %d; want 25", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1135,8 +1135,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 24 {
-			t.Fatalf("%s: schema = %d; want 24", pass, got)
+		if got := schemaOf(t, path); got != 25 {
+			t.Fatalf("%s: schema = %d; want 25", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1210,8 +1210,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 24 {
-		t.Fatalf("a store with no check changed, or is not stamped 24 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 25 {
+		t.Fatalf("a store with no check changed, or is not stamped 25 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
 
@@ -1397,8 +1397,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 24 {
-			t.Fatalf("%s: schema = %d; want 24", pass, got)
+		if got := schemaOf(t, path); got != 25 {
+			t.Fatalf("%s: schema = %d; want 25", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1830,8 +1830,8 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 24 {
-		t.Fatalf("a new store is stamped %d; want 24", got)
+	if got := schemaOf(t, fixture); got != 25 {
+		t.Fatalf("a new store is stamped %d; want 25", got)
 	}
 	for v := uint64(1); v < 23; v++ {
 		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
@@ -1867,12 +1867,12 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 24 {
-				t.Errorf("schema after Open at %d = %d; want 24", v, got)
+			if got := schemaOf(t, path); got != 25 {
+				t.Errorf("schema after Open at %d = %d; want 25", v, got)
 			}
 		})
 	}
-	if got := schemaOf(t, fixture); got != 24 {
+	if got := schemaOf(t, fixture); got != 25 {
 		t.Fatal("the fixture changed; the migrations ran on the copies")
 	}
 }
@@ -1969,8 +1969,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 24 {
-				t.Fatalf("%s: schema = %d; want 24", pass, got)
+			if got := schemaOf(t, path); got != 25 {
+				t.Fatalf("%s: schema = %d; want 25", pass, got)
 			}
 			if head != before {
 				t.Fatalf("%s logged %d events", pass, head-before)
@@ -1995,8 +1995,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 24 {
-			t.Fatalf("schema = %d; want 24", got)
+		if got := schemaOf(t, path); got != 25 {
+			t.Fatalf("schema = %d; want 25", got)
 		}
 	})
 }

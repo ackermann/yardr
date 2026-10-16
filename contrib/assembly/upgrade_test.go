@@ -159,6 +159,7 @@ func TestMergeLocalSkipsInstallOnAnotherDepot(t *testing.T) {
 	y := newYard(t)
 	y.tests("true")
 	y.commit(y.wt, "b.txt", "bead\n")
+	y.yardr("depot", "add", "other", y.repo, "--base", "main")
 	y.upgradeFrom("other")
 	y.bin = writeScript(t, t.TempDir(), "yardr", `#!/bin/sh
 if [ "$1" = "upgrade" ]; then echo "upgrade ran on another depot" >&2; exit 99; fi

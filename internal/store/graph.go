@@ -1297,7 +1297,10 @@ type DepotRemoval struct {
 // DeleteDepot removes a depot with the routes that match it and its flow
 // pointers, and logs depot_removed. It refuses while the depot has open beads
 // or live sessions, and names them: a bead whose depot is gone could not be
-// routed, worked or merged. Closed beads keep the depot's name as history.
+// routed, worked or merged. It refuses while upgrade_from names the depot,
+// which the operator clears first: a depot removed under the name would let
+// whoever creates one under it choose the install source. Closed beads keep
+// the depot's name as history.
 // Only the store changes: the clone, its worktrees and its .yardr/ are not
 // touched. Removing a depot is the operator's to do (operatorOnly).
 func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error) {
@@ -1323,6 +1326,14 @@ func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemo
 		}
 		if len(users) > 0 {
 			return fmt.Errorf("depot %s is in use by %s; close the beads and end the sessions first", name, strings.Join(users, ", "))
+		}
+		var from string
+		if _, err := get(w.Tx, bSettings, UpgradeFromSetting, &from); err != nil {
+			return err
+		}
+		if from == name {
+			return fmt.Errorf("depot %s: the automatic install builds from it while %s is set: remove the setting first (yardr settings set %s \"\")",
+				name, UpgradeFromSetting, UpgradeFromSetting)
 		}
 		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
 			if r.Depot != nil && *r.Depot == name {

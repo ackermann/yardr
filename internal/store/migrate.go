@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 25 has an upgrade_from setting that always names a depot of
+// the yard: setting it to one the yard has not got, and removing the depot
+// it names, are refused, and a store from before either refusal has a
+// dangling value cleared once on open (migrateUpgradeFromDangling), told as
+// the setting's own change. A build before it would keep the dangling value
+// and only fail the next upgrade on it ("not in the yard").
 // schemaVersion 24 has routes that name whose beads they take: the
 // originator (migrateOriginatorRoutes), where a route without one takes the
 // operator's alone and one to a group that starts no agents takes every
@@ -163,7 +169,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 24
+const schemaVersion = 25
 
 var kSchema = []byte("schema")
 
@@ -311,6 +317,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 22, run: atVersion(migrateETAFailed)},
 		{version: 23, run: atVersion(migrateOriginator)},
 		{version: 24, run: atVersion(migrateOriginatorRoutes)},
+		{version: 25, run: atVersion(migrateUpgradeFromDangling)},
 	}
 }
 

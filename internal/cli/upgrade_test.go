@@ -561,10 +561,10 @@ func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
 	if _, err := st.SetUser(ctx, "jo", map[string]string{store.UserNotify: "pushover"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "one", "jo"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "one", Path: filepath.Join(t.TempDir(), "gone")}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutDepot(ctx, store.Depot{Name: "one", Path: filepath.Join(t.TempDir(), "gone")}, "jo"); err != nil {
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "one", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, a().rootCmd(), "--actor", "jo", "upgrade", "--from", "missing")

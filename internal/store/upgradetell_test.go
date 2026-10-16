@@ -61,6 +61,9 @@ func sameSub(sub, want store.Subscription) bool {
 func TestUpgradeFromSetting(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "me"); err == nil ||
 		!strings.Contains(err.Error(), "names no operator") {
 		t.Fatalf("with no operator: %v", err)
@@ -110,6 +113,242 @@ func TestUpgradeFromSetting(t *testing.T) {
 	}
 	if got, _ := st.Settings(ctx); len(got) != 2 || got[store.OperatorSetting] != "jo" || got[store.FilesMaxSetting] != "64" {
 		t.Fatalf("after unset = %v", got)
+	}
+}
+
+// Setting upgrade_from to a depot the yard has not got is refused, naming
+// the depot and the depot-add line: whoever created a depot under the name
+// would otherwise choose the install source. The stored value is unchanged
+// and nothing is logged; a depot of the yard, and clearing, still pass.
+func TestUpgradeFromSettingRefusesUnknownDepot(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	operatorWithNotify(t, st, "jo")
+	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Base: "main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	head, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.SetSetting(ctx, store.UpgradeFromSetting, "ghost", "jo")
+	if err == nil || !strings.Contains(err.Error(), "ghost") ||
+		!strings.Contains(err.Error(), "yardr depot add") {
+		t.Fatalf("an unknown depot: %v", err)
+	}
+	if got, _ := st.Settings(ctx); got[store.UpgradeFromSetting] != "yardr" {
+		t.Fatalf("the stored value moved: %v", got)
+	}
+	if now, _ := st.Head(ctx); now != head {
+		t.Fatalf("the refusal logged %d events", now-head)
+	}
+	// Clearing still passes, and setting it again after.
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "jo"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Removing the depot upgrade_from names is refused, naming the setting and
+// the clear-first line: a depot removed under the name would let whoever
+// creates one under it choose the install source. Nothing is deleted and no
+// depot_removed is logged, while after clearing it the removal passes.
+func TestDeleteDepotRefusesUpgradeFromDepot(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	operatorWithNotify(t, st, "jo")
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	depot := "yard"
+	route, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Depot: &depot}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	putNamed(t, st, "code", yardFlow)
+	if err := st.SetFlowPointer(ctx, "yard", "", "code", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yard", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	head, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.DeleteDepot(ctx, "yard", "jo")
+	if err == nil || !strings.Contains(err.Error(), store.UpgradeFromSetting) ||
+		!strings.Contains(err.Error(), `yardr settings set upgrade_from ""`) {
+		t.Fatalf("the named depot: %v", err)
+	}
+	if _, err := st.GetDepot(ctx, "yard"); err != nil {
+		t.Fatalf("the depot is gone: %v", err)
+	}
+	routes, err := st.Routes(ctx)
+	if err != nil || len(routes) != 1 || routes[0].ID != route.ID {
+		t.Fatalf("routes = %+v, %v", routes, err)
+	}
+	ptrs, err := st.FlowPointers(ctx)
+	if err != nil || len(ptrs) != 1 || ptrs[0].Depot != "yard" {
+		t.Fatalf("flow pointers = %+v, %v", ptrs, err)
+	}
+	if now, _ := st.Head(ctx); now != head {
+		t.Fatalf("the refusal logged %d events", now-head)
+	}
+	// After clearing, the removal passes with all three.
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.DeleteDepot(ctx, "yard", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Routes) != 1 || got.Routes[0] != route.ID || len(got.FlowPointers) != 1 {
+		t.Fatalf("removal = %+v", got)
+	}
+}
+
+// The open-beads refusal still wins where both it and the upgrade_from
+// refusal apply: the depot names its beads, not the setting.
+func TestDeleteDepotOpenBeadsRefusalWinsOverUpgradeFrom(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	operatorWithNotify(t, st, "jo")
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yard", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	open, err := st.CreateBead(ctx, store.NewBead{Title: "some work", Depot: "yard"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.DeleteDepot(ctx, "yard", "jo")
+	if err == nil || !strings.Contains(err.Error(), "bead "+open.ID) ||
+		!strings.Contains(err.Error(), "close the beads") ||
+		strings.Contains(err.Error(), store.UpgradeFromSetting) {
+		t.Fatalf("with an open bead: %v", err)
+	}
+}
+
+// A store from before the refusals whose upgrade_from names no depot has
+// the setting cleared once on open, told as the setting's own change from
+// yard; one whose depot exists keeps it, with nothing logged.
+func TestSchema24StoreClearsDanglingUpgradeFrom(t *testing.T) {
+	ctx := context.Background()
+	aged := func(t *testing.T, dangle bool) (string, uint64) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "yard.db")
+		s, err := store.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operatorWithNotify(t, s, "jo")
+		if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetSetting(ctx, store.UpgradeFromSetting, "yard", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		// The settings migration is not this test's: mark the yard set up so
+		// the reopen logs nothing but what the upgrade_from migration would.
+		if err := s.SetSetting(ctx, "default_kind", "claude", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		head, _ := s.Head(ctx)
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// Age it: a store from before the refusals, under that build's
+		// stamp, with the depot gone where it dangles.
+		db, err := bolt.Open(path, 0o600, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = db.Update(func(tx *bolt.Tx) error {
+			if dangle {
+				if err := tx.Bucket([]byte("depots")).Delete([]byte("yard")); err != nil {
+					return err
+				}
+			}
+			return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 24))
+		})
+		db.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path, head
+	}
+	dangling, danglingHead := aged(t, true)
+	kept, keptHead := aged(t, false)
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err := store.Open(dangling)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		got, err := s.Settings(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got[store.UpgradeFromSetting] != "" {
+			t.Fatalf("%s: upgrade_from = %q, want unset", pass, got[store.UpgradeFromSetting])
+		}
+		headAfter, _ := s.Head(ctx)
+		var told []store.Event
+		if pass == "the upgrade" {
+			told, err = s.Events(ctx, "", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := schemaOf(t, dangling); got != 25 {
+			t.Fatalf("%s: schema = %d; want 25", pass, got)
+		}
+		if pass == "the upgrade" {
+			if headAfter != danglingHead+1 {
+				t.Fatalf("%s logged %d events, want 1", pass, headAfter-danglingHead)
+			}
+			if len(told) != 1 || told[0].Kind != "setting_changed" || told[0].Actor != "yard" ||
+				told[0].Data["key"] != store.UpgradeFromSetting || told[0].Data["value"] != "" ||
+				told[0].Data["reason"] != "cleared: named depot yard, which the yard does not have" {
+				t.Fatalf("%s told %+v", pass, told)
+			}
+		} else if headAfter != danglingHead+1 {
+			t.Fatalf("%s logged %d events", pass, headAfter-danglingHead-1)
+		}
+		s, err = store.Open(kept)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		got, err = s.Settings(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got[store.UpgradeFromSetting] != "yard" {
+			t.Fatalf("%s: upgrade_from = %q, want yard", pass, got[store.UpgradeFromSetting])
+		}
+		keptAfter, _ := s.Head(ctx)
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := schemaOf(t, kept); got != 25 {
+			t.Fatalf("%s: schema = %d; want 25", pass, got)
+		}
+		if keptAfter != keptHead {
+			t.Fatalf("%s logged %d events", pass, keptAfter-keptHead)
+		}
 	}
 }
 
@@ -218,8 +457,8 @@ func TestMigrateUpgradeTell(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 24 {
-		t.Fatalf("schema after Open = %d; want 24", got)
+	if got := schemaOf(t, path); got != 25 {
+		t.Fatalf("schema after Open = %d; want 25", got)
 	}
 	// Once: a second open adds no other.
 	s, err = store.Open(path)
@@ -280,6 +519,9 @@ func TestUpgradeSubscriptionDropRefused(t *testing.T) {
 	add("ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: kind("noted")})
 	add("ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeMentions, Where: kind(store.InstallFailed)})
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Base: "main"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	bead, err := st.CreateBead(ctx, store.NewBead{Title: "some work", Depot: "yard"}, "jo")

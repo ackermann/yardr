@@ -56,7 +56,10 @@ untold — and takes its upgrades by hand with `yardr upgrade --from
 caller takes the failure through the exit status and the terminal, as a
 hand run does. Like the setting, the flag is the operator's alone: anyone
 else is refused. The assembly never passes the flag, so it cannot leak
-into the automatic path.
+into the automatic path. Setting `upgrade_from` to a depot the yard has
+not got is refused too — add the depot first — and removing the depot it
+names is refused until the setting is cleared, so no one can create a
+depot under a dangling name and choose the install source.
 
 ## What it covers
 

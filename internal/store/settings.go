@@ -347,7 +347,8 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
-	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, nothing is installed",
+	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, nothing is installed. " +
+		"It names a depot of the yard: a depot the yard has not got is refused, and the named depot is not removed until the setting is cleared",
 		Check: func(v string) error { return checkName("depot name", v) }},
 	{Key: UpgradeRestoreSetting, Help: "whether a failed yardr upgrade restores the pre-install store copies (true) or leaves refused stores down for a person to restore (false); default: true",
 		Default: "true", Env: "UPGRADE_RESTORE", Check: func(v string) error {
@@ -667,6 +668,14 @@ func (w *wtx) setSetting(ctx context.Context, key, value string, known bool, act
 	if key == UpgradeFromSetting && value != "" {
 		if err := upgradeFromTellable(w.Tx); err != nil {
 			return err
+		}
+		// The install builds the named depot's checkout, so a name the
+		// yard has not got would let whoever creates a depot under it
+		// choose the install source. DeleteDepot refuses the other half:
+		// removing the depot the setting names.
+		if w.Bucket(bDepots).Get([]byte(value)) == nil {
+			return fmt.Errorf("%s: depot %s is not in the yard: add it first (yardr depot add %s <path>)",
+				UpgradeFromSetting, value, value)
 		}
 	}
 	var err error

@@ -539,6 +539,9 @@ func TestUnsubscribeSharedNamePropagatesRemovalErrors(t *testing.T) {
 			st := storetest.New(t)
 			ctx := context.Background()
 			operatorWithNotify(t, st, "jo")
+			if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Base: "main"}, "jo"); err != nil {
+				t.Fatal(err)
+			}
 			if err := st.SetSetting(ctx, store.UpgradeFromSetting, "yardr", "jo"); err != nil {
 				t.Fatal(err)
 			}
