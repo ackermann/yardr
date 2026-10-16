@@ -942,6 +942,58 @@ fi
 	}
 }
 
+// The landing's socket leg runs in a background shell. Its package totals
+// must retain the same retry-aware meaning as the foreground leg: a package
+// that fails once and passes on retry is passed, not both passed and failed.
+func TestYardTestCountsSocketRetryByFinalResult(t *testing.T) {
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake, dir := t.TempDir(), t.TempDir()
+	goFake := `#!/bin/sh
+if [ "$1" = test ] && [ -n "$YARDR_TEST_RPC" ]; then
+  n=$(cat "$FAKE/rpc.n" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" >"$FAKE/rpc.n"
+  if [ "$n" -eq 1 ]; then
+    printf 'ok  m.test/m/b\t1.234s\n'
+    echo '--- FAIL: TestX (0.00s)'
+    echo 'FAIL'
+    printf 'FAIL\tm.test/m/a 0.123s\n'
+    exit 1
+  fi
+  printf 'ok  m.test/m/a\t1.234s\n'
+elif [ "$1" = test ]; then
+  printf 'ok  m.test/m/a\t1.234s\nok  m.test/m/b\t0.123s\n'
+fi
+`
+	for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	cmd := exec.Command("sh", "-c", string(script))
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE=nowhere", "YARDR_LANDING=1", "YARDR_RACE_HELD=1", "FAKE="+fake)
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("landing run: %v\n%s", err, b)
+	}
+	line := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, 4 packages ok, 0 failed, [0-9]+ s, waited 0 s$`)
+	if !line.Match(b) {
+		t.Fatalf("summary does not report four passed package results and no final failures:\n%s", b)
+	}
+}
+
 // The race leg runs under one machine-wide lock: a gate whose race step
 // starts while another holds the lock waits for it, holds it for the run,
 // then releases it, and says how long it waited. The test holds the lock

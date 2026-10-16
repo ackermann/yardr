@@ -59,10 +59,14 @@ unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_P
 started=$(date +%s)
 waited_total=0 pkgs_ok=0 pkgs_failed=0
 tmp=
+beside=
+beside_counts=
 finish() {
   rc=$?
   trap - EXIT
   [ -z "$tmp" ] || [ ! -d "$tmp" ] || rm -rf "$tmp"
+  [ -z "$beside" ] || [ ! -e "$beside" ] || rm -f "$beside"
+  [ -z "$beside_counts" ] || [ ! -e "$beside_counts" ] || rm -f "$beside_counts"
   # No line for a plan, which stops before the steps, or for exit 2, which is
   # "could not run": the base is not there, and nothing ran.
   if [ -z "$YARDR_TEST_PLAN" ] && [ "$rc" != 2 ]; then
@@ -459,7 +463,13 @@ whole() {
   # runs differs between shells.
   if [ "$leg" = beside ]; then
     beside=$(mktemp)
-    again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ >"$beside" 2>&1 &
+    beside_counts=$(mktemp)
+    {
+      second=0
+      again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ || second=$?
+      printf '%s %s\n' "$pkgs_ok" "$pkgs_failed" >"$beside_counts"
+      exit "$second"
+    } >"$beside" 2>&1 &
     socket=$!
   fi
   first=0
@@ -470,11 +480,14 @@ whole() {
   second=0
   wait "$socket" || second=$?
   cat "$beside"
-  # The socket leg ran in the background, where the run's totals are its own
-  # copy: count its packages here, from what it printed.
-  pkgs_ok=$((pkgs_ok + $(okcount "$beside")))
-  pkgs_failed=$((pkgs_failed + $(failcount "$beside")))
-  rm -f "$beside"
+  # The socket leg ran in the background, so its retry-aware counts are its
+  # own copy. Read those instead of counting the raw output: a flaky package
+  # appears as FAIL on the first run and ok on the retry.
+  read -r side_ok side_failed <"$beside_counts"
+  pkgs_ok=$((pkgs_ok + side_ok))
+  pkgs_failed=$((pkgs_failed + side_failed))
+  rm -f "$beside" "$beside_counts"
+  beside= beside_counts=
   [ "$first" = 0 ] || exit "$first"
   exit "$second"
 }
