@@ -95,13 +95,20 @@ func (s *Store) Arrivals(ctx context.Context) ([]eta.ArrivalRow, error) {
 			}
 			in.Fault = faulted
 		}
-		if r := MatchRoute(routes, b, operator); r != nil {
-			if g, ok := byName[r.Worker()]; ok && g.Runner == "manual" {
-				if len(g.Members) > 0 {
-					in.WaitsFor = strings.Join(g.Members, ", ")
-				} else {
-					in.WaitsFor = g.Name
-				}
+		// A claimed bead answers to the group working it, even if a route
+		// changed since the claim. Unclaimed beads answer to the route, as
+		// the waits view does.
+		group := ""
+		if b.Group != nil {
+			group = *b.Group
+		} else if r := MatchRoute(routes, b, operator); r != nil {
+			group = r.Worker()
+		}
+		if g, ok := byName[group]; ok && g.Runner == "manual" {
+			if len(g.Members) > 0 {
+				in.WaitsFor = strings.Join(g.Members, ", ")
+			} else {
+				in.WaitsFor = g.Name
 			}
 		}
 		inputs = append(inputs, in)

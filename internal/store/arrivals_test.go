@@ -249,6 +249,34 @@ func TestArrivalsWaitsWithoutMembers(t *testing.T) {
 	}
 }
 
+func TestArrivalsWaitsForClaimedGroupAfterRouteRemoval(t *testing.T) {
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	b := y.create(t, "wharf-a", "decide")
+	if _, err := y.Claim(ctx, b.ID, "deciders", "decide", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	routes, err := y.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range routes {
+		if route.Stage == "decide" {
+			if err := y.DeleteRoute(ctx, route.ID, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	rows, err := y.Arrivals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Remark != "waits for nell, yardmaster" || rows[0].Tone != "amber" {
+		t.Fatalf("claimed manual group after route removal: %+v", rows)
+	}
+}
+
 func TestArrivalsLate(t *testing.T) {
 	y := newArrivalsTest(t)
 	ctx := context.Background()
