@@ -7,9 +7,57 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"unicode"
 )
+
+// repoGoFile is one non-test Go file the repository is built from: its path
+// from the root, and its lines.
+type repoGoFile struct {
+	path  string
+	lines []string
+}
+
+// loadRepoGoFiles walks the repository's non-test Go files once for the
+// TestNoGoCodeNames* tests: three walks cost 31 s together under -race, one
+// walk matched thrice costs one. The walkers run beside TestYardTestSelects
+// (t.Parallel), so the walk happens once however they interleave. It skips
+// nothing but .git; a test looks past what its own walk skipped.
+var loadRepoGoFiles = sync.OnceValues(func() ([]repoGoFile, error) {
+	var out []repoGoFile
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		path = filepath.ToSlash(path)
+		if d.IsDir() {
+			if path == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out = append(out, repoGoFile{path: path, lines: strings.Split(string(body), "\n")})
+		return nil
+	})
+	return out, err
+})
+
+func mustRepoGoFiles(t *testing.T) []repoGoFile {
+	t.Helper()
+	files, err := loadRepoGoFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
 
 // The roles are data in a pack: no Go code yardr is built from, outside the
 // pack reader (internal/pack) and the packs themselves (packs/), names the
@@ -23,41 +71,29 @@ import (
 // Tests are not held to this: they say what the embedded packs install, and
 // build depots with roles of their own.
 func TestNoGoCodeNamesARole(t *testing.T) {
+	t.Parallel()
 	role := regexp.MustCompile(`(roles/)?\b(builder|reviewer|merger)\.md\b`)
 	examples := []string{"internal/cli/groupform.go", "internal/cli/ops.go"}
 	var files int
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		if d.IsDir() {
-			if path == "internal/pack" || path == "packs" || path == ".git" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
+	for _, f := range mustRepoGoFiles(t) {
+		// The pack reader and the packs name roles' files: this test
+		// looks past what its own walk skipped.
+		if strings.HasPrefix(f.path, "internal/pack/") || strings.HasPrefix(f.path, "packs/") {
+			continue
 		}
 		files++
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for i, line := range strings.Split(string(body), "\n") {
+		for i, line := range f.lines {
 			for _, m := range role.FindAllString(line, -1) {
-				if strings.HasPrefix(m, "roles/") && slices.Contains(examples, path) {
+				if strings.HasPrefix(m, "roles/") && slices.Contains(examples, f.path) {
 					continue
 				}
-				t.Errorf("%s:%d names %s: a role's file is the pack's to name (internal/pack, packs/): %s", path, i+1, m, strings.TrimSpace(line))
+				t.Errorf("%s:%d names %s: a role's file is the pack's to name (internal/pack, packs/): %s", f.path, i+1, m, strings.TrimSpace(line))
 			}
 		}
-		return nil
-	})
+	}
 	// Not for want of looking: the walk started at the repository's root.
-	if err != nil || files < 100 {
-		t.Fatalf("%d Go files read, %v", files, err)
+	if files < 100 {
+		t.Fatalf("%d Go files read", files)
 	}
 }
 
@@ -117,43 +153,26 @@ func TestCoreComparesNoSourceName(t *testing.T) {
 // source, by design (yardr-6ja6 decision 10): a refusal that cannot point
 // at them leaves the operator with no next step.
 func TestNoGoCodeNamesANotifyService(t *testing.T) {
+	t.Parallel()
 	name := regexp.MustCompile(`(?i)telegram|pushover`)
 	var files int
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		if d.IsDir() {
-			if path == ".git" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
+	for _, f := range mustRepoGoFiles(t) {
 		files++
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for i, line := range strings.Split(string(body), "\n") {
-			if path == "packs/packs.go" && strings.Contains(line, "go:embed") {
+		for i, line := range f.lines {
+			if f.path == "packs/packs.go" && strings.Contains(line, "go:embed") {
 				continue
 			}
-			if path == "internal/store/settings.go" && strings.Contains(line, "pack apply") {
+			if f.path == "internal/store/settings.go" && strings.Contains(line, "pack apply") {
 				continue
 			}
 			if m := name.FindString(line); m != "" {
-				t.Errorf("%s:%d names %s: a service that tells a user is a pack's to name (packs/, tests' fixtures, docs): %s", path, i+1, m, strings.TrimSpace(line))
+				t.Errorf("%s:%d names %s: a service that tells a user is a pack's to name (packs/, tests' fixtures, docs): %s", f.path, i+1, m, strings.TrimSpace(line))
 			}
 		}
-		return nil
-	})
+	}
 	// Not for want of looking: the walk started at the repository's root.
-	if err != nil || files < 100 {
-		t.Fatalf("%d Go files read, %v", files, err)
+	if files < 100 {
+		t.Fatalf("%d Go files read", files)
 	}
 }
 
@@ -166,6 +185,7 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 // example source. Tests are not held to this: they prove the pack against
 // the stand-in. A line importing a Go module (github.com/...) cannot go.
 func TestNoGoCodeNamesGitHub(t *testing.T) {
+	t.Parallel()
 	name := regexp.MustCompile(`(?i)github`)
 	credential := regexp.MustCompile(`\bGITHUB_(?:TOKEN|APP_ID|APP_PRIVATE_KEY_FILE)\b`)
 	kept := []string{
@@ -191,44 +211,26 @@ func TestNoGoCodeNamesGitHub(t *testing.T) {
 	// held) is the code's to own, and fails outside the kept files.
 	isImport := regexp.MustCompile(`^\s*(\S+ )?"github\.com/[^"]*"(,)?\s*$`)
 	var files int
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		if d.IsDir() {
-			if path == ".git" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
+	for _, f := range mustRepoGoFiles(t) {
 		files++
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for i, line := range strings.Split(string(body), "\n") {
+		for i, line := range f.lines {
 			if credential.MatchString(line) {
-				t.Errorf("%s:%d names a GitHub credential: credentials belong to a source pack, not Go code: %s", path, i+1, strings.TrimSpace(line))
+				t.Errorf("%s:%d names a GitHub credential: credentials belong to a source pack, not Go code: %s", f.path, i+1, strings.TrimSpace(line))
 			}
-			if slices.Contains(kept, path) {
+			if slices.Contains(kept, f.path) {
 				continue
 			}
 			if isImport.MatchString(line) {
 				continue
 			}
 			if m := name.FindString(line); m != "" {
-				t.Errorf("%s:%d names %s: GitHub is a pack's to name (packs/github): %s", path, i+1, m, strings.TrimSpace(line))
+				t.Errorf("%s:%d names %s: GitHub is a pack's to name (packs/github): %s", f.path, i+1, m, strings.TrimSpace(line))
 			}
 		}
-		return nil
-	})
+	}
 	// Not for want of looking: the walk started at the repository's root.
-	if err != nil || files < 100 {
-		t.Fatalf("%d Go files read, %v", files, err)
+	if files < 100 {
+		t.Fatalf("%d Go files read", files)
 	}
 }
 

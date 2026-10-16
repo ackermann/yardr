@@ -179,6 +179,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 // YARDR_TEST_PLAN makes the script say so and stop. A landing selects the
 // same when nothing compiled changed, and is the whole suite otherwise.
 func TestYardTestSelects(t *testing.T) {
+	t.Parallel()
 	script, rows := yardTestRows(t)
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go in PATH")
@@ -1350,16 +1351,18 @@ func TestYardTestBudgets(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
-		// cli is allow-listed, the module path is the allow-listed root,
-		// exactly 60 s complies, and cached, failed and foreign lines
-		// are not judged: only web and pack fail, sorted.
-		if got := strings.Count(out, "over the 60 s budget"); got != 2 {
-			t.Fatalf("output %q, want 2 budget lines, got %d", out, got)
+		// cli is allow-listed, exactly 60 s complies, and cached, failed
+		// and foreign lines are not judged. The module path is the root,
+		// whose allow-list row yardr-1x36 deleted: over budget it fails
+		// with web and pack.
+		if got := strings.Count(out, "over the 60 s budget"); got != 3 {
+			t.Fatalf("output %q, want 3 budget lines, got %d", out, got)
 		}
+		root := "test: yardr.dev/yardr took 65.5 s with -race, over the 60 s budget (docs/testing.md R1)"
 		web := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1)"
 		pack := "test: yardr.dev/yardr/internal/pack took 61.5 s with -race, over the 60 s budget (docs/testing.md R1)"
-		if !strings.Contains(out, web) || !strings.Contains(out, pack) {
-			t.Fatalf("output %q, want it to name web and pack", out)
+		if !strings.Contains(out, root) || !strings.Contains(out, web) || !strings.Contains(out, pack) {
+			t.Fatalf("output %q, want it to name root, web and pack", out)
 		}
 		if strings.Index(out, pack) > strings.Index(out, web) {
 			t.Errorf("output %q, want the pack line sorted before the web line", out)
