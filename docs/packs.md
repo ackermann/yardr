@@ -1175,16 +1175,18 @@ with why:
   other setting of a group. An import asks for the first four. Calls a group
   was granted are requests only, which an import asks about again when its
   yard has the source and a credential for it.
-- A stage whose beads are not worked by one plain route of the depot (depot
-  and stage, no condition, no further group). Of the routes that match a
-  stage, the depot's and the yard-wide ones, the first in the order dispatch
-  reads them is what works it. It is followed when it is the depot's and
-  plain. A stage whose winner is yard-wide, or has a condition or further
-  groups, is written with no group. So is a stage where a label, bead
-  priority or type filter lets a route win for only some of its beads before
-  a route that matches the whole flow, or where no such whole-flow route
-  exists. Each route that is not followed is listed with its groups, and a
-  group only such routes lead to is not written.
+- A stage whose beads are not worked by one plain route in the depot's
+  effective routes (its own, plus every yard default no own route of the
+  same key sets aside; depot and stage, no condition, no further group).
+  Of the routes that match a stage, the first in the order dispatch reads
+  them is what works it. It is followed when it is plain, whether it is the
+  depot's own or a yard default the pack follows. A stage whose winner has
+  a condition or further groups is written with no group. So is a stage
+  where a label, bead priority or type filter lets a route win for only
+  some of its beads before a route that matches the whole flow, or where
+  no such whole-flow route exists. Each route that is not followed is
+  listed with its groups, and a group only such routes lead to is not
+  written.
 - A crew member's name in a role or stage file, by file and line. The name
   stays as plain text, and the pack brings no crew member of that name.
 - The variables before and the arguments after a script in a script group's

@@ -445,8 +445,9 @@ func (e *exporter) routes() error {
 }
 
 // routeWhy says why a route of a stage of a flow for typ is none a pack
-// carries; "" for a plain route of the depot or a plain yard default the
-// pack follows, which are the ones it does.
+// carries; "" for a plain route of the depot, which is one. A plain yard
+// default the pack follows is exported as the stage's winner and so never
+// listed; any other default is listed with its scope.
 func routeWhy(r store.Route, typ string) string {
 	switch {
 	case r.ByBead():
