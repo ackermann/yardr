@@ -128,7 +128,14 @@ type daemonTrial struct {
 
 func daemonUp(t *testing.T) *daemonTrial {
 	t.Helper()
-	home, st, panes, ids, a, _ := downYard(t, map[string]string{"yardmaster": "idle", "busy": "idle"}, "busy")
+	home, st, panes, ids, a, _ := downYard(t,
+		map[string]string{"yardmaster": "idle", "conversation": "idle", "busy": "idle"}, "busy")
+	ctx := context.Background()
+	mustAs(t, st, "Jo", "user", "add", "hal")
+	mustAs(t, st, "Jo", "crew", "set", "yardmaster", "for=Jo,hal", "env_for_hal=/tmp/hal.env")
+	if err := st.CrewStartedFor(ctx, "yardmaster", "hal", map[string]any{"agent": "conversation", "tab": "w2:t1"}); err != nil {
+		t.Fatal(err)
+	}
 	stub(t, &homeCheck, 10*time.Millisecond)
 	stub(t, &daemonRunners, func(string, store.API, *slog.Logger, func(error)) map[string]dispatch.Runner {
 		return map[string]dispatch.Runner{"herdr": panes}
@@ -202,9 +209,10 @@ func daemonUp(t *testing.T) *daemonTrial {
 }
 
 // When the daemon's home is removed under it, it closes the herdr sessions
-// it is responsible for — the crew member's and the bead's — with one log
-// line per session, and exits 0. Nothing is asked for a handoff and the
-// store is left as it was: there is no yard to write one to.
+// it is responsible for — the crew member's line and conversation and the
+// bead's — with one log line per session, and exits 0. Nothing is asked for
+// a handoff and the store is left as it was: there is no yard to write one
+// to.
 func TestDaemonClosesHerdrSessionsWhenItsHomeIsGone(t *testing.T) {
 	y := daemonUp(t)
 	y.end(func() {
@@ -216,8 +224,8 @@ func TestDaemonClosesHerdrSessionsWhenItsHomeIsGone(t *testing.T) {
 	stopped := slices.Clone(y.panes.stopped)
 	y.panes.mu.Unlock()
 	slices.Sort(stopped)
-	if !slices.Equal(stopped, []string{"busy", "yardmaster"}) {
-		t.Fatalf("the daemon closed %v, want the bead's and the yardmaster's sessions\n%s", stopped, y.logged.String())
+	if !slices.Equal(stopped, []string{"busy", "conversation", "yardmaster"}) {
+		t.Fatalf("the daemon closed %v, want the bead's and both of the yardmaster's sessions\n%s", stopped, y.logged.String())
 	}
 	for _, text := range y.texts() {
 		if strings.Contains(text, "handoff") {
@@ -227,14 +235,15 @@ func TestDaemonClosesHerdrSessionsWhenItsHomeIsGone(t *testing.T) {
 	if n := strings.Count(y.logged.String(), "no longer its own"); n != 1 {
 		t.Fatalf("want the one line saying the home is gone, got %d:\n%s", n, y.logged.String())
 	}
-	if n := strings.Count(y.logged.String(), "closed the herdr session"); n != 2 {
+	if n := strings.Count(y.logged.String(), "closed the herdr session"); n != 3 {
 		t.Fatalf("want one line per closed session, got %d:\n%s", n, y.logged.String())
 	}
-	if out := y.logged.String(); !strings.Contains(out, "crew member yardmaster") || !strings.Contains(out, y.bead) {
-		t.Fatalf("the lines name neither session:\n%s", out)
+	if out := y.logged.String(); !strings.Contains(out, "crew member yardmaster\"") ||
+		!strings.Contains(out, "crew member yardmaster for hal") || !strings.Contains(out, y.bead) {
+		t.Fatalf("the lines do not name the line, conversation and bead sessions:\n%s", out)
 	}
 	ctx := context.Background()
-	if r, err := y.st.GetCrew(ctx, "yardmaster"); err != nil || !r.Live() {
+	if r, err := y.st.GetCrew(ctx, "yardmaster"); err != nil || !r.Live() || !r.Session("hal").Live() {
 		t.Fatalf("the yardmaster after the daemon left: %+v, %v", r, err)
 	}
 	sessions, err := y.st.Sessions(ctx, false)
@@ -256,5 +265,30 @@ func TestDaemonKeepsHerdrSessionsOnStop(t *testing.T) {
 	}
 	if out := y.logged.String(); strings.Contains(out, "no longer its own") || strings.Contains(out, "closed the herdr session") {
 		t.Fatalf("a stopped daemon wrote a home-gone line:\n%s", out)
+	}
+}
+
+// A herdr close failure is logged and does not keep the daemon from closing
+// the other sessions or exiting 0.
+func TestDaemonSkipsHerdrSessionsItCannotClose(t *testing.T) {
+	y := daemonUp(t)
+	y.panes.mu.Lock()
+	y.panes.fail["conversation"] = true
+	y.panes.mu.Unlock()
+	y.end(func() {
+		if err := os.RemoveAll(y.home); err != nil {
+			t.Fatal(err)
+		}
+	})
+	y.panes.mu.Lock()
+	stopped := slices.Clone(y.panes.stopped)
+	y.panes.mu.Unlock()
+	slices.Sort(stopped)
+	if !slices.Equal(stopped, []string{"busy", "yardmaster"}) {
+		t.Fatalf("the daemon closed %v, want it to skip the failed conversation and close the others\n%s", stopped, y.logged.String())
+	}
+	if out := y.logged.String(); !strings.Contains(out, "could not close the herdr session") ||
+		!strings.Contains(out, "crew member yardmaster for hal") || strings.Count(out, "closed the herdr session") != 2 {
+		t.Fatalf("the daemon did not log the failed session and the two successful closes:\n%s", out)
 	}
 }
