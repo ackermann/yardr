@@ -928,9 +928,11 @@ is that depot's own, and sets a default aside only for those beads and
 only there. Of the routes that match a bead, in its depot's effective
 routes, the one with the highest --priority takes it, and among those
 the one that asks for more: each label counts, and a named originator
-counts as one. A route that takes the same beads at the same priority
-as one of the same scope already standing is refused, naming it: the
-two would be ordered by id, which nobody chose.`,
+counts as one. Where two routes ask for as much, an own route comes
+before a yard default, then the route id decides. A route that takes the
+same beads at the same priority as one of the same scope already
+standing is refused, naming it: the two would be ordered by id, which
+nobody chose.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10

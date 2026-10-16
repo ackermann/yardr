@@ -134,6 +134,60 @@ func TestMatchParity(t *testing.T) {
 	}
 }
 
+// ETA's independent route model applies the same depot defaults and
+// match-key overrides as the store's matcher.
+func TestEffectiveRouteParity(t *testing.T) {
+	web, signalbox, pr := "web", "signalbox", "pr"
+	firstLabels := []string{"a\x00b", "c"}
+	secondLabels := []string{"a", "b\x00c"}
+	routes := []store.Route{
+		{ID: "default", Stage: "new", Group: "builders"},
+		{ID: "default-labels", Stage: "new", Group: "hard-builders", Label: &firstLabels[0], AndLabels: firstLabels[1:]},
+		{ID: "web", Stage: "new", Depot: &web, Group: "web-builders"},
+		{ID: "web-labels", Stage: "new", Depot: &web, Group: "web-hard-builders", Label: &secondLabels[0], AndLabels: secondLabels[1:]},
+		{ID: "web-pr", Stage: "new", Depot: &web, Type: &pr, Group: "pr-builders"},
+		{ID: "signalbox", Stage: "new", Depot: &signalbox, Group: "signalbox-builders"},
+	}
+	store.SortRoutes(routes)
+	var eroutes []eta.Route
+	for _, r := range routes {
+		eroutes = append(eroutes, toEtaRoute(r))
+	}
+	groups := []eta.Group{
+		{Name: "builders", Runner: "herdr", Limit: 1},
+		{Name: "hard-builders", Runner: "herdr", Limit: 1},
+		{Name: "web-builders", Runner: "herdr", Limit: 1},
+		{Name: "web-hard-builders", Runner: "herdr", Limit: 1},
+		{Name: "pr-builders", Runner: "herdr", Limit: 1},
+		{Name: "signalbox-builders", Runner: "herdr", Limit: 1},
+	}
+	flow := &eta.Flow{Stages: []string{"new"}}
+	cells := func(string, string, string) eta.Cell {
+		return eta.Cell{ClaimMedian: time.Hour, ClaimP90: 2 * time.Hour, ClaimN: 42, Stays: 42}
+	}
+	for _, bead := range []store.Bead{
+		{Stage: "new", Type: "task", Depot: &web, Priority: 2},
+		{Stage: "new", Type: "task", Depot: &web, Labels: firstLabels, Priority: 2},
+		{Stage: "new", Type: "pr", Depot: &web, Priority: 2},
+		{Stage: "new", Type: "task", Depot: &signalbox, Priority: 2},
+		{Stage: "new", Type: "task", Priority: 2},
+	} {
+		matched := store.MatchRoute(routes, bead, "jo")
+		if matched == nil {
+			t.Fatalf("store did not match %+v", bead)
+		}
+		eb := eta.Bead{ID: "yardr-9c2k", Stage: bead.Stage, Type: bead.Type, Depot: bead.Depot,
+			Labels: bead.Labels, Priority: bead.Priority, Originator: bead.Originator}
+		result := eta.Estimate(eb, flow, eroutes, groups, cells, eta.Queue{}, time.Now(), "jo")
+		if result == nil || result.ETA == nil || len(result.ETA.Stages) != 1 {
+			t.Fatalf("ETA did not estimate %+v: %+v", bead, result)
+		}
+		if got := result.ETA.Stages[0].Group; got != matched.Worker() {
+			t.Errorf("bead %+v: store matches %s, ETA uses %s", bead, matched.Worker(), got)
+		}
+	}
+}
+
 // eta matches the route the store matches when originators differ: a
 // named route takes only its person's beads, any takes every
 // originator's, and a route without one takes only the operator's,

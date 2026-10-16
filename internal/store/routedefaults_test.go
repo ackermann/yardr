@@ -271,6 +271,19 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 			t.Fatalf("the same labels in another order: %v, want a tie naming %s", err, first.ID)
 		}
 	})
+	t.Run("the replacement hint quotes a group name", func(t *testing.T) {
+		s, ctx := defaultsYard(t)
+		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
+		quoted := "b'c"
+		if err := s.PutGroup(ctx, store.Group{Name: quoted, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: quoted}, "jo")
+		want := "yardr route set " + first.ID + ` --group 'b'\''c'`
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("the tying route: %v, want a shell-safe replacement hint containing %q", err, want)
+		}
+	})
 	t.Run("naming the operator is naming nobody", func(t *testing.T) {
 		s, ctx := defaultsYard(t)
 		jo := "jo"
@@ -328,5 +341,20 @@ func TestRouteNoteIsStoredAndLogged(t *testing.T) {
 	bead := store.Bead{Stage: "new", Type: "task", Priority: store.DefaultPriority}
 	if got := winner(t, s, ctx, bead); got == nil || got.ID != saved.ID {
 		t.Errorf("a bead took %+v, want the noted route %s: the note takes no part in matching", got, saved.ID)
+	}
+}
+
+// Label sets can contain arbitrary strings. Length-prefixing their sorted
+// values keeps an embedded NUL from making two different sets share a key.
+func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
+	first := []string{"a\x00b", "c"}
+	second := []string{"a", "b\x00c"}
+	routes := []store.Route{
+		{ID: "default", Stage: "new", Group: "hard-builders", Label: &first[0], AndLabels: first[1:]},
+		{ID: "own", Stage: "new", Depot: routePtr("web"), Group: "builders", Label: &second[0], AndLabels: second[1:]},
+	}
+	bead := store.Bead{Stage: "new", Type: "task", Depot: routePtr("web"), Labels: first, Priority: store.DefaultPriority}
+	if got := store.MatchRoute(routes, bead, "jo"); got == nil || got.ID != "default" {
+		t.Fatalf("a bead with the default's distinct label set took %+v, want the default", got)
 	}
 }

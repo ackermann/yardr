@@ -581,7 +581,12 @@ func (r Route) routeKey(operator string) routeKey {
 	if len(r.Labels) > 0 {
 		sorted := slices.Clone(r.Labels)
 		slices.Sort(sorted)
-		k.labels = strings.Join(slices.Compact(sorted), "\x00")
+		var labels strings.Builder
+		for _, label := range slices.Compact(sorted) {
+			fmt.Fprintf(&labels, "%d:", len(label))
+			labels.WriteString(label)
+		}
+		k.labels = labels.String()
 	}
 	if r.BeadPriority != nil {
 		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true

@@ -1034,11 +1034,17 @@ func describeKey(r Route, operator string) string {
 // refusal's replacement line.
 func setGroups(r Route) string {
 	gs := r.Groups()
-	parts := []string{"--group '" + gs[0].String() + "'"}
+	parts := []string{"--group " + quoteRouteShellArg(gs[0].String())}
 	for _, g := range gs[1:] {
-		parts = append(parts, "--else '"+g.String()+"'")
+		parts = append(parts, "--else "+quoteRouteShellArg(g.String()))
 	}
 	return strings.Join(parts, " ")
+}
+
+// quoteRouteShellArg keeps the route-set hint one argument per group even
+// when a group name or quota window contains shell syntax.
+func quoteRouteShellArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // checkRouteTie refuses r where a route of the same scope already takes
@@ -1313,7 +1319,12 @@ func (r Route) matchKey(operator string) routeKey {
 	if ls := r.Labels(); len(ls) > 0 {
 		sorted := slices.Clone(ls)
 		slices.Sort(sorted)
-		k.labels = strings.Join(slices.Compact(sorted), "\x00")
+		var labels strings.Builder
+		for _, label := range slices.Compact(sorted) {
+			fmt.Fprintf(&labels, "%d:", len(label))
+			labels.WriteString(label)
+		}
+		k.labels = labels.String()
 	}
 	if r.BeadPriority != nil {
 		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true

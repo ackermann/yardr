@@ -147,7 +147,7 @@ label and a named originator count as one (`any` counts as none). So a
 route for two labels is read before a route for one of them, and a bead
 with both goes to the first; an exact originator route beats an `any`
 route of the same priority. Routes that ask for as much are read with
-an own route before a default, then oldest first. A route for urgent
+an own route before a default, then by route id. A route for urgent
 beads that is to win over a route for a label therefore needs a higher
 `--priority`, as in the example. `yardr route list` prints the routes in
 that order, the labels in the column `LABEL`, the bead priorities as
