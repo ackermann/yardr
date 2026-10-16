@@ -1440,6 +1440,22 @@ the source's own file. Adding the source is the operator's: run by anyone
 else the import adds none. `yardr pack list` shows the import into the
 yard.
 
+**Proposing an embedded pack.** A crew member may propose applying a
+pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
+--run "pack apply <name>"`, [chat.md](chat.md#questions-for-you)), for
+the operator to approve on a card: a pack of kind `source` (linear,
+github, google, pushover and telegram), or a pack of a depot kind
+re-applied to the one depot that holds it where its plan asks nothing.
+The card is written by the yard's server from its own binary: it shows
+each declared source whole as a `source add` card does, what a source it
+would replace changes to with each command file's diff, and for a depot
+pack each object with each changed file's diff. The approval is held to
+the build, the pack's bytes and the yard's sources as carded, and is
+carried out by the server after it. A pack that is a directory, a URL or
+an earlier import's record, any flag of `pack apply`, a first install of
+a depot pack, and a plan that asks, is refused to a terminal, where
+`yardr pack check <name>` shows the plan.
+
 What a stage means in such a source is not the integration pack's to say:
 that is the flow pack's, the one the depot follows. The seam between the
 two packs is the source's name:

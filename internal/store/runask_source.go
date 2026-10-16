@@ -151,7 +151,7 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 			Does:    []string{fmt.Sprintf("source %s is in the yard already.", d.Name)},
 			Back:    runCommandLine([]string{"source", "rm", d.Name}),
 			BackBy:  "the operator",
-			Seen:    map[string]string{"source " + d.Name: sourceSeen(src)},
+			Seen:    map[string]string{"source " + d.Name: w.sourceSeen(src)},
 			Carried: []AskSource{carried},
 		}, nil
 	}

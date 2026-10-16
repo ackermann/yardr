@@ -36,6 +36,12 @@ const (
 	MaxRunSourceCommandFile = 8192
 	MaxRunSourceTexts       = 32 << 10
 	MaxRunSourceCardLines   = 40
+	// MaxRunPackDeclarations is the most declaration text a pack ask
+	// holds together, and MaxRunPackFiles the most its command files,
+	// their diffs and a depot plan's file texts and diffs hold together
+	// (yardr-bht9 3.3): past either the pack is read at a desk.
+	MaxRunPackDeclarations = 256 << 10
+	MaxRunPackFiles        = 64 << 10
 )
 
 // runContextLines is how many lines the context holds. A context line is
@@ -84,6 +90,69 @@ type AskRun struct {
 	// keeps it: askedRun throws a writer's Carried away with its Does
 	// and Seen.
 	Carried []AskSource `json:"carried,omitempty"`
+	// Pack is the pack a pack apply ask names, as the server read it
+	// from its own binary; set on that row alone.
+	Pack *AskPack `json:"pack,omitempty"`
+}
+
+// AskPack is a pack apply ask's pack as the yard's server read it: its
+// name, its kind, the depot a depot kind would be re-applied to, and
+// the build label the pack is embedded in. A depot kind carries the
+// plan the server built inside the write that stored the ask.
+type AskPack struct {
+	Name  string   `json:"name"`
+	Kind  string   `json:"kind,omitempty"`
+	Depot string   `json:"depot,omitempty"`
+	Label string   `json:"label"`
+	Plan  *AskPlan `json:"plan,omitempty"`
+}
+
+// AskPlan is a depot pack's plan as a card holds it: every object with
+// its action and changes, the governs, and what the plan still asks or
+// refuses, in the store's own words so no view needs internal/pack.
+type AskPlan struct {
+	Objects []AskPlanObject `json:"objects,omitempty"`
+	Governs []AskGovern     `json:"governs,omitempty"`
+	// Missing, Asks, Refused and Edited name what keeps the plan from
+	// asking nothing, each a line the refusal reads back.
+	Missing []string `json:"missing,omitempty"`
+	Asks    []string `json:"asks,omitempty"`
+	Refused []string `json:"refused,omitempty"`
+	Edited  []string `json:"edited,omitempty"`
+	// NonText names a changed file whose old or new bytes are not
+	// text: a card carries text only, so the row refuses it.
+	NonText []string `json:"nontext,omitempty"`
+}
+
+// AskPlanObject is one object of a depot plan.
+type AskPlanObject struct {
+	Kind    string      `json:"kind"`
+	Name    string      `json:"name"`
+	Action  string      `json:"action"`
+	Changes []AskChange `json:"changes,omitempty"`
+	Keeps   []string    `json:"keeps,omitempty"`
+	Shadows []string    `json:"shadows,omitempty"`
+	// Of a file: its hashes whole, old and new, and for a create or
+	// change its new text and the unified diff old against new, whole,
+	// for the tap and a terminal.
+	FileOldSHA string `json:"file_old_sha256,omitempty"`
+	FileNewSHA string `json:"file_new_sha256,omitempty"`
+	Text       string `json:"text,omitempty"`
+	Diff       string `json:"diff,omitempty"`
+}
+
+// AskChange is one change of a plan object, as printPlan prints it.
+type AskChange struct {
+	Field string `json:"field"`
+	Old   string `json:"old"`
+	New   string `json:"new"`
+}
+
+// AskGovern is the flow a depot's beads would follow after the plan.
+type AskGovern struct {
+	Type string `json:"type,omitempty"`
+	Flow string `json:"flow"`
+	Now  string `json:"now,omitempty"`
 }
 
 // AskFile is one command file a run ask that adds a source carries: the
@@ -106,6 +175,49 @@ type AskSource struct {
 	Name  string    `json:"name"`
 	Text  string    `json:"text"`
 	Files []AskFile `json:"files,omitempty"`
+	// Old, Removed and Inventory are a pack ask's record of what the
+	// yard's copies of a source it would replace hold as the card was
+	// written: each command file's change, each entry neither
+	// declaration names that the copy would remove, and the whole
+	// destination inventory. A loose add replaces nothing and keeps
+	// none of them.
+	Old       []AskFileDiff  `json:"old,omitempty"`
+	Removed   []AskRemoved   `json:"removed,omitempty"`
+	Inventory []AskInventory `json:"inventory,omitempty"`
+}
+
+// AskFileDiff is one command file a pack ask would change: its program,
+// the SHA-256 of the copy that stands and of the pack's file, whole,
+// and the unified diff old against new. The old bytes are not carried:
+// the diff is the showing, and the two hashes are what the approval is
+// held to.
+type AskFileDiff struct {
+	Program   string `json:"program"`
+	OldSHA256 string `json:"old_sha256,omitempty"`
+	NewSHA256 string `json:"new_sha256,omitempty"`
+	Diff      string `json:"diff,omitempty"`
+}
+
+// AskRemoved is one entry under a source's copies that neither the
+// standing declaration nor the pack's names: applying the pack removes
+// the whole destination, so the card names it with its hash. Text
+// stands behind the tap where it is text within the bound.
+type AskRemoved struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Mode   string `json:"mode"`
+	Size   int64  `json:"size"`
+	Text   string `json:"text,omitempty"`
+}
+
+// AskInventory is one file under a source's copies as an ask found it:
+// its path under <home>/sources/<name>/, its SHA-256 and its mode. A
+// chmod after the ask changes the mode, and with it the approval.
+type AskInventory struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Mode   string `json:"mode"`
+	Size   int64  `json:"size"`
 }
 
 // TakenBack is the card's line for the command that takes the change back,
@@ -143,6 +255,9 @@ type RunAsked struct {
 	// Carried is what adding a source takes, for a client to show the
 	// texts behind the card; absent on any other command.
 	Carried []AskSource `json:"carried,omitempty"`
+	// Pack is the pack a pack apply ask names, for a client to show
+	// the plan behind the card; absent on any other command.
+	Pack *AskPack `json:"pack,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -152,7 +267,7 @@ func (a Ask) proposed() *RunAsked {
 		return nil
 	}
 	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
-		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried}
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
@@ -274,6 +389,15 @@ var runList = []runCommand{{
 	cardRun:     (*wtx).sourceAddCard,
 	stale:       (*wtx).sourceAddStale,
 	runRun:      runSourceAdd,
+}, {
+	words:       []string{"pack", "apply"},
+	use:         "yardr pack apply <name>",
+	description: "Import a pack into a depot: set the yard to what the pack says",
+	parse:       parsePackApply,
+	checkRun:    checkPackApply,
+	cardRun:     (*wtx).packApplyCard,
+	stale:       (*wtx).packApplyStale,
+	runRun:      runPackApply,
 }, {
 	words:       []string{"subscribe"},
 	use:         "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
@@ -867,7 +991,11 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if err != nil {
 		return nil, err
 	}
-	card.Description = c.description
+	// A row whose card knows its own wording (pack apply, by the pack's
+	// kind) keeps it; the rest take the command's help line.
+	if card.Description == "" {
+		card.Description = c.description
+	}
 	return &card, nil
 }
 

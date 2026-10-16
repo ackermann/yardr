@@ -35,11 +35,18 @@ func seen(parts ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// sourceSeen is what a run ask keeps of a source: its declaration text, and
-// where its credential comes from. A replaced file may keep a call's name,
-// method and path and send another body, and every sentence then reads as
-// before.
-func sourceSeen(src *Source) string { return seen(src.Text, src.EnvFile, src.MintCommand) }
+// sourceSeen is what a run ask keeps of a source: its declaration text,
+// where its credential comes from, and the whole destination inventory
+// of its command copies (inventoryOf). A replaced file may keep a call's
+// name, method and path and send another body, and every sentence then
+// reads as before; a copy changed, added, removed or chmodded under it
+// reads as nothing on the card, and is caught here alone.
+func (w *wtx) sourceSeen(src *Source) string {
+	if inv := w.inventoryOf(src.Name); len(inv) > 0 {
+		return seen(src.Text, src.EnvFile, src.MintCommand, inv)
+	}
+	return seen(src.Text, src.EnvFile, src.MintCommand)
+}
 
 // lastEvent is the newest event of the kind kind that match takes, among
 // the newest 200 of the kind, nil for none: what a refusal names as the
@@ -250,7 +257,7 @@ func (w *wtx) sourceLimitCard(argv []string, asking bool) (AskRun, error) {
 		Does:   []string{limitSays(key, fmt.Sprintf("the source %s (%s)", name, sourceHost(d)), n, has)},
 		Back:   runCommandLine([]string{"source", "set", name, key + "=" + strconv.Itoa(has)}),
 		BackBy: "only the operator",
-		Seen:   map[string]string{"source " + name: sourceSeen(src)},
+		Seen:   map[string]string{"source " + name: w.sourceSeen(src)},
 	}, nil
 }
 
@@ -417,7 +424,7 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	} else if ok {
 		may = fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of)
 	}
-	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: sourceSeen(src)}}
+	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: w.sourceSeen(src)}}
 	back := []string{"source", "revoke", name, what}
 	for _, t := range to {
 		as, fingerprint, err := w.granteeSeen(t)

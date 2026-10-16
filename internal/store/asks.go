@@ -1172,6 +1172,37 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 					out = append(out, "      "+NoteLetters(line))
 				}
 			}
+			for _, df := range carried.Old {
+				out = append(out, "  the change to command file "+OneLine(df.Program)+" (sha256 "+OneLine(or(df.OldSHA256, "(none)"))+" -> "+OneLine(or(df.NewSHA256, "(none)"))+"), whole as carried:")
+				for _, line := range strings.Split(strings.TrimRight(df.Diff, "\n"), "\n") {
+					out = append(out, "      "+NoteLetters(line))
+				}
+			}
+			for _, rem := range carried.Removed {
+				if rem.Text == "" {
+					continue
+				}
+				out = append(out, "  the entry "+OneLine(rem.Path)+" the copy would remove (sha256 "+OneLine(rem.SHA256)+"), whole as carried:")
+				for _, line := range strings.Split(strings.TrimRight(rem.Text, "\n"), "\n") {
+					out = append(out, "      "+NoteLetters(line))
+				}
+			}
+		}
+		if r.Ask.Run.Pack != nil && r.Ask.Run.Pack.Plan != nil {
+			for _, o := range r.Ask.Run.Pack.Plan.Objects {
+				if o.Diff != "" {
+					out = append(out, "  the change to file "+OneLine(o.Name)+" (sha256 "+OneLine(or(o.FileOldSHA, "(none)"))+" -> "+OneLine(or(o.FileNewSHA, "(none)"))+"), whole as carried:")
+					for _, line := range strings.Split(strings.TrimRight(o.Diff, "\n"), "\n") {
+						out = append(out, "      "+NoteLetters(line))
+					}
+				}
+				if o.Text != "" {
+					out = append(out, "  the file "+OneLine(o.Name)+" as the pack would install it, whole as carried:")
+					for _, line := range strings.Split(strings.TrimRight(o.Text, "\n"), "\n") {
+						out = append(out, "      "+NoteLetters(line))
+					}
+				}
+			}
 		}
 		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 	case r.Ask.Secret != nil:

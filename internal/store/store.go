@@ -154,6 +154,10 @@ type Store struct {
 	// home is the yard's home, the directory of the store file: where the
 	// blobs are (blobs.go).
 	home string
+	// packReader reads an embedded pack for a pack apply run ask, from
+	// the binary of the process that owns the store (SetPackReader,
+	// runask_pack.go); nil where no server owns the store.
+	packReader PackReader
 	// blobMu serializes a put with another put or prune. In particular, a
 	// prune must not remove a blob between its grace-period refresh and the
 	// mail that names it.
@@ -264,6 +268,10 @@ func (s *Store) pump(published uint64) {
 // wtx is one write transaction.
 type wtx struct {
 	*bolt.Tx
+	// store is the store this write belongs to, for the readings only a
+	// process registers on it (SetPackReader); nil in a migration's
+	// hand-made wtx, which asks for none.
+	store    *Store
 	mentions *mentionCache // nil outside Store.write: compiled per use
 	// settle are the beads whose stay at a peer ended in this write, by
 	// UUID: what that does to each is done after it (settleSent).
@@ -281,7 +289,7 @@ type wtx struct {
 func (s *Store) write(fn func(*wtx) error) error {
 	var settle, queued []string
 	err := s.db.Batch(func(tx *bolt.Tx) error {
-		w := &wtx{Tx: tx, mentions: &s.mentions}
+		w := &wtx{Tx: tx, store: s, mentions: &s.mentions}
 		err := fn(w)
 		settle, queued = w.settle, w.queued // of the run that is committed: a batch may run fn twice
 		return err

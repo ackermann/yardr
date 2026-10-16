@@ -138,6 +138,14 @@ is one of the list the yard runs from a card:
       declaration, and a commands-free add runs at approval while one
       naming commands is carried out by the server after it; a
       replacement and an absolute program stay in a terminal
+  pack apply <name>
+      a pack yardr embeds, with no flag: of kind source, or of a depot
+      kind re-applied to the one depot that holds it where its plan
+      asks nothing; the card is written from the server's own binary
+      and shows each declared source whole, and for a depot pack each
+      object and each changed file's diff; the approval is carried out
+      by the server after it; a directory, URL or imported pack, any
+      flag, a first install and a plan that asks stay in a terminal
   subscribe <user> yardr [--done] [--where <key>=<value>]
       a user is told of the yard's own events in their inbox; with --done,
       --where or both

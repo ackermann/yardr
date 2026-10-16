@@ -195,6 +195,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call> --group <group>|--crew <crew member>": {"source grant crm note --crew yardmaster --group builders"},
 		"yardr source add <file>": {"source add " + addedFile},
+		"yardr pack apply <name>": {"pack apply telegram"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]": {"subscribe jo yardr --where label=ui --done --where label=web"},
 		"yardr user set <user> tell=<parts>":                            {"user set jo tell=asks,notifications"},
 		"yardr user add <name>":                                         {"user add eve"},
@@ -230,6 +231,39 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		for _, command := range commands {
 			approved, ab := runYardCLI(t, "approved", key)
 			typed, _ := runYardCLI(t, "typed", key)
+			if use == "yardr pack apply <name>" {
+				ctx := context.Background()
+				// A pack approval is carried out by the server after it
+				// (B3), so there is no typed state to compare yet: the
+				// row is held to its card and its recorded approval.
+				approved.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+					return &store.PackReading{Name: name, Kind: "source", Label: "embedded in yardr test",
+						Sources: []store.AskSource{{Name: "phone", Text: "name: phone\nbase: https://phone.example.com/v1\ncredential: { env: PHONE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"}}}, nil
+				})
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				if description != "Import a pack into the yard: set the yard to what the pack says" {
+					t.Errorf("%s card description %q, want the yard wording for a kind-source pack", use, description)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
+				if err != nil || done.Result != "approved, to be carried out" {
+					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				continue
+			}
 			ctx := context.Background()
 			// Where the two yards' logs stand after the same setup: only
 			// what the command logs past this is the row's changes.
@@ -495,5 +529,49 @@ func TestSourceAddCarriedReadBounds(t *testing.T) {
 	}
 	if _, err := sourceAddCarried("source add " + decl); err == nil || !strings.Contains(err.Error(), "8192 bytes") || !strings.Contains(err.Error(), "terminal") {
 		t.Fatalf("an oversized command file read = %v", err)
+	}
+}
+
+// yardr bead ask --run "pack apply <name>" sends argv alone: the card is
+// the server's own pack, shown by prime, and the approval is recorded
+// to be carried out.
+func TestBeadAskRunPackApply(t *testing.T) {
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		return &store.PackReading{Name: name, Kind: "source", Label: "embedded in yardr test",
+			Sources: []store.AskSource{{Name: "phone", Text: "name: phone\nbase: https://phone.example.com/v1\ncredential: { env: PHONE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"}}}, nil
+	})
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Add the phone source from its pack?",
+		"--context", "the yard has no source that tells a user", "--run", "pack apply telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr pack apply telegram\n"; out != want {
+		t.Fatalf("bead ask --run pack apply printed %q, want %q", out, want)
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"the yard says: pack telegram (embedded in yardr test), of kind source, into the yard: it adds 1 source",
+		"the yard says: source phone: its calls go to https://phone.example.com/v1",
+		"the declaration of source phone, whole as carried:",
+		"the operator can take it back: yardr source rm phone",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "1", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "approved, to be carried out") {
+		t.Fatalf("the approval printed:\n%s", out)
+	}
+	if _, err := y.st.GetSource(context.Background(), "phone"); err == nil {
+		t.Fatalf("a pack approval applied the pack in its write")
 	}
 }
