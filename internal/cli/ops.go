@@ -1101,7 +1101,7 @@ the defaults it sets aside named underneath.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, rm, a.routeSetCmd(), a.routeReportCmd())
+	cmd.AddCommand(add, list, rm, a.routeSetCmd(), a.routeExplainCmd(), a.routeReportCmd())
 	return cmd
 }
 
@@ -1159,21 +1159,25 @@ func setAsideKey(r store.Route, operator string) string {
 	return r.Stage + " (" + strings.Join(parts, ", ") + ")"
 }
 
+// setAsideLine is a default a depot's own routes set aside with the own
+// route that states its key, as route list --depot and route explain
+// name it.
+func setAsideLine(s store.SetAside, operator string) string {
+	return fmt.Sprintf("%s is stated by %s to %s at priority %d",
+		setAsideKey(s.Route, operator), s.Own.ID, s.Own.GroupList(), s.Own.Priority)
+}
+
 // saySetAside names the defaults the depot's own routes set aside,
 // underneath route list --depot: nothing where none is set aside.
 func saySetAside(depot string, aside []store.SetAside, operator string) {
-	line := func(s store.SetAside) string {
-		return fmt.Sprintf("%s is stated by %s to %s at priority %d",
-			setAsideKey(s.Route, operator), s.Own.ID, s.Own.GroupList(), s.Own.Priority)
-	}
 	switch len(aside) {
 	case 0:
 	case 1:
-		fmt.Printf("1 default set aside in %s: %s\n", depot, line(aside[0]))
+		fmt.Printf("1 default set aside in %s: %s\n", depot, setAsideLine(aside[0], operator))
 	default:
 		fmt.Printf("%d defaults set aside in %s:\n", len(aside), depot)
 		for _, s := range aside {
-			fmt.Println(line(s))
+			fmt.Println(setAsideLine(s, operator))
 		}
 	}
 }

@@ -157,7 +157,18 @@ that order, the labels in the column `LABEL`, the bead priorities as
 `yardr route list --depot <depot>` lists that depot's effective routes
 in the same order, each marked `own` or `default`, with the defaults its
 own routes set aside named underneath, each with the own route that
-states its key.
+states its key. `yardr route explain <bead>` says where one bead would
+go: the winner among its depot's effective routes, every route that
+matches in order with the ranking leg that placed it below the one
+above (priority, specificity, own before default, id), the routes
+considered that do not match and why, the defaults the depot sets
+aside for the bead's stage with the own route that states each, and
+the winning route's groups in order. For a route with further groups
+or a condition the choice among them is made at the claim, from the
+windows then; what a claim chose is in `bead show` and the
+`quota_wait` event. The command writes nothing, logs nothing and asks
+no provider. A bead that pins a flow takes the same winner as its
+unpinned twin, and the pin is named beside the answer.
 
 Adding a route that states the same key at the same priority as a route
 of the same scope already standing (two defaults, or two own routes of

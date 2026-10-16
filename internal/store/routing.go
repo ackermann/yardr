@@ -1335,26 +1335,11 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 // and none count as none, so an exact originator route beats an any route
 // of the same priority.
 func SortRoutes(rs []Route) {
-	spec := func(r Route) int {
-		n := len(r.Labels())
-		for _, p := range []*string{r.Type, r.Depot} {
-			if p != nil {
-				n++
-			}
-		}
-		if r.BeadPriority != nil {
-			n++
-		}
-		if r.Originator != nil && *r.Originator != OriginatorAny {
-			n++
-		}
-		return n
-	}
 	sort.SliceStable(rs, func(i, j int) bool {
 		if rs[i].Priority != rs[j].Priority {
 			return rs[i].Priority > rs[j].Priority
 		}
-		if si, sj := spec(rs[i]), spec(rs[j]); si != sj {
+		if si, sj := RouteSpecificity(rs[i]), RouteSpecificity(rs[j]); si != sj {
 			return si > sj
 		}
 		if (rs[i].Depot == nil) != (rs[j].Depot == nil) {
@@ -1362,6 +1347,55 @@ func SortRoutes(rs []Route) {
 		}
 		return rs[i].ID < rs[j].ID
 	})
+}
+
+// RouteSpecificity is how much r asks for: its type, its depot, its bead
+// priority, each label and a named originator count as one; any and none
+// count as none. SortRoutes ranks the more specific route first among
+// routes of one priority, and route explain names the count where the
+// leg places a route.
+func RouteSpecificity(r Route) int {
+	n := len(r.Labels())
+	for _, p := range []*string{r.Type, r.Depot} {
+		if p != nil {
+			n++
+		}
+	}
+	if r.BeadPriority != nil {
+		n++
+	}
+	if r.Originator != nil && *r.Originator != OriginatorAny {
+		n++
+	}
+	return n
+}
+
+// The ranking legs, as RankLeg names them and route explain labels them:
+// the priority, how much the route asks for, an own route before a yard
+// default, and the id.
+const (
+	LegPriority         = "priority"
+	LegSpecificity      = "specificity"
+	LegOwnBeforeDefault = "own before default"
+	LegID               = "id"
+)
+
+// RankLeg names the ranking leg that places a above b in SortRoutes
+// order: the first of priority, specificity, own-before-default and id
+// on which the two differ. a and b are two routes of one depot's
+// effective set in the order SortRoutes ranks them; the name is what
+// route explain prints beside the lower route.
+func RankLeg(a, b Route) string {
+	if a.Priority != b.Priority {
+		return LegPriority
+	}
+	if RouteSpecificity(a) != RouteSpecificity(b) {
+		return LegSpecificity
+	}
+	if (a.Depot == nil) != (b.Depot == nil) {
+		return LegOwnBeforeDefault
+	}
+	return LegID
 }
 
 // BeadOriginator is whose subscription b builds on: its originator, and the
@@ -1530,28 +1564,36 @@ func MatchRoute(routes []Route, b Bead, operator string) *Route {
 	eff := EffectiveRoutes(routes, b.Depot, operator)
 	SortRoutes(eff)
 	for i := range eff {
-		r := &eff[i]
-		if r.Stage != b.Stage {
-			continue
+		if eff[i].Matches(b, operator) {
+			return &eff[i]
 		}
-		if r.Type != nil && *r.Type != b.Type {
-			continue
-		}
-		if r.Depot != nil && (b.Depot == nil || *r.Depot != *b.Depot) {
-			continue
-		}
-		if slices.ContainsFunc(r.Labels(), func(l string) bool { return !slices.Contains(b.Labels, l) }) {
-			continue
-		}
-		if r.BeadPriority != nil && b.Priority > *r.BeadPriority {
-			continue
-		}
-		if !r.MatchesOriginator(b.Originator, operator) {
-			continue
-		}
-		return r
 	}
 	return nil
+}
+
+// Matches reports whether r applies to b: its stage, and every filter it
+// sets — the type, the depot, each label, the bead priority and the
+// originator. It reads no flow: a bead that pins one matches as its
+// unpinned twin does. MatchRoute returns the first matching route of the
+// bead's depot's effective routes in SortRoutes order; route explain
+// names every matching route and why each other effective route misses.
+func (r Route) Matches(b Bead, operator string) bool {
+	if r.Stage != b.Stage {
+		return false
+	}
+	if r.Type != nil && *r.Type != b.Type {
+		return false
+	}
+	if r.Depot != nil && (b.Depot == nil || *r.Depot != *b.Depot) {
+		return false
+	}
+	if slices.ContainsFunc(r.Labels(), func(l string) bool { return !slices.Contains(b.Labels, l) }) {
+		return false
+	}
+	if r.BeadPriority != nil && b.Priority > *r.BeadPriority {
+		return false
+	}
+	return r.MatchesOriginator(b.Originator, operator)
 }
 
 // stageGroup is the group a bead answers to in its stage: the group working

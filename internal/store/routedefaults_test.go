@@ -363,3 +363,113 @@ func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
 		t.Fatalf("a bead with the default's distinct label set took %+v, want the default", got)
 	}
 }
+
+// RankLeg names the first ranking leg on which two routes differ, in
+// SortRoutes order: priority, specificity, own-before-default, id. For
+// every pair of a mixed table in ranked order, the legs before the
+// named one tie and the named one differs; every leg is named by some
+// pair.
+func TestRankLegNamesTheFirstLegOnWhichRoutesDiffer(t *testing.T) {
+	beadPri := 1
+	hal := "hal"
+	routes := []store.Route{
+		{ID: "plain-default", Stage: "new", Group: "builders"},
+		{ID: "label-default", Stage: "new", Label: routePtr("hard"), Group: "builders"},
+		{ID: "typed-default", Stage: "new", Type: routePtr("bug"), Group: "builders"},
+		{ID: "pri-default", Stage: "new", Label: routePtr("hard"), Priority: 3, Group: "builders"},
+		{ID: "plain-own", Stage: "new", Depot: routePtr("web"), Group: "builders"},
+		{ID: "label-own", Stage: "new", Depot: routePtr("web"), Label: routePtr("hard"), Group: "builders"},
+		{ID: "exact-own", Stage: "new", Depot: routePtr("web"), Label: routePtr("hard"),
+			BeadPriority: &beadPri, Originator: &hal, Group: "builders"},
+	}
+	if got := store.RouteSpecificity(routes[6]); got != 4 {
+		t.Fatalf("the exact own route asks for %d, want 4: the depot, the label, the bead priority and the originator", got)
+	}
+	any := store.OriginatorAny
+	unexact := routes[6]
+	unexact.Originator = &any
+	if got := store.RouteSpecificity(unexact); got != 3 {
+		t.Fatalf("the route with originator any asks for %d, want 3: any counts as none", got)
+	}
+	store.SortRoutes(routes)
+	seen := map[string]bool{}
+	for i := range routes {
+		for j := i + 1; j < len(routes); j++ {
+			a, b := routes[i], routes[j]
+			got := store.RankLeg(a, b)
+			seen[got] = true
+			priTies := a.Priority == b.Priority
+			specTies := store.RouteSpecificity(a) == store.RouteSpecificity(b)
+			scopeTies := (a.Depot == nil) == (b.Depot == nil)
+			var ok bool
+			switch got {
+			case store.LegPriority:
+				ok = !priTies
+			case store.LegSpecificity:
+				ok = priTies && !specTies
+			case store.LegOwnBeforeDefault:
+				ok = priTies && specTies && !scopeTies
+			case store.LegID:
+				ok = priTies && specTies && scopeTies && a.ID != b.ID
+			}
+			if !ok {
+				t.Errorf("RankLeg(%s, %s) = %q, which the pair does not differ on first", a.ID, b.ID, got)
+			}
+		}
+	}
+	for _, leg := range []string{store.LegPriority, store.LegSpecificity, store.LegOwnBeforeDefault, store.LegID} {
+		if !seen[leg] {
+			t.Errorf("no pair is placed by %q", leg)
+		}
+	}
+}
+
+// Route.Matches is the per-route check MatchRoute ranks by: the winner
+// matches, every route ranked above it does not, and where nothing
+// matches nothing does.
+func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
+	s, ctx := defaultsYard(t)
+	hard := "hard"
+	mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
+	mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders", Priority: 3})
+	mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Priority: 1})
+	beads := []store.Bead{
+		{Stage: "new", Type: "task", Depot: routePtr("web"), Priority: store.DefaultPriority},
+		{Stage: "new", Type: "task", Depot: routePtr("web"), Labels: []string{hard}, Priority: store.DefaultPriority},
+		{Stage: "new", Type: "task", Depot: routePtr("other"), Labels: []string{hard}, Priority: store.DefaultPriority},
+		{Stage: "review", Type: "task", Depot: routePtr("web"), Priority: store.DefaultPriority},
+	}
+	routes, err := s.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range beads {
+		eff := store.EffectiveRoutes(routes, b.Depot, "jo")
+		store.SortRoutes(eff)
+		w := store.MatchRoute(routes, b, "jo")
+		if w == nil {
+			for _, r := range eff {
+				if r.Matches(b, "jo") {
+					t.Errorf("route %s matches %+v, which MatchRoute matches nothing for", r.ID, b)
+				}
+			}
+			continue
+		}
+		above := true
+		for _, r := range eff {
+			if r.ID == w.ID {
+				above = false
+				if !r.Matches(b, "jo") {
+					t.Errorf("the winner %s does not match %+v", r.ID, b)
+				}
+				continue
+			}
+			if above && r.Matches(b, "jo") {
+				t.Errorf("route %s matches %+v above the winner %s", r.ID, b, w.ID)
+			}
+		}
+		if above {
+			t.Errorf("the winner %s is not in the effective set of %+v", w.ID, b)
+		}
+	}
+}
