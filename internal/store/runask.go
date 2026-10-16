@@ -67,6 +67,36 @@ type AskRun struct {
 	// anyone: to narrow what the yard holds is mostly anyone's, and a
 	// source's limits and a user's subscriptions are not.
 	BackBy string `json:"back_by,omitempty"`
+	// Carried holds what adding a source takes, for the rows that add
+	// one (source add here, pack apply in B2): each source's declaration
+	// text with its command files' bytes. It is the ask's own, kept as
+	// Does and Seen are because every view renders an ask from its note
+	// alone, and an approval adds exactly what it holds. No other row
+	// keeps it: askedRun throws a writer's Carried away with its Does
+	// and Seen.
+	Carried []AskSource `json:"carried,omitempty"`
+}
+
+// AskFile is one command file a run ask that adds a source carries: the
+// program as the declaration names it, its whole text, and the SHA-256 of
+// that text. The card renders the text's hash and the approval installs
+// exactly these bytes, so what is approved is what the card showed.
+type AskFile struct {
+	Program string `json:"program"`
+	Text    string `json:"text"`
+	SHA256  string `json:"sha256"`
+}
+
+// AskSource is what adding one source takes, carried on a run ask: the
+// source's name as its declaration gives it, the declaration's whole text,
+// and each command file the declaration names by a relative program. A
+// loose file's bytes are the asker's, read when the ask is written; a
+// pack's are the server's, read from its own binary (B2). Either way the
+// store parses the text itself and holds the approval to these bytes.
+type AskSource struct {
+	Name  string    `json:"name"`
+	Text  string    `json:"text"`
+	Files []AskFile `json:"files,omitempty"`
 }
 
 // TakenBack is the card's line for the command that takes the change back,
@@ -101,6 +131,9 @@ type RunAsked struct {
 	// BackBy is who may run Back, in words that stand before "can take it
 	// back"; absent where that is anyone.
 	BackBy string `json:"back_by,omitempty"`
+	// Carried is what adding a source takes, for a client to show the
+	// texts behind the card; absent on any other command.
+	Carried []AskSource `json:"carried,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -110,7 +143,7 @@ func (a Ask) proposed() *RunAsked {
 		return nil
 	}
 	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
-		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy}
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
@@ -163,6 +196,13 @@ type runCommand struct {
 	// run makes the change as actor through the command's own store
 	// function, and answers what the command prints at a terminal.
 	run func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error)
+	// checkRun, cardRun and runRun are check, card and run for a row
+	// whose card is made from bytes the ask carries beside argv (source
+	// add: the declaration the ask holds), so they take the ask whole.
+	// A row sets either the argv forms or these, never both.
+	checkRun func(ctx context.Context, w *wtx, run AskRun, actor string) error
+	cardRun  func(w *wtx, run AskRun, asking bool) (AskRun, error)
+	runRun   func(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error)
 	// whose is the user whose own the command is, where the store function
 	// takes it from that user as it does from the operator: the ask is then
 	// for one of the two, and the one asked approves. nil for a command
@@ -216,6 +256,15 @@ var runList = []runCommand{{
 	card:        (*wtx).grantCard,
 	stale:       (*wtx).grantStale,
 	run:         runGrant,
+}, {
+	words:       []string{"source", "add"},
+	use:         "yardr source add <file>",
+	description: "Add the source a file declares, or replace the one of its name",
+	parse:       parseSourceAdd,
+	checkRun:    checkSourceAdd,
+	cardRun:     (*wtx).sourceAddCard,
+	stale:       (*wtx).sourceAddStale,
+	runRun:      runSourceAdd,
 }, {
 	words:       []string{"subscribe"},
 	use:         "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
@@ -744,11 +793,21 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if err != nil {
 		return nil, err
 	}
-	if c.check != nil {
+	// The command in the yard's own form, with what the writer carried
+	// beside it: the carried bytes are the row's to keep or throw away,
+	// as Does and Seen are.
+	sent := AskRun{Argv: argv, Carried: run.Carried}
+	check := c.check
+	if c.checkRun != nil {
+		check = func(ctx context.Context, w *wtx, _ []string, actor string) error {
+			return c.checkRun(ctx, w, sent, actor)
+		}
+	}
+	if check != nil {
 		// The command's own check as the asker: nothing says run it
 		// yourself better than the yard allowing it, and nothing says
 		// it is the operator's better than the yard refusing it.
-		if err := c.check(ctx, w, argv, actor); err != nil {
+		if err := check(ctx, w, argv, actor); err != nil {
 			if ask, ok := IsOperatorOnly(err); !ok {
 				return nil, err
 			} else if ask == Alone {
@@ -757,7 +816,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 			// The operator must be allowed it: the ask proposes what
 			// they would run. Their leg runs without the asker's pane,
 			// which is the asker's, not theirs.
-			if err := c.check(context.Background(), w, argv, operator); err != nil {
+			if err := check(context.Background(), w, argv, operator); err != nil {
 				return nil, fmt.Errorf("running it as the operator would be refused: %w", err)
 			}
 		} else {
@@ -781,7 +840,12 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	case to != operator:
 		return nil, fmt.Errorf("a command is the operator's to approve (%s): the yard runs it as them, so %s cannot be asked to", operator, to)
 	}
-	card, err := c.card(w, argv, true)
+	var card AskRun
+	if c.cardRun != nil {
+		card, err = c.cardRun(w, sent, true)
+	} else {
+		card, err = c.card(w, argv, true)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -889,14 +953,24 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
 	}
-	card, err := c.card(w, argv, false)
+	var card AskRun
+	if c.cardRun != nil {
+		card, err = c.cardRun(w, was, false)
+	} else {
+		card, err = c.card(w, argv, false)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back || card.BackBy != was.BackBy {
 		return nil, c.stale(w, seq, was, card)
 	}
-	result, err := c.run(ctx, w, argv, actor, &approvedOn{Bead: row.ID, Ask: seq})
+	var result string
+	if c.runRun != nil {
+		result, err = c.runRun(ctx, w, was, actor, &approvedOn{Bead: row.ID, Ask: seq})
+	} else {
+		result, err = c.run(ctx, w, argv, actor, &approvedOn{Bead: row.ID, Ask: seq})
+	}
 	if err != nil {
 		return nil, err
 	}

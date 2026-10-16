@@ -1,0 +1,634 @@
+// The source add row of the run-ask list (design yardr-bht9, B1): a new
+// source whose declaration the ask itself carries, so the card shows the
+// whole declaration in the yard's words and the approval adds exactly
+// what was carded. A commands-free add runs in the approval's own write;
+// an add that names commands stores its declaration there and is carried
+// out by the server's file step (B3). A replacement and an absolute
+// program stay the operator's in a terminal.
+package store
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+
+	"yardr.dev/yardr/internal/source"
+)
+
+// The bounds of a card that adds a source from a loose file (3.3): past
+// them the text is a document to read at a desk, not a card.
+const (
+	maxCarriedText  = 8192
+	maxCarriedFile  = 8192
+	maxCarriedTotal = 32 << 10
+)
+
+// parseSourceAdd reads the words of source add <file>: one file, named as
+// typed. What the file holds is carried beside argv, never in it.
+func parseSourceAdd(rest []string) ([]string, error) {
+	const use = "yardr source add <file>"
+	if len(rest) != 1 {
+		return nil, fmt.Errorf("--run takes %s: one file, not %d words", use, len(rest))
+	}
+	return []string{rest[0]}, nil
+}
+
+// carriedSource validates what a source add ask carries and answers its
+// declaration parsed by the store itself. file names the text in errors,
+// as source add names it. absolute and exists say the two cases that stay
+// the operator's alone; err refuses the ask for anything else it holds.
+func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSource, absolute, exists bool, err error) {
+	file := run.Argv[2]
+	if len(run.Carried) != 1 {
+		return nil, AskSource{}, false, false, fmt.Errorf("--run takes yardr source add <file> with the declaration of one source carried on the ask, and this carries %d", len(run.Carried))
+	}
+	carried = run.Carried[0]
+	if len(carried.Text) > maxCarriedText {
+		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", carried.Name, len(carried.Text), maxCarriedText, file)
+	}
+	d, err = source.Parse(file, []byte(carried.Text))
+	if err != nil {
+		return nil, AskSource{}, false, false, err
+	}
+	if carried.Name != d.Name {
+		return nil, AskSource{}, false, false, fmt.Errorf("the ask carries the source %s, and its declaration names %s: the two must be one", carried.Name, d.Name)
+	}
+	total := len(carried.Text)
+	byProgram := map[string]AskFile{}
+	for _, f := range carried.Files {
+		if _, twice := byProgram[f.Program]; twice {
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries the command file %s twice", d.Name, f.Program)
+		}
+		byProgram[f.Program] = f
+		if len(f.Text) > maxCarriedFile {
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is %d bytes: a card holds at most %d, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, f.Program, len(f.Text), maxCarriedFile, file)
+		}
+		if !utf8.ValidString(f.Text) {
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the command file %s is not valid UTF-8 text: a card carries text only, so add it with yardr source add %s in a terminal", d.Name, f.Program, file)
+		}
+		sum := sha256.Sum256([]byte(f.Text))
+		if got := hex.EncodeToString(sum[:]); got != f.SHA256 {
+			return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s with sha256 %s, and its bytes hash to %s: nothing was stored", d.Name, f.Program, f.SHA256, got)
+		}
+		total += len(f.Text)
+	}
+	if total > maxCarriedTotal {
+		return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration with its command files is %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, total, maxCarriedTotal, file)
+	}
+	// The files the declaration names, each once, in its own order.
+	var programs []string
+	seenProg := map[string]bool{}
+	for _, c := range d.Commands() {
+		if !c.Relative() {
+			absolute = true
+			continue
+		}
+		if !seenProg[c.Argv[0]] {
+			seenProg[c.Argv[0]] = true
+			programs = append(programs, c.Argv[0])
+		}
+	}
+	if !absolute {
+		for _, prog := range programs {
+			if _, ok := byProgram[prog]; !ok {
+				return nil, AskSource{}, false, false, fmt.Errorf("source %s: its declaration names the command file %s, and the ask carries no bytes for it", d.Name, prog)
+			}
+		}
+		for prog := range byProgram {
+			if !seenProg[prog] {
+				return nil, AskSource{}, false, false, fmt.Errorf("source %s: the ask carries %s, and its declaration names no such command file", d.Name, prog)
+			}
+		}
+		// Store the files in the declaration's order, as the card groups them.
+		files := make([]AskFile, 0, len(programs))
+		for _, prog := range programs {
+			files = append(files, byProgram[prog])
+		}
+		carried.Files = files
+	}
+	if w.Bucket(bSources).Get([]byte(d.Name)) != nil {
+		exists = true
+	}
+	return d, carried, absolute, exists, nil
+}
+
+// checkSourceAdd is adding a source's own check as the asker: a new
+// source whose bytes the ask can carry may be proposed, and a replacement
+// and an absolute program are the operator's alone, in maySource's words
+// with its mark.
+func checkSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string) error {
+	_, _, absolute, exists, err := w.carriedSource(run)
+	if err != nil {
+		return err
+	}
+	if absolute || exists {
+		return w.maySource(ctx, actor, "adding a source", Alone)
+	}
+	return w.maySource(ctx, actor, "adding a source", Askable)
+}
+
+// sourceAddCard is the card of source add <file>: the whole declaration
+// the ask carries, in the yard's sentences (sourceDoes), held to the name
+// being free (Seen). Asking refuses a name the yard has; an approval
+// reads the card again and stale says the name was taken.
+func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
+	d, carried, absolute, exists, err := w.carriedSource(run)
+	if err != nil {
+		return AskRun{}, err
+	}
+	switch {
+	case absolute:
+		return AskRun{}, fmt.Errorf("source %s: a command of its declaration names an absolute program, which is the operator's own to have installed: add it with yardr source add %s in a terminal", d.Name, run.Argv[2])
+	case exists && asking:
+		return AskRun{}, fmt.Errorf("source %s is in the yard already: adding it again would replace it, which is the operator's to type in a terminal (yardr source add %s)", d.Name, run.Argv[2])
+	case exists:
+		// The name was taken since the card was written: say so in one
+		// sentence, so the approval is held to it as stale.
+		src, _, err := sourceIn(w.Tx, d.Name)
+		if err != nil {
+			return AskRun{}, err
+		}
+		return AskRun{
+			Argv:    run.Argv,
+			Does:    []string{fmt.Sprintf("source %s is in the yard already.", d.Name)},
+			Back:    runCommandLine([]string{"source", "rm", d.Name}),
+			BackBy:  "the operator",
+			Seen:    map[string]string{"source " + d.Name: sourceSeen(src)},
+			Carried: []AskSource{carried},
+		}, nil
+	}
+	return AskRun{
+		Argv:    run.Argv,
+		Does:    sourceDoes(d, carried),
+		Back:    runCommandLine([]string{"source", "rm", d.Name}),
+		BackBy:  "the operator",
+		Seen:    map[string]string{"source " + d.Name: ""},
+		Carried: []AskSource{carried},
+	}, nil
+}
+
+// sourceAddStale says why the ask seq for source add is approved no more:
+// the name was free when the card was written and is taken now.
+func (w *wtx) sourceAddStale(seq uint64, was, now AskRun) error {
+	if len(was.Carried) == 0 {
+		return staleCard(seq, was, now)
+	}
+	name := was.Carried[0].Name
+	if key := "source " + name; was.Seen[key] == now.Seen[key] {
+		return staleCard(seq, was, now)
+	}
+	e := lastEvent(w.Tx, "source_added", naming("source", name))
+	return fmt.Errorf("ask %d was written when the source %s was not in the yard: it was added since%s. %s", seq, name, since(e), nothingRan)
+}
+
+// runSourceAdd adds the carried source as actor: a commands-free
+// declaration in this write, through the same put PutSource makes, and
+// one that names commands with its declaration stored and its files left
+// to the server's carrying out (B3).
+func runSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error) {
+	d, carried, _, _, err := w.carriedSource(run)
+	if err != nil {
+		return "", err
+	}
+	if err := w.putCarriedSource(ctx, d, carried.Text, actor, by); err != nil {
+		return "", err
+	}
+	if len(d.Commands()) > 0 {
+		return "approved, to be carried out", nil
+	}
+	if len(d.Calls) == 0 {
+		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), nil
+	}
+	return fmt.Sprintf("source %s saved: %s under %s", d.Name, pluralCalls(len(d.Calls)), d.Base), nil
+}
+
+// pluralCalls is n with call or calls, as yardr source add prints it.
+func pluralCalls(n int) string {
+	if n == 1 {
+		return "1 call"
+	}
+	return fmt.Sprintf("%d calls", n)
+}
+
+// sourceDoes renders the declaration d the ask carries in the yard's
+// sentences, complete as section 3.3 of yardr-bht9 holds it: approving
+// without opening the text approves nothing these sentences have not
+// named. The text itself stands behind them in a terminal.
+func sourceDoes(d *source.Declaration, carried AskSource) []string {
+	files, commands := len(carried.Files), len(d.Commands())
+	copies := "copies no command files"
+	if files > 0 {
+		copies = fmt.Sprintf("copies %s (%s)", countNoun(files, "command file"), countNoun(commands, "command"))
+	}
+	does := []string{fmt.Sprintf("it adds one source and %s, and changes nothing else. It grants no call, makes no hook, and sets no credential's file.", copies)}
+	does = append(does, credentialSays(d))
+	for i := range d.Calls {
+		does = append(does, callSaysWhole(d, &d.Calls[i])...)
+	}
+	does = append(does, checkSays(d))
+	if d.Notify != nil {
+		n := d.Notify
+		var fills []string
+		if n.Title != "" {
+			fills = append(fills, "the title fills "+n.Title)
+		}
+		if n.Text != "" {
+			fills = append(fills, "the text fills "+n.Text)
+		}
+		if n.Link != "" {
+			fills = append(fills, "the link fills "+n.Link)
+		}
+		line := fmt.Sprintf("it can tell a user: the call %s, whose %s takes the person's address, read as %s from the person's own env file; %s", n.Call, n.Address, n.AddressEnv, strings.Join(fills, " and "))
+		if n.Link == "" {
+			line += ", and it takes no link"
+		}
+		does = append(does, line+".")
+	} else {
+		does = append(does, "it can tell no user.")
+	}
+	if d.Hear != nil {
+		who := "every told user's"
+		if d.Hear.From == source.HearFromOperator {
+			who = "only the operator's"
+		}
+		does = append(does, fmt.Sprintf("it hears deliveries: only one whose %s is the address of a user told through it, read as %s, and %s: another's, and a stranger's, is dropped after verification.", d.Hear.Field, d.Hear.Address.Env, who))
+	}
+	if d.Limits != nil {
+		does = append(does, limitsSays(d))
+	}
+	if d.Thread != nil {
+		does = append(does, threadSays(d))
+	}
+	if d.Link != nil {
+		does = append(does, linkSays(d))
+	}
+	if d.Identity != nil {
+		does = append(does, fmt.Sprintf("its identity keys fold to lowercase (identity fold: %s), so one spelling is stored however it was typed.", d.Identity.Fold))
+	}
+	if d.Hook != nil {
+		does = append(does, hookSays(d))
+	}
+	if d.Events != nil {
+		does = append(does, eventsSays(d))
+	}
+	does = append(does, commandSays(d, carried)...)
+	var owed []string
+	if d.Credential != nil {
+		owed = append(owed, fmt.Sprintf("the credential, by a secret ask for %s", d.Name))
+	}
+	if d.Notify != nil {
+		owed = append(owed, fmt.Sprintf("which user it tells, by yardr user set <user> notify=%s", d.Name))
+	}
+	if len(owed) > 0 {
+		does = append(does, "still owed after it: "+strings.Join(owed, "; and ")+".")
+	}
+	return does
+}
+
+// credentialSays is the source and its credential in one sentence: where
+// its calls go, the variables its credential is read under by name and
+// never a value, and where the value goes.
+func credentialSays(d *source.Declaration) string {
+	head := fmt.Sprintf("source %s: it has no base and calls nothing.", d.Name)
+	if d.Base != "" {
+		head = fmt.Sprintf("source %s: its calls go to %s.", d.Name, d.Base)
+	}
+	if d.Credential == nil {
+		return head + " It names no credential."
+	}
+	c := d.Credential
+	s := head + fmt.Sprintf(" Its credential is the variable %s (the name, never the value)", c.Env)
+	if c.UpdateEnv != "" {
+		s += fmt.Sprintf(", with %s for updates", c.UpdateEnv)
+	}
+	if len(c.Mint) > 0 {
+		s += fmt.Sprintf(", minted from %s: a mint runs only where the yard's own mint_command is the operator's already, and this adds none", strings.Join(c.Mint, " and "))
+	}
+	switch {
+	case c.Header != "":
+		s += fmt.Sprintf(", sent in the header %q.", c.Header)
+	case c.InPath:
+		s += ", sent in the request path (credential.in_path: true): a call's path holds it, so it stands in the logs of every server on the way."
+	case bodyHoldsCredential(d):
+		s += ", sent as a leaf of a call's body, named on that call."
+	default:
+		s += ", and no call's header, path or body holds it."
+	}
+	var lacks []string
+	if c.UpdateEnv == "" {
+		lacks = append(lacks, "no second credential for updates")
+	}
+	if len(c.Mint) == 0 {
+		lacks = append(lacks, "no mint")
+	}
+	if c.Header == "" {
+		lacks = append(lacks, "no header of its own")
+	}
+	if len(lacks) > 0 {
+		s = strings.TrimSuffix(s, ".") + fmt.Sprintf(". It has %s.", strings.Join(lacks, ", "))
+	}
+	return s
+}
+
+// bodyHoldsCredential reports whether a call's body holds the credential
+// as a whole leaf.
+func bodyHoldsCredential(d *source.Declaration) bool {
+	var holds func(v any) bool
+	holds = func(v any) bool {
+		switch v := v.(type) {
+		case map[string]any:
+			for _, child := range v {
+				if holds(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if holds(child) {
+					return true
+				}
+			}
+		case string:
+			return v == source.CredentialMark
+		}
+		return false
+	}
+	for i := range d.Calls {
+		if holds(d.Calls[i].Request.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+// callSaysWhole is one call in two sentences: its method and path whole
+// with its parameters and query, then its body whole as the yard would
+// send it and what of its answer is kept.
+func callSaysWhole(d *source.Declaration, c *source.Call) []string {
+	takes := "It takes no parameter"
+	if len(c.Params) > 0 {
+		parts := make([]string, len(c.Params))
+		for i, p := range c.Params {
+			parts[i] = paramSays(p)
+		}
+		takes = "It takes " + andList(parts)
+	}
+	sends := "and sends no query."
+	if len(c.Request.Query) > 0 {
+		var qs []string
+		for _, q := range c.Request.Query {
+			qs = append(qs, q.Key+"="+q.Value)
+		}
+		sends = "and sends the query " + strings.Join(qs, ", ") + "."
+	}
+	first := fmt.Sprintf("call %s (%s): %s. %s, %s", c.Name, c.Kind, c.Request.Line(), takes, sends)
+	var second string
+	if c.Request.Body != nil {
+		raw, _ := json.Marshal(c.Request.Body)
+		second = fmt.Sprintf("call %s sends the body %s", c.Name, raw)
+	} else {
+		second = fmt.Sprintf("call %s sends no body", c.Name)
+	}
+	if len(c.Answer.Select) > 0 {
+		second += fmt.Sprintf(". Its answer keeps %s", strings.Join(c.Answer.Select, ", "))
+	} else {
+		second += ". Its answer is returned as it comes"
+	}
+	if c.Answer.Max != source.AnswerMax {
+		second += fmt.Sprintf(", at most %d bytes", c.Answer.Max)
+	}
+	return []string{first, second + "."}
+}
+
+// paramSays is one parameter with its type, whether it must be given, and
+// every bound the file puts on it.
+func paramSays(p source.Param) string {
+	given := "required"
+	if p.Optional {
+		given = "optional"
+	}
+	s := fmt.Sprintf("%s (%s, %s", p.Name, p.Type, given)
+	if p.Pattern != "" {
+		s += ", pattern " + p.Pattern
+	}
+	if p.Max > 0 {
+		s += fmt.Sprintf(", at most %d", p.Max)
+	}
+	if len(p.Values) > 0 {
+		s += ", one of " + strings.Join(p.Values, ", ")
+	}
+	if p.Log {
+		s += ", its value is kept in the record of each call"
+	}
+	return s + ")"
+}
+
+// checkSays is the source's check call and idempotency header, or that it
+// names neither.
+func checkSays(d *source.Declaration) string {
+	switch {
+	case d.Check == "" && d.Idempotency == "":
+		return "The source names no check call and no idempotency header."
+	case d.Check == "":
+		return fmt.Sprintf("The source names no check call; updates carry their key in the header %s.", d.Idempotency)
+	case d.Idempotency == "":
+		return fmt.Sprintf("Its check call is %s; it names no idempotency header.", d.Check)
+	default:
+		return fmt.Sprintf("Its check call is %s, and updates carry their key in the header %s.", d.Check, d.Idempotency)
+	}
+}
+
+// limitsSays is the limits command whole with the kinds it answers for.
+func limitsSays(d *source.Declaration) string {
+	if d.Limits.Self() {
+		return fmt.Sprintf("its limits command [%s] says what the source itself carries, asked by the source's name.", strings.Join(d.Limits.Command, " "))
+	}
+	kinds := d.Limits.KindNames()
+	asked := make([]string, len(kinds))
+	for i, k := range kinds {
+		asked[i] = fmt.Sprintf("%s as %s", k, d.Limits.Kinds[k])
+	}
+	return fmt.Sprintf("its limits command [%s] says what the subscription of %s still carries.", strings.Join(d.Limits.Command, " "), strings.Join(asked, ", "))
+}
+
+// threadSays is how the source speaks in threads beside its commands: the
+// place, the words state takes, labels and the assignee.
+func threadSays(d *source.Declaration) string {
+	t := d.Thread
+	var parts []string
+	if t.Place != "" {
+		parts = append(parts, fmt.Sprintf("a place to open one is called %s", t.Place))
+	}
+	if len(t.States) > 0 {
+		parts = append(parts, fmt.Sprintf("the words state takes are %s", strings.Join(t.States, ", ")))
+	}
+	if t.Labels {
+		parts = append(parts, "it takes labels (label:<name> adds one, never removes)")
+	} else {
+		parts = append(parts, "it takes no labels")
+	}
+	if t.Assignee != "" {
+		parts = append(parts, fmt.Sprintf("an assignee is a person's %s in the source", t.Assignee))
+	} else {
+		parts = append(parts, "it assigns nobody")
+	}
+	return "it speaks in threads: " + strings.Join(parts, "; ") + "."
+}
+
+// linkSays is the source's issues as a bead's link, whole.
+func linkSays(d *source.Declaration) string {
+	l := d.Link
+	fold := "the groups keep their case"
+	if l.Fold != "" {
+		fold = fmt.Sprintf("the groups fold %s", l.Fold)
+	}
+	s := fmt.Sprintf("its issues are a bead's link: host %s, the expression %s reads an issue, the one fixed form %s and the thread id %s; %s.", l.Host, l.Issue, l.Fixed, l.Thread, fold)
+	if l.Pull != nil {
+		s += fmt.Sprintf(" Its pull requests read %s, with the fixed form %s and the thread id %s.", l.Pull.Issue, l.Pull.Fixed, l.Pull.Thread)
+	}
+	if l.Repos != "" {
+		s += fmt.Sprintf(" A repository's path matches %s.", l.Repos)
+	}
+	return s
+}
+
+// hookSays is what the source sends in: how a delivery is verified, where
+// it is named, its bodies, its normalize command and its fields.
+func hookSays(d *source.Declaration) string {
+	h := d.Hook
+	v := h.Verify
+	var verified string
+	if v.Scheme == source.HookSecret {
+		verified = fmt.Sprintf("deliveries are verified by the header %s holding the hook's secret itself (scheme secret)", v.Signature.Header)
+	} else {
+		prefix := v.Signature.Prefix
+		if prefix == "" {
+			prefix = "none"
+		}
+		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over the body (scheme hmac-sha256, signed: body), the signature in the header %s as %s past the prefix %s", v.Signature.Header, v.Signature.Encoding, prefix)
+	}
+	named := "it sends no delivery id"
+	switch {
+	case v.Delivery.Header != "":
+		named = fmt.Sprintf("a delivery is named by the header %s", v.Delivery.Header)
+	case v.Delivery.Body != "":
+		named = fmt.Sprintf("a delivery is named by %s in its body", v.Delivery.Body)
+	}
+	timed := "it sends no timestamp"
+	if v.Timestamp != nil {
+		where := v.Timestamp.Body
+		if where == "" {
+			where = "the header " + v.Timestamp.Header
+		}
+		timed = fmt.Sprintf("its time arrives at %s, in %s within %s of the yard's clock", where, v.Timestamp.Unit, v.Timestamp.Window)
+	}
+	keys := "its events carry no field of their own"
+	if len(h.Keys) > 0 {
+		keys = fmt.Sprintf("its events may carry the fields %s", strings.Join(h.Keys, ", "))
+	}
+	return fmt.Sprintf("what it sends in: %s; %s; %s; bodies are %s; the command [%s] turns a verified body into the envelope, handed no credential; %s.", verified, named, timed, h.Bodies, strings.Join(h.Normalize, " "), keys)
+}
+
+// eventsSays is what the source sends of pull requests and CI, with the
+// commands that read them back whole.
+func eventsSays(d *source.Declaration) string {
+	e := d.Events
+	var parts []string
+	if len(e.Runs) > 0 {
+		parts = append(parts, fmt.Sprintf("the envelope types %s are runs", strings.Join(e.Runs, ", ")))
+	}
+	if len(e.HeadFrom) > 0 {
+		parts = append(parts, fmt.Sprintf("%s tell a head", strings.Join(e.HeadFrom, ", ")))
+	}
+	if len(e.PR) > 0 {
+		parts = append(parts, fmt.Sprintf("the command [%s] reads the pull request, handed the credential", strings.Join(e.PR, " ")))
+	}
+	if len(e.CI) > 0 {
+		parts = append(parts, fmt.Sprintf("the command [%s] reads CI, handed the credential", strings.Join(e.CI, " ")))
+	}
+	if len(parts) == 0 {
+		return "what it sends of pull requests and CI: it names no run type and no read-back command."
+	}
+	return "what it sends of pull requests and CI: " + strings.Join(parts, "; ") + "."
+}
+
+// commandSays groups every command by the file the yard would run, with
+// its whole command and its file's SHA-256 whole, or says the source
+// names no command. A command is never named by its key alone.
+func commandSays(d *source.Declaration, carried AskSource) []string {
+	commands := d.Commands()
+	if len(commands) == 0 {
+		return []string{"it names no command."}
+	}
+	hashes := map[string]string{}
+	for _, f := range carried.Files {
+		hashes[f.Program] = f.SHA256
+	}
+	// Group by program in the declaration's order of first use.
+	var ordered []string
+	byProgram := map[string][]source.Command{}
+	for _, c := range commands {
+		prog := c.Argv[0]
+		if _, ok := byProgram[prog]; !ok {
+			ordered = append(ordered, prog)
+		}
+		byProgram[prog] = append(byProgram[prog], c)
+	}
+	var out []string
+	for _, prog := range ordered {
+		group := byProgram[prog]
+		if !group[0].Relative() {
+			for _, c := range group {
+				out = append(out, fmt.Sprintf("command [%s] (%s): the program is the operator's own.", strings.Join(c.Argv, " "), c.Key))
+			}
+			continue
+		}
+		var named []string
+		for _, c := range group {
+			named = append(named, fmt.Sprintf("[%s] (%s)", strings.Join(c.Argv, " "), c.Key))
+		}
+		handed := "handed the credential"
+		if len(group) == 1 && group[0].Key == "hook.normalize" {
+			handed = "handed no credential"
+		}
+		out = append(out, fmt.Sprintf("command file %s: %s, %s: sha256 %s", prog, andList(named), handed, hashes[prog]))
+	}
+	return out
+}
+
+// putCarriedSource stores the declaration text declares under d's name,
+// as PutSource does inside its write, with the approval that asked for it
+// on the event. It refuses a name the yard has: this row adds only.
+func (w *wtx) putCarriedSource(ctx context.Context, d *source.Declaration, text, actor string, by *approvedOn) error {
+	if err := w.maySource(ctx, actor, "adding a source", Askable); err != nil {
+		return err
+	}
+	if w.Bucket(bSources).Get([]byte(d.Name)) != nil {
+		return fmt.Errorf("source %s is in the yard already", d.Name)
+	}
+	if d.Limits != nil {
+		if err := limitsKindsFree(w.Tx, d); err != nil {
+			return err
+		}
+	}
+	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}
+	if err := put(w.Tx, bSources, d.Name, src); err != nil {
+		return err
+	}
+	calls := make([]string, len(d.Calls))
+	for i, c := range d.Calls {
+		calls[i] = c.Name
+	}
+	data := map[string]any{"source": d.Name, "base": d.Base, "calls": calls}
+	if d.Limits != nil {
+		data["limits"] = d.Limits.KindNames()
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "source_added", actor, data)
+}

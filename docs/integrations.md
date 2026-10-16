@@ -730,17 +730,21 @@ yardr source rm pushover
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
-- **A crew member may propose two of these commands**, for the operator to
+- **A crew member may propose three of these commands**, for the operator to
   approve on a card, with a run ask (`yardr bead ask --run "<command>"`,
   [chat.md](chat.md#questions-for-you)): `yardr source set <source>
-  calls_per_hour=<n>` or `updates_per_hour=<n>`, and `yardr source grant
-  <source> read|<call> --group <group>|--crew <crew member>`
-  ([below](#a-call-by-a-session-or-a-crew-member)). Every other command of
-  a source stays the operator's to type in a terminal: `source add` and a
-  replacement, `source set env_file=` and `mint_command=`, `source key`
-  (a key is asked for with a secret ask) and `source rm`. Their words are
-  a file, a path or a program, and a command that is approved from a card
-  has only names the yard holds, numbers and flags.
+  calls_per_hour=<n>` or `updates_per_hour=<n>`, `yardr source grant
+  <source> read|<call> --group <group>|--crew <crew member>`, and
+  `yardr source add <file>` for a new source, whose ask carries the
+  declaration and each command file it names so the card shows the whole
+  declaration ([below](#a-call-by-a-session-or-a-crew-member)). Every
+  other command of a source stays the operator's to type in a terminal:
+  a replacement by `source add`, `source set env_file=` and
+  `mint_command=`, `source key` (a key is asked for with a secret ask)
+  and `source rm`. Their words are a file, a path or a program, and a
+  command that is approved from a card has only names the yard holds,
+  numbers and flags: `source add` is the one exception, and its file's
+  bytes are on the card.
 - **Its name is none of `peer`, `token`, `yardr`**, the sources yardr
   has of its own. With a `hook` key it is a hook source: a hook receives
   it (`yardr hook add acme --source acme --secret-file …`), and

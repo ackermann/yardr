@@ -2,8 +2,12 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +17,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -126,6 +131,12 @@ is one of the list the yard runs from a card:
       a group's sessions or a crew member may make the source's read
       calls, or one call by its name; both flags repeat, and it is one
       command and one change
+  source add <file>
+      a new source the file declares: the ask carries the declaration
+      and each command file it names, the card shows the whole
+      declaration, and a commands-free add runs at approval while one
+      naming commands is carried out by the server after it; a
+      replacement and an absolute program stay in a terminal
   subscribe <user> yardr [--done] [--where <key>=<value>]
       a user is told of the yard's own events in their inbox; with --done,
       --where or both
@@ -359,6 +370,13 @@ what the person asked does, and this is the asker's own.`,
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
 				q.Run = &store.AskRun{Argv: []string{askRun}}
+				// Source add carries its file: read once here, beside
+				// the ask, so the store holds the bytes the card shows.
+				carried, err := sourceAddCarried(askRun)
+				if err != nil {
+					return err
+				}
+				q.Run.Carried = carried
 			}
 			var seq uint64
 			if askNew {
@@ -670,6 +688,54 @@ func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*sto
 		return r.Ask.Secret, nil
 	}
 	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
+}
+
+// sourceAddCarried reads what a --run "source add <file>" ask carries:
+// the declaration file once, resolved as yardr source add resolves it,
+// and each relative program's bytes from beside it as CopyCommandFiles
+// reads them, each with its SHA-256. It answers nil for any other
+// command. A file that cannot be read or does not parse is refused
+// here, in the parser's words, and nothing is stored.
+func sourceAddCarried(command string) ([]store.AskSource, error) {
+	words := strings.Fields(command)
+	if len(words) > 0 && words[0] == "yardr" {
+		words = words[1:]
+	}
+	if len(words) != 3 || words[0] != "source" || words[1] != "add" {
+		return nil, nil
+	}
+	file := words[2]
+	text, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	d, err := source.Parse(file, text)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return nil, err
+	}
+	declDir := filepath.Dir(abs)
+	var programs []string
+	seen := map[string]bool{}
+	for _, c := range d.Commands() {
+		if c.Relative() && !seen[c.Argv[0]] {
+			seen[c.Argv[0]] = true
+			programs = append(programs, c.Argv[0])
+		}
+	}
+	var files []store.AskFile
+	for _, prog := range programs {
+		data, err := os.ReadFile(filepath.Join(declDir, prog))
+		if err != nil {
+			return nil, fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, prog, err)
+		}
+		sum := sha256.Sum256(data)
+		files = append(files, store.AskFile{Program: prog, Text: string(data), SHA256: hex.EncodeToString(sum[:])})
+	}
+	return []store.AskSource{{Name: d.Name, Text: string(text), Files: files}}, nil
 }
 
 // askedRun reads the command the ask seq on the bead id proposes, as the

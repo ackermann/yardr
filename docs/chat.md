@@ -304,6 +304,7 @@ or decline it. The command is one of a fixed list:
 | `peer allow <peer> --send <kinds>`, `--receive <kinds>` | what a link may carry each way | anyone where kinds were given, only the operator where they were taken, with the kinds that stood, which the card names |
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call> --group <group>\|--crew <crew member>` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change | anyone, with `yardr source revoke` |
+| `source add <file>` | a new source the file declares: the ask carries the declaration and each command file it names, and the card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it | only the operator, with `yardr source rm <name>` |
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
 | `user set <user> tell=<parts>` | which parts a source tells a user of outside the yard, on their phone: a list of `notifications`, `mail` and `asks`, or nothing after `tell=` for all three | that user or the operator, with the `tell=` that stood, which the card names |
 | `user add <name>` | a user added: they read mail from now on, and are told nothing from before | only the operator, with `user rm` |
@@ -314,8 +315,8 @@ or decline it. The command is one of a fixed list:
 | `bead update <bead> --originator <user>` | whose a bead is for | only the operator, with the originator that stood; a bead that was for no one can only be for another after |
 | `timer rm <id>` | another's timer removed, and what it would have told | whoever can add it back; the card says who, or that no one can |
 
-Anything else that is the operator's is still typed by you: `source add`,
-a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
+Anything else that is the operator's is still typed by you: a replacement
+by `source add`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
 `--reach`, `--expose`, or `--send`/`--receive` of a kind other than mail
 or ping, a user's `notify` and `env_file`, `group add` with `--runner exec`
 or `cmd=`, `group set` with `cmd=`, the `operator` setting and the settings
