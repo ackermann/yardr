@@ -28,7 +28,8 @@ var bSettings = []byte("settings")
 func init() { allBuckets = append(allBuckets, bSettings) }
 
 // YardmasterSetting names the crew member that coordinates the yard, whom the
-// role prompts tell agents to mail.
+// role prompts tell agents to mail and who may remove a route beside the
+// operator.
 const YardmasterSetting = "yardmaster"
 
 // The settings whose readers live in packages that import this one: named
@@ -142,7 +143,7 @@ var partyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 var KnownSettings = []Setting{
 	{Key: OperatorSetting, Help: "who the role prompts name, the person agents bring decisions to (a pack's roles are installed naming them); default: your login name",
 		Check: func(string) error { return nil }},
-	{Key: YardmasterSetting, Help: "the yardmaster crew member's name, whom the role prompts tell agents to mail", Default: "yardmaster",
+	{Key: YardmasterSetting, Help: "the yardmaster crew member's name, whom the role prompts tell agents to mail, and who may remove a route beside the operator", Default: "yardmaster",
 		Check: func(v string) error {
 			if !partyName.MatchString(v) {
 				return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)

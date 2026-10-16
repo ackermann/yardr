@@ -96,7 +96,6 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			return err
 		},
 		"remove a group": func(a string) error { _, err := api.DeleteGroup(ctx, "builders", a); return err },
-		"remove a route": func(a string) error { return api.DeleteRoute(ctx, "no-such", a) },
 		"remove a flow":  func(a string) error { return api.DeleteFlow(ctx, "no-such", a) },
 		"remove a depot": func(a string) error { _, err := api.DeleteDepot(ctx, "no-such", a); return err },
 		"change a depot's path": func(a string) error {
@@ -178,6 +177,125 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		if err := write("jo"); err != nil && strings.Contains(err.Error(), "only the operator") {
 			t.Errorf("%s as the operator = %v", does, err)
 		}
+	}
+}
+
+// Removing a route is the operator's or the yardmaster's: the crew
+// member the yardmaster setting names removes one as the operator does,
+// so changing a route (rm plus add) leaves no duplicates behind. Anyone
+// else is refused in words naming both, and the pane's actor is who is
+// checked, whatever --actor says (yardr-g7kq).
+func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
+	api, own := operatorYard(t)
+	ctx := context.Background()
+	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "brakeman", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	add := func(group string) string {
+		t.Helper()
+		r, err := api.AddRoute(ctx, store.Route{Stage: "new", Group: group}, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.ID
+	}
+	ids := func() []string {
+		t.Helper()
+		rs, err := api.Routes(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, len(rs))
+		for i, r := range rs {
+			out[i] = r.ID
+		}
+		return out
+	}
+	const refuse = "only the operator (jo) or the yardmaster (yardmaster) may remove a route"
+	// The yardmaster removes, as named: the yardmaster setting is unset,
+	// so the default names them.
+	if err := api.DeleteRoute(ctx, add("builders"), "yardmaster"); err != nil {
+		t.Fatalf("DeleteRoute as yardmaster: %v", err)
+	}
+	if actor := lastKindActor(t, api, ctx, "route_removed"); actor != "yardmaster" {
+		t.Fatalf("route_removed actor = %q, want yardmaster", actor)
+	}
+	// Another crew member is refused, the route stays, and the refusal
+	// keeps the alone mark: no run ask proposes it.
+	kept := add("builders")
+	if err := api.DeleteRoute(ctx, kept, "brakeman"); err == nil || err.Error() != refuse {
+		t.Fatalf("DeleteRoute as brakeman = %v, want %q", err, refuse)
+	}
+	if err := own.DeleteRoute(ctx, "no-such", "brakeman"); err == nil {
+		t.Fatalf("DeleteRoute as brakeman through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Fatalf("DeleteRoute as brakeman = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if !slices.Contains(ids(), kept) {
+		t.Fatalf("the refused removal removed route %s", kept)
+	}
+	// When the setting names another crew member, that one removes and
+	// the yardmaster is refused.
+	if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	const renamed = "only the operator (jo) or the yardmaster (clerk) may remove a route"
+	if err := api.DeleteRoute(ctx, kept, "yardmaster"); err == nil || err.Error() != renamed {
+		t.Fatalf("DeleteRoute as yardmaster while the setting names clerk = %v, want %q", err, renamed)
+	}
+	if err := api.DeleteRoute(ctx, kept, "clerk"); err != nil {
+		t.Fatalf("DeleteRoute as the named clerk: %v", err)
+	}
+	if actor := lastKindActor(t, api, ctx, "route_removed"); actor != "clerk" {
+		t.Fatalf("route_removed actor = %q, want clerk", actor)
+	}
+	// The operator still removes.
+	if err := api.DeleteRoute(ctx, add("builders"), "jo"); err != nil {
+		t.Fatalf("DeleteRoute as the operator: %v", err)
+	}
+	if actor := lastKindActor(t, api, ctx, "route_removed"); actor != "jo" {
+		t.Fatalf("route_removed actor = %q, want jo", actor)
+	}
+	// From the yardmaster's own pane the removal is the pane's, whatever
+	// actor says. The setting is yardmaster again, the route is added,
+	// and the pane goes on record last: over the socket every call
+	// carries this process as its caller.
+	if err := api.SetSetting(ctx, store.YardmasterSetting, "yardmaster", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	paned := add("builders")
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := api.CrewStarted(ctx, "yardmaster", handle); err != nil {
+		t.Fatal(err)
+	}
+	if err := own.DeleteRoute(store.WithCaller(ctx, me), paned, "jo"); err != nil {
+		t.Fatalf("DeleteRoute from the yardmaster's pane as the operator: %v", err)
+	}
+	if actor := lastKindActor(t, api, ctx, "route_removed"); actor != "yardmaster" {
+		t.Fatalf("route_removed actor from the pane = %q, want the pane's yardmaster", actor)
+	}
+	// A builder session's pane cannot remove by naming the yardmaster: it
+	// is checked as its session's actor.
+	s, ctx, _, _, _ := paneMoveYard(t)
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const paneRefuse = "only the operator (op) or the yardmaster (yardmaster) may remove a route"
+	if err := s.DeleteRoute(store.WithCaller(ctx, os.Getpid()), r.ID, "yardmaster"); err == nil || err.Error() != paneRefuse {
+		t.Fatalf("DeleteRoute from a session's pane as yardmaster = %v, want %q", err, paneRefuse)
+	}
+	if rs, err := s.Routes(ctx); err != nil {
+		t.Fatal(err)
+	} else if !slices.ContainsFunc(rs, func(x store.Route) bool { return x.ID == r.ID }) {
+		t.Fatalf("the refused removal removed route %s", r.ID)
 	}
 }
 

@@ -218,6 +218,38 @@ func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass
 	return operatorOnly(ctx, w.Tx, actor, does, ask)
 }
 
+// operatorOrYardmaster passes the operator's call (notOperator) or the
+// crew member's the yardmaster setting names, and refuses anyone else in
+// words naming both. Only DeleteRoute reads it: a route has no update,
+// so changing one is rm plus add, and the yardmaster that may add the new
+// route may remove the old one, instead of leaving duplicates behind.
+// ask marks whether a run ask may propose it, as with operatorOnly.
+func operatorOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
+	operator, _, err := notOperator(ctx, tx, actor)
+	if err != nil || operator == "" {
+		return err
+	}
+	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	var ym string
+	if _, err := get(tx, bSettings, YardmasterSetting, &ym); err != nil {
+		return err
+	}
+	if ym == "" {
+		ym = "yardmaster"
+	}
+	if resolved == ym {
+		return nil
+	}
+	return &OperatorOnlyError{msg: fmt.Sprintf("only %s or the yardmaster (%s) may %s", operator, ym, does), ask: ask}
+}
+
+func (w *wtx) operatorOrYardmaster(ctx context.Context, actor, does string, ask AskClass) error {
+	return operatorOrYardmaster(ctx, w.Tx, actor, does, ask)
+}
+
 // operatorOnly is the rule for a change that is no write of the database
 // (a pairing, which lives in the server's memory).
 func (s *Store) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {

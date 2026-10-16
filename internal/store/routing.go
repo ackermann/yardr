@@ -1244,7 +1244,7 @@ func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow
 
 // DeleteRoute removes a route and logs route_removed with what it matched.
 // A route that was not there logs nothing. Removing a route is the
-// operator's to do (operatorOnly).
+// operator's or the yardmaster's to do (operatorOrYardmaster).
 func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 	return s.write(func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
@@ -1252,7 +1252,7 @@ func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a route", Alone); err != nil {
+		if err := w.operatorOrYardmaster(ctx, actor, "remove a route", Alone); err != nil {
 			return err
 		}
 		var r Route
