@@ -435,22 +435,9 @@ env_file; what the new file changes of its calls is printed.`,
 			if err != nil {
 				return err
 			}
-			var before *source.Declaration
-			if was, err := st.GetSource(c.Context(), d.Name); err == nil {
-				before, _ = was.Declaration()
-			}
 			// The files the declaration's commands name are the operator's
 			// to add, as the declaration is: they are looked at before the
 			// store is asked, and copied after it has answered.
-			home := ""
-			copies := d.HasCommandFiles() || (before != nil && before.HasCommandFiles())
-			if copies {
-				cfg, err := config.Load()
-				if err != nil {
-					return err
-				}
-				home = cfg.Home
-			}
 			declDir := ""
 			if d.HasCommandFiles() {
 				abs, err := filepath.Abs(args[0])
@@ -462,22 +449,25 @@ env_file; what the new file changes of its calls is printed.`,
 					return err
 				}
 			}
-			// The apply lock (config.ApplyLock), from the storing
-			// through the copy: the server's carrying out of an
-			// approved apply holds the same lock for the same files
-			// and records, so the two never interleave (yardr-bht9 3.5).
-			if home == "" {
-				cfg, err := config.Load()
-				if err != nil {
-					return err
-				}
-				home = cfg.Home
+			cfg, err := config.Load()
+			if err != nil {
+				return err
 			}
-			release, err := config.AcquireApplyLock(home)
+			// Take the apply lock before reading the standing source:
+			// its command files decide whether this add must replace the
+			// copies directory. The server's carrying out and source rm
+			// hold the same lock, so that decision cannot go stale while
+			// this add waits (yardr-bht9 3.5).
+			release, err := config.AcquireApplyLock(cfg.Home)
 			if err != nil {
 				return err
 			}
 			defer release()
+			var before *source.Declaration
+			if was, err := st.GetSource(c.Context(), d.Name); err == nil {
+				before, _ = was.Declaration()
+			}
+			copies := d.HasCommandFiles() || (before != nil && before.HasCommandFiles())
 			saved, err := st.PutSource(c.Context(), args[0], string(text), a.who())
 			if err != nil {
 				return err
@@ -485,7 +475,7 @@ env_file; what the new file changes of its calls is printed.`,
 			if copies {
 				// CopyCommandFiles makes the directory anew, so the files of
 				// the declaration this one replaces are gone with it.
-				if err := d.CopyCommandFiles(declDir, home); err != nil {
+				if err := d.CopyCommandFiles(declDir, cfg.Home); err != nil {
 					return fmt.Errorf("source %s saved, but its commands' files were not copied: %w", d.Name, err)
 				}
 			}
@@ -519,13 +509,13 @@ env_file; what the new file changes of its calls is printed.`,
 					fmt.Printf("next: yardr source check %s (%s)\n", d.Name, asks)
 				}
 				var copied []string
-				for _, f := range d.CommandFiles(home) {
+				for _, f := range d.CommandFiles(cfg.Home) {
 					if f.Declared && !slices.Contains(copied, f.Program) {
 						copied = append(copied, f.Program)
 					}
 				}
 				if len(copied) > 0 {
-					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(home, "sources", d.Name), strings.Join(copied, ", "))
+					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(cfg.Home, "sources", d.Name), strings.Join(copied, ", "))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
 					// Source add is the operator's, refused from an agent's pane,

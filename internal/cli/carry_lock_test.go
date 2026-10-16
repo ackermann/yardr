@@ -31,7 +31,10 @@ thread:
 func carryLockYard(t *testing.T) (*store.Store, string, *app) {
 	t.Helper()
 	ctx := context.Background()
-	home := t.TempDir()
+	home := filepath.Join(shortDir(t, "ycl"), "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	st, err := store.Open(filepath.Join(home, "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +50,15 @@ func carryLockYard(t *testing.T) (*store.Store, string, *app) {
 func runRm(a *app) chan error {
 	cmd := a.sourceCmd()
 	cmd.SetArgs([]string{"rm", "crm"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	return done
+}
+
+func runAdd(a *app, file string) chan error {
+	cmd := a.sourceCmd()
+	cmd.SetArgs([]string{"add", file})
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	done := make(chan error, 1)
 	go func() { done <- cmd.Execute() }()
@@ -127,5 +139,58 @@ func TestSourceRmWaitsOnApplyLock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "sources", "crm")); !os.IsNotExist(err) {
 		t.Fatalf("the rm left its copies: %v", err)
+	}
+}
+
+// A terminal add decides whether it must replace the source's copies
+// directory only after taking the apply lock: while it waits, a carrying
+// out may give a commands-free source command files that the add must
+// remove when it replaces the source.
+func TestSourceAddReadsStandingCopiesUnderApplyLock(t *testing.T) {
+	ctx := context.Background()
+	st, home, a := carryLockYard(t)
+	t.Setenv("YARDR_HOME", home)
+	if _, err := st.PutSource(ctx, "crm.yaml", crmFreeDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "crm.yaml")
+	if err := os.WriteFile(file, []byte(crmFreeDecl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := config.AcquireApplyLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			release()
+		}
+	}()
+	done := runAdd(a, file)
+	// The add reaches its lock while the simulated carrying out holds it.
+	time.Sleep(100 * time.Millisecond)
+	if _, err := st.GetSource(ctx, "crm"); err != nil {
+		t.Fatalf("the waiting add replaced the source early: %v", err)
+	}
+	if _, err := st.PutSource(ctx, "crm.yaml", crmCommandsDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.WriteCopies(home, "crm", []source.FileCopy{
+		{Program: "crm/thread", Data: []byte("#!/bin/sh\n# thread\n")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	released = true
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	src, err := st.GetSource(ctx, "crm")
+	if err != nil || src.Text != crmFreeDecl {
+		t.Fatalf("the source after add = %+v, %v", src, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "sources", "crm")); !os.IsNotExist(err) {
+		t.Fatalf("the commands-free add left the carrying out's copies: %v", err)
 	}
 }
