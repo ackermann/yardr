@@ -556,8 +556,28 @@ func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	}
 	// A builder session's pane cannot change by naming the operator: it
 	// is checked as its session's actor.
-	s, ctx, _, _, actor := paneMoveYard(t)
+	s := storetest.New(t)
+	ctx = context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	putFlow(t, s, "yard", "", outcomeFlow)
+	if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := b.ID + "-new"
+	if err := s.MarkRunning(ctx, sess.ID, paneShell(t, actor)); err != nil {
 		t.Fatal(err)
 	}
 	pane := store.WithCaller(ctx, os.Getpid())
