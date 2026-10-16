@@ -1023,7 +1023,7 @@ func TestParseHookRefusals(t *testing.T) {
 		"no verify":                           {hooked("  bodies: unique\n  normalize: [normalize]\n"), "hook.verify: missing: how the core verifies a delivery"},
 		"no bodies":                           {hooked(verify + "  normalize: [normalize]\n"), "hook.bodies: missing: unique, unique-per-hook, repeat"},
 		"no normalize":                        {hooked(verify + "  bodies: unique\n"), "hook.normalize: missing: the command that turns a verified body into the envelope"},
-		"a key it does not have":              {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, normalize, keys)"},
+		"a key it does not have":              {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, normalize, keys, register)"},
 		"bodies that are neither":             {hooked(verify + "  bodies: sometimes\n  normalize: [normalize]\n"), `hook.bodies: "sometimes": want unique, unique-per-hook, repeat`},
 		"a normalize that is a string":        {hooked(verify + "  bodies: unique\n  normalize: normalize\n"), "hook.normalize: want a list of strings"},
 		"a normalize with no program":         {hooked(verify + "  bodies: unique\n  normalize: []\n"), "hook.normalize: an empty list"},

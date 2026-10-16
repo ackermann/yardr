@@ -925,6 +925,20 @@ hook:
 - **Keys** are what the events' `fields` may carry: a subscription's
   `--where` and a pack's `says` may name them beside `type`, `action`,
   `team`, `project`, `repo` and `label`.
+- **Register** (`hook.register`) names the update call the yard makes
+  to tell the service where to send deliveries, and which of its
+  parameters take the webhook's public URL (`url`) and, with scheme
+  `secret`, the secret (`secret`): `register: { call: setwebhook, url:
+  url, secret: secret_token }`, any other parameter fixed in the call's
+  body or optional. With scheme `secret` the hook card needs no typed
+  secret: the yard makes one, keeps it in the hook's file, and on
+  approval calls the register call at the source's `base` to register
+  `hook_public_url` plus `/<hook name>` ([configuration.md](configuration.md#settings)).
+  A failed call leaves the hook in place and approving again retries.
+  With a signature the service makes (`hmac-sha256`) the typed secret
+  stays, and registering is a later bead. Refused: a register call
+  that is no call of the file or is a read, a `url` or `secret` that is
+  no string parameter of it, and a required parameter nothing fills.
 - **Refused when the file is added**: a scheme that is neither
   `hmac-sha256` nor `secret`, `signed`, `encoding` or `prefix` with scheme
   `secret`, a signature that covers anything but the body, an encoding
@@ -1333,6 +1347,13 @@ key, and a hook the yard has already; `--map` and `--as` stay in a
 terminal, as a replacement does. The steps by hand above stay the way to
 make or replace one in a terminal.
 
+Where the declaration names a register call with scheme `secret`
+(Telegram), there is no secret ask: the one `--run "hook add <name>
+--source <source>"` card says the yard will make the secret and call
+`<method path>` at the source's base to register the `hook_public_url`
+URL for the hook, and approving makes the secret and the hook and
+makes that call. No card is written while `hook_public_url` is unset.
+
 *(in Linear)* Settings → API → Webhooks: the URL
 `https://<public host>/hooks/linear`, the events Issues and Comments. Its
 signing secret is what goes in the file.
@@ -1643,8 +1664,10 @@ them whole):
   ~/.yardr/telegram.secret`. Telegram authenticates with the secret
   itself in `X-Telegram-Bot-Api-Secret-Token`, compared as it arrives,
   not with an HMAC of the body; it sends no timestamp, so a test
-  delivery needs none. The yard never registers the webhook: the
-  operator tells Telegram the URL once, with `setWebhook`, on a port it
+  delivery needs none. The declaration names `setwebhook` under
+  `hook.register`, so the hook card registers the webhook: the yard
+  makes the secret and calls `setwebhook` (setWebhook) with the `hook_public_url`
+  URL; by hand the operator tells Telegram once instead, on a port it
   takes (443, 80, 88, 8443).
 - **The credential** is the bot's token twice: the source's env file
   holds `TELEGRAM_BOT_TOKEN` for telling, and the answering crew

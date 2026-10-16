@@ -36,6 +36,16 @@ calls:
       method: POST
       path: /bot{credential}/sendMessage
       body: { chat_id: "{chat}", text: "{title}\n{text}" }
+  setwebhook:
+    kind: update
+    about: Tell Telegram where to send updates (setWebhook)
+    params:
+      url:          { type: string, max: 2048 }
+      secret_token: { type: string, max: 256 }
+    request:
+      method: POST
+      path: /bot{credential}/setWebhook
+      body: { url: "{url}", secret_token: "{secret_token}", allowed_updates: ["message"] }
 notify:
   call: message
   address: { param: chat, env: TELEGRAM_CHAT_ID }   # the person's own chat id, read from the user's env_file
@@ -53,6 +63,13 @@ hook:
     signature: { header: X-Telegram-Bot-Api-Secret-Token }
     delivery: { body: update_id }   # the Update's own id: a retry repeats it, re-serialized or not
   bodies: unique
+
+  # The yard registers the webhook itself on the hook card: it makes
+  # the secret, and calls setWebhook with the public URL and it.
+  register:
+    call: setwebhook
+    url: url
+    secret: secret_token
 
   # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
   # envelope. The core sets source and delivery itself.

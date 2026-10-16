@@ -587,7 +587,16 @@ func hookSays(d *source.Declaration) string {
 	if len(h.Keys) > 0 {
 		keys = fmt.Sprintf("its events may carry the fields %s", strings.Join(h.Keys, ", "))
 	}
-	return fmt.Sprintf("what it sends in: %s; %s; %s; bodies are %s; the command %s turns a verified body into the envelope, handed no credential; %s.", verified, named, timed, h.Bodies, showCommand(h.Normalize), keys)
+	reg := ""
+	if h.Register != nil {
+		if c, ok := d.Call(h.Register.Call); ok {
+			reg = fmt.Sprintf("; the yard registers its webhook with %s (%s), filling %s with the public URL", h.Register.Call, c.Request.Line(), h.Register.URL)
+			if h.Register.Secret != "" {
+				reg += fmt.Sprintf(" and %s with the hook's secret", h.Register.Secret)
+			}
+		}
+	}
+	return fmt.Sprintf("what it sends in: %s; %s; %s; bodies are %s; the command %s turns a verified body into the envelope, handed no credential; %s%s.", verified, named, timed, h.Bodies, showCommand(h.Normalize), keys, reg)
 }
 
 // eventsSays is what the source sends of pull requests and CI, with the

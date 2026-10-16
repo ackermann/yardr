@@ -23,7 +23,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    operator's user name in this yard if it differs.
    ```sh
    yardr pack apply telegram --notify mckean=telegram
-   # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
+   # source telegram is declared: 2 calls under https://api.telegram.org (yardr source show telegram)
    # user mckean: told outside the yard: through telegram, which is not set up: user mckean has no env_file: yardr user key mckean telegram gives TELEGRAM_CHAT_ID
    ```
    `--notify` is telling, and telling through telegram is optional:
@@ -32,7 +32,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    told through pushover and chat through telegram, apply without it:
    ```sh
    yardr pack apply telegram
-   # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
+   # source telegram is declared: 2 calls under https://api.telegram.org (yardr source show telegram)
    ```
 4. **Give the yard the bot's token.** No file is written by hand: the
    command asks for its value and shows nothing as it is typed or
@@ -125,13 +125,33 @@ no status and no bead link to a chat.
    account writes as the operator: a taken-over account can have the
    yardmaster shape, build and land. Two-step verification adds another
    barrier to taking over the account.
-9. **The webhook secret.** The yard never registers a webhook: the
-   secret and the call below are yours to make. The secret goes in a
-   file, mode 0600, which the hook names, as a Linear signing secret
-   does. A new file takes its mode from the shell's umask, so narrow
-   it first: with the usual 022 the secret is readable by others until
-   the chmod. Each command below is one thing to type, in a block of
-   its own.
+9. **The webhook and its secret, on one card.** Set the yard's public
+   hook address once, as the operator, to the address Telegram can
+   reach this yard's hooks at (its host, on a port Telegram takes:
+   443, 80, 88 or 8443):
+   ```sh
+   yardr settings set hook_public_url https://<his host>/hooks
+   ```
+   The URL of the telegram hook is then
+   `https://<his host>/hooks/telegram`. A crew member then sets the
+   hook up with one ask on one bead (`--run "hook add telegram
+   --source telegram"`; no secret ask, and no secret typed): its card
+   says it will call `POST /bot{credential}/setWebhook` at
+   `https://api.telegram.org` to register that URL, and on approval
+   the yard makes the signing secret (no one types it), keeps it in
+   `<home>/hooks/telegram.secret` (mode 0600) which the hook names,
+   and makes that call with the URL and the secret. The secret is in
+   no note, event, answer or card. If the call fails the hook stays
+   in place and approving again retries it. One hook serves the yard.
+   `yardr hook list` shows it with STATE `ok`; step 12's `getWebhookInfo`
+   shows what Telegram holds.
+
+   By hand, the secret and the call are yours to make instead. The
+   secret goes in a file, mode 0600, which the hook names, as a Linear
+   signing secret does. A new file takes its mode from the shell's
+   umask, so narrow it first: with the usual 022 the secret is
+   readable by others until the chmod. Each command below is one thing
+   to type, in a block of its own.
    ```sh
    umask 077
    ```
@@ -144,14 +164,8 @@ no status and no bead link to a chat.
    ```sh
    yardr hook add telegram --source telegram --secret-file ~/.yardr/telegram.secret
    ```
-   One hook serves the yard. `yardr hook list` shows it with STATE `ok`.
-
-   A crew member sets the hook up by two asks on one bead, the secret
-   first (`--secret-hook telegram --source telegram`, then `--run "hook
-   add telegram --source telegram"`): the operator gives the secret
-   typed unseen, the server keeps it in `<home>/hooks/telegram.secret`
-   (mode 0600), and approving the hook makes `POST /hooks/telegram`.
-   The manual steps above remain available.
+   The manual steps above remain available by hand; the card above
+   is the way a crew member sets it up.
 10. **The crew member's credential.** The yardmaster answers with the
    bot's token, as every reply is answered with the crew member's own
    credential: there is one bot for the whole yard and it speaks as the
@@ -194,21 +208,23 @@ no status and no bead link to a chat.
     subscribe the user himself: his own messages would arrive as
     notifications of his own acts and be told back to the phone he is
     holding.
-12. **Tell Telegram where to send.** `<his host>` is the host his GitHub
-    and Linear webhooks have, on a port Telegram takes: 443, 80, 88 or
-    8443. The bot's token is part of the address, and an argument can be
-    read by every process on the machine while curl runs, and stays in
-    the shell's history: the token and the webhook secret are read from
+12. **Tell Telegram where to send.** The hook card of step 9 does
+    this: on approval the yard calls `setWebhook` itself with the
+    public URL from `hook_public_url` and the secret it made. By hand
+    it is yours instead: `<his host>` is the host his GitHub and Linear
+    webhooks have, on a port Telegram takes: 443, 80, 88 or 8443. The
+    bot's token is part of the address, and an argument can be read by
+    every process on the machine while curl runs, and stays in the
+    shell's history: the token and the webhook secret are read from
     their files and go to curl as config lines on its stdin, written by
     the shell itself. Type neither into a command.
     ```sh
     printf 'url = "https://api.telegram.org/bot%s/setWebhook"\ndata = "secret_token=%s"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" "$(cat ~/.yardr/telegram.secret)" | curl -K - -d url=https://<his host>/hooks/telegram -d allowed_updates='["message"]'
     ```
-    That Telegram took it:
+    That Telegram took it, whichever way it was told:
     ```sh
     printf 'url = "https://api.telegram.org/bot%s/getWebhookInfo"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
-    The yard never calls `setWebhook` itself.
 13. **Try it: one line from the phone.** Write this to the bot:
     ```text
     Can the shed land on Monday?

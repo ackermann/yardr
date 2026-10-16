@@ -464,7 +464,7 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check, notify, hear, base, credential, idempotency *entry
+	var calls, check, notify, hear, base, credential, idempotency, hook *entry
 	named := false
 	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events") {
 		switch e.key {
@@ -507,6 +507,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		case "link":
 			d.Link = r.link(e)
 		case "hook":
+			hook = &e
 			d.Hook = r.hook(e)
 		case "identity":
 			d.Identity = r.identity(e)
@@ -520,7 +521,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	if !named {
 		r.errf(root, "name", "missing: what the source is called in this yard")
 	}
-	if calls == nil && (d.Limits != nil || d.Hook != nil) {
+	if calls == nil && (d.Limits != nil || (d.Hook != nil && d.Hook.Register == nil)) {
 		// A source that is its limits command and/or what it sends in,
 		// and nothing else: there is no request, so nothing a request
 		// needs has a meaning.
@@ -583,6 +584,54 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	}
 	if hear != nil {
 		d.Hear = r.hear(d, *hear)
+	}
+	if hook != nil && d.Hook != nil && d.Hook.Register != nil {
+		r.hookRegisterCheck(d, *hook)
+	}
+}
+
+// hookRegisterCheck holds a hook's register to the calls as read: the
+// call is there and is an update, its URL and secret parameters are
+// its own and take text, and nothing it requires is left unfilled.
+// What would fail at every registration is refused here.
+func (r *reader) hookRegisterCheck(d *Declaration, hookE entry) {
+	reg := d.Hook.Register
+	base := join(hookE.path, "register")
+	c, found := d.Call(reg.Call)
+	if reg.Call == "" {
+		return // hookRegister named the missing call
+	}
+	if !found {
+		r.errf(hookE.v, join(base, "call"), "%s is no call of this file", reg.Call)
+		return
+	}
+	if c.Kind != Update {
+		r.errf(hookE.v, join(base, "call"), "%s is a %s call: registering a webhook sends something, so it is an %s", reg.Call, c.Kind, Update)
+		return
+	}
+	fills := map[string]string{}
+	param := func(name, key string) {
+		if name == "" {
+			return
+		}
+		p, ok := c.param(name)
+		switch {
+		case !ok:
+			r.errf(hookE.v, key, "%s is no parameter of the call %s (it takes: %s)", name, c.Name, or(strings.Join(c.names(), ", "), "none"))
+		case p.Type != "string":
+			r.errf(hookE.v, key, "the parameter %s is %s: what the yard gives is text, so it is a string", name, p.Type)
+		case fills[name] != "":
+			r.errf(hookE.v, key, "the parameter %s is filled by %s already", name, fills[name])
+		default:
+			fills[name] = key
+		}
+	}
+	param(reg.URL, join(base, "url"))
+	param(reg.Secret, join(base, "secret"))
+	for _, p := range c.Params {
+		if !p.Optional && fills[p.Name] == "" {
+			r.errf(hookE.v, base, "the call %s needs the parameter %s, and nothing here fills it (url and secret are what the yard has)", c.Name, p.Name)
+		}
 	}
 }
 

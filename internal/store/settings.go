@@ -47,6 +47,10 @@ const (
 	DefaultPackSetting = "default_pack"
 	// HookAddrSetting is the address the server takes webhooks on.
 	HookAddrSetting = "hook_addr"
+	// HookPublicURLSetting is the public address hooks are reached at:
+	// the URL of hook <name> is it plus /<name>. A hook whose source
+	// registers its webhook is registered at that URL.
+	HookPublicURLSetting = "hook_public_url"
 	// RouterAddrSetting is the address of the yard's router on the user's
 	// network, which GiveSecret is taken from besides the yard's own
 	// machine (rpc).
@@ -186,6 +190,9 @@ var KnownSettings = []Setting{
 		Default: "starter", Check: checkDefaultPack},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
+	{Key: HookPublicURLSetting, Help: "the public address hooks are reached at, such as https://yard.example/hooks: the URL of hook <name> is it plus /<name>. " +
+		"A hook whose source names a register call and secret scheme is registered at that URL when its card is approved; no card for one is written while it is unset",
+		Check: CheckHookPublicURL},
 	{Key: RouterAddrSetting, Help: "the address of the yard's router on the user's network, such as 172.18.0.2, " +
 		"written by the provisioner of a hosted yard: GiveSecret is taken from that peer when it says the request came to it over https " +
 		"(X-Forwarded-Proto: https), and from the yard's own machine as before. Read on every call; unset, from the yard's own machine alone",
@@ -398,7 +405,7 @@ func settingAsk(key string) AskClass {
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, RouterAddrSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, HookPublicURLSetting, RouterAddrSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone
@@ -533,6 +540,39 @@ func checkDefaultPack(v string) error {
 // CheckHookAddr refuses what the webhook receiver could not listen on: an
 // address that is no host:port.
 func CheckHookAddr(addr string) error { return checkHostPort("hook address", addr, "127.0.0.1:8790") }
+
+// CheckHookPublicURL refuses what no service could be told to send a
+// webhook to: not an absolute https address (plain http to this
+// machine alone, for a stand-in), with a user, a query or a fragment,
+// or a path that leaves its base. The operator gives it as a setting:
+// no proxy or tunnel address is worked out from anything else.
+func CheckHookPublicURL(v string) error {
+	u, err := url.Parse(v)
+	switch {
+	case err != nil || u.Host == "" || u.Opaque != "":
+		return fmt.Errorf("%s %q: a public address, such as https://yard.example/hooks", HookPublicURLSetting, v)
+	case u.User != nil:
+		return fmt.Errorf("%s %q: an address with no user or password in it", HookPublicURLSetting, v)
+	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(v, "?#"):
+		return fmt.Errorf("%s %q: an address with no query or fragment: the hook's name is added to its path", HookPublicURLSetting, v)
+	case u.Scheme == "http" && !isLoopbackHost(u.Hostname()):
+		return fmt.Errorf("%s %q: http is for a stand-in on this machine only: a public address is https", HookPublicURLSetting, v)
+	case u.Scheme != "https" && u.Scheme != "http":
+		return fmt.Errorf("%s %q: %s:// is not https://", HookPublicURLSetting, v, u.Scheme)
+	case hasDotsPath(u.Path):
+		return fmt.Errorf("%s %q: its path has no '..' segment", HookPublicURLSetting, v)
+	}
+	return nil
+}
+
+func hasDotsPath(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
+}
 
 // checkHostPort refuses an address that is no host:port, naming it as what
 // it is the address of, with one that would be taken.

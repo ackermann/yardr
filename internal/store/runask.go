@@ -1077,6 +1077,9 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a command of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
 	}
+	if s.hookRegisterTarget(id, ask) {
+		return s.approveHookRegister(ctx, id, ask, actor)
+	}
 	var out *AskApproved
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
 		out, err = w.approveAsk(ctx, id, ask, actor)

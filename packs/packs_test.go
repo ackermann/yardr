@@ -1012,6 +1012,20 @@ func TestTelegramPack(t *testing.T) {
 	if body["chat_id"] != "{chat}" || body["text"] != "{title}\n{text}" || len(body) != 2 {
 		t.Fatalf("body = %v", c.Request.Body)
 	}
+	if reg := d.Hook.Register; reg == nil || reg.Call != "setwebhook" || reg.URL != "url" || reg.Secret != "secret_token" || !d.Hook.RegistersSecret() {
+		t.Fatalf("register = %+v", d.Hook.Register)
+	}
+	sc, ok := d.Call("setwebhook")
+	if !ok || sc.Kind != source.Update || sc.Request.Path != "/bot{credential}/setWebhook" {
+		t.Fatalf("setwebhook call = %+v", sc)
+	}
+	sbody, _ := sc.Request.Body.(map[string]any)
+	if sbody["url"] != "{url}" || sbody["secret_token"] != "{secret_token}" {
+		t.Fatalf("setwebhook body = %v", sc.Request.Body)
+	}
+	if au, _ := sbody["allowed_updates"].([]any); len(au) != 1 || au[0] != "message" {
+		t.Fatalf("setwebhook allowed_updates = %v", sbody["allowed_updates"])
+	}
 	// Its setup notes: the bot and its token, one message to it, the
 	// apply, the token given to the yard by a command or on a card, the
 	// chat id claimed on a card from a message to the bot (given by

@@ -63,6 +63,34 @@ type Hook struct {
 	// subscription's --where and a pack's says may then name beside
 	// store.WhereKeys.
 	Keys []string `json:"keys,omitempty"`
+	// Register is the call the yard makes to tell the service where to
+	// send deliveries, nil for a source the operator registers by hand.
+	// It is used only with scheme secret for now: the yard makes the
+	// secret, and a signature the service makes is a later bead.
+	Register *HookRegister `json:"register,omitempty"`
+}
+
+// RegistersSecret reports whether the yard registers this hook itself
+// with a secret it makes: a register call with scheme secret. With a
+// signature the service makes the operator still gives the secret, and
+// registering is a later bead, so this is false there.
+func (h *Hook) RegistersSecret() bool {
+	return h != nil && h.Register != nil && h.Verify.Scheme == HookSecret
+}
+
+// HookRegister is how the yard registers a hook with the service: the
+// update call it makes, and which of that call's parameters take the
+// webhook's public URL and, with scheme secret, the secret the yard
+// makes. Any other parameter of the call is fixed in its body or
+// optional, as the file says.
+type HookRegister struct {
+	Call string `json:"call"`
+	// URL is the parameter that takes the webhook's public URL
+	// (hook_public_url plus the hook's name).
+	URL string `json:"url"`
+	// Secret is the parameter that takes the hook's secret, with
+	// scheme secret; "" for a call that takes none.
+	Secret string `json:"secret,omitempty"`
 }
 
 // HookVerify is how the core proves a delivery came from the source, from
@@ -147,9 +175,9 @@ type Events struct {
 // tell a retry by.
 func (r *reader) hook(e entry) *Hook {
 	h := &Hook{}
-	var verify, bodies, normalize *entry
+	var verify, bodies, normalize, register *entry
 	var deliveryNamed bool
-	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "normalize", "keys") {
+	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "normalize", "keys", "register") {
 		switch f.key {
 		case "verify":
 			verify = &f
@@ -172,6 +200,9 @@ func (r *reader) hook(e entry) *Hook {
 				}
 				h.Keys = append(h.Keys, s)
 			}
+		case "register":
+			register = &f
+			h.Register = r.hookRegister(f)
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -193,7 +224,48 @@ func (r *reader) hook(e entry) *Hook {
 	if bodies != nil && h.Bodies == BodiesRepeat && h.Verify.Scheme == HookSecret && !deliveryNamed {
 		r.errf(bodies.v, bodies.path, "repeat: needs verify.delivery: without the service's id of the delivery a retry is a new delivery")
 	}
+	if register != nil && h.Register != nil && h.Verify.Scheme == HookSecret && h.Register.Secret == "" {
+		r.errf(register.v, join(register.path, "secret"), "missing: the parameter that takes the hook's secret, which the yard makes with scheme %s", HookSecret)
+	}
 	return h
+}
+
+// hookRegister reads how the yard registers a hook: the call it makes
+// and which of its parameters take the public URL and the secret. That
+// the call is there and is an update, and that the parameters are its
+// own, is checked with the calls read (hookRegisterCheck in
+// declaration.go), since hook may stand before calls in the file.
+func (r *reader) hookRegister(e entry) *HookRegister {
+	reg := &HookRegister{}
+	var call, urlParam *entry
+	for _, f := range r.entries(e.v, e.path, "call", "url", "secret") {
+		switch f.key {
+		case "call":
+			call = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				reg.Call = s
+			}
+		case "url":
+			urlParam = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				reg.URL = s
+			}
+		case "secret":
+			if s, ok := r.str(f.v, f.path); ok {
+				reg.Secret = s
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return reg
+	}
+	if call == nil {
+		r.errf(e.v, join(e.path, "call"), "missing: the call that registers the webhook")
+	}
+	if urlParam == nil {
+		r.errf(e.v, join(e.path, "url"), "missing: the parameter that takes the webhook's public URL")
+	}
+	return reg
 }
 
 // hookVerify reads how the core proves a delivery came from the source:
