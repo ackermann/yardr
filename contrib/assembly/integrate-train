@@ -144,11 +144,21 @@ tree() {
 unwatched() {
   [ -n "${watch:-}" ] || return 0
   kill "$watch" 2>/dev/null
-  if [ -n "${log:-}" ] && [ -f "$log.nap" ]; then kill "$(cat "$log.nap")" 2>/dev/null; fi
+  if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
+    nap=$(cat "$napfile" 2>/dev/null) || nap=
+    case "$nap" in ''|*[!0-9]*) ;; *) kill "$nap" 2>/dev/null ;; esac
+  fi
   wait "$watch" 2>/dev/null
   watch=
 }
-trap 'unwatched' EXIT
+cleanup() {
+  unwatched
+  [ -z "${log:-}" ] || rm -f "$log" "$log.late" "$log.sh"
+  [ -z "${napfile:-}" ] || rm -f "$napfile"
+  [ -z "${errf:-}" ] || rm -f "$errf"
+  return 0
+}
+trap 'cleanup' EXIT
 # A signal that kills the script does not run its EXIT trap, so TERM and
 # INT clean up first and then report as a shell would, 128+n.
 trap 'unwatched; exit 143' TERM
@@ -159,6 +169,7 @@ trap 'unwatched; exit 130' INT
 # sh's own, as in merge-local, which says why it is made this way.
 runtest() {
   log=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the tests' output"
+  napfile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { rm -f "$log"; hold "cannot make a file for the timeout watcher"; }
   copy=
   if [ "$WHAT" = "the base's copy of $TEST" ]; then
     copy=$log.sh
@@ -185,7 +196,7 @@ runtest() {
     done
     sleep "$LIMIT" &
     nap=$!
-    echo "$nap" >"$log.nap"
+    echo "$nap" >"$napfile"
     wait "$nap"
     : >"$log.late"
     seen=
@@ -203,7 +214,7 @@ runtest() {
   # (a bounded wait), so the cleanup never kills a watcher whose sleep is
   # not yet known.
   i=0
-  while [ ! -f "$log.nap" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+  while [ ! -s "$napfile" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
   wait "$pid" && rc=0 || rc=$?
   unwatched
   # A command that passed as its deadline came has passed.
@@ -214,7 +225,9 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rm -f "$log" "$log.late" "$log.nap" "$log.sh"
+  rm -f "$log" "$log.late" "$napfile" "$log.sh"
+  log=
+  napfile=
   printf '%s\n' "$out"
 }
 # What a note says of a run's output: all of it, or its end.
@@ -336,7 +349,7 @@ if [ -n "$PR" ]; then
     printf '\nTrain: %s\n' "$TRAIN"
   )
   # stderr apart, so a warning gh prints is not taken for the URL.
-  errf=$(mktemp) && trap 'unwatched; rm -f "$errf"' EXIT
+  errf=$(mktemp) && trap 'cleanup' EXIT
   prview() { (cd "$REPO" && gh pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf"); }
   url=$(printf '%s' "$train" | jq -r '.metadata.pr_url // empty')
   bound_num=$(printf '%s' "$train" | jq -r '.metadata.pr_number // empty')

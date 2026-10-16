@@ -39,6 +39,36 @@ func newIntegrateTrainWatcherRun(t *testing.T, test, limit string, hi int) *watc
 	return w
 }
 
+// The pid file lives only long enough for the parent to find the watcher's
+// sleep. It is created with mktemp, so it keeps the yard's private-file mode
+// even when the caller's umask would make a redirection readable by others.
+func assertWatcherNapFileMode(t *testing.T, dir string, pid int) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+			t.Errorf("watcher pid file mode is %v, want a regular 0600 file", info.Mode())
+		}
+		return
+	}
+	t.Fatalf("no watcher pid file for sleep %d in %s", pid, dir)
+}
+
 // When integrate-train itself is killed with TERM, its watcher and the
 // watcher's sleep go with it: the script reports 143, and no sleep it
 // started is left behind.
@@ -56,13 +86,17 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	})
 	// A slow test command, so integrate-train is mid-run when it is
 	// killed; its own sleep is killed above, whatever outlives the run.
-	cmd := w.cmd()
+	// Use an unrestrictive umask so the private-file check catches a PID
+	// file made by an ordinary redirection instead of mktemp.
+	cmd := exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script)
+	cmd.Dir, cmd.Env, cmd.ExtraFiles = w.tmp, w.env, w.extra
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	// In ps, the sleep has exec'd past the recording stand-in, so the
 	// recording is complete before it is killed below.
-	_, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	nap, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	assertWatcherNapFileMode(t, w.tmp, nap)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
