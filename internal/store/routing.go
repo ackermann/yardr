@@ -327,6 +327,11 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	released := 0
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a group", Alone); err != nil {
 			return err
 		}
@@ -1242,6 +1247,11 @@ func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow
 // operator's to do (operatorOnly).
 func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a route", Alone); err != nil {
 			return err
 		}

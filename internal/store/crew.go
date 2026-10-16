@@ -531,6 +531,11 @@ func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
 // Removing a crew member is the operator's to do (operatorOnly).
 func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a crew member", Alone); err != nil {
 			return err
 		}
@@ -603,16 +608,15 @@ func checkCrewRev(name, have, want string) error {
 // says, and from anywhere else as given (paneAuthor).
 func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if enabled {
 			if err := w.operatorOnly(ctx, actor, "enable a crew member", Alone); err != nil {
 				return err
 			}
-		} else {
-			resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-			if err != nil {
-				return err
-			}
-			actor = resolved
 		}
 		r.Enabled = enabled
 		if enabled {

@@ -415,6 +415,11 @@ func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int
 	}
 	var moved int
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "move links from one source to another", Alone); err != nil {
 			return err
 		}

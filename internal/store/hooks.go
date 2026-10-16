@@ -481,6 +481,11 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		h.Makes = nil
 	}
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		var was Hook
 		had, err := get(w.Tx, bHooks, h.Name, &was)
 		if err != nil {
@@ -495,12 +500,6 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 			if err := w.operatorOnly(ctx, actor, "change a hook's source or secret file", Alone); err != nil {
 				return err
 			}
-		default:
-			resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-			if err != nil {
-				return err
-			}
-			actor = resolved
 		}
 		keys := whereKeysTx(w.Tx, h.Source)
 		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
@@ -583,6 +582,11 @@ func (s *Store) GetHook(ctx context.Context, name string) (*Hook, error) {
 // to do (operatorOnly).
 func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a hook", Alone); err != nil {
 			return err
 		}

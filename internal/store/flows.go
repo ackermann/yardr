@@ -455,6 +455,11 @@ func (s *Store) GetFlow(ctx context.Context, name string) (*Flow, error) {
 // (operatorOnly).
 func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a flow", Alone); err != nil {
 			return err
 		}

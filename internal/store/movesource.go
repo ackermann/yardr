@@ -50,6 +50,11 @@ func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (
 	}
 	out := &SourceMove{}
 	err := s.write(func(w *wtx) error {
+		paneActor, paneErr := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if paneErr != nil {
+			return paneErr
+		}
+		actor = paneActor
 		if err := w.operatorOnly(ctx, actor, "move a source's records", Alone); err != nil {
 			return err
 		}

@@ -68,6 +68,11 @@ const pruneBatch = 1000
 // and anyone else asking must be the operator.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
+		resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		return s.daemonOrOperator(ctx, tx, actor, "prune the store", Alone)
 	}); err != nil {
 		return nil, err

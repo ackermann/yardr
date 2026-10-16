@@ -1291,6 +1291,11 @@ type DepotRemoval struct {
 func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error) {
 	var out *DepotRemoval
 	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := w.operatorOnly(ctx, actor, "remove a depot", Alone); err != nil {
 			return err
 		}

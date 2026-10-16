@@ -425,6 +425,50 @@ func TestPaneAdminWriteIsThePanesActor(t *testing.T) {
 	})
 }
 
+// An operator write made from a pane whose recorded actor is the operator
+// still records that actor, whatever the caller supplies as --actor. The
+// gate must use the pane actor both to decide access and to write the event.
+func TestOperatorWritesFromPaneRecordPanesActor(t *testing.T) {
+	t.Run("operator-only", func(t *testing.T) {
+		s, ctx, _, sess, _ := moveYardClaim(t)
+		route, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkRunning(ctx, sess.ID, paneShell(t, "op")); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.DeleteRoute(pane, route.ID, "spoofed"); err != nil {
+			t.Fatalf("DeleteRoute from the operator's pane: %v", err)
+		}
+		if actor := lastKindActor(t, s, ctx, "route_removed"); actor != "op" {
+			t.Fatalf("route_removed actor = %q, want pane actor op", actor)
+		}
+	})
+
+	t.Run("daemon-or-operator", func(t *testing.T) {
+		s, ctx, _, sess, _ := moveYardClaim(t)
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkRunning(ctx, sess.ID, paneShell(t, "op")); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.RequestRestart(pane, "clerk", "because", "", "spoofed"); err != nil {
+			t.Fatalf("RequestRestart from the operator's pane: %v", err)
+		}
+		clerk, err := s.GetCrew(ctx, "clerk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actor := lastEventActor(t, s, ctx, clerk.Journal, "crew_restart_requested"); actor != "op" {
+			t.Fatalf("crew_restart_requested actor = %q, want pane actor op", actor)
+		}
+	})
+}
+
 // A timer set from a session's pane is the pane's actor's, whatever
 // --actor says: a pane can never set one as the operator. From no pane
 // the actor stands as given (yardr-6g56).

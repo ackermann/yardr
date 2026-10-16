@@ -234,6 +234,11 @@ func (s *Store) CrewStartFailedFor(ctx context.Context, name, user, reason strin
 // restart runs in-process, and anyone else asking must be the operator.
 func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error {
 	return s.changeCrewSessionAt(name, user, rev, func(w *wtx, r *CrewMember, st *CrewSession) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
 		if err := s.daemonOrOperator(ctx, w.Tx, actor, "restart a crew member", Alone); err != nil {
 			return err
 		}
