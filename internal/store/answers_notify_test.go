@@ -128,6 +128,94 @@ func TestAnswerDeliversToAsker(t *testing.T) {
 	}
 }
 
+// An answer to an ask whose asker is nobody with an inbox — a bead
+// session's actor after its session ended — reaches the crew members
+// whose yardr subscriptions cover the bead's current stage, under the
+// subscription's own reason: a noted event otherwise carries no stage,
+// so with the asker gone the answer would reach nobody. A crew asker's
+// answer still reaches only its asker, as answered, and a stage ask's
+// answer, which moves the bead itself, tells no stage subscriber.
+func TestAnswerOrphanAskerDeliversToStageSubscribers(t *testing.T) {
+	y := answerYard(t)
+	if err := y.Store.AddSubscription(y.ctx, "yardmaster",
+		Subscription{Source: SourceYardr, Scope: ScopeAll, Where: map[string]string{"stage": "decide"}},
+		"yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	decided, err := y.Store.CreateBead(y.ctx, NewBead{Title: "waiting on mckean", Stage: "decide"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.bead = decided.ID
+
+	// The shape agent asked mckean and its session ended; mckean's
+	// answer reaches the yardmaster through stage=decide, and the
+	// yardmaster's inbox holds the answer line.
+	seq := y.ask(t, linksAsk(), "yardr-vn86-shape")
+	y.answer(t, Answer{Ask: seq, Option: 1, Words: "move them tonight"}, "mckean")
+	e := lastAnswer(t, y)
+	if got := Reason(e, "yardmaster"); got != ReasonAll {
+		t.Fatalf("the orphan answer reached the yardmaster as %q, want %q", got, ReasonAll)
+	}
+	line, _ := e.Data["answer"].(string)
+	page, err := y.Store.Inbox(y.ctx, "yardmaster", 0)
+	if err != nil || page.Total != 1 {
+		t.Fatalf("the yardmaster's inbox = %+v, %v", page, err)
+	}
+	if got, _ := page.Events[0].Data["answer"].(string); got != line {
+		t.Fatalf("the inbox holds %q, want the answer line %q", got, line)
+	}
+
+	// A crew asker's answer still reaches only its asker, as answered:
+	// no stage fallback for an asker with an inbox.
+	y.tick(time.Hour)
+	crew := y.ask(t, linksAsk(), "yardmaster")
+	y.answer(t, Answer{Ask: crew, Option: 2}, "mckean")
+	e = lastAnswer(t, y)
+	if got := Reason(e, "yardmaster"); got != ReasonAnswered {
+		t.Fatalf("the crew answer reached the yardmaster as %q, want %q", got, ReasonAnswered)
+	}
+	if d, _ := e.Data["deliveries"].(map[string]any); len(d) != 1 {
+		t.Fatalf("the crew answer delivered to %v", d)
+	}
+	if n, _ := e.Data["notified"].(map[string]any); len(n) != 0 {
+		t.Fatalf("the crew answer notified %v", n)
+	}
+
+	// A stage ask's answer moves the bead itself, so it tells no stage
+	// subscriber: the answered event carries no new delivery. AddAsk
+	// clears Stage — stage asks are the yard's own — so the ask is
+	// stored the yard's way; a decline moves nothing.
+	var stageSeq uint64
+	if err := y.Store.write(func(w *wtx) error {
+		row, err := w.loadBead(y.bead)
+		if err != nil {
+			return err
+		}
+		n, err := w.storeStageAsk(row, Ask{Question: "Move it on?", To: "mckean",
+			Context: []string{"the bead waits in decide."}, Stage: "decide"})
+		if err != nil {
+			return err
+		}
+		stageSeq = n.Seq
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	y.tick(time.Hour)
+	y.answer(t, Answer{Ask: stageSeq, Words: "not yet", Decline: true}, "mckean")
+	e = lastAnswer(t, y)
+	if got := Reason(e, "yardmaster"); got != "" {
+		t.Fatalf("the stage answer reached the yardmaster as %q, want nothing", got)
+	}
+	if d, _ := e.Data["deliveries"].(map[string]any); len(d) != 0 {
+		t.Fatalf("the stage answer delivered to %v", d)
+	}
+	if n, _ := e.Data["notified"].(map[string]any); len(n) != 0 {
+		t.Fatalf("the stage answer notified %v", n)
+	}
+}
+
 // An asker answering its own ask is told nothing: no delivery.
 func TestAnswerOwnAskDeliversNothing(t *testing.T) {
 	y := answerYard(t)

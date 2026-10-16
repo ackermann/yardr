@@ -46,7 +46,9 @@ var YardrWhereKeys = []string{"bead", "depot", "type", "label", "stage", "from",
 //
 // An answer to an ask reaches its asker without subscribing, when the asker
 // is a crew member or a user of this yard and is not the one answering, and
-// reads in words wherever it lands (see answerSentence). A mention is "@name"
+// reads in words wherever it lands (see answerSentence). One whose asker is
+// nobody with an inbox reaches instead whoever's yardr subscriptions cover
+// the bead's current stage, unless the ask is a stage ask. A mention is "@name"
 // in this event alone (see eventText), never in what the bead said before,
 // so a journal that once said "@B" does not reach B with every later entry.
 // Journal and memory beads are left out of the source unless a subscription
@@ -89,9 +91,10 @@ func (w *wtx) deliver(e *Event) error {
 		return w.endWatchesOn(e, row, err)
 	}
 	out, told := map[string]any{}, map[string]any{}
+	text := ""
+	need := map[string]bool{} // the where keys any candidate filters on
 	if len(cands) > 0 {
-		text := eventText(w.Tx, e, row)
-		need := map[string]bool{} // the where keys any candidate filters on
+		text = eventText(w.Tx, e, row)
 		for _, c := range cands {
 			for _, sub := range c.subs {
 				if sub.Source == SourceYardr {
@@ -101,49 +104,55 @@ func (w *wtx) deliver(e *Event) error {
 				}
 			}
 		}
-		var fields map[string][]string // worked out for the first subscription that filters
-		for _, c := range cands {
-			mentioned := text != "" && w.mentions.pattern(c.name).MatchString(text)
-			participant := lazy(func() bool { return participated(w.Tx, row, c.name) })
-			// A done subscription hears of a bead once, so it may look at the
-			// whole bead: mentioned anywhere on it counts.
-			onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.name)) })
-			got := ""
-			for _, sub := range c.subs {
-				if sub.Source != SourceYardr {
-					continue
-				}
-				named := sub.Where["bead"] != "" || sub.Where["type"] != ""
-				if private && !named && !mentioned {
-					continue
-				}
-				if len(sub.Where) > 0 && fields == nil {
-					fields = beadFields(w.Tx, e, row, need)
-				}
-				// What a bead event leaves of match's questions: nobody is
-				// assigned a bead here, taking part counts for scope involved
-				// alone (scope all says all of a bead its holder worked on,
-				// and does not look), and a done subscription, which hears of
-				// a bead once, takes any reason for it as done.
-				done := sub.Where["state"] == StateDone
-				reason := match(sub.Subscription, fields,
-					func() bool { return mentioned || (done && onBead()) },
-					given(false),
-					func() bool { return sub.Scope == ScopeInvolved && participant() })
-				if reason != "" && done {
-					reason = ReasonDone
-				}
-				if reason != "" {
-					got = best(got, sub.reason(reason))
-				}
+	}
+	var fields map[string][]string // worked out for the first subscription that filters
+	// reach is one candidate's yardr subscriptions read against fs, the
+	// event's fields: the subscription's own reason, or "".
+	reach := func(c cand, fs map[string][]string) string {
+		mentioned := text != "" && w.mentions.pattern(c.name).MatchString(text)
+		participant := lazy(func() bool { return participated(w.Tx, row, c.name) })
+		// A done subscription hears of a bead once, so it may look at the
+		// whole bead: mentioned anywhere on it counts.
+		onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.name)) })
+		got := ""
+		for _, sub := range c.subs {
+			if sub.Source != SourceYardr {
+				continue
 			}
-			switch {
-			case got == "":
-			case c.user:
-				told[c.name] = got
-			default:
-				out[c.name] = got
+			named := sub.Where["bead"] != "" || sub.Where["type"] != ""
+			if private && !named && !mentioned {
+				continue
 			}
+			if len(sub.Where) > 0 && fs == nil {
+				fields = beadFields(w.Tx, e, row, need)
+				fs = fields
+			}
+			// What a bead event leaves of match's questions: nobody is
+			// assigned a bead here, taking part counts for scope involved
+			// alone (scope all says all of a bead its holder worked on,
+			// and does not look), and a done subscription, which hears of
+			// a bead once, takes any reason for it as done.
+			done := sub.Where["state"] == StateDone
+			reason := match(sub.Subscription, fs,
+				func() bool { return mentioned || (done && onBead()) },
+				given(false),
+				func() bool { return sub.Scope == ScopeInvolved && participant() })
+			if reason != "" && done {
+				reason = ReasonDone
+			}
+			if reason != "" {
+				got = best(got, sub.reason(reason))
+			}
+		}
+		return got
+	}
+	for _, c := range cands {
+		switch got := reach(c, fields); {
+		case got == "":
+		case c.user:
+			told[c.name] = got
+		default:
+			out[c.name] = got
 		}
 	}
 	// An answer reads in words wherever it lands, and reaches its asker
@@ -165,6 +174,35 @@ func (w *wtx) deliver(e *Event) error {
 			} else if w.Bucket(bUsers).Get([]byte(ans.asker)) != nil {
 				prev, _ := told[ans.asker].(string)
 				told[ans.asker] = best(prev, ReasonAnswered)
+			}
+		}
+		// An answer whose asker is nobody with an inbox — a bead session's
+		// actor after its session ended, an exec group's name — reaches the
+		// candidates whose yardr subscriptions cover the bead's current
+		// stage, matched as the event itself was but with that stage added:
+		// a noted event otherwise carries no stage, so no stage subscription
+		// would hear of an answer. The subscription's own reason is recorded,
+		// not answered, which is the asker's alone. A stage ask's answer moves
+		// the bead in the same write, so nobody needs to act on it, and it
+		// tells no stage subscriber.
+		if ans.stage == "" && len(cands) > 0 &&
+			w.Bucket(bCrew).Get([]byte(ans.asker)) == nil &&
+			w.Bucket(bUsers).Get([]byte(ans.asker)) == nil {
+			staged := maps.Clone(fields)
+			if staged == nil {
+				staged = map[string][]string{}
+			}
+			staged["stage"] = []string{row.Stage}
+			for _, c := range cands {
+				switch got := reach(c, staged); {
+				case got == "":
+				case c.user:
+					prev, _ := told[c.name].(string)
+					told[c.name] = best(prev, got)
+				default:
+					prev, _ := out[c.name].(string)
+					out[c.name] = best(prev, got)
+				}
 			}
 		}
 	}
@@ -255,6 +293,7 @@ func (w *wtx) deliverBeadless(e *Event) error {
 type answeredAsk struct {
 	asker   string
 	session string // the crew session that asked, "" for the line's
+	stage   string // the ask's stage, "" for no stage ask
 	line    string
 }
 
@@ -312,7 +351,7 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 			}
 		}
 	}
-	return &answeredAsk{asker: askNote.Author, session: askNote.Session, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev)}
+	return &answeredAsk{asker: askNote.Author, session: askNote.Session, stage: ask.Stage, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev)}
 }
 
 // answerSentence is an answer as one line of an inbox: who, which bead and
