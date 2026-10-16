@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -347,5 +348,136 @@ func TestSpeakingAsACrewMember(t *testing.T) {
 	if _, err := own.Replying(pane, "clerk", 7, "", "hello", "yard-10-new"); err == nil ||
 		!strings.Contains(err.Error(), "only clerk's own session or the operator (jo) may speak as clerk; this is yardmaster") {
 		t.Errorf("replying as clerk from yardmaster's pane = %v", err)
+	}
+}
+
+// A thread's completions and follows speak as the crew member itself:
+// Replied, Opened, StateSet, FollowThread and UnfollowThread refuse
+// anyone else (maySpeakAs), as the pre-calls Replying, Opening and
+// SettingState do, so a completion faked from another crew member's
+// pane is refused in their words. The crew member's own pane and the
+// operator pass, and a refusal logs no event.
+func TestCompletionsAndFollowsSpeakAsTheCrewMember(t *testing.T) {
+	speakYard := func(t *testing.T) (store.API, context.Context) {
+		t.Helper()
+		api := storetest.New(t)
+		ctx := context.Background()
+		if err := api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		cfg := map[string]any{store.OpenThreads: "linear", store.SetState: "linear"}
+		if _, err := api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: cfg}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return api, ctx
+	}
+	// ready records, as the crew member itself, the reply and the thread
+	// the completions complete and the participation StateSet and
+	// UnfollowThread need.
+	ready := func(t *testing.T, s store.API, ctx context.Context) (reply, opened string) {
+		t.Helper()
+		rp, err := s.Replying(ctx, "yardmaster", 7, "", "hello", "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		op, err := s.Opening(ctx, "yardmaster", "linear", "YRD", "Title", "body", "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, thread := range []string{"T-state", "T-unfollow"} {
+			if err := s.FollowThread(ctx, "yardmaster", "linear", thread, "yardmaster"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rp.Key, op.Key
+	}
+	complete := func(s store.API, reply, opened string) map[string]func(context.Context, string) error {
+		replied := store.Reply{Source: "linear", Thread: "T-reply", Key: reply, Seq: 7, Message: "m1", URL: "https://linear.app/acme/comment/m1"}
+		openedRec := store.Reply{Source: "linear", Thread: "T-open", Key: opened, In: "YRD"}
+		set := store.ThreadState{Source: "linear", Thread: "T-state", State: "started", Status: "In Progress"}
+		return map[string]func(context.Context, string) error{
+			"replied": func(ctx context.Context, a string) error { return s.Replied(ctx, "yardmaster", replied, a) },
+			"opened":  func(ctx context.Context, a string) error { return s.Opened(ctx, "yardmaster", openedRec, a) },
+			"state":   func(ctx context.Context, a string) error { return s.StateSet(ctx, "yardmaster", set, a) },
+			"follow": func(ctx context.Context, a string) error {
+				return s.FollowThread(ctx, "yardmaster", "linear", "T-follow", a)
+			},
+			"unfollow": func(ctx context.Context, a string) error {
+				return s.UnfollowThread(ctx, "yardmaster", "linear", "T-unfollow", a)
+			},
+		}
+	}
+	// The operator, from a terminal with no pane on record: every
+	// completion lands its event.
+	s, ctx := speakYard(t)
+	reply, opened := ready(t, s, ctx)
+	head, err := s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for does, fn := range complete(s, reply, opened) {
+		if err := fn(ctx, "jo"); err != nil {
+			t.Errorf("%s as the operator: %v", does, err)
+		}
+	}
+	if now, _ := s.Head(ctx); now-head != 5 {
+		t.Errorf("the operator's completions logged %d events, want 5", now-head)
+	}
+	if got, want := threads(t, s, "yardmaster"), []string{"linear/T-follow followed", "linear/T-open opened", "linear/T-reply replied", "linear/T-state followed"}; !slices.Equal(got, want) {
+		t.Errorf("threads after the operator's completions = %v, want %v", got, want)
+	}
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	// Another crew member's pane, naming the crew member: every
+	// completion is refused in maySpeakAs's words, and nothing is
+	// written. The pane goes on record after the setup: over the socket
+	// every call carries this process as its caller.
+	s, ctx = speakYard(t)
+	reply, opened = ready(t, s, ctx)
+	if err := s.CrewStarted(ctx, "clerk", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+	head, err = s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "only yardmaster's own session or the operator (jo) may speak as yardmaster; this is clerk"
+	for does, fn := range complete(s, reply, opened) {
+		if err := fn(pane, "yardmaster"); err == nil || err.Error() != want {
+			t.Errorf("%s faked from clerk's pane = %v, want %q", does, err, want)
+		}
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Errorf("the refusals logged %d events", now-head)
+	}
+	if got := threads(t, s, "yardmaster"); !slices.Equal(got, []string{"linear/T-state followed", "linear/T-unfollow followed"}) {
+		t.Errorf("threads after the refusals = %v", got)
+	}
+	// The crew member's own pane, naming another: every completion
+	// passes, as the pre-calls do.
+	s, ctx = speakYard(t)
+	reply, opened = ready(t, s, ctx)
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane = store.WithCaller(ctx, me)
+	head, err = s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for does, fn := range complete(s, reply, opened) {
+		if err := fn(pane, "yard-10-new"); err != nil {
+			t.Errorf("%s from yardmaster's own pane, naming another: %v", does, err)
+		}
+	}
+	if now, _ := s.Head(ctx); now-head != 5 {
+		t.Errorf("the pane's completions logged %d events, want 5", now-head)
 	}
 }

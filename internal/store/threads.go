@@ -84,12 +84,16 @@ func recordParticipation(tx *bolt.Tx, data map[string]any) error {
 }
 
 // FollowThread makes the crew member a participant in a thread by hand, as
-// if it had acted there.
+// if it had acted there. Anyone but the crew member and the operator is
+// refused (maySpeakAs), as actor.
 func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor string) error {
 	if source == "" || thread == "" {
 		return fmt.Errorf("follow: source and thread are required")
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		thread, err := peerThread(w.Tx, source, thread)
 		if err != nil {
 			return err
@@ -205,19 +209,23 @@ func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body,
 // webhook echoes the reply later, but the crew member takes part as soon as
 // it has spoken. A thread it already takes part in keeps how and since it
 // joined. Without a key (a caller that did not go through Replying) only
-// the event and the participation are recorded.
+// the event and the participation are recorded. Anyone but the crew member
+// and the operator is refused (maySpeakAs), as actor, as in Replying.
 func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string) error {
 	if rp.Source == "" || rp.Thread == "" {
 		return fmt.Errorf("replied: source and thread are required")
 	}
-	return s.posted(name, rp, ParticipantReplied, "replied", actor)
+	return s.posted(ctx, name, rp, ParticipantReplied, "replied", actor)
 }
 
 // posted completes the record of a post (rp.Key), makes the crew member a
 // participant in its thread (how, unless it already takes part) and logs
 // the event kind on its journal.
-func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
+func (s *Store) posted(ctx context.Context, name string, rp Reply, how, kind, actor string) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		if !participates(w.Tx, name, rp.Source, rp.Thread) {
 			p := Participation{CrewMember: name, Source: rp.Source, Thread: rp.Thread, Title: rp.Title, URL: rp.ThreadURL,
 				How: how, Since: now()}
@@ -388,12 +396,13 @@ func (s *Store) Opening(ctx context.Context, name, source, in, title, body, acto
 // Opening (rp.Key) is marked posted with the thread's id and URL, a
 // `thread_opened` event goes on the crew member's journal, and the thread is
 // the crew member's from now on: it participates (how opened) before the
-// source's webhook has said anything.
+// source's webhook has said anything. Anyone but the crew member and the
+// operator is refused (maySpeakAs), as actor, as in Opening.
 func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string) error {
 	if rp.Source == "" || rp.Thread == "" || rp.Key == "" {
 		return fmt.Errorf("opened: source, thread and the key Opening chose are required")
 	}
-	return s.posted(name, rp, ParticipantOpened, "thread_opened", actor)
+	return s.posted(ctx, name, rp, ParticipantOpened, "thread_opened", actor)
 }
 
 // SetState is the crew member setting (a key of its config) naming the sources
@@ -478,6 +487,9 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 		return fmt.Errorf("thread state: the state asked for and the status set are required")
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		if _, err := mayState(w.Tx, r, ts.Source, ts.Thread); err != nil {
 			return err
 		}
@@ -492,9 +504,13 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 }
 
 // UnfollowThread ends the crew member's participation in a thread, however it
-// began. Acting there again makes it a participant again.
+// began. Acting there again makes it a participant again. Anyone but the
+// crew member and the operator is refused (maySpeakAs), as actor.
 func (s *Store) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		thread, err := peerThread(w.Tx, source, thread)
 		if err != nil {
 			return err
