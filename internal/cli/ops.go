@@ -230,7 +230,7 @@ branches in worktrees and land on its --base. A dir depot is a plain directory
 (documents, images, invoices): beads are worked in it as it is, and it has no
 base. Without --kind, a path git sees as a checkout is a git depot and any
 other directory a dir depot; depot add says which it took. Only the operator
-repoints an existing depot at another path.`,
+changes an existing depot's path, base or test command.`,
 		Example: `  yardr depot add webapp ~/projects/webapp                 # existing clone
   yardr depot add invoices ~/Documents/invoices --kind dir # a folder, no git
   yardr depot add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/depots/webapp

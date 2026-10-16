@@ -102,6 +102,12 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		"change a depot's path": func(a string) error {
 			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, a)
 		},
+		"change a depot's test command": func(a string) error {
+			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main", Test: "make test"}, a)
+		},
+		"change a depot's base": func(a string) error {
+			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/other"}, a)
+		},
 		"remove a hook": func(a string) error { return api.DeleteHook(ctx, "no-such", a) },
 		"move links from one source to another": func(a string) error {
 			_, err := api.MoveLinkSource(ctx, "acme", "acme2", a)
@@ -459,10 +465,10 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	}
 }
 
-// Repointing an existing depot at another path is the operator's alone;
-// adding a depot, and re-adding one with its path unchanged whatever else
-// changes, are anyone's, recorded as the pane's actor from a pane.
-func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
+// Changing an existing depot's path, test command or base is the
+// operator's alone; adding a depot, and re-adding one with all three
+// unchanged, are anyone's, recorded as the pane's actor from a pane.
+func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	t.Parallel()
 	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
 		t.Helper()
@@ -473,50 +479,53 @@ func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
 		}
 		return api, own, ctx
 	}
+	changes := map[string]store.Depot{
+		"change a depot's path":         {Name: "yard", Path: "/srv/other", Base: "origin/main"},
+		"change a depot's test command": {Name: "yard", Path: "/srv/yard", Base: "origin/main", Test: "make test"},
+		"change a depot's base":         {Name: "yard", Path: "/srv/yard", Base: "origin/other"},
+	}
 	api, own, ctx := depotYard(t)
 	head, err := api.Head(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "yardmaster"); err == nil ||
-		err.Error() != "only the operator (jo) may change a depot's path; this is yardmaster" {
-		t.Errorf("repointing a depot as yardmaster = %v", err)
-	}
-	// The mark is the store's own: the socket carries a refusal's words
-	// but not its mark, as for every operator-only check, so it is asked
-	// of the store behind the API.
-	if err := own.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "yardmaster"); err == nil {
-		t.Errorf("repointing a depot as yardmaster through own = nil")
-	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
-		t.Errorf("repointing a depot as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	for does, r := range changes {
+		if err := api.PutDepot(ctx, r, "yardmaster"); err == nil ||
+			err.Error() != "only the operator (jo) may "+does+"; this is yardmaster" {
+			t.Errorf("%s as yardmaster = %v", does, err)
+		}
+		// The mark is the store's own: the socket carries a refusal's
+		// words but not its mark, as for every operator-only check, so
+		// it is asked of the store behind the API.
+		if err := own.PutDepot(ctx, r, "yardmaster"); err == nil {
+			t.Errorf("%s as yardmaster through own = nil", does)
+		} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+			t.Errorf("%s as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", does, err, ask, ok)
+		}
 	}
 	if now, _ := api.Head(ctx); now != head {
 		t.Fatalf("the refusals logged %d events", now-head)
 	}
-	if d, _ := api.GetDepot(ctx, "yard"); d.Path != "/srv/yard" {
-		t.Fatalf("the refused change changed: %+v", d)
+	if d, _ := api.GetDepot(ctx, "yard"); d.Path != "/srv/yard" || d.Test != "" || d.Base != "origin/main" {
+		t.Fatalf("a refused change changed: %+v", d)
 	}
-	// Adding a depot stays anyone's, as does re-adding one with its path
-	// unchanged. A fresh yard: no pane is on record, so the actor stands
-	// as named.
+	// Adding a depot stays anyone's, as does re-adding one with path,
+	// test command and base unchanged. A fresh yard: no pane is on
+	// record, so the actor stands as named.
 	api, _, ctx = depotYard(t)
 	if err := api.PutDepot(ctx, store.Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "yardmaster"); err != nil {
 		t.Fatalf("adding a depot as yardmaster: %v", err)
 	}
-	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/master"}, "yardmaster"); err != nil {
-		t.Fatalf("re-adding a depot with its path unchanged as yardmaster: %v", err)
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "yardmaster"); err != nil {
+		t.Fatalf("re-adding a depot unchanged as yardmaster: %v", err)
 	}
-	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/master", Test: "make test"}, "yardmaster"); err != nil {
-		t.Fatalf("a test-only change as yardmaster: %v", err)
+	// The operator's own changes pass.
+	for does, r := range changes {
+		if err := api.PutDepot(ctx, r, "jo"); err != nil {
+			t.Fatalf("%s as the operator: %v", does, err)
+		}
 	}
-	if d, _ := api.GetDepot(ctx, "yard"); d.Base != "origin/master" || d.Test != "make test" {
-		t.Fatalf("the updates did not land: %+v", d)
-	}
-	// The operator's own repointing passes.
-	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/moved", Base: "origin/master", Test: "make test"}, "jo"); err != nil {
-		t.Fatalf("repointing a depot as the operator: %v", err)
-	}
-	// From a crew member's pane a repointing is refused even as the
+	// From a crew member's pane every change is refused even as the
 	// operator, and an allowed write is the pane's actor's. A fresh yard
 	// again: the pane goes on record after the setup, since over the
 	// socket every call carries this process as its caller.
@@ -529,12 +538,14 @@ func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
 	if err := api.CrewStarted(ctx, "clerk", handle); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.PutDepot(store.WithCaller(ctx, me), store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "jo"); err == nil ||
-		err.Error() != "only the operator (jo) may change a depot's path; this is clerk" {
-		t.Fatalf("repointing a depot from clerk's pane as the operator = %v", err)
+	for does, r := range changes {
+		if err := api.PutDepot(store.WithCaller(ctx, me), r, "jo"); err == nil ||
+			err.Error() != "only the operator (jo) may "+does+"; this is clerk" {
+			t.Fatalf("%s from clerk's pane as the operator = %v", does, err)
+		}
 	}
-	if err := api.PutDepot(store.WithCaller(ctx, me), store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main", Test: "make test"}, "jo"); err != nil {
-		t.Fatalf("a same-path re-put from clerk's pane as the operator: %v", err)
+	if err := api.PutDepot(store.WithCaller(ctx, me), store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatalf("an unchanged re-put from clerk's pane as the operator: %v", err)
 	}
 	evs, err := api.EventsOfKind(ctx, "depot_updated", 5)
 	if err != nil {
@@ -542,6 +553,22 @@ func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
 	}
 	if len(evs) == 0 || evs[len(evs)-1].Actor != "clerk" {
 		t.Fatalf("depot_updated actors = %+v, want the last by clerk", evs)
+	}
+	// A builder session's pane cannot change by naming the operator: it
+	// is checked as its session's actor.
+	s, ctx, _, _, actor := paneMoveYard(t)
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, os.Getpid())
+	for does, r := range changes {
+		if err := s.PutDepot(pane, r, "op"); err == nil ||
+			err.Error() != "only the operator (op) may "+does+"; this is "+actor {
+			t.Fatalf("%s from a session's pane as the operator = %v", does, err)
+		}
+	}
+	if d, _ := s.GetDepot(ctx, "yard"); d.Path != "/srv/yard" || d.Test != "" || d.Base != "origin/main" {
+		t.Fatalf("a refused change from the pane changed: %+v", d)
 	}
 }
 
