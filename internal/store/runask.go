@@ -279,9 +279,6 @@ type RunAsked struct {
 	// Pack is the pack a pack apply ask names, for a client to show
 	// the plan behind the card; absent on any other command.
 	Pack *AskPack `json:"pack,omitempty"`
-	// Value is the address a user key ask carries and shows in Does;
-	// absent on any other command.
-	Value string `json:"value,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -291,7 +288,7 @@ func (a Ask) proposed() *RunAsked {
 		return nil
 	}
 	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
-		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack, Value: a.Run.Value}
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command

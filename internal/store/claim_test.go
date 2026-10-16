@@ -71,7 +71,7 @@ func TestClaimAddressApproveWritesEnvFile(t *testing.T) {
 		t.Fatalf("open asks = %d, want 1", len(q.Open))
 	}
 	open := q.Open[0]
-	if open.Run == nil || open.Run.Command != "yardr user key mckean chime" || open.Run.Value != "123456789" {
+	if open.Run == nil || open.Run.Command != "yardr user key mckean chime" {
 		t.Fatalf("the claim's run = %+v", open.Run)
 	}
 	if !strings.Contains(open.Question, "A message reached chime from chat 123456789 (first words: '") ||

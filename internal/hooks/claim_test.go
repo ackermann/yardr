@@ -36,7 +36,8 @@ func TestClaimFromUnknownChatEndToEnd(t *testing.T) {
 		t.Fatalf("open asks = %d, want the one claim", len(q.Open))
 	}
 	claim := q.Open[0]
-	if claim.Run == nil || claim.Run.Value != "999" || claim.Run.Command != "yardr user key op chime" {
+	if claim.Run == nil || claim.Run.Command != "yardr user key op chime" ||
+		!strings.Contains(strings.Join(claim.Run.Does, " "), "CHIME_CHAT=999") {
 		t.Fatalf("the claim = %+v", claim.Run)
 	}
 	if !strings.Contains(claim.Question, "A message reached chime from chat 999 (first words: 'hi'). Is this you?") {
