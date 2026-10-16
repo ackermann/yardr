@@ -117,7 +117,7 @@ func (a *app) daemonCmd() *cobra.Command {
 			}
 			defer unlock()
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			ctx, release, err := whileHomeStands(ctx, cfg, homeCheck, log)
+			ctx, release, err := whileHomeStands(ctx, cfg, watchEvery(log), log)
 			if err != nil {
 				return err
 			}

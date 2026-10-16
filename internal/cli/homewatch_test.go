@@ -60,6 +60,34 @@ func daemonHome(t *testing.T) (*config.Config, context.Context, *syncBuffer) {
 	return cfg, ctx, logged
 }
 
+// The daemon watches on the tests' stub, shortened by the test-only tick
+// where one is named; a stray value keeps the stub with one warning.
+func TestWatchEvery(t *testing.T) {
+	stub(t, &homeCheck, 7*time.Second)
+	for _, tc := range []struct {
+		name     string
+		value    string
+		want     time.Duration
+		wantWarn bool
+	}{
+		{"unset", "", 7 * time.Second, false},
+		{"named", "250ms", 250 * time.Millisecond, false},
+		{"malformed", "soon", 7 * time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("YARDR_TEST_HOME_CHECK", tc.value)
+			logged := &syncBuffer{}
+			if every := watchEvery(slog.New(slog.NewTextHandler(logged, nil))); every != tc.want {
+				t.Fatalf("watchEvery() = %v, want %v", every, tc.want)
+			}
+			n := strings.Count(logged.String(), "malformed YARDR_TEST_HOME_CHECK")
+			if n != 0 && !tc.wantWarn || n != 1 && tc.wantWarn {
+				t.Fatalf("warnings = %d, wantWarn %v:\n%s", n, tc.wantWarn, logged.String())
+			}
+		})
+	}
+}
+
 func stopped(t *testing.T, ctx context.Context, logged *syncBuffer, want string) {
 	t.Helper()
 	select {

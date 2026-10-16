@@ -76,6 +76,19 @@ func lockDaemon(path string, wait time.Duration) (unlock func(), err error) {
 // Tests shorten it.
 var homeCheck = config.HomeCheck
 
+// watchEvery is the interval the daemon watches its home and its test
+// owner on: homeCheck, shortened by the test-only tick where a test names
+// one, as the server's is. A stray value keeps homeCheck with one warning.
+func watchEvery(log *slog.Logger) time.Duration {
+	if tick, ok := config.TestHomeCheck(); ok {
+		return tick
+	}
+	if raw := config.Getenv(config.TestHomeCheckEnv); raw != "" {
+		log.Warn("ignoring a malformed YARDR_TEST_HOME_CHECK", "value", raw)
+	}
+	return homeCheck
+}
+
 // whileHomeStands returns a context that ends, with one line in the log,
 // when the daemon's home is gone or its lock file is no longer the one it
 // holds: the daemon then stops as on SIGTERM, with exit status 0, so that a

@@ -802,10 +802,11 @@ func TestServerEnv(t *testing.T) {
 		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3",
 		"YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
 		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
-		"SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
+		"YARDR_TEST_HOME_CHECK=1s", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
 	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2",
 		"YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_EVENT_RETENTION=1d",
-		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654", "YARDR_HOME=/y1"}
+		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
+		"YARDR_TEST_HOME_CHECK=1s", "YARDR_HOME=/y1"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("ServerEnv =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -839,6 +840,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_HOOK_PAYLOAD_RETENTION", "2d")
 	t.Setenv("YARDR_PPROF", "/y1/pprof.sock")
 	t.Setenv("YARDR_TEST_OWNER", "4242 987654")
+	t.Setenv("YARDR_TEST_HOME_CHECK", "1s")
 	t.Chdir(t.TempDir())
 	if err := Start(context.Background(), c); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -866,7 +868,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		// environment has each of them, blank, when a session runs it
 		// (config.BlankServerSettings), whichever this test sets.
 		switch {
-		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.TestOwnerEnv), config.IsVar(k, config.ServerSettings...):
+		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv), config.IsVar(k, config.ServerSettings...):
 		case k == "PWD", k == "OLDPWD", k == "SHLVL", k == "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)
@@ -874,7 +876,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	}
 	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
 		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock",
-		"YARDR_TEST_OWNER=4242 987654"} {
+		"YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s"} {
 		if !slices.Contains(env, kv) {
 			t.Errorf("server lacks %s:\n%s", kv, strings.Join(env, "\n"))
 		}

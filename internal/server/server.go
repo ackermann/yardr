@@ -81,6 +81,15 @@ func (r *runner) run(ctx context.Context) error {
 	}
 	if r.homeCheck == 0 {
 		r.homeCheck = config.HomeCheck
+		// A test that starts the server through the real CLI cannot set
+		// the interval itself, so it names a shorter tick in the
+		// environment instead; a stray value keeps the real minute with
+		// one warning, as a malformed owner does.
+		if tick, ok := config.TestHomeCheck(); ok {
+			r.homeCheck = tick
+		} else if raw := config.Getenv(config.TestHomeCheckEnv); raw != "" {
+			r.log.Warn("ignoring a malformed YARDR_TEST_HOME_CHECK", "value", raw)
+		}
 	}
 	for {
 		to, err := r.serve(ctx)
@@ -613,7 +622,9 @@ func Start(ctx context.Context, c *config.Config) error {
 // their base, needs both), the settings the server reads
 // (config.ServerSettings), the test process that started it
 // (config.TestOwnerEnv), which the server stops with when that test is
-// killed, and the home it serves, in place of whatever YARDR_HOME said.
+// killed, the test-only tick that shortens its watch
+// (config.TestHomeCheckEnv), and the home it serves, in place of whatever
+// YARDR_HOME said.
 // Nothing else: no credential, no identity (the starter's actor,
 // bead, session and branch are the starter's, not the server's), no agent's
 // settings. The settings reach it from an operator's shell only: a session
@@ -621,7 +632,7 @@ func Start(ctx context.Context, c *config.Config) error {
 func ServerEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.TestOwnerEnv) || config.IsVar(k, config.ServerSettings...) {
+		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv) || config.IsVar(k, config.ServerSettings...) {
 			env = append(env, kv)
 		}
 	}

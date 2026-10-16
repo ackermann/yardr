@@ -22,9 +22,9 @@ import (
 // test can kill itself and check the server after, so a sleep process stands
 // in for the test: the server is started through the real CLI with the owner
 // naming the sleep, the sleep is SIGKILLed, and no `yardr server run` from
-// the test's binary may remain past the watch interval (HomeCheck plus
-// shutdown grace). The home is left intact throughout, so only the owner
-// watch can stop it.
+// the test's binary may remain past the watch interval. The watch ticks on
+// the test-only tick, not the real minute, so the test takes seconds; the
+// home is left intact throughout, so only the owner watch can stop it.
 func TestServerStopsWhenItsTestOwnerIsGone(t *testing.T) {
 	t.Parallel()
 	home, err := os.MkdirTemp("", "yr")
@@ -49,7 +49,8 @@ func TestServerStopsWhenItsTestOwnerIsGone(t *testing.T) {
 		start = st.Start
 	}
 	env := append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test",
-		fmt.Sprintf("YARDR_TEST_OWNER=%d %d", sleep.Process.Pid, start))
+		fmt.Sprintf("YARDR_TEST_OWNER=%d %d", sleep.Process.Pid, start),
+		"YARDR_TEST_HOME_CHECK=1s")
 	run := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command(yardrBin, args...)
@@ -78,7 +79,7 @@ func TestServerStopsWhenItsTestOwnerIsGone(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the server (pid %d) outlived its owner past 90s", serverPID)
 		}
-		time.Sleep(time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 	// It went by the owner watch, not by a crash: the home stands, and the
 	// log says which watch stopped it.

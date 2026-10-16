@@ -678,7 +678,6 @@ summary() {
 # anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
-contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
 contrib/shot yardr-c2vt 72.6 s in a loaded full landing run on 16 Oct; alone not yet measured; yardr-c2vt measures it and removes this row or keeps it with the number
 '
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
@@ -814,7 +813,6 @@ internal/dispatch/harness_reset_test.go 1000 a session age reads the wall clock,
 internal/dispatch/failure_test.go 2050 a session age reads the wall clock, so the test sleeps past its 2 s max_age
 internal/server/server_test.go 1000 the drain test holds the store past the grace, then releases it
 internal/rpc/stream_test.go 600 the blocked write hits its deadline
-contrib/assembly/owner_test.go 1000 yardr-9df1 polls once a second for up to 90 s while the owner watch ticks its real minute
 contrib/isolated-yard/down_test.go 300000 non-elapsing: the sleeper process waits to be killed at test end
 '
 # sleepbudget fails the run when a *_test.go file sleeps over the 500 ms

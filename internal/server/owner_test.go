@@ -103,6 +103,45 @@ func TestServerKeepsServingWhileItsTestOwnerLives(t *testing.T) {
 	}
 }
 
+// A test that starts the server through the real CLI names a shorter tick
+// in the environment, where it cannot set the interval itself: the owner
+// watch runs on it, not on the real minute.
+func TestServerWatchesItsTestOwnerOnTheNamedTick(t *testing.T) {
+	pid, begin, kill := owner(t)
+	t.Setenv("YARDR_TEST_OWNER", fmt.Sprintf("%d %d", pid, begin))
+	t.Setenv("YARDR_TEST_HOME_CHECK", "20ms")
+	c := home(t)
+	logged := &lockedBuffer{}
+	done := start(t, &runner{c: c, rev: "r",
+		log: slog.New(slog.NewTextHandler(logged, nil))})
+	kill()
+	if line := stopsWithItsOwner(t, done, logged); !strings.Contains(line, "is gone") {
+		t.Fatalf("log line: %s", line)
+	}
+}
+
+// A stray value keeps the real minute with one warning, as a malformed
+// owner does, and the server serves on.
+func TestServerIgnoresAMalformedTestTick(t *testing.T) {
+	t.Setenv("YARDR_TEST_HOME_CHECK", "soon")
+	c := home(t)
+	logged := &lockedBuffer{}
+	done := start(t, &runner{c: c, rev: "r",
+		log: slog.New(slog.NewTextHandler(logged, nil))})
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("the server stopped: %v", err)
+	default:
+	}
+	if err := rpc.NewClient(c.Socket()).Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(logged.String(), "malformed YARDR_TEST_HOME_CHECK"); n != 1 {
+		t.Fatalf("want one warning about the tick, got %d:\n%s", n, logged.String())
+	}
+}
+
 // A stray value cannot stop a real yard: a malformed owner is one warning,
 // and the server serves on.
 func TestServerIgnoresAMalformedTestOwner(t *testing.T) {

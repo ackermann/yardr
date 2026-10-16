@@ -116,6 +116,32 @@ func TestTestOwner(t *testing.T) {
 	}
 }
 
+// TestHomeCheck is the tick a test names to the server and the daemon it
+// starts through the real CLI; missing or malformed means the real minute.
+func TestTestHomeCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  time.Duration
+		ok    bool
+	}{
+		{"set", "1s", time.Second, true},
+		{"millis", "250ms", 250 * time.Millisecond, true},
+		{"missing", "", 0, false},
+		{"not a duration", "soon", 0, false},
+		{"no unit", "2", 0, false},
+		{"zero", "0s", 0, false},
+		{"negative", "-1s", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("YARDR_TEST_HOME_CHECK", tc.value)
+			if every, ok := TestHomeCheck(); every != tc.want || ok != tc.ok {
+				t.Fatalf("TestHomeCheck() = (%v, %v)", every, ok)
+			}
+		})
+	}
+}
+
 func TestTestOwnerUnset(t *testing.T) {
 	v, had := os.LookupEnv("YARDR_TEST_OWNER")
 	os.Unsetenv("YARDR_TEST_OWNER")
