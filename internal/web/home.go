@@ -239,9 +239,9 @@ func (h *Home) firstStage(depot, typ, stage string) bool {
 }
 
 // attention is what waits for a person: everything something stops, and
-// the parked beads past their flow's first, in the line's order, faults
-// first. Home lists it in its centre; every other page counts it in its
-// header.
+// the parked beads past their flow's first whose turn is not already
+// answered, in the line's order, faults first. Home lists it in its
+// centre; every other page counts it in its header.
 func attention(ov *Home, l *Line) []Waiting {
 	byID := map[string]*store.Bead{}
 	for i := range ov.yard.beads {
@@ -250,6 +250,9 @@ func attention(ov *Home, l *Line) []Waiting {
 	out := append([]Waiting{}, l.Waits...)
 	for _, w := range l.Parked {
 		if b := byID[w.Bead]; b != nil && b.Depot != nil && ov.firstStage(*b.Depot, b.Type, w.Stage) {
+			continue
+		}
+		if w.AnsweredOnly() {
 			continue
 		}
 		out = append(out, w)

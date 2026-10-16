@@ -104,6 +104,12 @@ type Reason struct {
 	// text then names the give-up, and the home row shortens it further.
 	// HTML-only, as the panel's marks are: the JSON carries the text.
 	GaveUp bool `json:"-"`
+	// Answered is set on a manual reason when the viewer is a member of
+	// the group with another member left, and has decided every ask to
+	// them on the bead: their answer is in, and the text names who moves
+	// it next. Home leaves such a bead out of its count; HTML-only, as
+	// the give-up is: the JSON carries the text.
+	Answered bool `json:"-"`
 	// Recommend is an ask's recommendation in one line ("1. Move them
 	// now", or "words wanted" when the ask has no options), "" when the
 	// ask recommends nothing. The home row shows it faint; HTML-only: the
@@ -203,6 +209,22 @@ func (w Waiting) FirstAsk() *Reason {
 // prompt nobody answers) and not a stage that is a person's by design.
 func (w Waiting) Fault() bool {
 	return slices.ContainsFunc(w.Why, func(r Reason) bool { return r.Alarm() })
+}
+
+// AnsweredOnly reports whether the bead waits on nothing but manual stages
+// the viewer has answered: every reason is an answered manual wait. Home
+// leaves such a bead out of its count; /line still parks it, with the row
+// that says whose move it is now.
+func (w Waiting) AnsweredOnly() bool {
+	if len(w.Why) == 0 {
+		return false
+	}
+	for _, r := range w.Why {
+		if r.Kind != "manual" || !r.Answered {
+			return false
+		}
+	}
+	return true
 }
 
 // ShortID is the bead's short id for the row's end: what stands after the
@@ -328,9 +350,15 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			agents[sess.Bead] = append(agents[sess.Bead], sess)
 		}
 	}
-	asks, err := s.openAsks(ctx, y)
+	asks, decided, err := s.openAsks(ctx, y)
 	if err != nil {
 		return nil, nil, err
+	}
+	// The viewer openAsks read: the user the request acts as, else the
+	// operator, as there.
+	viewer := s.acting(ctx)
+	if viewer == "" {
+		viewer = operator
 	}
 	rd := s.newReader(nil)
 	waits, parked = []Waiting{}, []Waiting{}
@@ -361,7 +389,19 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			if len(g.Members) > 0 {
 				text += " (" + strings.Join(g.Members, ", ") + ")"
 			}
-			why = append(why, Reason{Kind: "manual", Text: text + " in " + b.Stage})
+			text += " in " + b.Stage
+			// The viewer answered every ask to them on the bead, and is a
+			// member with another member left: their answer is in, and the
+			// row names who moves it next. With no other member to name, a
+			// sole member still moves it themselves, and anyone else's row
+			// is unchanged.
+			if len(g.Members) > 1 && slices.Contains(g.Members, viewer) && decided[b.ID] && len(asks[b.ID]) == 0 {
+				others := slices.DeleteFunc(slices.Clone(g.Members), func(m string) bool { return m == viewer })
+				text = "you answered; waits for " + g.Name + " (" + strings.Join(others, ", ") + ") in " + b.Stage
+				why = append(why, Reason{Kind: "manual", Text: text, Answered: true})
+			} else {
+				why = append(why, Reason{Kind: "manual", Text: text})
+			}
 		}
 		// An open ask to the acting user waits with the rest, fault first:
 		// a bead that both waits and is asked stands once.
@@ -399,30 +439,35 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 // in no row: it has no bead here and no stage for a lamp. A yard that
 // names no one to read, or whose queue cannot be read, waits without asks,
 // as a depot whose beads cannot be told stranded does.
-func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, error) {
+//
+// Beside them it answers the open beads carrying a decided ask to the same
+// viewer — answered, declined, put aside or taken back — from the same
+// queue, so the manual row says whose answer is in at no new store read.
+func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, map[string]bool, error) {
 	out := map[string][]Reason{}
+	decided := map[string]bool{}
 	op := s.acting(ctx)
 	if op == "" {
 		all, err := s.st.Settings(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			s.log.Error("web: settings for asks", "err", err)
-			return out, nil
+			return out, decided, nil
 		}
 		op = all[store.OperatorSetting]
 		if op == "" {
-			return out, nil
+			return out, decided, nil
 		}
 	}
 	q, err := s.st.UserAsks(ctx, op)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		s.log.Error("web: user asks", "err", err)
-		return out, nil
+		return out, decided, nil
 	}
 	// The queue holds closed beads too; only the open ones wait.
 	open := map[string]bool{}
@@ -436,12 +481,18 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, er
 		}
 		byBead[o.Bead] = append(byBead[o.Bead], o)
 	}
+	for _, d := range q.Decided {
+		if !open[d.Bead] || strings.Contains(d.Bead, "@") {
+			continue
+		}
+		decided[d.Bead] = true
+	}
 	now := time.Now()
 	for id, opens := range byBead {
 		notes, err := s.st.Notes(ctx, id)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			s.log.Error("web: bead notes for asks", "bead", id, "err", err)
 			continue
@@ -458,7 +509,7 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, er
 			out[id] = append(out[id], askReason(r))
 		}
 	}
-	return out, nil
+	return out, decided, nil
 }
 
 // askReason is one open ask as a wait: the question in one line, its

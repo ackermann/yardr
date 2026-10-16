@@ -612,9 +612,12 @@ Home as JSON:
 - `attention` are the open beads that wait for a person: everything
   something stops (held, blocked on a prompt, stranded), the beads with
   an open ask to the operator — to the view's user, on a view that
-  acts — and the parked beads past their flow's first, in the
-  line's order, faults first. A bead parked where it starts (a backlog)
-  is on `/line` only, unless an ask names the reader in particular.
+  acts — and the parked beads past their flow's first whose every
+  manual wait the reader has not answered, in the line's order, faults
+  first. A bead parked where it starts (a backlog) is on `/line` only,
+  unless an ask names the reader in particular, as is a parked bead
+  whose every manual wait the reader answered: their answer is in, and
+  `/line` says whose move it is now.
 - On the page they stand under the answer line: `Nothing needs you.`
   with `All clear.` under it when none waits, else `N need you.` with
   the faults counted apart (`2 need you. 1 fault.`). Each wait is one
@@ -899,7 +902,7 @@ every reason (`why`) that holds for it:
 | `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed). When the bead's events hold a `gave_up` for the hold, the text names it instead: `gave up after 3 failures in new` |
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
 | `stranded` | sits in a stage its flow lacks (`yardr flow show <depot>`) | `stranded in <stage>, a stage flow <flow> lacks` |
-| `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
+| `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>`, or `you answered; waits for <group> (<others>) in <stage>` where the reader is a member with another member left and has decided every ask to them on the bead |
 | `ask` | carries an open ask to the operator | the question, and as `note` its context lines |
 
 - A bead whose only reason is `manual` is in `parked`, every other one in

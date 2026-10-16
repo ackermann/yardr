@@ -195,6 +195,163 @@ func TestWaitsManual(t *testing.T) {
 	}
 }
 
+// A bead parked in a manual stage whose every ask to the viewer is decided
+// leaves that viewer's home: its /line Parked row says the answer is in and
+// names who moves it next. Anyone else still counts it, with the old row,
+// as does a bead with an open ask, one never asked, one in a sole-member or
+// memberless group, and one the viewer answered but may not move.
+func TestWaitsManualAnswered(t *testing.T) {
+	ctx := context.Background()
+	f := askFixture(t)
+	for _, u := range []string{"anna", "ben", "cid"} {
+		must(t, func() error { _, err := f.st.AddUser(ctx, u, "mckean"); return err }())
+	}
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"anna", "ben"}}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "solo", Runner: "manual", Members: []string{"anna"}}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "open", Runner: "manual"}, "me"))
+	for _, rt := range []store.Route{{Stage: "decide", Group: "decisions"}, {Stage: "review", Group: "solo"}, {Stage: "queue", Group: "open"}} {
+		_, err := f.st.AddRoute(ctx, rt, "me")
+		must(t, err)
+	}
+	askTo := func(to string) store.Ask {
+		a := pickAsk()
+		a.To = to
+		return a
+	}
+	answer := func(id string, to string, ans store.Answer) {
+		t.Helper()
+		seq := askOn(t, f, id, askTo(to))
+		ans.Ask = seq
+		must(t, f.st.AddAnswer(ctx, id, ans, to))
+	}
+	answered := askBead(t, f, "answered", "decide")
+	answer(answered.ID, "anna", store.Answer{Option: 1})
+	declined := askBead(t, f, "declined", "decide")
+	answer(declined.ID, "anna", store.Answer{Decline: true, Words: "not mine"})
+	open := askBead(t, f, "open", "decide")
+	askOn(t, f, open.ID, askTo("anna"))
+	quiet := askBead(t, f, "quiet", "decide")
+	lone := askBead(t, f, "lone", "review")
+	answer(lone.ID, "anna", store.Answer{Option: 1})
+	free := askBead(t, f, "free", "queue")
+	answer(free.ID, "anna", store.Answer{Option: 1})
+	other := askBead(t, f, "other", "decide")
+	answer(other.ID, "cid", store.Answer{Option: 1})
+
+	anna, ben, cid := f.as(t, "anna"), f.as(t, "ben"), f.as(t, "cid")
+	attn := func(v *fixture) map[string]bool {
+		t.Helper()
+		out := map[string]bool{}
+		for _, w := range homeJSON(t, v, "/").Attention {
+			out[w.Bead] = true
+		}
+		return out
+	}
+	parkedText := func(who string, v *fixture, id string) string {
+		t.Helper()
+		for _, w := range parked(lineJSON(t, v)) {
+			if w.Bead == id {
+				if len(w.Why) != 1 {
+					t.Fatalf("%s's parked row for %s has %+v, want the manual reason alone", who, id, w.Why)
+				}
+				return w.Why[0].Text
+			}
+		}
+		t.Fatalf("%s parks no %s", who, id)
+		return ""
+	}
+
+	// anna's home lacks the answered and declined beads; the rest count.
+	if got, want := attn(anna), map[string]bool{open.ID: true, quiet.ID: true, lone.ID: true, free.ID: true, other.ID: true}; !reflect.DeepEqual(got, want) {
+		t.Errorf("anna's attention %v, want %v", got, want)
+	}
+	if h := homeJSON(t, anna, "/"); h.Answer() != "5 need you." {
+		t.Errorf("anna's answer %q, want five needs", h.Answer())
+	}
+	if s := answerSection(t, anna.get("/").body); !strings.HasPrefix(s, "5 need you.</p>") {
+		t.Errorf("anna's answer line is %q, want five needs", s)
+	}
+	// Her Parked rows for them say her answer is in and name ben.
+	for _, id := range []string{answered.ID, declined.ID} {
+		if got, want := parkedText("anna", anna, id), "you answered; waits for decisions (ben) in decide"; got != want {
+			t.Errorf("anna's parked row for %s is %q, want %q", id, got, want)
+		}
+	}
+	if text := squash(anna.get("/line").body); !strings.Contains(text, `<p class="why">you answered; waits for decisions (ben) in decide</p>`) {
+		t.Error("anna's /line page names no answered row")
+	}
+	// No new field: the reason's JSON is kind, text and note, as before.
+	var l struct {
+		Parked []struct {
+			Bead string           `json:"bead"`
+			Why  []map[string]any `json:"why"`
+		} `json:"parked"`
+	}
+	if err := json.Unmarshal([]byte(anna.get("/line", "Accept", "application/json").body), &l); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range l.Parked {
+		if w.Bead != answered.ID {
+			continue
+		}
+		for k := range w.Why[0] {
+			if k != "kind" && k != "text" && k != "note" {
+				t.Errorf("the answered reason's JSON has %q", k)
+			}
+		}
+	}
+
+	// ben's home still counts every bead, with the old row.
+	if got := attn(ben); len(got) != 7 {
+		t.Errorf("ben's attention has %d beads, want seven", len(got))
+	}
+	if h := homeJSON(t, ben, "/"); h.Answer() != "7 need you." {
+		t.Errorf("ben's answer %q, want seven needs", h.Answer())
+	}
+	if got, want := parkedText("ben", ben, answered.ID), "waits for decisions (anna, ben) in decide"; got != want {
+		t.Errorf("ben's parked row is %q, want %q", got, want)
+	}
+
+	// A bead with an open ask still waits with its question.
+	got := waiting(lineJSON(t, anna))
+	found := false
+	for _, w := range got {
+		if w.Bead != open.ID {
+			continue
+		}
+		found = true
+		if len(w.Why) != 2 || w.Why[0].Kind != "manual" || w.Why[1].Kind != "ask" {
+			t.Errorf("the open bead waits with %+v, want the manual reason and the ask", w.Why)
+		}
+	}
+	if !found {
+		t.Errorf("anna's waits %+v, without the open bead", got)
+	}
+
+	// A bead never asked, and answered ones in a sole-member or memberless
+	// group, keep the old row and count.
+	for _, c := range []struct {
+		id, want string
+	}{
+		{quiet.ID, "waits for decisions (anna, ben) in decide"},
+		{lone.ID, "waits for solo (anna) in review"},
+		{free.ID, "waits for open in queue"},
+	} {
+		if got := parkedText("anna", anna, c.id); got != c.want {
+			t.Errorf("anna's parked row for %s is %q, want %q", c.id, got, c.want)
+		}
+	}
+
+	// cid answered the other's ask but is no member of decisions: the old
+	// row and count stand for them.
+	if got := attn(cid); !got[other.ID] {
+		t.Errorf("cid's attention %v, without the bead they answered", got)
+	}
+	if got, want := parkedText("cid", cid, other.ID), "waits for decisions (anna, ben) in decide"; got != want {
+		t.Errorf("cid's parked row is %q, want %q", got, want)
+	}
+}
+
 // sessionsJSON is the sessions page's data.
 func sessionsJSON(t *testing.T, f *fixture) web.Sessions {
 	t.Helper()
