@@ -244,3 +244,19 @@ func TestUserKeyRunAskWithoutAddressRefused(t *testing.T) {
 		t.Fatalf("AddAsk = %v, want a carries-no-address refusal", err)
 	}
 }
+
+// AddAsk is also a local API, so it must not let a caller invent the
+// address that only a dropped hook delivery may carry on the claim card.
+func TestUserKeyRunAskCannotSupplyAddress(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := claimYard(t)
+	ask := Ask{Question: "A message came from this address; is it yours?", To: "mckean",
+		Context: []string{"a delivery brought it"},
+		Run:     &AskRun{Argv: []string{"user key mckean chime"}, Value: "attacker-chat"}}
+	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "only from a dropped delivery") {
+		t.Fatalf("AddAsk = %v, want an address-origin refusal", err)
+	}
+	if q := claimQueue(t, y); len(q.Open) != 0 {
+		t.Fatalf("open asks = %d, want no forged claim", len(q.Open))
+	}
+}

@@ -971,6 +971,13 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if notRow {
 		return nil, w.checkAlone(ctx, run.Argv, actor)
 	}
+	// The address on a user key claim comes only from the hook's dropped
+	// delivery path (ClaimAddress), which writes its own ask. AddAsk is a
+	// local API too, so do not let a caller supply an arbitrary address and
+	// present it as though the hook had brought it.
+	if slices.Equal(c.words, []string{"user", "key"}) && run.Value != "" {
+		return nil, fmt.Errorf("user key run asks may carry an address only from a dropped delivery")
+	}
 	operator, err := operatorIn(w.Tx)
 	if err != nil {
 		return nil, err
@@ -978,7 +985,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	// The command in the yard's own form, with what the writer carried
 	// beside it: the carried bytes are the row's to keep or throw away,
 	// as Does and Seen are.
-	sent := AskRun{Argv: argv, Carried: run.Carried, Value: run.Value}
+	sent := AskRun{Argv: argv, Carried: run.Carried}
 	check := c.check
 	if c.checkRun != nil {
 		check = func(ctx context.Context, w *wtx, _ []string, actor string) error {
