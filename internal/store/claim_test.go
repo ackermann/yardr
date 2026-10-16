@@ -208,6 +208,29 @@ func TestClaimAddressRefusedWhenEnvFileCannotBeRead(t *testing.T) {
 	}
 }
 
+// Text from outside the yard is data for a terminal to show, never
+// something for it to act on: a claim whose address holds a control
+// character is offered not at all, and one whose message holds them
+// shows the message with them dropped.
+func TestClaimAddressDropsControlCharacters(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := claimYard(t)
+	if created, err := y.ClaimAddress(y.ctx, "chime", "123\x1b[31m", "hi"); err != nil || created {
+		t.Fatalf("a claim for an address with a control character = %v, %v", created, err)
+	}
+	if q := claimQueue(t, y); len(q.Open) != 0 {
+		t.Fatalf("open asks = %d, want none", len(q.Open))
+	}
+	if created, err := y.ClaimAddress(y.ctx, "chime", "123", "hi\x1b[31m there \u202enow"); err != nil || !created {
+		t.Fatalf("ClaimAddress = %v, %v", created, err)
+	}
+	open := claimQueue(t, y).Open[0]
+	if strings.ContainsAny(open.Question, "\x1b\x7f") || strings.ContainsRune(open.Question, '\u202e') ||
+		!strings.Contains(open.Question, "hi[31m there now") {
+		t.Fatalf("the question = %q, want the message with controls dropped", open.Question)
+	}
+}
+
 // A typed --run "user key ..." carries no address and is refused: the
 // value at a terminal is typed unseen, and a card carries only an
 // address a delivery brought.

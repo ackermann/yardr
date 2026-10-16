@@ -101,6 +101,8 @@ func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 		return AskRun{}, fmt.Errorf("user key %s %s carries no address: the value is typed unseen at a terminal (yardr user key %s %s), and a card carries only an address a delivery brought", user, srcName, user, srcName)
 	case strings.TrimSpace(value) != run.Value || strings.ContainsAny(value, " \t\r\n"):
 		return AskRun{}, fmt.Errorf("user key %s %s: the address it carries has white space in it, and no address the yard writes has", user, srcName)
+	case claimPlain(value) != value:
+		return AskRun{}, fmt.Errorf("user key %s %s: the address it carries holds a control character, and no address the yard writes does", user, srcName)
 	}
 	fingerprint, err := w.sourceSeen(src)
 	if err != nil {
