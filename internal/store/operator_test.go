@@ -60,6 +60,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 	if _, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/h1.secret"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	// A live process that holds no daemon lock: the daemon-or-operator
 	// writes refuse it as a non-operator, in both modes (over the socket
 	// the test process itself holds the lock, so those two go through
@@ -96,6 +99,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		"remove a route": func(a string) error { return api.DeleteRoute(ctx, "no-such", a) },
 		"remove a flow":  func(a string) error { return api.DeleteFlow(ctx, "no-such", a) },
 		"remove a depot": func(a string) error { _, err := api.DeleteDepot(ctx, "no-such", a); return err },
+		"change a depot's path": func(a string) error {
+			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, a)
+		},
 		"remove a hook":  func(a string) error { return api.DeleteHook(ctx, "no-such", a) },
 		"move links from one source to another": func(a string) error {
 			_, err := api.MoveLinkSource(ctx, "acme", "acme2", a)
@@ -315,6 +321,91 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	}
 	if len(evs) == 0 || evs[len(evs)-1].Actor != "clerk" {
 		t.Fatalf("hook_added actors = %+v, want the last by clerk", evs)
+	}
+}
+
+// Repointing an existing depot at another path is the operator's alone;
+// adding a depot, and re-adding one with its path unchanged whatever else
+// changes, are anyone's, recorded as the pane's actor from a pane.
+func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
+	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
+		t.Helper()
+		api, own := operatorYard(t)
+		ctx := context.Background()
+		if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return api, own, ctx
+	}
+	api, own, ctx := depotYard(t)
+	head, err := api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "yardmaster"); err == nil ||
+		err.Error() != "only the operator (jo) may change a depot's path; this is yardmaster" {
+		t.Errorf("repointing a depot as yardmaster = %v", err)
+	}
+	// The mark is the store's own: the socket carries a refusal's words
+	// but not its mark, as for every operator-only check, so it is asked
+	// of the store behind the API.
+	if err := own.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "yardmaster"); err == nil {
+		t.Errorf("repointing a depot as yardmaster through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Errorf("repointing a depot as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if now, _ := api.Head(ctx); now != head {
+		t.Fatalf("the refusals logged %d events", now-head)
+	}
+	if d, _ := api.GetDepot(ctx, "yard"); d.Path != "/srv/yard" {
+		t.Fatalf("the refused change changed: %+v", d)
+	}
+	// Adding a depot stays anyone's, as does re-adding one with its path
+	// unchanged. A fresh yard: no pane is on record, so the actor stands
+	// as named.
+	api, _, ctx = depotYard(t)
+	if err := api.PutDepot(ctx, store.Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "yardmaster"); err != nil {
+		t.Fatalf("adding a depot as yardmaster: %v", err)
+	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/master"}, "yardmaster"); err != nil {
+		t.Fatalf("re-adding a depot with its path unchanged as yardmaster: %v", err)
+	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/master", Test: "make test"}, "yardmaster"); err != nil {
+		t.Fatalf("a test-only change as yardmaster: %v", err)
+	}
+	if d, _ := api.GetDepot(ctx, "yard"); d.Base != "origin/master" || d.Test != "make test" {
+		t.Fatalf("the updates did not land: %+v", d)
+	}
+	// The operator's own repointing passes.
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/moved", Base: "origin/master", Test: "make test"}, "jo"); err != nil {
+		t.Fatalf("repointing a depot as the operator: %v", err)
+	}
+	// From a crew member's pane a repointing is refused even as the
+	// operator, and an allowed write is the pane's actor's. A fresh yard
+	// again: the pane goes on record after the setup, since over the
+	// socket every call carries this process as its caller.
+	api, _, ctx = depotYard(t)
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := api.CrewStarted(ctx, "clerk", handle); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutDepot(store.WithCaller(ctx, me), store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "jo"); err == nil ||
+		err.Error() != "only the operator (jo) may change a depot's path; this is clerk" {
+		t.Fatalf("repointing a depot from clerk's pane as the operator = %v", err)
+	}
+	if err := api.PutDepot(store.WithCaller(ctx, me), store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main", Test: "make test"}, "jo"); err != nil {
+		t.Fatalf("a same-path re-put from clerk's pane as the operator: %v", err)
+	}
+	evs, err := api.EventsOfKind(ctx, "depot_updated", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) == 0 || evs[len(evs)-1].Actor != "clerk" {
+		t.Fatalf("depot_updated actors = %+v, want the last by clerk", evs)
 	}
 }
 

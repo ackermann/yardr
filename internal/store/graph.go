@@ -1217,9 +1217,11 @@ func (r *Depot) IsDir() bool { return r.Kind == DepotDir }
 
 // PutDepot adds or replaces a depot, and logs depot_updated with what it now
 // holds: what tests a depot must not change unseen. A depot given no kind is
-// a git depot. From a session's or a crew member's pane the write is
-// recorded as that session's actor or that crew member, whatever actor
-// says; from anywhere else, as given (paneAuthor).
+// a git depot. Repointing an existing depot at another path is the
+// operator's to do (operatorOnly); adding a depot, and re-adding one with
+// its path unchanged, are anyone's. From a session's or a crew member's pane
+// the write is recorded as that session's actor or that crew member,
+// whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 	if err := checkName("depot name", r.Name); err != nil {
 		return err
@@ -1241,6 +1243,16 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 			return err
 		}
 		actor = resolved
+		var was Depot
+		had, err := get(w.Tx, bDepots, r.Name, &was)
+		if err != nil {
+			return err
+		}
+		if had && r.Path != was.Path {
+			if err := w.operatorOnly(ctx, actor, "change a depot's path", Alone); err != nil {
+				return err
+			}
+		}
 		if err := put(w.Tx, bDepots, r.Name, r); err != nil {
 			return err
 		}
