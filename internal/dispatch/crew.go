@@ -321,6 +321,11 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	}
 	handle, err := starter.StartCrew(ctx, def, s.user)
 	if err != nil {
+		if def.Runner == "herdr" && hasHomeTab(handle) {
+			// StartCrew can open the tab and then fail while recording its
+			// handle. Keep that partial start for home-loss cleanup too.
+			d.noteHomeStarted(startedCrewHome(def.Name, s.user, def.Runner, handle))
+		}
 		return d.crewStartFailed(ctx, runner, s, handle, err)
 	}
 	if def.Runner == "herdr" {
@@ -468,7 +473,9 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memb
 			"reason": err.Error()}))
 	}
 	if len(handle) > 0 {
-		_ = runner.Stop(ctx, handle)
+		if stopErr := runner.Stop(ctx, handle); stopErr == nil && s.member.Runner == "herdr" && hasHomeTab(handle) {
+			d.dropHome(crewHomeKey(s.member.Name, s.user))
+		}
 	}
 	return d.Store.CrewStartFailedFor(ctx, s.member.Name, s.user, err.Error(), backoff)
 }

@@ -101,6 +101,70 @@ func TestHomeSessionsKeepSessionsStartedByAFailedPass(t *testing.T) {
 	}
 }
 
+// A herdr start can open its tab and then fail while recording the handle.
+// The session still belongs in the snapshot so home-loss cleanup can close it.
+func TestHomeSessionsKeepPartialHerdrStarts(t *testing.T) {
+	s, f, d := homeSetup(t)
+	d.Runners["herdr"] = partialHerdrStart{fakeRunner: f}
+	b, err := s.CreateBead(context.Background(), store.NewBead{Title: "feature"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(context.Background()))
+	got := d.HomeSessions()
+	if len(got) != 1 || got[0].Name != b.ID || got[0].Handle["tab"] != "tab-1" {
+		t.Fatalf("HomeSessions after a partial herdr start = %+v, want its open tab", got)
+	}
+}
+
+type partialHerdrStart struct{ *fakeRunner }
+
+func (partialHerdrStart) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
+	return map[string]any{"session": j.Session.ID, "tab": "tab-1"}, errors.New("recording the pane failed")
+}
+
+// A failed crew start is kept only if its attempted cleanup also fails.
+func TestHomeSessionsKeepUnclosedPartialCrewStarts(t *testing.T) {
+	for _, stopErr := range []error{nil, errors.New("herdr is unavailable")} {
+		name := "closed"
+		if stopErr != nil {
+			name = "still open"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			member, err := s.GetCrew(ctx, "yardmaster")
+			must(t, err)
+			member.Runner = "herdr"
+			_, err = s.PutCrew(ctx, *member, "me")
+			must(t, err)
+			d.Runners = map[string]dispatch.Runner{"herdr": partialCrewStart{crewRunner: f, stopErr: stopErr}}
+			must(t, d.Reconcile(ctx))
+			got := d.HomeSessions()
+			if stopErr == nil && len(got) != 0 {
+				t.Fatalf("HomeSessions after the partial start was closed = %+v, want none", got)
+			}
+			if stopErr != nil && (len(got) != 1 || got[0].Handle["tab"] != "tab-1") {
+				t.Fatalf("HomeSessions after its partial start could not be closed = %+v, want its open tab", got)
+			}
+		})
+	}
+}
+
+type partialCrewStart struct {
+	*crewRunner
+	stopErr error
+}
+
+func (partialCrewStart) StartCrew(context.Context, store.CrewMember, string) (map[string]any, error) {
+	return map[string]any{"agent": "yardmaster-partial", "tab": "tab-1"}, errors.New("recording the pane failed")
+}
+
+func (p partialCrewStart) Stop(ctx context.Context, handle map[string]any) error {
+	if p.stopErr != nil {
+		return p.stopErr
+	}
+	return p.crewRunner.Stop(ctx, handle)
+}
+
 // failingMarkRunning is a store gone after the session started: MarkRunning
 // fails, everything else answers.
 type failingMarkRunning struct{ store.API }

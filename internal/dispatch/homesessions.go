@@ -59,6 +59,11 @@ func homeAgent(handle map[string]any) string {
 	return agent
 }
 
+func hasHomeTab(handle map[string]any) bool {
+	tab, _ := handle["tab"].(string)
+	return tab != ""
+}
+
 // beadHome is the snapshot's entry for the listed session s, started by the
 // runner named.
 func beadHome(s store.Session, runner string) HomeSession {

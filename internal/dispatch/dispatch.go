@@ -830,10 +830,10 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// is fetched in it.
 	err = d.peers(ctx)
 	d.fetches(ctx)
-	// The pass ran: stamp it, whatever the peers said, and publish the
-	// herdr sessions it saw and started.
-	d.stampPass()
+	// The pass ran: publish the herdr sessions it saw and started, then
+	// stamp it, whatever the peers said.
 	d.endHomePass()
+	d.stampPass()
 	return err
 }
 
@@ -1372,6 +1372,11 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
 			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls, Pull: pull})
+		if err != nil && g.Runner == "herdr" && hasHomeTab(handle) {
+			// A start can open its pane and then fail while recording its
+			// handle. Keep that partial start for home-loss cleanup too.
+			d.noteHomeStarted(startedBeadHome(b.ID, b.Stage, g.Name, sess.ID, g.Runner, handle))
+		}
 		if isBeadBlocked(err) {
 			// The runner could not safely start this bead. Keep the failure on
 			// the bead, with the reason, and wait for a person to fix and release
