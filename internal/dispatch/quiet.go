@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -400,7 +401,11 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 		cmd = quietCommand(ctx, "sh", "-c", depot.Test)
 	}
 	cmd.Dir = tmp
-	cmd.Env = append(os.Environ(), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1")
+	// The environment of work the yard starts (config.WithoutServerSettings,
+	// as the runner withholds for a session or a script): the daemon's own
+	// server settings are not the suite's, and a server a test starts from
+	// them would listen on this yard's webhook, web or BDP address.
+	cmd.Env = append(config.WithoutServerSettings(os.Environ()), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	start := time.Now()

@@ -354,6 +354,45 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	}
 }
 
+// The real run with the daemon started under server settings of its own:
+// the suite is work the yard starts, so it inherits the process
+// environment without those settings (a server a test started from them
+// would listen on this yard's addresses), and with the rest untouched.
+func TestQuietExecRunWithholdsServerSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YARDR_WEB_ADDR", "127.0.0.1:1")
+	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:2")
+	t.Setenv("QUIET_SENTINEL", "kept")
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-b", "main")
+	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
+		[]byte("[ -z \"$YARDR_WEB_ADDR\" ] && [ -z \"$YARDR_HOOK_ADDR\" ] && [ \"$QUIET_SENTINEL\" = kept ]\n"), 0o755))
+	git("add", "check.sh")
+	git("commit", "-m", "a green base")
+
+	s := storetest.New(t)
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
+	must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
+	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "landing", Depot: "yard"}, "me")
+	must(t, err)
+	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
+	must(t, err)
+	dispatch.QuietMaybe(d, ctx)
+	waitQuiet(t, s, store.QuietPassed, 1)
+}
+
 // The real run again, on a green base under /tmp as the daemon makes
 // its worktrees (no TMPDIR of a test harness): the check compares git's
 // resolved toplevel with the directory it runs in, and the run resolves

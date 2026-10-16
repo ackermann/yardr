@@ -1206,8 +1206,9 @@ type Depot struct {
 	Base string `json:"base"`
 	// Test is the command a developer runs to test the project, with sh -c
 	// semantics for whoever runs it, or the path of a script in the
-	// repository that does. yardr never runs it: a bead's prime prints it
-	// and a script group's command gets it as YARDR_TEST. Until schema 19 a
+	// repository that does. A bead's prime prints it, a script group's
+	// command gets it as YARDR_TEST, and the daemon's quiet whole-suite
+	// run runs it (internal/dispatch/quiet.go). Until schema 19 a
 	// depot had a check beside it, which yardr ran (migrateChecks).
 	Test string `json:"test,omitempty"`
 }
