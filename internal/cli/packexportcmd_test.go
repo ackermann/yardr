@@ -92,6 +92,9 @@ func TestPackExportHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The help wraps lines for the terminal; assert on its words, not those
+	// line breaks.
+	out = strings.Join(strings.Fields(out), " ")
 	for _, want := range []string{
 		"What is written:",
 		"What is never written, whatever the depot holds: a bead, a note",
