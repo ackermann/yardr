@@ -11,11 +11,13 @@ package assembly
 // repository with base main and branch yard/r-1 in its worktree, a stub
 // yardr that says yes to every move, and a sleep that records the fds it
 // was started with. The run inherits open files above 2, as a race run
-// holds its lock: filler to fd 9, the lock stand-in at fd 10, and fd 1024
-// when the process limit permits.
+// holds its lock: filler to fd 9, the lock stand-in at fd 10, and one high
+// sentinel under the process's own open-files limit, which the limit may
+// be too low for.
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +53,26 @@ func watcherGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func newWatcherRun(t *testing.T, test, limit string, highFD bool) *watcherRun {
+// highSentinel is the high fd one run inherits, proving the watcher closes
+// descriptors far above the shell's own: 512, under the process's own
+// open-files limit and well under FD_SETSIZE (a fixed 1024 aborted a
+// landing: yardr-tsms). The entries are contiguous from 3, and the spawn
+// wants room above them besides (88 spare fails the spawn, 588 passes),
+// so the limit must clear 2048. Too low a limit for one is not a
+// failure: the slow run still proves the rest without it.
+func highSentinel(t *testing.T) (int, bool) {
+	t.Helper()
+	var fdLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
+		t.Fatal(err)
+	}
+	if fdLimit.Cur < 2048 {
+		return 0, false
+	}
+	return 512, true
+}
+
+func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	t.Helper()
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -81,8 +102,9 @@ func newWatcherRun(t *testing.T, test, limit string, highFD bool) *watcherRun {
 	}
 	record := filepath.Join(dir, "sleep-record")
 	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in:
-	// ExtraFiles entry i is the child's fd 3+i. Reuse one filler file to
-	// put a sentinel at fd 1024 too, when the process limit permits it.
+	// ExtraFiles entry i is the child's fd 3+i, so the entries between
+	// are filler too, up to the high sentinel at hi. Reuse one filler
+	// file for all of them: each entry is dup'd onto its own fd.
 	null, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Fatal(err)
@@ -96,15 +118,9 @@ func newWatcherRun(t *testing.T, test, limit string, highFD bool) *watcherRun {
 		t.Fatal(err)
 	}
 	extra = append(extra, lock)
-	var fdLimit syscall.Rlimit
-	if highFD {
-		if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
-			t.Fatal(err)
-		}
-		if fdLimit.Cur > 1024 {
-			for len(extra) < 1022 { // entry 1021 becomes child fd 1024
-				extra = append(extra, null)
-			}
+	if hi > 0 {
+		for len(extra) < hi-2 { // entry hi-3 becomes child fd hi
+			extra = append(extra, null)
 		}
 	}
 	t.Cleanup(func() {
@@ -260,9 +276,9 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 	t.Parallel()
 	// Into a file, not a pipe: an orphaned sleep would hold a pipe open
 	// past the run's own exit, and the wait below with it.
-	finished := func(test, limit string, highFD bool) *watcherRun {
+	finished := func(test, limit string, hi int) *watcherRun {
 		t.Helper()
-		w := newWatcherRun(t, test, limit, highFD)
+		w := newWatcherRun(t, test, limit, hi)
 		t.Cleanup(func() { killWatcherSleepers(t, limit) })
 		log, err := os.Create(filepath.Join(w.tmp, "out"))
 		if err != nil {
@@ -282,17 +298,19 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 		awaitNoWatcherSleepers(t, limit)
 		return w
 	}
-	finished("true", "1799", false)
-	var fdLimit syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
-		t.Fatal(err)
-	}
-	highFD := fdLimit.Cur > 1024
+	finished("true", "1799", 0)
+	// The slow run carries the high sentinel when the limit has room for
+	// one, and proves the run inherited it before closing it away; too
+	// low a limit runs the same slow proof without it, and says so.
 	test := "sleep 2"
-	if highFD {
-		test = "[ -e /dev/fd/1024 ] || [ -L /dev/fd/1024 ] || exit 42; exec 1024<&-; sleep 2"
+	hi := 0
+	if sentinel, ok := highSentinel(t); ok {
+		hi = sentinel
+		test = fmt.Sprintf("[ -e /dev/fd/%d ] || [ -L /dev/fd/%d ] || exit 42; exec %d<&-; sleep 2", hi, hi, hi)
+	} else {
+		t.Logf("open-files limit too low for a high-fd sentinel: the slow run proves no sleep left and clean fds without it")
 	}
-	w := finished(test, "1797", highFD)
+	w := finished(test, "1797", hi)
 	assertWatcherSleepFds(t, w.record, "1797")
 }
 
@@ -312,7 +330,7 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	})
 	// A slow test command, so merge-local is mid-run when it is killed;
 	// its own sleep is killed above, whatever outlives the run.
-	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", false)
+	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", 0)
 	cmd := w.cmd()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
