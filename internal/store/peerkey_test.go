@@ -41,6 +41,7 @@ func renamedAndAddedAnew(t *testing.T) (y *peerYard, second string, forUp, forNo
 // now: nothing of the yard that has the name is touched, and the same
 // messages are taken under the name their sender has.
 func TestPeerReceiveUnderANameThatIsAnothersNow(t *testing.T) {
+	t.Parallel()
 	y, second, _, _ := renamedAndAddedAnew(t)
 	msgs := []store.PeerMessage{mail("m1", "yardmaster", "clerk", "from the first north"), ping("p1")}
 	before, err := y.api.GetPeer(y.ctx, "north")
@@ -85,6 +86,7 @@ func TestPeerReceiveUnderANameThatIsAnothersNow(t *testing.T) {
 // has its old name, as sent or as refused, and is not answered with what
 // waits for it.
 func TestPeerHandOverUnderANameThatIsAnothersNow(t *testing.T) {
+	t.Parallel()
 	y, second, forUp, forNorth := renamedAndAddedAnew(t)
 	before, err := y.api.GetPeer(y.ctx, "north")
 	if err != nil {

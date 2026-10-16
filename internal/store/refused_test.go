@@ -28,6 +28,7 @@ func refusals(t *testing.T, s store.API, id string) []store.Event {
 // sits idle as if it had, and nothing else on the bead says it tried. A
 // move that worked, and a refused one by someone in no session, leave none.
 func TestRefusedMoveOfASessionsAgentIsLogged(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
@@ -134,6 +135,7 @@ func TestRefusedMoveOfASessionsAgentIsLogged(t *testing.T) {
 // bead it named, with whose session it was; one that names no bead at all
 // is logged on the session's own.
 func TestRefusedMoveOfAnotherBead(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "others"} {
@@ -192,6 +194,7 @@ func TestRefusedMoveOfAnotherBead(t *testing.T) {
 // A manual group's session is a person's claim: their refused move is
 // theirs to read, like any person's.
 func TestRefusedMoveOfAManualClaimIsNotLogged(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}, "me"); err != nil {

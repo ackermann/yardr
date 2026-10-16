@@ -31,6 +31,7 @@ notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: tex
 // A declared source is kept as its file, under the name the file gives it;
 // replacing it keeps where its credential is; each change is an event.
 func TestDeclaredSource(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	src, err := st.PutSource(ctx, "pushover.yaml", sourceFile, "jo")
@@ -108,6 +109,7 @@ func TestDeclaredSource(t *testing.T) {
 // What the parser refuses is not kept, and the error names the file as the
 // caller named it.
 func TestDeclaredSourceRefusedIsNotKept(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	bad := strings.Replace(sourceFile, "path: /messages.json", `path: "/messages/{credential}"`, 1)
@@ -125,6 +127,7 @@ func TestDeclaredSourceRefusedIsNotKept(t *testing.T) {
 // own. A crew member is refused by its name, and by its pane whatever name
 // the command gives.
 func TestDeclaredSourceIsTheOperators(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -188,6 +191,7 @@ func TestDeclaredSourceIsTheOperators(t *testing.T) {
 
 // A bead's agent is refused from its pane too, though it names the operator.
 func TestDeclaredSourceRefusedFromASessionsPane(t *testing.T) {
+	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -246,6 +250,7 @@ limits:
 // for a harness kind: a second that lists the kind is refused, and names
 // the first.
 func TestDeclaredSourceWithLimits(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	src, err := st.PutSource(ctx, "aiquokka.yaml", limitsFile, "jo")
@@ -313,6 +318,7 @@ func sourceSets(t *testing.T, st store.API) []string {
 // is set, with the other lines kept and nothing more in the store. The
 // value is in the file and in nothing the store keeps or says.
 func TestKeySource(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	// Closed by the test itself, which reads the store's file at its end.
 	st, err := store.Open(path)
@@ -400,6 +406,7 @@ func TestKeySource(t *testing.T) {
 // What is refused leaves the env file as it was, to the byte, no second
 // file and nothing in the store; no refusal repeats a value.
 func TestKeySourceRefuses(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st := storetest.Open(t, path)
 	ctx := context.Background()
@@ -465,6 +472,7 @@ func TestKeySourceRefuses(t *testing.T) {
 // to is left alone: a link would pass the rule for a file elsewhere, and
 // the rename would replace the link, not the file.
 func TestKeySourceRefusesALink(t *testing.T) {
+	t.Parallel()
 	st := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "crm.yaml", crmKeyFile, "jo"); err != nil {

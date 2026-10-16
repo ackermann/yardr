@@ -12,6 +12,7 @@ import (
 // with a name mail can be addressed to, each once, of a kind there is, a
 // role of one printable line, and no more of them than a link exposes.
 func TestPeerSaidRosterIsHeld(t *testing.T) {
+	t.Parallel()
 	said := &PeerSays{Understands: []string{"mail"}, Roster: []PeerRosterEntry{
 		{Name: "yardmaster", Kind: RosterCrew, Role: "Runs the yard\nand \x1b[31mmore", Mail: true},
 		{Name: "ada", Kind: RosterUser, Role: strings.Repeat("é", 200)},
@@ -45,6 +46,7 @@ func TestPeerSaidRosterIsHeld(t *testing.T) {
 // A roster that changed is kept at once, whatever the hour: who is on it
 // decides whom this yard's crew write to. One that says none clears it.
 func TestPeerSaidRosterChanges(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

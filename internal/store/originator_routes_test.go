@@ -39,6 +39,7 @@ func originatorRoutesYard(t *testing.T) (store.API, func(string) *string) {
 // takes every originator's. A named originator counts in specificity and
 // ByBead, any counts as none.
 func TestRouteMatchesOriginator(t *testing.T) {
+	t.Parallel()
 	s, str := originatorRoutesYard(t)
 	ctx := t.Context()
 	hal := "hal"
@@ -115,6 +116,7 @@ func TestRouteMatchesOriginator(t *testing.T) {
 // login_for for them, else a subsidy route. The check reads the groups at
 // dispatch time.
 func TestPersonalOrSubsidyByFirstGroup(t *testing.T) {
+	t.Parallel()
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
 	groups, err := s.Groups(ctx)
@@ -149,6 +151,7 @@ func TestPersonalOrSubsidyByFirstGroup(t *testing.T) {
 // login_for names a user that must exist, for herdr groups only; an
 // unknown --originator is refused; any needs no user.
 func TestLoginForAndOriginatorAreChecked(t *testing.T) {
+	t.Parallel()
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
 	if err := s.PutGroup(ctx, store.Group{Name: "bad", Runner: "herdr", Config: map[string]any{"login_for": "mallory"}}, "jo"); err == nil ||
@@ -175,6 +178,7 @@ func TestLoginForAndOriginatorAreChecked(t *testing.T) {
 
 // Any is a route keyword, not a user or an originator for a bead.
 func TestAnyCannotNameAnOriginator(t *testing.T) {
+	t.Parallel()
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
 	if _, err := s.AddUser(ctx, store.OriginatorAny, "jo"); err == nil || !strings.Contains(err.Error(), "route keyword") {
@@ -196,6 +200,7 @@ func TestAnyCannotNameAnOriginator(t *testing.T) {
 // A route to a group that starts no agents takes every originator's beads:
 // by hand without the flag, as AddRoute defaults it to any.
 func TestNonHerdrRoutesTakeEveryOriginator(t *testing.T) {
+	t.Parallel()
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
 	if err := s.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
@@ -246,6 +251,7 @@ func TestNonHerdrRoutesTakeEveryOriginator(t *testing.T) {
 // What the dispatcher is handed of a ready bead routes as the bead does,
 // originator included.
 func TestReadyBeadCarriesOriginator(t *testing.T) {
+	t.Parallel()
 	s, _ := originatorRoutesYard(t)
 	ctx := t.Context()
 	hal := "hal"

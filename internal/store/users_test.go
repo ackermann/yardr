@@ -34,6 +34,7 @@ func userNames(t *testing.T, s store.API) string {
 // A user is a record: added, listed, read and removed, with the events
 // that say so.
 func TestUserRecord(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	u, err := s.AddUser(ctx, "ada", "jo")
@@ -76,6 +77,7 @@ func TestUserRecord(t *testing.T) {
 // The operator is a user: naming one adds the user, and that user is not
 // removed while the setting names them.
 func TestOperatorIsAUser(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.SetSetting(ctx, "operator", "two words", "jo"); err == nil {
@@ -109,6 +111,7 @@ func TestOperatorIsAUser(t *testing.T) {
 // Crew members and users share one space of names, refused both ways, and the
 // operator cannot be given a crew member's name.
 func TestOneNameOneParty(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -152,6 +155,7 @@ func letters(ls []store.Letter) string {
 // newest of what after and before leave, oldest first, and says whether it
 // left older mail out. Without limit and before it answers as it always did.
 func TestConversationPages(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -224,6 +228,7 @@ func TestConversationPages(t *testing.T) {
 // Mail to a user lands in that user's inbox alone, unread until they
 // acknowledge it, and never in a crew member's.
 func TestUserInbox(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -297,6 +302,7 @@ func TestUserInbox(t *testing.T) {
 // order, each with whether its receiver acknowledged it: a crew member with
 // its inbox, a user with theirs.
 func TestConversation(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -354,6 +360,7 @@ func TestConversation(t *testing.T) {
 // A user added under a name that had mail before reads from now on, and a
 // crew member that later takes a removed user's name gets none of their mail.
 func TestUserNameReused(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -399,6 +406,7 @@ func kindsAfter(t *testing.T, s store.API, after uint64) []store.Event {
 // from it that what it shows as sent was read. One that passes none is
 // not.
 func TestMailReadIsAnEvent(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
@@ -469,6 +477,7 @@ func TestMailReadIsAnEvent(t *testing.T) {
 // is an event; the same status again writes nothing, and a session that
 // starts or stops has none.
 func TestCrewStatus(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")

@@ -85,6 +85,7 @@ func pathOf(m *store.FlowMap) string {
 // a file has no line, one without a route is nobody's, a terminal one the
 // end whatever is routed there.
 func TestFlowMapStages(t *testing.T) {
+	t.Parallel()
 	long := "The finished bead is reviewed here against its goal and its done-when and the notes of the builder who made it and more. Second sentence."
 	s, ctx := mapDepot(t, map[string]string{
 		".yardr/flows/default/backlog.md":  "summary: Shaped until a builder can finish it without asking.\n\nNew beads wait here. Nobody reads this on the map.\n",
@@ -153,6 +154,7 @@ func TestFlowMapStages(t *testing.T) {
 // that took it there, or as made by hand; a forward move is not marked,
 // whatever it reported.
 func TestFlowMapPath(t *testing.T) {
+	t.Parallel()
 	s, ctx := mapDepot(t, nil)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -219,6 +221,7 @@ func TestFlowMapPath(t *testing.T) {
 // there is one, and a `summary:` line is no part of what the stage's
 // worker reads.
 func TestStageFileSummary(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, text, summary, body string }{
 		{"none", "", "", ""},
 		{"first sentence", "Build it. Then test it.\n", "Build it.", "Build it. Then test it.\n"},
@@ -251,6 +254,7 @@ func TestStageFileSummary(t *testing.T) {
 // a stage of agents or people is none, and neither is any outcome of a
 // stage this yard works itself.
 func TestPeerLandings(t *testing.T) {
+	t.Parallel()
 	f, err := store.ParseFlow("new -> build on done | decide on question\n" +
 		"build -> review on done | approved on tested | dropped on refused | decide on question\n" +
 		"review -> approved on done | build on changes\napproved -> merged on done | build on failed\n" +
@@ -302,6 +306,7 @@ func TestPeerLandings(t *testing.T) {
 // peer's when some bead of the flow may go to the peer there, and what the
 // route asked of that bead decides where it may go after.
 func TestPeerLandingsByRoute(t *testing.T) {
+	t.Parallel()
 	f, err := store.ParseFlow("build -> approved on done\napproved -> merged on done\nmerged terminal\n")
 	if err != nil {
 		t.Fatal(err)

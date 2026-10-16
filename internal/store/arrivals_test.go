@@ -16,6 +16,8 @@ type arrivalsTest struct {
 	now time.Time
 }
 
+// newArrivalsTest sets the package's fake clock and YARDR_STORE_NOSYNC,
+// so its callers stay sequential.
 func newArrivalsTest(t testing.TB) *arrivalsTest {
 	t.Helper()
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -118,6 +120,7 @@ type arrivalRowForTest = struct {
 }
 
 func TestArrivalsServesTravelling(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	t0 := y.now
@@ -152,6 +155,7 @@ func TestArrivalsServesTravelling(t *testing.T) {
 }
 
 func TestArrivalsRunningFirst(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	t0 := y.now
@@ -179,6 +183,7 @@ func TestArrivalsRunningFirst(t *testing.T) {
 }
 
 func TestArrivalsFaultFromLatestEndedSession(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	// A session that came to no good end is the red block (board: "a
@@ -215,6 +220,7 @@ func TestArrivalsFaultFromLatestEndedSession(t *testing.T) {
 }
 
 func TestArrivalsWellEndClearsFault(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	b := y.create(t, "wharf-a", "new")
@@ -250,6 +256,7 @@ func TestArrivalsWellEndClearsFault(t *testing.T) {
 }
 
 func TestArrivalsHeldFirst(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	b := y.create(t, "wharf-a", "decide")
@@ -275,6 +282,7 @@ func TestArrivalsHeldFirst(t *testing.T) {
 }
 
 func TestArrivalsWaitsWithoutMembers(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	if err := y.PutGroup(ctx, Group{Name: "lonely", Runner: "manual", Limit: 10}, "me"); err != nil {
@@ -298,6 +306,7 @@ func TestArrivalsWaitsWithoutMembers(t *testing.T) {
 }
 
 func TestArrivalsWaitsForClaimedGroupAfterRouteRemoval(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	b := y.create(t, "wharf-a", "decide")
@@ -327,6 +336,7 @@ func TestArrivalsWaitsForClaimedGroupAfterRouteRemoval(t *testing.T) {
 }
 
 func TestArrivalsLate(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	// Ten beads through new in 30m stays, so the cell sits on the
@@ -376,6 +386,7 @@ func TestArrivalsLate(t *testing.T) {
 }
 
 func TestArrivalsCap(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	t0 := y.now
@@ -394,6 +405,7 @@ func TestArrivalsCap(t *testing.T) {
 }
 
 func TestArrivalsLine(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	if err := y.PutDepot(ctx, Depot{Name: "wharf", Path: t.TempDir(), Kind: DepotDir}, "me"); err != nil {
@@ -413,6 +425,7 @@ func TestArrivalsLine(t *testing.T) {
 }
 
 func TestArrivalsPlatformsFollowFlowOrder(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "review", "decide")
@@ -433,6 +446,7 @@ func TestArrivalsPlatformsFollowFlowOrder(t *testing.T) {
 }
 
 func TestArrivalsPlatformsTwoDepotsAgree(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "decide")
@@ -449,6 +463,7 @@ func TestArrivalsPlatformsTwoDepotsAgree(t *testing.T) {
 }
 
 func TestArrivalsPlatformsMostBeadsDepotWins(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "review", "decide")
@@ -471,6 +486,7 @@ func TestArrivalsPlatformsMostBeadsDepotWins(t *testing.T) {
 }
 
 func TestArrivalsPlatformsUnknownLast(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "review")
@@ -492,6 +508,7 @@ func TestArrivalsPlatformsUnknownLast(t *testing.T) {
 }
 
 func TestArrivalsPlatformsCoverServedRows(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "decide")
@@ -517,6 +534,7 @@ func TestArrivalsPlatformsCoverServedRows(t *testing.T) {
 }
 
 func TestArrivalsPlatformsTypedFlow(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "decide")
@@ -553,6 +571,7 @@ func TestArrivalsPlatformsTypedFlow(t *testing.T) {
 }
 
 func TestMergeStageOrder(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ base, next, want []string }{
 		{nil, []string{"new", "decide"}, []string{"new", "decide"}},
 		{[]string{"new", "review", "decide"}, []string{"new", "decide", "review"}, []string{"new", "review", "decide"}},

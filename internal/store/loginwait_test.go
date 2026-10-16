@@ -23,6 +23,7 @@ func loginAsk(ref string) Ask {
 }
 
 func TestLoginWaitReadyWaitsForRegistration(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -43,6 +44,7 @@ func TestLoginWaitReadyWaitsForRegistration(t *testing.T) {
 // but the yardmaster can be handed what the operator types into a login
 // ask's field; the yardmaster's pane registers one.
 func TestLoginWaitOnlyFromTheYardmastersPane(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	me := os.Getpid()
 	ps, err := peer.Describe(me)
@@ -78,6 +80,7 @@ func TestLoginWaitOnlyFromTheYardmastersPane(t *testing.T) {
 }
 
 func TestOldLoginWaitCleanupKeepsAReplacement(t *testing.T) {
+	t.Parallel()
 	s := &Store{}
 	old, replacement := &loginWait{}, &loginWait{}
 	s.logins.waits = map[string]*loginWait{"claude-reused": replacement}
@@ -90,6 +93,7 @@ func TestOldLoginWaitCleanupKeepsAReplacement(t *testing.T) {
 // A login-input ask is stored with the wait it names and the one name the
 // input is asked for, whatever the asker sent for the names.
 func TestLoginAskIsStoredWithTheWait(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	ask := loginAsk("claude-a1b2c3d4")
 	ask.Secret.Env = []string{}
@@ -129,6 +133,7 @@ func TestLoginAskIsStoredWithTheWait(t *testing.T) {
 // user, for a name beside the one, for anyone but the operator, for another
 // yard, and with options or about-beads.
 func TestLoginAskRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	other, err := y.CreateBead(y.ctx, NewBead{Title: "another"}, "yardmaster")
 	if err != nil {
@@ -210,6 +215,7 @@ func giveLogin(t *testing.T, y *askYard, seq uint64, value, actor string) *Sourc
 // takes the value, the answer note holds the names, and the value is in no
 // note, file, event or mail of the yard, only "given".
 func TestGiveLoginHandsToTheWaiter(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-a1b2c3d4"), "yardmaster")
 	const value = "code-handed-to-the-login"
@@ -293,6 +299,7 @@ func TestGiveLoginHandsToTheWaiter(t *testing.T) {
 // A giving with no login waiting is refused naming that: no wait was ever
 // registered, the wait ended, or another giving took it.
 func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-never"), "yardmaster")
 	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-1"}, "mckean"); err == nil ||
@@ -332,6 +339,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 // nothing at its ends, and the operator: each refusal repeats no value, and
 // a refused value leaves the wait for the good one.
 func TestGiveLoginRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-picky"), "yardmaster")
 	for _, c := range []struct {
@@ -371,6 +379,7 @@ func TestGiveLoginRefusals(t *testing.T) {
 // A second wait under a reference that waits is refused: one wait owns its
 // reference until it is handed over or ends.
 func TestLoginWaitRefusesADuplicate(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	ended, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -412,6 +421,7 @@ func TestLoginWaitRefusesADuplicate(t *testing.T) {
 // once, and the giving ends the same then as when it ran once: one answer
 // note, and the waiter handed the value once.
 func TestGiveLoginRunTwice(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-twice-run"), "yardmaster")
 	waited := waitFor(t, y, "claude-twice-run")

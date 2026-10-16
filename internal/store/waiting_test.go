@@ -12,6 +12,7 @@ import (
 // approved, and release (a blocker in the until stage, a closed blocker)
 // takes an edge out. Other kinds never hold.
 func TestHoldingDepsListsHoldingEdges(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	add := func(from, to, kind, at, until string) {
 		t.Helper()
@@ -74,6 +75,7 @@ func TestHoldingDepsListsHoldingEdges(t *testing.T) {
 // HoldingDeps names the same blockers OpenBlockers does: the edges behind
 // its handles.
 func TestHoldingDepsMatchesOpenBlockers(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -108,6 +110,7 @@ func TestHoldingDepsMatchesOpenBlockers(t *testing.T) {
 // bead, a journal and a memory never wait; an assigned bead waits like an
 // unassigned one.
 func TestWaitingListsHoldingEdges(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	add := func(from, to, kind, at, until string) {
 		t.Helper()
@@ -171,6 +174,7 @@ func TestWaitingListsHoldingEdges(t *testing.T) {
 // Waiting is the complement of Ready on the gate: an open, unheld bead of
 // a working type waits exactly when it is not ready.
 func TestWaitingComplementsReady(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)

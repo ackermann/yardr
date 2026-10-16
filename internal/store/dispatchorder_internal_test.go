@@ -15,6 +15,7 @@ import (
 // first, not the one created first: a young bead waits behind no older
 // bead that reached the stage later.
 func TestDispatchableOrdersByStageEntry(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	ctx := context.Background()
 	t0 := y.now
@@ -43,6 +44,7 @@ const arrivalFlow = "arrived -> build | returned on refused\nbuild -> returned o
 // the stay clock as a created bead does, so it sorts after the beads that
 // were already waiting, not as a zero time ahead of everything.
 func TestPeerBeadArrivesQueuedByArrival(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	ctx := context.Background()
 	t0 := y.now

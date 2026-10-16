@@ -12,6 +12,7 @@ import (
 // user, and nothing else: a write the same call makes as another actor
 // carries no mark, nor does any write without the device.
 func TestViaMarksTheUsersOwnWrites(t *testing.T) {
+	t.Parallel()
 	// The mark is the listener's to set, in the process that owns the store.
 	_, st := storetest.NewOwned(t)
 	ctx := context.Background()

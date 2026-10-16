@@ -13,6 +13,7 @@ import (
 // every few seconds is not a write of the store each time. The address is
 // text from outside and is kept bounded.
 func TestDeviceLastUse(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 19, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

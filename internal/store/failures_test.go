@@ -14,6 +14,7 @@ import (
 // bring the old failures back. Only a death or failure in the bead's
 // current stage counts, and entering a stage starts over.
 func TestFailureCountOutlivesTheUnheldEvent(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {

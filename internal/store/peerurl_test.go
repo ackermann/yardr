@@ -12,6 +12,7 @@ import (
 // write with one event; what waits for the peer still waits as it was. A
 // URL an add would refuse is refused in the add's words.
 func TestSetPeerURL(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	was := y.allow(t, store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping"}})
 	m, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")

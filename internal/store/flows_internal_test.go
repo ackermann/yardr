@@ -5,6 +5,7 @@ import "testing"
 // The done-route follows done from the stage, implicit single-edge done
 // included, stopping at visited stages and at stages with no done.
 func TestDoneReaches(t *testing.T) {
+	t.Parallel()
 	f := &Flow{
 		Transitions: map[string][]string{
 			"a": {"b"},

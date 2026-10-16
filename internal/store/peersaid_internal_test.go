@@ -13,6 +13,7 @@ import (
 // The time kept with it is when it was last saved, and it is saved again,
 // unchanged, only once that is an hour old.
 func TestPeerSaidWhen(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

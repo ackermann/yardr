@@ -15,6 +15,7 @@ import (
 // other. Anything else a patch changes leaves no note, nor does a write
 // by the session itself or one on a bead with no live session.
 func TestUpdateBodyTellsTheLiveSession(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {

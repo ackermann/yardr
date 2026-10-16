@@ -114,6 +114,7 @@ func flowBeads(rows []FlowBead) []string {
 // beads on each, the per-depot Elsewhere, the unassigned rows and the
 // travelling totals.
 func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	flowsBoard(t, y)
 	board, err := y.Flows(context.Background())
@@ -188,6 +189,7 @@ func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
 // operator are the person's turn; an answered prompt, an ask to anyone
 // else and a plain bead light nothing.
 func TestFlowsLamps(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "shop", "code", "new", "review")
@@ -288,6 +290,7 @@ func TestFlowsLamps(t *testing.T) {
 // TestFlowsWorking pins the working mark: an agent's session at work, not a
 // manual group's claim.
 func TestFlowsWorking(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "shop", "code", "new", "review")
@@ -322,6 +325,7 @@ func TestFlowsWorking(t *testing.T) {
 // TestFlowsRowsMatchArrivals pins the reuse: every travelling bead's served
 // expected, remark and tone are the board's.
 func TestFlowsRowsMatchArrivals(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	flowsBoard(t, y)
 	ctx := context.Background()
@@ -390,6 +394,7 @@ func TestFlowsRowsMatchArrivals(t *testing.T) {
 // read still shows its beads, off the line, and the other depots their
 // flows.
 func TestFlowsReadError(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -426,6 +431,7 @@ func TestFlowsReadError(t *testing.T) {
 
 // TestFlowsEmpty pins the empty yard: zeros and empty rows, never nulls.
 func TestFlowsEmpty(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	board, err := y.Flows(context.Background())
 	if err != nil {

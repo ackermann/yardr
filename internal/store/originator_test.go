@@ -65,6 +65,7 @@ func createdOriginator(t *testing.T, s store.API, ctx context.Context, b *store.
 // and any other non-user actor's create is the operator's. The created
 // event carries the originator.
 func TestOriginatorAtCreate(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	for _, c := range []struct {
 		name  string
@@ -98,6 +99,7 @@ func TestOriginatorAtCreate(t *testing.T) {
 // --for for a user that does not exist is refused, and creates nothing;
 // a crew member's name is no user's.
 func TestForUnknownUserRefused(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	head, _ := s.Head(ctx)
 	for _, user := range []string{"mallory", "yardmaster"} {
@@ -117,6 +119,7 @@ func TestForUnknownUserRefused(t *testing.T) {
 // A bead filed while working another inherits the origin's originator,
 // whatever actor files it; an explicit --for wins outside an agent's pane.
 func TestDiscoveredFromInheritsOriginator(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	hals, err := s.CreateBead(ctx, store.NewBead{Title: "hal's", Depot: "yard"}, "hal")
 	if err != nil {
@@ -147,6 +150,7 @@ func TestDiscoveredFromInheritsOriginator(t *testing.T) {
 // names, and creates nothing; without it the bead takes the pane bead's
 // originator, or the origin's with --discovered-from.
 func TestForRefusedFromBeadPane(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	a, err := s.CreateBead(ctx, store.NewBead{Title: "hal's work", Depot: "yard", Stage: "new"}, "hal")
 	if err != nil {
@@ -206,6 +210,7 @@ func TestForRefusedFromBeadPane(t *testing.T) {
 // A manual pane is a person at work, not an agent's: --for is allowed
 // from it, and the actor's rule reads the create.
 func TestForAllowedFromManualPane(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	a, err := s.CreateBead(ctx, store.NewBead{Title: "jo's work", Depot: "yard", Stage: "new"}, "jo")
 	if err != nil {
@@ -238,6 +243,7 @@ func TestForAllowedFromManualPane(t *testing.T) {
 // A question bead takes its originator by the same rules; it matters only
 // to the record.
 func TestQuestionBeadOriginator(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	asked, err := s.AskNew(ctx, store.NewBead{Depot: "yard", For: "hal"}, store.Ask{Question: "Which?", To: "jo", Context: []string{"the budget"}}, "jo")
 	if err != nil {
@@ -259,6 +265,7 @@ func TestQuestionBeadOriginator(t *testing.T) {
 // exist, and the change logs an event with from, to and by. Setting what
 // it already is logs nothing; anyone else is refused, for that too.
 func TestBeadUpdateOriginator(t *testing.T) {
+	t.Parallel()
 	s, ctx := originatorYard(t)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard"}, "jo")
 	if err != nil {
@@ -312,6 +319,7 @@ func TestBeadUpdateOriginator(t *testing.T) {
 // A bead that arrives over the peer link is the operator's: nothing of
 // the other yard's person crosses.
 func TestPeerBeadArrivesOperators(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	if err := y.api.SetSetting(y.ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)

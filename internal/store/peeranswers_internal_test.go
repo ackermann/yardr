@@ -22,6 +22,8 @@ type homeYard struct {
 	n   int
 }
 
+// newHomeYard sets the package's fake clock to the yard's now, so its
+// callers stay sequential.
 func newHomeYard(t *testing.T) *homeYard {
 	t.Helper()
 	y := &homeYard{ctx: context.Background(), now: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
@@ -142,6 +144,7 @@ func northAsk() Ask {
 // by: a newer pick stands and every pick stays, and the same id twice is
 // taken once.
 func TestPeerAnswerLands(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 
@@ -195,6 +198,7 @@ func TestPeerAnswerLands(t *testing.T) {
 // wants them. A declined ask and one answered with words are ended: a late
 // answer is refused, naming the state.
 func TestPeerAnswerLaterDeclineWords(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 
@@ -255,6 +259,7 @@ func TestPeerAnswerLaterDeclineWords(t *testing.T) {
 // trusted, and one by another name as the wrong person. Nothing of a
 // refused answer lands.
 func TestPeerAnswerUnsolicited(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 	local := linksAsk()
@@ -345,6 +350,7 @@ func TestPeerAnswerUnsolicited(t *testing.T) {
 // link was renamed, and the answer is written by the name the yard has
 // today. Once another yard has the old name, it is not.
 func TestPeerAnswerAfterRename(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 	if _, err := y.RenamePeer(y.ctx, "north", "up", "jo"); err != nil {
@@ -377,6 +383,7 @@ func TestPeerAnswerAfterRename(t *testing.T) {
 }
 
 func TestAnsweredHereMatchesPeerAliasAndBead(t *testing.T) {
+	t.Parallel()
 	answer := Answer{Ask: 3, Option: 1, Words: "CSV only."}
 	text, err := json.Marshal(answer)
 	if err != nil {
@@ -443,6 +450,7 @@ func (y *homeYard) outbox(t *testing.T) ([]PeerOut, []peerAnswer) {
 // share. The question is among the decided from then on, a newer pick
 // stands, and Later is 24 hours by this yard's clock and nothing else.
 func TestForeignAskAnswered(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	if q := y.queue(t); len(q.Open) != 1 || q.Open[0].Bead != "yd-links@north" || len(q.Decided) != 0 {
@@ -549,6 +557,7 @@ func TestForeignAskAnswered(t *testing.T) {
 // Decline ends a foreign ask here as it will there: a late pick is refused
 // before anything is queued.
 func TestForeignAskDeclined(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	if err := y.DeclineAsk(y.ctx, "yd-links@north", 3, "not mine", "mckean"); err != nil {
@@ -570,6 +579,7 @@ func TestForeignAskDeclined(t *testing.T) {
 
 // A foreign ask that wants words is answered with words, once.
 func TestForeignAskWords(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", Ask{Question: "What tone?", Context: []string{"the greeting."}})
 	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err == nil || !strings.Contains(err.Error(), "wants words") {
@@ -599,6 +609,7 @@ func TestForeignAskWords(t *testing.T) {
 // further answer. Either way the person gets mail from the yard, and the
 // queue says noted.
 func TestForeignAnswerGivenUp(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	pick := func(n int) PeerOut {
@@ -683,6 +694,7 @@ func TestForeignAnswerGivenUp(t *testing.T) {
 // messages: answered there marks the question answered, and an ask that
 // yard no longer has as declined, with the words that say which.
 func TestForeignAnswerRefusedByPull(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	for reason, want := range map[string][2]string{
 		RefusedAskAnswered: {"answered", "it was answered in north's yard"},
 		RefusedNoSuchAsk:   {"declined", "it is no longer asked in north's yard"},
@@ -720,6 +732,7 @@ func TestForeignAnswerRefusedByPull(t *testing.T) {
 // A question given up is told to whoever asked it, as mail from the yard,
 // and stays open on its bead, answerable there by hand.
 func TestPeerAskUndelivered(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 	out, _ := y.outbox(t)

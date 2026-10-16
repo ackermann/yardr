@@ -15,6 +15,7 @@ import (
 // fewer than two deliveries in the week, the rhythm falls back to the
 // recent deliveries, however old.
 func TestQuietGap(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	ago := func(ds ...time.Duration) []time.Time {
 		out := make([]time.Time, len(ds))
@@ -52,6 +53,7 @@ func TestQuietGap(t *testing.T) {
 // A hook is quiet when it accepted a delivery before and has accepted none
 // since for longer than its usual gap; one that never delivered is not.
 func TestQuiet(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	h, d := time.Hour, 24*time.Hour
 	last := func(ago time.Duration) *time.Time { t := now.Add(-ago); return &t }
@@ -81,6 +83,7 @@ func TestQuiet(t *testing.T) {
 // floor for a gap. A hook that never delivered, one that is blocked and one
 // the source still reaches are not judged.
 func TestQuietGaps(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	for _, name := range []string{"linear", "new", "blocked", "refused"} {
@@ -122,6 +125,7 @@ func TestQuietGaps(t *testing.T) {
 // busy hook's many never crowd another's out. The tells of a hundred quiet
 // hooks leave the first's in hand.
 func TestEventsOfHook(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	hook := func(kind, name string) {
@@ -179,6 +183,7 @@ func TestEventsOfHook(t *testing.T) {
 // does one to the class attention. A crew member that hears the class
 // through --on has it in its inbox with no subscription.
 func TestHookQuietReachesSubscribers(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	crew := func(name string, on ...string) {

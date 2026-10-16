@@ -11,6 +11,7 @@ import (
 // A stage file may end in an ## Ask section: the stage's ask template. A
 // choice, input or check section parses to the template's fields.
 func TestAskTemplateParse(t *testing.T) {
+	t.Parallel()
 	choice := &store.StageFile{Text: `Build the thing.
 
 ## Ask
@@ -86,6 +87,7 @@ backlog: The bead goes back to be reshaped by the yardmaster.
 
 // A fenced example may show the ## Ask syntax without defining a template.
 func TestAskTemplateIgnoresFencedExamples(t *testing.T) {
+	t.Parallel()
 	text := "Use this syntax:\n\n```md\n## Ask\nkind: input\nquestion: Example?\ncontext:\n- Only an example.\n```\n\n~~~\n## Ask\nkind: check\nquestion: Also an example?\ncontext:\n- Still prose.\n~~~\n\n    ## Ask\n    kind: input\n    question: Indented example?\n\nFor this stage:\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The stage is waiting.\n"
 	sf := &store.StageFile{Text: text}
 	tmpl, err := sf.Ask()
@@ -116,6 +118,7 @@ func TestAskTemplateIgnoresFencedExamples(t *testing.T) {
 // A section that is present must parse fully: every malformed section is
 // refused naming its line.
 func TestAskTemplateMalformed(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, text, want string }{
 		{"bad kind", "## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n", "ask line 2: kind \"choce\": want choice, input or check"},
 		{"missing kind", "Prose.\n\n## Ask\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind is required: choice, input or check"},
@@ -156,6 +159,7 @@ func TestAskTemplateMalformed(t *testing.T) {
 // A template's outcomes must resolve under the flow the stage file belongs
 // to, or the template is broken.
 func TestAskTemplateCheck(t *testing.T) {
+	t.Parallel()
 	flow, err := store.ParseFlow("new -> review\nreview -> merged on done | new on changes\nmerged terminal\n")
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +217,7 @@ func TestAskTemplateCheck(t *testing.T) {
 // section, as they show it without its summary: line; the map's one line
 // never reads the template.
 func TestStageFileAskStripped(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, text, summary, body string }{
 		{"no section", "Build it.\n", "Build it.", "Build it.\n"},
 		{"section stripped", "Build it.\n\n## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n", "Build it.", "Build it."},
@@ -235,6 +240,7 @@ func TestStageFileAskStripped(t *testing.T) {
 // done leads. The default flow's decide carries none, as decided: neither
 // the yardr depot's own stage file nor the starter pack's.
 func TestDepotTrainInPRTemplate(t *testing.T) {
+	t.Parallel()
 	flowText, err := os.ReadFile("../../.yardr/flows/yardr.train.flow")
 	if err != nil {
 		t.Fatal(err)

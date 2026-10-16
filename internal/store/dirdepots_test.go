@@ -17,6 +17,7 @@ import (
 // A depot is a git depot unless it says otherwise; a dir depot has no base, and
 // a kind is one of the two.
 func TestDepotKinds(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/x", Base: "main"}, "me"); err != nil {
@@ -47,6 +48,7 @@ func TestDepotKinds(t *testing.T) {
 // A store written before depot kinds holds depots without one: they open as git
 // depots, and stay so.
 func TestMigrateDepotKinds(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -105,6 +107,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 // A dir depot's flows are read from its directory as it is (there is no base
 // to read them from), and reread when a file changes, even to the same size.
 func TestDirDepotFlows(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		".yardr/flows/default.flow":       repoDefault,
@@ -200,6 +203,7 @@ func TestDirDepotFlows(t *testing.T) {
 // Trains in a dir depot only group their children: nobody has a base, as
 // there are no branches.
 func TestDirDepotTrains(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
@@ -229,6 +233,7 @@ func TestDirDepotTrains(t *testing.T) {
 // A session of a dir depot's bead leaves a brief in the depot's directory, not
 // a worktree: once the bead closes it is still found for cleanup.
 func TestClosedWithWorkspaceDirDepot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir}, "me"); err != nil {
@@ -271,6 +276,7 @@ func TestClosedWithWorkspaceDirDepot(t *testing.T) {
 // it and its flow pointers leave the store, and the directory, with its
 // .yardr/, stays as it is (there are no worktrees to speak of).
 func TestDeleteDirDepot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()

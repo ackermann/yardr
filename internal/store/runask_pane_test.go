@@ -59,6 +59,7 @@ func mailLimitAsk() store.Ask {
 // A bead's agent writes no run ask, whatever actor it names: the store
 // knows it by its pane. And it approves none.
 func TestRunAskIsNotWrittenOrApprovedFromASessionsPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	seq, err := s.AddAsk(ctx, b.ID, mailLimitAsk(), "yardmaster")
@@ -104,6 +105,7 @@ func TestRunAskIsNotWrittenOrApprovedFromASessionsPane(t *testing.T) {
 // it, also when the call names the operator: an agent cannot approve its
 // own ask. Outside the pane the operator approves.
 func TestRunAskIsNotApprovedFromACrewMembersPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	me := os.Getpid()
@@ -140,6 +142,7 @@ func TestRunAskIsNotApprovedFromACrewMembersPane(t *testing.T) {
 // whatever actor the call names: the check a subscription has goes by the
 // name alone, and the approval asks the pane first.
 func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	me := os.Getpid()
@@ -178,6 +181,7 @@ func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
 // whatever actor the call names: the asking crew member cannot approve its
 // own ask as the user (yardr-6k0b).
 func TestRunAskUserTellIsNotApprovedFromACrewMembersPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	me := os.Getpid()
@@ -219,6 +223,7 @@ func TestRunAskUserTellIsNotApprovedFromACrewMembersPane(t *testing.T) {
 // A start that failed leaves the pane the crew member's while its shell
 // still runs: the daemon may not have been able to close it.
 func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	me := os.Getpid()
@@ -299,6 +304,7 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 // still starting, before the dispatcher has marked it running, and the
 // agent in it approves nothing as the operator.
 func TestRunAskIsNotApprovedFromAStartingSessionsPane(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t)
 	ctx := context.Background()
 	seq, err := s.AddAsk(ctx, b.ID, mailLimitAsk(), "yardmaster")

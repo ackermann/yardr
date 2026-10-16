@@ -52,6 +52,7 @@ func texts(page *store.NotificationPage) []string {
 // user's inbox: yardr's own line about the event with the bead's title,
 // and no mail. A crew member subscribed to the same hears of it as before.
 func TestUserSubscriptionNotifies(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster")
 	user(t, s, "ada", yardrSub(store.ScopeAll, "state=done"), yardrSub(store.ScopeMentions))
 	user(t, s, "bob")
@@ -123,6 +124,7 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 
 // A person is not told of what they did themselves, as a crew member is not.
 func TestUserNotToldOfOwnActions(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	user(t, s, "ada", yardrSub(store.ScopeAll))
 	if err := s.AddNote(ctx, b.ID, "mine", "ada"); err != nil {
@@ -140,6 +142,7 @@ func TestUserNotToldOfOwnActions(t *testing.T) {
 // the words a crew member's inbox has for it. A user has no identity in a
 // source, so the narrower scopes reach nobody.
 func TestUserHookNotification(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	user(t, s, "ada", store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"type": "comment"}})
@@ -175,6 +178,7 @@ func TestUserHookNotification(t *testing.T) {
 }
 
 func TestHookNotificationStaysOnOneSafeLine(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	user(t, s, "ada", store.Subscription{Source: "github", Scope: store.ScopeAll})
 	record(t, own, hooks.Envelope{Source: "github", Type: "issue", Action: "opened",
@@ -189,6 +193,7 @@ func TestHookNotificationStaysOnOneSafeLine(t *testing.T) {
 // a crew member may neither subscribe a user nor remove what a user
 // subscribes to, and is told why.
 func TestCrewMayNotSubscribeAUser(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster")
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
@@ -254,6 +259,7 @@ func TestCrewMayNotSubscribeAUser(t *testing.T) {
 // A user's watch on a bead ends when the bead closes, after it told of the
 // close, as a crew member's does.
 func TestUserWatchEndsOnClose(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	user(t, s, "ada", yardrSub(store.ScopeAll, "bead="+b.ID))
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
@@ -275,6 +281,7 @@ func TestUserWatchEndsOnClose(t *testing.T) {
 // own unread and is acknowledged by itself: reading the one leaves the
 // other as it was.
 func TestUserInboxPartsAckApart(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster")
 	user(t, s, "ada", yardrSub(store.ScopeAll, "kind=noted"))
 	note := func(text string) {
@@ -390,6 +397,7 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 // stream, so the oldest are dropped as more arrive. Another user's are
 // not counted against it.
 func TestNotificationBound(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	user(t, s, "ada", store.Subscription{Source: "linear", Scope: store.ScopeAll})
 	user(t, s, "bob", store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"type": "issue"}})
@@ -418,6 +426,7 @@ func TestNotificationBound(t *testing.T) {
 // A removed user's notifications go with them: a later user of the name
 // starts with none, and with none of the subscriptions.
 func TestUserRemovedWithNotifications(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	user(t, s, "ada", yardrSub(store.ScopeAll))
 	if err := s.AddNote(ctx, b.ID, "one", "jane"); err != nil {

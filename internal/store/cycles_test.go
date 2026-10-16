@@ -80,6 +80,7 @@ func readyIDs(t *testing.T, s store.API) []string {
 // would close a cycle of blockers is refused, naming the cycle in order,
 // the new edge first.
 func TestAddDepRefusesACycle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	beads(t, s, "y-a", "y-b", "y-c")
 	block(t, s, "y-a y-b")
@@ -93,6 +94,7 @@ func TestAddDepRefusesACycle(t *testing.T) {
 
 // Two ways from one bead to another are no cycle.
 func TestAddDepAcceptsADiamond(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	beads(t, s, "y-a", "y-b", "y-c", "y-d")
 	block(t, s, "y-a y-b", "y-a y-c", "y-b y-d", "y-c y-d")
@@ -106,6 +108,7 @@ func TestAddDepAcceptsADiamond(t *testing.T) {
 // cycle like one asked for: with the train already blocking the child, and
 // the other way around once the bead is a child.
 func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	block(t, s, "web-e web-1")
 	cycleRefused(t, s, "web-e", "web-1", store.DepParent, "web-1 blocks web-e blocks web-1")
@@ -127,6 +130,7 @@ func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
 // Only blocks edges decide readiness: an edge of any other kind is never
 // refused for a cycle, and never part of one.
 func TestAddDepOtherKindsAreNoCycle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	beads(t, s, "y-a", "y-b", "y-c")
@@ -148,6 +152,7 @@ func TestAddDepOtherKindsAreNoCycle(t *testing.T) {
 // A closed blocker blocks nothing, but it counts: reopening does not look
 // at edges, so a cycle through a closed bead would turn live unseen.
 func TestAddDepCountsClosedBeads(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	beads(t, s, "y-a", "y-b")
@@ -161,6 +166,7 @@ func TestAddDepCountsClosedBeads(t *testing.T) {
 // The walk is part of the write: of two adds that close a cycle between
 // them, one is refused, whichever comes second.
 func TestAddDepConcurrentAddsCannotBothPass(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	for round := range 20 {
@@ -190,6 +196,7 @@ func TestAddDepConcurrentAddsCannotBothPass(t *testing.T) {
 // that leads into one or out of it is not part of it. Nothing is removed
 // for the user: dep rm on one edge ends the cycle.
 func TestBlockerCyclesInAnOldStore(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	ctx := context.Background()
 	s, err := store.Open(path)

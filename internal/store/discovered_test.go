@@ -29,6 +29,7 @@ func discovery(t *testing.T, s store.API, id string) (from, ledTo []string) {
 // edge runs origin -> found bead, the origin may be closed and in another
 // depot, and the found bead takes nothing from it.
 func TestCreateDiscoveredFrom(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if err := s.PutDepot(ctx, store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -83,6 +84,7 @@ func TestCreateDiscoveredFrom(t *testing.T) {
 // An origin that does not exist refuses the create, and no bead is left
 // without the edge it was asked for.
 func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	before, err := s.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {
@@ -106,6 +108,7 @@ func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
 // open or closed, the same beads are ready and dispatchable, none has a
 // blocker, and a train origin gets no child.
 func TestDiscoveredFromNeverBlocks(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	state := func() (ready, dispatchable []string) {
 		t.Helper()
@@ -160,6 +163,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 // --discovered-from lists what was found from a bead; dep rm removes the
 // edge like any other.
 func TestDiscoveryAndListing(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	var found []string
 	for _, title := range []string{"first", "second"} {

@@ -21,6 +21,8 @@ type pruneYard struct {
 	key string
 }
 
+// newPruneYard sets the package's fake clock to the yard's now, so its
+// callers stay sequential.
 func newPruneYard(t *testing.T) *pruneYard {
 	t.Helper()
 	y := &pruneYard{at: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
@@ -85,6 +87,7 @@ const day = 24 * time.Hour
 // taken again as new. A younger one stays, and is still dropped as the
 // duplicate it is.
 func TestPruneForgetsSeenPeerIDs(t *testing.T) {
+	// Sequential: the package's fake clock (via newPruneYard).
 	y := newPruneYard(t)
 	if y.take(t, "old") {
 		t.Fatal("the first of an id was dropped as a duplicate")
@@ -143,6 +146,7 @@ func TestPruneForgetsSeenPeerIDs(t *testing.T) {
 // Only a prune that removes something of a link says so: one that removes
 // seen ids and nothing else still logs store_pruned.
 func TestPruneOfPeersAloneIsLogged(t *testing.T) {
+	// Sequential: the package's fake clock (via newPruneYard).
 	y := newPruneYard(t)
 	y.take(t, "old")
 	y.at = y.at.Add(8 * day)
@@ -170,6 +174,7 @@ func TestPruneOfPeersAloneIsLogged(t *testing.T) {
 // given up for longer than the bound. One that waits is never removed by
 // its age.
 func TestPruneRemovesPeerMessagesGivenUp(t *testing.T) {
+	// Sequential: the package's fake clock (via newPruneYard).
 	y := newPruneYard(t)
 	ctx := context.Background()
 	send := func() *PeerOut {
@@ -224,6 +229,7 @@ func TestPruneRemovesPeerMessagesGivenUp(t *testing.T) {
 
 // More than one batch of them goes in one prune, counted whole.
 func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
+	// Sequential: the package's fake clock (via newPruneYard).
 	y := newPruneYard(t)
 	n := pruneBatch + 10
 	err := y.db.Update(func(tx *bolt.Tx) error {
@@ -247,6 +253,7 @@ func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
 // mail is in the log, also once the prune took it out of the outbox: what
 // is not in the outbox is otherwise taken as sent.
 func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
+	// Sequential: the package's fake clock (via newPruneYard).
 	y := newPruneYard(t)
 	ctx := context.Background()
 	if _, err := y.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {

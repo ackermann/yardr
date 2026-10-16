@@ -54,6 +54,7 @@ func history(ls []store.Letter) string {
 // Mail of a name that is not trusted, and mail with anyone else, is not in
 // it; the address alone is still its own conversation.
 func TestConversationHasTheTrustedName(t *testing.T) {
+	t.Parallel()
 	y := historyYard(t)
 	for _, err := range []error{
 		y.api.Mail(y.ctx, "clerk", "one", "jo"),
@@ -113,6 +114,7 @@ func TestConversationHasTheTrustedName(t *testing.T) {
 // before it is in the user's conversation too, both ways, and what came
 // then has no mark, since nobody had said whose word it was.
 func TestConversationHasTheNamesMailFromBeforeTheGrant(t *testing.T) {
+	t.Parallel()
 	y := trustYard(t)
 	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Expose: []string{"clerk"}})
 	y.member(t, "clerk", "north")
@@ -132,6 +134,7 @@ func TestConversationHasTheNamesMailFromBeforeTheGrant(t *testing.T) {
 // Nothing of a trusted name's mail is in the user's inbox here: none of it
 // is unread for them, and an acknowledgement past it reads no mail.
 func TestTrustedNamesMailIsNotInTheUsersInbox(t *testing.T) {
+	t.Parallel()
 	y := historyYard(t)
 	y.came(t, "m1", "clerk", "mckean", "one")
 	y.went(t, "mckean", "two", "clerk")
@@ -165,6 +168,7 @@ func TestTrustedNamesMailIsNotInTheUsersInbox(t *testing.T) {
 // The pages of a conversation count the trusted name's mail with the
 // rest: the newest limit of all of it, before a seq and after one.
 func TestConversationPagesOverTheTrustedName(t *testing.T) {
+	t.Parallel()
 	y := historyYard(t)
 	for i := 0; i < 3; i++ {
 		if err := y.api.Mail(y.ctx, "clerk", fmt.Sprintf("a%d", i), "jo"); err != nil {
@@ -212,6 +216,7 @@ func TestConversationPagesOverTheTrustedName(t *testing.T) {
 // takes the name off its roster, and when the name is trusted as someone
 // else.
 func TestTrustTakenBackKeepsTheHistory(t *testing.T) {
+	t.Parallel()
 	for _, how := range []string{"stopped", "unexposed", "another"} {
 		t.Run(how, func(t *testing.T) {
 			y := historyYard(t)
@@ -259,6 +264,7 @@ func TestTrustTakenBackKeepsTheHistory(t *testing.T) {
 // the user's conversation under the address of today, and once the link is
 // removed it is in none, as the address reaches nobody.
 func TestHistoryFollowsTheLink(t *testing.T) {
+	t.Parallel()
 	y := historyYard(t)
 	y.came(t, "m1", "clerk", "mckean", "one")
 	y.went(t, "mckean", "two", "clerk")

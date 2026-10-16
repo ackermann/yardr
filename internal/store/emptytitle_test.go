@@ -11,6 +11,7 @@ import (
 // spaces, and creates nothing; update refuses to set one the same way
 // (yardr-0fbd).
 func TestBeadNeedsATitle(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	before, err := s.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {

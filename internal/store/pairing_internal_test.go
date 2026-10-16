@@ -18,6 +18,8 @@ type pairHost struct {
 	at  time.Time
 }
 
+// newPairHost sets the package's fake clock and shortens pairing.Stretch,
+// so its callers stay sequential.
 func newPairHost(t *testing.T) *pairHost {
 	t.Helper()
 	h := &pairHost{at: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
@@ -95,6 +97,7 @@ func (h *pairHost) refusals(t *testing.T) []Event {
 // has run out, the pairing has ended as timed out, and the yard opens
 // another.
 func TestPairingCodeExpires(t *testing.T) {
+	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	opened, code := h.open(t)
@@ -135,6 +138,7 @@ func TestPairingCodeExpires(t *testing.T) {
 // call, whatever was left of the code's ten. When they run out with one
 // yes, or two, missing, nothing is saved.
 func TestPairingConfirmTimesOut(t *testing.T) {
+	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	opened, code := h.open(t)
@@ -174,6 +178,7 @@ func TestPairingConfirmTimesOut(t *testing.T) {
 // confirming is done without it. A later call with the code takes an
 // earlier one's place until one has revealed itself.
 func TestPairingForgetsTheCode(t *testing.T) {
+	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	_, code := h.open(t)
@@ -234,6 +239,7 @@ func TestPairingForgetsTheCode(t *testing.T) {
 // for is no message, from one who knows the code or not; a name that is no
 // peer's name ends the pairing with the way out.
 func TestPairingReveal(t *testing.T) {
+	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	_, code := h.open(t)

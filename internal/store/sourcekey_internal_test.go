@@ -58,6 +58,7 @@ func sourceSetEvents(t *testing.T, s *Store) int {
 // the same giving again ends as one that worked: the file with the line
 // once, the env_file set, one source_set event.
 func TestKeySourceNotRecorded(t *testing.T) {
+	// Sequential: the afterKeyRename hook.
 	s, file := keyedYard(t)
 	ctx := context.Background()
 	full := errors.New("no space left on device")
@@ -110,6 +111,7 @@ func TestKeySourceNotRecorded(t *testing.T) {
 // after the rename is said the same: the new value is in use, and the
 // setting is as it was.
 func TestKeySourceNotRecordedWithAnEnvFile(t *testing.T) {
+	// Sequential: the afterKeyRename hook.
 	s, _ := keyedYard(t)
 	ctx := context.Background()
 	file := filepath.Join(t.TempDir(), "mine.env")
@@ -141,6 +143,7 @@ func TestKeySourceNotRecordedWithAnEnvFile(t *testing.T) {
 // transaction that another caller's function fails, and again by itself.
 // The giving ends the same then as when it ran once.
 func TestKeySourceRunTwice(t *testing.T) {
+	t.Parallel()
 	s, file := keyedYard(t)
 	ctx := context.Background()
 	var k sourceKey
@@ -180,6 +183,7 @@ func TestKeySourceRunTwice(t *testing.T) {
 // A second file left beside the env file by a write that died is removed
 // by the next giving, and nothing of it is in the file.
 func TestKeySourceRemovesALeftSecondFile(t *testing.T) {
+	t.Parallel()
 	s, file := keyedYard(t)
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)

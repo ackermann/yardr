@@ -103,6 +103,7 @@ func (y *peerYard) arrivals(t *testing.T, members ...string) {
 // relates. The same message a second time makes no second bead. A type that
 // means something about branches here arrives as a task.
 func TestPeerBeadArrives(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.arrivals(t, "jo")
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
@@ -222,6 +223,7 @@ func TestPeerBeadArrives(t *testing.T) {
 // nobody. Types routed apart are said apart, and a group of people without
 // a wait is named.
 func TestPeerArrive(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	arrive := func() *store.Peer {
 		t.Helper()
@@ -328,6 +330,7 @@ func TestPeerArrive(t *testing.T) {
 // it once, and leaves the id free: the sender may send it again when the
 // reason is gone.
 func TestPeerBeadRefusals(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	refused := func(want string, m store.PeerMessage) store.Event {
 		t.Helper()
@@ -445,6 +448,7 @@ func mustList(t *testing.T, y *peerYard) []store.Bead {
 // An intake names a depot of the yard and a flow that resolves for it, with a
 // stage a bead can start in. It is shown with the peer, and removed.
 func TestPeerIntake(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	putNamed(t, y.api, "ends", "over terminal\n")
 	for want, in := range map[string]store.PeerIntake{
@@ -491,6 +495,7 @@ func TestPeerIntake(t *testing.T) {
 // that takes beads may send returns and takes none, and nothing on the
 // socket sends either kind.
 func TestPeerBeadKinds(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	ret := store.PeerMessage{ID: "x1", Kind: store.PeerBeadReturn, Re: "b0", Body: json.RawMessage(`{"v":1,"bead":"n-1","outcome":"done"}`)}
 	if got := y.take(t, ret); got[0].Refused != "kind_not_allowed" {
@@ -519,6 +524,7 @@ func TestPeerBeadKinds(t *testing.T) {
 // member. A refused move changes nothing, and closing the bead is anyone's,
 // as it is of any bead: that returns it as refused.
 func TestPeerBeadMovedOnByAMember(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.arrivals(t, "jo", "warden")
 	for _, name := range []string{"yardmaster", "clerk", "warden"} {
@@ -635,6 +641,7 @@ func (y *peerYard) returned(t *testing.T) (store.PeerOut, store.PeerReturnMessag
 // that write: the outcome of the move, and the notes written here, not
 // those that came with it. Once.
 func TestPeerBeadReturn(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) {
 		b["notes"] = []map[string]any{{"author": "yardmaster", "at": time.Now().Add(-time.Hour), "text": "theirs"}}
@@ -692,6 +699,7 @@ func TestPeerBeadReturn(t *testing.T) {
 // and a bare close returns refused with its reason, also for a bead still
 // held.
 func TestPeerBeadReturnWithoutOutcome(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
@@ -725,6 +733,7 @@ func TestPeerBeadReturnWithoutOutcome(t *testing.T) {
 
 // More notes than cross a link: the newest are returned, the older counted.
 func TestPeerBeadReturnLeavesOutOldNotes(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
@@ -750,6 +759,7 @@ func TestPeerBeadReturnLeavesOutOldNotes(t *testing.T) {
 // A link that stopped taking the peer's beads carries no return: the bead
 // ends here, the refusal is logged, and it is not marked returned.
 func TestPeerBeadReturnOverAClosedLink(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
@@ -771,6 +781,7 @@ func TestPeerBeadReturnOverAClosedLink(t *testing.T) {
 // to the peer under its new name. After the link is removed the bead says
 // so, nobody's grant is left, and nothing is returned.
 func TestPeerBeadRenameAndRemove(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: "warden", Runner: "herdr", Config: map[string]any{store.MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -850,6 +861,7 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 // A bead handed over to a pull is taken as one posted is, and a refusal is
 // kept for the next question.
 func TestPeerBeadPulled(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	page := func(ms ...store.PeerMessage) store.PeerBatch {
 		body, _ := json.Marshal(store.PeerPage{Messages: ms})
@@ -878,6 +890,7 @@ func TestPeerBeadPulled(t *testing.T) {
 // the runner recorded for the crew member's tab. A crew member that is a
 // member moves it from its pane under any name.
 func TestPeerBeadMoveFromACrewPane(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.arrivals(t, "jo", "warden")
 	y.member(t, "yardmaster", "")
@@ -933,6 +946,7 @@ func TestPeerBeadMoveFromACrewPane(t *testing.T) {
 // stage of people is moved out of it from a crew member's pane as that
 // crew member, and from the pane of a bead's agent by nobody.
 func TestMembersByThePane(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.member(t, "yardmaster", "")
 	putNamed(t, y.api, "decided", "decide -> build\nbuild -> over\nover terminal\n")
@@ -1007,6 +1021,7 @@ func TestMembersByThePane(t *testing.T) {
 // own to allow, so its refusal names the bead's (found in the trial: "its
 // link does not carry bead-return in" names nothing an operator can allow).
 func TestPeerRefusalOfBeads(t *testing.T) {
+	t.Parallel()
 	for reason, want := range map[string]string{
 		"kind_not_allowed": "its link does not carry bead in",
 		"no_intake":        "it has no intake for this yard's beads",

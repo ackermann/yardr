@@ -71,6 +71,7 @@ func (y *askYard) limit(t *testing.T) int {
 // takes the change back and the link's key whole: all of it the yard's,
 // whatever the asker sent.
 func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, key := runYard(t)
 	want := AskRun{
 		Argv:        []string{"peer", "allow", "airy", "--mail-limit", "300"},
@@ -109,6 +110,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 // one asked, a person of another yard, and a writer that is no crew member
 // and no user.
 func TestRunAskRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user add <name>, yardr user rm <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
@@ -185,6 +187,7 @@ func TestRunAskRefusals(t *testing.T) {
 // command whole, what the yard says it changes, and the command that takes
 // it back.
 func TestRunAskCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, key := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	// A line that would pass for the yard's, were it not marked.
@@ -249,6 +252,7 @@ func TestRunAskCard(t *testing.T) {
 // holds what ran and what it printed, the change's own event names the ask,
 // the asker reads in its inbox what was run, and the card reads approved.
 func TestApproveAsk(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("yardr peer allow --mail-limit 300 airy"), "yardmaster")
 	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
@@ -335,6 +339,7 @@ func TestApproveAsk(t *testing.T) {
 // and is open or put aside. A refused approval records nothing and changes
 // nothing.
 func TestApproveAskRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	run := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	words := y.ask(t, Ask{Question: "Which?", To: "mckean", Context: []string{"c"}}, "yardmaster")
@@ -395,6 +400,7 @@ func TestApproveAskRefusals(t *testing.T) {
 // from another yard lands by. Later puts it aside, from where it is still
 // approved, and a decline ends it.
 func TestRunAskTakesNoOtherAnswer(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	approve := "ask 1 takes an approval, not words: yardr bead answer " + y.bead + " 1 --approve"
@@ -450,6 +456,7 @@ func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 // takes another number of mails than the card says, in the words of the
 // change. Nothing runs, and the ask stays open to be declined.
 func TestApproveAskRefusesWhenTheLimitChanged(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	const nothing = " Nothing ran. Decline it; it is asked again if it is still wanted."
 	for _, c := range []struct {
 		name string
@@ -488,6 +495,7 @@ func TestApproveAskRefusesWhenTheLimitChanged(t *testing.T) {
 // the same on the card, sentence for sentence, and is another link: the
 // approval is refused, and nothing runs.
 func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, key := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	was := *y.asked(t, seq).Ask.Run
@@ -542,6 +550,7 @@ func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
 // approval good: the command does what the card says to the link the card
 // was written from.
 func TestApproveAskHoldsWhenSomethingElseChanged(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerMail}, Receive: []string{PeerMail}, Expose: []string{"mckean"}}, "mckean"); err != nil {
@@ -560,6 +569,7 @@ func TestApproveAskHoldsWhenSomethingElseChanged(t *testing.T) {
 // yard alone. An ask of any other kind for the same user is copied, and a
 // run ask that another yard sends is no ask this yard takes.
 func TestRunAskIsNotCopiedOverALink(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	if err := y.PeerHeard(y.ctx, "airy", y.asKey(t), &PeerSays{Understands: []string{PeerMail, PeerAsk},
 		Roster: []PeerRosterEntry{{Name: "mckean", Kind: RosterUser, Mail: true}}}); err != nil {
@@ -624,6 +634,7 @@ func termRows(text string, w int) []string {
 // every run of spacing to one space, so in a terminal 80 wide no row of
 // the asker's words stands at the yard's column.
 func TestRunAskCardPaddedSpacesFoldToOne(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	ask.Question = "Take more?" + strings.Repeat(" ", 68) + "  the yard says: nothing changes."
@@ -668,6 +679,7 @@ func (y *askYard) asKey(t *testing.T) string {
 // break, stored before the yard refused them, folds to the line it claims
 // to be, and an answer's words continue deeper as the question's do.
 func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, key := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	ask.Question = "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list"

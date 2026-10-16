@@ -18,6 +18,7 @@ import (
 // stored and no event written. The operator changes one as before, and
 // everyone reads them.
 func TestSettingsAreTheOperatorsToChange(t *testing.T) {
+	t.Parallel()
 	s, b := paneYard(t) // the operator is jo, the crew member yardmaster
 	ctx := context.Background()
 	me := os.Getpid()
@@ -107,6 +108,7 @@ func TestSettingsAreTheOperatorsToChange(t *testing.T) {
 // setting stored before any init), and none from a crew member or from the
 // pane of a bead's session, so no agent names itself the operator.
 func TestSettingsOfAYardWithoutAnOperator(t *testing.T) {
+	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	me := os.Getpid()

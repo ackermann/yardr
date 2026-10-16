@@ -13,6 +13,7 @@ import (
 // adds the operator's when it opens, once; a yard whose operator has a
 // crew member's name keeps the crew member and gets no user.
 func TestOperatorUserOfAnOlderYard(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	older := func(t *testing.T, operator string, crew ...string) string {
 		t.Helper()
@@ -116,6 +117,7 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 // Mail to a user goes with the log as a crew member's does, and its index
 // entry with it.
 func TestUserMailIsIndexedAsMail(t *testing.T) {
+	t.Parallel()
 	e := Event{Seq: 7, Kind: "mail", Data: map[string]any{"to": "jo", "to_user": true, "text": "x"}}
 	if got := inboxOf(e); len(got) != 1 || got[0] != "jo" {
 		t.Fatalf("inboxOf = %v", got)

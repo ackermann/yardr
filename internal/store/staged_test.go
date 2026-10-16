@@ -62,6 +62,7 @@ func blockersOf(t *testing.T, s store.API, ctx context.Context, id string) []str
 // An --at approved edge stores and lists: Deps from both ends, AllDeps and
 // the snapshot carry it.
 func TestStagedBlocksStoresAndLists(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
@@ -96,6 +97,7 @@ func TestStagedBlocksStoresAndLists(t *testing.T) {
 // approved; leaving the stage routes it again. A plain edge holds its
 // target in every stage, as before.
 func TestStagedBlocksHoldsOnlyInItsStage(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
@@ -136,6 +138,7 @@ func TestStagedBlocksHoldsOnlyInItsStage(t *testing.T) {
 // Closing the blocker releases a held target, whatever the reason, and
 // reopening it holds the target again.
 func TestStagedBlocksCloseAndReopen(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
@@ -173,6 +176,7 @@ func TestStagedBlocksCloseAndReopen(t *testing.T) {
 // several stages, but not twice in one. The cycle check stays on
 // (from, to): a staged edge closes a cycle like a plain one.
 func TestStagedBlocksDuplicateKeyAndCycles(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	for _, at := range []string{"", "review", "approved"} {
 		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "", "me"); err != nil {
@@ -208,6 +212,7 @@ func TestStagedBlocksDuplicateKeyAndCycles(t *testing.T) {
 // has not got. Where no flow governs the bead, any well-formed stage name
 // is accepted.
 func TestStagedBlocksRefusals(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	for _, kind := range []string{"related", store.DepParent, store.DepDiscoveredFrom} {
 		err := s.AddDep(ctx, "y-block", "y-target", kind, "approved", "", "me")
@@ -240,6 +245,7 @@ func TestStagedBlocksRefusals(t *testing.T) {
 // dep rm --at removes exactly that edge: the plain edge and the other
 // staged edges stay, and readiness follows what is left.
 func TestStagedBlocksRemoveExactly(t *testing.T) {
+	t.Parallel()
 	s, ctx := stagedYard(t)
 	for _, at := range []string{"", "review", "approved"} {
 		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "", "me"); err != nil {
@@ -305,6 +311,7 @@ func TestStagedBlocksRemoveExactly(t *testing.T) {
 // A target governed by its depot's repository flow validates --at against
 // that flow.
 func TestStagedBlocksRepoFlow(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": yardFlow})
 	s, ctx := storetest.New(t), context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Path: dir, Base: "main"}, "me"); err != nil {

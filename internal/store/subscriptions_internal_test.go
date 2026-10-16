@@ -7,6 +7,7 @@ import "testing"
 // them. Each scope is asked with each way its holder may stand to the
 // event, and the filter with the keys of each.
 func TestMatch(t *testing.T) {
+	t.Parallel()
 	hook := hookFields(map[string]any{
 		"source": "linear", "type": "Comment", "action": "create",
 		"fields": map[string]any{"team": []any{"ENG"}, "label": []any{"bug", "p1"}, "type": []any{"shadowed"}},
@@ -79,6 +80,7 @@ func TestMatch(t *testing.T) {
 // the same does not stand in for them, and one that is no list of strings
 // matches nothing.
 func TestHookFields(t *testing.T) {
+	t.Parallel()
 	built := hookFields(map[string]any{"type": "Issue", "fields": map[string][]string{"team": {"ENG"}, "action": {"create"}}})
 	decoded := hookFields(map[string]any{"type": "Issue", "fields": map[string]any{"team": []any{"ENG"}, "action": []any{"create"}, "repo": "a/b"}})
 	for name, f := range map[string]map[string][]string{"built in process": built, "decoded": decoded} {
@@ -103,6 +105,7 @@ func TestHookFields(t *testing.T) {
 // only when the answer can change the reason: not when the filter fails,
 // and a mentions subscription never asks who was assigned or took part.
 func TestMatchAsksOnlyWhatItNeeds(t *testing.T) {
+	t.Parallel()
 	asked := ""
 	ask := func(name string, v bool) func() bool {
 		return func() bool { asked += name; return v }

@@ -30,6 +30,7 @@ func inboxKinds(t *testing.T, s store.API, name string) string {
 // session's, is held by text or by a dialog of its harness. One about its
 // own input is yardr telling of the member itself, and stays on its journal.
 func TestNudgeHeldReachesWhoHearsTheClass(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	journals := map[string]string{}
@@ -61,6 +62,7 @@ func TestNudgeHeldReachesWhoHearsTheClass(t *testing.T) {
 // (yardr-x6s0): a crew member that hears the class has them in its inbox.
 // daemon_started is a dispatch kind but a routine start, so of no class.
 func TestInstallKindsAreDispatchKindsOfTheClass(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", On: []string{store.KindAttention}}, "me"); err != nil {
@@ -80,6 +82,7 @@ func TestInstallKindsAreDispatchKindsOfTheClass(t *testing.T) {
 // class after the member was made. One with a copy of the list as it was
 // does not: that was every crew member until the class (yardr-qcm2).
 func TestAKindThatJoinsTheClassReachesTheCrewMadeBefore(t *testing.T) {
+	// Sequential: store.AttentionKinds.
 	// raw logs a kind as an earlier release did, which no call of the API
 	// takes.
 	s, raw := storetest.NewOwned(t)
@@ -145,6 +148,7 @@ func TestAKindThatJoinsTheClassReachesTheCrewMadeBefore(t *testing.T) {
 // has no --on: it takes the class the same way, for its members that are
 // crew members (yardr-qcm2).
 func TestTheClassInAFilterIsOneDepotsAttention(t *testing.T) {
+	// Sequential: store.AttentionKinds.
 	s, ctx, b := yardrDepot(t, "clerk", "both", "member")
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)

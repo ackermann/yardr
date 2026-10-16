@@ -41,6 +41,7 @@ func rosterYard(t *testing.T) (y *peerYard, dir string) {
 // each once, and the roster the peer is told says of each what it is, one
 // line of what it does and whether the link takes mail.
 func TestPeerAllowExpose(t *testing.T) {
+	t.Parallel()
 	y, dir := rosterYard(t)
 	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Expose != nil || p.Roster != nil {
 		t.Fatalf("a new link exposes %+v, says %+v, %v", p.Expose, p.Roster, err)
@@ -137,6 +138,7 @@ func TestPeerAllowExpose(t *testing.T) {
 // Who is removed from the yard is taken off every link that exposed them:
 // whoever has the name next is exposed to nobody.
 func TestRemovedIsExposedNoMore(t *testing.T) {
+	t.Parallel()
 	y, _ := rosterYard(t)
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "west", Key: otherKey(t)}, "jo"); err != nil {
 		t.Fatal(err)
@@ -175,6 +177,7 @@ func TestRemovedIsExposedNoMore(t *testing.T) {
 // has is, so the answer tells nothing of who is here. Exposing is not
 // taking mail: without receive mail the link carries none.
 func TestPeerMailToTheExposed(t *testing.T) {
+	t.Parallel()
 	y, _ := rosterYard(t)
 	if _, err := y.api.PutSource(y.ctx, "pushover.yaml", sourceFile, "jo"); err != nil {
 		t.Fatal(err)

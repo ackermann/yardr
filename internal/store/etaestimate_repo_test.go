@@ -18,6 +18,7 @@ import (
 // once per bead: every bead's flow resolves from one shared reading. Thirty
 // beads cost thirty git invocations before, one after.
 func TestStoreEstimateManyReadsRepoOnce(t *testing.T) {
+	// Sequential: process environment.
 	ctx := context.Background()
 	repo := gitRepo(t, map[string]string{
 		".yardr/flows/default.flow": "backlog -> new\nnew -> review\nreview -> merged\nmerged terminal\n",

@@ -11,6 +11,7 @@ import (
 )
 
 func TestHookCRUD(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	for _, bad := range []store.Hook{
@@ -59,6 +60,7 @@ func TestHookCRUD(t *testing.T) {
 }
 
 func TestRecordHookKeepsPayload(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.LogDispatch(ctx, "", "daemon_replaced", "me", nil); err != nil {

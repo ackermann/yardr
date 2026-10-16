@@ -17,6 +17,7 @@ import (
 // Another host or another path is another remote, and the form reads as
 // itself, since it is what crosses a link.
 func TestRemoteForm(t *testing.T) {
+	t.Parallel()
 	const web = "github.com/acme/web"
 	for in, want := range map[string]string{
 		"https://github.com/acme/web.git":                      web,
@@ -86,6 +87,7 @@ func TestRemoteForm(t *testing.T) {
 }
 
 func TestIsBeadBranch(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]bool{
 		"yard/web-0wzb": true, "yard/yardr-4pya": true, "yard/a.b_c-1": true,
 		"main": false, "yard/": false, "yard": false, "yard/a/b": false, "refs/heads/yard/x": false, "yard/-x": false,
@@ -125,6 +127,7 @@ func commit(t *testing.T, dir, file string) string {
 // is checked out, and one that the returned commit does not come after
 // stays, with a refusal no further try changes.
 func TestTakePeerBranchFastForwardOnly(t *testing.T) {
+	// Sequential: process environment.
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
@@ -183,6 +186,7 @@ func TestTakePeerBranchFastForwardOnly(t *testing.T) {
 // A peer group's remote is the name of one, and nothing git would read as
 // anything else.
 func TestPeerGroupRemoteSetting(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.AddPeer(ctx, store.Peer{Name: "north", Key: strings.Repeat("k", 43)}, "jo"); err != nil {
@@ -207,6 +211,7 @@ func TestPeerGroupRemoteSetting(t *testing.T) {
 // gc that keeps nothing else, and is the depot's to drop once the bead is no
 // longer among those named.
 func TestKeepPeerBases(t *testing.T) {
+	// Sequential: process environment.
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()

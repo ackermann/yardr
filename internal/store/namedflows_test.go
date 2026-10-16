@@ -88,6 +88,7 @@ func governing(t *testing.T, s store.API, id string) (string, string) {
 // pin > store pointer > repo .yardr/flows > none, and within the store and
 // within the repo, the type's flow over the depot's.
 func TestFlowResolutionOrder(t *testing.T) {
+	t.Parallel()
 	s, ctx, dir := repoDepot(t)
 	sha := runGit(t, dir, "rev-parse", "main")[:7]
 	task, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web"}, "me")
@@ -203,6 +204,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 // Repo flows come from the tip of the base branch: not the checkout's
 // branch, not its working tree, and they follow the base when it moves.
 func TestRepoFlowsReadFromBase(t *testing.T) {
+	t.Parallel()
 	s, ctx, dir := repoDepot(t)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web"}, "me")
 	if err != nil {
@@ -262,6 +264,7 @@ func TestRepoFlowsReadFromBase(t *testing.T) {
 }
 
 func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putNamed(t, s, "code", yardFlow)
 	if err := s.SetFlowPointer(ctx, "yard", "", "code", "me"); err != nil {
@@ -305,6 +308,7 @@ func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
 
 // One named flow shared by two depots: an edit applies to both.
 func TestNamedFlowShared(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	if err := s.PutDepot(ctx, store.Depot{Name: "webapp", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -333,6 +337,7 @@ func TestNamedFlowShared(t *testing.T) {
 // becomes the named flow <depot> and each type flow <depot>.<type>, with
 // pointers to them.
 func TestMigrateFlows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -422,6 +427,7 @@ func TestMigrateFlows(t *testing.T) {
 // Reading repo flows fails closed: only a base that does not exist in the
 // checkout means "no repo flows"; a path git cannot read is an error.
 func TestRepoFlowsGitErrors(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	repo := gitRepo(t, map[string]string{".yardr/flows/default.flow": "new -> done\n"})
@@ -471,6 +477,7 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 // the stored flow is kept. Closed beads, beads pinned elsewhere and beads
 // of a type with its own pointer do not stand in the way (yardr-wna2).
 func TestPutFlowRefusesStrays(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -577,6 +584,7 @@ func TestPutFlowRefusesStrays(t *testing.T) {
 // closed beads and beads of a type with its own pointer are not affected,
 // so they do not stand in the way.
 func TestSetFlowPointerRefusesStrays(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putNamed(t, s, "code", yardFlow)
 	putNamed(t, s, "tri", "triage -> new\nnew -> done\ndone terminal\n")
@@ -677,6 +685,7 @@ func TestSetFlowPointerRefusesStrays(t *testing.T) {
 // checked the same way; a repository git cannot read is an error only for
 // a bead whose flow would come from it.
 func TestSetFlowPointerStraysAgainstRepo(t *testing.T) {
+	t.Parallel()
 	s, ctx, _ := repoDepot(t)
 	putNamed(t, s, "tri", "triage -> new\nnew -> done\ndone terminal\n")
 	if err := s.SetFlowPointer(ctx, "web", "", "tri", "me"); err != nil {
@@ -729,6 +738,7 @@ func TestSetFlowPointerStraysAgainstRepo(t *testing.T) {
 // with the flow and the commit that lacks their stage. Such a bead leaves
 // only by an explicit advance to the flow's first stage.
 func TestStrandedByRepoFlowChange(t *testing.T) {
+	t.Parallel()
 	s, ctx, dir := repoDepot(t)
 	create := func(nb store.NewBead) *store.Bead {
 		t.Helper()

@@ -16,6 +16,7 @@ import (
 // groups that start no agents; its routes to agents keep no originator,
 // which is the operator's alone, as every bead then was.
 func TestSchema23StoreGainsRouteOriginators(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)

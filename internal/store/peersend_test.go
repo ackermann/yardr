@@ -81,6 +81,7 @@ func (y *peerYard) outbox(t *testing.T) []store.PeerOut {
 // A peer group names a yard this one is linked with, whose link carries
 // beads out, and has no members.
 func TestPeerGroup(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	put := func(g store.Group) error {
 		g.Name, g.Runner = "at-north", store.PeerRunner
@@ -116,6 +117,7 @@ func TestPeerGroup(t *testing.T) {
 // A train crosses a link as a train: the message says the type in the word
 // the yard has for it, and the other yard takes it for a task either way.
 func TestPeerBeadSendSaysTheType(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "The export", Type: store.TypeTrain, Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
@@ -136,6 +138,7 @@ func TestPeerBeadSendSaysTheType(t *testing.T) {
 // docs/peers.md, under an id made of the bead and the event that put it in
 // the stage, so a second claim in the same stay sends nothing new.
 func TestPeerBeadSend(t *testing.T) {
+	t.Parallel()
 	y, own := newSendingYard(t)
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Body: "As a CSV.", Type: "feature", Priority: 1, Depot: "web", Stage: "build",
 		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: "https://linear.app/x/issue/YRD-1"}}}, "jo")
@@ -210,6 +213,7 @@ func TestPeerBeadSend(t *testing.T) {
 // and the note says why. Older notes that do not fit are left out, and
 // counted, as a return's are.
 func TestPeerBeadTooLargeToSend(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	big, _ := y.send(t, store.NewBead{Title: "Too much", Body: strings.Repeat("x", store.MaxPeerBeadBody+1)})
 	got, err := y.api.GetBead(y.ctx, big.ID)
@@ -254,6 +258,7 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 // A bead can pass its field limits but still exceed the peer message limit
 // after its links are included. That refusal also happens before queueing.
 func TestPeerBeadMessageTooLargeToSend(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Large link", Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
@@ -288,6 +293,7 @@ func TestPeerBeadMessageTooLargeToSend(t *testing.T) {
 // more, and the line says not sent, with no row for a bead there. A later
 // sending this yard refuses keeps no row either: there was no stay.
 func TestPeerBeadNotSentWithoutALink(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{NoSend: []string{"bead"}})
 	big, _ := y.send(t, store.NewBead{Title: "Too much", Body: strings.Repeat("x", store.MaxPeerBeadBody+1)})
@@ -361,6 +367,7 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 // on the path refuses the bead, and so does one it would reach as the
 // ninth.
 func TestPeerBeadPath(t *testing.T) {
+	t.Parallel()
 	y, own := newSendingYard(t)
 	if _, err := y.api.AddUser(y.ctx, "jo", "jo"); err != nil {
 		t.Fatal(err)
@@ -442,6 +449,7 @@ func TestPeerBeadPath(t *testing.T) {
 // A return that is none is refused, and one for a bead this yard has not
 // sent changes nothing.
 func TestPeerBeadReturnsThatAreNone(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
 	id := y.outbox(t)[0].ID
@@ -484,6 +492,7 @@ func TestPeerBeadReturnsThatAreNone(t *testing.T) {
 
 // The map of a flow says which stage another yard works, and which yard.
 func TestFlowMapOfAPeerStage(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: "build", Group: "at-north"}, "me"); err != nil {
 		t.Fatal(err)

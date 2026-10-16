@@ -75,6 +75,7 @@ func same(a, b map[string]string) bool {
 }
 
 func TestHookScopes(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	sub := func(scope string) store.Subscription { return store.Subscription{Source: "linear", Scope: scope} }
 	member(t, s, "all", false, sub(store.ScopeAll))
@@ -136,6 +137,7 @@ func TestHookScopes(t *testing.T) {
 }
 
 func TestHookWhere(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	member(t, s, "all", false, store.Subscription{Source: "linear", Scope: store.ScopeAll,
@@ -186,6 +188,7 @@ func TestHookWhere(t *testing.T) {
 // among them; other hook sources still refuse those keys, and yardr still
 // takes only state=done.
 func TestGitHubWhereKeys(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	declareGitHubKeys(t, s, "me")
 	ctx := context.Background()
@@ -224,6 +227,7 @@ func TestGitHubWhereKeys(t *testing.T) {
 // names: it is what leaves out a fork's pull request, whose head branch may
 // have the name of the yard's own.
 func TestGitHubWhereHeadRepo(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	declareGitHubKeys(t, s, "me")
 	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
@@ -252,6 +256,7 @@ func TestGitHubWhereHeadRepo(t *testing.T) {
 }
 
 func TestHookDeliveryInInbox(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	// "hook" in On must not widen delivery past the subscriptions.
@@ -294,6 +299,7 @@ func TestHookDeliveryInInbox(t *testing.T) {
 // inbox, and a mention of the App, which people write as @yardr, reaches
 // it. The account named yardr is not the bot: what it does is delivered.
 func TestHookDeliveryToAGitHubApp(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "ment"}, "me"); err != nil {
@@ -328,6 +334,7 @@ func TestHookDeliveryToAGitHubApp(t *testing.T) {
 }
 
 func TestIdentitiesAndSubscriptions(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -385,6 +392,7 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 // A user has an identity in a source as a crew member has, set and
 // removed by the same call: the name says which of the two it is.
 func TestUserIdentity(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
@@ -436,6 +444,7 @@ func TestUserIdentity(t *testing.T) {
 // name removes the matching subscriptions from whichever of the two has
 // them; when both do, it refuses naming both (yardr-f0ez).
 func TestUnsubscribeSameNameGroupAndCrew(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	// The shared names' subscriptions are the operator's to change here,
@@ -522,6 +531,7 @@ func TestUnsubscribeSameNameGroupAndCrew(t *testing.T) {
 // A failed removal on either side of a shared name must not be hidden by a
 // no-match on the other side or by removing that other side.
 func TestUnsubscribeSharedNamePropagatesRemovalErrors(t *testing.T) {
+	t.Parallel()
 	blocked := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
 		Where: map[string]string{"kind": store.InstallFailed}}
 	allowed := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
@@ -585,6 +595,7 @@ func TestUnsubscribeSharedNamePropagatesRemovalErrors(t *testing.T) {
 // would be. From a pane the change is checked and recorded as the pane's
 // actor, whatever --actor says.
 func TestCrewSubscriptionIsTheMembersOrTheOperators(t *testing.T) {
+	t.Parallel()
 	api, _ := operatorYard(t)
 	ctx := context.Background()
 	sub := store.Subscription{Source: "linear", Scope: store.ScopeInvolved}
@@ -716,6 +727,7 @@ func TestCrewSubscriptionIsTheMembersOrTheOperators(t *testing.T) {
 // anyone's as a move is. From a pane the change is checked and recorded
 // as the pane's actor, whatever --actor says.
 func TestManualGroupSubscriptionIsAMembersOrTheOperators(t *testing.T) {
+	t.Parallel()
 	api, _ := operatorYard(t)
 	ctx := context.Background()
 	if _, err := api.AddUser(ctx, "bob", "jo"); err != nil {

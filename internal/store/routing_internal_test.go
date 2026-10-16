@@ -13,6 +13,7 @@ import (
 // Batch reruns every call in a batch after one of them fails, so DeleteGroup
 // must count released beads from zero on each attempt.
 func TestDeleteGroupCountsOnceWhenBatchRetries(t *testing.T) {
+	t.Parallel()
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)

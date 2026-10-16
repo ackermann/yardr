@@ -14,6 +14,7 @@ import (
 // A line of what a hook's events make is written as it is typed and read
 // back the same, with its depot when it names one.
 func TestParseMake(t *testing.T) {
+	t.Parallel()
 	m, err := store.ParseMake("event=issues  action=reopened action=opened ->  issue : triage @ web ")
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestParseMake(t *testing.T) {
 // sets it, keeps the lines in order and logs them with the hook. The first
 // line an event matches is the one that counts.
 func TestPutHookChecksWhatItMakes(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	declareGitHubKeys(t, st, "me")
 	ctx := context.Background()
@@ -122,6 +124,7 @@ func TestPutHookChecksWhatItMakes(t *testing.T) {
 // nothing is created, and a closed one hands the link on and keeps a
 // relates link.
 func TestUntrackedBeadIsMadeOncePerThread(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	const issue = "https://github.com/acme/web/issues/5"

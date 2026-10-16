@@ -88,7 +88,9 @@ func sessionIDs(ss []store.Session) []string {
 }
 
 // The pane and pending indexes answer as a walk of every session does,
-// after each of a few hundred random writes: claims, starts and handles
+// after every tenth successful write of a few hundred random ones, the
+// first success of each kind, the two reopens below and the last write,
+// so every kind is compared at least once: claims, starts and handles
 // with a pid, a shell's, both, one pid for both or none, with a start time
 // or without, with a worktree, a dir or nothing on disk, pids used again by
 // later sessions and by a session's next handle, ends of every kind
@@ -271,6 +273,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	}
 	same("setup")
 	ok := map[string]int{}
+	writes := 0
 	var seen struct{ pane, shared, unstopped, workspace, pruned int }
 	for step := 0; step < 600; step++ {
 		if step == 200 || step == 400 {
@@ -284,8 +287,13 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 		op := ops[rng.Intn(len(ops))]
 		if op.do() == nil {
 			ok[op.name]++
+			writes++
+			// Every tenth write, and the first of each kind: the
+			// comparison still pins every kind at a tenth of the walks.
+			if writes%10 == 0 || ok[op.name] == 1 {
+				same(fmt.Sprintf("step %d, %s", step, op.name))
+			}
 		}
-		same(fmt.Sprintf("step %d, %s", step, op.name))
 
 		// What the comparisons above were made on: the test wants each kind.
 		for _, pid := range pids[:2] {
@@ -308,6 +316,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 			seen.workspace++
 		}
 	}
+	same("the last write")
 	for _, op := range ops {
 		if ok[op.name] == 0 {
 			t.Errorf("seed %d: %s never succeeded, so the test did not drive it", seed, op.name)
@@ -324,6 +333,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 // A store from before the pane and pending indexes gets them built on
 // open, from the sessions as they are, and answers through them.
 func TestPaneAndPendingIndexesBuiltForOldStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -392,6 +402,7 @@ func TestPaneAndPendingIndexesBuiltForOldStore(t *testing.T) {
 // pid, or none, leaves no entry under the old one, so the next session to
 // name that pid is alone there.
 func TestPaneIndexFollowsTheHandle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -439,6 +450,7 @@ func TestPaneIndexFollowsTheHandle(t *testing.T) {
 // The dispatcher's two listings read the sessions it is not done with,
 // however many the store keeps.
 func TestPendingListingsDoNotReadDoneSessions(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"); err != nil {

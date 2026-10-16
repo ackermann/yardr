@@ -11,6 +11,7 @@ import (
 // groups that is; before the claim, and for a stage it is not in yet, the
 // route's groups are named in order and nothing is chosen.
 func TestStageGroupOfARouteWithSeveralGroups(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	for _, name := range []string{"a", "b"} {
 		if err := y.PutGroup(y.ctx, Group{Name: name, Runner: "herdr"}, "jo"); err != nil {

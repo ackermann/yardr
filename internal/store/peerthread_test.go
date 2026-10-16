@@ -58,6 +58,7 @@ func (y *peerYard) threadOut(t *testing.T) (ms []store.PeerOut, bodies []map[str
 // stage, the hold and the time, and nothing else. A bead of the yard's own
 // tells nobody, nor does one that went back, nor one whose link is gone.
 func TestPeerBeadEventQueued(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.allow(t, store.PeerAllow{Send: []string{store.PeerThread}})
 	y.take(t, beadMsg("m1", "y-1", nil))
@@ -161,6 +162,7 @@ func TestPeerBeadEventQueued(t *testing.T) {
 // A link that does not send thread queues nothing and logs nothing of it:
 // the yard is as it was before the word.
 func TestPeerBeadEventNotQueuedWithoutTheWord(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	// Receiving it is the other direction's.
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
@@ -195,6 +197,7 @@ func TestPeerBeadEventNotQueuedWithoutTheWord(t *testing.T) {
 // in words that name the kind. The bead it was about is untouched, and
 // nobody is mailed: nothing waits on an event.
 func TestPeerBeadEventRefusedByAnOlderPeer(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.allow(t, store.PeerAllow{Send: []string{store.PeerThread}})
 	y.take(t, beadMsg("m1", "y-1", nil))
@@ -223,6 +226,7 @@ func TestPeerBeadEventRefusedByAnOlderPeer(t *testing.T) {
 // another version are refused, and a field the message does not have is
 // not kept.
 func TestPeerBeadEventTaken(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
@@ -309,6 +313,7 @@ func TestPeerBeadEventTaken(t *testing.T) {
 // was heard within the minute before and the time of that is kept to the
 // minute (yardr-2mk2).
 func TestPeerBeadEventIsHeard(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
@@ -360,6 +365,7 @@ func mustAway(t *testing.T, y *peerYard, id string) *store.BeadPeer {
 // a stay that has ended, or a bead that was taken back is dropped: taken
 // once, so it is not sent again, logged as stale, and nothing is kept.
 func TestPeerBeadEventStale(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
@@ -443,6 +449,7 @@ func TestPeerBeadEventStale(t *testing.T) {
 // is at the peer and how it stands there. The peer's return, which comes
 // late and is stale, does not turn that into an outcome the bead took.
 func TestPeerBeadTakenBack(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Fix the gate"})
@@ -499,6 +506,7 @@ func TestPeerBeadTakenBack(t *testing.T) {
 // A link that does not receive thread takes no bead event: refused as a
 // kind the link does not carry, as before the word, and nothing is kept.
 func TestPeerBeadEventNotTakenWithoutTheWord(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	// Sending it is the other direction's.
 	y.allow(t, store.PeerAllow{Send: []string{store.PeerThread}})

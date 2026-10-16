@@ -12,6 +12,7 @@ import (
 // The hatch matches what deliverBeadless would: kind alone, scope all,
 // with no bead fields.
 func TestMatchBeadless(t *testing.T) {
+	t.Parallel()
 	mk := func(scope string, where map[string]string) store.Subscription {
 		return store.Subscription{Source: store.SourceYardr, Scope: scope, Where: where}
 	}
@@ -40,6 +41,7 @@ func TestMatchBeadless(t *testing.T) {
 // upgrade_restore is true unless set or overridden false, and refuses any
 // other value.
 func TestUpgradeRestoreSetting(t *testing.T) {
+	// Sequential: process environment.
 	ctx := context.Background()
 	st := storetest.New(t)
 	if err := st.SetSetting(ctx, store.UpgradeRestoreSetting, "maybe", "me"); err == nil {
@@ -69,6 +71,7 @@ func TestUpgradeRestoreSetting(t *testing.T) {
 // The hatch opens the pre-install copy read-only, without migrations, and
 // serves its users and sources to the direct send.
 func TestOpenHatchCopy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st := storetest.Open(t, path)

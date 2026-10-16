@@ -15,6 +15,7 @@ import (
 // linear-declared after the move. MoveSourceRecords folds the old name
 // into the new one; running it twice changes nothing.
 func TestMoveSourceRecords(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
@@ -103,6 +104,7 @@ func TestMoveSourceRecords(t *testing.T) {
 // An identity under both names that disagrees refuses the whole move,
 // changing nothing.
 func TestMoveSourceRecordsRefusesAClash(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
@@ -127,6 +129,7 @@ func TestMoveSourceRecordsRefusesAClash(t *testing.T) {
 // A user's identity moves with the crew's, and one that differs under
 // the two names refuses the move.
 func TestMoveSourceRecordsMovesUserIdentities(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {

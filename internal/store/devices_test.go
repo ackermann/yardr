@@ -43,6 +43,7 @@ func deviceYard(t *testing.T) (store.API, *store.Store) {
 // A second device of the name for the same user is refused, and another
 // user may have one of that name.
 func TestDeviceAddAndResolve(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	d, err := api.AddDevice(ctx, "ada", "phone", "jo")
@@ -126,6 +127,7 @@ func TestDeviceAddAndResolve(t *testing.T) {
 
 // The store's file has the token's SHA-256 and nowhere the token.
 func TestDeviceTokenIsNotStored(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -166,6 +168,7 @@ func TestDeviceTokenIsNotStored(t *testing.T) {
 // user whose device it would be too, and an agent by its pane whatever name
 // the command gives. Whoever adds one decides who may speak as a person.
 func TestDeviceAddIsTheOperators(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	for actor, want := range map[string]string{
@@ -204,6 +207,7 @@ func TestDeviceAddIsTheOperators(t *testing.T) {
 
 // A bead's agent is refused from its pane, whatever --actor says.
 func TestDeviceAddRefusedFromASessionsPane(t *testing.T) {
+	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -249,6 +253,7 @@ func TestDeviceAddRefusedFromASessionsPane(t *testing.T) {
 // Removing a device is the operator's and the user's own; its token is
 // refused from then on, and the name is free again with a new token.
 func TestDeviceRemove(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	phone, err := api.AddDevice(ctx, "ada", "phone", "jo")
@@ -316,6 +321,7 @@ func TestDeviceRemove(t *testing.T) {
 // Removing a user removes their devices: the tokens are refused, the event
 // names the devices, and a later user of the name has none.
 func TestUserRemovalTakesTheDevices(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	var tokens []string
@@ -366,6 +372,7 @@ func TestUserRemovalTakesTheDevices(t *testing.T) {
 // A device is unused once 30 days have passed since its last use, or since
 // it was added when it never was used.
 func TestDeviceUnused(t *testing.T) {
+	t.Parallel()
 	added := time.Date(2026, 10, 12, 19, 2, 0, 0, time.UTC)
 	used := added.Add(10 * 24 * time.Hour)
 	d := store.Device{CreatedAt: added}

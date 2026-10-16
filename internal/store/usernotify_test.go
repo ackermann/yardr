@@ -25,6 +25,7 @@ calls:
 // refused with the ones that have one; the event has the names and the
 // path.
 func TestUserSet(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -100,6 +101,7 @@ func TestUserSet(t *testing.T) {
 // gives. Pointing a person's notify elsewhere sends their inbox out of the
 // yard.
 func TestUserSetIsTheUsersAndTheOperators(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -160,6 +162,7 @@ func TestUserSetIsTheUsersAndTheOperators(t *testing.T) {
 
 // A bead's agent is refused from its pane, whatever --actor says.
 func TestUserSetRefusedFromASessionsPane(t *testing.T) {
+	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -210,6 +213,7 @@ func TestUserSetRefusedFromASessionsPane(t *testing.T) {
 // A source yardr has in Go that can tell a person is taken as a declared
 // one with a notify key is, and named with them.
 func TestUserSetTakesAnAdapterThatNotifies(t *testing.T) {
+	// Sequential: stubs the notifyAdapters list, which every SetUser reads.
 	store.NotifyAdapters(func() []string { return []string{"linear"} })
 	t.Cleanup(func() { store.NotifyAdapters(func() []string { return nil }) })
 	st := storetest.New(t)

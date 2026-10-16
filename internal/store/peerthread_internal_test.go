@@ -16,6 +16,7 @@ import (
 // as rate_limited, with one event for all of it, until that hour has
 // passed.
 func TestPeerEventLimit(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

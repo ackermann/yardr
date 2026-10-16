@@ -63,6 +63,7 @@ func putNamed(t *testing.T, s store.API, name, text string) *store.Flow {
 }
 
 func TestParseFlow(t *testing.T) {
+	t.Parallel()
 	f, err := store.ParseFlow(yardFlow)
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +116,7 @@ func TestParseFlow(t *testing.T) {
 // a list, two source stages that no rule leads to have no order, and the
 // flow is refused.
 func TestJSONFlowStageOrder(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	save := func(text string) (*store.Flow, error) {
 		f, err := store.ParseFlow(text)
@@ -173,6 +175,7 @@ func TestJSONFlowStageOrder(t *testing.T) {
 }
 
 func TestPutFlowValidates(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	cases := map[string]store.Flow{
 		"no name":           {Transitions: map[string][]string{"a": {"b"}}},
@@ -201,6 +204,7 @@ func TestPutFlowValidates(t *testing.T) {
 }
 
 func TestNoFlowPassesThrough(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	// A depot without a flow, and a bead without a depot while flows exist
 	// elsewhere, move anywhere and start in any stage.
@@ -248,6 +252,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 }
 
 func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
@@ -287,6 +292,7 @@ func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
 }
 
 func TestFlowCreateStage(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "backlog"}, "me"); err != nil {
@@ -320,6 +326,7 @@ func TestFlowCreateStage(t *testing.T) {
 }
 
 func TestFlowTerminalStageCloses(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "manual"}, "me"); err != nil {
@@ -373,6 +380,7 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 }
 
 func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
+	t.Parallel()
 	// A bead in a stage the flow then loses. Pointing the depot at a flow
 	// without the stage, or replacing a named flow with one, is refused
 	// (TestSetFlowPointerRefusesStrays, TestPutFlowRefusesStrays); a flow
@@ -407,6 +415,7 @@ func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
 // The first stage itself, when the flow gives it no way out, offers nothing
 // rather than itself.
 func TestFlowNextFromDeadFirstStage(t *testing.T) {
+	t.Parallel()
 	f, err := store.ParseFlow("only terminal\n")
 	if err != nil {
 		t.Fatal(err)
@@ -420,6 +429,7 @@ func TestFlowNextFromDeadFirstStage(t *testing.T) {
 }
 
 func TestFlowTypeOverridesDepot(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	putFlow(t, s, "yard", "decision", "open -> decided | dropped\ndecided terminal\ndropped terminal")
@@ -462,6 +472,7 @@ func TestFlowTypeOverridesDepot(t *testing.T) {
 }
 
 func TestAdvanceNote(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "review"}, "me")

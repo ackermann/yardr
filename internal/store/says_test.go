@@ -15,6 +15,7 @@ import (
 // hold, a key with several values holds for any, and stage is the stage of
 // the bead the event is about.
 func TestHookSaidIsTheFirstLineThatMatches(t *testing.T) {
+	t.Parallel()
 	var says []store.Say
 	for _, l := range []string{
 		"event=pull_request action=closed merged=true -> merged: PR merged",
@@ -63,6 +64,7 @@ func TestHookSaidIsTheFirstLineThatMatches(t *testing.T) {
 // train and a pr bead with different outcomes for the same event. The
 // event's own type is named with event.
 func TestHookSaidFiltersOnBeadType(t *testing.T) {
+	t.Parallel()
 	var says []store.Say
 	for _, l := range []string{
 		"event=pull_request action=closed merged=false type=train -> question",
@@ -119,6 +121,7 @@ func TestHookSaidFiltersOnBeadType(t *testing.T) {
 // event names the envelope's type when the source's fields do not carry an
 // event of their own; type still filters on the bead.
 func TestHookSaidUsesEnvelopeTypeWhenFieldsOmitEvent(t *testing.T) {
+	t.Parallel()
 	s, err := store.ParseSay("event=issue type=task -> done")
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +138,7 @@ func TestHookSaidUsesEnvelopeTypeWhenFieldsOmitEvent(t *testing.T) {
 
 // A line is written as it is typed and read back the same, note and all.
 func TestParseSay(t *testing.T) {
+	t.Parallel()
 	s, err := store.ParseSay("event=pull_request  merged=false action=closed ->  question : PR closed: reopen, or drop it? ")
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +167,7 @@ func TestParseSay(t *testing.T) {
 // outcome that is no outcome's name. It keeps the lines in order and logs
 // them with the hook.
 func TestPutHookChecksItsTable(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	declareGitHubKeys(t, st, "me")
 	ctx := context.Background()
@@ -226,6 +231,7 @@ func TestPutHookChecksItsTable(t *testing.T) {
 // is refused without what the read runs with: the source's ci command,
 // and the crew member it acts as.
 func TestPutHookChecksItsCIReads(t *testing.T) {
+	t.Parallel()
 	const hook = `
 hook:
   verify:
@@ -294,6 +300,7 @@ hook:
 // Unrouted asks the flow before an event does: the stage a line names must
 // have its outcome, and a line that names none needs one stage that has.
 func TestSayUnrouted(t *testing.T) {
+	t.Parallel()
 	stages := map[string][]string{"review": {"done", "changes"}, "in-pr": {"done", "merged"}, "decide": nil}
 	for line, want := range map[string]string{
 		"event=x -> merged":                          "",

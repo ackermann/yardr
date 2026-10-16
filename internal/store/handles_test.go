@@ -16,6 +16,7 @@ import (
 )
 
 func TestMintedBeadsHaveUUIDAndHandle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	var prev *store.Bead
@@ -55,6 +56,7 @@ func TestMintedBeadsHaveUUIDAndHandle(t *testing.T) {
 }
 
 func TestResolveBeadReferences(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	mk := func(id string) *store.Bead {
@@ -145,6 +147,7 @@ func TestResolveBeadReferences(t *testing.T) {
 // went after v0.4.0, and the migrations that are left would stamp a store
 // whose beads no handle or UUID finds.
 func TestCounterIDStoreRefusesToOpen(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -180,6 +183,7 @@ func TestCounterIDStoreRefusesToOpen(t *testing.T) {
 }
 
 func TestNewerSchemaStoreRefusesToOpen(t *testing.T) {
+	t.Parallel()
 	// An older yardr (a downgrade) must not run its migrations over a store
 	// a newer one wrote (yard-r4z9).
 	path := filepath.Join(t.TempDir(), "yard.db")

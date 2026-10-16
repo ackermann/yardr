@@ -72,6 +72,7 @@ func ping(id string) store.PeerMessage {
 // allowed, a name or a key that is a peer already is refused, and removing
 // it drops what waited for it.
 func TestPeerAddListRemove(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://10.0.0.5:8790/")
 	p, err := y.api.GetPeer(y.ctx, "north")
 	if err != nil || p.Key != y.key || p.URL != "http://10.0.0.5:8790" || p.Calls != "the-north" ||
@@ -137,6 +138,7 @@ func TestPeerAddListRemove(t *testing.T) {
 // Nothing is allowed by default; allow adds kinds each direction on its
 // own, the no- forms take them away, and a kind there is not is refused.
 func TestPeerAllow(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	if p := y.allow(t, store.PeerAllow{Send: []string{"ping"}}); !reflect.DeepEqual(p.Send, []string{"ping"}) || len(p.Receive) != 0 {
 		t.Fatalf("after --send ping: %+v", p)
@@ -166,6 +168,7 @@ func TestPeerAllow(t *testing.T) {
 // queued, and logged. One it carries waits in the outbox under an id minted
 // here, in order, until it is delivered or given up.
 func TestPeerOutbox(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	if _, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo"); err == nil || !strings.Contains(err.Error(), "does not carry ping out") ||
 		!strings.Contains(err.Error(), "yardr peer allow north --send ping") {
@@ -299,6 +302,7 @@ func noBodies(t *testing.T, api store.API) {
 // carry in is refused and logged; a ping is answered with a pong in the
 // outbox, and a pong with nothing.
 func TestPeerReceive(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	receive := func(ms ...store.PeerMessage) []store.PeerTaken {
 		t.Helper()
@@ -394,6 +398,7 @@ func TestPeerReceive(t *testing.T) {
 // sequence number it names, and what it says it has is ended as sent by
 // pull. A peer that is called gets only the word that it is posted to.
 func TestPeerHandOver(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
 	var ids []string
@@ -454,6 +459,7 @@ func TestPeerHandOver(t *testing.T) {
 // delivery, not posted: given up, logged as peer_message_failed with why,
 // and never tried again. Allowed anew meanwhile, it is left waiting.
 func TestPeerSendDisallowed(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
 	m, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
@@ -506,6 +512,7 @@ func TestPeerSendDisallowed(t *testing.T) {
 // of a switched-off kind is dropped with the question, not handed over,
 // and what the link still sends crosses past it.
 func TestPeerHandOverDropsDisallowed(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "") // north asks for its messages
 	y.member(t, "yardmaster", "north")
 	y.allow(t, store.PeerAllow{Send: []string{"ping", "mail"}})
@@ -544,6 +551,7 @@ func TestPeerHandOverDropsDisallowed(t *testing.T) {
 // request it answers: the store checks, so nothing on the socket can hand
 // in a message of its own.
 func TestPeerPulled(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.allow(t, store.PeerAllow{Receive: []string{"ping"}, Send: []string{"ping"}})
 	batch := func(key []byte, page store.PeerPage) store.PeerBatch {

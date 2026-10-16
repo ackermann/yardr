@@ -18,6 +18,8 @@ type askYard struct {
 	now  time.Time
 }
 
+// newAskYard sets the package's fake clock to the yard's now, so its
+// callers stay sequential.
 func newAskYard(t *testing.T) *askYard {
 	t.Helper()
 	y := &askYard{ctx: context.Background(), now: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
@@ -82,6 +84,7 @@ func linksAsk() Ask {
 // An ask is stored with yardr's own option last, and refused without
 // context, without a consequence, or naming You decide itself.
 func TestAddAsk(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 
@@ -149,6 +152,7 @@ func TestAddAsk(t *testing.T) {
 // About names other beads by handle, whatever form was typed; unknown and
 // twice-named ones refuse the ask and store nothing.
 func TestAddAskAbout(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	other, err := y.CreateBead(y.ctx, NewBead{Title: "the other"}, "yardmaster")
 	if err != nil {
@@ -183,6 +187,7 @@ func TestAddAskAbout(t *testing.T) {
 // A pick records who picked which option with the words; a newer pick
 // supersedes for display and every pick stays as a note.
 func TestAnswerPick(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: seq, Option: 2, Words: "after the release"}, "mckean")
@@ -241,6 +246,7 @@ func TestAnswerPick(t *testing.T) {
 // An ask with no options wants words: --words closes it, a pick is
 // refused, and words alone on an ask with options go as a plain note.
 func TestAnswerWords(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	words := linksAsk()
 	words.Options, words.Recommend, words.Why = nil, 0, ""
@@ -299,6 +305,7 @@ func mustNote(t *testing.T, y *askYard, seq uint64) Note {
 // Later puts the ask aside for 24 hours or until the asker's next note,
 // whichever is first; answering early is a pick like any other.
 func TestAnswerLater(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: seq, Later: true}, "mckean")
@@ -359,6 +366,7 @@ func TestAnswerLater(t *testing.T) {
 // Decline ends the ask with no option picked, in the person's own words,
 // and nothing answers it after.
 func TestAnswerDecline(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	if err := y.AddAnswer(y.ctx, y.bead, Answer{Ask: seq, Decline: true}, "mckean"); err == nil ||
@@ -385,6 +393,7 @@ func TestAnswerDecline(t *testing.T) {
 // The rendering is numbered text with the recommendation marked and the
 // state, never the raw JSON.
 func TestAskLines(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.now = y.now.Add(2 * time.Hour)
@@ -450,6 +459,7 @@ var errBrokenTest = errors.New("unexpected end of JSON input")
 // A topic is a bead label with the prefix topic:, and it routes like any
 // label: only a route that names it exactly matches it.
 func TestTopicLabelsRouteExactly(t *testing.T) {
+	t.Parallel()
 	bead := Bead{ID: "yard-1", Stage: "review", Type: "task", Labels: []string{"topic:linear-out", "muse"}}
 	plain := Route{ID: "b", Stage: "review", Group: "reviewers", Priority: 1}
 	label := "muse"
@@ -476,6 +486,7 @@ func TestTopicLabelsRouteExactly(t *testing.T) {
 // one write, placed and filled as CreateBead does; whatever the ask or the
 // bead would be refused for makes neither.
 func TestAskNew(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
 	before, err := y.ListBeads(y.ctx, BeadFilter{All: true})
 	if err != nil {

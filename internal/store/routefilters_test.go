@@ -15,6 +15,7 @@ import (
 // beads that urgent and no others; and a route with one label and no
 // priority is stored and logged as it always was.
 func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
+	t.Parallel()
 	s, _ := quotaGroups(t)
 	ctx := t.Context()
 	add := func(r store.Route) *store.Route {

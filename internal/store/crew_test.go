@@ -22,6 +22,7 @@ func yardmaster(t *testing.T, s store.API) *store.CrewMember {
 }
 
 func TestCrewJournalIsNotWork(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	r := yardmaster(t, s)
@@ -50,6 +51,7 @@ func TestCrewJournalIsNotWork(t *testing.T) {
 // A session that was gone keeps its handle in Left, in the write that
 // stops it; one that yardr stopped leaves none.
 func TestCrewGoneKeepsItsHandle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -104,6 +106,7 @@ func TestCrewGoneKeepsItsHandle(t *testing.T) {
 }
 
 func TestJournalCapsAndHandoff(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -123,6 +126,7 @@ func TestJournalCapsAndHandoff(t *testing.T) {
 }
 
 func TestInboxFilteringAndAck(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -154,6 +158,7 @@ func TestInboxFilteringAndAck(t *testing.T) {
 }
 
 func TestPrimeIsBounded(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -190,6 +195,7 @@ func TestPrimeIsBounded(t *testing.T) {
 }
 
 func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	past := time.Now().Add(-time.Minute)
@@ -222,6 +228,7 @@ func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
 // first, and says how many it leaves out; rewriting a memory moves it back
 // to the front.
 func TestPrimeMemoriesAreCapped(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -264,6 +271,7 @@ func TestPrimeMemoriesAreCapped(t *testing.T) {
 // yardr recall <words> finds journal entries too: the journal read back,
 // which the prime's recent entries and crew show's last lines are not.
 func TestRecallFindsJournalEntries(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -314,6 +322,7 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 }
 
 func TestBeadListHidesKnowledgeBeads(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
@@ -331,6 +340,7 @@ func TestBeadListHidesKnowledgeBeads(t *testing.T) {
 // refuses mail to nobody in the word it had then, which is read like the
 // one this build sends.
 func TestAnOldEventKindNamesTheNew(t *testing.T) {
+	t.Parallel()
 	for old, want := range map[string]string{"resident_gave_up": "crew_gave_up", "resident_status": "crew_status",
 		"epic_branched": "train_branched", "part_without_epic": "wagon_without_train",
 		"rig_updated": "depot_updated", "rig_removed": "depot_removed", "bad_rig": "bad_depot",

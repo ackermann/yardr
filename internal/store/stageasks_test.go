@@ -83,6 +83,7 @@ func stageAsks(t *testing.T, s store.API, id string) []store.ResolvedAsk {
 // Entering a templated manual stage puts one ask per user-member, authored
 // yard, with the stage, the move per option and the entry frozen.
 func TestStageAskEntry(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -159,6 +160,7 @@ func TestStageAskEntry(t *testing.T) {
 // Creating a bead directly in a templated stage puts its ask with the
 // created event as Entry.
 func TestStageAskCreateBeadEntry(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "review"}, "me")
 	if err != nil {
@@ -186,6 +188,7 @@ func TestStageAskCreateBeadEntry(t *testing.T) {
 // Store-flow stage files live in the yard's home. Both advancing into one
 // and creating a bead directly in it put the stage ask.
 func TestStageAskStoreFlow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "flows", "work"), 0o755); err != nil {
 		t.Fatal(err)
@@ -244,6 +247,7 @@ func TestStageAskStoreFlow(t *testing.T) {
 // A hand move out takes the stage's open and put-aside asks back, with the
 // move named; answered and declined asks stay as history.
 func TestStageAskHandMove(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	if _, err := s.AddUser(ctx, "grace", "jo"); err != nil {
 		t.Fatal(err)
@@ -296,6 +300,7 @@ func TestStageAskHandMove(t *testing.T) {
 // Leaving and coming back asks fresh; the old answered ask stays as history
 // with its earlier entry.
 func TestStageAskReentry(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -334,6 +339,7 @@ func TestStageAskReentry(t *testing.T) {
 // When no member got an ask, the ask goes to the operator: an empty list,
 // and crew only.
 func TestStageAskOperatorFallback(t *testing.T) {
+	t.Parallel()
 	for _, members := range [][]string{nil, {}} {
 		s, ctx := stageAskYard(t, stageAskChoice)
 		if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: members}, "jo"); err != nil {
@@ -376,6 +382,7 @@ func TestStageAskOperatorFallback(t *testing.T) {
 // yard's own traffic; an unreachable link logs one event and falls back to
 // the operator.
 func TestStageAskRemote(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, map[string]string{
 		".yardr/flows/default.flow":      stageAskFlow,
 		".yardr/flows/default/review.md": stageAskChoice,
@@ -475,6 +482,7 @@ func TestStageAskRemote(t *testing.T) {
 // A local member's stage ask follows that user's configured peer reach, and
 // taking the ask back on a hand move settles the copy.
 func TestStageAskReachCopy(t *testing.T) {
+	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -541,6 +549,7 @@ func TestStageAskReachCopy(t *testing.T) {
 // A same-stage transition is a fresh stay: the old stage ask is taken back
 // and a fresh ask is put with a new entry.
 func TestStageAskSameStage(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -572,6 +581,7 @@ func TestStageAskSameStage(t *testing.T) {
 // Close takes back open stage asks with closed as the reason; reopening
 // into the templated stage asks fresh.
 func TestStageAskCloseReopen(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -604,6 +614,7 @@ func TestStageAskCloseReopen(t *testing.T) {
 // A broken template puts no ask and logs one event naming the stage and the
 // error; the bead enters as today.
 func TestStageAskBrokenTemplate(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, "Review.\n\n## Ask\nkind: choce\n")
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -644,6 +655,7 @@ func TestStageAskBrokenTemplate(t *testing.T) {
 // would stand: set on a broken entry, empty on a good one, and history
 // once a later stay puts its asks.
 func TestNextStagesTemplateError(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, map[string]string{
 		".yardr/flows/default.flow":      stageAskFlow,
 		".yardr/flows/default/review.md": stageAskChoice,
@@ -720,6 +732,7 @@ func TestNextStagesTemplateError(t *testing.T) {
 // Input and check templates put their shape: words with the move as the
 // single entry, and Done firing the move with the yard's consequence.
 func TestStageAskInputCheck(t *testing.T) {
+	t.Parallel()
 	input := "Decide.\n\n## Ask\nkind: input\nquestion: What was decided?\ncontext:\n- The bead waits in decide.\n"
 	// Review's done resolves; input's default move is done.
 	s, ctx := stageAskYard(t, input)

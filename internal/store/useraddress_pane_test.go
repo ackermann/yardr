@@ -16,6 +16,7 @@ import (
 // whoever the call says it is: neither as the answer of a secret ask nor
 // unasked. The pane's own asking is taken, since asking gives it nothing.
 func TestAUsersAddressIsNotGivenFromAnAgentsPane(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {

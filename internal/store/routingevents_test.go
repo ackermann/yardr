@@ -10,6 +10,7 @@ import (
 // A group and a route log an event when they appear and when they go, so
 // whoever follows the yard by its events sees the yard's structure change.
 func TestGroupsAndRoutesLogEvents(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	last := func(kind string) store.Event {
 		t.Helper()

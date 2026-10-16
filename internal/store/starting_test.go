@@ -52,6 +52,7 @@ func startingCall(t *testing.T, api store.API, ctx context.Context, id string) c
 // on the name alone (yardr-gbax). Once the handle is recorded the same
 // call is the session's as before.
 func TestDeviceAddRefusedWhileItsSessionIsStarting(t *testing.T) {
+	t.Parallel()
 	api, b := startingYard(t)
 	ctx := context.Background()
 	if _, err := api.AddDevice(ctx, "ada", "tablet", "jo"); err != nil {
@@ -94,6 +95,7 @@ func TestDeviceAddRefusedWhileItsSessionIsStarting(t *testing.T) {
 // A manual session is a person's claim, not an agent's: naming one still
 // starting refuses nothing.
 func TestDeviceAddAllowedWhileAManualSessionIsStarting(t *testing.T) {
+	t.Parallel()
 	api, _ := startingYard(t)
 	ctx := context.Background()
 	if err := api.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual"}, "me"); err != nil {
@@ -118,6 +120,7 @@ func TestDeviceAddAllowedWhileAManualSessionIsStarting(t *testing.T) {
 // The same of a run ask: written by nobody, and approved by nobody, from a
 // session still starting, whatever actor the call names.
 func TestRunAskIsNotWrittenOrApprovedWhileItsSessionIsStarting(t *testing.T) {
+	t.Parallel()
 	api, b := startingYard(t)
 	ctx := context.Background()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
@@ -169,6 +172,7 @@ func TestRunAskIsNotWrittenOrApprovedWhileItsSessionIsStarting(t *testing.T) {
 // The same of a declared source: neither put nor keyed from a session
 // still starting, whatever actor the call names.
 func TestDeclaredSourceRefusedWhileItsSessionIsStarting(t *testing.T) {
+	t.Parallel()
 	api, b := startingYard(t)
 	ctx := context.Background()
 	if _, err := api.PutSource(ctx, "p.yaml", sourceFile, "jo"); err != nil {

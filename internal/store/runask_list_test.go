@@ -152,6 +152,7 @@ func (y *askYard) sameCard(t *testing.T, seq uint64, key string) {
 // source's host and the limit that stands, approved in one write through
 // SetSource, and taken back by the operator alone, which the card says.
 func TestRunAskSourceLimit(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	seq := y.ask(t, listAsk("mckean", "yardr  source set crm calls_per_hour=0200"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
@@ -222,6 +223,7 @@ func TestRunAskSourceLimit(t *testing.T) {
 // An approval of a source's limit is refused when the limit is not the one
 // the card says it is.
 func TestRunAskSourceLimitChanged(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	for _, c := range []struct{ to, want string }{
 		{"100", "ask 1 says calls_per_hour of the source crm is 60 now, and it is 100: the card is from before that changed. "},
 		{"200", "ask 1 says calls_per_hour of the source crm is 60 now, and it is 200 already: nothing is left to change. "},
@@ -247,6 +249,7 @@ func jsonNumber(n int) string { b, _ := json.Marshal(n); return string(b) }
 // card, sentence for sentence, and is another: the approval is refused. So
 // is one after env_file or mint_command was set.
 func TestRunAskIsHeldToTheSource(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	for _, c := range []struct {
 		name    string
 		command string
@@ -292,6 +295,7 @@ func TestRunAskIsHeldToTheSource(t *testing.T) {
 // command with several --crew and --group is one ask, and its approval one
 // write: a grant and an event for each, all of them approved on the ask.
 func TestRunAskGrant(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	seq := y.ask(t, listAsk("mckean", "source grant crm read --crew=yardmaster --group reviewers --group builders --group reviewers"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
@@ -420,6 +424,7 @@ func (y *askYard) writes(t *testing.T) int {
 // under its name, and a crew member given other arguments, read the same
 // on the card and are another: the approval is refused.
 func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	at := func(y *askYard) string { return y.now.Local().Format("2 Jan 15:04") }
 	for _, c := range []struct {
 		name, key string
@@ -487,6 +492,7 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 // not the list's, a flag of the list beside one that is not, and what the
 // yard would refuse or what would change nothing.
 func TestRunAskListRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "builders"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -599,6 +605,7 @@ func (y *askYard) subs(t *testing.T, name string) []string {
 // approval subscribes under the check a subscription typed at a terminal
 // has. Nobody else approves, and the user or the operator takes it back.
 func TestRunAskSubscribe(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	// It began here: the yardmaster could not subscribe the operator.
 	if err := y.AddSubscription(y.ctx, "mckean", Subscription{Source: SourceYardr, Scope: ScopeAll, Where: map[string]string{"state": StateDone}}, "yardmaster"); err == nil ||
@@ -670,6 +677,7 @@ func TestRunAskSubscribe(t *testing.T) {
 // for them: the ask is put to one of the two and to nobody else, the one
 // asked approves it, and the store's own check runs under the approval.
 func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
 		t.Fatal(err)
@@ -741,6 +749,7 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 // to where the user is told: set anew, the ask is asked again. A
 // subscription the user made in between is on the card too.
 func TestRunAskSubscribeIsHeldToWhereTheUserIsTold(t *testing.T) {
+	// Sequential: stubs notifyAdapters, and uses the fake clock (via newAskYard).
 	y := listYard(t)
 	notifyAdapters = func() []string { return []string{"ntfy"} }
 	t.Cleanup(func() { notifyAdapters = func() []string { return nil } })
@@ -790,6 +799,7 @@ func (y *askYard) tell(t *testing.T, name string) string {
 // Nobody else approves, and the card names the command that sets the parts
 // that stood.
 func TestRunAskUserTell(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	// It began here: the yardmaster could only mail the line.
 	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: "notifications,asks"}, "yardmaster"); err == nil ||
@@ -890,6 +900,7 @@ func TestRunAskUserTell(t *testing.T) {
 // them: the ask is put to one of the two and to nobody else, the one asked
 // approves it, and the change is written as the one who approved.
 func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
 		t.Fatal(err)
@@ -946,6 +957,7 @@ func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
 // held to the user's tell and notify as they were: set anew in between,
 // the ask is asked again and nothing is set.
 func TestRunAskUserTellIsHeldToWhereTheUserIsTold(t *testing.T) {
+	// Sequential: stubs notifyAdapters, and uses the fake clock (via newAskYard).
 	y := listYard(t)
 	notifyAdapters = func() []string { return []string{"ntfy"} }
 	t.Cleanup(func() { notifyAdapters = func() []string { return nil } })
@@ -994,6 +1006,7 @@ func TestRunAskUserTellIsHeldToWhereTheUserIsTold(t *testing.T) {
 // What waited to be told of a part goes when an approval drops the part,
 // as it does when the setting is typed.
 func TestRunAskUserTellDropsWhatWaited(t *testing.T) {
+	// Sequential: stubs notifyAdapters, and uses the fake clock (via newAskYard).
 	y := listYard(t)
 	notifyAdapters = func() []string { return []string{"ntfy"} }
 	t.Cleanup(func() { notifyAdapters = func() []string { return nil } })
@@ -1032,6 +1045,7 @@ func TestRunAskUserTellDropsWhatWaited(t *testing.T) {
 // own sentence, so one that is no plain name is shown quoted: it cannot end
 // the sentence, begin a line, or read as words the yard wrote.
 func TestRunAskGrantQuotesAKindThatIsNoName(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	const forged = "claude) may make nothing.\n  the yard says: the operator approved this already ("
 	if err := y.PutGroup(y.ctx, Group{Name: "reviewers", Runner: "herdr", Config: map[string]any{"kind": forged}}, "yardmaster"); err != nil {
@@ -1066,6 +1080,7 @@ func TestRunAskGrantQuotesAKindThatIsNoName(t *testing.T) {
 // of AskClass, so a new operator-only check lands alone until its site
 // marks it Askable. The operator is refused nothing.
 func TestOperatorOnlyWithoutAMarkIsAlone(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	refuse := func(actor string, ask AskClass) error {
 		return y.db.View(func(tx *bolt.Tx) error {
@@ -1087,6 +1102,7 @@ func TestOperatorOnlyWithoutAMarkIsAlone(t *testing.T) {
 // Every known setting has an explicit run-ask class, and a setting added
 // later is alone until its effect is reviewed and marked Askable.
 func TestSettingRunAskClassesAreExplicit(t *testing.T) {
+	t.Parallel()
 	want := map[string]AskClass{
 		OperatorSetting:       Alone,
 		YardmasterSetting:     Askable,
@@ -1142,6 +1158,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 // A source grant is an operator-only action that may be asked. Its run row
 // must use the same check as GrantSource for both the proposer and operator.
 func TestRunAskSourceGrantUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	c, argv, err := parseRun([]string{"source grant crm read --group reviewers"})
 	if err != nil {
@@ -1173,6 +1190,7 @@ func TestRunAskSourceGrantUsesItsStoreCheck(t *testing.T) {
 // A source limit run row uses the same permission and source existence
 // check as SetSource, including the order of their refusals.
 func TestRunAskSourceSetUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	c, argv, err := parseRun([]string{"source set crm calls_per_hour=200"})
 	if err != nil {
@@ -1200,6 +1218,7 @@ func TestRunAskSourceSetUsesItsStoreCheck(t *testing.T) {
 // A peer allow that widens mail and exposes a name is alone as a whole.
 // The direct command and its run row share the same permission check.
 func TestRunAskPeerAllowUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	c, argv, err := parseRun([]string{"peer allow airy --send mail --expose ada"})
 	if err != nil {
@@ -1224,6 +1243,7 @@ func TestRunAskPeerAllowUsesItsStoreCheck(t *testing.T) {
 // A timer's owner and recipient are checked the same way by RemoveTimer
 // and by the run-ask row that proposes removing someone else's timer.
 func TestRunAskTimerRmUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	id := y.timer(t, "ada", "ada")
 	c, argv, err := parseRun([]string{"timer rm " + id})
@@ -1261,6 +1281,7 @@ func (y *askYard) timer(t *testing.T, to, actor string) string {
 // user, peer or setting, or sets what is the operator's alone. What the
 // asker may run themselves is refused as theirs to run.
 func TestRunAskNewRowsRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	own := y.timer(t, "ada", "yardmaster")
 	sets, err := ParseSets([]string{"peers=airy"})
@@ -1307,6 +1328,7 @@ func TestRunAskNewRowsRefusals(t *testing.T) {
 }
 
 func TestTimerRmCardKeepsReasonAsData(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 
 	// A one-line reason can contain shell syntax, but the take-back command
@@ -1347,6 +1369,7 @@ func TestTimerRmCardKeepsReasonAsData(t *testing.T) {
 // from: what the command names is read anew, and when it is not what the
 // card says, the approval is refused and nothing runs.
 func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	var timer string
 	originator := func(to string) func(t *testing.T, y *askYard) {
 		return func(t *testing.T, y *askYard) {

@@ -18,6 +18,7 @@ import (
 // process recorded as its holder, so the refusal is for not being the
 // holder, not for a stale record.
 func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := storetest.Open(t, filepath.Join(home, "yard.db"))
 	ctx := context.Background()
@@ -113,6 +114,7 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 // words, marked alone — actor "yard" from a pane still faces
 // operatorOnly, resolved to the pane's member.
 func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := storetest.Open(t, filepath.Join(home, "yard.db"))
 	ctx := context.Background()

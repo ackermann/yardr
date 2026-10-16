@@ -15,6 +15,7 @@ import (
 // herdr_session takes what herdr takes as a session's name, and is stored
 // and removed as any setting.
 func TestHerdrSessionSettingTakesASessionsName(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	for _, bad := range []string{"../x", "a/b", "a b", "..", "gc\n"} {
@@ -37,6 +38,7 @@ func TestHerdrSessionSettingTakesASessionsName(t *testing.T) {
 // listed and it stays as it was. A session of another runner has no pane,
 // and setting the value it has already is no change.
 func TestHerdrSessionIsNotChangedUnderWhatRuns(t *testing.T) {
+	t.Parallel()
 	api, s := deviceYard(t)
 	ctx := context.Background()
 	if err := s.SetSetting(ctx, store.HerdrSessionSetting, "gc", "jo"); err != nil {
@@ -120,6 +122,7 @@ func TestHerdrSessionIsNotChangedUnderWhatRuns(t *testing.T) {
 // older build, a session that has no pane yet, or one in another session.
 // Once set, the records allow no change.
 func TestHerdrSessionIsNamedUnderPanesRecordedInIt(t *testing.T) {
+	t.Parallel()
 	api, s := deviceYard(t)
 	ctx := context.Background()
 	const refusal = "herdr_session is changed while nothing of the yard runs in a pane"
@@ -243,6 +246,7 @@ func TestHerdrSessionIsNamedUnderPanesRecordedInIt(t *testing.T) {
 // session its environment claims: nothing of the caller's environment is
 // asked.
 func TestCallerInAnotherHerdrSessionIsInNoPaneOfTheYard(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	if err := own.SetSetting(ctx, store.HerdrSessionSetting, "gc", "jo"); err != nil {

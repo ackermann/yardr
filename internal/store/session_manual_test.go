@@ -6,6 +6,7 @@ import "testing"
 // sessions recorded one, the one its handle tells; a manual group's claim is
 // the session whose runner is manual.
 func TestSessionRunnerName(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		s    Session

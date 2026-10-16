@@ -38,6 +38,7 @@ func trustYard(t *testing.T) *peerYard {
 // user this yard has not, are refused with which it was. To stop is
 // anyone's.
 func TestPeerAllowTrust(t *testing.T) {
+	t.Parallel()
 	y := trustYard(t)
 	refused := []struct {
 		trust map[string]string
@@ -90,6 +91,7 @@ func TestPeerAllowTrust(t *testing.T) {
 // is marked when it is taken: a grant given or taken back later changes no
 // mail that came before.
 func TestPeerMailFromTheTrusted(t *testing.T) {
+	t.Parallel()
 	y := trustYard(t)
 	take := func(m store.PeerMessage) {
 		t.Helper()
@@ -149,6 +151,7 @@ func TestPeerMailFromTheTrusted(t *testing.T) {
 // link, and the peer does once it exposes the name no more: whoever has
 // either name next is trusted as nobody. Both are logged.
 func TestTrustGoesWithItsEnds(t *testing.T) {
+	t.Parallel()
 	y := trustYard(t)
 	y.allow(t, store.PeerAllow{Trust: map[string]string{"mckean": "ada", "clerk": "jo"}})
 	if err := y.api.DeleteUser(y.ctx, "ada", "jo"); err != nil {
@@ -220,6 +223,7 @@ func TestTrustGoesWithItsEnds(t *testing.T) {
 // this yard is, and a letter the name wrote as a trusted user says so on
 // whichever page it is.
 func TestPeerConversationPages(t *testing.T) {
+	t.Parallel()
 	y := trustYard(t)
 	take := func(m store.PeerMessage) {
 		t.Helper()

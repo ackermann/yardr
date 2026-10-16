@@ -99,6 +99,7 @@ func paneMoveYard(t *testing.T) (store.API, context.Context, *store.Bead, *store
 // and its note name the pane's actor. From no pane the actor stands as
 // given.
 func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	t.Run("done", func(t *testing.T) {
 		s, ctx, b, sess, actor := paneMoveYard(t)
 		pane := store.WithCaller(ctx, os.Getpid())
@@ -237,6 +238,7 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 // actor, whatever --actor says: who created it, who changed it, who
 // linked and edged it. From no pane the actor stands as given.
 func TestBeadWriteFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
 		t.Helper()
 		s := storetest.New(t)
@@ -326,6 +328,7 @@ func TestBeadWriteFromAPaneIsThatPanesActor(t *testing.T) {
 // An ack from a session's pane is recorded as that session's actor,
 // whatever --actor says. From no pane the actor stands as given.
 func TestAckFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
 		t.Helper()
 		s := storetest.New(t)
@@ -387,6 +390,7 @@ func TestAckFromAPaneIsThatPanesActor(t *testing.T) {
 // whatever --actor says: the ask note's author and the yard's own
 // "leave it to" name it. From no pane the actor stands as given.
 func TestAskFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, string) {
 		t.Helper()
 		s := storetest.New(t)
@@ -487,6 +491,7 @@ func TestAskFromAPaneIsThatPanesActor(t *testing.T) {
 // to take back: one of the operator's is refused as the pane's. From
 // no pane the actor stands as given.
 func TestAnswerFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
 		t.Helper()
 		s := storetest.New(t)
@@ -581,6 +586,7 @@ func TestAnswerFromAPaneIsThatPanesActor(t *testing.T) {
 // session's actor, whatever --actor says; from a crew member's pane as
 // that crew member. From no pane the actor stands as given.
 func TestCrewWriteFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, string) {
 		t.Helper()
 		s := storetest.New(t)
@@ -675,6 +681,7 @@ func TestCrewWriteFromAPaneIsThatPanesActor(t *testing.T) {
 // whatever --actor says. A raw send that the link refuses logs the
 // pane's actor, and a dispatch report names it too.
 func TestPeerBoundWriteFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (*peerYard, string) {
 		t.Helper()
 		y := newPeerYard(t, "http://north.test")
@@ -779,6 +786,7 @@ func TestPeerBoundWriteFromAPaneIsThatPanesActor(t *testing.T) {
 // Peer notes and reads also carry the pane's actor into peer-bound state:
 // a note says who wrote it, and a failed read is reported to who asked.
 func TestPeerNoteAndReadFromACrewPaneUseTheCrewActor(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) (*peerYard, *store.Bead, context.Context) {
 		t.Helper()
 		y, _ := newSendingYard(t)
@@ -860,6 +868,7 @@ func TestPeerNoteAndReadFromACrewPaneUseTheCrewActor(t *testing.T) {
 // a crew member setting up the yard is not refused, and cannot pass its
 // writes as the operator by naming them.
 func TestSetupWritesFromAPaneAreThatPanesActor(t *testing.T) {
+	t.Parallel()
 	t.Run("crew pane", func(t *testing.T) {
 		api, _ := operatorYard(t)
 		ctx := context.Background()

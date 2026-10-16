@@ -69,6 +69,7 @@ func (y *estimateTest) target(t testing.TB, title string, labels ...string) *Bea
 }
 
 func TestStoreEstimateLine(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	b := y.target(t, "the bead", "difficulty:2")
@@ -97,6 +98,7 @@ func TestStoreEstimateLine(t *testing.T) {
 }
 
 func TestStoreEstimateLate(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	made := y.now
@@ -136,6 +138,7 @@ func TestStoreEstimateLate(t *testing.T) {
 }
 
 func TestStoreEstimateMany(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	a := y.target(t, "first", "difficulty:2")
@@ -161,6 +164,7 @@ func TestStoreEstimateMany(t *testing.T) {
 }
 
 func TestStoreBeadViewCarriesEstimate(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	b := y.target(t, "the bead", "difficulty:2")
@@ -202,6 +206,7 @@ func TestStoreBeadViewCarriesEstimate(t *testing.T) {
 // skip that route to reach it; the ten sitters are the operator's, so
 // none stands ahead of it.
 func TestStoreEstimateOriginatorRoutes(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	if _, err := y.AddUser(ctx, "jo", "jo"); err != nil {
@@ -253,6 +258,7 @@ func TestStoreEstimateOriginatorRoutes(t *testing.T) {
 }
 
 func TestStoreEstimateAbsent(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	ctx := context.Background()
 	f, err := ParseFlow("new -> review on done\nreview terminal\n")

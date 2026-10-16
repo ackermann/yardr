@@ -16,6 +16,7 @@ import (
 // the operator, outside an agent's pane. What device add refuses of the
 // device, it refuses at once, before a code is shown.
 func TestDevicePairOpenIsTheOperators(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	for actor, want := range map[string]string{
@@ -64,6 +65,7 @@ func TestDevicePairOpenIsTheOperators(t *testing.T) {
 // A yard has one device pairing open at a time. The operator ends it, and
 // its code is good for nothing then; with none open there is none to end.
 func TestDevicePairOneAtATime(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	opened, err := api.DevicePairOpen(ctx, "ada", "phone", "jo")
@@ -102,6 +104,7 @@ func TestDevicePairOneAtATime(t *testing.T) {
 // of the name added, while the pairing was open ends it with nothing added,
 // and the code is used all the same.
 func TestDevicePairNotAdded(t *testing.T) {
+	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
 	var no *pairing.Refused

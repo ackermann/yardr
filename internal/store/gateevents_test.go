@@ -79,6 +79,7 @@ func advance(t *testing.T, s store.API, ctx context.Context, id, stage string) {
 // flip nothing; removing the last one logs exactly one unblocked, and
 // removing a missing edge logs none.
 func TestGateEventsAddRemove(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "", "")
 	wantGate(t, s, ctx, "y-target", []gateEvent{{"reblocked", []string{"y-block"}}})
@@ -103,6 +104,7 @@ func TestGateEventsAddRemove(t *testing.T) {
 // own move, and walking out logs unblocked; moves between other stages
 // log none.
 func TestGateEventsAtTargetMoves(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "approved", "")
 	wantGate(t, s, ctx, "y-target", []gateEvent{})
@@ -120,6 +122,7 @@ func TestGateEventsAtTargetMoves(t *testing.T) {
 // A target that walks into its --at stage names every blocker newly
 // holding it, in one event.
 func TestGateEventsOwnMoveNamesEveryNewBlocker(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "approved", "")
 	addDep(t, s, ctx, "y-plain", "y-target", store.DepBlocks, "approved", "")
@@ -133,6 +136,7 @@ func TestGateEventsOwnMoveNamesEveryNewBlocker(t *testing.T) {
 // opens the gate, going back closes it. A blocker move that leaves the
 // gate unchanged logs no gate event.
 func TestGateEventsUntilBlockerMoves(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "", "review")
 	wantGate(t, s, ctx, "y-target", []gateEvent{{"reblocked", []string{"y-block"}}})
@@ -167,6 +171,7 @@ func TestGateEventsUntilBlockerMoves(t *testing.T) {
 // reopening closes them again. A close that leaves another blocker
 // holding logs none on that target.
 func TestGateEventsCloseReopen(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "", "")
 	addDep(t, s, ctx, "y-block", "y-plain", store.DepBlocks, "", "")
@@ -206,6 +211,7 @@ func TestGateEventsCloseReopen(t *testing.T) {
 // A move into a terminal stage closes the blocker, which opens its
 // targets' gates like a close.
 func TestGateEventsTerminalMoveCloses(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "", "")
 	advance(t, s, ctx, "y-block", "review")
@@ -220,6 +226,7 @@ func TestGateEventsTerminalMoveCloses(t *testing.T) {
 
 // A held bead whose gate opens gets the event and still waits unrouted.
 func TestGateEventsHeldBeadStillWaits(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	addDep(t, s, ctx, "y-block", "y-target", store.DepBlocks, "", "")
 	if _, err := s.SetHold(ctx, "y-target", true, store.Expect{}, "me"); err != nil {
@@ -244,6 +251,7 @@ func TestGateEventsHeldBeadStillWaits(t *testing.T) {
 // parent reblocks the train, removing it unblocks it. The parent edge
 // itself holds nothing on the child.
 func TestGateEventsParentEdges(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "y-train", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "new"}, "me"); err != nil {
 		t.Fatal(err)
@@ -262,6 +270,7 @@ func TestGateEventsParentEdges(t *testing.T) {
 // The yardmaster subscribes to the gate events like any other bead kinds
 // and hears them in its inbox.
 func TestGateEventsYardmasterHears(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
@@ -279,6 +288,7 @@ func TestGateEventsYardmasterHears(t *testing.T) {
 // reopen it hears nothing; the reblocked event on the target is what
 // tells the yardmaster, through its subscription to the kind.
 func TestGateEventsReopenAfterWatchEnded(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	for _, name := range []string{"yardmaster", "watcher"} {
 		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {

@@ -16,6 +16,7 @@ import (
 // an old snapshot is not applied. Without an expectation (a person acting
 // outside any session) nothing is checked.
 func TestStaleMovesRefused(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
@@ -117,6 +118,7 @@ func TestStaleMovesRefused(t *testing.T) {
 // record of the session. Unsetting $YARDR_SESSION in the pane is therefore
 // not "no check", and naming another session there is refused.
 func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
@@ -189,6 +191,7 @@ func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
 // the agent runs a command in): the store walks up the process tree. An
 // exec runner's script is found by the pid and start time it recorded.
 func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
+	t.Parallel()
 	if len(peer.Ancestors(os.Getpid())) < 2 {
 		t.Skip("this OS does not tell a process's parent")
 	}
@@ -230,6 +233,7 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 // a shell, except that one owned by a live session is refused rather than
 // taken from under its agent.
 func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
@@ -305,6 +309,7 @@ func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
 // daemon noticed) may already be someone else's, and that someone is not
 // checked as the session.
 func TestReusedPidIsNobodysPane(t *testing.T) {
+	t.Parallel()
 	if !peer.HaveStat() {
 		t.Skip("this OS reports no process start time")
 	}

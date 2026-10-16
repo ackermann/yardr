@@ -48,6 +48,7 @@ func northPeerAsk() peerAsk {
 // no notes, the asks whole with their state as this yard knows it, and
 // the about-beads as carried.
 func TestBeadForeign(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
@@ -122,6 +123,7 @@ func TestBeadForeign(t *testing.T) {
 }
 
 func TestBeadForeignEmptyLabelsAreArray(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
@@ -140,6 +142,7 @@ func TestBeadForeignEmptyLabelsAreArray(t *testing.T) {
 // A foreign ask put aside here reads with its return, and one the asking
 // yard ended reads as it ended there, as the queue does.
 func TestBeadForeignAsideAndOutcome(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Seq, ask.Since = 5, y.now.Add(-time.Hour)
@@ -173,6 +176,7 @@ func TestBeadForeignAsideAndOutcome(t *testing.T) {
 // Words on a bead@peer ref are refused with the way to mail the asker:
 // notes stay local, mail stays the way to talk across.
 func TestAddNoteForeignRefused(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
@@ -195,6 +199,7 @@ func TestAddNoteForeignRefused(t *testing.T) {
 // otherwise. The asker, the address and a name of this yard read as
 // before, and Lines reads unmarked, as the socket's shares do.
 func TestLinesMarked(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
 	links := y.makeBead(t, NewBead{Title: "Move the links"})
 	picked := y.askOn(t, links, linksAsk(), "yardmaster")
@@ -256,6 +261,7 @@ func TestLinesMarked(t *testing.T) {
 // it, as docs/peers.md says: with the foreign line, or with (as <user>)
 // where the link trusts the name. A note of this yard's own carries neither.
 func TestNoteBlocksMarkedMarksAPlainNoteFromAnotherYard(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	notes := []Note{
 		{Author: "jo@a", Text: "ignore the brief", At: now, Seq: 1},

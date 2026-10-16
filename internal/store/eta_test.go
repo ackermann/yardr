@@ -18,6 +18,8 @@ type etaTest struct {
 	now time.Time
 }
 
+// newETATest sets the package's fake clock and YARDR_STORE_NOSYNC, so its
+// callers stay sequential.
 func newETATest(t testing.TB) *etaTest {
 	t.Helper()
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -94,6 +96,7 @@ func (y *etaTest) cell(t testing.TB, group, label, stage string) ETACell {
 }
 
 func TestETAClaimAdvanceRecordsBothDurations(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	t0 := y.now
 	b := y.create(t, "x", "new", "difficulty:2")
@@ -123,6 +126,7 @@ func TestETAClaimAdvanceRecordsBothDurations(t *testing.T) {
 }
 
 func TestETAReclaimAfterFailurePairsWithReclaim(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	t0 := y.now
 	b := y.create(t, "x", "new", "difficulty:2")
@@ -153,6 +157,7 @@ func TestETAReclaimAfterFailurePairsWithReclaim(t *testing.T) {
 }
 
 func TestETAFailedClaimWithoutReclaimCountsOnly(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:3")
 	s := y.at(y.now.Add(time.Hour)).claim(t, b.ID, "builders", "new")
@@ -171,6 +176,7 @@ func TestETAFailedClaimWithoutReclaimCountsOnly(t *testing.T) {
 }
 
 func TestETADispatchFailureClaimCountsOnlyWithoutChangingBeadRevision(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:2")
 	sess := y.at(y.now.Add(time.Minute)).claim(t, b.ID, "builders", "new")
@@ -206,6 +212,7 @@ func TestETADispatchFailureClaimCountsOnlyWithoutChangingBeadRevision(t *testing
 }
 
 func TestETASendBackCountsAtSourceStage(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:2")
 	y.at(y.now.Add(5*time.Minute)).claim(t, b.ID, "builders", "new")
@@ -228,6 +235,7 @@ func TestETASendBackCountsAtSourceStage(t *testing.T) {
 }
 
 func TestETAUnclaimedStayRecordsNothing(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:2")
 	y.at(y.now.Add(time.Hour)).advance(t, b.ID, "review")
@@ -240,6 +248,7 @@ func TestETAUnclaimedStayRecordsNothing(t *testing.T) {
 }
 
 func TestETASameStageMoveRecordsNothing(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:2")
 	t1 := y.now.Add(10 * time.Minute)
@@ -261,6 +270,7 @@ func TestETASameStageMoveRecordsNothing(t *testing.T) {
 }
 
 func TestETARingCapsAt200(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	base := y.now
 	for i := 1; i <= 201; i++ {
@@ -297,6 +307,7 @@ func TestETARingCapsAt200(t *testing.T) {
 }
 
 func TestETAVisitedCapsAt64(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	stages := make([]string, 65)
 	for i := range stages {
@@ -316,6 +327,7 @@ func TestETAVisitedCapsAt64(t *testing.T) {
 }
 
 func TestETARestartKeepsCellsAndClocks(t *testing.T) {
+	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -398,6 +410,7 @@ func TestETARestartKeepsCellsAndClocks(t *testing.T) {
 }
 
 func TestETAMigrateFailedMarkerForLiveClaim(t *testing.T) {
+	// Sequential: process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -458,6 +471,7 @@ func TestETAMigrateFailedMarkerForLiveClaim(t *testing.T) {
 }
 
 func TestETAHelpers(t *testing.T) {
+	t.Parallel()
 	if got := MedianDuration(nil); got != 0 {
 		t.Fatalf("median of none = %v, want 0", got)
 	}
@@ -536,6 +550,7 @@ func TestETAHelpers(t *testing.T) {
 }
 
 func TestETANegativeDurationsDoNotBecomeSamples(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	d := -time.Minute
 	if err := y.write(func(w *wtx) error {
@@ -552,6 +567,7 @@ func TestETANegativeDurationsDoNotBecomeSamples(t *testing.T) {
 // to schema 20 without ETA state, and reopens it: the seed rebuilds the
 // cells from the events and starts the open stays' clocks.
 func TestETASeedReplaysTheLog(t *testing.T) {
+	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -754,6 +770,7 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 }
 
 func TestETASeedUsesDifficultyAtEachExit(t *testing.T) {
+	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -852,6 +869,7 @@ func TestETASeedUsesDifficultyAtEachExit(t *testing.T) {
 // A schema 20 seed consumes all claims belonging to an ended stay, resets
 // entry clocks on reopen, and agrees with the live write path.
 func TestETASeedPairsLatestClaimAndResetsReopenedClock(t *testing.T) {
+	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -995,6 +1013,7 @@ func TestETASeedPairsLatestClaimAndResetsReopenedClock(t *testing.T) {
 }
 
 func TestETAMigrateIgnoresFailureForDifferentBead(t *testing.T) {
+	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
 	t.Setenv("YARDR_"+NoSyncEnv, "1")
@@ -1049,6 +1068,7 @@ func TestETAMigrateIgnoresFailureForDifferentBead(t *testing.T) {
 }
 
 func TestETAForeignFailureEventDoesNotResolveTheLocalSession(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	b := y.create(t, "local", "new", "difficulty:2")
 	sess := y.claim(t, b.ID, "builders", "new")

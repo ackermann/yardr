@@ -40,6 +40,7 @@ func (y *peerYard) conversation(t *testing.T, me, with string) []string {
 // crew members' grants. Mail from before and after it is one conversation,
 // read under the new name, and the old name reaches nothing.
 func TestPeerRename(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north,west")
 	y.member(t, "clerk", "")
@@ -216,6 +217,7 @@ func TestPeerRename(t *testing.T) {
 // rename, under the numbers it counts by, and a refusal it has not been
 // told of is still told.
 func TestPeerRenamePull(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
 	m, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
@@ -246,6 +248,7 @@ func TestPeerRenamePull(t *testing.T) {
 // User inboxes use the peer's current name for old mail too, as crew
 // inboxes do. Chat uses that address to match unread mail to its roster row.
 func TestPeerRenameUserInbox(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	if _, err := y.api.AddUser(y.ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
@@ -271,6 +274,7 @@ func TestPeerRenameUserInbox(t *testing.T) {
 // says the yard is linked no more and what it was called; mail of the yard
 // that has the name now is that yard's, under the name.
 func TestMailFromRemovedPeer(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north")
 	y.member(t, "clerk", "")

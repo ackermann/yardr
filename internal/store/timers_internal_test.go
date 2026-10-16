@@ -18,6 +18,8 @@ type timerYard struct {
 	at time.Time
 }
 
+// newTimerYard sets the package's fake clock to the yard's now, so its
+// callers stay sequential.
 func newTimerYard(t *testing.T) *timerYard {
 	t.Helper()
 	y := &timerYard{t: t, at: time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)}
@@ -119,6 +121,7 @@ func (y *timerYard) live(name string) []Timer {
 // its inbox when it is due, once, with the reason, who set it and when;
 // then the timer is gone.
 func TestTimerFiresOnceToACrew(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	tm := y.add("yardmaster", NewTimer{Reason: "look at the deploy", Due: y.in(40 * time.Minute)})
 	if tm.To != "yardmaster" || tm.ToUser || tm.ID == "" {
@@ -159,6 +162,7 @@ func TestTimerFiresOnceToACrew(t *testing.T) {
 // and saying so in its text. It is in no crew member's inbox: the one who set
 // it is not woken.
 func TestTimerToAUserIsMail(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	ctx := context.Background()
 	tm := y.add("yardmaster", NewTimer{To: "jo", Reason: "the assembly is still red", Due: y.in(10 * time.Minute)})
@@ -195,6 +199,7 @@ func TestTimerToAUserIsMail(t *testing.T) {
 // Who may set a timer for whom: a crew member or a user for themselves, a
 // crew member for a user, and nobody for another crew member.
 func TestTimerWhoMaySet(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	due := y.in(time.Hour)
 	y.refused("yardmaster", NewTimer{To: "clerk", Reason: "x", Due: due}, "nobody sets a timer for another crew member: mail it (yardr mail clerk")
@@ -212,6 +217,7 @@ func TestTimerWhoMaySet(t *testing.T) {
 // The limits: timers per setter, the shortest period, how far ahead and
 // how long. The two settings move theirs.
 func TestTimerLimits(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	ctx := context.Background()
 	day := 24 * time.Hour
@@ -246,6 +252,7 @@ func TestTimerLimits(t *testing.T) {
 // A recurring timer fires each period and ends when its time is up, with
 // a last firing that says so.
 func TestTimerRecurs(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	tm := y.add("yardmaster", NewTimer{Reason: "sweep the backlog", Every: time.Hour, For: 3 * time.Hour})
 	if tm.Every != "1h" || tm.Ends == nil || !tm.Ends.Equal(tm.SetAt.Add(3*time.Hour)) || !tm.Due.Equal(tm.SetAt.Add(time.Hour)) {
@@ -282,6 +289,7 @@ func TestTimerRecurs(t *testing.T) {
 // marked late with by how much; a recurring one fires once for all the
 // periods missed and then keeps its rhythm.
 func TestTimerLateAfterTheDaemonWasAway(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	y.add("yardmaster", NewTimer{Reason: "one-shot", Due: y.in(10 * time.Minute)})
 	every := y.add("clerk", NewTimer{Reason: "hourly", Every: time.Hour, For: 24 * time.Hour})
@@ -379,6 +387,7 @@ func (y *timerYard) dropped() string {
 // --unless bead=<id>: the timer is dropped when the bead closes before it
 // is due, with a timer_dropped event and nothing for the receiver.
 func TestTimerUnlessDropsOnClose(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	ctx := context.Background()
 	y.flowBead("web-1")
@@ -414,6 +423,7 @@ func TestTimerUnlessDropsOnClose(t *testing.T) {
 // closed. A bead still short of it lets the timer fire, and the firing
 // says what was awaited and where the bead stands.
 func TestTimerUnlessStage(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	stuck := func(t *testing.T, move func(y *timerYard)) *timerYard {
 		t.Helper()
 		y := newTimerYard(t)
@@ -469,6 +479,7 @@ func TestTimerUnlessStage(t *testing.T) {
 // A recurring timer with --unless fires while the bead is short of what
 // it waits for and ends when that holds.
 func TestTimerRecurringUnlessEnds(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	y.flowBead("web-1")
 	y.add("yardmaster", NewTimer{Reason: "web-1 open", Every: time.Hour, UnlessBead: "web-1"})
@@ -489,6 +500,7 @@ func TestTimerRecurringUnlessEnds(t *testing.T) {
 // A timer whose receiver left the yard is dropped, not kept for whoever
 // takes the name next.
 func TestTimerReceiverGone(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	y.add("yardmaster", NewTimer{To: "ada", Reason: "x", Due: y.in(time.Hour)})
 	if err := y.DeleteUser(context.Background(), "ada", "jo"); err != nil {
@@ -505,6 +517,7 @@ func TestTimerReceiverGone(t *testing.T) {
 // Timers lists what a party set or is told by, soonest first; RemoveTimer
 // is theirs, and the operator removes any.
 func TestTimerListAndRemove(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	ctx := context.Background()
 	own := y.add("yardmaster", NewTimer{Reason: "later", Due: y.in(2 * time.Hour)})
@@ -556,6 +569,7 @@ func TestTimerListAndRemove(t *testing.T) {
 // A crew member's prime lists its live timers: its own and those it set for
 // a user.
 func TestTimersInPrime(t *testing.T) {
+	// Sequential: the package's fake clock (via newTimerYard).
 	y := newTimerYard(t)
 	y.add("yardmaster", NewTimer{Reason: "own", Due: y.in(time.Hour)})
 	y.add("yardmaster", NewTimer{To: "jo", Reason: "for jo", Due: y.in(2 * time.Hour)})
@@ -570,6 +584,7 @@ func TestTimersInPrime(t *testing.T) {
 }
 
 func TestSpan(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"1d": "1d", "24h": "1d", "90m": "1h30m", "2h": "2h", "45s": "45s", "30d": "30d", "36h": "36h"} {
 		d, err := ParseSpan(in)
 		if err != nil || Span(d) != want {

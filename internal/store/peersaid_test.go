@@ -16,6 +16,7 @@ import (
 // words, kept for the next question to tell the sender, and not remembered
 // as taken. The messages that came with it in the same call are taken.
 func TestPeerUnknownKind(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.allow(t, store.PeerAllow{Receive: []string{"ping"}, Send: []string{"ping"}})
 	m1, m3 := ping("m1"), ping("m3")
@@ -69,6 +70,7 @@ func TestPeerUnknownKind(t *testing.T) {
 // The sender of a message the peer's yardr does not know gives it up with
 // that reason in its note, and not as a kind the peer's link does not carry.
 func TestPeerUnknownKindToldToTheSender(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "") // north asks
 	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
 	m, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
@@ -102,6 +104,7 @@ func TestPeerUnknownKindToldToTheSender(t *testing.T) {
 // by the key the request was signed with; said again unchanged it writes
 // nothing; a peer that says nothing is one that has not said.
 func TestPeerHeard(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	said := func() *store.PeerSaid {
 		t.Helper()
@@ -182,6 +185,7 @@ func TestPeerHeard(t *testing.T) {
 // A signed answer to a post is checked against the peer record before its
 // says is kept; an answer forged with another key cannot update it.
 func TestPeerPostAnswered(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	page, err := json.Marshal(struct {
 		Taken bool            `json:"taken"`
@@ -215,6 +219,7 @@ func TestPeerPostAnswered(t *testing.T) {
 // answer that says the same writes nothing, and the page of an older yardr,
 // which says nothing, is taken as before.
 func TestPeerPulledSays(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.allow(t, store.PeerAllow{Receive: []string{"ping"}})
 	pulled := func(page string) *store.PeerPulled {

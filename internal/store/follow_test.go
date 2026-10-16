@@ -51,6 +51,7 @@ func (d *dropping) askedAfter() string {
 // event it handed on, and says when it is back: every event once, in
 // order.
 func TestFollowResumesAfterTheLastEvent(t *testing.T) {
+	t.Parallel()
 	ev := func(seq uint64) store.Event { return store.Event{Seq: seq, Kind: "mail"} }
 	d := &dropping{batches: [][]store.Event{{ev(8), ev(9)}, {ev(10)}, {}, {ev(11)}}, refuse: 2}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -85,6 +86,7 @@ func TestFollowResumesAfterTheLastEvent(t *testing.T) {
 // Follow against the store itself: what was committed before it
 // subscribed and what comes after reach the follower in order.
 func TestFollowTheStore(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -118,6 +120,7 @@ func TestFollowTheStore(t *testing.T) {
 // Following's channel stays open across streams that end and a server
 // that is away, hands on every event once, and closes when ctx ends.
 func TestFollowingOutlivesTheStream(t *testing.T) {
+	t.Parallel()
 	ev := func(seq uint64) store.Event { return store.Event{Seq: seq, Kind: "mail"} }
 	d := &dropping{batches: [][]store.Event{{ev(8), ev(9)}, {ev(10)}, {}, {ev(11)}}, refuse: 2}
 	ctx, cancel := context.WithCancel(context.Background())

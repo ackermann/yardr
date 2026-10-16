@@ -59,6 +59,7 @@ func sameSub(sub, want store.Subscription) bool {
 // operator to exactly the two failure kinds in the same write, even where
 // the subscription was removed before, and never twice.
 func TestUpgradeFromSetting(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Base: "main"}, "me"); err != nil {
@@ -121,6 +122,7 @@ func TestUpgradeFromSetting(t *testing.T) {
 // would otherwise choose the install source. The stored value is unchanged
 // and nothing is logged; a depot of the yard, and clearing, still pass.
 func TestUpgradeFromSettingRefusesUnknownDepot(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")
@@ -159,6 +161,7 @@ func TestUpgradeFromSettingRefusesUnknownDepot(t *testing.T) {
 // creates one under it choose the install source. Nothing is deleted and no
 // depot_removed is logged, while after clearing it the removal passes.
 func TestDeleteDepotRefusesUpgradeFromDepot(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")
@@ -219,6 +222,7 @@ func TestDeleteDepotRefusesUpgradeFromDepot(t *testing.T) {
 // The open-beads refusal still wins where both it and the upgrade_from
 // refusal apply: the depot names its beads, not the setting.
 func TestDeleteDepotOpenBeadsRefusalWinsOverUpgradeFrom(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")
@@ -244,6 +248,7 @@ func TestDeleteDepotOpenBeadsRefusalWinsOverUpgradeFrom(t *testing.T) {
 // the setting cleared once on open, told as the setting's own change from
 // yard; one whose depot exists keeps it, with nothing logged.
 func TestSchema24StoreClearsDanglingUpgradeFrom(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	aged := func(t *testing.T, dangle bool) (string, uint64) {
 		t.Helper()
@@ -356,6 +361,7 @@ func TestSchema24StoreClearsDanglingUpgradeFrom(t *testing.T) {
 // yard cannot tell the operator outside the store, so upgrade_from refuses
 // even though the legacy setting passes the operator-only check.
 func TestUpgradeFromSettingRefusesLegacyOperatorCrew(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st, err := store.Open(path)
@@ -408,6 +414,7 @@ func TestUpgradeFromSettingRefusesLegacyOperatorCrew(t *testing.T) {
 // A user the operator's setting makes carries the failure subscription; a
 // user added any other way carries none.
 func TestOperatorCarriesUpgradeSubscription(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
@@ -427,6 +434,7 @@ func TestOperatorCarriesUpgradeSubscription(t *testing.T) {
 // A yard from before the subscription gains it once on open, and keeps an
 // unsubscribe afterwards while upgrade_from is unset.
 func TestMigrateUpgradeTell(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -500,6 +508,7 @@ func restamp(t *testing.T, path string, v uint64) {
 // upgrade_from is set is refused, naming the setting; any other drop, and
 // any drop with the setting unset, works.
 func TestUpgradeSubscriptionDropRefused(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")
@@ -568,6 +577,7 @@ func TestUpgradeSubscriptionDropRefused(t *testing.T) {
 // bead fields does not match it. The yardmaster's inbox holds it on its
 // default --on, with no migration of its own.
 func TestBeadlessFailureNotifies(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")
@@ -668,6 +678,7 @@ func TestBeadlessFailureNotifies(t *testing.T) {
 
 // An event marked told writes notifications but queues no push.
 func TestToldEventNotifiesWithoutPush(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	operatorWithNotify(t, st, "jo")

@@ -16,6 +16,7 @@ import (
 // open, from the sessions as they are, and lists a bead's sessions through
 // them (yardr-wav4).
 func TestSessionOrderIndexesBuiltForOldStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -68,6 +69,7 @@ func TestSessionOrderIndexesBuiltForOldStore(t *testing.T) {
 // A bead's sessions, and the newest of all, are read through their indexes:
 // 10k sessions of another bead, or older ones, are not looked at.
 func TestListSessionsReadsWhatItLists(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 4}, "me"); err != nil {
@@ -133,6 +135,7 @@ func TestListSessionsReadsWhatItLists(t *testing.T) {
 
 // A pruned session leaves the indexes by bead and by start.
 func TestPruneRemovesSessionOrderEntries(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")
@@ -153,6 +156,7 @@ func TestPruneRemovesSessionOrderEntries(t *testing.T) {
 // bead list -a with a limit reads the newest beads and no more, and lists
 // them in the order the whole listing has them (yardr-wav4).
 func TestListBeadsNewestReadsWhatItLists(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	const total = 300

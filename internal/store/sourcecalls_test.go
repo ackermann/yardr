@@ -155,6 +155,7 @@ func lastCall(t *testing.T, s store.API) (store.Event, string) {
 // has its event, on the session's bead, with the value of the parameter the
 // file marks and of no other; the credential is in none.
 func TestSourceCallBySession(t *testing.T) {
+	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := crmYard(t, s)
 	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "jo"); err != nil {
@@ -262,6 +263,7 @@ func TestSourceCallBySession(t *testing.T) {
 // The operator makes any call without a grant; a crew member the ones it
 // was granted, by name or through read; anyone else none.
 func TestSourceCallGrants(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := crmYard(t, s)
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
@@ -364,6 +366,7 @@ func TestSourceCallGrants(t *testing.T) {
 // after is refused and recorded; another caller has a count of its own. A
 // source without a credential set up is refused as that.
 func TestSourceCallLimit(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := crmYard(t, s)
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
@@ -415,6 +418,7 @@ func TestSourceCallLimit(t *testing.T) {
 // A session whose bead came from another yard makes no call, whatever its
 // group was granted: its brief is that yard's text.
 func TestSourceCallFromPeerRefused(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	if _, err := y.api.PutSource(y.ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", crm(t).URL, 1), "jo"); err != nil {
 		t.Fatal(err)
@@ -505,6 +509,7 @@ func updateYard(t *testing.T, s store.API) (context.Context, *standin.Server) {
 // customer's id and never the note's text; what a session may call lists
 // the update as one.
 func TestSourceUpdateIsGrantedByName(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
 	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "reviewers"}, "jo"); err != nil {
@@ -588,6 +593,7 @@ func TestSourceUpdateIsGrantedByName(t *testing.T) {
 // the service writes once. After a success the same call is a new one, and
 // a call with other values has a key of its own.
 func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
+	// Sequential: drives source.Timeout, which every source call reads.
 	was := source.Timeout
 	t.Cleanup(func() { source.Timeout = was })
 	// No case is decided by how fast the machine answers (yardr-awev:
@@ -655,6 +661,7 @@ func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 // unless set: the one after is refused as limit and recorded, and reaches
 // no service. A read is still made, and an update is one of the calls too.
 func TestSourceUpdateLimit(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
 	for _, what := range []string{"note", store.GrantRead} {
@@ -732,6 +739,7 @@ func TestSourceUpdateLimit(t *testing.T) {
 // is refused before anything is sent; an answer over a note's bound is
 // returned and not noted.
 func TestSourceCallNote(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {

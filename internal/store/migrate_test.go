@@ -79,6 +79,7 @@ func copyFile(t *testing.T, src, dst string) {
 // it (no index buckets) or a schema-2 build with the indexes did and an
 // older one appended to it since (index buckets missing entries).
 func TestSchema2StoreMigratesTo3(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "fixture.db")
 	s, err := store.Open(fixture)
@@ -211,6 +212,7 @@ func bucketDump(t *testing.T, path string, buckets ...string) map[string]string 
 // from before the setting whose crew member is called mayor gets the setting,
 // since the default name is no longer that one.
 func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	kept := []string{"crew", "packs", "depots", "users"}
 	cases := []struct {
@@ -333,6 +335,7 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 // that flow still finds it, and the events already logged are not
 // rewritten. The old words are still read afterwards.
 func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -548,6 +551,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 // named web.car finds web.wagon, and the events already logged are not
 // rewritten. Afterwards car is no word for a wagon: no release had it.
 func TestSchema10StoreRenamesCars(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -790,6 +794,7 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 // events already logged are not rewritten, and one of an old kind is still
 // in the inbox of whoever hears of the kind.
 func TestSchema10StoreRenamesResidents(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home := t.TempDir()
 	if resolved, err := filepath.EvalSymlinks(home); err == nil {
@@ -1003,6 +1008,7 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 // A home with both directories is left as it is, and so are the paths: the
 // operator made the new one, and yardr does not choose between the two.
 func TestSchema10StoreLeavesTwoDirectories(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home := t.TempDir()
 	path := filepath.Join(home, "yard.db")
@@ -1053,6 +1059,7 @@ func TestSchema10StoreLeavesTwoDirectories(t *testing.T) {
 // that command now; one that had a test command keeps it. One event says
 // what went, the next start adds none, and nothing else changes.
 func TestSchema18StoreDropsTheChecks(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -1226,6 +1233,7 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 // already logged are not rewritten, and one of an old kind is still in the
 // inbox of whoever hears of the kind.
 func TestSchema11StoreRenamesRigs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home := t.TempDir()
 	if resolved, err := filepath.EvalSymlinks(home); err == nil {
@@ -1455,6 +1463,7 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 // A home with both directories is left as it is, and so are the paths: the
 // operator made the new one, and yardr does not choose between the two.
 func TestSchema11StoreLeavesTwoDepotDirectories(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home := t.TempDir()
 	path := filepath.Join(home, "yard.db")
@@ -1505,6 +1514,7 @@ func TestSchema11StoreLeavesTwoDepotDirectories(t *testing.T) {
 // (yardr-y0hk). A pointer at a flow the store holds under the old name
 // stays, and a second open writes nothing.
 func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := gitRepo(t, map[string]string{
 		".yardr/flows/web.flow":        repoDefault,
@@ -1659,6 +1669,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 // (yardr-xwdm). A pin at a flow the store holds under the old name stays,
 // as does a closed bead's, and a second open writes nothing.
 func TestOpenRenamesBeadPinsAtEpicAndPart(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := gitRepo(t, map[string]string{
 		".yardr/flows/web.flow":       repoDefault,
@@ -1800,6 +1811,7 @@ func TestOpenRenamesBeadPinsAtEpicAndPart(t *testing.T) {
 // an order that holds from every version, and the store comes out stamped
 // current with its records readable.
 func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "fixture.db")
@@ -1882,6 +1894,7 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 // the reading as it was. The next start changes nothing, logs nothing,
 // and leaves the revisions alone. A yard with no operator is left alone.
 func TestSchema22StoreGainsOriginators(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	aged := func(t *testing.T, operator string) (string, []string, uint64) {
 		t.Helper()

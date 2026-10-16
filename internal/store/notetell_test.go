@@ -17,6 +17,7 @@ import (
 // one on a bead with no session, and one through any other write name
 // none.
 func TestNotedNamesTheSessionTold(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -103,6 +104,7 @@ func TestNotedNamesTheSessionTold(t *testing.T) {
 // of a note still untold stands: the session read it from the bead, and
 // the telling is cancelled. Acking twice is the note again.
 func TestAckNote(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -173,6 +175,7 @@ func TestAckNote(t *testing.T) {
 // is a no-op, never a second event. A mark for any session but the
 // note's is refused.
 func TestMarkNoteTold(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -228,6 +231,7 @@ func TestMarkNoteTold(t *testing.T) {
 // Marking a note untold records why neither delivery took it, with its
 // event, once. A note already told or read is not marked untold.
 func TestMarkNoteUntold(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -297,6 +301,7 @@ func TestMarkNoteUntold(t *testing.T) {
 // caller names: an agent cannot mark a note for another session read, nor
 // cancel its telling, by naming that session.
 func TestAckNoteFromAPaneIsThatPanesSession(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -361,6 +366,7 @@ func TestAckNoteFromAPaneIsThatPanesSession(t *testing.T) {
 // event names it too, as the nudge reads it. From no pane the actor
 // stands as given, session claim or none.
 func TestNoteFromAPaneIsThatPanesActor(t *testing.T) {
+	t.Parallel()
 	// This test process is the pane's shell (see expect_test.go). Each
 	// case has its own yard, so only the pane under test is on record.
 	me := os.Getpid()

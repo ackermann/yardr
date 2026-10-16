@@ -51,7 +51,9 @@ func ageBeads(t *testing.T, path string, schema uint64, old *strings.Replacer) i
 }
 
 // The index of open beads holds exactly the beads a walk of every bead
-// finds open, after each of a few hundred random writes: creates (with
+// finds open, after every tenth successful write of a few hundred random
+// ones, the first success of each kind, the two migrations below and the
+// last write, so every kind is compared at least once: creates (with
 // edges, in a flow and in none, memories), moves, a flow's terminal stage,
 // closes, reopens, holds, notes, edges, claims and their sessions' ends,
 // and the two migrations that rewrite the beads bucket without minting (the
@@ -188,6 +190,7 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 	}
 	same("setup")
 	ok := map[string]int{}
+	writes := 0
 	for step := 0; step < 600; step++ {
 		switch step {
 		case 200:
@@ -200,9 +203,15 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 		op := ops[rng.Intn(len(ops))]
 		if op.do() == nil {
 			ok[op.name]++
+			writes++
+			// Every tenth write, and the first of each kind: the
+			// comparison still pins every kind at a tenth of the walks.
+			if writes%10 == 0 || ok[op.name] == 1 {
+				same(fmt.Sprintf("step %d, %s", step, op.name))
+			}
 		}
-		same(fmt.Sprintf("step %d, %s", step, op.name))
 	}
+	same("the last write")
 	for _, op := range ops {
 		if ok[op.name] == 0 {
 			t.Errorf("seed %d: %s never succeeded, so the test did not drive it", seed, op.name)
@@ -222,6 +231,7 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 // A store from before the open index gets it built on open, from the beads
 // as they are, and the listings of open beads read through it.
 func TestOpenIndexBuiltForOldStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
@@ -263,6 +273,7 @@ func TestOpenIndexBuiltForOldStore(t *testing.T) {
 // open ones are decoded once for a state of the store, so each listing here
 // follows a write.
 func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"); err != nil {

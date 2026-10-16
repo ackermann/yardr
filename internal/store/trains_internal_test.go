@@ -14,6 +14,7 @@ import (
 // 2^20 ms: an edge made after a wrap has a smaller id than one made before
 // it. A train's children and edges() are oldest first all the same.
 func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
+	// Sequential: the package's fake clock.
 	// 3 ms before the wrap; each write below is 2 ms after the last.
 	const wrap = 1 << 20
 	at := time.UnixMilli(1_700_000_000_000/wrap*wrap + wrap - 3)
@@ -86,6 +87,7 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 
 // Edges made at the same moment are listed by id.
 func TestEdgesOfOneMomentByID(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.UnixMilli(1_700_000_000_000)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

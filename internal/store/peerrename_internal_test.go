@@ -14,6 +14,7 @@ import (
 // not say since when they are: Open reads it from the log, so the mail of
 // an earlier yard that had the name is not the peer's.
 func TestMigratePeerSince(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := Open(path)

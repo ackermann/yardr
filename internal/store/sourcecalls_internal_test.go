@@ -18,6 +18,7 @@ import (
 // session, so that it stands when a source is opened to a peer's beads. A
 // bead of this yard's own, and one it sent away, take the note.
 func TestSourceNoteRefusedOnABeadFromAPeer(t *testing.T) {
+	t.Parallel()
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +62,7 @@ func TestSourceNoteRefusedOnABeadFromAPeer(t *testing.T) {
 // value, or by another caller, has a new one. Removing the source drops its
 // keys.
 func TestSourceUpdateKeyIsKeptForASecondTry(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

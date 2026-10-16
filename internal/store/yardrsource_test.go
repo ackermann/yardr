@@ -74,6 +74,7 @@ func wantHeard(t *testing.T, s store.API, bead, member string, want ...string) {
 }
 
 func TestYardrPerBeadAndPerStage(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "watcher", "stager", "other")
 	other, err := s.CreateBead(ctx, store.NewBead{Title: "other", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
@@ -104,6 +105,7 @@ func TestYardrPerBeadAndPerStage(t *testing.T) {
 }
 
 func TestYardrLabelDepotTypeFilters(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "ui", "yard", "bugs")
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -145,6 +147,7 @@ func TestYardrLabelDepotTypeFilters(t *testing.T) {
 // it (and not again when the assembly closes it as merged), or when it is
 // closed directly.
 func TestYardrDoneOnce(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "done")
 	subscribe(t, s, "done", yardrSub(store.ScopeAll, "state=done"))
 
@@ -180,6 +183,7 @@ func TestYardrDoneOnce(t *testing.T) {
 }
 
 func TestYardrInvolved(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "jane", "noter", "mentioned", "bystander")
 	for _, r := range []string{"jane", "noter", "mentioned", "bystander"} {
 		subscribe(t, s, r, yardrSub(store.ScopeInvolved))
@@ -206,6 +210,7 @@ func TestYardrInvolved(t *testing.T) {
 }
 
 func TestBeadWatchEndsOnClose(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster")
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.UUID)) // stored as the handle
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"))
@@ -246,6 +251,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 
 // A watch on a bead that is already closed would end before it began.
 func TestWatchOnClosedBeadRefused(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster")
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
@@ -282,6 +288,7 @@ func deliveredTo(t *testing.T, s store.API, member string) int {
 // journals without nudging each other forever: a mention counts in the
 // entry that makes it, not in every later entry on the same journal.
 func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
+	t.Parallel()
 	s, ctx, _ := yardrDepot(t, "a", "b")
 	subscribe(t, s, "a", yardrSub(store.ScopeAll))
 	subscribe(t, s, "b", yardrSub(store.ScopeAll))
@@ -322,6 +329,7 @@ func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
 
 // Memory beads are knowledge, not events to hear about, unless asked for.
 func TestYardrMemoryOutOfSource(t *testing.T) {
+	t.Parallel()
 	s, ctx, _ := yardrDepot(t, "all", "memories")
 	subscribe(t, s, "all", yardrSub(store.ScopeAll))
 	subscribe(t, s, "memories", yardrSub(store.ScopeAll, "type="+store.TypeMemory))
@@ -337,6 +345,7 @@ func TestYardrMemoryOutOfSource(t *testing.T) {
 // own journal entries, whoever logs them (the daemon acts as "yard"), not
 // even when it subscribes to its journal or has the kind in --on.
 func TestCrewDoesNotHearOfItself(t *testing.T) {
+	t.Parallel()
 	s, ctx, _ := yardrDepot(t, "other")
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		On: []string{"crew_started", "crew_stopped"}}, "me"); err != nil {
@@ -384,6 +393,7 @@ func TestCrewDoesNotHearOfItself(t *testing.T) {
 }
 
 func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "yardmaster", "outsider")
 	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}, "me"); err != nil {
 		t.Fatal(err)
@@ -425,6 +435,7 @@ func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 // --on keeps working as implicit "yardr all kind=<k>" subscriptions: a
 // crew member with --on gave_up and one subscribed to it hear the same.
 func TestOnMatchesKindSubscription(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "subbed")
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "legacy", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
 		t.Fatal(err)
@@ -445,6 +456,7 @@ func TestOnMatchesKindSubscription(t *testing.T) {
 }
 
 func TestYardrTrainAndGroupKeys(t *testing.T) {
+	t.Parallel()
 	s, ctx, train := yardrDepot(t, "train", "builders")
 	// Only a train can be a parent.
 	typ := store.TypeTrain
@@ -493,6 +505,7 @@ func TestYardrTrainAndGroupKeys(t *testing.T) {
 // Matching runs under the write lock, so it compiles each crew member's
 // mention pattern once, not once per event.
 func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
+	t.Parallel()
 	s, owned := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
@@ -527,6 +540,7 @@ func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
 // keys stay ANDed. The values are kept sorted, each once, so the same ones
 // in another order are the same subscription (yardr-03fj).
 func TestYardrSeveralValuesForOneKey(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t, "clerk", "trains")
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -579,6 +593,7 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 // it did: its record is as that build wrote it, one string for each key,
 // and a comma, a bar or a space in the string separates nothing.
 func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yardr.db")
 	s, err := store.Open(path)
 	if err != nil {

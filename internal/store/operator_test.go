@@ -53,6 +53,7 @@ func peerKey(t *testing.T) string {
 // that asks nothing first (a pack's import, the web, yardr chat) is held to
 // it as yardr's own commands are (yardr-1379).
 func TestOnlyTheOperatorMay(t *testing.T) {
+	t.Parallel()
 	api, own := operatorYard(t)
 	ctx := context.Background()
 	key := peerKey(t)
@@ -316,6 +317,7 @@ func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
 // member is refused with the alone mark and the link stays, and the
 // operator removes.
 func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
+	t.Parallel()
 	api, own := operatorYard(t)
 	ctx := context.Background()
 	// The mark is the store's own: the socket carries a refusal's words
@@ -345,6 +347,7 @@ func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
 // change, recorded as the pane's actor from a pane, and a hook that acts
 // as a crew member still speaks as it.
 func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
+	t.Parallel()
 	hookYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
 		t.Helper()
 		api, own := operatorYard(t)
@@ -459,6 +462,7 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 // adding a depot, and re-adding one with its path unchanged whatever else
 // changes, are anyone's, recorded as the pane's actor from a pane.
 func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
+	t.Parallel()
 	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
 		t.Helper()
 		api, own := operatorYard(t)
@@ -544,6 +548,7 @@ func TestPutDepotPathChangeIsTheOperators(t *testing.T) {
 // the change from anyone who is no agent of its own, as a declared source
 // is taken (maySource).
 func TestOperatorOnlyWithoutAnOperator(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
@@ -574,6 +579,7 @@ func TestOperatorOnlyWithoutAnOperator(t *testing.T) {
 // noticed. The stale record must not hide the live one: a call from the
 // pane is the crew member whose shell still runs there.
 func TestPaneCrewStaleRecordDoesNotHideLiveOne(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	for _, name := range []string{"yardmaster", "warden"} {
@@ -612,6 +618,7 @@ func TestPaneCrewStaleRecordDoesNotHideLiveOne(t *testing.T) {
 // the pane's actor, whatever --actor says: a pane can never pass one as
 // the operator. From no pane the actor stands as given (yardr-6g56).
 func TestPaneAdminWriteIsThePanesActor(t *testing.T) {
+	t.Parallel()
 	t.Run("session", func(t *testing.T) {
 		s, ctx, _, _, actor := paneMoveYard(t)
 		pane := store.WithCaller(ctx, os.Getpid())
@@ -651,6 +658,7 @@ func TestPaneAdminWriteIsThePanesActor(t *testing.T) {
 // still records that actor, whatever the caller supplies as --actor. The
 // gate must use the pane actor both to decide access and to write the event.
 func TestOperatorWritesFromPaneRecordPanesActor(t *testing.T) {
+	t.Parallel()
 	t.Run("operator-only", func(t *testing.T) {
 		s, ctx, _, sess, _ := moveYardClaim(t)
 		route, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "op")
@@ -695,6 +703,7 @@ func TestOperatorWritesFromPaneRecordPanesActor(t *testing.T) {
 // --actor says: a pane can never set one as the operator. From no pane
 // the actor stands as given (yardr-6g56).
 func TestPaneTimerIsThePanesActor(t *testing.T) {
+	t.Parallel()
 	nt := store.NewTimer{Reason: "stretch", Due: time.Now().Add(time.Hour)}
 	s, ctx, _, _, actor := paneMoveYard(t)
 	pane := store.WithCaller(ctx, os.Getpid())
@@ -714,6 +723,7 @@ func TestPaneTimerIsThePanesActor(t *testing.T) {
 // actor its session names, or by the pane yardr started it in when a
 // command there names another.
 func TestSpeakingAsACrewMember(t *testing.T) {
+	t.Parallel()
 	api, own := operatorYard(t)
 	ctx := context.Background()
 	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{store.OpenThreads: "linear"}}, "jo"); err != nil {
@@ -777,6 +787,7 @@ func TestSpeakingAsACrewMember(t *testing.T) {
 // pane is refused in their words. The crew member's own pane and the
 // operator pass, and a refusal logs no event.
 func TestCompletionsAndFollowsSpeakAsTheCrewMember(t *testing.T) {
+	t.Parallel()
 	speakYard := func(t *testing.T) (store.API, context.Context) {
 		t.Helper()
 		api := storetest.New(t)

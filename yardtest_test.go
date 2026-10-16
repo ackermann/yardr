@@ -1500,7 +1500,7 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		write(dir, "green.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
-				"ok  \tyardr.dev/yardr/internal/store\t90.0s\n"+
+				"ok  \tyardr.dev/yardr/internal/store\t55.0s\n"+
 				"ok  \tyardr.dev/yardr\t31.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t21.0s\n")
 		if out, code := run(dir, "packagebudget", "green.txt"); code != 0 || out != "" {

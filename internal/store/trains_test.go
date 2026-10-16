@@ -45,6 +45,7 @@ func family(t *testing.T, s store.API, id string) store.Family {
 // BaseOf: a child of a train lands on the train's branch; everything else,
 // the train itself included, on the depot's base.
 func TestBaseOf(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if f := family(t, s, "web-1"); f.Base != "main" || f.Train != "" {
 		t.Fatalf("before the edge: %+v, want base main and no train", f)
@@ -79,6 +80,7 @@ func TestBaseOf(t *testing.T) {
 }
 
 func TestParentEdgeRules(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "other train", Type: store.TypeTrain, Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
@@ -124,6 +126,7 @@ func TestParentEdgeRules(t *testing.T) {
 // changed since) does not make a child: the bead keeps the depot's base. A
 // bead left with two train parents has no base until one edge goes.
 func TestOnlyTrainParentsCount(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "", "me"); err != nil {
 		t.Fatal(err)
@@ -156,6 +159,7 @@ func TestOnlyTrainParentsCount(t *testing.T) {
 // closes; a blocks edge already there is not doubled. Removing the parent
 // edge removes the blocks edge with it.
 func TestParentEdgeBlocksTheTrain(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "", "", "me"); err != nil {
 		t.Fatal(err)
@@ -215,6 +219,7 @@ func TestParentEdgeBlocksTheTrain(t *testing.T) {
 // Listings carry each bead's train (and each session's bead's), worked out
 // from the parent edges when listed, so a table needs no lookup per row.
 func TestListingsCarryTheTrain(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "", "me"); err != nil {
 		t.Fatal(err)
@@ -279,6 +284,7 @@ func TestListingsCarryTheTrain(t *testing.T) {
 // bead list --train: the train first, whatever its priority, then its
 // children; nothing else.
 func TestListBeadsByTrain(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	for _, c := range []string{"web-1", "web-2"} {
 		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "", "", "me"); err != nil {
@@ -342,6 +348,7 @@ func wagonDepot(t *testing.T) (store.API, context.Context) {
 // Neither a move nor an outcome takes it on, nor can one be created further
 // along; as a child of a train it moves like any bead.
 func TestWagonNeedsATrain(t *testing.T) {
+	t.Parallel()
 	s, ctx := wagonDepot(t)
 	refused := func(err error) {
 		t.Helper()

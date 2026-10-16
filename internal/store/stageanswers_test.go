@@ -73,6 +73,7 @@ func stageAnswerNotes(t *testing.T, s store.API, id string) []store.Note {
 // the advanced event and no separate note; the other member's ask is taken
 // back with the move named.
 func TestStageAnswerChoiceMoves(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -120,6 +121,7 @@ func TestStageAnswerChoiceMoves(t *testing.T) {
 // Words on an input ask move with the ask's move; the words stay on the
 // answer note.
 func TestStageAnswerInputMoves(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAnswerInput)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -155,6 +157,7 @@ func TestStageAnswerInputMoves(t *testing.T) {
 // Picking You decide records without moving; the person re-picks from the
 // bead while it is still in the stage.
 func TestStageAnswerYouDecide(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -188,6 +191,7 @@ func TestStageAnswerYouDecide(t *testing.T) {
 // Later puts the stage ask aside and Decline ends it; the bead waits as
 // today in both cases.
 func TestStageAnswerLaterDecline(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -216,6 +220,7 @@ func TestStageAnswerLaterDecline(t *testing.T) {
 // each refused whole, with the membership reason: no answer is stored and
 // the bead does not move.
 func TestStageAnswerNonMember(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	if _, err := s.AddUser(ctx, "grace", "jo"); err != nil {
 		t.Fatal(err)
@@ -266,6 +271,7 @@ func TestStageAnswerNonMember(t *testing.T) {
 // A group with no members refuses nobody on the answer path either, as on
 // the hand path.
 func TestStageAnswerOpenGroup(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	if _, err := s.AddUser(ctx, "grace", "jo"); err != nil {
 		t.Fatal(err)
@@ -295,6 +301,7 @@ func TestStageAnswerOpenGroup(t *testing.T) {
 // Where the yard put the ask to the operator as fallback, the operator's
 // answer is taken.
 func TestStageAnswerFallback(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"x@nobody"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -324,6 +331,7 @@ func TestStageAnswerFallback(t *testing.T) {
 // The operator addressed as fallback remains the recipient's authorized
 // answerer if the operator setting changes while the ask is open.
 func TestStageAnswerFallbackAfterOperatorChange(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"x@nobody"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -353,6 +361,7 @@ func TestStageAnswerFallbackAfterOperatorChange(t *testing.T) {
 // Two members answering in turn leave one move and one take-back: the
 // loser's pick is refused as asked no more, naming the move.
 func TestStageAnswerFirstWins(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -378,6 +387,7 @@ func TestStageAnswerFirstWins(t *testing.T) {
 // A stage ask whose current answer is a pick that moved takes no further
 // pick; the refusal names the outcome.
 func TestStageAnswerRepickAfterMove(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -403,6 +413,7 @@ func TestStageAnswerRepickAfterMove(t *testing.T) {
 // naming both: the loser's You decide stays answered, and a re-pick there
 // names the stages.
 func TestStageAnswerOtherStage(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -432,6 +443,7 @@ func TestStageAnswerOtherStage(t *testing.T) {
 // A pick on an ask put for an earlier stay is refused, naming the fresh
 // ask where one stands.
 func TestStageAnswerReentry(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -515,6 +527,7 @@ func stageAnswerWriteTemplate(t *testing.T, home, reviewFile string) {
 // A re-pick after a re-entry that put no fresh ask, because the template
 // was removed, says so: the bead is moved by hand.
 func TestStageAnswerTemplateRemoved(t *testing.T) {
+	t.Parallel()
 	s, home, ctx := stageAnswerStoreYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -548,6 +561,7 @@ func TestStageAnswerTemplateRemoved(t *testing.T) {
 // A re-pick after a re-entry that put no fresh ask, because the template is
 // broken, says so: the bead is moved by hand.
 func TestStageAnswerTemplateBroken(t *testing.T) {
+	t.Parallel()
 	s, home, ctx := stageAnswerStoreYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -637,6 +651,7 @@ func stageAnswerFromLink(t *testing.T, own *store.Store, ctx context.Context, ke
 // An answer arriving from a linked yard moves the bead the same way: a
 // remote member's pick lands by name@peer and fires its outcome.
 func TestStageAnswerFromLink(t *testing.T) {
+	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada", "mckean@north"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -685,6 +700,7 @@ func TestStageAnswerFromLink(t *testing.T) {
 // An answer arriving over reach counts as the member's word where the link
 // trusts the name as them: it is taken and moves.
 func TestStageAnswerTrustedMember(t *testing.T) {
+	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -722,6 +738,7 @@ func TestStageAnswerTrustedMember(t *testing.T) {
 // An answer arriving over a link from none of the stage's deciders is
 // refused whole with the membership reason: nothing is stored.
 func TestStageAnswerLinkNonMember(t *testing.T) {
+	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"mckean@north"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -775,6 +792,7 @@ func TestStageAnswerLinkNonMember(t *testing.T) {
 // The answer hook never moves a closed bead: a re-pick there is refused,
 // and the bead stays closed.
 func TestStageAnswerClosed(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -806,6 +824,7 @@ func TestStageAnswerClosed(t *testing.T) {
 // Words with move none record without moving, for a stage with no outcomes
 // to fire.
 func TestStageAnswerInputNone(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAnswerInputNone)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -832,6 +851,7 @@ func TestStageAnswerInputNone(t *testing.T) {
 
 // Done on a check ask moves with the check's move.
 func TestStageAnswerCheckDone(t *testing.T) {
+	t.Parallel()
 	s, ctx := stageAskYard(t, stageAnswerCheck)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {

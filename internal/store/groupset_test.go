@@ -12,6 +12,7 @@ import (
 // SetGroup changes what it is given of a group and keeps the rest, the
 // subscriptions with it, where PutGroup writes the group whole (yardr-9zv7).
 func TestSetGroupKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	must := func(err error) {
 		t.Helper()

@@ -296,7 +296,7 @@ summary() {
   echo "test: sh .yardr/test @ $(git rev-parse --short HEAD): $res, $pkgs_ok packages ok, $pkgs_failed failed, $(($(date +%s) - started)) s, waited $waited_total s"
 }
 # The packages over the 60 s budget (docs/testing.md R1): a directory, the
-# bead that brings it under budget, and why it is over. Three are over even
+# bead that brings it under budget, and why it is over. Two are over even
 # alone, three only in full runs (docs/design/2026-10-16-yardr-635g-test-time.md
 # section 2.1). A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s fails the run. The fix beads delete the rows;
@@ -305,7 +305,6 @@ summary() {
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
 contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
-internal/store yardr-3cc4 798 sequential tests plus the index walk after every write; 90 s alone
 contrib/isolated-yard yardr-mzjv real down-script runs over sleeper processes; 30 s alone, 51-92 s in full runs
 contrib/deploy yardr-mzjv 39 tests each starting a server of its own; 22 s alone, 41-61 s in full runs
 contrib/release yardr-mzjv the real ./build runs; 36 s alone, 74-121 s in full runs

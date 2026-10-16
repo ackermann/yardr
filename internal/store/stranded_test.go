@@ -21,6 +21,7 @@ import (
 // checkout git cannot read. Each kind has a closed twin in the same stage,
 // which the walk decodes and the index never does.
 func TestStrandedReadsOpenBeadsOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	files := map[string]string{

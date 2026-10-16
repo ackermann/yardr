@@ -13,6 +13,7 @@ import (
 // however many blockers there are and whether each is named by its handle or
 // its UUID. The bead is never ready before its blockers close.
 func TestCreateBlockedBy(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	two, err := s.GetBead(ctx, "web-2")
 	if err != nil {
@@ -81,6 +82,7 @@ func TestCreateBlockedBy(t *testing.T) {
 // bead, no event, and no edge on a blocker that came before it in the list.
 // CheckBlockers gives the same answer without creating.
 func TestCreateBlockedByRefused(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	one, err := s.GetBead(ctx, "web-1")
 	if err != nil {
@@ -131,6 +133,7 @@ func TestCreateBlockedByRefused(t *testing.T) {
 // AllDeps lists the yard's edges each once, whichever beads they touch and
 // whether those are open: what Deps lists for a bead from both its ends.
 func TestAllDeps(t *testing.T) {
+	t.Parallel()
 	s, ctx := trainDepot(t)
 	if ds, err := s.AllDeps(ctx); err != nil || ds == nil || len(ds) != 0 {
 		t.Fatalf("a yard with no edge: %v (%v), want an empty list", ds, err)

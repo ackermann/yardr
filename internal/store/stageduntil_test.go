@@ -38,6 +38,7 @@ func untilYard(t *testing.T) (store.API, context.Context) {
 // The xq35 pair of edges stores and lists: Deps from both ends, AllDeps
 // and the snapshot carry until.
 func TestUntilBlocksStoresAndLists(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -94,6 +95,7 @@ func TestUntilBlocksStoresAndLists(t *testing.T) {
 // routed once the blocker closes. Before the stage, and before a later
 // until stage, the target waits.
 func TestUntilBlocksReleasesAlongDone(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -130,6 +132,7 @@ func TestUntilBlocksReleasesAlongDone(t *testing.T) {
 // implicit done to new and on, while until=new holds in backlog, which
 // is upstream of it; decide is off both chains and holds both.
 func TestUntilBlocksDoneRouteDirection(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "backlog", "me"); err != nil {
 		t.Fatal(err)
@@ -171,6 +174,7 @@ func TestUntilBlocksDoneRouteDirection(t *testing.T) {
 // without stopping a running session: the claimed target keeps its
 // session and its owner, while a fresh claim of a held bead is taken.
 func TestUntilBlocksGoingBackHoldsAgain(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
@@ -223,6 +227,7 @@ func TestUntilBlocksGoingBackHoldsAgain(t *testing.T) {
 // reaches another: in approved the target waits on a blocker in new and
 // routes once it reaches review; anywhere else it routes throughout.
 func TestUntilBlocksSingleEdgeWithBoth(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -263,6 +268,7 @@ func TestUntilBlocksSingleEdgeWithBoth(t *testing.T) {
 // Closing the blocker releases a target held before the until stage,
 // whatever the reason, and reopening it holds the target again.
 func TestUntilBlocksCloseAndReopen(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -296,6 +302,7 @@ func TestUntilBlocksCloseAndReopen(t *testing.T) {
 // key. The cycle check stays on (from, to): a staged edge closes a cycle
 // like a plain one.
 func TestUntilBlocksDuplicateKeyAndCycles(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	keys := [][2]string{{"", ""}, {"", "review"}, {"approved", ""}, {"approved", "review"}}
 	for _, k := range keys {
@@ -334,6 +341,7 @@ func TestUntilBlocksDuplicateKeyAndCycles(t *testing.T) {
 // flow has not got. Where no flow governs the bead, any well-formed stage
 // name is accepted.
 func TestUntilBlocksRefusals(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	for _, kind := range []string{"related", store.DepParent, store.DepDiscoveredFrom} {
 		err := s.AddDep(ctx, "y-block", "y-target", kind, "", "review", "me")
@@ -366,6 +374,7 @@ func TestUntilBlocksRefusals(t *testing.T) {
 // --until validates against the blocker's flow and --at against the
 // target's, across depots: each end reads its own.
 func TestUntilBlocksEachEndReadsItsOwnFlow(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	if err := s.PutDepot(ctx, store.Depot{Name: "plain", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -403,6 +412,7 @@ func TestUntilBlocksEachEndReadsItsOwnFlow(t *testing.T) {
 // Without a flow to walk, only the until stage itself releases: the
 // blocker holds everywhere else, whatever the name.
 func TestUntilBlocksNoFlowMatchesExactly(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	bs := beads(t, s, "y-c", "y-d")
@@ -432,6 +442,7 @@ func TestUntilBlocksNoFlowMatchesExactly(t *testing.T) {
 // dep rm --until removes exactly that edge: with the at half of the key,
 // each combination removes alone, and readiness follows what is left.
 func TestUntilBlocksRemoveExactly(t *testing.T) {
+	t.Parallel()
 	s, ctx := untilYard(t)
 	keys := [][2]string{{"", ""}, {"", "review"}, {"approved", ""}, {"approved", "review"}}
 	for _, k := range keys {
@@ -517,6 +528,7 @@ func TestUntilBlocksRemoveExactly(t *testing.T) {
 // against that flow, and readiness and claims resolve it through the
 // repository: the target routes once the blocker reaches review.
 func TestUntilBlocksRepoFlow(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": outcomeFlow})
 	s, ctx := storetest.New(t), context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Path: dir, Base: "main"}, "me"); err != nil {

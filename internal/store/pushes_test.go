@@ -52,6 +52,7 @@ func pushesOf(t *testing.T, st store.API) []store.Push {
 // queued for a user who names none, nor for a crew member. The list has
 // what each is about and whether it was read.
 func TestPushQueuedWithTheInbox(t *testing.T) {
+	t.Parallel()
 	st, ctx := pushUsers(t)
 	for _, m := range [][3]string{{"ada", "the tests are green", "yardmaster"}, {"ada", "a note to myself", "ada"},
 		{"bob", "for bob", "yardmaster"}, {"yardmaster", "for the crew", "ada"}} {
@@ -141,6 +142,7 @@ func TestPushQueuedWithTheInbox(t *testing.T) {
 // counts towards the hour; a failure for good ends them with push_failed,
 // and a cause that stands is logged once.
 func TestPushTried(t *testing.T) {
+	t.Parallel()
 	st, ctx := pushUsers(t)
 	for _, text := range []string{"one", "two", "three", "four"} {
 		if err := st.Mail(ctx, "ada", text, "yardmaster"); err != nil {
@@ -254,6 +256,7 @@ func jsonSeq(n uint64) string {
 // What is told of a notification where no link is sent is its text
 // without the URL a hook delivery's ends with.
 func TestNotificationSaid(t *testing.T) {
+	t.Parallel()
 	n := store.Notification{Text: `hook (all) linear Issue create by Jane on "Web view": first words  https://linear.app/acme/issue/YRD-1`,
 		URL: "https://linear.app/acme/issue/YRD-1"}
 	if got := n.Said(); got != `hook (all) linear Issue create by Jane on "Web view": first words` {
@@ -279,6 +282,7 @@ func parts(ps []store.Push) string {
 // dropped. A name that is no part is refused with the three, and naming
 // none is all of them again.
 func TestUserTellsWhichPartsArePushed(t *testing.T) {
+	t.Parallel()
 	st, ctx := pushUsers(t)
 	if err := st.AddSubscription(ctx, "ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, "ada"); err != nil {
 		t.Fatal(err)

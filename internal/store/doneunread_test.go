@@ -13,6 +13,7 @@ import (
 // ack it. After the ack the same done passes. The refused done moves
 // nothing and leaves no note behind.
 func TestDoneRefusedWhileNoteUnread(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
@@ -83,6 +84,7 @@ func TestDoneRefusedWhileNoteUnread(t *testing.T) {
 // moving the bead, and a session of a runner with no agent to ack (exec,
 // manual, peer), are not refused.
 func TestDoneUnreadGatesOnlyTheSessionsOwnDone(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
@@ -155,6 +157,7 @@ func TestDoneUnreadGatesOnlyTheSessionsOwnDone(t *testing.T) {
 // sequences never reach the agent's terminal and a line of the text
 // cannot pass for another note's header (another writer's words).
 func TestDoneUnreadRefusalShowsLettersOnly(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {

@@ -71,6 +71,7 @@ func TestInboxReadsOnlyTheCrewEntries(t *testing.T) {
 
 // A store from before the indexes gets them built on open.
 func TestInboxIndexBuiltForOldStore(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
 	if err != nil {
@@ -97,6 +98,7 @@ func TestInboxIndexBuiltForOldStore(t *testing.T) {
 // The versions bucket is no longer written, and one an older yardr left is
 // dropped on open.
 func TestVersionsBucketDropped(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -136,6 +138,7 @@ func TestVersionsBucketDropped(t *testing.T) {
 var keep90 = store.Retention{Events: 90 * 24 * time.Hour}
 
 func TestPruneRemovesOldEventsButTheHead(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
@@ -194,6 +197,7 @@ func TestPruneRemovesOldEventsButTheHead(t *testing.T) {
 // An event a running crew member has not read stays, however old, and so does
 // all after it; a crew member with nothing unread holds nothing back.
 func TestPruneKeepsWhatACrewHasNotRead(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
@@ -263,6 +267,7 @@ func journalEvents(t *testing.T, s store.API, member, kind string) []store.Event
 // however much it has not read: its unread mail past retention goes, and
 // its journal is told how much.
 func TestPruneIgnoresAStoppedCrewInbox(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	r, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
@@ -310,6 +315,7 @@ func TestPruneIgnoresAStoppedCrewInbox(t *testing.T) {
 // Even for a running crew member, unread mail older than the inbox retention
 // no longer holds the log back; younger unread mail still does.
 func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
@@ -367,6 +373,7 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 // stopped their runner resources and cleaned up any worktree; live ones
 // never do.
 func TestPruneRemovesEndedSessions(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 10}, "me"); err != nil {
@@ -442,6 +449,7 @@ func TestPruneRemovesEndedSessions(t *testing.T) {
 // Claim and the dispatcher's view of live sessions read the live index:
 // 10k ended sessions are not looked at.
 func TestClaimReadsOnlyLiveSessions(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"); err != nil {
@@ -486,6 +494,7 @@ func TestClaimReadsOnlyLiveSessions(t *testing.T) {
 // A store from before the live index gets it built on open, from the
 // sessions as they are.
 func TestLiveIndexBuiltForOldStore(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
 	if err != nil {
@@ -523,6 +532,7 @@ func TestLiveIndexBuiltForOldStore(t *testing.T) {
 
 // Nothing since the oldest live session began goes.
 func TestPruneKeepsWhatALiveSessionSpans(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"); err != nil {
@@ -575,6 +585,7 @@ func TestPruneKeepsWhatALiveSessionSpans(t *testing.T) {
 // waiting for a person holds no events back; a herdr session of the same
 // age still does.
 func TestPruneIsNotHeldByAManualClaim(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"); err != nil {
@@ -642,6 +653,7 @@ func TestPruneIsNotHeldByAManualClaim(t *testing.T) {
 
 // Webhook bodies go after their own retention; the event stays.
 func TestPruneHookPayloads(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	seq, _, err := own.RecordHook(ctx, "linear", map[string]any{"source": "linear", "type": "comment"}, []byte(`{"big":1}`), []string{"d1"})
@@ -741,6 +753,7 @@ func TestCompact(t *testing.T) {
 
 // A backlog longer than a page arrives whole, in order.
 func TestSubscribePagesTheBacklog(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	if err := own.BulkEvents(2500, "noise", nil); err != nil {
 		t.Fatal(err)

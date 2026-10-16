@@ -16,6 +16,7 @@ import (
 // the keys there are, whoever writes: PutGroup is what the CLI, the group
 // form and a pack's import all call, and PutCrew likewise (yardr-3wt9).
 func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
+	t.Parallel()
 	s, ctx := storetest.New(t), context.Background()
 	put := func(runner string, cfg map[string]any) error {
 		return s.PutGroup(ctx, store.Group{Name: "g", Runner: runner, Config: cfg}, "me")
@@ -103,6 +104,7 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 // herdr key, named as a source's limits kinds name it (yardr-368s). Any
 // other runner refuses it with the keys it takes.
 func TestStoreTakesProviderOnHerdr(t *testing.T) {
+	t.Parallel()
 	s, ctx := storetest.New(t), context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Config: map[string]any{"kind": "pi", "provider": "zai"}}, "me"); err != nil {
 		t.Fatalf("PutGroup with provider = %v", err)
@@ -140,6 +142,7 @@ func TestStoreTakesProviderOnHerdr(t *testing.T) {
 // stored is taken: the group can be changed one key at a time. Adding the
 // key anew, or changing it, is refused.
 func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	old, err := store.Open(path)
@@ -223,6 +226,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 // the CLI's table, so init, the pairing form and any other caller of the
 // store wrote what they liked.
 func TestStoreChecksSettings(t *testing.T) {
+	// Sequential: process environment.
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
 		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, files_max, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
@@ -363,6 +367,7 @@ func TestMaxSessions(t *testing.T) {
 // ParseWebJWTUsers reads the users table as the web view matches it:
 // emails in lower case, pairs trimmed.
 func TestParseWebJWTUsers(t *testing.T) {
+	t.Parallel()
 	got, err := store.ParseWebJWTUsers(" McKean@Example.NET = mckean , jo@example.net=jo ")
 	if err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestGroupMembersOnlyOnManual(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Members: []string{"mckean"}}, "me")
 	if err == nil || !strings.Contains(err.Error(), "only for manual groups") {
@@ -23,6 +24,7 @@ func TestGroupMembersOnlyOnManual(t *testing.T) {
 }
 
 func TestAdvanceMembers(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	must := func(err error) {

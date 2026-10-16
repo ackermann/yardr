@@ -40,6 +40,7 @@ func quotaGroups(t *testing.T) (store.API, func(first string, further ...string)
 // says them as they were typed; a route with one group and no condition is
 // stored, listed and logged as it always was.
 func TestRouteNamesFurtherGroupsWithConditions(t *testing.T) {
+	t.Parallel()
 	s, add := quotaGroups(t)
 	ctx := t.Context()
 	plain, err := add("people")
@@ -86,6 +87,7 @@ func TestRouteNamesFurtherGroupsWithConditions(t *testing.T) {
 // group named must exist, and a condition must parse; what is refused
 // stores nothing.
 func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
+	t.Parallel()
 	s, add := quotaGroups(t)
 	for _, tc := range []struct {
 		first   string
@@ -137,6 +139,7 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 // may end in wait; the marker lists with the route but is none of its
 // groups, and no group takes the name.
 func TestRouteGatesOneExecGroupAndEndsInWait(t *testing.T) {
+	t.Parallel()
 	s, add := quotaGroups(t)
 	ctx := t.Context()
 	r, err := add("refinery@machine.load<80", "wait")
@@ -161,6 +164,7 @@ func TestRouteGatesOneExecGroupAndEndsInWait(t *testing.T) {
 // A group a route gates alone on a source may become exec; one a route with
 // several groups names, or one conditioned on a provider's windows, may not.
 func TestGroupGatedAloneOnASourceMayBecomeExec(t *testing.T) {
+	t.Parallel()
 	toExec := func(name string) store.Group {
 		return store.Group{Name: name, Runner: "exec", Config: map[string]any{"cmd": "true"}}
 	}
@@ -198,6 +202,7 @@ func TestGroupGatedAloneOnASourceMayBecomeExec(t *testing.T) {
 // route names changes as it always could. A group that goes takes every
 // route that names it.
 func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
+	t.Parallel()
 	s, add := quotaGroups(t)
 	ctx := t.Context()
 	if err := s.PutGroup(ctx, store.Group{Name: "c", Runner: "herdr"}, "jo"); err != nil {
@@ -239,6 +244,7 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 // is handed, asks only for groups with a condition and only as far as it
 // has to, and says of each group it passed over why.
 func TestRouteChoose(t *testing.T) {
+	t.Parallel()
 	pct := func(p float64) *float64 { return &p }
 	early, late := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
 	claude := func(week, five float64) store.Quota {
@@ -372,6 +378,7 @@ func TestRouteChoose(t *testing.T) {
 // A stage whose route names several groups says so in the sentences about
 // who works it; one group reads as it always did.
 func TestStageWorkNamesTheFurtherGroups(t *testing.T) {
+	t.Parallel()
 	one := store.StageWork{Stage: "new", Who: store.WhoAgents, Group: "a"}
 	if got, want := one.Arrives("north"), "which agents of the group a work: WORK STARTS ON EACH UNSEEN, on the other yard's text"; got != want {
 		t.Errorf("one group: %q", got)

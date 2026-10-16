@@ -12,6 +12,7 @@ import (
 )
 
 func TestUUIDv7Layout(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 2, 15, 51, 0, 500_000_000+250_000, time.UTC) // .500250
 	u := uuidAt(at)
 	s := formatUUID(u)
@@ -39,6 +40,7 @@ func TestUUIDv7Layout(t *testing.T) {
 // Keys minted in one store always increase, also within one clock tick,
 // when the clock steps back, and across a full sub-millisecond fraction.
 func TestUUIDsIncrease(t *testing.T) {
+	t.Parallel()
 	at := time.Now()
 	prev := formatUUID(uuidAt(at))
 	for i := 0; i < 5000; i++ { // more than the 4096 fractions of a millisecond
@@ -58,6 +60,7 @@ func TestUUIDsIncrease(t *testing.T) {
 }
 
 func TestHandleSuffixUsesRandomBits(t *testing.T) {
+	t.Parallel()
 	at := time.Now()
 	a, b := uuidAt(at), uuidAt(at) // same timestamp, different randomness
 	if handleSuffix(a) == handleSuffix(b) {
@@ -72,6 +75,7 @@ func TestHandleSuffixUsesRandomBits(t *testing.T) {
 
 // A handle is lengthened only when its shorter forms are taken.
 func TestMintHandleLengthensOnCollision(t *testing.T) {
+	t.Parallel()
 	s, err := Open(filepath.Join(t.TempDir(), "yard.db"))
 	if err != nil {
 		t.Fatal(err)

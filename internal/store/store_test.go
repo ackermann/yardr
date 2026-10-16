@@ -35,6 +35,7 @@ func dispatchableIDs(bs []store.ReadyBead) []string {
 }
 
 func TestCreateAndGetBead(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
@@ -69,6 +70,7 @@ func TestCreateAndGetBead(t *testing.T) {
 // event to say where a bead started: without the stage, one made with
 // --stage would be put where its flow starts.
 func TestCreatedEventSaysWhereTheBeadStarts(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
@@ -107,6 +109,7 @@ func TestCreatedEventSaysWhereTheBeadStarts(t *testing.T) {
 // Depot names, bead types and dep kinds end up in paths, type URLs and route
 // matches, so a slash, whitespace or capitals are refused where they enter.
 func TestNamesAreValidated(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	for _, bad := range []string{"", "a/b", "my depot", "Web", "-x", ".hidden", "tab\tx"} {
@@ -145,6 +148,7 @@ func TestNamesAreValidated(t *testing.T) {
 // A depot's test command survives the store (and the RPC client), and
 // setting or dropping it is in the depot_updated event.
 func TestDepotKeepsTest(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	for _, test := range []string{"make test", ""} {
@@ -165,6 +169,7 @@ func TestDepotKeepsTest(t *testing.T) {
 // alone (web2 shares web's prefix), and is refused, with nothing deleted,
 // while an open bead or a live session still needs the depot.
 func TestDeleteDepot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -279,6 +284,7 @@ func TestDeleteDepot(t *testing.T) {
 }
 
 func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
@@ -313,6 +319,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 }
 
 func TestClaimIsExclusive(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "web/fixers", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -356,6 +363,7 @@ func TestClaimIsExclusive(t *testing.T) {
 }
 
 func TestSessionLifecycle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me")
@@ -422,6 +430,7 @@ func TestSessionLifecycle(t *testing.T) {
 // Deleting a group releases the beads its live sessions hold, in the same
 // transaction, so no bead is left owned by a group that no longer exists.
 func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	_ = s.PutGroup(ctx, store.Group{Name: "gone", Runner: "manual"}, "me")
@@ -480,6 +489,7 @@ func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 }
 
 func TestRoutesAndUpdate(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "missing"}, "me"); !errors.Is(err, store.ErrNotFound) {
@@ -516,6 +526,7 @@ func TestRoutesAndUpdate(t *testing.T) {
 }
 
 func TestWakeAndTail(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -549,6 +560,7 @@ func TestWakeAndTail(t *testing.T) {
 // One process owns the store: a second open fails fast, and concurrent
 // writes through the owner all land.
 func TestSingleOwnerAndConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s := storetest.Open(t, path)
 	if _, err := store.Open(path); !errors.Is(err, store.ErrLocked) {
@@ -578,6 +590,7 @@ func TestSingleOwnerAndConcurrentWrites(t *testing.T) {
 }
 
 func TestRevisionsFollowBDPRules(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "A"}, "me")
@@ -637,6 +650,7 @@ func TestRevisionsFollowBDPRules(t *testing.T) {
 }
 
 func TestExplicitIDs(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "a", ID: "demo-a"}, "me")
@@ -654,6 +668,7 @@ func TestExplicitIDs(t *testing.T) {
 // Every record in a snapshot carries the actor of its latest version
 // (once broken by a SurrealDB LIMIT-in-subquery bug; kept as a guard).
 func TestLastActorOnEveryRow(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	var first string
@@ -687,6 +702,7 @@ func TestLastActorOnEveryRow(t *testing.T) {
 }
 
 func TestNotesAndEdgesMintTheBeadsTheyChange(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
@@ -715,6 +731,7 @@ func TestNotesAndEdgesMintTheBeadsTheyChange(t *testing.T) {
 }
 
 func TestSubscribeResumesWithoutGapsOrDuplicates(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
@@ -760,6 +777,7 @@ func TestSubscribeResumesWithoutGapsOrDuplicates(t *testing.T) {
 }
 
 func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	ch, _ := s.Subscribe(ctx, 0) // never read
@@ -795,6 +813,7 @@ func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
 // Batched writers commit together but return in any order; subscribers
 // must still see every event exactly once, in seq order.
 func TestSubscribeOrderUnderConcurrentWriters(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

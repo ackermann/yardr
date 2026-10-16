@@ -56,6 +56,7 @@ func wordsAsk(to string) Ask {
 // bead's id and title, and the bead's topic; beside it what they dealt
 // with, newest decision first.
 func TestUserAsksQueue(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
 	links := y.makeBead(t, NewBead{Title: "Move the links", Labels: []string{"topic:linear-out"}})
 	closed := y.makeBead(t, NewBead{Title: "Closed bead"})
@@ -163,6 +164,7 @@ func TestUserAsksQueue(t *testing.T) {
 // id, title and stage. Answers fold into their asks; nobody reads the raw
 // form.
 func TestBeadWhole(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
 	train := y.makeBead(t, NewBead{Title: "Release train"})
 	links := y.makeBead(t, NewBead{Title: "Move the links", Body: "The links file declares the new source.",
@@ -272,6 +274,7 @@ func mustJSON(t *testing.T, v any) []byte {
 // words, words on an ask with none, Later, Decline. Every refusal below
 // is AddAnswer's, word for word.
 func TestDecisionsWrites(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
 	opt := y.ask(t, linksAsk(), "yardmaster")
 	w := linksAsk()

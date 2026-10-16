@@ -68,6 +68,7 @@ func serveYardmaster(t *testing.T, s store.API, ctx context.Context, for_ string
 // string on a herdr crew member's config for a user that exists, and
 // anything else is refused where a crew definition is written.
 func TestCrewServingKeys(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	crew := func(cfg map[string]any) error {
 		_, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: cfg}, "jo")
@@ -128,6 +129,7 @@ func TestCrewServingKeys(t *testing.T) {
 // session uses, so only the operator may change them. Unrelated crew config
 // keeps its existing actor rule when those values are left alone.
 func TestOnlyOperatorChangesConversationSettings(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	r, err := s.GetCrew(ctx, "yardmaster")
 	if err != nil {
@@ -159,6 +161,7 @@ func TestOnlyOperatorChangesConversationSettings(t *testing.T) {
 // Serving is everyone where for= is unset or empty, else membership; a
 // conversation is a served user with its env set.
 func TestCrewServes(t *testing.T) {
+	t.Parallel()
 	r := store.CrewMember{}
 	if !r.Serves("hal") || !r.Serves("jo") {
 		t.Errorf("unset for= serves nobody: %+v", r)
@@ -186,6 +189,7 @@ func TestCrewServes(t *testing.T) {
 // naming whom it serves; its own users' mail, and mail from anything that
 // is not a user, still lands.
 func TestMailRefusedForUnservedUser(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "hal", map[string]string{"hal": "/tmp/hal.env"})
 	if err := s.Mail(ctx, "yardmaster", "from hal", "hal"); err != nil {
@@ -217,6 +221,7 @@ func TestMailRefusedForUnservedUser(t *testing.T) {
 // slice leaves the other unread; a user with no conversation is refused
 // its slice, and reads the line's.
 func TestInboxSlices(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	// The daemon's first touch makes the slice's row, starting at the
@@ -270,6 +275,7 @@ func TestInboxSlices(t *testing.T) {
 // Its mail_read event and the conversation's read state must stay scoped
 // to the session that acknowledged it.
 func TestMailReadReceiptStaysInSessionSlice(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	if err := s.CrewStartedFor(ctx, "yardmaster", "hal", map[string]any{"agent": "ym-hal"}); err != nil {
@@ -308,6 +314,7 @@ func TestMailReadReceiptStaysInSessionSlice(t *testing.T) {
 // slice starts at the crew cursor's position when the slice is made, and
 // what the line already read stays read.
 func TestInboxSliceUpgrade(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	if err := s.Mail(ctx, "yardmaster", "early from hal", "hal"); err != nil {
 		t.Fatal(err)
@@ -344,6 +351,7 @@ func TestInboxSliceUpgrade(t *testing.T) {
 // A conversation's row is made when the daemon first keeps it, starting
 // its cursors at the line session's; a restarted daemon resumes each.
 func TestConversationRowStartsAtLineCursor(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	if err := s.Mail(ctx, "yardmaster", "from hal", "hal"); err != nil {
@@ -404,6 +412,7 @@ func paneCtx(t *testing.T, ctx context.Context) (context.Context, map[string]any
 // An ask's answer goes to the session that asked: hal's conversation for
 // an ask from hal's pane, the line for an ask from nowhere.
 func TestAskAnswerRoutedToAsker(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("YARDR_TEST_RPC") != "" {
 		t.Skip("one RPC test process cannot represent both a conversation pane and the line session")
 	}
@@ -469,6 +478,7 @@ func TestAskAnswerRoutedToAsker(t *testing.T) {
 // it; the handoff is per session, read back by the session that wrote it,
 // and asks a session to restart its own next one.
 func TestJournalHandoffPerSession(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("YARDR_TEST_RPC") != "" {
 		t.Skip("one RPC test process cannot represent both a conversation pane and the line session")
 	}
@@ -532,6 +542,7 @@ func TestJournalHandoffPerSession(t *testing.T) {
 // A conversation the config no longer declares stays writable, so the
 // daemon can stop what still runs of it; one never declared is refused.
 func TestStaleConversationWritable(t *testing.T) {
+	t.Parallel()
 	s, ctx := sessionYard(t)
 	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
 	handle := map[string]any{"agent": "ym-hal", "pane": "p1"}

@@ -56,6 +56,7 @@ func crossAsk() store.Ask {
 // the ask's seq, asker and since, the ask's JSON whole, and each
 // about-bead as id, title and stage.
 func TestAskPeer(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north")
 	y.member(t, "clerk", "")
@@ -242,6 +243,7 @@ func askMsg(id string, body askBody) store.PeerMessage {
 // noted event naming bead@peer. Everything else is refused with a reason
 // and logged. It is not a bead and never becomes one.
 func TestPeerAskReceive(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
@@ -395,6 +397,7 @@ func TestPeerAskReceive(t *testing.T) {
 // an ask written here: no writer pads a line to the terminal's width,
 // whatever the card prints it on.
 func TestPeerAskPaddedSpacesFoldToOne(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
 		t.Fatal(err)
@@ -424,6 +427,7 @@ func TestPeerAskPaddedSpacesFoldToOne(t *testing.T) {
 
 // To must be a user of this yard: crew members have no decisions queue.
 func TestPeerAskNeedsUser(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
@@ -445,6 +449,7 @@ func TestPeerAskNeedsUser(t *testing.T) {
 // Asks count toward the peer's hour beside mail, and one past it is rate
 // limited. Of those over the limit only the first of the hour is logged.
 func TestPeerAskRateLimit(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
@@ -489,6 +494,7 @@ func TestPeerAskRateLimit(t *testing.T) {
 // queue's bead and asker. The noted event keeps the name the peer had when
 // the question arrived, as mail does.
 func TestForeignAskRename(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
 		t.Fatal(err)
@@ -515,6 +521,7 @@ func TestForeignAskRename(t *testing.T) {
 // one mail from yard listing theirs as text. A queue must stay
 // answerable, and kept-but-dead questions are worse than mail.
 func TestPeerRmDropsForeignAsks(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
 		t.Fatal(err)
@@ -571,6 +578,7 @@ func TestPeerRmDropsForeignAsks(t *testing.T) {
 // ask by the time this yard took it, never by the sender's clock. Since is
 // still as sent.
 func TestUserAsksForeignOrder(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	if _, err := y.api.AddUser(y.ctx, "mckean", "jo"); err != nil {
 		t.Fatal(err)

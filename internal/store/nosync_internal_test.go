@@ -11,6 +11,7 @@ import (
 // in it (0, which a test run uses to keep the sync, or nothing) must leave a
 // real yard's store safe.
 func TestOpenSyncsUnlessToldNotTo(t *testing.T) {
+	// Sequential: process environment.
 	for value, want := range map[string]bool{"": false, "0": false, "true": false, "1": true} {
 		t.Setenv("YARDR_"+NoSyncEnv, value)
 		s, err := Open(filepath.Join(t.TempDir(), "yard.db"))

@@ -12,6 +12,7 @@ import (
 // session and in the claimed event: the group's own, the yard's default_kind
 // for a herdr group whose config names none, and neither for a manual group.
 func TestClaimRecordsKindAndModel(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {

@@ -11,6 +11,7 @@ import (
 // An update's event says what each field it set was before it: the log is
 // the only place an old title or body is kept (yardr-pekm).
 func TestUpdateKeepsWhatWas(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	last := func() store.Event {
 		t.Helper()
@@ -50,6 +51,7 @@ func TestUpdateKeepsWhatWas(t *testing.T) {
 // replaces mentions nobody again, and a subscriber's line about the update
 // names the fields that changed without the old text.
 func TestOldBodyIsNotSaidAgain(t *testing.T) {
+	t.Parallel()
 	s, ctx, _ := yardrDepot(t)
 	user(t, s, "ada", yardrSub(store.ScopeMentions))
 	user(t, s, "bob", yardrSub(store.ScopeAll, "kind=updated"))
@@ -74,6 +76,7 @@ func TestOldBodyIsNotSaidAgain(t *testing.T) {
 }
 
 func TestBrief(t *testing.T) {
+	t.Parallel()
 	data := map[string]any{"title": "b", "was": map[string]any{"title": "a", "body": "long"}}
 	if got, want := store.Brief(data), (map[string]any{"title": "b", "was": []any{"body", "title"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("Brief = %#v, want %#v", got, want)

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSettings(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if got, err := st.Settings(ctx); err != nil || len(got) != 1 || got[store.FilesMaxSetting] != "64" {
@@ -43,6 +44,7 @@ func TestSettings(t *testing.T) {
 // settings_migrated; the operator stays unset. An empty store and one that
 // has the setting are left alone (yard-w6np).
 func TestMigrateSettings(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	must := func(t *testing.T, err error) {
 		t.Helper()

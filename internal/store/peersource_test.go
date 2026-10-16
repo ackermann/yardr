@@ -41,6 +41,7 @@ func (y *peerYard) heard(t *testing.T, name string) []store.Event {
 // name, and reaches whoever subscribed: a crew member and a user with scope
 // all, and with scope involved a crew member that follows the bead.
 func TestPeerSourceDelivery(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export", Labels: []string{"ui"}})
@@ -197,6 +198,7 @@ func TestPeerSourceDelivery(t *testing.T) {
 // yard's words, and what the other yard's hold is where the event is not
 // the hold itself.
 func TestPeerDeliveryLine(t *testing.T) {
+	t.Parallel()
 	data := func(action string, held bool) map[string]any {
 		return map[string]any{"source": "peer", "type": "bead", "action": action, "there": "web-0wzb", "held": held,
 			"fields": map[string][]string{"peer": {"north"}, "bead": {"web-d5zc"}, "stage": {"build"}}}
@@ -223,6 +225,7 @@ func TestPeerDeliveryLine(t *testing.T) {
 // write, and the next event is heard through them under the new name. A
 // filter of another source that happens to have the value is left.
 func TestPeerRenameRenamesTheFilter(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
@@ -322,6 +325,7 @@ func TestPeerRenameRenamesTheFilter(t *testing.T) {
 // yard as it is called today, and says was at once the stay has ended. The
 // stored links follow it. Nothing adds, removes or moves such a row.
 func TestPeerLinkRowOfABeadThatIsAway(t *testing.T) {
+	t.Parallel()
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
 	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
@@ -413,6 +417,7 @@ func TestPeerLinkRowOfABeadThatIsAway(t *testing.T) {
 // The yard that works the bead has the row the other way: its bead came
 // from the peer's, for a stage of that yard.
 func TestPeerLinkRowOfABeadThatCame(t *testing.T) {
+	t.Parallel()
 	y := newBeadYard(t)
 	y.take(t, beadMsg("m1", "y-k3f9", nil))
 	b := y.arrived(t)

@@ -29,6 +29,7 @@ func threads(t *testing.T, s store.API, name string) []string {
 }
 
 func TestThreadParticipation(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	sub := func(scope string) store.Subscription { return store.Subscription{Source: "linear", Scope: scope} }
@@ -91,6 +92,7 @@ func TestThreadParticipation(t *testing.T) {
 }
 
 func TestFollowThread(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	// Following needs no identity: it is the crew member's own say-so.
@@ -152,6 +154,7 @@ func TestFollowThread(t *testing.T) {
 // another body, conversation or delivery gets its own. Replied marks it
 // posted with the comment's id, which the replied event carries too.
 func TestReplying(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	member(t, s, "inv", false)
@@ -221,6 +224,7 @@ func TestReplying(t *testing.T) {
 // A reply makes the crew member a participant at once, with a replied event
 // on its journal; the webhook's echo of the reply changes nothing.
 func TestReplied(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
@@ -276,6 +280,7 @@ func TestReplied(t *testing.T) {
 // own. Opened makes the thread the crew member's at once, so what others say
 // there reaches an involved subscription with no mention.
 func TestOpening(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
@@ -378,6 +383,7 @@ func TestOpening(t *testing.T) {
 // takes none away, whatever form the setting has; only what is new is
 // logged, with the pack that asked and who granted it.
 func TestAllowOpeningAddsOnly(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.AllowOpening(ctx, "inv", []string{"linear"}, "starter", "jo"); !errors.Is(err, store.ErrNotFound) {
@@ -428,6 +434,7 @@ func TestAllowOpeningAddsOnly(t *testing.T) {
 // otherwise logs thread_state on the crew member's journal. The delivery its
 // own change causes does not reach it.
 func TestSettingState(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})

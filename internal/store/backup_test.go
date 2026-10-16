@@ -15,6 +15,7 @@ import (
 // A backup is taken while the store serves, and opens as a store holding
 // what was committed.
 func TestBackupWhileServing(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "kept"}, "me")
@@ -60,6 +61,7 @@ func TestBackupWhileServing(t *testing.T) {
 // The dated copies of a directory are the files named as BackupName names
 // one, oldest first, and nothing else that is there.
 func TestDatedBackups(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	at := time.Date(2026, 10, 13, 14, 22, 33, 0, time.FixedZone("CEST", 2*3600))
 	if got := store.BackupName(at); got != "yard-20261013T122233Z.db" {
@@ -84,6 +86,7 @@ func TestDatedBackups(t *testing.T) {
 // The plan is the three settings as they are read: never unless asked,
 // seven kept, in the home's backups.
 func TestBackupPlanOf(t *testing.T) {
+	t.Parallel()
 	if p := store.BackupPlanOf(map[string]string{}, "/y"); p.Every != 0 || p.Keep != 7 || p.Dir != "/y/backups" {
 		t.Fatalf("unset: %+v", p)
 	}

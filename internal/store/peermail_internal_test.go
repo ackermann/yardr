@@ -18,6 +18,7 @@ import (
 // from the first. What comes after is refused, with one event for all of
 // it, until that hour has passed.
 func TestPeerMailLimit(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })
@@ -114,6 +115,7 @@ func TestPeerMailLimit(t *testing.T) {
 // the refused text. The operator sets what a link takes, and the files of
 // the hour follow it.
 func TestPeerMailLimitIsToldAndSet(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })
@@ -349,6 +351,7 @@ func yardMail(t *testing.T, s *Store, who string) []Event {
 // refusal's hour, the writer's mail from the yard names the hour's end,
 // and its event keeps them.
 func TestPeerMailLimitReachesSender(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })
@@ -420,6 +423,7 @@ func TestPeerMailLimitReachesSender(t *testing.T) {
 // not take is told with the next question, with the hour, and the sender's
 // yard gives it up the same way.
 func TestPeerMailLimitReachesSenderByPull(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })
@@ -477,6 +481,7 @@ func TestPeerMailLimitReachesSenderByPull(t *testing.T) {
 // from before one over the hour carried its limit and when it ends, and
 // telling it stores the refusal as now.
 func TestPeerRefusedReadsABareReason(t *testing.T) {
+	t.Parallel()
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)

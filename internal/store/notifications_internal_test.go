@@ -14,6 +14,7 @@ import (
 // acknowledged stays acknowledged in both parts, and from then on each
 // part moves by itself. It happens once.
 func TestUserCursorOfAnOlderStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "y.db")
 	s, err := Open(path)

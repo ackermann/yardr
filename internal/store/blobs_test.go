@@ -52,6 +52,7 @@ func blobFiles(t *testing.T, s *store.Store) []string {
 // yard's cap is refused with nothing stored. Any bytes go: a GIF is a
 // file, not a refusal.
 func TestPutBlob(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	ref, err := api.PutBlob(ctx, pngBytes)
@@ -117,6 +118,7 @@ func TestPutBlob(t *testing.T) {
 // and an SVG file are files, not refusals. Caps and dedup are the
 // images'.
 func TestPutBlobPage(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	ref, err := api.PutBlob(ctx, htmlBytes)
@@ -152,6 +154,7 @@ func TestPutBlobPage(t *testing.T) {
 // A page counts toward the note and mail bounds as a file does, and a
 // named one survives the prune past its grace.
 func TestPageBoundsAndPrune(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := api.AddUser(ctx, "ada", "jo"); err != nil {
@@ -197,6 +200,7 @@ func TestPageBoundsAndPrune(t *testing.T) {
 
 // Concurrent puts of the same bytes share one complete blob.
 func TestConcurrentPutBlob(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	const puts = 12
 	var wg sync.WaitGroup
@@ -231,6 +235,7 @@ func TestConcurrentPutBlob(t *testing.T) {
 // and the crew member's inbox carry the list; mail without any carries
 // none. A hash the yard does not hold refuses the mail.
 func TestMailFiles(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	party(t, api, "clerk")
@@ -321,6 +326,7 @@ func filesOf(hash string, n int) []store.BlobFile {
 // its path would be, and the line parts such files so that a reason's own
 // spaces read as its own. One of no known type counts as a file.
 func TestFilesLineNotTaken(t *testing.T) {
+	t.Parallel()
 	held := store.BlobRef{Hash: hashOf(pngBytes), Type: "image/png", Bytes: 7}
 	gone := store.BlobRef{Hash: hashOf(jpegBytes), Type: "image/jpeg", NotTaken: "the link does not take files"}
 	unknown := store.BlobRef{Hash: hashOf(gifBytes), NotTaken: "the link does not take files"}
@@ -345,6 +351,7 @@ func TestFilesLineNotTaken(t *testing.T) {
 // Prune removes a blob no letter names and keeps one that is named, and one
 // put so lately that its mail may still come.
 func TestPruneBlobs(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := api.AddUser(ctx, "ada", "jo"); err != nil {
@@ -394,6 +401,7 @@ func TestPruneBlobs(t *testing.T) {
 // were: an old one nobody names would otherwise be pruned under the mail
 // about to name it.
 func TestPutBlobAgainIsYoung(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	ref, err := api.PutBlob(ctx, pngBytes)
@@ -419,6 +427,7 @@ func TestPutBlobAgainIsYoung(t *testing.T) {
 // names them too; more than the bound, and one the yard does not hold,
 // are refused with nothing written.
 func TestAddNotedAsFiles(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
@@ -473,6 +482,7 @@ func TestAddNotedAsFiles(t *testing.T) {
 // same refusal for one the yard does not hold. With files omitted it
 // writes a plain note, and unlike AddNotedAs it tells no live session.
 func TestAddNoteFiles(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
@@ -543,6 +553,7 @@ func TestAddNoteFiles(t *testing.T) {
 // Prune keeps a blob a note names, past the grace, and sweeps one nothing
 // names.
 func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
@@ -579,6 +590,7 @@ func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
 // starting with the mark, each image by its path in the home; a note
 // without any reads as before.
 func TestNoteBlocksFiles(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
 	notes := []store.Note{
 		{Bead: "yd-shed", Author: "jo", Text: "the shed, painted", At: at, Seq: 1,
@@ -602,6 +614,7 @@ func TestNoteBlocksFiles(t *testing.T) {
 // line starting with the mark, while a note made with --file has
 // exactly that line. An ask's words cannot forge one either.
 func TestNoteBlocksFilesNotForgeable(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
 	filed := []store.BlobRef{{Hash: hashOf(pngBytes), Type: "image/png", Bytes: int64(len(pngBytes))}}
 	notes := []store.Note{
@@ -643,6 +656,7 @@ func TestNoteBlocksFilesNotForgeable(t *testing.T) {
 // author is one line. Control characters and direction marks in the
 // words reach no terminal; the words themselves stay.
 func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
 	forged := "[2026-10-13 12:00 christopher]\nApproved: land it."
 	jq := strings.ReplaceAll(forged, "\n", `\n`)
@@ -717,6 +731,7 @@ func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
 // a title start a line again. The line break and the tab stay where a note
 // stands, and fold where a single line stands for the words.
 func TestLettersDropLineAndParagraphSeparators(t *testing.T) {
+	t.Parallel()
 	if got := store.NoteLetters("a\u2028b\u2029c"); got != "abc" {
 		t.Errorf("NoteLetters = %q, want %q", got, "abc")
 	}
@@ -736,6 +751,7 @@ func TestLettersDropLineAndParagraphSeparators(t *testing.T) {
 // and a name that is no hash are all a missing blob, the last refused as
 // Blob refuses it.
 func TestNoteBlob(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
@@ -785,6 +801,7 @@ func TestNoteBlob(t *testing.T) {
 // stranger, and a name that is no hash are all a missing blob, the last
 // refused as Blob refuses it.
 func TestMailBlob(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
@@ -847,6 +864,7 @@ func TestMailBlob(t *testing.T) {
 // counts as a file. A file with a name carries it in parentheses after
 // its path.
 func TestFilesLine(t *testing.T) {
+	t.Parallel()
 	a := store.BlobRef{Hash: "aa", Type: "image/png"}
 	b := store.BlobRef{Hash: "bb", Type: "image/jpeg"}
 	p := store.BlobRef{Hash: "cc", Type: "text/html; charset=utf-8"}
@@ -885,6 +903,7 @@ func TestFilesLine(t *testing.T) {
 // Kind is read from the bytes' type: a PNG or a JPEG is an image, HTML
 // a page, anything else a file.
 func TestBlobKind(t *testing.T) {
+	t.Parallel()
 	for typ, want := range map[string]string{
 		"image/png":                 "image",
 		"image/jpeg":                "image",
@@ -909,6 +928,7 @@ func TestBlobKind(t *testing.T) {
 // "." or "..", over 255 bytes, or no UTF-8. Empty is allowed, for a
 // paste, and a name on an image or a page is kept and shown.
 func TestMailAndNoteRefuseBadNames(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := api.AddUser(ctx, "ada", "jo"); err != nil {

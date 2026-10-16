@@ -33,6 +33,7 @@ func stageFileOf(t *testing.T, s store.API, id string) (string, string) {
 // flow's each from the directory of that flow's name. A file on a bead's
 // branch or in the working tree is not read until it lands.
 func TestStageFilesReadFromBase(t *testing.T) {
+	t.Parallel()
 	s, ctx, dir := repoDepot(t)
 	commitFiles(t, dir, map[string]string{
 		".yardr/flows/default/new.md":       "Build it.\n",
@@ -154,6 +155,7 @@ func TestStageFilesReadFromBase(t *testing.T) {
 // reread when one changes or appears. A stage whose name holds a slash has
 // its file a directory deeper.
 func TestDirDepotStageFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		".yardr/flows/default.flow":   "new -> qa/smoke\nqa/smoke -> done\ndone terminal\n",
@@ -196,6 +198,7 @@ func TestDirDepotStageFiles(t *testing.T) {
 // flow file beside it, is stray; the files of a type flow and of a flow
 // that does not parse are not.
 func TestStrayStageFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		".yardr/flows/default.flow":         repoDefault,
@@ -235,6 +238,7 @@ func TestStrayStageFiles(t *testing.T) {
 // after no stage of the flow is stray, and a stage name cannot lead out of
 // the flow's directory.
 func TestHomeStageFiles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFiles(t, home, map[string]string{
 		"flows/code/new.md":      "Build it.\n",

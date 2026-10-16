@@ -12,6 +12,7 @@ import (
 )
 
 func TestPeerBeadEarlierWithEqualArrivalTimes(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	first := peerBead{At: at, Order: 1}
 	second := peerBead{At: at, Order: 2}
@@ -26,6 +27,7 @@ func TestPeerBeadEarlierWithEqualArrivalTimes(t *testing.T) {
 // hour has passed. So a flow of the other yard that routes refused back
 // into the stage this yard works cannot keep it busy.
 func TestPeerBeadLimit(t *testing.T) {
+	// Sequential: the package's fake clock.
 	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })

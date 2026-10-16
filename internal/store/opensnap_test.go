@@ -19,6 +19,7 @@ import (
 // once between them while nothing is written, and again after a write, whose
 // change each of them then answers with.
 func TestPassQuestionsDecodeOpenBeadsOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	const flow = "new -> in-pr | review\nreview -> done\nin-pr -> done\ndone terminal\n"
@@ -139,6 +140,7 @@ func TestPassQuestionsDecodeOpenBeadsOnce(t *testing.T) {
 // What a listing hands out is the caller's: changing it changes nothing a
 // later listing answers, though both come from the same decoded beads.
 func TestListedBeadsShareNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"); err != nil {
@@ -226,6 +228,7 @@ func TestListedBeadsShareNothing(t *testing.T) {
 // beads are tried, and nothing of what the bead says: the dispatcher asks on
 // every pass and reads the bead it starts.
 func TestDispatchableCarriesNoBody(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"); err != nil {

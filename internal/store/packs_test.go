@@ -16,6 +16,7 @@ import (
 // that changed nothing leaves it as it is and logs pack_unchanged. It goes
 // with its depot.
 func TestRecordPack(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	rec := store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter", Commit: "abc", Flow: "default",
@@ -87,6 +88,7 @@ func TestRecordPack(t *testing.T) {
 // under no depot: the yard may have none at all, and removing one leaves
 // the record. A pack with no name is still refused.
 func TestRecordPackInTheYard(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	rec := store.PackImport{Pack: "linear", Source: "embedded",
@@ -117,6 +119,7 @@ func TestRecordPackInTheYard(t *testing.T) {
 // What identifies a pack's object stays the same when the pack changes
 // where it leads: a route's group, a pointer's flow, a subscription's scope.
 func TestPackObjectKey(t *testing.T) {
+	t.Parallel()
 	same := [][2]store.PackObject{
 		{{Kind: "route", Stage: "new", Group: "a"}, {Kind: "route", Stage: "new", Group: "b"}},
 		{{Kind: "pointer", Type: "train", Flow: "a"}, {Kind: "pointer", Type: "train", Flow: "b"}},
@@ -145,6 +148,7 @@ func TestPackObjectKey(t *testing.T) {
 // ones of the same source and scope that RemoveSubscriptions without
 // filters takes with it.
 func TestRemoveSubscriptionIsExact(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
@@ -173,6 +177,7 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 // threads in. The same answers again are the same record; a new one is a
 // new record though the import wrote nothing else.
 func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
@@ -210,6 +215,7 @@ func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
 // again are the same record, a further one is a new record, and no answers
 // are as a record from before the field.
 func TestRecordPackKeepsCallAnswers(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
@@ -244,6 +250,7 @@ func TestRecordPackKeepsCallAnswers(t *testing.T) {
 // EventsOfKind reads the last events of one kind, oldest first, and no
 // event of a kind whose name only starts the same or follows it.
 func TestEventsOfKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	const kind = "session_prompt_typed"

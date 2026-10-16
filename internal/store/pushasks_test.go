@@ -24,6 +24,7 @@ func askFor(to, question string) store.Ask {
 // as it is open. Answered or put aside, it is not unread any more, and a
 // notification of the same note does not make it two.
 func TestPushQueuedWithAnAsk(t *testing.T) {
+	t.Parallel()
 	st, ctx := pushUsers(t)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "Move the links"}, "yardmaster")
 	if err != nil {
@@ -94,6 +95,7 @@ func TestPushQueuedWithAnAsk(t *testing.T) {
 // person's queue, under the name this yard has for the link, until the
 // person deals with it here or the asking yard says it ended there.
 func TestPushQueuedWithAForeignAsk(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	for _, name := range []string{"mckean", "bob"} {
 		if _, err := y.api.AddUser(y.ctx, name, "jo"); err != nil {

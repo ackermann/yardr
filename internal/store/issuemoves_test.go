@@ -124,6 +124,7 @@ func lastEvent(t *testing.T, s store.API, bead string) store.Event {
 // state, with a line that names no type and stage, and for a crew member that
 // does not exist or has no identity in the hook's source.
 func TestHookMapRefusals(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	moveYardmaster(t, s, "linear")
@@ -191,6 +192,7 @@ func TestHookMapRefusals(t *testing.T) {
 // A bead entering a mapped stage queues the move of the issue it tracks,
 // whatever moved it; nothing else does.
 func TestStageQueuesIssueMove(t *testing.T) {
+	t.Parallel()
 	s, _, ctx := moveYard(t)
 	tracked(t, s, "yard-a", "task", "backlog", linA)
 	wantMoves(t, s) // backlog is not in the map
@@ -238,6 +240,7 @@ func TestStageQueuesIssueMove(t *testing.T) {
 // has no line for, an issue of another source than the hook's, and a hook
 // without a map.
 func TestStageQueuesNothing(t *testing.T) {
+	t.Parallel()
 	s, _, ctx := moveYard(t)
 	nb := store.NewBead{ID: "yard-rel", Title: "x", Depot: "yard", Stage: "backlog", Links: []store.NewLink{relates(linA)}}
 	if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
@@ -273,6 +276,7 @@ func TestStageQueuesNothing(t *testing.T) {
 // follows it, and its children's stages move nothing. A bead tracking an
 // issue in each source moves both, each through its source's hook.
 func TestTrainAndTwoSources(t *testing.T) {
+	t.Parallel()
 	s, _, ctx := moveYard(t)
 	putHook(t, s, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:new": "started", "task:merged": "done"}})
@@ -319,6 +323,7 @@ func TestTrainAndTwoSources(t *testing.T) {
 
 // A move ends once, with the event that says how; a failed try only waits.
 func TestIssueMoveEnds(t *testing.T) {
+	t.Parallel()
 	s, _, ctx := moveYard(t)
 	tracked(t, s, "yard-a", "task", "backlog", linA)
 	for _, stage := range []string{"new", "review", "merged"} {
@@ -417,6 +422,7 @@ func TestIssueMoveEnds(t *testing.T) {
 // Without set_state for the source nothing may be recorded as moved, and
 // the refusal names the setting; so does a crew member that is gone.
 func TestIssueMoveNeedsTheGrant(t *testing.T) {
+	t.Parallel()
 	s, _, ctx := moveYard(t)
 	tracked(t, s, "yard-a", "task", "new", linA)
 	ms, _ := s.IssueMoves(ctx)
@@ -457,6 +463,7 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 // No echo: what a hook did as a crew member does not reach that crew member, the
 // source's delivery of the change neither, and neither queues a move.
 func TestIssueMoveDoesNotEcho(t *testing.T) {
+	t.Parallel()
 	s, own, ctx := moveYard(t)
 	all := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}
 	for _, name := range []string{"yardmaster", "deputy"} {
@@ -517,6 +524,7 @@ func TestIssueMoveDoesNotEcho(t *testing.T) {
 
 // A move outlives the process that queued it.
 func TestIssueMoveSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	ctx := context.Background()
 	s, err := store.Open(path)

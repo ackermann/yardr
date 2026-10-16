@@ -44,6 +44,7 @@ func mail(id, to, from, text string) store.PeerMessage {
 // peer in its peers setting. The operator, who is no crew member, needs the
 // link's permission only.
 func TestMailPeer(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north")
 	y.member(t, "clerk", "")
@@ -115,6 +116,7 @@ func TestMailPeer(t *testing.T) {
 // <name>@<peer>, when the link carries mail in. Everything else is refused
 // with a reason and logged.
 func TestPeerMailReceive(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
 	receive := func(m store.PeerMessage) store.PeerTaken {
@@ -190,6 +192,7 @@ func TestPeerMailReceive(t *testing.T) {
 // Mail a yard took by asking and refused is told to the peer with the next
 // question, and forgotten once it has been.
 func TestPeerMailPulledRefusal(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
 	y.allow(t, store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
@@ -231,6 +234,7 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 // asked for it, comes back to the crew member who wrote it as mail from the
 // yard. Mail the peer took does not.
 func TestPeerMailUndelivered(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "") // north asks for its mail
 	y.member(t, "yardmaster", "north")
 	y.allow(t, store.PeerAllow{Send: []string{"mail"}})
@@ -281,6 +285,7 @@ func TestPeerMailUndelivered(t *testing.T) {
 // Removing a peer takes it out of every crew member's peers: the next yard
 // added under the name is one nobody was allowed to mail.
 func TestPeerRemovedLeavesNoCrewItsMail(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north,south")
 	y.member(t, "clerk", "north")
@@ -305,6 +310,7 @@ func TestPeerRemovedLeavesNoCrewItsMail(t *testing.T) {
 // their inbox as mail from the yard, as it does to a crew member's, and the
 // answer of the one they wrote to lands there when the link exposes them.
 func TestMailPeerAsUser(t *testing.T) {
+	t.Parallel()
 	y := newPeerYard(t, "")
 	if err := y.api.SetSetting(y.ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
