@@ -285,6 +285,7 @@ internal/store yardr-3cc4 798 sequential tests plus the index walk after every w
 contrib/isolated-yard yardr-mzjv real down-script runs over sleeper processes; 30 s alone, 51-92 s in full runs
 contrib/deploy yardr-mzjv 39 tests each starting a server of its own; 22 s alone, 41-61 s in full runs
 contrib/release yardr-mzjv the real ./build runs; 36 s alone, 74-121 s in full runs
+contrib/shot yardr-c2vt 72.6 s in a loaded full landing run on 16 Oct; alone not yet measured; yardr-c2vt measures it and removes this row or keeps it with the number
 '
 # packagebudget fails the run when a go test -race leg ran a package over
 # the 60 s budget (docs/testing.md R1) that the allow-list above does not
