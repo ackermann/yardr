@@ -1496,12 +1496,14 @@ func raceLockDriver(t *testing.T) (driver, home string) {
 	if ok {
 		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
 	}
-	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") || !strings.Contains(fn, "race.queue") {
+	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") || !strings.Contains(fn, "race.queue") || !strings.Contains(fn, "YARDR_TEST_RACE_LEG") {
 		t.Fatalf("cannot cut racelocked out of %s: move the probe with the script", yardTest)
 	}
 	home = t.TempDir()
 	driver = filepath.Join(t.TempDir(), "driver.sh")
-	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nracelocked \"$@\"\n"), 0o755); err != nil {
+	// The worker re-enters this driver with YARDR_TEST_RACE_LEG set. Drop
+	// its status path and run the command, as the real script's worker does.
+	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nif [ -n \"$YARDR_TEST_RACE_LEG\" ]; then shift; exec \"$@\"; fi\nracelocked \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return driver, home
@@ -1545,7 +1547,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 			out.Close()
 			t.Fatal(err)
 		}
-		cmd := exec.CommandContext(ctx, driver, args...)
+		cmd := exec.CommandContext(ctx, driver, append([]string{filepath.Join(home, "worker.status")}, args...)...)
 		cmd.Dir = wt
 		cmd.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
