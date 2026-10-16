@@ -135,6 +135,24 @@ tree() {
       for (p in below) print p
     }' | sort -n
 }
+# unwatched kills the timeout watcher and its sleep, after a run and on
+# every exit while one is in flight (the traps): a watcher left behind
+# sleeps out its $LIMIT holding the run's inherited files, among them once
+# the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
+# wrote, in case the watcher died without killing it, and both kills are
+# silent: either may already be gone.
+unwatched() {
+  [ -n "${watch:-}" ] || return 0
+  kill "$watch" 2>/dev/null
+  if [ -n "${log:-}" ] && [ -f "$log.nap" ]; then kill "$(cat "$log.nap")" 2>/dev/null; fi
+  wait "$watch" 2>/dev/null
+  watch=
+}
+trap 'unwatched' EXIT
+# A signal that kills the script does not run its EXIT trap, so TERM and
+# INT clean up first and then report as a shell would, 128+n.
+trap 'unwatched; exit 143' TERM
+trap 'unwatched; exit 130' INT
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
 # in $lines, and $late set when it ran past $LIMIT seconds. The bound is
@@ -155,8 +173,19 @@ runtest() {
   (
     nap=
     trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+    # The sleep holds none of the run's inherited files: close every open
+    # fd above 2 first (an orphaned sleep once held the machine race lock).
+    # Enumerate /dev/fd so this covers high descriptors too. The loop has no
+    # redirection: the shell saves fd 2 above 10 for one, and would close the
+    # save from under itself; each path is one open fd name.
+    for path in /dev/fd/*; do
+      fd=${path##*/}
+      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+      eval "exec $fd>&-"
+    done
     sleep "$LIMIT" &
     nap=$!
+    echo "$nap" >"$log.nap"
     wait "$nap"
     : >"$log.late"
     seen=
@@ -170,9 +199,13 @@ runtest() {
     kill -KILL ${seen:-$pid} 2>/dev/null
   ) &
   watch=$!
+  # The watcher records its sleep before it waits on it; hold until it has
+  # (a bounded wait), so the cleanup never kills a watcher whose sleep is
+  # not yet known.
+  i=0
+  while [ ! -f "$log.nap" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
   wait "$pid" && rc=0 || rc=$?
-  kill "$watch" 2>/dev/null
-  wait "$watch" 2>/dev/null
+  unwatched
   # A command that passed as its deadline came has passed.
   late=
   if [ -e "$log.late" ] && [ "$rc" != 0 ]; then
@@ -181,7 +214,7 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rm -f "$log" "$log.late" "$log.sh"
+  rm -f "$log" "$log.late" "$log.nap" "$log.sh"
   printf '%s\n' "$out"
 }
 # What a note says of a run's output: all of it, or its end.
@@ -303,7 +336,7 @@ if [ -n "$PR" ]; then
     printf '\nTrain: %s\n' "$TRAIN"
   )
   # stderr apart, so a warning gh prints is not taken for the URL.
-  errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+  errf=$(mktemp) && trap 'unwatched; rm -f "$errf"' EXIT
   prview() { (cd "$REPO" && gh pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf"); }
   url=$(printf '%s' "$train" | jq -r '.metadata.pr_url // empty')
   bound_num=$(printf '%s' "$train" | jq -r '.metadata.pr_number // empty')
