@@ -213,3 +213,32 @@ func TestRouteListDepotJson(t *testing.T) {
 		t.Errorf("set_aside = %+v, want the default %s set by %s", listed.SetAside, def, own)
 	}
 }
+
+// A route's note is its writer's words on one line of the list: a line
+// break or an escape in it starts no line of its own and moves no
+// cursor, in the list and in what route set says it changed to.
+func TestRouteNotePrintsOnOneLine(t *testing.T) {
+	a, _, _ := quotaCLI(t)
+	forged := "first line\nforged row\x1b(0`"
+	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a", "--note", forged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id = strings.TrimSpace(id)
+	out, err := run(t, a.routeCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "\nforged row") ||
+		!strings.Contains(out, "first line forged row(0`") {
+		t.Errorf("route list prints the note unguarded:\n%q", out)
+	}
+	out, err = run(t, a.routeCmd(), "set", id, "--note", forged+" again")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "\nforged row") ||
+		!strings.Contains(out, "first line forged row(0` again") {
+		t.Errorf("route set prints the note unguarded:\n%q", out)
+	}
+}

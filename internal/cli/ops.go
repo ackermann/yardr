@@ -1114,7 +1114,7 @@ func routeRow(r store.Route, mark, operator string) []string {
 		orig = *r.Originator
 	}
 	return []string{r.ID, mark, r.Stage, deref(r.Type), or(r.LabelList(), "-"),
-		or(r.BeadPriorities(), "-"), or(orig, "-"), strconv.Itoa(r.Priority), r.GroupList(), r.Note}
+		or(r.BeadPriorities(), "-"), or(orig, "-"), strconv.Itoa(r.Priority), r.GroupList(), store.OneLine(r.Note)}
 }
 
 // markedRoute is a route of route list --depot as --json carries it: the
@@ -1303,7 +1303,7 @@ func routeChanges(was, is store.Route) []defChange {
 		out = append(out, defChange{"--priority", strconv.Itoa(was.Priority), strconv.Itoa(is.Priority)})
 	}
 	if was.Note != is.Note {
-		out = append(out, defChange{"--note", was.Note, is.Note})
+		out = append(out, defChange{"--note", store.OneLine(was.Note), store.OneLine(is.Note)})
 	}
 	return out
 }
