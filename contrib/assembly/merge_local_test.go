@@ -68,9 +68,11 @@ func TestMain(m *testing.M) {
 		os.Setenv(k, v)
 	}
 	// Each test has a yard, a repository and a server of its own, and most
-	// of its time is waiting for the processes it starts. Four at once is
-	// what a machine running two more suites still has room for.
-	flag.Set("test.parallel", "4")
+	// of its time is waiting for the processes it starts. Six at once fits
+	// beside the full run's other packages: one race leg holds the
+	// machine-wide lock at a time, so this package's company is the leg's
+	// own other packages, not another whole suite.
+	flag.Set("test.parallel", "6")
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)
