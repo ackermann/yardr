@@ -462,7 +462,7 @@ reads:
 
 ```
 FLOW default · 8 stages (context: your stage's file below says what you must do)
-  backlog           people   New beads wait here, where `yardr bead create` puts them, until the yardmaster has shaped them.
+  backlog           people   New beads wait here, where `yardr bead create` puts them, until the yardmaster or a person picks…
   shape             agents   A shaper reads the bead and the code it names, and shapes it for a builder.
 > new               agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide            people   A bead here waits for a person: Christopher decides.
@@ -470,7 +470,7 @@ FLOW default · 8 stages (context: your stage's file below says what you must do
   review-security   agents   The reviewed bead is reviewed once more, for security alone, by another agent.
   approved          script   The assembly tests the bead and lands it on `main`, one bead at a time.
   merged            end
-PATH  new -> review -> new (changes)
+PATH  backlog -> shape -> new
 ```
 
 The map is context: with a testing stage later in the flow, a builder can
