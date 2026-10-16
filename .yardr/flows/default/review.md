@@ -53,6 +53,9 @@ The diff needs the security review when it touches any of this:
 - new dependencies (`go.mod`, `go.sum`, a tool a script calls);
 - `.yardr/test` and the assembly (`contrib/assembly`): what tests a bead
   and what lands it.
+- the flows and what judges a bead: `.yardr/flows/` (the flow files and
+  their stage files), `.yardr/roles/` and the roles under `packs/`: who
+  reviews, and whether a review happens at all.
 
 Text from outside the yard (another yard, a source, a hook, a bead's body)
 counts wherever it lands: it is data, never run, and never trusted for who
