@@ -67,6 +67,7 @@ func answered(t *testing.T, ch <-chan asked, within time.Duration) asked {
 // and answered when something is queued for it: not when something is
 // queued for another peer.
 func TestPeerHoldAnsweredWhenQueued(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
 	link(t, a, b, false, true)
@@ -96,6 +97,7 @@ func TestPeerHoldAnsweredWhenQueued(t *testing.T) {
 
 // A held question ends at its wait with an empty answer, signed as any.
 func TestPeerHoldEndsAtTheWait(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -115,6 +117,7 @@ func TestPeerHoldEndsAtTheWait(t *testing.T) {
 // answer. And a question whose asker goes away mid-hold is over on a's
 // side too, with nothing left of it.
 func TestPeerHoldOnePerPeer(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -139,6 +142,7 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 // A question without wait is still that peer's next question and ends its
 // previously held one with an empty answer.
 func TestPeerPullWithoutWaitEndsPriorHold(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -158,6 +162,7 @@ func TestPeerPullWithoutWaitEndsPriorHold(t *testing.T) {
 // before questions were held; so is one past what a yard holds at once, and
 // one of a peer the yard posts to, which would wait for nothing.
 func TestPeerHoldNotAsked(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -177,11 +182,11 @@ func TestPeerHoldNotAsked(t *testing.T) {
 	}
 }
 
-// run starts y's daemon, with a hold of a second and everything else it
-// waits for short, and stops it with the test.
+// run starts y's daemon, with a hold of a second and a poll and backoff of
+// 50ms, and stops it with the test.
 func (y *peerYard) run(t *testing.T) (stop func()) {
 	t.Helper()
-	y.d.PeerHold, y.d.PeerPoll, y.d.Backoff = time.Second, 100*time.Millisecond, 50*time.Millisecond
+	y.d.PeerHold, y.d.PeerPoll, y.d.Backoff = time.Second, 50*time.Millisecond, 50*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); _ = y.d.Run(ctx) }()
@@ -202,6 +207,7 @@ func (y *peerYard) run(t *testing.T) (stop func()) {
 // asks once a hold, and what is queued for it arrives as it is queued, with
 // the answer posted back.
 func TestPeersDaemonHoldsOrPolls(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -210,11 +216,11 @@ func TestPeersDaemonHoldsOrPolls(t *testing.T) {
 
 	until(t, "b polls a", func() bool { return a.asked.Load() >= 5 })
 	from := a.asked.Load()
-	// Held, it would be two or three questions in the time; asked at once
+	// Held, it would be one question in the time; asked at once
 	// after each answer, hundreds.
-	time.Sleep(2 * time.Second)
-	if n := a.asked.Load() - from; n < 6 || n > 30 {
-		t.Fatalf("against a yard that holds nothing b asked %d times in 2s, want about 20 (every 100ms)", n)
+	time.Sleep(500 * time.Millisecond)
+	if n := a.asked.Load() - from; n < 3 || n > 15 {
+		t.Fatalf("against a yard that holds nothing b asked %d times in 500ms, want about 10 (every 50ms)", n)
 	}
 	if a.rc.Held() != 0 {
 		t.Fatal("a held a question")
@@ -223,9 +229,11 @@ func TestPeersDaemonHoldsOrPolls(t *testing.T) {
 	a.rc.SetMaxHeld(8)
 	until(t, "b's question is held", func() bool { return a.rc.Held() == 1 })
 	from = a.asked.Load()
-	time.Sleep(2500 * time.Millisecond)
-	if n := a.asked.Load() - from; n < 1 || n > 4 {
-		t.Fatalf("held for a second each, b asked %d times in 2.5s, want 2 or 3", n)
+	// The second-long hold does not end in the time, so a daemon that holds
+	// asks nothing more; one that polled would ask about ten times.
+	time.Sleep(500 * time.Millisecond)
+	if n := a.asked.Load() - from; n > 1 {
+		t.Fatalf("held for a second each, b asked %d times in 500ms, want none", n)
 	}
 
 	until(t, "b's question is held", func() bool { return a.rc.Held() == 1 })
@@ -248,6 +256,7 @@ func TestPeersDaemonHoldsOrPolls(t *testing.T) {
 // answering, after which it asks again after a wait and is back to
 // holding.
 func TestPeersDaemonGetsWhatQueuedWhileAway(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)

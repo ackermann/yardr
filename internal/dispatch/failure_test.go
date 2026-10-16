@@ -66,6 +66,7 @@ func groupEvents(t *testing.T, s store.API, kind string) map[string]int {
 // passes run, and each group reports runtime_down once; once it is back the
 // beads start and runtime_up says so.
 func TestRuntimeDownHoldsNoBead(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &downRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
@@ -119,6 +120,7 @@ func TestRuntimeDownHoldsNoBead(t *testing.T) {
 // A start failure scoped to one bead is reported and held at once, without
 // charging a failed attempt or marking the whole group down.
 func TestBeadBlockedStartHoldsBeadWithReason(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &beadBlockedRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
@@ -151,6 +153,7 @@ func TestBeadBlockedStartHoldsBeadWithReason(t *testing.T) {
 // While a group's runtime is down its beads are not tried again before the
 // backoff ends; an error of the bead's own still counts toward the hold.
 func TestRuntimeDownBacksOff(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &downRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
@@ -189,6 +192,7 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 // Holding a bead ends its session and frees the group's slot for the next
 // bead; unholding routes it again, with no failure counted.
 func TestHoldFreesTheSlot(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1}, "me"))
@@ -255,6 +259,7 @@ func eventKinds(t *testing.T, s store.API, bead, kind string) []store.Event {
 // An agent idle past its group's limit raises session_idle once per idle
 // spell; with a grace set it is then stopped.
 func TestIdleSessionIsReported(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
@@ -316,6 +321,7 @@ func TestIdleSessionIsReported(t *testing.T) {
 // A session running past its group's max_age raises session_aged once, even
 // across daemon restarts; a status-less runner gets no limit unless set.
 func TestAgedSessionIsReportedOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	// The hard cap without a grace is twice max_age (4s here): the three
@@ -367,6 +373,7 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 // anyway (failed, so repeats still hold the bead), and the bead is released
 // with a note saying why, so the next agent and the yardmaster see it.
 func TestAgedSessionIsCappedWithoutGrace(t *testing.T) {
+	t.Parallel()
 	s, _, d := setup(t)
 	d.Backoff = time.Hour // keep the bead released, not restarted, for the checks
 	ctx := context.Background()
@@ -416,6 +423,7 @@ func (r *blockedRunner) Start(context.Context, dispatch.Job) (map[string]any, er
 // A group blocked by its own config is not the bead's failure: the bead is
 // neither counted nor held, and the group reports why once.
 func TestBlockedGroupHoldsNoBead(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &blockedRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
@@ -442,6 +450,7 @@ func TestBlockedGroupHoldsNoBead(t *testing.T) {
 // once the log that recorded the unhold is pruned: the attempts since the
 // unhold live on the bead, not in the event.
 func TestUnheldBeadSurvivesPruningTheUnheldEvent(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f},

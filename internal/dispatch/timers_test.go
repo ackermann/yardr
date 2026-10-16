@@ -14,6 +14,7 @@ import (
 // crew member is in its inbox and the crew member is nudged in the same pass;
 // one a crew member set for a user is mail, and nudges nobody.
 func TestPassFiresTimers(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {

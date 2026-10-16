@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,19 +36,28 @@ func fakeBinary(t *testing.T, rev string, exec func(env []string) error) (*versi
 	return b, path
 }
 
-var installed = time.Now()
+// installed is the mtime of the last build installRev wrote, under its
+// mutex: the tests run side by side, and only a newer build replaces.
+var (
+	installedMu sync.Mutex
+	installed   = time.Now()
+)
 
 // installRev installs a build a second after the last one, so mtime
 // orders them: only a newer build replaces.
 func installRev(t *testing.T, path, rev string) {
 	t.Helper()
 	must(t, os.WriteFile(path+".tmp", []byte(rev), 0o755))
+	installedMu.Lock()
 	installed = installed.Add(time.Second)
-	must(t, os.Chtimes(path+".tmp", installed, installed))
+	at := installed
+	installedMu.Unlock()
+	must(t, os.Chtimes(path+".tmp", at, at))
 	must(t, os.Rename(path+".tmp", path))
 }
 
 func TestDaemonReplacesItselfAfterAPass(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
@@ -81,6 +91,7 @@ func TestDaemonReplacesItselfAfterAPass(t *testing.T) {
 }
 
 func TestDaemonChecksItsBinaryBetweenPasses(t *testing.T) {
+	t.Parallel()
 	_, _, d := setup(t)
 	execd := make(chan struct{})
 	bin, path := fakeBinary(t, "old", func([]string) error { close(execd); return nil })
@@ -101,6 +112,7 @@ func TestDaemonChecksItsBinaryBetweenPasses(t *testing.T) {
 }
 
 func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
+	t.Parallel()
 	_, _, d := setup(t)
 	home := t.TempDir()
 	d.Home = home
@@ -138,6 +150,7 @@ func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
 }
 
 func TestDaemonSkipsAnOlderBuildAndLogsIt(t *testing.T) {
+	t.Parallel()
 	s, _, d := setup(t)
 	var calls atomic.Int32
 	bin, path := fakeBinary(t, "new", func([]string) error { calls.Add(1); return nil })
@@ -174,6 +187,7 @@ func TestDaemonSkipsAnOlderBuildAndLogsIt(t *testing.T) {
 }
 
 func TestReplacedDaemonLogsIt(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	s, _, d := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,6 +226,7 @@ func TestReplacedDaemonLogsIt(t *testing.T) {
 // A fresh start logs daemon_started with the build it runs, and no
 // daemon_replaced.
 func TestFreshDaemonLogsStarted(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	s, _, d := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -252,6 +267,7 @@ func (r *slowRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any,
 // A daemon told to stop while a pass runs stops once the pass is over; it
 // does not exec the new build installed meanwhile.
 func TestDaemonStoppedDuringAPassDoesNotReplaceItself(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -122,6 +122,7 @@ func scriptAsked(t *testing.T, calls string) string {
 // through the declared pr command, with the hook's crew member's
 // credential, and gh is not on PATH.
 func TestForgeRunMovesTrainThroughScriptedPR(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	r := newGHDepot(t)
 	r.d.CI, r.d.PRHead = nil, nil
 	prCalls, ciCalls := liveForge(t, r,
@@ -150,6 +151,7 @@ func TestForgeRunMovesTrainThroughScriptedPR(t *testing.T) {
 // declared ci command, with the hook's crew member's credential, and gh
 // is not on PATH.
 func TestForgeCIMovesTrainThroughScriptedCI(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	r := newGHDepot(t)
 	r.d.CI, r.d.PRHead = nil, nil
 	_, ciCalls := liveForge(t, r,
@@ -177,6 +179,7 @@ func TestForgeCIMovesTrainThroughScriptedCI(t *testing.T) {
 // the read fails naming the command, and is tried again after the wait,
 // with no event needed.
 func TestForgeCIWithoutCommandFailsNamed(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	r := newGHDepot(t)
 	r.d.CI, r.d.PRHead = nil, nil
 	now := time.Now()

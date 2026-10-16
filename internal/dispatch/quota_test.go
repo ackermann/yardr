@@ -79,6 +79,7 @@ func claimedBy(t *testing.T, s store.API, id string) (string, map[string]any) {
 // by the first group's, not the ambient answer. Each login is asked once,
 // whatever the other reads.
 func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	ctx := context.Background()
 	t.Setenv("YARDR_TEST_LOGIN", "operator")
 	s := storetest.New(t)
@@ -160,6 +161,7 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 // Groups carrying the same env overlay read the same login and share the
 // cached answer, so a route does not ask the provider twice for it.
 func TestQuotaMemoryIsSharedAcrossGroupsWithTheSameLogin(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	ctx := context.Background()
 	t.Setenv("YARDR_TEST_LOGIN", "operator")
 	s := storetest.New(t)
@@ -189,6 +191,7 @@ func TestQuotaMemoryIsSharedAcrossGroupsWithTheSameLogin(t *testing.T) {
 // over for the next group of the route, and the claimed event says by
 // which route and why; under the threshold the first group takes the bead.
 func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, r, _ := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(85, 10))
@@ -224,6 +227,7 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 // failed resets, however many passes find it waiting and whatever the
 // percentage moves to. It starts once the window is under the threshold.
 func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, r, now := quotaYard(t, "a@Weekly<80,5h<50")
 	p.say(weekly(85, 60))
@@ -263,6 +267,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 // A group at its limit of sessions is waited for, not passed over: only a
 // quota condition sends a bead to a further group.
 func TestGroupAtItsLimitIsWaitedForNotPassedOver(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, f, d, p, _, _ := quotaYard(t, "a@Weekly<80", "b")
 	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "kimi"}}, "me"))
@@ -320,6 +325,7 @@ func paced(week, five float64, weekTarget string) string {
 // as a condition that cannot be evaluated: the group takes the bead and
 // the claimed event says the limits were not known.
 func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, _, r, _ := quotaYard(t, "a@Weekly<target+10", "b")
 	say := pacedStandIn(t, s)
@@ -382,6 +388,7 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 
 // `@<80` reads every window the provider reports.
 func TestConditionWithoutALabelReadsEveryWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, _, _ := quotaYard(t, "a@<80", "b")
 	p.say(weekly(10, 90))
@@ -397,6 +404,7 @@ func TestConditionWithoutALabelReadsEveryWindow(t *testing.T) {
 // and the claimed event says the limits were not known: a limits command
 // that fails takes the gate away and stops nothing.
 func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for name, tc := range map[string]struct {
 		first  string
@@ -428,6 +436,7 @@ func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
 // however many beads are ready and however many passes there are, an
 // answer that failed included; and never for a route with no condition.
 func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForACondition(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, f, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(70, 10))
@@ -473,6 +482,7 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForACondition(t *testing.T) {
 // A route with one group and no condition claims as it always did; its
 // claimed event names the route beside what it carried before.
 func TestRouteWithoutAConditionDispatchesAsBefore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, f, d := setup(t)
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}, "me"))
@@ -493,6 +503,7 @@ func TestRouteWithoutAConditionDispatchesAsBefore(t *testing.T) {
 // next stage has a route with several groups names them in order, the flow
 // map says agents work it, and neither runs the limits command.
 func TestNextStageNamesARoutesGroupsInOrderAndAsksNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
@@ -541,6 +552,7 @@ func TestNextStageNamesARoutesGroupsInOrderAndAsksNothing(t *testing.T) {
 // that worked it there: the claimed event names that group in `was`, and
 // names none when the same group takes the bead again.
 func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(70, 10))
@@ -609,6 +621,7 @@ func loadReport(load float64) string {
 // source's window, and the source's command runs at most once in five
 // minutes however many beads are ready.
 func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, _, r, now := quotaYard(t, "a@machine.load<80", "wait")
 	say, runs := machineStandIn(t, s)
@@ -644,6 +657,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 // A condition may mix a source's window with the provider's: each
 // comparison reads its own windows.
 func TestRouteConditionMixesASourceAndAProvider(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, _, _ := quotaYard(t, "a@machine.load<80,Weekly<80", "b")
 	say, _ := machineStandIn(t, s)
@@ -668,6 +682,7 @@ func TestRouteConditionMixesASourceAndAProvider(t *testing.T) {
 // A group with no kind is gated the same way: an exec group carries a
 // condition on a source, and its beads wait while the source answers over.
 func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
@@ -704,6 +719,7 @@ func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 // default. (yardr-j6f0: the condition read the windows of another provider
 // than the one the session burns.)
 func TestConditionOnAGroupWithoutAKindReadsTheYardsDefaultKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
 	must(t, s.SetSetting(ctx, store.DefaultKindSetting, "kimi", "me"))

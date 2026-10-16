@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,6 +71,7 @@ func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *ag
 // sent it (yardr-myyv: two stalled on a prompt that was never submitted,
 // and nothing said why it had counted as arrived).
 func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
+	t.Parallel()
 	s, r, d := stallSetup(t, "idle", nil)
 	r.look = "absent, herdr working"
 	ctx := context.Background()
@@ -138,6 +140,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 // Changing the group's model lets it start sessions again while the stalled
 // one still sits there.
 func TestChangedModelStartsAgain(t *testing.T) {
+	t.Parallel()
 	s, r, d := stallSetup(t, "idle", map[string]any{})
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
@@ -164,6 +167,7 @@ func TestChangedModelStartsAgain(t *testing.T) {
 // working since its prompt, one that left a note, one that changed its
 // worktree, and one whose group turned the check off.
 func TestWorkingSessionIsNotStalled(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		status string
 		cfg    map[string]any
@@ -213,6 +217,7 @@ func TestWorkingSessionIsNotStalled(t *testing.T) {
 // A prompt held back until a human answered the agent's startup question is
 // watched from its delivery, not from the session's start.
 func TestStallCountsFromThePendingPromptsDelivery(t *testing.T) {
+	t.Parallel()
 	s, r, d := stallSetup(t, "blocked", nil)
 	n := &pendingRunner{agentRunner: r}
 	d.Runners["fake"] = n
@@ -255,13 +260,19 @@ func (n *pendingRunner) Nudge(context.Context, map[string]any, string) error { r
 
 // later moves d's clock two minutes on, past the tests' stall limit.
 func later(d *dispatch.Dispatcher) {
+	skewMu.Lock()
 	skew[d] += 2 * time.Minute
 	by := skew[d]
+	skewMu.Unlock()
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(by) })
 }
 
-// skew is how far later has moved each dispatcher's clock.
-var skew = map[*dispatch.Dispatcher]time.Duration{}
+// skew is how far later has moved each dispatcher's clock, under its mutex:
+// the tests run side by side.
+var (
+	skewMu sync.Mutex
+	skew   = map[*dispatch.Dispatcher]time.Duration{}
+)
 
 // permissionQuestion is the end of a Claude Code pane that waits on a
 // permission prompt.
@@ -279,6 +290,7 @@ const permissionQuestion = "⏺ Bash(git push origin yard/x)\n" +
 // learn what to answer (yardr-cdmr: the yardmaster ran `herdr agent read`
 // for each session_blocked, 7 times in a day).
 func TestBlockedSessionCarriesItsPane(t *testing.T) {
+	t.Parallel()
 	s, r, d := stallSetup(t, "working", nil)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
@@ -312,6 +324,7 @@ func TestBlockedSessionCarriesItsPane(t *testing.T) {
 
 // A runner with no pane to read reports a blocked session without one.
 func TestBlockedSessionWithoutAPane(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}

@@ -123,6 +123,7 @@ func kimiUsed(five time.Time) string {
 // window that is used up and when it resets, as the yard's source says it:
 // the yardmaster reads the time and does not guess it.
 func TestSessionAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "kimi", nil)
 	now := noon()
 	dispatch.SetClock(d, func() time.Time { return now })
@@ -166,6 +167,7 @@ func TestSessionAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 // group's windows: the source runs under the group's env, not the ambient
 // answer.
 func TestSessionAtItsUsageLimitReadsTheGroupsLogin(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	t.Setenv("YARDR_TEST_LOGIN", "operator")
 	s, r, d, b := harnessSetup(t, "kimi", map[string]any{"env_file": loginEnv(t, "g-login")})
 	now := noon()
@@ -196,6 +198,7 @@ func TestSessionAtItsUsageLimitReadsTheGroupsLogin(t *testing.T) {
 // report with the window and its reset, and the hint keeps the kind in its
 // words.
 func TestSessionWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "claude", map[string]any{"provider": "zai"})
 	now := noon()
 	dispatch.SetClock(d, func() time.Time { return now })
@@ -230,6 +233,7 @@ func TestSessionWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
 // A session of a group whose provider no source's kinds name is told of as
 // before, with the reason naming the provider.
 func TestSessionWithUnansweredProviderNamesIt(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "kimi", map[string]any{"provider": "unanswered"})
 	dispatch.SetClock(d, func() time.Time { return noon() })
 	newStandIn(t, s)
@@ -253,6 +257,7 @@ func TestSessionWithUnansweredProviderNamesIt(t *testing.T) {
 
 // A crew member's event carries the same.
 func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
 	ctx := context.Background()
 	now := noon()
@@ -296,6 +301,7 @@ func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 
 // A crew member with the provider setting is asked as the provider.
 func TestCrewMemberWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi", "provider": "zai"}})
 	ctx := context.Background()
 	now := noon()
@@ -331,6 +337,7 @@ func TestCrewMemberWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
 
 // What the event says when the provider's answer names no time to wait for.
 func TestUsageLimitWithNoResetToRead(t *testing.T) {
+	t.Parallel()
 	later := noon().Add(3 * time.Hour).Format(time.RFC3339)
 	for _, c := range []struct {
 		name, report string
@@ -451,6 +458,7 @@ func harnessErrors(t *testing.T, s store.API) int {
 // the window in its event. What it said is not kept longer than that
 // minute, and a daemon that has just started knows nothing.
 func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
+	t.Parallel()
 	s, r, d, p, now := limitsYard(t, 5, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -494,6 +502,7 @@ func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 
 // A provider that fails is not run once per session either.
 func TestAFailingProviderIsAskedOnceForSessionsStoppingTogether(t *testing.T) {
+	t.Parallel()
 	s, r, d, p, _ := limitsYard(t, 5, nil)
 	p.fail()
 	r.show("idle", kimiLimit)
@@ -506,6 +515,7 @@ func TestAFailingProviderIsAskedOnceForSessionsStoppingTogether(t *testing.T) {
 // Two sessions of a group with the provider setting that stop together are
 // one run of the command, asked as the provider.
 func TestProviderSessionsStoppingTogetherAreOneAsk(t *testing.T) {
+	t.Parallel()
 	s, r, d, p, now := limitsYard(t, 2, map[string]any{"provider": "zai"})
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -529,6 +539,7 @@ func TestProviderSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 // Only a usage limit asks: a harness that stopped on anything else is told
 // of as before, and the provider is not run for it.
 func TestHarnessErrorThatIsNoUsageLimitAsksNoLimits(t *testing.T) {
+	t.Parallel()
 	for _, tail := range []string{
 		atCapacity,
 		"■ Your access token could not be refreshed because your refresh token was revoked.\n› Ask Codex to do anything",

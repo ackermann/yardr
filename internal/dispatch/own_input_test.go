@@ -87,6 +87,7 @@ const ownFirst = "Read brief.md and follow it." // retryRunner's first prompt
 // PromptSettle, and one session_prompt_typed says which text and why;
 // before that, nothing.
 func TestFirstPromptLeftInTheInputWithNothingPendingIsSubmitted(t *testing.T) {
+	t.Parallel()
 	s, r, _, b, pass := ownSetup(t)
 	// As a harness shows it: wrapped to the pane's width.
 	r.input = ownFirst[:10] + "\n" + ownFirst[10:]
@@ -115,6 +116,7 @@ func TestFirstPromptLeftInTheInputWithNothingPendingIsSubmitted(t *testing.T) {
 // is in the input twice. It is yardr's all the same: Enter sends both, and
 // the event says so.
 func TestFirstPromptTwiceInTheInputIsSubmitted(t *testing.T) {
+	t.Parallel()
 	s, r, _, b, pass := ownSetup(t)
 	r.input = ownFirst + ownFirst
 	pass(0)
@@ -128,6 +130,7 @@ func TestFirstPromptTwiceInTheInputIsSubmitted(t *testing.T) {
 // A failed pane read breaks the observed settle period: after a read error,
 // the input has to be seen for PromptSettle again before Enter is sent.
 func TestUnreadablePaneRestartsOwnInputSettlePeriod(t *testing.T) {
+	t.Parallel()
 	s, r, _, b, pass := ownSetup(t)
 	r.input = ownFirst
 	pass(0)
@@ -153,6 +156,7 @@ func TestUnreadablePaneRestartsOwnInputSettlePeriod(t *testing.T) {
 // apart; then session_prompt_gave_up tells the yardmaster, once, with the
 // command that sends Enter by hand, and the session is left alone.
 func TestOwnTextThatEnterDoesNotSendIsGivenUp(t *testing.T) {
+	t.Parallel()
 	s, r, _, b, pass := ownSetup(t)
 	r.input, r.deaf = ownFirst, true
 	pass(0)
@@ -179,6 +183,7 @@ func TestOwnTextThatEnterDoesNotSendIsGivenUp(t *testing.T) {
 // of a harness whose mark it does not know, one it cannot read, and an
 // agent that is not idle.
 func TestInputThatIsNotKnownToBeYardrsOwnGetsNoKey(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(*ownRunner){
 		"a person's text":          func(r *ownRunner) { r.input = "let me just" },
 		"a person's words after":   func(r *ownRunner) { r.input = ownFirst + " and then stop" },
@@ -208,6 +213,7 @@ func TestInputThatIsNotKnownToBeYardrsOwnGetsNoKey(t *testing.T) {
 // prompt, which its runner keeps on the handle at StartCrew, is submitted
 // when it is found in the input of the idle agent with nothing pending.
 func TestCrewFirstPromptLeftInTheInputIsSubmitted(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()

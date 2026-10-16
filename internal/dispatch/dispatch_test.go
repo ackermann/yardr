@@ -22,6 +22,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// The tests run side by side: each owns its state (a store, a home and
+	// servers of its own), and what the yards' own git calls see is the
+	// same for every test, set here once -- git reads nothing of the
+	// developer's. The serial tests are those that set process environment
+	// (t.Setenv), which parallel tests cannot share; each says so.
+	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	code := m.Run()
 	scripttest.Remove()
 	os.Exit(code)
@@ -86,6 +93,7 @@ func must(t *testing.T, err error) {
 }
 
 func TestBeadThroughStages(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
@@ -132,6 +140,7 @@ func TestBeadThroughStages(t *testing.T) {
 // A bead under a flow starts with the stages it may move to and who works
 // each, so its brief can list them; a bead without a flow gets none.
 func TestJobCarriesNextStages(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web"}, "me"))
@@ -187,6 +196,7 @@ func TestJobCarriesNextStages(t *testing.T) {
 // A bead whose flow does not resolve is reported once and left where it
 // is; it does not stop the pass, so the beads after it still dispatch.
 func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -240,6 +250,7 @@ func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
 }
 
 func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "general", Runner: "fake", Limit: 1}, "me"))
@@ -268,6 +279,7 @@ func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
 }
 
 func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	d.MaxAttempts = 2
 	ctx := context.Background()
@@ -313,6 +325,7 @@ func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
 }
 
 func TestUnroutedIsLoggedOnce(t *testing.T) {
+	t.Parallel()
 	s, _, d := setup(t)
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "orphan", Stage: "limbo"}, "me")
@@ -334,6 +347,7 @@ func TestUnroutedIsLoggedOnce(t *testing.T) {
 // that takes every bead of its stage starts nothing on it, and with no
 // route it is not unrouted. A task beside it is both (yardr-c9z6).
 func TestQuestionIsNeverRouted(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.SetSetting(ctx, "operator", "mckean", "me"))
@@ -390,6 +404,7 @@ func TestQuestionIsNeverRouted(t *testing.T) {
 }
 
 func TestRunWakesOnChange(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	d.Interval = time.Hour // only live notifications can trigger the pass
 	ctx, cancel := context.WithCancel(context.Background())
@@ -415,6 +430,7 @@ func TestRunWakesOnChange(t *testing.T) {
 }
 
 func TestMatchOrder(t *testing.T) {
+	t.Parallel()
 	bug, web := "bug", "web"
 	rs := []store.Route{
 		{ID: "a", Stage: "new", Group: "any"},
@@ -452,6 +468,7 @@ func (s *statusRunner) Status(context.Context, map[string]any) (string, error) {
 }
 
 func TestBlockedSessionIsReportedOnce(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
@@ -485,6 +502,7 @@ func TestBlockedSessionIsReportedOnce(t *testing.T) {
 // meanwhile is reported unblocked, once, and one still at its prompt is not
 // reported again.
 func TestBlockedSessionAcrossRestart(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, status string
 		want         []string
@@ -548,6 +566,7 @@ func (f *finishRunner) Finish(_ context.Context, h map[string]any) error {
 }
 
 func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	agents := &finishRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
 	human := &fakeRunner{dead: map[string]bool{}}
@@ -593,6 +612,7 @@ func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
 // A session is judged by the runner that started it, even after its group
 // switches runners; new work then goes to the new runner.
 func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	old := &fakeRunner{dead: map[string]bool{}}
 	nu := &fakeRunner{dead: map[string]bool{}}
@@ -632,6 +652,7 @@ func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
 // Deleting a group must not strand the beads its sessions hold: once its
 // route is gone, nothing would ever claim them again (yard-30).
 func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "fake"}, "me"))
@@ -696,6 +717,7 @@ func (p *pruneCounter) count() int {
 // The daemon prunes on start and every PruneEvery, and not at all without
 // a retention.
 func TestRunPrunesOnATimer(t *testing.T) {
+	t.Parallel()
 	for _, keep := range []store.Retention{{}, store.DefaultRetention} {
 		s, _, d := setup(t)
 		pc := &pruneCounter{API: s}
@@ -731,6 +753,7 @@ func TestRunPrunesOnATimer(t *testing.T) {
 // The job tells the runner a child's train and base; any other bead gets the
 // depot's base. A bead whose train is ambiguous is not started.
 func TestJobCarriesTrainAndBase(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -784,6 +807,7 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 // once, claimed by nobody, and routed again once someone advances it to a
 // stage the flow has.
 func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -875,6 +899,7 @@ func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
 // stage files are in the yard's home. It carries the map of the flow too,
 // drawn as the bead is handed out; a bead no flow governs has none.
 func TestJobCarriesTheStageFile(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -946,6 +971,7 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 
 // A pass over a store with no writable beads does not start another job.
 func TestPassDoesNotStartAnotherJobAtLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := storetest.NewOwned(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, Backoff: time.Nanosecond}
@@ -980,6 +1006,7 @@ func TestPassDoesNotStartAnotherJobAtLimit(t *testing.T) {
 // The pass decides on what Dispatchable says of a bead and reads the bead
 // when it starts it: the runner is handed all of it, with its train.
 func TestStartedBeadIsReadWhole(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
@@ -1021,6 +1048,7 @@ func (o otherBuild) Dispatchable(ctx context.Context) ([]store.ReadyBead, error)
 // A daemon whose server is still the build before it starts nothing from an
 // answer it cannot read, and says so, instead of claiming beads by no handle.
 func TestPassRefusesAnotherBuildsReadyBeads(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
@@ -1045,6 +1073,7 @@ func TestPassRefusesAnotherBuildsReadyBeads(t *testing.T) {
 // A route for urgent beads and a route for two labels take the ready beads
 // they are for: the dispatcher is handed each bead's priority and labels.
 func TestRouteByBeadPriorityAndLabels(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	for _, g := range []string{"general", "reserve", "heavy"} {

@@ -15,6 +15,7 @@ import (
 // logs in, not text in the input. It is told at once, not after DraftWait,
 // and kept on the handle for the crew's status and yardr doctor.
 func TestLoginScreenHoldsNudgeAndTellsOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -73,6 +74,7 @@ func TestLoginScreenHoldsNudgeAndTellsOnce(t *testing.T) {
 // and one attention event must still be recorded when no inbox message is
 // waiting to cause a nudge.
 func TestIdleCrewAtLoginScreenIsReportedWithoutInboxMail(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -100,6 +102,7 @@ func TestIdleCrewAtLoginScreenIsReportedWithoutInboxMail(t *testing.T) {
 // pending it is no harness still starting, so no session_harness_starting
 // says so. The prompt waits on the login instead.
 func TestLoginScreenWithoutInputMarkIsNoStartingHarness(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	f.sent, f.noScreen = true, true
 	f.login = "Paste code here if prompted>"
@@ -147,6 +150,7 @@ func TestLoginScreenWithoutInputMarkIsNoStartingHarness(t *testing.T) {
 // daemon does not wait for a human: the login is said instead, with the
 // kind's own command.
 func TestLoginScreenWhileBlockedIsNoWaitForAHuman(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	f.sent, f.blocked = true, true
 	f.login = "Select login method:"
@@ -180,6 +184,7 @@ func TestLoginScreenWhileBlockedIsNoWaitForAHuman(t *testing.T) {
 // A Muse pane at its login screen is held the same way, and the hint
 // names Muse's own command (yardr-dx5f).
 func TestLoginScreenMuseNamesItsOwnCommand(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	f.sent, f.blocked = true, true
 	f.login = "Log in with browser · Enter to choose"
@@ -231,6 +236,7 @@ func TestLoginScreenMuseNamesItsOwnCommand(t *testing.T) {
 // An agent that works is past any login screen seen before: the mark goes,
 // while the login told of stays told.
 func TestWorkingClearsTheLoginMark(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))

@@ -123,6 +123,7 @@ func liveSession(t *testing.T, s store.API, bead string) string {
 // words. A note by the session itself, and one on a bead with no session,
 // tell nothing.
 func TestNoteTellsTheBeadsSessionOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Limit: 2}, "me"))
@@ -185,6 +186,7 @@ func TestNoteTellsTheBeadsSessionOnce(t *testing.T) {
 // acked from the bead is not told after. A note still untold when the
 // session ends is sent nowhere, and shows as such.
 func TestNoteToldWhenIdle(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -261,6 +263,7 @@ func TestNoteToldWhenIdle(t *testing.T) {
 // wait for: the note is marked told at once, as a crew member's nudge is,
 // and no pass types anything for it.
 func TestNoteToldWithoutAnAgentToTypeTo(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f},
@@ -294,6 +297,7 @@ func TestNoteToldWithoutAnAgentToTypeTo(t *testing.T) {
 // only when it reads as a name: anything else would be words of the
 // writer's choosing in the agent's pane, as the note's text would be.
 func TestNoteNudgeTypesNoAuthorThatIsNotAName(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -336,6 +340,7 @@ func TestNoteNudgeTypesNoAuthorThatIsNotAName(t *testing.T) {
 // the prompt of its harness it is typed, as ever, and where it shows none
 // it is submitted through herdr. The note_told event says which way.
 func TestNoteToldTypedOrThroughHerdr(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name     string
 		up       bool
@@ -381,6 +386,7 @@ func TestNoteToldTypedOrThroughHerdr(t *testing.T) {
 // screen yardr cannot read (no muse.yaml: its marks are unknown) is told
 // through herdr instead, which submits the telling itself.
 func TestNoteToldThroughHerdrWhenTheScreenCannotBeRead(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -414,6 +420,7 @@ func TestNoteToldThroughHerdrWhenTheScreenCannotBeRead(t *testing.T) {
 // through herdr. One behind a first prompt on its way to a pane that shows
 // one still waits for it.
 func TestNoteBehindAPendingFirstPrompt(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		up    bool
@@ -448,6 +455,7 @@ func TestNoteBehindAPendingFirstPrompt(t *testing.T) {
 // the first prompt goes first, and it never arrives. It is marked untold
 // with why, so the yardmaster hears, not left for a pass that never comes.
 func TestNoteBehindAGivenUpFirstPromptIsUntold(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -493,6 +501,7 @@ func TestNoteBehindAGivenUpFirstPromptIsUntold(t *testing.T) {
 // says "could not be told" instead of "will be told". A telling herdr is
 // down for waits instead.
 func TestNoteNeitherWayTakesIsUntold(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -533,6 +542,7 @@ func TestNoteNeitherWayTakesIsUntold(t *testing.T) {
 // idle spell. One that wrote, one whose bead moved on, and one with a note
 // already due get none.
 func TestIdleSessionWithNoNoteIsNudgedOnce(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name     string
 		up       bool
@@ -610,6 +620,7 @@ func TestIdleSessionWithNoNoteIsNudgedOnce(t *testing.T) {
 // A note that merely mentions "latest:" is no test line, and its session
 // gets none.
 func TestIdleSessionWithTestLineIsNudgedWithTheOutcome(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		note string
@@ -668,6 +679,7 @@ func TestIdleSessionWithTestLineIsNudgedWithTheOutcome(t *testing.T) {
 // Herdr reuses an agent name for retries of a bead and stage. A previous
 // attempt's test note is not this session's handoff.
 func TestIdleSessionIgnoresPriorAttemptTestNote(t *testing.T) {
+	t.Parallel()
 	s, f, d := noteSetup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))

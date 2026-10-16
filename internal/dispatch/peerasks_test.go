@@ -113,6 +113,7 @@ func (y *peerYard) yardMail(t *testing.T, name string) []string {
 // as the right note, written by mckean@airy, once, whichever yard calls
 // the other.
 func TestPeerAskAnswersComeHome(t *testing.T) {
+	t.Parallel()
 	for name, airyCalled := range map[string]bool{"both yards are called": true, "airy asks for what waits": false} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -189,6 +190,7 @@ func TestPeerAskAnswersComeHome(t *testing.T) {
 // on mac's bead. Both picks land as notes and the newest on the bead
 // stands, whichever came first; nothing is lost and nothing is doubled.
 func TestPeerAskPickedInBothYards(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mac, airy := askYards(t, newClock(), true)
 
@@ -264,6 +266,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 // once mac is back, it lands. A question given up is told to its asker at
 // mac, and stays open on the bead, answerable by hand.
 func TestPeerAskLinkDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	clock := newClock()
 	mac, airy := askYards(t, clock, true)

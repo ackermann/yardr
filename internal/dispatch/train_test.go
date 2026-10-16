@@ -29,6 +29,7 @@ func trainFlow(t *testing.T) *store.Flow {
 // The train flow as agreed: every stage's outcomes, and the moves left to
 // humans.
 func TestTrainFlowOutcomes(t *testing.T) {
+	t.Parallel()
 	f := trainFlow(t)
 	want := map[string][]store.Outcome{
 		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
@@ -65,6 +66,7 @@ func TestTrainFlowOutcomes(t *testing.T) {
 // closed (the parent edge made each child a blocker), by its type route
 // over the stage route for open, with its children and outcomes in the job.
 func TestTrainWaitsForItsChildren(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
@@ -131,6 +133,7 @@ func TestTrainWaitsForItsChildren(t *testing.T) {
 // they report done it is back in open with no child open, so the integrators
 // take it again: they rebase it cleanly, test it and send it to review.
 func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
@@ -179,6 +182,7 @@ func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
 // from the bead's events, so it survives a restart. A human's un-hold
 // starts the count over.
 func TestReturnToTheSameStageBacksOff(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	d.Backoff, d.BackoffMax = time.Minute, 5*time.Minute
 	var skew time.Duration
@@ -264,6 +268,7 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 // a script, and the reason is logged once; a manual group still gets it, as
 // someone has to see it to fix it.
 func TestWagonWithoutTrainIsNotStarted(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))

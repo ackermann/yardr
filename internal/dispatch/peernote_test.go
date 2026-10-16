@@ -50,6 +50,7 @@ func noteMsg(id, re, text string) store.PeerMessage {
 // back to it, in a read and with the return, under its writer's name, and
 // nothing b writes does.
 func TestPeerBeadNote(t *testing.T) {
+	t.Parallel()
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			a, b := readYards(t, aCallsB)
@@ -199,6 +200,7 @@ func TestPeerBeadNote(t *testing.T) {
 // other words is someone('s), and b's own jo saying the same words as the
 // answer stays jo@b.
 func TestPeerBeadAnswerComesHome(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name       string
 		aCallsB    bool
@@ -303,6 +305,7 @@ func TestPeerBeadAnswerComesHome(t *testing.T) {
 // in its first stage stays there, and where agents work the first stage the
 // note lands as the bead did and the bead stays where it is, at work.
 func TestPeerBeadNoteMovesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	t.Run("in its first stage", func(t *testing.T) {
 		a, b := readYards(t, true)
@@ -371,6 +374,7 @@ func TestPeerBeadNoteMovesNothing(t *testing.T) {
 // hold and moves no bead forward: a second note finds the bead held in its
 // first stage and leaves it so.
 func TestPeerBeadNoteLeavesAHold(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	lookedAt(t, b)
 	ctx := context.Background()
@@ -408,6 +412,7 @@ func TestPeerBeadNoteLeavesAHold(t *testing.T) {
 // writer hears of a note given up by mail from the yard. A body that is no
 // note, another version and a text over 16 KB are refused as what they are.
 func TestPeerBeadNoteOfNoSuchBead(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	_, err := a.api.AddUser(ctx, "jo", "jo")
@@ -497,6 +502,7 @@ func TestPeerBeadNoteOfNoSuchBead(t *testing.T) {
 // working yard takes thirty, refuses the next as rate_limited, and logs
 // that once.
 func TestPeerBeadNoteLimit(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
@@ -534,6 +540,7 @@ func TestPeerBeadNoteLimit(t *testing.T) {
 // refusal comes before anything is queued. A crew member that wrote takes
 // part in the bead's thread.
 func TestPeerBeadNoteWhoMay(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	_, err := a.api.AddUser(ctx, "jo", "jo")
@@ -601,6 +608,7 @@ func TestPeerBeadNoteWhoMay(t *testing.T) {
 // the note by the kind its link does not carry, the writer is told, and a
 // bead crosses and comes back all the same.
 func TestPeerBeadNoteWithoutTheWord(t *testing.T) {
+	t.Parallel()
 	a, b := threadYards(t, true, true, true)
 	ctx := context.Background()
 	_, err := a.api.AddUser(ctx, "jo", "jo")

@@ -27,6 +27,7 @@ func (s basesTestStore) Depots(context.Context) ([]store.Depot, error) {
 }
 
 func TestBasesRetriesAfterDepotBecomesAvailable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "repo")
 	depot := store.Depot{Name: "web", Path: dir, Kind: store.DepotGit, Base: "main"}

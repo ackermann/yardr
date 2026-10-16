@@ -262,6 +262,7 @@ func want[T any](t *testing.T, what string, got, want T) {
 // The bead goes new, review, merged and the issue it tracks, linked by its
 // URL alone, goes started, review, done, as the yardmaster.
 func TestIssueFollowsItsBead(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA+"/web-view")
@@ -301,6 +302,7 @@ func TestIssueFollowsItsBead(t *testing.T) {
 // An issue is only moved forward: a bead sent back leaves it, and so does
 // an issue a person moved ahead, or out of the way, by hand.
 func TestIssueOnlyMovesForward(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA)
@@ -338,6 +340,7 @@ func TestIssueOnlyMovesForward(t *testing.T) {
 // Without set_state for the source nothing is sent, and the event names
 // the setting. Once the operator allows it, the next stage moves the issue.
 func TestIssueNeedsSetState(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.yardmaster(t, "github")
@@ -363,6 +366,7 @@ func TestIssueNeedsSetState(t *testing.T) {
 // wait that grows, by whichever daemon runs then, and the issue is changed
 // once.
 func TestIssueMoveWaitsOutAnOutage(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA)
@@ -405,6 +409,7 @@ func TestIssueMoveWaitsOutAnOutage(t *testing.T) {
 // A source that keeps failing is given up after IssueTries tries, and the
 // event says so.
 func TestIssueMoveGivesUp(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.d.IssueTries = 3
@@ -430,6 +435,7 @@ func TestIssueMoveGivesUp(t *testing.T) {
 // pull request, which no state is asked of; a thread that has the label is
 // skipped with no write, and nothing is closed or removed.
 func TestIssueMoveAddsALabel(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareGitHubPack(t, "")
 	ctx := context.Background()
@@ -466,6 +472,7 @@ func TestIssueMoveAddsALabel(t *testing.T) {
 // sent; a state asked of a pull request fails in the script, which reads
 // as the source failing, so the move waits and is tried again.
 func TestIssueMoveRefusedForGood(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareGitHubPack(t, "")
 	ctx := context.Background()
@@ -503,6 +510,7 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 // and says what is missing. Neither the token nor the key is in an event
 // or in the daemon's log.
 func TestIssueMoveAsAGitHubApp(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("openssl"); err != nil {
 		t.Skip("openssl is not installed, and the mint signs the App's JWT with it")
 	}
@@ -586,6 +594,7 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 // else: without it the move waits, with nothing sent, and is made once the
 // file has it.
 func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster") // the daemon's own environment is not the crew member's
@@ -629,6 +638,7 @@ func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 // A bead tracking a Linear and a GitHub issue, each with a hook and map:
 // both move.
 func TestIssuesOfTwoSources(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	y.declareGitHubPack(t, y.home)
@@ -653,6 +663,7 @@ func TestIssuesOfTwoSources(t *testing.T) {
 // the move wait with nothing sent, saying which command and how it ended,
 // and what it printed is in no event or log.
 func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	var logged bytes.Buffer
 	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))

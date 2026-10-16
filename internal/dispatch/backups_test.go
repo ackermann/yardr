@@ -50,6 +50,7 @@ func eventsOf(t *testing.T, s store.API, kind string) []store.Event {
 // makes one in the home's backups, named by date and time, which opens as
 // the store; the next is made once the period has gone by and not before.
 func TestPassBacksUpTheStoreWhenDue(t *testing.T) {
+	t.Parallel()
 	s, d, now := backupYard(t)
 	ctx := context.Background()
 	dir := filepath.Join(d.Home, "backups")
@@ -103,6 +104,7 @@ func TestPassBacksUpTheStoreWhenDue(t *testing.T) {
 // own older ones. A file there it did not name stays as it is: a copy made
 // by hand, and one whose name only looks like a dated copy's.
 func TestPassKeepsTheCountAndLeavesForeignFiles(t *testing.T) {
+	t.Parallel()
 	s, d, now := backupYard(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -140,6 +142,7 @@ func TestPassKeepsTheCountAndLeavesForeignFiles(t *testing.T) {
 // yardmaster hears, however many passes fail after it. Once a copy is made
 // the outage is over, and the next failure is told again.
 func TestBackupFailureIsToldOnce(t *testing.T) {
+	t.Parallel()
 	s, d, now := backupYard(t)
 	ctx := context.Background()
 	if !slices.Contains(store.AttentionKinds, dispatch.BackupFailed) {
@@ -182,6 +185,7 @@ func TestBackupFailureIsToldOnce(t *testing.T) {
 // A copy that failed is not tried again on the next pass: a full disk is
 // written to once per wait, which doubles.
 func TestFailedBackupWaitsBeforeTheNextTry(t *testing.T) {
+	t.Parallel()
 	s, d, now := backupYard(t)
 	ctx := context.Background()
 	gone := filepath.Join(t.TempDir(), "volume")
@@ -206,6 +210,7 @@ func TestFailedBackupWaitsBeforeTheNextTry(t *testing.T) {
 // Changing the backup directory during an outage changes the target, so the
 // old target's retry delay does not suppress the new target's first attempt.
 func TestBackupDirectoryChangeStartsANewOutage(t *testing.T) {
+	t.Parallel()
 	s, d, _ := backupYard(t)
 	ctx := context.Background()
 	first := filepath.Join(t.TempDir(), "missing", "first")

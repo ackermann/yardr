@@ -147,6 +147,7 @@ func (y *peerYard) waiting(t *testing.T, peer string) []store.PeerOut {
 // store's delivery check, the still-waiting message stays ahead of later
 // messages in the outbox.
 func TestPeerSendReallowedWhileWaitingDoesNotLetMessagesOvertake(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -196,6 +197,7 @@ func newClock() *peerClock { return &peerClock{now: time.Date(2026, 10, 5, 12, 0
 // Two yards that can both be called: the ping is posted, the pong is
 // posted back, and each is logged once on each side.
 func TestPeersPush(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -239,6 +241,7 @@ func TestPeersPush(t *testing.T) {
 // a for what waits there, so a ping crosses either way with only a
 // reachable.
 func TestPeersPull(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
@@ -291,6 +294,7 @@ func TestPeersPull(t *testing.T) {
 // wait that grows, nothing overtakes it, and when b is back it arrives
 // once, with the ones behind it in order.
 func TestPeersListenerDownThenUp(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -348,6 +352,7 @@ func TestPeersListenerDownThenUp(t *testing.T) {
 // A message that fails PeerTries times is given up, with an event, and
 // gets out of the way of the one behind it.
 func TestPeersGiveUp(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -386,6 +391,7 @@ func TestPeersGiveUp(t *testing.T) {
 // and b logs what it refused. A third yard b has not added gets no such
 // word: it is refused like anyone, and keeps trying in vain.
 func TestPeersRefused(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
 	link(t, a, b, true, true)
@@ -427,6 +433,7 @@ func TestPeersRefused(t *testing.T) {
 // A yard with peers and no key sends and asks for nothing, and its passes
 // do not fail for it.
 func TestPeersWithoutAKey(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -443,6 +450,7 @@ func TestPeersWithoutAKey(t *testing.T) {
 // under the name the rename freed is another yard: it is called at once,
 // not left alone for the failures of the one that had the name.
 func TestPeersRenamed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	clock := newClock()
 	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
@@ -495,6 +503,7 @@ func TestPeersRenamed(t *testing.T) {
 // only a called, and nothing to deliver, one pass of b tells both. b hears
 // it from a's answer to its question, a from the question.
 func TestPeersSayWhatTheyUnderstand(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)

@@ -60,6 +60,7 @@ func sessionHandle(t *testing.T, s store.API, bead string) map[string]any {
 // session_model_mismatch once, with both names, and both are kept on the
 // session's handle.
 func TestAnotherModelThanAskedIsReportedOnce(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := modelSetup(t, "claude-opus-5-5")
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx)) // start
@@ -103,6 +104,7 @@ func TestAnotherModelThanAskedIsReportedOnce(t *testing.T) {
 // was asked when it has one. Without any model asked, the reported one is
 // recorded and nothing compared.
 func TestSameModelUnderAnotherNameIsNoMismatch(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		group, bead, reported string
 		mismatch              bool

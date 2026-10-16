@@ -44,6 +44,7 @@ func (y *peerYard) mails(t *testing.T) []store.Event {
 // yard, and mail for a crew member the other yard does not have comes back to
 // its writer. With both yards reachable, and with one that asks.
 func TestPeerMailBetweenYardmasters(t *testing.T) {
+	t.Parallel()
 	for name, bReachable := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -112,6 +113,7 @@ func TestPeerMailBetweenYardmasters(t *testing.T) {
 // refusal carries what the link takes and when it ends, whether the mail
 // was posted or asked for, and the mail from the yard names the hour's end.
 func TestPeerMailLimitTellsTheHour(t *testing.T) {
+	t.Parallel()
 	for name, bReachable := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -163,6 +165,7 @@ func TestPeerMailLimitTellsTheHour(t *testing.T) {
 // The nudge names no address for mail of a yard that was removed since it
 // came: <name>@<peer> would in time be another yard's.
 func TestNudgeMailFromRemovedPeer(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -192,6 +195,7 @@ func TestNudgeMailFromRemovedPeer(t *testing.T) {
 // the nudge names whom it speaks as and says it is that user's word, and
 // calls only the mail of the others a stranger's.
 func TestNudgeMailFromATrustedName(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)

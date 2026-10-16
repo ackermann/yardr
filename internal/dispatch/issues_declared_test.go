@@ -50,6 +50,7 @@ calls:
 // thread.state with forward, with the crew member's credential for the one
 // variable the file names.
 func TestIssueMoveDeclaredSource(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	ctx := context.Background()
 	home, declDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
@@ -109,6 +110,7 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 // thread.state, with the crew member's credential, end to end against
 // the stand-in.
 func TestIssueMoveLinearDeclared(t *testing.T) {
+	t.Parallel()
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
 	ctx := context.Background()

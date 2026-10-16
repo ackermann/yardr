@@ -211,7 +211,6 @@ over60='
 internal/cli yardr-cayh 834 sequential tests at 0.14 s mean, no t.Parallel; 118 s alone
 contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
 internal/store yardr-3cc4 798 sequential tests plus the index walk after every write; 90 s alone
-internal/dispatch yardr-j41w 384 sequential tests at 0.24 s mean, no t.Parallel; 68 s alone
 . yardr-1x36 three whole-repo walks plus the gate-script runs; 31 s alone, 65-94 s in full runs
 contrib/isolated-yard yardr-mzjv real down-script runs over sleeper processes; 30 s alone, 51-92 s in full runs
 contrib/deploy yardr-mzjv 39 tests each starting a server of its own; 22 s alone, 41-61 s in full runs
@@ -258,8 +257,6 @@ packagebudget() {
 # two sleeps with the same duration.
 longsleeps='
 yardtest_test.go 3000 the race-lock test holds the lock 3 s past the build step so the wait spans whole seconds however slowly the run started
-internal/dispatch/peerhold_test.go 2000 yardr-j41w counts poll rates over real time, about 20 asks in 2 s
-internal/dispatch/peerhold_test.go 2500 yardr-j41w counts held-question rates over real time, 2 or 3 asks in 2.5 s
 internal/dispatch/harness_reset_test.go 1000 a session age reads the wall clock, not the dispatchers, so the test sleeps past its 1 s max_age
 internal/dispatch/failure_test.go 2050 a session age reads the wall clock, so the test sleeps past its 2 s max_age
 internal/server/server_test.go 1000 the drain test holds the store past the grace, then releases it

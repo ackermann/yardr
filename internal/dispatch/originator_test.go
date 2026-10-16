@@ -12,6 +12,7 @@ import (
 // whose beads have no route; a general route for the operator takes none
 // of them, however high its priority.
 func TestUnroutedNamesOriginator(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "jo", "jo"); err != nil {

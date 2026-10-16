@@ -191,6 +191,7 @@ func (y *pushYard) noSecrets(t *testing.T) {
 // with who, what and the start of the text, and with the token and the
 // address the files hold.
 func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	ctx := context.Background()
 
@@ -249,6 +250,7 @@ func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
 // What the user acknowledged within the grace is not told, mail or
 // notification, and leaves nothing in the queue.
 func TestPushNotForWhatWasRead(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	ctx := context.Background()
 	y.mail(t, "yardmaster", "one")
@@ -272,6 +274,7 @@ func TestPushNotForWhatWasRead(t *testing.T) {
 // was answered within the grace is not told. With mail in the same burst it
 // is one message, which does not call the place the inbox.
 func TestPushTellsOfAnAsk(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	ctx := context.Background()
 	b, err := y.api.CreateBead(ctx, store.NewBead{Title: "Move the links"}, "yardmaster")
@@ -312,6 +315,7 @@ func TestPushTellsOfAnAsk(t *testing.T) {
 // Five in a burst are one message, which counts them and names each kind
 // once; so is everything that waited while the daemon was away.
 func TestPushBurstIsOneMessage(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	for i := range 4 {
 		y.mail(t, "yardmaster", fmt.Sprint("mail ", i))
@@ -342,6 +346,7 @@ func TestPushBurstIsOneMessage(t *testing.T) {
 // three graces after its oldest: mail that keeps coming does not hold it
 // back for good.
 func TestPushReady(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct{ newest, want time.Duration }{
 		{0, store.PushGrace},
@@ -359,6 +364,7 @@ func TestPushReady(t *testing.T) {
 // message goes once; one that answers 400 is not asked again, and
 // push_failed says so without the address, the token or the text.
 func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	y.status.Store(500)
 	y.mail(t, "yardmaster", "the tests are green")
@@ -403,6 +409,7 @@ func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
 // with a growing wait, and given up after PushTries with one event; one
 // that waited longer than PushMaxAge is not sent at all.
 func TestPushWhileTheSourceIsDown(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	ctx := context.Background()
 	y.srv.Close()
@@ -449,6 +456,7 @@ func TestPushWhileTheSourceIsDown(t *testing.T) {
 // them says so; what comes after waits, and goes as one when the hour has
 // room.
 func TestPushBoundOnAnHour(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	for i := range store.PushesPerHour {
 		y.mail(t, "yardmaster", fmt.Sprint("mail ", i))
@@ -478,6 +486,7 @@ func TestPushBoundOnAnHour(t *testing.T) {
 // push_failed for the cause, not one for every mail that meets it, and the
 // record says what is wrong. The inbox is filled as ever.
 func TestPushToAUserWhoIsNotSetUp(t *testing.T) {
+	t.Parallel()
 	y := newPushYard(t)
 	must(t, os.Remove(y.env))
 	y.mail(t, "yardmaster", "one")

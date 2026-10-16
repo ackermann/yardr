@@ -103,6 +103,7 @@ func handleOfBead(t *testing.T, s store.API, b store.Bead) map[string]any {
 // mid-work, is told that the limit has reset. It gets going, and that was
 // the one event.
 func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
@@ -174,6 +175,7 @@ func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
 // A session of a group with the provider setting is asked as the provider
 // at the wake too: the window open, it is prompted.
 func TestProviderSessionIsAskedAsTheProviderAtTheWake(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, map[string]any{"provider": "zai"})
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
@@ -203,6 +205,7 @@ func TestProviderSessionIsAskedAsTheProviderAtTheWake(t *testing.T) {
 // A session that had done nothing when it stopped gets its first prompt
 // again, as one at capacity does: that is known to be the right thing to say.
 func TestSessionThatHasDoneNothingGetsItsFirstPromptAtTheReset(t *testing.T) {
+	t.Parallel()
 	_, r, d, _, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	r.mu.Lock()
@@ -224,6 +227,7 @@ func TestSessionThatHasDoneNothingGetsItsFirstPromptAtTheReset(t *testing.T) {
 // counts. Nor is one whose reset the provider does not say, or a limit no
 // source knows of.
 func TestUsageLimitThatResetsLaterThanYardrWaitsFor(t *testing.T) {
+	t.Parallel()
 	week := noon().Add(80 * time.Hour).Format(time.RFC3339)
 	for name, report := range map[string]string{
 		"a weekly window": `{"provider":"Kimi","windows":[{"label":"5h","used_percent":100,"resets_at":"` + noon().Add(42*time.Minute).Format(time.RFC3339) +
@@ -265,6 +269,7 @@ func TestUsageLimitThatResetsLaterThanYardrWaitsFor(t *testing.T) {
 // reset: the agent is not prompted. The event is raised again with the new
 // time, since what the first said no longer holds, and yardr waits for that.
 func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	first := now.Add(42 * time.Minute)
@@ -319,6 +324,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 // yardr prompts HarnessRetries times in the session's life and then waits
 // for nothing more.
 func TestUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	told := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_error") }
@@ -376,6 +382,7 @@ func TestUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 // limits: no session_idle at the idle limit, and a group with grace does not
 // end it. max_age still applies.
 func TestSessionWaitingForItsWindowIsNotIdleAndStillAges(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, map[string]any{"idle": "30ms", "grace": "0", "max_age": "1h"})
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -420,6 +427,7 @@ func TestSessionWaitingForItsWindowIsNotIdleAndStillAges(t *testing.T) {
 // pane: that is told, with the pane's end, the provider is not asked, and
 // nothing more is typed, no key pressed.
 func TestPromptBehindAHarnessQuestionIsToldNotCountedAsTaken(t *testing.T) {
+	t.Parallel()
 	r := &watchRunner{retryRunner: &retryRunner{agentRunner: &agentRunner{statusRunner: &statusRunner{
 		fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}}}
 	s, d, b, p, now := resetYardOf(t, r, nil)
@@ -467,6 +475,7 @@ func TestPromptBehindAHarnessQuestionIsToldNotCountedAsTaken(t *testing.T) {
 // agent, and for a kind whose file has none, or that has no file, it names
 // no harness and reads on unbroken.
 func TestHintOfAPromptNotTakenHasTheKindsOwnSentence(t *testing.T) {
+	t.Parallel()
 	const kimis = " (Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered)"
 	plain := dispatch.NotTakenHint("claude")
 	if strings.Contains(plain, "Kimi") || !strings.Contains(plain, "may be asking something first. The pane's last lines are in tail.") {
@@ -484,6 +493,7 @@ func TestHintOfAPromptNotTakenHasTheKindsOwnSentence(t *testing.T) {
 // is still on its screen above the prompt: that is the old error, and an
 // agent that is idle again two minutes on is told of for nothing.
 func TestPromptTakenWithTheOldErrorAboveItRaisesNothing(t *testing.T) {
+	t.Parallel()
 	r := &watchRunner{retryRunner: &retryRunner{agentRunner: &agentRunner{statusRunner: &statusRunner{
 		fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}}}
 	s, d, b, p, now := resetYardOf(t, r, nil)
@@ -525,6 +535,7 @@ func TestPromptTakenWithTheOldErrorAboveItRaisesNothing(t *testing.T) {
 // which is someone's, and one whose pane no longer ends in the limit. The
 // provider is not asked for either, and the wait is over.
 func TestSessionNotPromptedAtTheReset(t *testing.T) {
+	t.Parallel()
 	for name, at := range map[string]func(r *retryRunner){
 		"text in its input":    func(r *retryRunner) { r.mu.Lock(); r.input = "wait, I am looking"; r.mu.Unlock() },
 		"the limit has left":   func(r *retryRunner) { r.show("idle", kimiIdle) },
@@ -563,6 +574,7 @@ func TestSessionNotPromptedAtTheReset(t *testing.T) {
 // A provider that gives no answer at the wake does not hold the prompt
 // back: the time it gave has come.
 func TestProviderFailingAtTheWakeDoesNotHoldThePrompt(t *testing.T) {
+	t.Parallel()
 	_, r, d, _, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -609,6 +621,7 @@ func crewAtItsLimit(t *testing.T, resetsIn time.Duration) (s store.API, f *crewR
 // brakeman, 6 Oct 2026: stopped at 23:20 with a review waiting, window reset
 // at 00:02. It is prompted at 00:03, with its inbox's count, and goes on.
 func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
+	t.Parallel()
 	s, f, d, p, now, told := crewAtItsLimit(t, 42*time.Minute)
 	ctx := context.Background()
 	agent := agentOf(t, s)
@@ -663,6 +676,7 @@ func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) 
 // which is told once. Until it shows or the agent works, no nudge is typed
 // into that pane: its Enter would choose the menu's first answer.
 func TestCrewPromptBehindAHarnessQuestionHoldsItsNudges(t *testing.T) {
+	t.Parallel()
 	s, f, d, p, now, told := crewAtItsLimit(t, 42*time.Minute)
 	ctx := context.Background()
 	p.say(kimiOpen)
@@ -707,6 +721,7 @@ func TestCrewPromptBehindAHarnessQuestionHoldsItsNudges(t *testing.T) {
 // A crew member's harness answers the prompt with the limit again: raised
 // as any error is, and the old one above the prompt alone is not.
 func TestCrewUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		pane func(prompt string) string
 		want int
@@ -746,6 +761,7 @@ func TestCrewUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 // A crew member whose window is still used up at the wake is not prompted;
 // the event is raised again with the later time.
 func TestCrewWindowStillUsedUpAtTheWake(t *testing.T) {
+	t.Parallel()
 	_, f, d, p, now, told := crewAtItsLimit(t, 42*time.Minute)
 	ctx := context.Background()
 	later := noon().Add(3 * time.Hour)
@@ -766,6 +782,7 @@ func TestCrewWindowStillUsedUpAtTheWake(t *testing.T) {
 // and a crew member with mail unread, passes that find nothing stopped on a
 // usage limit do not run its command, whatever else they find.
 func TestPassWithNothingStoppedAsksNoLimitsOfAgentsYardrCanPrompt(t *testing.T) {
+	t.Parallel()
 	s, r, d, _, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	f := &crewRunner{status: map[string]string{}}

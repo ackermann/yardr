@@ -57,6 +57,7 @@ func cross(t *testing.T, a, b *peerYard) {
 // that ends b's bead sends no event: the return says it, and after it the
 // line is gone.
 func TestPeerBeadEvents(t *testing.T) {
+	t.Parallel()
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			a, b := threadYards(t, aCallsB, true, true)
@@ -168,6 +169,7 @@ func TestPeerBeadEvents(t *testing.T) {
 // refused by a as a kind its link does not carry and given up at b, and
 // the bead still goes and comes back.
 func TestPeerBeadEventsWithoutTheWord(t *testing.T) {
+	t.Parallel()
 	for name, bSends := range map[string]bool{"neither": false, "b sends, a does not receive": true} {
 		t.Run(name, func(t *testing.T) {
 			a, b := threadYards(t, true, bSends, false)
@@ -222,6 +224,7 @@ func TestPeerBeadEventsWithoutTheWord(t *testing.T) {
 // An event that reaches a yard whose link no longer receives thread is
 // refused as any kind the link does not carry.
 func TestPeerBeadEventSwitchedOffWhileWaiting(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -315,6 +318,7 @@ func TestPeerBeadEventSwitchedOffWhileWaiting(t *testing.T) {
 // ended some other way is dropped and logged as stale: a took its bead
 // back by hand while b was not reached.
 func TestPeerBeadEventAfterTheStay(t *testing.T) {
+	t.Parallel()
 	a, b := threadYards(t, true, true, true)
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
@@ -348,6 +352,7 @@ func TestPeerBeadEventAfterTheStay(t *testing.T) {
 // deliveries puts none of them to a table: no hook received them. Both
 // yards have the row for the pair among the bead's links.
 func TestPeerSourceBetweenTwoYards(t *testing.T) {
+	t.Parallel()
 	a, b := threadYards(t, true, true, true)
 	ctx := context.Background()
 	_, err := a.api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo")

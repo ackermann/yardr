@@ -52,6 +52,7 @@ func (a *agentRunner) show(status, tail string) {
 // reads its pane on the first pass that finds it idle and says what it
 // stopped on, long before the idle limit, once per idle spell.
 func TestHarnessErrorIsReportedAtTheFirstIdlePass(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "codex", nil) // idle: the default, 30m
 	ctx := context.Background()
 	told := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_error") }
@@ -105,6 +106,7 @@ func TestHarnessErrorIsReportedAtTheFirstIdlePass(t *testing.T) {
 // one that wrote about an error, an error line of another harness, a kind
 // nothing is known of. And a group with idle off still hears of an error.
 func TestHarnessErrorOnlyForAKnownLineOfTheKind(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		kind string
 		cfg  map[string]any
@@ -139,6 +141,7 @@ func TestHarnessErrorOnlyForAKnownLineOfTheKind(t *testing.T) {
 // does: its reader sees why the agent sits there without reading the pane.
 // A harness's error first seen then is told as well.
 func TestIdleSessionCarriesItsPane(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "codex", map[string]any{"idle": "30ms"})
 	ctx := context.Background()
 	const waits = "• Done. The tests passed; I wait for the reviewer's answer.\n› Ask Codex to do anything"
@@ -179,6 +182,7 @@ const (
 // raised and a grace does not end the session. Once the pane no longer says
 // so, the limit applies as to any idle agent.
 func TestIdleSessionWithBackgroundWorkIsNotIdle(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "claude", map[string]any{"idle": "30ms", "grace": "0", "stall": "off"})
 	ctx := context.Background()
 	told := func() int { t.Helper(); return len(eventKinds(t, s, b.ID, "session_idle")) }
@@ -214,6 +218,7 @@ func TestIdleSessionWithBackgroundWorkIsNotIdle(t *testing.T) {
 // is told of at the limit whatever its pane shows, and so is an agent
 // further up whose pane the words stand, in what it wrote.
 func TestBackgroundWorkIsItsKindsToDeclare(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct{ kind, pane string }{
 		"a kind that declares none": {"codex", shellRuns},
 		"no background work":        {"claude", shellGone},
@@ -240,6 +245,7 @@ func TestBackgroundWorkIsItsKindsToDeclare(t *testing.T) {
 
 // A runner with no pane to read gives a session_idle without one.
 func TestIdleSessionWithoutAPane(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
@@ -263,6 +269,7 @@ func TestIdleSessionWithoutAPane(t *testing.T) {
 // The lines each harness is known to stop on, as it prints them, and lines
 // that only look like one.
 func TestHarnessErrorLines(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ kind, line, want string }{
 		{"codex", "■ Selected model is at capacity. Please try a different model.", dispatch.ReasonAtCapacity},
 		{"codex", "■ You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits", dispatch.ReasonRateLimited},
@@ -363,6 +370,7 @@ const kimiLimitTodo = "       Error: [provider.auth_error] 403 You've reached yo
 	"     ╰──────────────────────────────────────────────────────────╯\n"
 
 func TestKimiUsageLimitAboveItsTodoPanelIsFound(t *testing.T) {
+	t.Parallel()
 	if reason, line, ok := dispatch.HarnessError("kimi", kimiLimitTodo); reason != dispatch.ReasonRateLimited || !ok ||
 		line != "Error: [provider.auth_error] 403 You've reached your" {
 		t.Errorf("kimi's usage limit above its Todo panel: reason %q line %q", reason, line)
@@ -379,6 +387,7 @@ const kimiIdle = " ● The review is noted on the bead.\n" +
 // A bead's session of kind kimi that stops on its usage limit is told of as
 // claude's and codex's are.
 func TestKimiSessionAtItsUsageLimitIsReported(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := harnessSetup(t, "kimi", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(context.Background()))
@@ -394,6 +403,7 @@ func TestKimiSessionAtItsUsageLimitIsReported(t *testing.T) {
 // unread, and the error raises session_harness_error on its journal, with
 // the crew member named, to whoever hears that kind: once while it stands.
 func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
 	ctx := context.Background()
 	// Who hears the kind; its runner is none of the dispatcher's, so it is
@@ -493,6 +503,7 @@ func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
 // long as a crew member leaves its inbox unread: an error drawn into it
 // under a nudge long after is still seen.
 func TestCrewMemberPaneIsReadAgainAfterANudge(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
 	ctx := context.Background()
 	now := time.Now()
@@ -573,6 +584,7 @@ func retrySetup(t *testing.T, tail string) (s store.API, r *retryRunner, d *disp
 // agent gets going, and the yardmaster hears nothing: no
 // session_harness_error, and no session_stalled for the wait either.
 func TestAtCapacityIsPromptedAgain(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, at := retrySetup(t, atCapacity)
 	ctx := context.Background()
 	tries := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_retry") }
@@ -625,6 +637,7 @@ func TestAtCapacityIsPromptedAgain(t *testing.T) {
 // daemon that replaces itself on the way neither starts the count again nor
 // forgets the wait.
 func TestAtCapacityIsRaisedWhenTheTriesAreUsedUp(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, at := retrySetup(t, atCapacity)
 	ctx := context.Background()
 	count := func(kind string) int { t.Helper(); return len(eventKinds(t, s, b.ID, kind)) }
@@ -675,6 +688,7 @@ func TestAtCapacityIsRaisedWhenTheTriesAreUsedUp(t *testing.T) {
 // not what it needs), and one with text in its input are raised at once, as
 // they always were, and nothing is typed however long they sit.
 func TestHarnessErrorThatIsNotPromptedAgain(t *testing.T) {
+	t.Parallel()
 	const limited = "■ You've hit your usage limit. Upgrade to Plus to continue using Codex.\n› Ask Codex to do anything"
 	for name, tc := range map[string]struct {
 		tail   string

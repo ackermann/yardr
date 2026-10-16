@@ -31,6 +31,7 @@ func (s *failHookEventsOnce) EventsOfHook(ctx context.Context, kind, hook string
 // that never delivered, one that is blocked and one the source still
 // reaches log nothing.
 func TestQuietHookLogsHookQuietOnce(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	f := &crewRunner{status: map[string]string{}}
@@ -139,6 +140,7 @@ func TestQuietHookLogsHookQuietOnce(t *testing.T) {
 // Hooks that go quiet together are each told of once: one's tell never
 // crowds another's out of the read.
 func TestQuietHooksTellEachOnce(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	f := &crewRunner{status: map[string]string{}}
@@ -183,6 +185,7 @@ func TestQuietHooksTellEachOnce(t *testing.T) {
 // A store read failure does not count as the hourly check: the next pass
 // retries and tells the yardmaster if the hook is still quiet.
 func TestQuietHookReadFailureRetriesNextPass(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := s.PutHook(ctx, store.Hook{Name: "linear", Source: "token", SecretFile: "/x"}, "me"); err != nil {

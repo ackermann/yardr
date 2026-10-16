@@ -28,6 +28,7 @@ func homeSetup(t *testing.T) (store.API, *fakeRunner, *dispatch.Dispatcher) {
 // session and the crew member's line, each with its handle. Nothing is
 // kept before the first pass.
 func TestHomeSessionsHoldTheLastPass(t *testing.T) {
+	t.Parallel()
 	s, _, d := homeSetup(t)
 	ctx := context.Background()
 	if got := d.HomeSessions(); len(got) != 0 {
@@ -69,6 +70,7 @@ func TestHomeSessionsHoldTheLastPass(t *testing.T) {
 // Sessions of another runner are none of the snapshot's: the home-gone
 // close leaves them as a SIGTERM does.
 func TestHomeSessionsSkipOtherRunners(t *testing.T) {
+	t.Parallel()
 	s, _, d := homeSetup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Limit: 2, Config: map[string]any{"cmd": "true"}}, "me"))
@@ -87,6 +89,7 @@ func TestHomeSessionsSkipOtherRunners(t *testing.T) {
 // ends: its store gone halfway through, nothing publishes what the reads
 // saw.
 func TestHomeSessionsKeepSessionsStartedByAFailedPass(t *testing.T) {
+	t.Parallel()
 	s, f, _ := homeSetup(t)
 	d := &dispatch.Dispatcher{Store: failingMarkRunning{s}, Runners: map[string]dispatch.Runner{"herdr": f}}
 	ctx := context.Background()
@@ -104,6 +107,7 @@ func TestHomeSessionsKeepSessionsStartedByAFailedPass(t *testing.T) {
 // A herdr start can open its tab and then fail while recording the handle.
 // The session still belongs in the snapshot so home-loss cleanup can close it.
 func TestHomeSessionsKeepPartialHerdrStarts(t *testing.T) {
+	t.Parallel()
 	s, f, d := homeSetup(t)
 	d.Runners["herdr"] = partialHerdrStart{fakeRunner: f}
 	b, err := s.CreateBead(context.Background(), store.NewBead{Title: "feature"}, "me")
@@ -123,6 +127,7 @@ func (partialHerdrStart) Start(_ context.Context, j dispatch.Job) (map[string]an
 
 // A failed crew start is kept only if its attempted cleanup also fails.
 func TestHomeSessionsKeepUnclosedPartialCrewStarts(t *testing.T) {
+	t.Parallel()
 	for _, stopErr := range []error{nil, errors.New("herdr is unavailable")} {
 		name := "closed"
 		if stopErr != nil {
@@ -152,6 +157,7 @@ func TestHomeSessionsKeepUnclosedPartialCrewStarts(t *testing.T) {
 // A failed ordinary stop leaves the pane open; retain its handle so a home
 // loss during this pass can still close it from the snapshot.
 func TestHomeSessionsKeepCrewWhenStopFails(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	member, err := s.GetCrew(ctx, "yardmaster")
@@ -203,6 +209,7 @@ func (failingMarkRunning) MarkRunning(context.Context, string, map[string]any) e
 // A session that died is dropped by the next pass: the snapshot is what
 // runs, not what ran.
 func TestHomeSessionsDropDeadSessions(t *testing.T) {
+	t.Parallel()
 	s, f, d := homeSetup(t)
 	ctx := context.Background()
 	_, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")

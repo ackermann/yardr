@@ -283,6 +283,7 @@ func wantRules(t *testing.T, got []string, want ...string) {
 // read as state (ci_test.go), and anywhere else it moves and logs nothing.
 // The head a pull_request event carries is still kept.
 func TestGitHubGreenRunIsNoRule(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	for id, stage := range map[string]string{"yard-a": "review", "yard-b": "approved", "yard-c": "land", "yard-d": "open"} {
 		r.train(t, id, stage)
@@ -302,6 +303,7 @@ func TestGitHubGreenRunIsNoRule(t *testing.T) {
 // A failure on a commit that is not the PR's head (a push superseded it)
 // moves nothing. Without a pull_request event, gh is asked for the head.
 func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -336,6 +338,7 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 // The yard must be allowed out of in-pr: with members that leave it out,
 // the refusal is logged and the train stays for a human.
 func TestGitHubRuleRefusedByMembers(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t, "mckean", "yardmaster")
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -354,6 +357,7 @@ func TestGitHubRuleRefusedByMembers(t *testing.T) {
 // event moves nothing: the required checks are read (ci_test.go). Nor does
 // it in approved, which the line does not name.
 func TestGitHubCIRedSendsTheTrainBack(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "review")
@@ -392,6 +396,7 @@ func TestGitHubCIRedSendsTheTrainBack(t *testing.T) {
 // (someone, or a newer push, stopped it), so the train stays until a run
 // fails.
 func TestGitHubCancelledIsNotRed(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
@@ -411,6 +416,7 @@ func TestGitHubCancelledIsNotRed(t *testing.T) {
 // GitHub reports, and say so in the hook_rule event. The event is judged
 // (its seq recorded, the PR head kept), so an un-hold does not replay it.
 func TestGitHubRulesSkipHeldTrains(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
@@ -444,6 +450,7 @@ func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 // merger still runs is moved as any bead is by a done from outside its
 // session: the session ends with the move.
 func TestGitHubPRMerged(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	ctx := context.Background()
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "yard-pr-merge", Runner: "fake", Limit: 1}, "me"))
@@ -491,6 +498,7 @@ func TestGitHubPRMerged(t *testing.T) {
 
 // A PR closed unmerged asks a human whether to reopen it or drop the train.
 func TestGitHubPRClosedUnmerged(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "open")
@@ -514,6 +522,7 @@ func TestGitHubPRClosedUnmerged(t *testing.T) {
 // A human's changes_requested review sends the train to open with the
 // review in a note; approving or commenting reviews, and bots, do not.
 func TestGitHubChangesRequested(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "open")
@@ -551,6 +560,7 @@ func TestGitHubChangesRequested(t *testing.T) {
 // nothing and log nothing. Another source's event that names a train is put
 // to its own hook's table, as github's is: one without a table says so.
 func TestGitHubIgnoresOtherEvents(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: "yard-t", Title: "task", Depot: "yard"}, "me")
@@ -573,6 +583,7 @@ func TestGitHubIgnoresOtherEvents(t *testing.T) {
 // branch of the same name in another repository, or for another pull
 // request of the branch, move nothing, set no head and have no CI read.
 func TestGitHubRulesJudgeTheTrainsOwnPR(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -636,6 +647,7 @@ func TestGitHubRulesJudgeTheTrainsOwnPR(t *testing.T) {
 // its green run nor its merge is the train's. This is the round-three
 // finding (yardr-ca0d): the branch name is anyone's to use.
 func TestGitHubIgnoresAForksPRWithTheTrainsBranch(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -706,6 +718,7 @@ func TestGitHubIgnoresAForksPRWithTheTrainsBranch(t *testing.T) {
 // number, nor for a train bound to no pull request at all, whose branch
 // name is all the event has.
 func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	unknown := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 99`) }
 	for i, stage := range []string{"land", "in-pr", "approved"} {
@@ -749,6 +762,7 @@ func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
 // A hook without a table moves no bead: every event about a train is left
 // alone, and says why.
 func TestGitHubHookWithoutATableMovesNothing(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	_, err := r.api.PutHook(context.Background(), store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret"}, "me")
 	must(t, err)
@@ -776,6 +790,7 @@ func TestGitHubHookWithoutATableMovesNothing(t *testing.T) {
 // otherwise, the same events route by that flow's edges, and CI is read
 // where the table's line says.
 func TestGitHubTableFollowsARenamedFlow(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	ctx := context.Background()
 	f, err := store.ParseFlow(`backlog -> assembling

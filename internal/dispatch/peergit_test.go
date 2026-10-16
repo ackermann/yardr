@@ -46,9 +46,6 @@ func commitIn(t *testing.T, dir, file, text string) string {
 // sharedRemote is a bare repository with one commit on main.
 func sharedRemote(t *testing.T) string {
 	t.Helper()
-	// What the yards' own git calls read is the developer's otherwise.
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
 	remote := filepath.Join(dir, "remote.git")
 	gitIn(t, dir, "init", "-q", "--bare", "-b", "main", remote)
@@ -124,6 +121,7 @@ func branchAt(t *testing.T, repo, branch string) string {
 // branch and names it in the return, and a has the commit as its bead's
 // branch before the outcome moves the bead.
 func TestPeerCodeComesBack(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -202,6 +200,7 @@ func TestPeerCodeComesBack(t *testing.T) {
 // base_unknown: b's depot is of another repository, or the base commit is on
 // no remote. Nothing of it is kept, and a's stage ends as refused.
 func TestPeerBeadBaseUnknown(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		otherRemote, unpushed bool
 		detail                string
@@ -246,6 +245,7 @@ func TestPeerBeadBaseUnknown(t *testing.T) {
 // with a note, its outcome unapplied and its stay not ended. Lifting the
 // hold once the remote is back takes the branch and moves the bead.
 func TestPeerCodeRemoteDown(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -313,6 +313,7 @@ func TestPeerCodeRemoteDown(t *testing.T) {
 // bead is held at once, no branch is made, and a person who moves the bead
 // on by hand ends the wait.
 func TestPeerCodeNotWhatTheReturnNames(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		branch string
 		want   string
@@ -380,6 +381,7 @@ func TestPeerCodeNotWhatTheReturnNames(t *testing.T) {
 // dir depot, and a peer group whose remote is another repository than the
 // branch was pushed to.
 func TestPeerCodeNotTaken(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		dir  bool
 		want string
@@ -437,6 +439,7 @@ func TestPeerCodeNotTaken(t *testing.T) {
 // A yard whose intake's depot is a directory takes a bead that names its
 // base with its words only, as a bead that names none, and returns words.
 func TestPeerCodeIntoADirDepot(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -467,6 +470,7 @@ func TestPeerCodeIntoADirDepot(t *testing.T) {
 // c starts from the commit a named, b takes c's branch as its own bead's
 // and pushes that, and a takes b's.
 func TestPeerCodeSentOn(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
 	link(t, a, b, true, true)
@@ -545,6 +549,7 @@ exec "$YARDR_TEST_GIT" -C "$dir" "$@"
 // ssh, in either spelling, and one that clones by https. Nothing that
 // crosses says how either gets in.
 func TestPeerCodeOneRemoteTwoSpellings(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	const scp, ssh, https = "git@git.example.test:acme/web.git", "ssh://git@git.example.test:2222/acme/web", "https://jo:s3cret@Git.Example.test/acme/web.git/"
 	for name, tc := range map[string]struct{ a, b string }{
 		"scp and https": {scp, https},
@@ -618,6 +623,7 @@ func TestPeerCodeOneRemoteTwoSpellings(t *testing.T) {
 // reach them: on the way out the bead is refused as base_unknown, and a
 // branch pushed to the other one is not taken on the way back.
 func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
+	// Serial: it changes process environment, which parallel tests cannot share.
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -661,6 +667,7 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 // that prunes at once leaves it, and the builder starts from it. The ref
 // goes when the bead has closed.
 func TestPeerBaseKeptByARef(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)

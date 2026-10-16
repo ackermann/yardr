@@ -23,6 +23,7 @@ func cappedEvents(t *testing.T, s store.API, id string) []store.Event {
 // with max_sessions 2, the third ready bead waits and says why once, and
 // raising the setting starts it on the next pass, with no restart.
 func TestMaxSessionsCapsAcrossGroups(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 3}, "me"))
@@ -68,6 +69,7 @@ func TestMaxSessionsCapsAcrossGroups(t *testing.T) {
 // A session that ends frees its place, and a bead that waited for the cap
 // starts then; unset and 0 cap nothing, as before the setting.
 func TestMaxSessionsFreedAndUnset(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, value string
 		first       int
@@ -111,6 +113,7 @@ func TestMaxSessionsFreedAndUnset(t *testing.T) {
 // A manual group's claim is a person's turn: it takes no place under
 // max_sessions, and the cap does not keep a bead from reaching a person.
 func TestMaxSessionsLeavesManualGroups(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	people := &fakeRunner{dead: map[string]bool{}}
 	d.Runners["manual"] = dispatch.Runner(people)

@@ -93,6 +93,7 @@ func forgeDeliver(t *testing.T, r *ghDepot, typ, action, url string, fields map[
 // tracks it: the link made from the pull shape is the thread the event
 // is about.
 func TestForgePullRequestMovesTheBeadThatTracksIt(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t)
 	forgeHook(t, r, "event=pull_request action=labeled label=accepted -> accepted")
 	forgeTracker(t, r, "yard-t", "triage", forgePull)
@@ -108,6 +109,7 @@ func TestForgePullRequestMovesTheBeadThatTracksIt(t *testing.T) {
 // An event in one form finds the bead linked with the other: an issue
 // and its pull request share their groups, so each names the other.
 func TestForgeEventFindsTheBeadByTheOtherForm(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, tracked, event, typ string }{
 		{"issue linked, pull event", forgeIssue, forgePull, "pull_request"},
 		{"pull linked, issue event", forgePull, forgeIssue, "issues"},
@@ -133,6 +135,7 @@ func TestForgeEventFindsTheBeadByTheOtherForm(t *testing.T) {
 // alone: the thread URL is built from the pull shape, and the bead
 // tracking it is judged on the run.
 func TestForgeRunNamesItsPullRequestByNumber(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t)
 	forgeHook(t, r, "event=workflow_run action=completed conclusion=success -> accepted")
 	ctx := context.Background()
@@ -154,6 +157,7 @@ func TestForgeRunNamesItsPullRequestByNumber(t *testing.T) {
 // names its pull request by number alone, which is then no thread, so the
 // bead tracking it is not judged on it.
 func TestSourceWithoutEventsSendsNoRuns(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t)
 	plain := strings.Replace(forgeDecl, "events:\n  runs: [workflow_run, check_suite]\n  head_from: [pull_request, pull_request_review]\n", "", 1)
 	if plain == forgeDecl {
@@ -187,6 +191,7 @@ func TestSourceWithoutEventsSendsNoRuns(t *testing.T) {
 // through its repos pattern, with the daemon's own git read, no
 // stand-in for it.
 func TestForgeEventMakesTheBeadInTheDepotOfItsRepository(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	forgeHook(t, r, contributorSays...)
 	ctx := context.Background()
@@ -224,6 +229,7 @@ func TestForgeEventMakesTheBeadInTheDepotOfItsRepository(t *testing.T) {
 // about it: the binding reads the pull request's repository and number
 // from its URL, and the event is on it.
 func TestForgeTrainBoundToItsPullRequestMoves(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	forgeHook(t, r, "event=pull_request_review action=submitted state=changes_requested sender=user -> changes")
 	ctx := context.Background()
@@ -246,6 +252,7 @@ func TestForgeTrainBoundToItsPullRequestMoves(t *testing.T) {
 // it, as a github one does. A bead that tracks an issue is started as
 // ever.
 func TestJobNamesTheForgePullRequestTheBeadTracks(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	_, err := s.PutSource(ctx, "forge.yaml", forgeDecl, "me")

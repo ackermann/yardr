@@ -73,6 +73,7 @@ func makeEvent(t *testing.T, r *ghDepot, bead string) map[string]any {
 // A delivery from a linked author with a personal group and a personal
 // route makes an interactor-originated bead, with no fallback recorded.
 func TestHookLinkedAuthorWithPersonalRouteBillsTheirLogin(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	linkHal(t, r)
 	halGroup(t, r, writeEnv(t))
@@ -91,6 +92,7 @@ func TestHookLinkedAuthorWithPersonalRouteBillsTheirLogin(t *testing.T) {
 // A personal group with only a subsidy route for the stage bills the
 // operator's, and the hook_rule event says which route matched instead.
 func TestHookSubsidyRouteFallsBackToOperator(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	linkHal(t, r)
 	halGroup(t, r, writeEnv(t))
@@ -113,6 +115,7 @@ func TestHookSubsidyRouteFallsBackToOperator(t *testing.T) {
 // With no personal group at all, a linked author bills the operator's,
 // whether a subsidy route names them or nothing does.
 func TestHookWithoutPersonalGroupFallsBackToOperator(t *testing.T) {
+	t.Parallel()
 	for _, subsidy := range []bool{true, false} {
 		r := hookYard(t)
 		linkHal(t, r)
@@ -139,6 +142,7 @@ func TestHookWithoutPersonalGroupFallsBackToOperator(t *testing.T) {
 // operator's: the operator's any-route matches but proves no login, and
 // with no route in the stage at all the rule names none.
 func TestHookPersonalGroupWithoutPersonalRouteFallsBack(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	linkHal(t, r)
 	halGroup(t, r, writeEnv(t))
@@ -190,6 +194,7 @@ func TestHookPersonalGroupWithoutPersonalRouteFallsBack(t *testing.T) {
 // still makes an interactor-originated bead: the declaration wins while
 // the group waits runtime_down.
 func TestHookMissingEnvFileStillBillsInteractor(t *testing.T) {
+	t.Parallel()
 	missing := hookYard(t)
 	linkHal(t, missing)
 	halGroup(t, missing, filepath.Join(t.TempDir(), "nowhere.env"))
@@ -216,6 +221,7 @@ func TestHookMissingEnvFileStillBillsInteractor(t *testing.T) {
 // A delivery whose author matches no linked identity bills the
 // operator's, as every hook bead does, with nothing recorded.
 func TestHookUnlinkedAuthorStaysOperators(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	must(t, r.api.SetIdentity(context.Background(), "hal", "github", store.Identity{Key: "someone-else"}, "jo"))
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
@@ -232,6 +238,7 @@ func TestHookUnlinkedAuthorStaysOperators(t *testing.T) {
 // A delivery the operator themself authored is the operator's already:
 // no fallback to record.
 func TestHookOperatorAuthorStaysOperators(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	must(t, r.api.SetIdentity(context.Background(), "jo", "github", store.Identity{Key: "jane-doe"}, "jo"))
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
@@ -248,6 +255,7 @@ func TestHookOperatorAuthorStaysOperators(t *testing.T) {
 // If two users link the same source identity, the author cannot safely name
 // either one to bill, even when one of them has a personal route.
 func TestHookAmbiguousAuthorStaysOperators(t *testing.T) {
+	t.Parallel()
 	r := hookYard(t)
 	linkHal(t, r)
 	if _, err := r.api.AddUser(context.Background(), "hal2", "jo"); err != nil {

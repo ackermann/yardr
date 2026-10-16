@@ -18,6 +18,7 @@ import (
 // Every completed pass stamps its build and the time, through a temporary
 // file renamed into place: no temp file is left behind.
 func TestPassStampsBuildAndTime(t *testing.T) {
+	t.Parallel()
 	_, _, d := setup(t)
 	d.Home = t.TempDir()
 	d.Binary = &version.Binary{Running: "rev-9"}
@@ -52,6 +53,7 @@ func liveGate(t *testing.T, home string) {
 // While the gate names a live process no bead is claimed and no agent is
 // started, while passes still stamp; once it is lifted the bead dispatches.
 func TestGatePausesClaimsAndStarts(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
@@ -80,6 +82,7 @@ func TestGatePausesClaimsAndStarts(t *testing.T) {
 // While the gate names a live process no crew member is started, and the
 // held start counts as no failure; once it is lifted the member starts.
 func TestGateHoldsCrewStarts(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	d.Home = t.TempDir()
@@ -101,6 +104,7 @@ func TestGateHoldsCrewStarts(t *testing.T) {
 // is disabled or has a restart pending. The deferred stop runs once the
 // gate lifts.
 func TestGateDoesNotStopLiveCrew(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name   string
 		change func(context.Context, store.API) error
@@ -145,6 +149,7 @@ func TestGateDoesNotStopLiveCrew(t *testing.T) {
 
 // A gate naming a dead process is removed and dispatch resumes.
 func TestGateNamingADeadProcessIsRemoved(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
@@ -168,6 +173,7 @@ func TestGateNamingADeadProcessIsRemoved(t *testing.T) {
 // A gate that is unreadable names no process to wait on: it is removed
 // and dispatch resumes.
 func TestUnreadableGateIsRemoved(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))

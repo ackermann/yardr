@@ -15,6 +15,7 @@ import (
 // that only relates to a pull request, and a train, whose pull request is of
 // its own branch, are started as ever.
 func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
+	t.Parallel()
 	s, f, d := setup(t)
 	ctx := context.Background()
 	// The pull request's shape is the pack's link to read.

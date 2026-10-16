@@ -45,6 +45,7 @@ func serveCrew(t *testing.T, s store.API, for_ string, envFor map[string]string)
 // The daemon keeps the line session and one conversation session per
 // served user with its env set: two sessions started, on two agents.
 func TestMemberStartsConversationSessions(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "hal", "me"); err != nil {
@@ -75,6 +76,7 @@ func TestMemberStartsConversationSessions(t *testing.T) {
 // A for= that leaves the operator unnamed runs no line session: only the
 // conversation starts. One that names them runs both.
 func TestMemberExclusiveRunsNoLineSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	setup := func(t *testing.T, for_ string) (store.API, *crewRunner) {
 		s, f, d := crewSetup(t, store.CrewMember{})
@@ -118,6 +120,7 @@ func TestMemberExclusiveRunsNoLineSession(t *testing.T) {
 // Each session is nudged about its own slice: hal's mail goes to hal's
 // pane, jo's to the line's, and each nudge marks only its slice.
 func TestMemberNudgesConversationSlice(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "hal", "me"); err != nil {
@@ -164,6 +167,7 @@ func TestMemberNudgesConversationSlice(t *testing.T) {
 // A serving list narrowed past the operator stops the line session and
 // keeps the conversation: the crew member runs no operator-login session.
 func TestMemberStopsLineWhenServingNarrows(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "hal", "me"); err != nil {
@@ -204,6 +208,7 @@ func TestMemberStopsLineWhenServingNarrows(t *testing.T) {
 // A conversation the crew member no longer declares keeps no session:
 // what still runs of it is stopped, and its row reads stopped.
 func TestMemberStopsStaleConversation(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "hal", "me"); err != nil {

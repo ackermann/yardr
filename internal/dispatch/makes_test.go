@@ -109,6 +109,7 @@ func (r *ghDepot) beadless(t *testing.T) []string {
 // made. The next event about the issue says something to that bead and
 // makes no other.
 func TestEventMakesTheBeadThatTracksItsThread(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
 	r.pass(t)
@@ -158,6 +159,7 @@ func TestEventMakesTheBeadThatTracksItsThread(t *testing.T) {
 // A hook table saved after a delivery was recorded does not apply to that
 // older event, even when this dispatcher already cached its make history.
 func TestHookUpdateDoesNotMakeFromEarlierQueuedEvent(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
 	r.pass(t)
@@ -192,6 +194,7 @@ func TestHookUpdateDoesNotMakeFromEarlierQueuedEvent(t *testing.T) {
 // from before the close were the closed bead's, and make nothing when a
 // restarted daemon reads them again.
 func TestClosedBeadDoesNotStopANewOne(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	ctx := context.Background()
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
@@ -228,6 +231,7 @@ func TestClosedBeadDoesNotStopANewOne(t *testing.T) {
 // A draft pull request that is marked ready comes as two events the line
 // matches, and a delivery can come twice: one bead, not two.
 func TestOneThreadMakesOneBead(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", nil)
 	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", nil)
@@ -250,6 +254,7 @@ func TestOneThreadMakesOneBead(t *testing.T) {
 // The write that makes the bead is the one that looks whether a bead
 // tracks the thread: where one came to meanwhile, nothing is made.
 func TestMakeIsRefusedOfATrackedThread(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	ctx := context.Background()
 	r.tracker(t, "yard-t", "triage", issue23)
@@ -273,6 +278,7 @@ func TestMakeIsRefusedOfATrackedThread(t *testing.T) {
 // An event no depot is found for makes nothing and says why, once: not
 // again when a restarted daemon reads it.
 func TestMakeFindsTheDepot(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	ctx := context.Background()
 	r.d.DepotRepo = func(context.Context, dispatch.DepotRepoQuery) (string, error) { return "acme/other", nil }
@@ -315,6 +321,7 @@ func TestMakeFindsTheDepot(t *testing.T) {
 // What the yard did itself makes nothing, as it says nothing: an issue a
 // crew member opened is no one's from outside.
 func TestTheYardsOwnActionMakesNothing(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	ctx := context.Background()
 	_, err := r.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "me")
@@ -332,6 +339,7 @@ func TestTheYardsOwnActionMakesNothing(t *testing.T) {
 // A table says nothing of what came before it: the events a daemon reads
 // again after a start, from before the hook got its lines, make nothing.
 func TestMakesSaysNothingOfEventsBeforeIt(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
 	r.pass(t)
@@ -347,6 +355,7 @@ func TestMakesSaysNothingOfEventsBeforeIt(t *testing.T) {
 // With no one else to ask, the depot's repository is the one its origin
 // remote names, however the URL is written, read at each event.
 func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	r.d.DepotRepo = nil
 	ctx := context.Background()
@@ -383,6 +392,7 @@ func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
 // answers one repository and then another makes a bead in the depot of an
 // event from each, without a new Dispatcher.
 func TestDepotRepoIsAskedAtEachEvent(t *testing.T) {
+	t.Parallel()
 	r := newMakingDepot(t, contributorMakes...)
 	repo := "acme/yardr"
 	r.d.DepotRepo = func(_ context.Context, q dispatch.DepotRepoQuery) (string, error) {

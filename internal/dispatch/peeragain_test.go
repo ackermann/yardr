@@ -36,6 +36,7 @@ func (y *peerYard) again(t *testing.T, id string) {
 // the second time comes after this yard's branch and is taken by
 // fast-forward. The yard that works it names its earlier bead.
 func TestPeerBeadSentAgain(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -103,6 +104,7 @@ func TestPeerBeadSentAgain(t *testing.T) {
 // nothing is queued. With the branch back where the return left it the bead
 // is sent, from there, though the sending between ended without code.
 func TestPeerBeadSentAgainWithTheBranchMovedOn(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -187,6 +189,7 @@ func TestPeerBeadSentAgainWithTheBranchMovedOn(t *testing.T) {
 // A branch that holds nothing its base does not is no reason to refuse: the
 // bead is sent as a first sending is, from the base.
 func TestPeerBeadSentAgainFromTheBase(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -221,6 +224,7 @@ func TestPeerBeadSentAgainFromTheBase(t *testing.T) {
 // why. Sent under another handle it says nothing: the handle is all the
 // match goes by.
 func TestPeerBeadRefusedBefore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)

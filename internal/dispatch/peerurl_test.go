@@ -12,6 +12,7 @@ import (
 // taken away again the yard is not called, and its ping waits to be asked
 // for.
 func TestPeersURLSetAndTakenAway(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
@@ -68,6 +69,7 @@ func TestPeersURLSetAndTakenAway(t *testing.T) {
 // try it was waiting for and not before, once, and the old address is not
 // called again.
 func TestPeersMessageFollowsTheURL(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
@@ -116,6 +118,7 @@ func TestPeersMessageFollowsTheURL(t *testing.T) {
 // b's URL: the ping is posted too, as all that waits is, and b takes it
 // once.
 func TestPeersURLSetBetweenTwoQuestions(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)

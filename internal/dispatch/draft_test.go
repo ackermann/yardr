@@ -30,6 +30,7 @@ func kindCount(t *testing.T, s store.API, bead, kind string) (n int, last store.
 // message. A nudge is not typed into an input that holds text: it stays due,
 // and is typed once, with the inbox as it then is, when the input is empty.
 func TestNudgeWaitsForTextInTheInput(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -64,6 +65,7 @@ func TestNudgeWaitsForTextInTheInput(t *testing.T) {
 // say nothing about the input: the nudge is typed as it was before yardr
 // looked.
 func TestNudgeIsTypedWhenTheInputCannotBeTold(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(*crewRunner){
 		"no mark":         func(f *crewRunner) { f.noInput = true },
 		"pane unreadable": func(f *crewRunner) { f.blind = true },
@@ -88,6 +90,7 @@ func TestNudgeIsTypedWhenTheInputCannotBeTold(t *testing.T) {
 // not cleared; one nudge_held event on the crew member's journal says so after
 // DraftWait, once per wait, and the nudge is typed when the text is gone.
 func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
@@ -146,6 +149,7 @@ const cacheMenuLine = "This session has been idle for 44m and is ~198k tokens."
 // harness is told of on the pass that finds it, once for as long as it is
 // open, and is typed nothing; one that opens later is told of again.
 func TestADialogInPlaceOfTheInputIsToldOfAtOnceAndOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
@@ -201,6 +205,7 @@ func TestADialogInPlaceOfTheInputIsToldOfAtOnceAndOnce(t *testing.T) {
 // it tells. Enter is not sent for it, and a nudge that comes while the menu
 // is open is held and says nothing more.
 func TestADialogThatAnswersTheNudgeIsToldOfOnThePassThatTypedIt(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -226,6 +231,7 @@ func TestADialogThatAnswersTheNudgeIsToldOfOnThePassThatTypedIt(t *testing.T) {
 // A bead session's first prompt waits for a dialog in place of the input
 // as it does for text there, and the bead has the one event at once.
 func TestPendingPromptAtADialogIsToldOfAtOnce(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.status, r.input, r.dialog = "idle", "Compact and continue", "cache_menu"
@@ -255,6 +261,7 @@ func TestPendingPromptAtADialogIsToldOfAtOnce(t *testing.T) {
 // does nothing is sent PromptTries times, PromptSettle apart, and then the
 // yardmaster is told once.
 func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
@@ -323,6 +330,7 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 // A later draft that happens to equal yardr's old nudge is still a person's
 // text: only an immediately stranded nudge may be submitted as yardr's own.
 func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
@@ -349,6 +357,7 @@ func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
 // The request to hand off before a rotation is a nudge too. Held back, it
 // was not asked: the grace for the handoff does not run yet.
 func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{MaxAge: "1ms", HandoffGrace: "1ms"})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -376,6 +385,7 @@ func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {
 // sent, the prompt stays pending and is not counted as lost, and one
 // nudge_held event on the bead says so after DraftWait.
 func TestPendingPromptWaitsForTextInTheInput(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	now := time.Now()

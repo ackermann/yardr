@@ -52,6 +52,7 @@ func (r *ghDepot) enterInPR(t *testing.T, id, sha string) {
 // round-three finding (yardr-7daf): green was taken from the event, so a
 // train whose CI was done before it reached in-pr waited for a human.
 func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "review")
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
@@ -94,6 +95,7 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 // lands when the last required check is green. An event is only a reason
 // to read the state again; without one nothing is read.
 func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -140,6 +142,7 @@ func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
 // checks still run. A cancelled one is not red: the train waits for it to
 // run again.
 func TestCIRedRequiredCheckSendsTheTrainBack(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
@@ -179,6 +182,7 @@ func TestCIRedRequiredCheckSendsTheTrainBack(t *testing.T) {
 // workflow that has not reported yet cannot be told from one that does
 // not exist. A failed check still sends it back.
 func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -201,6 +205,7 @@ func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
 // pushed since is not what was reviewed, and a train with no reviewed
 // commit, or whose PR is closed, is not judged.
 func TestCIIsReadForTheReviewedCommit(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	moved := "cccccccccccccccccccccccccccccccccccccccc"
 	green := checks([]string{"build"}, ck("build", "completed", "success"))
@@ -233,6 +238,7 @@ func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 // A held train is a human's: its CI is not read while it is held, and is
 // read when it is un-held, with no event needed.
 func TestCISkipsHeldTrains(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
@@ -257,6 +263,7 @@ func TestCISkipsHeldTrains(t *testing.T) {
 // is logged, and the read is tried again after a wait that doubles, with
 // no event needed.
 func TestCIReadFailureIsRetried(t *testing.T) {
+	t.Parallel()
 	r := newGHDepot(t)
 	now := time.Now()
 	dispatch.SetClock(r.d, func() time.Time { return now })

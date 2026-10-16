@@ -19,6 +19,7 @@ import (
 // limits of the agents' kind, passes that start a session, find it working
 // and find it idle with nothing wrong do not run its command once.
 func TestPassWithNothingStoppedAsksNoLimits(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()

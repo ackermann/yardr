@@ -14,6 +14,7 @@ import (
 // holds it or is at its limit, and the yardmaster has it in its inbox. A
 // manual group with no wait raises nothing, as before (yardr-bygh).
 func TestBeadThatWaitsLongInAManualGroupRaisesWaitedOnce(t *testing.T) {
+	t.Parallel()
 	s, _, d := crewSetup(t, store.CrewMember{On: []string{store.KindAttention}})
 	d.Runners["manual"] = &fakeRunner{dead: map[string]bool{}}
 	ctx := context.Background()

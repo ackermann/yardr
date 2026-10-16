@@ -38,6 +38,7 @@ func reads(t *testing.T, y *peerYard, kind string) []store.Event {
 // nothing of it lands on a's bead, and the return, which brings the notes
 // for good, takes the copy away.
 func TestPeerBeadRead(t *testing.T) {
+	t.Parallel()
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			a, b := readYards(t, aCallsB)
@@ -129,6 +130,7 @@ func TestPeerBeadRead(t *testing.T) {
 // never was it has the one refusal, no_such_bead, and answers nothing. The
 // asker hears of it by mail from the yard.
 func TestPeerBeadReadOfNoSuchBead(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	_, err := a.api.AddUser(ctx, "jo", "jo")
@@ -218,6 +220,7 @@ func TestPeerBeadReadOfNoSuchBead(t *testing.T) {
 // answer whose handle or stage is not plain is refused, and the copy stays
 // as it was.
 func TestPeerBeadReadAnswerToNoQuestion(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
@@ -287,6 +290,7 @@ func TestPeerBeadReadAnswerToNoQuestion(t *testing.T) {
 // in its peers setting, a person needs nothing, and a bead's agent is
 // refused. Whoever is refused queues nothing and is shown nothing kept.
 func TestPeerBeadReadWhoMay(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	_, err := a.api.AddUser(ctx, "jo", "jo")
@@ -343,6 +347,7 @@ func TestPeerBeadReadWhoMay(t *testing.T) {
 // where the other yard's does that yard refuses it by the kind its link
 // does not carry; a bead crosses and comes back all the same.
 func TestPeerBeadReadWithoutTheWord(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	t.Run("this yard's link", func(t *testing.T) {
 		a, b := threadYards(t, true, true, true) // b sends, a receives: events only
@@ -391,6 +396,7 @@ func TestPeerBeadReadWithoutTheWord(t *testing.T) {
 // is queued behind it: a yard that is down for a day is not asked once for
 // every time someone looked.
 func TestPeerBeadReadOneQuestionWaits(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
@@ -413,6 +419,7 @@ func TestPeerBeadReadOneQuestionWaits(t *testing.T) {
 // answers several reads in one batch. An arbitrary cap on outstanding
 // question ids would make earlier, valid answers look unasked.
 func TestPeerBeadReadKeepsEveryOutstandingAnswer(t *testing.T) {
+	t.Parallel()
 	a, b := readYards(t, true)
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
@@ -458,6 +465,7 @@ func TestPeerBeadReadKeepsEveryOutstandingAnswer(t *testing.T) {
 // The copy goes when the stay ends, however it ends: a takes its bead back
 // by hand, or the link is removed. An answer that comes after is dropped.
 func TestPeerBeadReadCopyGoesWithTheStay(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for name, end := range map[string]func(t *testing.T, a *peerYard, id string){
 		"taken back": func(t *testing.T, a *peerYard, id string) {
@@ -515,6 +523,7 @@ func TestPeerBeadReadCopyGoesWithTheStay(t *testing.T) {
 // The notice of a bead that has been away for its group's age names the
 // command that reads the other yard's bead.
 func TestPeerBeadAgedNamesTheRead(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)

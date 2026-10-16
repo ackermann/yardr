@@ -86,6 +86,7 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 // nothing, in this daemon or its next. At the wake the agent is prompted
 // and the bead that waited starts.
 func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
@@ -157,6 +158,7 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 // An agent that someone got going before the reset no longer waits, so its
 // group starts sessions with its model again.
 func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -182,6 +184,7 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 // A session already waiting at upgrade time has no harness_reset_model key.
 // Its bead and group still say which model its wait must hold back.
 func TestResetWaitFromBeforeUpgradeHoldsTheGroupModel(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
@@ -208,6 +211,7 @@ func TestResetWaitFromBeforeUpgradeHoldsTheGroupModel(t *testing.T) {
 // is no time at which the group would go on by itself, so what starts is the
 // yardmaster's to decide, as before.
 func TestUsageLimitYardrDoesNotWaitForHoldsNoGroupBack(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(80 * time.Hour)))
@@ -230,6 +234,7 @@ func TestUsageLimitYardrDoesNotWaitForHoldsNoGroupBack(t *testing.T) {
 // full and find agents working and idle, with nothing stopped on a usage
 // limit, do not run its command.
 func TestPassesThatStartSessionsWithNothingStoppedAskNoLimits(t *testing.T) {
+	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	var beads []string

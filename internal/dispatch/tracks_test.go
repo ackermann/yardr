@@ -82,6 +82,7 @@ func (r *ghDepot) deliverAs(t *testing.T, hook, event, name string, edit func(st
 // through the bead's flow, a hook_rule event on the bead, and the event
 // marked seen on it so that a restarted daemon does nothing twice.
 func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	r.tracker(t, "yard-t", "triage", issue23)
 	r.deliverAs(t, "gh", "issues", "issues_labeled", nil)
@@ -127,6 +128,7 @@ func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
 // A bead with only the old dispatch cursor is judged again: old metadata is
 // ignored after the cursor was renamed to hook_seq.
 func TestBeadWithOldDispatchSeqIsJudgedAgain(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	r.tracker(t, "yard-t", "triage", issue23)
 	r.deliverAs(t, "gh", "issues", "issues_labeled", nil)
@@ -162,6 +164,7 @@ func TestBeadWithOldDispatchSeqIsJudgedAgain(t *testing.T) {
 // and says nothing: a label a crew member set, under the identity it has
 // there (a GitHub App's <slug>[bot]), never moves the yard.
 func TestTheYardsOwnActionSaysNothing(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	ctx := context.Background()
 	_, err := r.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "me")
@@ -204,6 +207,7 @@ func TestTheYardsOwnActionSaysNothing(t *testing.T) {
 // closed bead keeps its link and tracks nothing any more, so the train has
 // its pull request back.
 func TestTrackingBeadWinsOverTheTrainOfTheBranch(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	r.train(t, "yard-a", "in-pr")
 	r.deliver(t, "pull_request", "pull_request_closed_merged", "yard-a", "")
@@ -241,6 +245,7 @@ func TestTrackingBeadWinsOverTheTrainOfTheBranch(t *testing.T) {
 // A hook that only sets a thread's status has no table, and its deliveries
 // about a tracked thread are not logged on the bead one by one.
 func TestHookWithoutTableIsSilentOfATrackedBead(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, contributorSays...)
 	_, err := r.api.PutHook(context.Background(), store.Hook{Name: "quiet", Source: "github", SecretFile: "/nonexistent/github.secret"}, "me")
 	must(t, err)
@@ -255,6 +260,7 @@ func TestHookWithoutTableIsSilentOfATrackedBead(t *testing.T) {
 
 // association is a key a line may filter on: whom the table trusts.
 func TestSaysFiltersOnAssociation(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t, "event=issues action=labeled association=member association=owner -> accepted")
 	r.tracker(t, "yard-t", "triage", issue23)
 	r.deliverAs(t, "gh", "issues", "issues_labeled", nil) // a first-time contributor's
@@ -276,6 +282,7 @@ func TestSaysFiltersOnAssociation(t *testing.T) {
 // A closed-unmerged pull request asks a person about the train and drops
 // the pr bead.
 func TestSaysFiltersOnBeadType(t *testing.T) {
+	t.Parallel()
 	r := newTrackingDepot(t,
 		"event=pull_request action=closed merged=false type=train -> question",
 		"event=pull_request action=closed merged=false type=pr -> dropped",

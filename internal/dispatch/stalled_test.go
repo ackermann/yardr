@@ -37,6 +37,7 @@ func stalledSetup(t *testing.T) (s store.API, f *crewRunner, d *dispatch.Dispatc
 // second Enter on the pass that typed it, with session_prompt_typed saying
 // so, not one PromptSettle and a pass later. It is typed once all the same.
 func TestStalledNudgeLeftInTheInputGetsEnterOnTheSamePass(t *testing.T) {
+	t.Parallel()
 	s, f, _, r, later := stalledSetup(t)
 	f.stalls = true
 	later(0)
@@ -59,6 +60,7 @@ func TestStalledNudgeLeftInTheInputGetsEnterOnTheSamePass(t *testing.T) {
 // Stalled does not say the text was not taken: an agent that took it and
 // was not seen working has an empty input, and no key follows.
 func TestStalledNudgeTheAgentTookGetsNoEnter(t *testing.T) {
+	t.Parallel()
 	s, f, _, r, later := stalledSetup(t)
 	f.stalls, f.took = true, true
 	later(0)
@@ -71,6 +73,7 @@ func TestStalledNudgeTheAgentTookGetsNoEnter(t *testing.T) {
 // The Enter of the pass that typed it is the first of the PromptTries the
 // safety net sends, PromptSettle apart, before it reports the agent.
 func TestStalledNudgeWhoseEnterNeverTakesIsGivenUp(t *testing.T) {
+	t.Parallel()
 	s, f, _, r, later := stalledSetup(t)
 	f.stalls, f.deaf = true, true
 	later(0)
@@ -97,6 +100,7 @@ func TestStalledNudgeWhoseEnterNeverTakesIsGivenUp(t *testing.T) {
 // nudge_held says so for as long as it is, and it is typed once the dialog
 // is gone; a dialog later is said again.
 func TestNudgeForAnAgentAtADialogIsHeldAndSaidOnce(t *testing.T) {
+	t.Parallel()
 	s, f, _, r, later := stalledSetup(t)
 	f.atDialog = true
 	for range 3 {
@@ -129,6 +133,7 @@ func TestNudgeForAnAgentAtADialogIsHeldAndSaidOnce(t *testing.T) {
 // the pass that delivered it; one for an agent at a dialog is not typed,
 // not counted as a delivery and not called lost.
 func TestStalledDeliveryOfAPendingPromptIsSubmittedOnTheSamePass(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.blocked = true

@@ -122,6 +122,7 @@ func (y *peerYard) live(t *testing.T) []store.Session {
 // notes written there. With the other yard reachable, and with one that
 // has to be asked.
 func TestPeerBeadRoundTrip(t *testing.T) {
+	t.Parallel()
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -218,6 +219,7 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 // The bead message delivered twice makes one bead at b, and b's return
 // delivered twice moves a's bead once.
 func TestPeerBeadDeliveredTwice(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -276,6 +278,7 @@ func TestPeerBeadDeliveredTwice(t *testing.T) {
 // refused, which a's flow sends to a person, with a note that says why in
 // a's words.
 func TestPeerBeadRefused(t *testing.T) {
+	t.Parallel()
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -322,6 +325,7 @@ func TestPeerBeadRefused(t *testing.T) {
 // to send again. Mail to the same yard is still tried: it is given up
 // after the daemon's own count. Sent again once b is up, the bead arrives.
 func TestPeerBeadUndelivered(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -389,6 +393,7 @@ func TestPeerBeadUndelivered(t *testing.T) {
 
 // A group may say after how many tries its beads are given up.
 func TestPeerBeadTriesOfTheGroup(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -410,6 +415,7 @@ func TestPeerBeadTriesOfTheGroup(t *testing.T) {
 // with a note naming the outcome and the stage's own; unheld, it is sent
 // to the yard again, as a new message.
 func TestPeerBeadOutcomeTheStageDoesNotName(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -456,6 +462,7 @@ func TestPeerBeadOutcomeTheStageDoesNotName(t *testing.T) {
 // A person takes the bead back while it is away: the return that comes
 // later is logged as stale and changes nothing.
 func TestPeerBeadTakenBack(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -490,6 +497,7 @@ func TestPeerBeadTakenBack(t *testing.T) {
 // A bead at a yard whose link is removed, or stops carrying beads out,
 // ends its stage as undelivered: no return can come.
 func TestPeerBeadLinkGoesWhileAway(t *testing.T) {
+	t.Parallel()
 	for name, cut := range map[string]func(a *peerYard) error{
 		"removed": func(a *peerYard) error { return a.api.DeletePeer(context.Background(), "b", "jo") },
 		"no beads out": func(a *peerYard) error {
@@ -544,6 +552,7 @@ func TestPeerBeadLinkGoesWhileAway(t *testing.T) {
 // sends to the yard under the new name, the bead's line follows, and so
 // does when the yard was last heard from.
 func TestPeerBeadRename(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -593,6 +602,7 @@ func TestPeerBeadRename(t *testing.T) {
 // outcome ends b's stage, b's flow ends and returns to a, and a's bead
 // moves on: the chain unwinds hop by hop.
 func TestPeerBeadSentOn(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
 	link(t, a, b, true, true)
@@ -646,6 +656,7 @@ func TestPeerBeadSentOn(t *testing.T) {
 // there: a's bead goes to b, b's flow sends it to a, and a refuses it as a
 // loop, which ends b's stage as refused and so returns to a.
 func TestPeerBeadLoop(t *testing.T) {
+	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
@@ -694,6 +705,7 @@ func TestPeerBeadLoop(t *testing.T) {
 // A peer session is a wait: max_age raises session_aged once, and nothing
 // ends the session by its age, with a grace set or none.
 func TestPeerBeadWaitsPastItsAge(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]map[string]any{
 		"no grace": {"max_age": "1ms"},
 		"grace":    {"max_age": "1ms", "grace": "0"},

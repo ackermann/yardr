@@ -296,6 +296,7 @@ func agentOf(t *testing.T, s store.API) string {
 }
 
 func TestCrewKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{On: []string{"gave_up"}})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -338,6 +339,7 @@ func TestCrewKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
 }
 
 func TestHandoffRestartsWhenIdle(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -360,6 +362,7 @@ func TestHandoffRestartsWhenIdle(t *testing.T) {
 }
 
 func TestRotationAsksThenForces(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{MaxAge: "1ms", HandoffGrace: "1ms"})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -381,6 +384,7 @@ func TestRotationAsksThenForces(t *testing.T) {
 }
 
 func TestCrewStartFailureBacksOffAndDisableStops(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.failNext = errors.New("herdr down")
@@ -405,6 +409,7 @@ func TestCrewStartFailureBacksOffAndDisableStops(t *testing.T) {
 // human could never answer. A blocked start is kept and its first prompt
 // delivered once the agent is idle.
 func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.blocked = true
@@ -445,6 +450,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 // dispatcher's pass: the handle says trust_accepted, the first prompt is
 // delivered once the agent is idle, and no crew_blocked is logged.
 func TestCrewTrustDialogDrawnLateIsAnswered(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.blocked = true // the start finds the agent not ready and leaves the prompt pending
@@ -484,6 +490,7 @@ func TestCrewTrustDialogDrawnLateIsAnswered(t *testing.T) {
 // The same for a bead's session: a trust dialog that appears after the
 // start is answered on the pass, and the session is never reported blocked.
 func TestBeadTrustDialogDrawnLateIsAnswered(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.screen = fakeTrustDialog // drawn after the start looked
@@ -522,6 +529,7 @@ func TestBeadTrustDialogDrawnLateIsAnswered(t *testing.T) {
 // the trust dialog is not answered for it again, whether the dispatcher
 // sent the prompt or the start did without seeing it taken.
 func TestTrustDialogNotAnsweredAfterThePromptWasSent(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		send func(*testing.T, *dispatch.Dispatcher, *nudgeRunner)
@@ -567,6 +575,7 @@ func TestTrustDialogNotAnsweredAfterThePromptWasSent(t *testing.T) {
 // redelivered once the agent is idle, and the session is never reported
 // blocked.
 func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle", block: 1}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
@@ -610,6 +619,7 @@ func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
 // are left for a human: crew_blocked once, no key sent, and the next pass
 // looks again.
 func TestCrewOtherDialogStillWaitsForAHuman(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name   string
 		cfg    map[string]any
@@ -652,6 +662,7 @@ func TestCrewOtherDialogStillWaitsForAHuman(t *testing.T) {
 }
 
 func TestCrewTrustDialogAnsweredAfterBlockedDeliveryAndRestart(t *testing.T) {
+	t.Parallel()
 	for _, restart := range []bool{false, true} {
 		name := "same dispatcher"
 		if restart {
@@ -701,6 +712,7 @@ func TestCrewTrustDialogAnsweredAfterBlockedDeliveryAndRestart(t *testing.T) {
 }
 
 func TestCrewTrustDialogStaysClosedAfterWorkingAcrossRestart(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
@@ -743,6 +755,7 @@ func TestCrewTrustDialogStaysClosedAfterWorkingAcrossRestart(t *testing.T) {
 // the agent is idle it goes on the usual path. A fresh dispatcher over the
 // same store answers too.
 func TestCrewTrustDialogAnsweredAfterCountedButDroppedSend(t *testing.T) {
+	t.Parallel()
 	for _, restart := range []bool{false, true} {
 		name := "same dispatcher"
 		if restart {
@@ -797,6 +810,7 @@ func TestCrewTrustDialogAnsweredAfterCountedButDroppedSend(t *testing.T) {
 // handle, the pane now readable with no echo, a late dialog, never worked.
 // Answered, same and fresh dispatcher.
 func TestCrewTrustDialogAnsweredAfterUnconfirmedStart(t *testing.T) {
+	t.Parallel()
 	for _, restart := range []bool{false, true} {
 		name := "same dispatcher"
 		if restart {
@@ -841,6 +855,7 @@ func TestCrewTrustDialogAnsweredAfterUnconfirmedStart(t *testing.T) {
 // on the prompt, the prompt is typed in its input, or the session worked
 // since its start. No key is sent and crew_blocked is logged once.
 func TestCrewTrustDialogRefusedAfterCountedSend(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name    string
 		restart bool
@@ -896,6 +911,7 @@ func TestCrewTrustDialogRefusedAfterCountedSend(t *testing.T) {
 // A counted prompt that shows in the pane, or that no readable pane rules
 // out, arrives at the dialog as ever: no answer, no wait.
 func TestCrewCountedSendArrivesAtDialog(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		drop  int
@@ -937,6 +953,7 @@ func TestCrewCountedSendArrivesAtDialog(t *testing.T) {
 // session worked, the new one never did, and its counted-but-untaken prompt
 // at the dialog is answered.
 func TestCrewTrustDialogBypassWindowIsTheSession(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
@@ -974,6 +991,7 @@ func TestCrewTrustDialogBypassWindowIsTheSession(t *testing.T) {
 // looking is working on it: it does not get it a second time, and it is not
 // reported as waiting for a human.
 func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
@@ -999,6 +1017,7 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 // One that did not show is delivered once the agent is idle, and once when
 // it arrives.
 func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
@@ -1115,6 +1134,7 @@ func (n *nudgeRunner) Nudge(_ context.Context, _ map[string]any, text string) er
 }
 
 func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
@@ -1143,6 +1163,7 @@ func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 // The same for a bead session: a pending first prompt that shows in the pane
 // was taken, so it is cleared without a second delivery, working or idle.
 func TestBeadSessionPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working", shown: true}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
@@ -1203,6 +1224,7 @@ func handleOf(t *testing.T, s store.API, bead string) map[string]any {
 // empty input until the yardmaster typed the prompt by hand. A delivery that
 // does not show is sent again, and session_prompted is the arrival.
 func TestPendingPromptDroppedOnceIsDeliveredAgain(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.status, r.drop = "idle", 1
@@ -1236,6 +1258,7 @@ func TestPendingPromptDroppedOnceIsDeliveredAgain(t *testing.T) {
 // the session is reported, with the command that gives the prompt by hand,
 // and left alone. The prompt a human then gives it ends the wait.
 func TestPendingPromptDroppedEveryTimeIsGivenUp(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.status, r.drop = "idle", 1000
@@ -1273,6 +1296,7 @@ func TestPendingPromptDroppedEveryTimeIsGivenUp(t *testing.T) {
 // An agent that is working after a delivery took the prompt, whatever its
 // pane shows by the time the dispatcher looks.
 func TestPendingPromptOfAWorkingAgentArrived(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.status, r.drop = "idle", 1000
@@ -1294,6 +1318,7 @@ func TestPendingPromptOfAWorkingAgentArrived(t *testing.T) {
 // (it has just left a dialog), and a delivery is not judged lost before
 // PromptWait: an agent that is slow to echo is not sent its prompt twice.
 func TestPendingPromptWaitsForTheAgentToSettleAndToEcho(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	d.PromptSettle, d.PromptWait = 3*time.Second, 10*time.Second
@@ -1339,6 +1364,7 @@ func TestPendingPromptWaitsForTheAgentToSettleAndToEcho(t *testing.T) {
 // Return. A prompt that is only in the input is submitted, once, and not
 // typed a second time; session_prompted is still the arrival.
 func TestPendingPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for name, stick := range map[string]int{"the runner's own send": 0, "the dispatcher's delivery": 1} {
 		s, r, d, b := nudgeSetup(t)
 		ctx := context.Background()
@@ -1372,6 +1398,7 @@ func TestPendingPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 // the session by hand. The first prompt waits for the screen, is submitted
 // until the input empties, and no nudge goes while it is still unsubmitted.
 func TestFirstPromptLateScreenSubmittedUntilEmptyAndNoNudgeWhilePending(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	// The idle nudge needs an agent to name the session's notes by.
@@ -1443,6 +1470,7 @@ func TestFirstPromptLateScreenSubmittedUntilEmptyAndNoNudgeWhilePending(t *testi
 // apart, and no more: the session is reported, Enter in its pane being all
 // it needs, and left alone. The Enter a human then gives it ends the wait.
 func TestPendingPromptWhoseSubmitNeverTakesIsGivenUp(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	d.PromptSettle, d.PromptWait = 3*time.Second, 10*time.Second
@@ -1497,6 +1525,7 @@ func TestPendingPromptWhoseSubmitNeverTakesIsGivenUp(t *testing.T) {
 // Text in the input of an agent that is working was submitted: nothing more
 // is sent to it.
 func TestPendingPromptTypedByAWorkingAgentArrived(t *testing.T) {
+	t.Parallel()
 	s, r, d, b := nudgeSetup(t)
 	ctx := context.Background()
 	r.status, r.typed = "working", true
@@ -1521,6 +1550,7 @@ func TestPendingPromptTypedByAWorkingAgentArrived(t *testing.T) {
 // working, or a pane that still cannot be read, is what the runner went
 // by, and the prompt is then not sent a second time.
 func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, status             string
 		typed, blind             bool
@@ -1564,6 +1594,7 @@ func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
 
 // Crew members go the same way, with the events on their journal.
 func TestCrewPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		deaf                             bool
 		submits, typed, gaveUp, prompted int
@@ -1596,6 +1627,7 @@ func TestCrewPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 // Crew members go the same way: a prime that is dropped is sent again, and one
 // dropped every time is reported on the crew member's journal.
 func TestCrewPendingPromptIsCheckedForArrival(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ drop, nudges, lost, gaveUp, prompted int }{
 		{0, 1, 0, 0, 1},
 		{1, 2, 1, 0, 1},
@@ -1628,6 +1660,7 @@ func TestCrewPendingPromptIsCheckedForArrival(t *testing.T) {
 // A pane that cannot be read tells nothing about the prompt: what was sent
 // is taken as arrived, as before yardr looked, and not sent a second time.
 func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent, f.blind, f.drop = true, true, 1000
@@ -1644,6 +1677,7 @@ func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
 // start, and crew_blocked tells the yardmaster why, once while the reason
 // stays the same.
 func TestCrewBlockedByItsConfig(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	refuse := dispatch.Blocked(errors.New("crew member yardmaster: env_file /x/yardmaster.env is open to others (mode 0644); chmod 600 it"))
@@ -1684,6 +1718,7 @@ func TestCrewBlockedByItsConfig(t *testing.T) {
 // the same agent, nothing counts as a failed start, and the crew member starts
 // on the pass after the agent is gone.
 func TestCrewNotStartedBesideALiveAgent(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	blocked := func() (reasons []string) {
@@ -1734,6 +1769,7 @@ func TestCrewNotStartedBesideALiveAgent(t *testing.T) {
 // down): counted and backed off, not reported as blocked, and nothing is
 // started blind.
 func TestCrewAgentListUnreadableIsAFailedStart(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.findErr = errors.New("herdr: connection refused")
@@ -1765,6 +1801,7 @@ func shortLived(t *testing.T) (s store.API, f *crewRunner, d *dispatch.Dispatche
 // failed start: the waits grow and after store.MaxStartFails the crew member is
 // given up.
 func TestCrewSessionGoneAtOnceIsAFailedStart(t *testing.T) {
+	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1828,6 +1865,7 @@ func TestCrewSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 // started, closes them all but the latest, whose pane is the only place
 // that shows why the harness exited.
 func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
+	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1876,6 +1914,7 @@ func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
 // it (someone started one there by hand), nor forgotten when herdr could
 // not close it: its handle is kept and it is tried at the next start.
 func TestCrewWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
+	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	gone := func() {
@@ -1911,6 +1950,7 @@ func TestCrewWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
 // since, so an early exit long ago does not add up with one today; the start
 // alone does not, or two early exits would never be two in a row.
 func TestCrewSessionThatLivesResetsFailedStarts(t *testing.T) {
+	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	failures := func() int {
@@ -1957,6 +1997,7 @@ func TestCrewSessionThatLivesResetsFailedStarts(t *testing.T) {
 // start: a handoff, a requested restart (a rotation is one), a stop; nor is
 // a session that ends itself once its restart was asked for.
 func TestCrewWantedEndingsAreNoFailedStarts(t *testing.T) {
+	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1991,6 +2032,7 @@ func TestCrewWantedEndingsAreNoFailedStarts(t *testing.T) {
 // pass, as the store's words for it, so a view reads it from the store and
 // its events and asks no runtime.
 func TestCrewStatusIsRecorded(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -2018,6 +2060,7 @@ func TestCrewStatusIsRecorded(t *testing.T) {
 // any file; one for mail without any says nothing of images, whatever
 // its text ends with.
 func TestNudgeNamesTheImagesOfMail(t *testing.T) {
+	t.Parallel()
 	s, f, d := crewSetup(t, store.CrewMember{})
 	d.Home = "/y"
 	ctx := context.Background()
