@@ -114,6 +114,20 @@ func (s *quietScanStore) EventsSince(ctx context.Context, after uint64, limit in
 	return events, err
 }
 
+type quietLiveSessionsStore struct {
+	store.API
+	sawLive chan struct{}
+	once    sync.Once
+}
+
+func (s *quietLiveSessionsStore) Sessions(ctx context.Context, all bool) ([]store.Session, error) {
+	sessions, err := s.API.Sessions(ctx, all)
+	if len(sessions) > 0 {
+		s.once.Do(func() { close(s.sawLive) })
+	}
+	return sessions, err
+}
+
 func TestQuietPackagesAndRelevance(t *testing.T) {
 	out := "ok  \tyardr.dev/yardr/internal/cli\t1s\nFAIL\tyardr.dev/yardr/internal/store\t2s\nFAIL yardr.dev/yardr/internal/web 3s\nFAIL\tyardr.dev/yardr/internal/store\t2s\n"
 	want := []string{"yardr.dev/yardr/internal/store", "yardr.dev/yardr/internal/web"}
@@ -122,6 +136,7 @@ func TestQuietPackagesAndRelevance(t *testing.T) {
 	}
 	for kind, want := range map[string]bool{
 		"advanced": true, "closed": true, "session_died": true,
+		"held": true, "released": true, "group_removed": true,
 		"session_failed": true, "session_aborted": true,
 		"claimed": false, "noted": false, "quiet_passed": false,
 	} {
@@ -280,6 +295,41 @@ func TestQuietTriggerFiresOnLandingEvents(t *testing.T) {
 	waitQuiet(t, y.s, store.QuietPassed, 1)
 	if n := y.runCalls(); n != 1 {
 		t.Fatalf("calls = %d, want the landing events to fire one run", n)
+	}
+}
+
+// A hold ends a live session through a bead event, not a session_* event.
+// The threshold that waited on that session must rejudge when the event
+// arrives, even if nothing else happens in the yard.
+func TestQuietTriggerFiresWhenSessionIsHeld(t *testing.T) {
+	y := newQuietYard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	must(t, y.s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}, "me"))
+	work, err := y.s.CreateBead(ctx, store.NewBead{Title: "work"}, "me")
+	must(t, err)
+	_, err = y.s.Claim(ctx, work.ID, "builders", "new", "me")
+	must(t, err)
+	y.land(t, "one")
+	y.land(t, "two")
+
+	watch := &quietLiveSessionsStore{API: y.s, sawLive: make(chan struct{})}
+	y.d.Store = watch
+	go dispatch.QuietTrigger(y.d, ctx)
+	select {
+	case <-watch.sawLive:
+	case <-time.After(10 * time.Second):
+		t.Fatal("quiet trigger did not inspect the live session")
+	}
+	if n := y.runCalls(); n != 0 {
+		t.Fatalf("run started while a session was live, calls = %d", n)
+	}
+
+	_, err = y.s.SetHold(ctx, work.ID, true, store.Expect{}, "me")
+	must(t, err)
+	waitQuiet(t, y.s, store.QuietPassed, 1)
+	if n := y.runCalls(); n != 1 {
+		t.Fatalf("calls = %d, want the held event to fire the pending run", n)
 	}
 }
 

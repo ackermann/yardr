@@ -61,7 +61,8 @@ type QuietResult struct {
 // costs the trigger nothing.
 func quietRelevant(e store.Event) bool {
 	switch e.Kind {
-	case "advanced", "closed", "session_died", "session_failed", "session_aborted":
+	case "advanced", "closed", "held", "released", "group_removed",
+		"session_died", "session_failed", "session_aborted":
 		return true
 	case "setting_changed":
 		return e.Data["key"] == store.QuietLandingsSetting
