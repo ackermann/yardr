@@ -213,11 +213,11 @@ func runCLI(a *app) map[string]*cobra.Command {
 }
 
 // The store's list of commands a run ask may name is held to the CLI: each
-// command the yard stores is run through the real command of internal/cli
-// in a second yard that began the same, as the operator would type it, and
-// the two yards end in the same state, the approval's result being what
-// the command printed. So the table cannot drift from the commands it
-// stands for, and a row added to it is added here.
+// manually askable command the yard stores is run through the real command
+// of internal/cli in a second yard that began the same, as the operator
+// would type it, and the two yards end in the same state. A user key claim
+// is created only from a dropped delivery and is checked in the store's
+// claim tests; this test checks its help instead of fabricating an address.
 func TestRunListIsTheCLIs(t *testing.T) {
 	key := airyKey(t)
 	addedFile := filepath.Join(t.TempDir(), "added.yaml")
@@ -266,6 +266,14 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		}
 		if !strings.Contains(askHelp.Long, strings.TrimPrefix(use, "yardr ")) {
 			t.Errorf("yardr bead ask --help does not name %s", use)
+		}
+		if use == "yardr user key <user> <source>" {
+			if !strings.Contains(askHelp.Long, "carries no address") || !strings.Contains(askHelp.Long, "is\n      refused") {
+				t.Error("yardr bead ask --help does not explain that user key claims come only from dropped deliveries")
+			}
+			// This row's address-bearing ask is written by ClaimAddress,
+			// never by a caller of the generic AddAsk API.
+			continue
 		}
 		for _, command := range commands {
 			approved, ab := runYardCLI(t, "approved", key)
@@ -343,11 +351,6 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			} else {
 				runAsk.Carried = carried
 			}
-			// A user key ask carries the address a delivery brought,
-			// as a source add carries its declaration.
-			if strings.HasPrefix(command, "user key ") {
-				runAsk.Value = "u-0f-jo"
-			}
 			seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
 				Run: runAsk}, "yardmaster")
 			if err != nil {
@@ -383,10 +386,6 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			typedArgs := done.Argv[1:]
 			if typedSecret != "" {
 				typedArgs = append(slices.Clone(typedArgs), "--secret-file", typedSecret)
-			}
-			// yardr user key reads its value as a NAME=value line.
-			if strings.HasPrefix(command, "user key ") {
-				cmd.SetIn(strings.NewReader("PUSHOVER_USER=u-0f-jo\n"))
 			}
 			out, err := run(t, cmd, typedArgs...)
 			if err != nil {
