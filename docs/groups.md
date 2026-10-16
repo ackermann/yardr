@@ -1201,7 +1201,11 @@ has no such hint the event names no harness.
   keeps the send guarded. Once a delivery was seen taken — the prompt shows
   in the pane, or the agent was seen working after a send — the answer is
   left to you: the agent's work reaches its pane, and a dialog's text there
-  may be a file it shows at a permission question Enter would answer.
+  may be a file it shows at a permission question Enter would answer. A crew
+  delivery counted but never taken — dropped by the agent, or sent by a start
+  that could not look — is answered when the session never worked and the
+  live pane has no echo of the prompt; `prompt_started`, a shown or typed
+  prompt, or working history refuses.
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
   taken: an agent that is still coming up can drop the keys. So yardr gives
   the first prompt to herdr to wait on (`herdr agent prompt <agent> '<text>'

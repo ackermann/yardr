@@ -23,41 +23,42 @@ const fakeTrustDialog = "Do you trust this folder?\n❯ Yes, proceed"
 // crewRunner fakes herdr for crew members: sessions with a status, and the
 // nudges they received.
 type crewRunner struct {
-	mu         sync.Mutex
-	n          int
-	status     map[string]string // agent -> idle|working|"" (gone)
-	nudges     []string
-	screen     string   // what the pane shows
-	trustKeys  []string // keys sent to answer the trust dialog
-	trustCalls int      // passes that asked for the trust dialog to be answered
-	stops      int
-	failNext   error
-	blocked    bool                // next start blocks before the agent is ready (a trust prompt)
-	foreign    *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
-	findErr    error               // the agent list cannot be read
-	sent       bool                // next start sends the first prompt and does not see it arrive
-	shown      bool                // the pane shows the first prompt
-	drop       int                 // deliveries of the first prompt the agent still drops
-	blind      bool                // the pane cannot be read
-	typed      bool                // the first prompt is in the agent's input, not submitted
-	stick      int                 // deliveries of the first prompt the agent still leaves in its input
-	deaf       bool                // Enter does not submit what is in the input
-	submits    int                 // times Enter was sent
-	input      string              // what is in the agent's input, not sent
-	noInput    bool                // the harness's input cannot be told
-	open       []string            // agents whose workspace is open, in the order they started
-	busy       map[string]bool     // agents in whose workspace another agent runs now
-	closeErr   error               // a workspace cannot be closed
-	tail       string              // what the pane ends in
-	first      string              // the first prompt a start gives, kept on the handle when set
-	atDialog   bool                // the agent is at a dialog: Nudge types nothing and says so
-	stalls     bool                // the agent starts on nothing it is typed: Nudge says so
-	took       bool                // ... though it took the text all the same
-	dialog     string              // the dialog its harness has drawn in place of its input, by its word
-	line       string              // ... and the dialog's first line
-	asks       string              // the harness answers the next text typed with this dialog, and keeps the text behind it
-	login      string              // the line of the login screen it sits at, "" for none
-	noScreen   bool                // the harness has not drawn its screen (no input mark)
+	mu          sync.Mutex
+	n           int
+	status      map[string]string // agent -> idle|working|"" (gone)
+	nudges      []string
+	screen      string   // what the pane shows
+	trustKeys   []string // keys sent to answer the trust dialog
+	trustCalls  int      // passes that asked for the trust dialog to be answered
+	stops       int
+	failNext    error
+	blocked     bool                // next start blocks before the agent is ready (a trust prompt)
+	foreign     *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
+	findErr     error               // the agent list cannot be read
+	sent        bool                // next start sends the first prompt and does not see it arrive
+	unconfirmed bool                // the next sent start leaves the prompt unconfirmed: sent, but not seen taken
+	shown       bool                // the pane shows the first prompt
+	drop        int                 // deliveries of the first prompt the agent still drops
+	blind       bool                // the pane cannot be read
+	typed       bool                // the first prompt is in the agent's input, not submitted
+	stick       int                 // deliveries of the first prompt the agent still leaves in its input
+	deaf        bool                // Enter does not submit what is in the input
+	submits     int                 // times Enter was sent
+	input       string              // what is in the agent's input, not sent
+	noInput     bool                // the harness's input cannot be told
+	open        []string            // agents whose workspace is open, in the order they started
+	busy        map[string]bool     // agents in whose workspace another agent runs now
+	closeErr    error               // a workspace cannot be closed
+	tail        string              // what the pane ends in
+	first       string              // the first prompt a start gives, kept on the handle when set
+	atDialog    bool                // the agent is at a dialog: Nudge types nothing and says so
+	stalls      bool                // the agent starts on nothing it is typed: Nudge says so
+	took        bool                // ... though it took the text all the same
+	dialog      string              // the dialog its harness has drawn in place of its input, by its word
+	line        string              // ... and the dialog's first line
+	asks        string              // the harness answers the next text typed with this dialog, and keeps the text behind it
+	login       string              // the line of the login screen it sits at, "" for none
+	noScreen    bool                // the harness has not drawn its screen (no input mark)
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -198,7 +199,12 @@ func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember, user strin
 	}
 	if f.sent {
 		f.sent = false
-		return map[string]any{"agent": agent, store.PendingPrompt: "prime yourself"}, nil
+		h := map[string]any{"agent": agent, store.PendingPrompt: "prime yourself"}
+		if f.unconfirmed {
+			f.unconfirmed = false
+			h[dispatch.PromptUnconfirmed] = true
+		}
+		return h, nil
 	}
 	if f.first != "" {
 		return map[string]any{"agent": agent, "pane": "p-1", "first_prompt": f.first}, nil
@@ -724,6 +730,238 @@ func TestCrewTrustDialogStaysClosedAfterWorkingAcrossRestart(t *testing.T) {
 	}
 	if blocked != 1 {
 		t.Fatalf("crew_blocked events=%d, want one after refusing an already-worked session", blocked)
+	}
+}
+
+// Filed from the yardr-q7rd sit (yardr-x9kv): a first prompt counted via a
+// delivery the agent dropped, followed by a late trust dialog with the
+// agent never seen working, refused the answer on every pass forever:
+// nothing re-sends while the agent is blocked. History saying the session
+// never worked, and a live pane with no echo of the prompt, reopens the
+// answer: the dialog gets its enter, the prompt stays pending, and once
+// the agent is idle it goes on the usual path. A fresh dispatcher over the
+// same store answers too.
+func TestCrewTrustDialogAnsweredAfterCountedButDroppedSend(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		name := "same dispatcher"
+		if restart {
+			name = "fresh dispatcher"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			f.sent = true
+			must(t, d.Reconcile(ctx)) // start with the first prompt pending
+			agent := agentOf(t, s)
+			// An idle delivery the agent drops: counted, but never shown.
+			f.drop = 1
+			must(t, d.Reconcile(ctx))
+			if len(f.nudges) != 1 {
+				t.Fatalf("nudges = %v, want the prompt sent once", f.nudges)
+			}
+			// Blocked at the trust dialog, never worked, no echo.
+			f.screen = fakeTrustDialog
+			f.set(agent, "blocked")
+			if restart {
+				d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+			}
+			must(t, d.Reconcile(ctx))
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+				t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+			}
+			if !slices.Equal(f.trustKeys, []string{"enter"}) || f.trustCalls != 1 {
+				t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", f.trustKeys, f.trustCalls)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+				t.Fatalf("crew_blocked events = %d, want none for an answered dialog", n)
+			}
+			// The agent boots; the prompt goes on the usual path.
+			f.screen = ""
+			f.set(agent, "idle")
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			r, _ = s.GetCrew(ctx, "yardmaster")
+			if len(f.nudges) != 2 || r.Handle[store.PendingPrompt] != nil {
+				t.Fatalf("nudges = %v, handle = %v, want the prompt redelivered and arrived", f.nudges, r.Handle)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "session_prompted"); n != 1 {
+				t.Fatalf("session_prompted events = %d, want 1", n)
+			}
+		})
+	}
+}
+
+// The same for a start that could not look: prompt_unconfirmed on the crew
+// handle, the pane now readable with no echo, a late dialog, never worked.
+// Answered, same and fresh dispatcher.
+func TestCrewTrustDialogAnsweredAfterUnconfirmedStart(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		name := "same dispatcher"
+		if restart {
+			name = "fresh dispatcher"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			f.sent, f.unconfirmed = true, true
+			must(t, d.Reconcile(ctx)) // the start sends the prompt and does not see it taken
+			agent := agentOf(t, s)
+			f.screen = fakeTrustDialog
+			f.set(agent, "blocked")
+			if restart {
+				d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+			}
+			must(t, d.Reconcile(ctx))
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+				t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+			}
+			if !slices.Equal(f.trustKeys, []string{"enter"}) || f.trustCalls != 1 {
+				t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", f.trustKeys, f.trustCalls)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+				t.Fatalf("crew_blocked events = %d, want none for an answered dialog", n)
+			}
+			// The agent boots; the prompt goes on the usual path.
+			f.screen = ""
+			f.set(agent, "idle")
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			r, _ = s.GetCrew(ctx, "yardmaster")
+			if len(f.nudges) != 1 || r.Handle[store.PendingPrompt] != nil {
+				t.Fatalf("nudges = %v, handle = %v, want the prompt delivered and arrived", f.nudges, r.Handle)
+			}
+		})
+	}
+}
+
+// The bypass refuses what may have been taken: herdr saw the agent start
+// on the prompt, the prompt is typed in its input, or the session worked
+// since its start. No key is sent and crew_blocked is logged once.
+func TestCrewTrustDialogRefusedAfterCountedSend(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		restart bool
+		tweak   func(*testing.T, store.API, *crewRunner)
+	}{
+		{"prompt started", false, func(t *testing.T, s store.API, _ *crewRunner) {
+			r, err := s.GetCrew(context.Background(), "yardmaster")
+			must(t, err)
+			r.Handle[dispatch.PromptStarted] = true
+			must(t, s.SetCrewHandle(context.Background(), "yardmaster", r.Handle))
+		}},
+		{"prompt typed", false, func(_ *testing.T, _ store.API, f *crewRunner) {
+			f.typed = true
+		}},
+		{"worked since the current start", true, func(t *testing.T, s store.API, _ *crewRunner) {
+			must(t, s.CrewStatus(context.Background(), "yardmaster", "working"))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			f.sent = true
+			must(t, d.Reconcile(ctx)) // start with the first prompt pending
+			agent := agentOf(t, s)
+			f.drop = 1
+			must(t, d.Reconcile(ctx)) // counted, but never shown
+			c.tweak(t, s, f)
+			f.screen = fakeTrustDialog
+			f.set(agent, "blocked")
+			if c.restart {
+				d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+			}
+			for range 2 {
+				must(t, d.Reconcile(ctx))
+			}
+			if f.trustCalls != 0 || len(f.trustKeys) != 0 {
+				t.Fatalf("trust dialog asked for on %d passes, keys %v, want none", f.trustCalls, f.trustKeys)
+			}
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			if r.Handle[dispatch.TrustAccepted] != nil || r.Handle[store.PendingPrompt] != "prime yourself" {
+				t.Fatalf("handle = %v, want the prompt pending and no trust_accepted", r.Handle)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 1 {
+				t.Fatalf("crew_blocked events = %d, want 1", n)
+			}
+		})
+	}
+}
+
+// A counted prompt that shows in the pane, or that no readable pane rules
+// out, arrives at the dialog as ever: no answer, no wait.
+func TestCrewCountedSendArrivesAtDialog(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		drop  int
+		blind bool
+	}{
+		{"prompt shown", 0, false},
+		{"pane unreadable", 1, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			f.sent = true
+			must(t, d.Reconcile(ctx)) // start with the first prompt pending
+			agent := agentOf(t, s)
+			f.drop = c.drop
+			must(t, d.Reconcile(ctx)) // delivered
+			f.blind = c.blind
+			f.screen = fakeTrustDialog
+			f.set(agent, "blocked")
+			must(t, d.Reconcile(ctx))
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			if r.Handle[store.PendingPrompt] != nil || r.Handle[dispatch.TrustAccepted] != nil {
+				t.Fatalf("handle = %v, want the prompt arrived and no trust_accepted", r.Handle)
+			}
+			if f.trustCalls != 0 || len(f.trustKeys) != 0 {
+				t.Fatalf("trust dialog asked for on %d passes, keys %v, want none", f.trustCalls, f.trustKeys)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "session_prompted"); n != 1 {
+				t.Fatalf("session_prompted events = %d, want 1", n)
+			}
+			if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+				t.Fatalf("crew_blocked events = %d, want none for an arrived prompt", n)
+			}
+		})
+	}
+}
+
+// The bypass reads the session's history, not the member's: the previous
+// session worked, the new one never did, and its counted-but-untaken prompt
+// at the dialog is answered.
+func TestCrewTrustDialogBypassWindowIsTheSession(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // the first session starts with the prompt pending
+	first := agentOf(t, s)
+	must(t, s.CrewStatus(ctx, "yardmaster", "working")) // ... and worked
+	must(t, s.RequestRestart(ctx, "yardmaster", "rotation", "", "me"))
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // the first session stops, the second starts
+	second := agentOf(t, s)
+	if f.n != 2 || f.stops != 1 || second == first {
+		t.Fatalf("starts %d stops %d, agents %s %s", f.n, f.stops, first, second)
+	}
+	// The new session's first prompt is counted but dropped, then it sits
+	// at the trust dialog, never worked.
+	f.drop = 1
+	must(t, d.Reconcile(ctx))
+	f.screen = fakeTrustDialog
+	f.set(second, "blocked")
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+	}
+	if !slices.Equal(f.trustKeys, []string{"enter"}) {
+		t.Fatalf("trust keys = %v, want one enter", f.trustKeys)
+	}
+	if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+		t.Fatalf("crew_blocked events = %d, want none for an answered dialog", n)
 	}
 }
 

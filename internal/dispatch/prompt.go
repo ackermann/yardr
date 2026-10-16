@@ -567,6 +567,9 @@ type promptPass struct {
 	// trusted is the pass that answered the session's trust dialog; the
 	// handle carries TrustAccepted, and no human wait is declared for it.
 	trusted bool
+	// trustedBypass is trusted through the counted-but-untaken bypass: the
+	// prompt was counted sent, and the session demonstrably never took it.
+	trustedBypass bool
 }
 
 // pendingPrompt takes one step with the pending first prompt p of the
@@ -637,7 +640,19 @@ type promptPass struct {
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked. For a crew session, its crew_status history also keeps this
 // guard closed after a daemon restart once the session was seen working.
-func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string, cfg map[string]any, trustAllowed bool) promptPass {
+//
+// Filed from the yardr-q7rd sit (yardr-x9kv): a first prompt counted via a
+// stalled delivery the agent dropped, or marked unconfirmed via an
+// unreadable pane at start, followed by a late trust dialog with the agent
+// never seen working, refused the answer on every pass forever: nothing
+// re-sends while the agent is blocked. For a crew session whose history
+// says it never worked, the answer stays open while the prompt was
+// demonstrably not taken: no PromptStarted on the handle, and the live
+// pane of this pass shows it neither taken nor typed, on a readable pane.
+// PromptStarted, shown, typed, an unreadable pane, or any working in the
+// session's history keeps the answer closed. So does a bead session, which
+// has no status history in the store to rest the answer on.
+func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string, cfg map[string]any, trustAllowed, trustBypass bool) promptPass {
 	pass := promptPass{sends: handleInt(handle[promptSends]), submits: handleInt(handle[promptSubmits])}
 	// Login can look idle, blocked, or like a harness still starting. Read
 	// it before trusting the runtime status or the input marker.
@@ -689,9 +704,15 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// the harness's. A send herdr reported blocked at a dialog
 			// counts no delivery only when a readable pane has no prompt
 			// echo (see above); an echo or an uncertain look keeps this
-			// answer closed.
-			if ta, ok := r.(TrustAcceptor); ok && trustAllowed && !sent && ta.AcceptTrust(ctx, handle, cfg) {
+			// answer closed. A send the session demonstrably never took
+			// is answered too when the caller allows it (see above): a
+			// delivery the agent dropped, or a start that could not look,
+			// on a session whose history says it never worked and whose
+			// live pane has no echo of the prompt.
+			bypass := trustBypass && sent && handle[PromptStarted] != true && known && !shown && !typed
+			if ta, ok := r.(TrustAcceptor); ok && trustAllowed && (!sent || bypass) && ta.AcceptTrust(ctx, handle, cfg) {
 				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
+				pass.trustedBypass = bypass
 			}
 		}
 		return pass

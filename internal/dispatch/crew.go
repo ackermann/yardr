@@ -486,6 +486,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	}
 	if p, ok := s.st.Handle[store.PendingPrompt].(string); ok {
 		trustAllowed := true
+		trustBypass := false
 		if _, canAnswer := runner.(TrustAcceptor); canAnswer && status != "working" && !idle {
 			worked, err := d.crewWorked(ctx, *s)
 			if err != nil {
@@ -493,9 +494,15 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 				d.Log.Error("crew status history", "crew", def.Name, "session", s.label(), "err", err)
 			} else {
 				trustAllowed = !worked
+				// A counted send may still be untaken: a delivery the
+				// agent dropped, or a start that could not look. With
+				// history saying the session never worked, the trust
+				// answer stays open for one the pane demonstrably has
+				// no echo of (see pendingPrompt).
+				trustBypass = !worked
 			}
 		}
-		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status, def.Config, trustAllowed)
+		pass := d.pendingPrompt(ctx, runner, key, s.st.Handle, p, status, def.Config, trustAllowed, trustBypass)
 		if pass.handle != nil {
 			if err := d.Store.SetCrewHandleFor(ctx, def.Name, s.user, pass.handle); err != nil {
 				return err
@@ -510,6 +517,13 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		if pass.trusted {
 			// Its trust dialog was answered on this pass: no human waits,
 			// and the prompt goes on the usual path once the agent is idle.
+			if pass.trustedBypass {
+				// Answered although the prompt was counted sent: say what
+				// the bypass rested on, so the next sit is diagnosable
+				// from the log as q7rd's was.
+				d.Log.Warn("trust dialog answered for a counted send the session never took: history says it never worked and its pane has no echo of the prompt",
+					"crew", def.Name, "session", s.label(), "sends", pass.sends, "unconfirmed", s.st.Handle[PromptUnconfirmed] == true)
+			}
 			return nil
 		}
 		if !idle {

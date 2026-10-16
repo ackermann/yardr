@@ -935,8 +935,10 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session, cfg 
 	if p, ok := s.Handle[store.PendingPrompt].(string); ok {
 		// Looked at on every pass, not only of an idle agent: one that took
 		// the prompt late is working on it, and by the time it is idle again
-		// the prompt may have left what the runner reads of its pane.
-		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status, cfg, true)
+		// the prompt may have left what the runner reads of its pane. No
+		// counted-but-untaken bypass: a bead session has no status history
+		// in the store to rest the answer on, so a counted send stays shut.
+		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status, cfg, true, false)
 		if pass.handle != nil {
 			if err := d.Store.SetHandle(ctx, s.ID, pass.handle); err != nil {
 				return true, err
