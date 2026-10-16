@@ -185,6 +185,29 @@ func TestClaimApprovalStaleWhenAddressGivenSince(t *testing.T) {
 	}
 }
 
+// A malformed env file cannot be read to tell whether the operator's
+// address is already set. Do not offer a claim that could overwrite it.
+func TestClaimAddressRefusedWhenEnvFileCannotBeRead(t *testing.T) {
+	y := claimYard(t)
+	file := filepath.Join(y.home, "users", "mckean.env")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := "not-a-key\nCHIME_CHAT=222\n"
+	if err := os.WriteFile(file, []byte(want), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err == nil || created {
+		t.Fatalf("ClaimAddress = %v, %v; want a read error and no claim", created, err)
+	}
+	if q := claimQueue(t, y); len(q.Open) != 0 {
+		t.Fatalf("open asks = %d, want none", len(q.Open))
+	}
+	if got, err := os.ReadFile(file); err != nil || string(got) != want {
+		t.Fatalf("the env file holds %q, %v; want it unchanged", got, err)
+	}
+}
+
 // A typed --run "user key ..." carries no address and is refused: the
 // value at a terminal is typed unseen, and a card carries only an
 // address a delivery brought.

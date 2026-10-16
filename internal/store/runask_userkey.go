@@ -8,7 +8,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,23 +46,29 @@ func checkUserKey(ctx context.Context, w *wtx, run AskRun, actor string) error {
 	return nil
 }
 
-// userKeyAddress is what the user's env file sets under env now, ""
-// for none, for a file that is not there, and for one that cannot be
-// read: the file the claim reads is the one keyUser writes, beside the
-// yard's home where the user named none.
-func (w *wtx) userKeyAddress(u *User, env string) string {
+// userKeyAddress is what the user's env file sets under env now. A
+// missing file means none; a file that cannot be read must not be
+// mistaken for an empty one, since approval could overwrite its value.
+func (w *wtx) userKeyAddress(u *User, env string) (string, error) {
 	file := u.EnvFile
 	if file == "" {
-		if w.home == "" || strings.ContainsAny(u.Name, `/\`) {
-			return ""
+		if w.home == "" {
+			return "", nil
 		}
-		file = filepath.Join(w.home, "users", u.Name+".env")
+		var err error
+		file, err = userEnvFile(w.home, u.Name)
+		if err != nil {
+			return "", err
+		}
 	}
 	f, err := config.ReadEnvFile(file)
-	if err != nil {
-		return ""
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
 	}
-	return source.Lookup(f.Env, env)
+	if err != nil {
+		return "", fmt.Errorf("user %s: %w", u.Name, err)
+	}
+	return source.Lookup(f.Env, env), nil
 }
 
 // userKeyCard is the card of user key <user> <source> with the address
@@ -98,7 +106,10 @@ func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 	if err != nil {
 		return AskRun{}, err
 	}
-	current := w.userKeyAddress(u, env)
+	current, err := w.userKeyAddress(u, env)
+	if err != nil {
+		return AskRun{}, err
+	}
 	if asking && current != "" {
 		return AskRun{}, fmt.Errorf("user %s has %s set in %s already: a claim is offered only while they have no address in %s", user, env, u.EnvFile, srcName)
 	}

@@ -14,12 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
-
-	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/source"
 )
 
 // claimSnippet is a message's first words for a claim card: its white
@@ -71,20 +67,8 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 	if operator == "" {
 		return false, nil
 	}
-	u, err := s.GetUser(ctx, operator)
-	if err != nil {
+	if _, err := s.GetUser(ctx, operator); err != nil {
 		return false, nil
-	}
-	// The claim is offered only while the operator has no address in
-	// the source: read the file keyUser writes, as hears reads it.
-	file := u.EnvFile
-	if file == "" && !strings.ContainsAny(operator, `/\`) {
-		file = filepath.Join(s.home, "users", operator+".env")
-	}
-	if file != "" {
-		if f, err := config.ReadEnvFile(file); err == nil && source.Lookup(f.Env, env) != "" {
-			return false, nil
-		}
 	}
 	snippet := claimSnippet(text)
 	question := fmt.Sprintf("A message reached %s from chat %s. Is this you?", sourceName, address)
@@ -136,15 +120,20 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 		if pending {
 			return nil // one already waits; created stays false
 		}
-		// The operator may have been given an address since the read
-		// above, in the same way: held to the file, inside the write.
+		// Read the file inside this write too: a giving since the
+		// delivery makes it ineligible for a claim. Errors are returned
+		// so an unreadable file is never treated as empty.
 		var userIn User
 		if ok, err := get(w.Tx, bUsers, operator, &userIn); err != nil {
 			return err
 		} else if !ok {
 			return nil
 		}
-		if cur := w.userKeyAddress(&userIn, env); cur != "" {
+		current, err := w.userKeyAddress(&userIn, env)
+		if err != nil {
+			return err
+		}
+		if current != "" {
 			return nil
 		}
 		card, err := w.userKeyCard(run, true)
