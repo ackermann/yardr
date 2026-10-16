@@ -648,8 +648,10 @@ its own median. The wait is when the earliest slot frees; with a free
 slot and fewer beads ahead than slots it is zero, and the line omits
 the queue part. Where the queue cannot be numbered it is named instead:
 a bead the dispatcher cannot claim now names nothing, a yard at
-`max_sessions` is `behind the yard's cap`, and an unclocked bead ahead
-leaves it `behind 4 beads, too new to time`. A live session whose cell
+`max_sessions` is `behind the yard's cap`, a paused yard is `yard paused
+(max_sessions 0)`, a paused group is `group builders paused (limit 0)`,
+and an unclocked bead ahead leaves it `behind 4 beads, too new to time`.
+A live session whose cell
 is below the floor still contributes its median remainder as a guess
 when a clocked stage lets the ETA show; it cannot time the ETA by
 itself.

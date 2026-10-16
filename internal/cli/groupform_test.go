@@ -75,4 +75,19 @@ func TestDescribe(t *testing.T) {
 	if got := describe(g); got != "herdr · codex · gpt-x · limit 1" {
 		t.Fatalf("describe = %q", got)
 	}
+	g.Limit = 0
+	if got := describe(g); got != "herdr · codex · gpt-x · limit 0 (paused)" {
+		t.Fatalf("describe = %q", got)
+	}
+}
+
+func TestGroupFormKeepsAPause(t *testing.T) {
+	g := store.Group{Name: "builders", Runner: "herdr", Limit: 0, Config: map[string]any{"kind": "claude"}}
+	a := answersFrom(g)
+	if a.Limit != "0" {
+		t.Fatalf("limit answer = %q, want the pause as it is", a.Limit)
+	}
+	if back := a.group(); back.Limit != 0 {
+		t.Fatalf("group limit = %d, want the pause kept", back.Limit)
+	}
 }

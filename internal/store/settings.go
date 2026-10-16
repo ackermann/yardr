@@ -106,10 +106,19 @@ var httpToken = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
 
 // MaxSessions is the max_sessions of settings: the most sessions that run
 // something on this machine (RunsHere) the dispatcher has going at once,
-// whatever their groups' limits allow; 0, as when it is unset, is no cap.
-func MaxSessions(settings map[string]string) int {
-	n, _ := strconv.Atoi(settings[MaxSessionsSetting])
-	return max(n, 0)
+// whatever their groups' limits allow, and whether the setting caps at
+// all. Unset, nothing is capped; set to 0, nothing starts: the yard is
+// paused, and its live sessions run on.
+func MaxSessions(settings map[string]string) (max int, capped bool) {
+	v, ok := settings[MaxSessionsSetting]
+	if !ok || v == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // OperatorStyles are the values of operator_style, from the most explaining
@@ -324,10 +333,10 @@ var KnownSettings = []Setting{
 			return nil
 		}},
 	{Key: MaxSessionsSetting, Help: "the most sessions that run an agent or a script on this machine at once, over all groups, " +
-		"beside each group's limit; the daemon reads it on every pass; default: no cap, as 0",
+		"beside each group's limit; the daemon reads it on every pass; unset, no cap; 0 pauses the yard: nothing new starts until it is raised",
 		Check: func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n < 0 {
-				return fmt.Errorf("%s %q: a whole number, 0 (no cap) or more", MaxSessionsSetting, v)
+				return fmt.Errorf("%s %q: a whole number, 0 or more", MaxSessionsSetting, v)
 			}
 			return nil
 		}},

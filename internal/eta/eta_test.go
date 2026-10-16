@@ -526,13 +526,45 @@ func TestQueueCapped(t *testing.T) {
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(time.Hour, 2*time.Hour)})
 	q := Queue{
 		Order:   []Queued{{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}},
-		Running: 4, Max: 4,
+		Running: 4, Max: 4, Capped: true,
 	}
 	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
 	line, _ := lines(t, r)
 	want := "eta usual 1h–2h (behind the yard's cap; new ~1h; unclocked after new)"
 	if line != want {
 		t.Fatalf("line:\n got %q\nwant %q", line, want)
+	}
+}
+
+func TestQueuePaused(t *testing.T) {
+	b := testBead("yardr-9c2k", "new")
+	flow := &Flow{Stages: []string{"new"}}
+	routes := []Route{routeFor("new", "builders")}
+	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": clocked(time.Hour, 2*time.Hour)})
+	order := []Queued{{Bead: "yardr-9c2k", Stage: "new", Type: "task", Labels: []string{"difficulty:2"}, Priority: 2}}
+
+	// A paused yard names the pause instead of numbering a queue that
+	// cannot move, whatever runs.
+	q := Queue{Order: order, Running: 0, Max: 0, Capped: true}
+	r := Estimate(b, flow, routes, testGroups(), cells, q, testNow, "")
+	line, _ := lines(t, r)
+	if want := "eta usual 1h–2h (yard paused (max_sessions 0); new ~1h; unclocked after new)"; line != want {
+		t.Fatalf("line:\n got %q\nwant %q", line, want)
+	}
+	if r.ETA.Queue != "" || r.ETA.Ahead != 0 {
+		t.Fatalf("paused queue numbered: queue %q ahead %d", r.ETA.Queue, r.ETA.Ahead)
+	}
+
+	// So does a paused group: no slot opens, so no wait is simulated.
+	paused := testGroups()
+	paused[0].Limit = 0
+	r = Estimate(b, flow, routes, paused, cells, Queue{Order: order}, testNow, "")
+	line, _ = lines(t, r)
+	if want := "eta usual 1h–2h (group builders paused (limit 0); new ~1h; unclocked after new)"; line != want {
+		t.Fatalf("line:\n got %q\nwant %q", line, want)
+	}
+	if r.ETA.Queue != "" || r.ETA.Ahead != 0 {
+		t.Fatalf("paused queue numbered: queue %q ahead %d", r.ETA.Queue, r.ETA.Ahead)
 	}
 }
 

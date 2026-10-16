@@ -201,6 +201,6 @@ func (s *Store) etaQueue(ctx context.Context) (eta.Queue, string, error) {
 	if err != nil {
 		return q, "", err
 	}
-	q.Max = MaxSessions(settings)
+	q.Max, q.Capped = MaxSessions(settings)
 	return q, settings[OperatorSetting], nil
 }

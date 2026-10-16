@@ -75,12 +75,15 @@ func (a groupAnswers) group() store.Group {
 	if a.Runner == "manual" {
 		members = splitMembers(a.Members)
 	}
-	limit, _ := strconv.Atoi(a.Limit)
-	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: max(limit, 1), Members: members}
+	limit, err := strconv.Atoi(a.Limit)
+	if err != nil {
+		limit = 1 // The form validates first; empty reads as the default.
+	}
+	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: limit, Members: members}
 }
 
 func answersFrom(g store.Group) groupAnswers {
-	a := groupAnswers{Name: g.Name, Runner: g.Runner, Limit: strconv.Itoa(max(g.Limit, 1)), Other: map[string]any{}}
+	a := groupAnswers{Name: g.Name, Runner: g.Runner, Limit: strconv.Itoa(g.Limit), Other: map[string]any{}}
 	str := func(k string) string { s, _ := g.Config[k].(string); return s }
 	for k, v := range g.Config {
 		switch k {
@@ -245,10 +248,14 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 			return nil, err
 		}
 	}
-	if err := ask(huh.NewInput().Title("Limit").Description("How many beads this group works at once.").
+	if err := ask(huh.NewInput().Title("Limit").Description("How many beads this group works at once; 0 pauses it.").
 		Value(&ans.Limit).Validate(func(s string) error {
-		if n, err := strconv.Atoi(s); err != nil || n < 1 {
-			return errors.New("a whole number, at least 1")
+		n, err := strconv.Atoi(s)
+		switch {
+		case err != nil || n < 0:
+			return errors.New("a whole number, 0 or more")
+		case n == 0 && !editing:
+			return fmt.Errorf("a new group starts with 1 or more; pause it after with yardr group set %s --limit 0", ans.Name)
 		}
 		return nil
 	})); err != nil {
@@ -256,7 +263,11 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 	}
 
 	g := ans.group()
-	summary := fmt.Sprintf("%s: %s, limit %d\n%s", g.Name, g.Runner, g.Limit, fmtSets(g.Config))
+	summary := fmt.Sprintf("%s: %s, limit %d", g.Name, g.Runner, g.Limit)
+	if g.Limit == 0 {
+		summary += " (paused)"
+	}
+	summary += "\n" + fmtSets(g.Config)
 	if editing && oldRunner != ans.Runner {
 		if live, _ := st.Sessions(ctx, false); slices.ContainsFunc(live, func(s store.Session) bool { return s.Group == g.Name }) {
 			summary += fmt.Sprintf("\n\nThis group has running sessions; they keep their %s runner. "+
@@ -436,5 +447,9 @@ func describe(g store.Group) string {
 	for _, sub := range g.Subscriptions {
 		parts = append(parts, "subscribed "+sub.String())
 	}
-	return strings.Join(parts, " · ") + fmt.Sprintf(" · limit %d", g.Limit)
+	limit := fmt.Sprintf("limit %d", g.Limit)
+	if g.Limit == 0 {
+		limit = "limit 0 (paused)"
+	}
+	return strings.Join(parts, " · ") + " · " + limit
 }

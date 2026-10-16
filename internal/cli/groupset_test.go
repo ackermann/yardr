@@ -103,7 +103,7 @@ func TestGroupSetRefuses(t *testing.T) {
 		`"dir": want key=value (--unset <key> removes a setting)`:             {"tick", "dir"},
 		"dir is both set and unset":                                           {"tick", "dir=/x", "--unset", "dir"},
 		"--unset log: tick has no such setting (it has: cmd, dir)":            {"tick", "--unset", "log"},
-		"group tick: a limit is at least 1":                                   {"tick", "--limit", "0"},
+		"group tick: a limit is 0 or more":                                    {"tick", "--limit", "-1"},
 		"group nobody: not found":                                             {"nobody", "dir=/x"},
 		// The runner is asked of the group as it would be, and the hint is
 		// this command's: the key bare.
@@ -117,6 +117,34 @@ func TestGroupSetRefuses(t *testing.T) {
 	}
 	// A key the exec group keeps is not asked for again.
 	mustAs(t, st, "jo", "group", "set", "tick", "dir=/srv/b")
+}
+
+// A limit of 0 pauses: group set stores it, and the group reads as paused
+// in group list and group show; setting it back resumes. group add refuses
+// --limit 0 for a new name, and replaces with it for one that exists.
+func TestGroupLimitZeroPauses(t *testing.T) {
+	st := userYard(t)
+	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--limit", "2", "--set", `cmd="true"`)
+	if out := mustAs(t, st, "jo", "group", "set", "tick", "--limit", "0"); out != "group tick saved\n  --limit: 2 -> 0\n" {
+		t.Fatalf("set --limit 0 printed %q", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "list"); !strings.Contains(out, "0 (paused)") {
+		t.Fatalf("group list misses the pause:\n%s", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "show", "tick"); !strings.Contains(out, "limit 0 (paused)") {
+		t.Fatalf("group show misses the pause:\n%s", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "set", "tick", "--limit", "2"); out != "group tick saved\n  --limit: 0 -> 2\n" {
+		t.Fatalf("resume printed %q", out)
+	}
+	refusedAs(t, st, "jo", "group rewound is new: it starts with limit 1 or more; pause it after with yardr group set rewound --limit 0",
+		"group", "add", "rewound", "--runner", "exec", "--set", `cmd="true"`, "--limit", "0")
+	if out := mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`, "--limit", "0"); !strings.Contains(out, "limit 0 (paused)") {
+		t.Fatalf("group add --limit 0 on an existing group:\n%s", out)
+	}
+	if g := group(t, st, "tick"); g.Limit != 0 {
+		t.Fatalf("replaced limit = %d, want 0", g.Limit)
+	}
 }
 
 // group show prints one group: what group list has of it, a config key to a

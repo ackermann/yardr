@@ -121,7 +121,10 @@ type Queue struct {
 	Order   []Queued
 	Live    []Live
 	Running int // live sessions running something on this machine
-	Max     int // the yard's max_sessions, 0 for no cap
+	// Max is the yard's max_sessions where Capped says it is set; unset,
+	// nothing is capped, and 0 pauses the yard: nothing starts.
+	Max    int
+	Capped bool
 }
 
 // A Queued is one dispatchable bead: ready, and owned by no group yet.
@@ -432,8 +435,14 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 		// line says why, so the queue names nothing.
 		return queueWait{}
 	}
-	if q.Max > 0 && q.Running >= q.Max {
+	if q.Capped && q.Running >= q.Max {
+		if q.Max == 0 {
+			return queueWait{part: "yard paused (max_sessions 0)"}
+		}
 		return queueWait{part: "behind the yard's cap"}
+	}
+	if g.Limit == 0 {
+		return queueWait{part: "group " + g.Name + " paused (limit 0)"}
 	}
 	var out queueWait
 	out.clocked = true

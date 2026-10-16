@@ -1172,7 +1172,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	if err != nil {
 		return err
 	}
-	most := store.MaxSessions(settings)
+	most, capped := store.MaxSessions(settings)
 	depots := map[string]*store.Depot{}
 	// Beads in a stage their flow lacks: a repository flow lost the stage on
 	// the base. The stage's route may well still be there, and would hand
@@ -1239,10 +1239,15 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		// The yard's cap, beside the group's: after what makes the bead
 		// wait for its group, so capped is said of a bead the cap alone
-		// keeps from starting.
-		if most > 0 && store.RunsHere(g.Runner) && d.running >= most {
-			d.reportOnce(ctx, b, "capped", fmt.Sprintf(
-				"the yard runs as many sessions as max_sessions (%d) allows; the bead starts when one ends, or the setting is raised (yardr settings set max_sessions <n>)", most))
+		// keeps from starting. At 0 the yard is paused: nothing starts,
+		// whatever runs, and the event says paused instead of counting.
+		if capped && store.RunsHere(g.Runner) && d.running >= most {
+			reason := fmt.Sprintf(
+				"the yard runs as many sessions as max_sessions (%d) allows; the bead starts when one ends, or the setting is raised (yardr settings set max_sessions <n>)", most)
+			if most == 0 {
+				reason = "max_sessions is 0 (paused); the bead starts when the setting is raised (yardr settings set max_sessions <n>)"
+			}
+			d.reportOnce(ctx, b, "capped", reason)
 			continue
 		}
 		// Last, since it reads the bead's events: only a bead that would

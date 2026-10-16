@@ -540,6 +540,13 @@ yardmaster):
 				return err
 			}
 			g.Name = args[0]
+			if c.Flags().Changed("limit") && g.Limit == 0 {
+				// 0 pauses a group that exists; a new one starts with
+				// one session, and is paused after.
+				if _, err := st.GetGroup(c.Context(), g.Name); errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("group %s is new: it starts with limit 1 or more; pause it after with yardr group set %s --limit 0", g.Name, g.Name)
+				}
+			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			if err := st.PutGroup(c.Context(), g, a.who()); err != nil {
 				return err
@@ -552,7 +559,7 @@ yardmaster):
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
-	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions; for a peer group, how many beads may be at that yard at once")
+	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions (0 pauses the group); for a peer group, how many beads may be at that yard at once")
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable); a value that is JSON (true, 3, [\"a\"]) keeps its type, so a string that reads as JSON is written as one: 'cmd=\"true\"'")
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
@@ -581,7 +588,11 @@ yardmaster):
 					for _, gr := range grantedTo(grants, store.Grantee{Group: g.Name}) {
 						calls = append(calls, gr.Source+": "+words(gr))
 					}
-					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
+					limit := strconv.Itoa(g.Limit)
+					if g.Limit == 0 {
+						limit = "0 (paused)"
+					}
+					rows = append(rows, []string{g.Name, g.Runner, limit, or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
 				}
 				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
 			})
@@ -724,6 +735,7 @@ It prints each setting changed, as it was and as it is. The value of a key
 named like a secret (token, secret, password, key) is not printed.`,
 		Example: `  yardr group set webapp/builders model=opus
   yardr group set webapp/builders --limit 3
+  yardr group set webapp/builders --limit 0   # pause: nothing new starts; set back to resume
   yardr group set webapp/builders 'args=["--permission-mode","auto"]' --unset idle
   yardr group set approvers --members mckean,yardmaster`,
 		Args: cobra.MinimumNArgs(1),
@@ -777,7 +789,7 @@ named like a secret (token, secret, password, key) is not printed.`,
 	}
 	f := cmd.Flags()
 	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
-	f.IntVar(&limit, "limit", 0, "max concurrent sessions; for a peer group, how many beads may be at that yard at once")
+	f.IntVar(&limit, "limit", 0, "max concurrent sessions (0 pauses the group); for a peer group, how many beads may be at that yard at once")
 	f.StringSliceVar(&members, "members", nil, "manual groups: actors who may move a bead out of its stages; replaces the list, so name every member wanted (empty: anyone)")
 	return cmd
 }

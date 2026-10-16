@@ -294,6 +294,42 @@ func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
 	}
 }
 
+// A bead behind a paused group names the pause instead of a count: there
+// are no slots to count against.
+func TestReadyWaitingNamesAPausedGroup(t *testing.T) {
+	a, st, ran := quotaCLI(t)
+	ctx := context.Background()
+	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	zero := 0
+	if _, err := st.SetGroup(ctx, "g", store.GroupEdit{Limit: &zero}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bead, err := st.CreateBead(ctx, store.NewBead{Title: "behind", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "waits for g (paused) by route " + r.ID + " (priority 0)"
+	out, err := run(t, a.readyCmd(), "--waiting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantOut := bead.ID + "  new  " + want + "\n"; out != wantOut {
+		t.Fatalf("ready --waiting = %q, want %q", out, wantOut)
+	}
+	if out, err := run(t, a.beadCmd(), "show", bead.ID); err != nil || !strings.Contains(out, "\n  "+want+"\n") {
+		t.Fatalf("bead show misses the group line %q: %v\n%s", want, err, out)
+	}
+	if ran() {
+		t.Error("ready --waiting ran the limits command")
+	}
+}
+
 // A bead behind a full group whose stored wait says a quota holds it
 // shows that too, in the same line, from the stored event: nothing is
 // asked of the provider.

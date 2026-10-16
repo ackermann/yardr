@@ -112,15 +112,17 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 }
 
 // putGroup is PutGroup in a transaction: g is stored as it is given but for
-// its subscriptions, which are the stored group's. Its config is held to
-// ConfigKeys here, whoever writes it (the CLI, the group form, a pack); a
-// key the stored group has already, with the same value, is kept unasked.
+// its subscriptions, which are the stored group's, and a limit of 0 on a
+// new group, which is the default 1. A negative limit is refused. Its
+// config is held to ConfigKeys here, whoever writes it (the CLI, the group
+// form, a pack); a key the stored group has already, with the same value,
+// is kept unasked.
 func putGroup(w *wtx, g *Group, actor string) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
 	}
-	if g.Limit < 1 {
-		g.Limit = 1
+	if g.Limit < 0 {
+		return fmt.Errorf("group %s: a limit is 0 or more", g.Name)
 	}
 	g.Members = dedupeOrdered(g.Members)
 	if len(g.Members) > 0 && g.Runner != "manual" {
@@ -130,6 +132,11 @@ func putGroup(w *wtx, g *Group, actor string) error {
 	replaced, err := get(w.Tx, bGroups, g.Name, &old)
 	if err != nil {
 		return err
+	}
+	if g.Limit == 0 && !replaced {
+		// 0 is no limit named for a group that is new: it starts with
+		// one session, as before. 0 on a group that exists pauses it.
+		g.Limit = 1
 	}
 	if g.Name == RouteWait && !replaced {
 		return fmt.Errorf("group wait: wait ends a route (--else wait), so no group takes the name")
@@ -191,8 +198,8 @@ type GroupChange struct {
 // pane the write is recorded as that session's actor or that crew member,
 // whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor string) (*GroupChange, error) {
-	if e.Limit != nil && *e.Limit < 1 {
-		return nil, fmt.Errorf("group %s: a limit is at least 1", name)
+	if e.Limit != nil && *e.Limit < 0 {
+		return nil, fmt.Errorf("group %s: a limit is 0 or more", name)
 	}
 	var ch *GroupChange
 	err := s.write(func(w *wtx) error {
@@ -1602,6 +1609,8 @@ func fillLiveSessions(tx *bolt.Tx) error {
 // It returns ErrTaken if the bead is missing, owned, in another stage, or
 // blocked or held: anything that changed since the caller read it; and
 // ErrAtLimit if the group already has as many live sessions as its limit.
+// A group at limit 0 is paused: every claim is refused, while its live
+// sessions run on.
 //
 // via is how the dispatcher came to the group, for the claimed event: the
 // route's id (`route`), the groups the route passed over with why
@@ -1640,8 +1649,8 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 		// The live index answers it without reading the sessions that ended.
 		live := len(keys(w.Tx, bSessLive, group+"\x00"))
 		s.sessionReads.Add(int64(live))
-		if live >= max(g.Limit, 1) {
-			return fmt.Errorf("group %s runs %d of %d: %w", group, live, max(g.Limit, 1), ErrAtLimit)
+		if live >= g.Limit {
+			return fmt.Errorf("group %s runs %d of %d: %w", group, live, g.Limit, ErrAtLimit)
 		}
 		// The session keeps the kind and model it starts with, as the group
 		// has them now: the group's config, and for a herdr group without a

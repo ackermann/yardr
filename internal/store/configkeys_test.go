@@ -252,6 +252,8 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_jwt_users: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                              {"web_jwt_users", "a@b.example=a b"},
 		`web_jwt_users: email "A@B.EXAMPLE" twice`:                                                                          {"web_jwt_users", "a@b.example=jo,A@B.EXAMPLE=ann"},
 		`timer_limit "0": a whole number, 1 or more`:                                                                        {"timer_limit", "0"},
+		`max_sessions "-1": a whole number, 0 or more`:                                                                      {"max_sessions", "-1"},
+		`max_sessions "many": a whole number, 0 or more`:                                                                    {"max_sessions", "many"},
 		`files_max is answered by the yard and not set`:                                                                     {"files_max", "32"},
 		`default_pack "packs/x": a directory is given as an absolute path`:                                                  {"default_pack", "packs/x"},
 		`yard name "a b"`: {"name", "a b"},
@@ -267,7 +269,7 @@ func TestStoreChecksSettings(t *testing.T) {
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
 		"web_as": "jo", "web_jwt_issuer": "https://team.cloudflareaccess.com", "web_jwt_audience": "aud-tag",
 		"web_jwt_jwks": "https://team.cloudflareaccess.com/cdn-cgi/access/certs", "web_jwt_header": "Authorization",
-		"web_jwt_users": "mckean@example.net=mckean, Jo@Example.NET=jo"} {
+		"web_jwt_users": "mckean@example.net=mckean, Jo@Example.NET=jo", "max_sessions": "0"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}
@@ -334,6 +336,27 @@ func TestStoreChecksSettings(t *testing.T) {
 	note, _ := store.SettingOf("operator_note")
 	if v, from := note.Effective(nil); v != "" || from != "" {
 		t.Errorf("unset operator_note = %q from %q", v, from)
+	}
+}
+
+// MaxSessions reads the setting as the dispatcher holds it: unset caps
+// nothing, "0" caps everything (paused), and a number caps at it.
+func TestMaxSessions(t *testing.T) {
+	for _, tc := range []struct {
+		settings map[string]string
+		max      int
+		capped   bool
+	}{
+		{nil, 0, false},
+		{map[string]string{}, 0, false},
+		{map[string]string{store.MaxSessionsSetting: "0"}, 0, true},
+		{map[string]string{store.MaxSessionsSetting: "1"}, 1, true},
+		{map[string]string{store.MaxSessionsSetting: "4"}, 4, true},
+	} {
+		if max, capped := store.MaxSessions(tc.settings); max != tc.max || capped != tc.capped {
+			t.Errorf("MaxSessions(%v) = (%d, %v), want (%d, %v)",
+				tc.settings, max, capped, tc.max, tc.capped)
+		}
 	}
 }
 

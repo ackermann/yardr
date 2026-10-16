@@ -67,13 +67,14 @@ func TestMaxSessionsCapsAcrossGroups(t *testing.T) {
 }
 
 // A session that ends frees its place, and a bead that waited for the cap
-// starts then; unset and 0 cap nothing, as before the setting.
+// starts then; unset caps nothing, as before the setting. 0 pauses instead
+// (TestMaxSessionsZeroPauses).
 func TestMaxSessionsFreedAndUnset(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name, value string
 		first       int
-	}{{"set", "1", 1}, {"zero", "0", 3}, {"unset", "", 3}} {
+	}{{"set", "1", 1}, {"unset", "", 3}} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, f, d := setup(t)
 			ctx := context.Background()

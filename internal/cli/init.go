@@ -1363,8 +1363,9 @@ all groups: what the machine carries, beside each group's limit. A session
 that starts an agent or a script counts (a herdr or an exec group's); a
 manual group's claim, a peer group's wait and the crew do not. A bead that
 waits for it gets one capped event. The daemon reads it on every pass, so a
-change holds at once; unset or 0, nothing is capped. yardr status shows it
-with how many run.
+change holds at once; unset, nothing is capped. 0 pauses the yard: nothing
+new starts until it is raised, while live sessions run on. yardr status
+shows it with how many run, or that the yard is paused.
 
 backup_every has the daemon keep dated copies of the store: a duration such
 as 1d, and unset or 0, never. It makes one when the newest is older than

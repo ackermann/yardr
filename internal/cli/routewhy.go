@@ -137,7 +137,8 @@ type groupWait struct {
 }
 
 // line is the wait for a person: "waits for builders (2 of 2) by route
-// k2abc (label difficulty:1, priority 1)".
+// k2abc (label difficulty:1, priority 1)", or "(paused)" where the group's
+// limit is 0.
 func (w *groupWait) line() string {
 	if w == nil {
 		return ""
@@ -146,8 +147,12 @@ func (w *groupWait) line() string {
 	if w.Match != "" {
 		by = w.Match + ", " + by
 	}
-	s := fmt.Sprintf("waits for %s (%d of %d) by route %s (%s)",
-		w.Group, w.Active, w.Limit, w.Route, by)
+	slots := fmt.Sprintf("%d of %d", w.Active, w.Limit)
+	if w.Limit == 0 {
+		slots = "paused"
+	}
+	s := fmt.Sprintf("waits for %s (%s) by route %s (%s)",
+		w.Group, slots, w.Route, by)
 	if w.Quota != "" {
 		s += "; quota: " + w.Quota
 	}

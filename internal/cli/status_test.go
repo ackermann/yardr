@@ -468,7 +468,26 @@ func TestStatusWorkLine(t *testing.T) {
 			t.Fatalf("err = %v\n%s", err, out)
 		}
 		wantText(t, out, "work       2 sessions running (builders 2), 2 of max_sessions 4; 1 bead waits for a person (backlog 1); 0 held\n")
-		if w := statusJSON(t, a()).Work; w == nil || w.MaxSessions != 4 || w.Counted != 2 {
+		if w := statusJSON(t, a()).Work; w == nil || w.MaxSessions == nil || *w.MaxSessions != 4 || w.Counted != 2 {
+			t.Errorf("json: %+v", w)
+		}
+	})
+	// max_sessions 0 pauses the yard: the line names the pause instead of
+	// counting against it, and the setting stays present in json.
+	t.Run("max_sessions 0", func(t *testing.T) {
+		_, st, a := statusYard(t, "abcdef123456")
+		depot := gitDepot(t, st)
+		commitDepot(t, depot)
+		workYard(t, st, depot.Name, []store.Group{builders, backlog}, "builders", "builders", "backlog")
+		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "0", "Jo"); err != nil {
+			t.Fatal(err)
+		}
+		out, err := run(t, a().rootCmd(), "status")
+		if err != nil {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		wantText(t, out, "work       2 sessions running (builders 2), max_sessions 0 (paused); 1 bead waits for a person (backlog 1); 0 held\n")
+		if w := statusJSON(t, a()).Work; w == nil || w.MaxSessions == nil || *w.MaxSessions != 0 || w.Counted != 2 {
 			t.Errorf("json: %+v", w)
 		}
 	})

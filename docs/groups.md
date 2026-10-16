@@ -801,7 +801,7 @@ carries:
 
 ```sh
 yardr settings set max_sessions 4
-yardr settings set max_sessions ""    # no cap, as is 0
+yardr settings set max_sessions ""    # no cap
 ```
 
 The daemon checks it beside the group's limit before it starts a session:
@@ -827,6 +827,35 @@ The setting is read on every pass of the daemon, so raising it starts the
 beads that wait on the next pass. `yardr status` shows it on its `work`
 line, with how many sessions count against it:
 `3 sessions running (web/assembly 1, web/builders 2), 3 of max_sessions 4`.
+
+### Pausing the yard
+
+A limit of 0 pauses. A group with limit 0 starts no new session, and
+`max_sessions` 0 starts none anywhere on the machine, whatever runs.
+Sessions already running finish their stage as usual; nothing is stopped
+or killed. To pause and resume is to set the limit to 0, then back to what
+it was:
+
+```sh
+yardr group set webapp/builders --limit 0   # pause one group
+yardr group set webapp/builders --limit 2   # resume it with its old limit
+yardr settings set max_sessions 0           # pause the whole yard
+yardr settings set max_sessions 4           # resume it
+```
+
+0 means none: there is no special value for "no cap". An unset
+`max_sessions` caps nothing, and a group that should never bind gets a
+large number. A new group starts with limit 1; it is paused after, with
+`yardr group set`.
+
+A bead a paused yard alone keeps from starting gets one `capped` event
+whose reason names the pause, as a bead the cap binds gets one; a bead that
+waits for its own paused group gets none, as a bead at its group's limit
+gets none. `yardr status` shows a paused yard on its `work` line
+(`2 sessions running (builders 2), max_sessions 0 (paused)`), `yardr group
+list` shows a paused group as `0 (paused)`, and `yardr bead show` says such
+a bead `waits for builders (paused)`. The crew keeps running under a pause:
+crew members do not count toward `max_sessions`.
 
 ### A bead that waits long
 

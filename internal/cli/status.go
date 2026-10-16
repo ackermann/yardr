@@ -120,11 +120,12 @@ type workCounts struct {
 	// person's turn, with no process behind the claim.
 	Waiting map[string]int `json:"waiting"`
 	Held    int            `json:"held"`
-	// MaxSessions is the yard's max_sessions setting, absent while it
-	// caps nothing, and Counted how many of Sessions it counts: those
-	// that run on this machine, which a peer group's do not.
-	MaxSessions int `json:"max_sessions,omitempty"`
-	Counted     int `json:"counted"`
+	// MaxSessions is the yard's max_sessions setting, absent while it is
+	// unset, and Counted how many of Sessions it counts: those that run
+	// on this machine, which a peer group's do not. 0 pauses the yard:
+	// nothing new starts.
+	MaxSessions *int `json:"max_sessions,omitempty"`
+	Counted     int  `json:"counted"`
 }
 
 // backupStatus is what the yard's settings ask the daemon to keep of the
@@ -204,7 +205,7 @@ func (a *app) statusCmd() *cobra.Command {
   work       how many sessions run in each group, how many beads wait for
              a person in each manual group, and how many beads are held;
              with max_sessions set (yardr settings), how many of the
-             sessions count against it
+             sessions count against it, or that the yard is paused at 0
   backups    how often the daemon copies the store, how many dated copies it
              keeps and where (the settings backup_every, backup_keep and
              backup_dir), and when the last was made; or that none is kept
@@ -360,7 +361,9 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			rep.Work.Counted++
 		}
 	}
-	rep.Work.MaxSessions = store.MaxSessions(all)
+	if n, capped := store.MaxSessions(all); capped {
+		rep.Work.MaxSessions = &n
+	}
 	rep.Backups = readBackups(all, cfg.Home)
 	return rep, nil
 }
@@ -549,8 +552,12 @@ func (r *statusReport) parts() []statusPart {
 	if w := r.Work; w != nil {
 		n, groups := byGroup(w.Sessions)
 		line := plural(n, "session") + " running" + groups
-		if w.MaxSessions > 0 {
-			line += fmt.Sprintf(", %d of max_sessions %d", w.Counted, w.MaxSessions)
+		if w.MaxSessions != nil {
+			if *w.MaxSessions == 0 {
+				line += ", max_sessions 0 (paused)"
+			} else {
+				line += fmt.Sprintf(", %d of max_sessions %d", w.Counted, *w.MaxSessions)
+			}
 		}
 		// A manual group's claim is a person's turn; a yard with none
 		// has nothing to say about it.

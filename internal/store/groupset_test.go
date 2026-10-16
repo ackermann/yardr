@@ -55,12 +55,12 @@ func TestSetGroupKeepsTheRest(t *testing.T) {
 	}
 
 	// Refused, and nothing written: no group, a key that is not there, a
-	// limit under 1, and what PutGroup refuses of the result.
-	zero := 0
+	// negative limit, and what PutGroup refuses of the result.
+	neg := -1
 	members := []string{"jo"}
 	for want, e := range map[string]store.GroupEdit{
 		"--unset kind: builders has no such setting (it has: args, model)": {Unset: []string{"kind"}},
-		"a limit is at least 1":              {Limit: &zero},
+		"a limit is 0 or more":               {Limit: &neg},
 		"members are only for manual groups": {Members: &members},
 	} {
 		if _, err := s.SetGroup(ctx, "builders", e, "ada"); err == nil || !strings.Contains(err.Error(), want) {
@@ -81,5 +81,61 @@ func TestSetGroupKeepsTheRest(t *testing.T) {
 	must(err)
 	if strings.Join(ch.Is.Members, ",") != "ada,jo" || ch.Is.Config["notify"] != true {
 		t.Fatalf("members set: %+v", ch.Is)
+	}
+}
+
+// A limit of 0 pauses: SetGroup stores it, PutGroup keeps it on a group
+// that exists, and every claim is refused while the group's live session
+// runs on and its bead advances. A new group that names no limit still
+// starts with 1, and a negative limit is refused everywhere.
+func TestGroupLimitZeroPauses(t *testing.T) {
+	s, ctx := flowDepot(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A new group that names no limit starts with one session, as before.
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"))
+	if g, err := s.GetGroup(ctx, "builders"); err != nil || g.Limit != 1 {
+		t.Fatalf("new group = %+v, %v; want limit 1", g, err)
+	}
+	// A negative limit is refused, not floored.
+	if err := s.PutGroup(ctx, store.Group{Name: "bad", Runner: "herdr", Limit: -1}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "a limit is 0 or more") {
+		t.Fatalf("PutGroup with limit -1 = %v", err)
+	}
+	if _, err := s.GetGroup(ctx, "bad"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused group was stored: %v", err)
+	}
+
+	b1, err := s.CreateBead(ctx, store.NewBead{Title: "one", Depot: "yard", Stage: "new"}, "jo")
+	must(err)
+	if _, err := s.Claim(ctx, b1.ID, "builders", "new", "yard"); err != nil {
+		t.Fatalf("claim at limit 1: %v", err)
+	}
+	// Pause: 0 is stored, and the next claim is refused.
+	zero := 0
+	ch, err := s.SetGroup(ctx, "builders", store.GroupEdit{Limit: &zero}, "jo")
+	must(err)
+	if ch.Is.Limit != 0 {
+		t.Fatalf("limit 0: %+v", ch.Is)
+	}
+	b2, err := s.CreateBead(ctx, store.NewBead{Title: "two", Depot: "yard", Stage: "new"}, "jo")
+	must(err)
+	if _, err := s.Claim(ctx, b2.ID, "builders", "new", "yard"); !errors.Is(err, store.ErrAtLimit) {
+		t.Fatalf("claim on a paused group = %v, want ErrAtLimit", err)
+	}
+	// Put back whole, as a role switch writes it: the pause stays.
+	g, err := s.GetGroup(ctx, "builders")
+	must(err)
+	must(s.PutGroup(ctx, *g, "jo"))
+	if g, err := s.GetGroup(ctx, "builders"); err != nil || g.Limit != 0 {
+		t.Fatalf("after PutGroup: %+v, %v; want the pause kept", g, err)
+	}
+	// The live session runs on: its bead advances.
+	if _, err := s.Advance(ctx, b1.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatalf("advance of the running bead: %v", err)
 	}
 }
