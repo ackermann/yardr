@@ -76,10 +76,10 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 			plain = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := r.ID + " new - default - - - 0 a@Weekly<80,5h<90 else b"; row != want {
+	if want := r.ID + " default new - - - - 0 a@Weekly<80,5h<90 else b"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
-	if !strings.HasSuffix(plain, " review - default - - any 0 people") {
+	if !strings.HasSuffix(plain, " default review - - - any 0 people") {
 		t.Errorf("a route with one group lists as %q, want its group alone", plain)
 	}
 	if out, err := run(t, a.groupCmd(), "show", "b"); err != nil || !strings.Contains(out, r.ID) {

@@ -57,7 +57,7 @@ func TestRouteAddTakesOriginator(t *testing.T) {
 			row = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := id + " new - default - - hal 0 hal-builders"; row != want {
+	if want := id + " default new - - - hal 0 hal-builders"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
 	out, err = run(t, a.groupCmd(), "show", "hal-builders")

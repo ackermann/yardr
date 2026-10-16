@@ -849,11 +849,12 @@ func marginText(margin float64) string {
 	return ""
 }
 
-// routeEvent is a route as route_added and route_removed carry it: its id
-// and what it matches, the filters it does not set left out. `group` is
-// the first group, as it always was; `groups` is all of them with their
-// conditions, for a route that names more than a group. `label` and
-// `labels` are the same for a route that asks for more than a label.
+// routeEvent is a route as route_added, route_removed and each half of
+// route_set carry it: its id and what it matches, the filters it does
+// not set left out. `group` is the first group, as it always was;
+// `groups` is all of them with their conditions, for a route that names
+// more than a group. `label` and `labels` are the same for a route that
+// asks for more than a label.
 func routeEvent(r Route) map[string]any {
 	data := map[string]any{"id": r.ID, "stage": r.Stage, "group": r.Worker(), "priority": r.Priority}
 	if r.Quotaed() {
@@ -918,41 +919,8 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 			return err
 		}
 		actor = resolved
-		var first Group
-		gs := r.Groups()
-		runners := make(map[string]string, len(gs))
-		for i, rg := range gs {
-			if rg.Name == RouteWait {
-				switch {
-				case i == 0:
-					return fmt.Errorf("wait ends a route (--else wait): it is not a group to send to")
-				case rg.When != "":
-					return fmt.Errorf("wait takes no condition: it ends the route, and the bead waits")
-				case i != len(gs)-1:
-					return fmt.Errorf("nothing is tried after wait: it ends the route")
-				}
-				continue
-			}
-			var g Group
-			if ok, err := get(w.Tx, bGroups, rg.Name, &g); err != nil {
-				return err
-			} else if !ok {
-				return fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
-			}
-			if i == 0 {
-				first = g
-			}
-			runners[rg.Name] = g.Runner
-			if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
-				return fmt.Errorf("group %s is named twice", rg.Name)
-			}
-			if rg.When != "" {
-				if _, err := ParseQuota(rg.When); err != nil {
-					return fmt.Errorf("group %s: %w", rg.Name, err)
-				}
-			}
-		}
-		if err := quotaGroupsOK(r, runners); err != nil {
+		first, err := checkRouteGroups(w.Tx, r)
+		if err != nil {
 			return err
 		}
 		if r.Depot != nil && w.Bucket(bDepots).Get([]byte(*r.Depot)) == nil {
@@ -971,7 +939,7 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		if err != nil {
 			return err
 		}
-		if err := checkRouteTie(w.Tx, r, operator); err != nil {
+		if err := checkRouteTie(w.Tx, r, operator, "add"); err != nil {
 			return err
 		}
 		r.ID = newEdgeID()
@@ -984,6 +952,150 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		return nil, err
 	}
 	return &r, nil
+}
+
+// checkRouteGroups holds the groups of r, a route AddRoute adds or SetRoute
+// sets, to what a route's groups must be: every group named exists and is
+// named once, wait ends the route and takes nothing after it, each
+// condition parses, and a chain or condition names only groups that start
+// agents (quotaGroupsOK). It returns the first group, whose runner says
+// whether a route without an originator takes every originator's
+// (AddRoute).
+func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
+	var first Group
+	gs := r.Groups()
+	runners := make(map[string]string, len(gs))
+	for i, rg := range gs {
+		if rg.Name == RouteWait {
+			switch {
+			case i == 0:
+				return Group{}, fmt.Errorf("wait ends a route (--else wait): it is not a group to send to")
+			case rg.When != "":
+				return Group{}, fmt.Errorf("wait takes no condition: it ends the route, and the bead waits")
+			case i != len(gs)-1:
+				return Group{}, fmt.Errorf("nothing is tried after wait: it ends the route")
+			}
+			continue
+		}
+		var g Group
+		if ok, err := get(tx, bGroups, rg.Name, &g); err != nil {
+			return Group{}, err
+		} else if !ok {
+			return Group{}, fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
+		}
+		if i == 0 {
+			first = g
+		}
+		runners[rg.Name] = g.Runner
+		if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
+			return Group{}, fmt.Errorf("group %s is named twice", rg.Name)
+		}
+		if rg.When != "" {
+			if _, err := ParseQuota(rg.When); err != nil {
+				return Group{}, fmt.Errorf("group %s: %w", rg.Name, err)
+			}
+		}
+	}
+	if err := quotaGroupsOK(r, runners); err != nil {
+		return Group{}, err
+	}
+	return first, nil
+}
+
+// RouteEdit is what SetRoute changes of a route: the first group (Group,
+// with its condition), the further groups (Else, replacing the route's; an
+// empty list drops them), the Priority and the Note. What it does not name
+// is kept. Which beads the route takes — its stage, type, depot, labels,
+// bead priority and originator — is not changed here: that is a different
+// route, removed and added anew.
+type RouteEdit struct {
+	Group    *RouteGroup   `json:"group,omitempty"`
+	Else     *[]RouteGroup `json:"else,omitempty"`
+	Priority *int          `json:"priority,omitempty"`
+	Note     *string       `json:"note,omitempty"`
+}
+
+// RouteChange is a route as SetRoute found it and as it left it.
+type RouteChange struct {
+	Was Route `json:"was"`
+	Is  Route `json:"is"`
+}
+
+// SetRoute changes what e names of the route id and keeps the rest, in one
+// transaction, and keeps its id: a retune of where the route's beads go,
+// not of which beads they are. The groups are held to what AddRoute holds
+// them to, and a set that would tie a route of the same scope already
+// standing is refused as an add is (checkRouteTie). A route that is so
+// already is not written and logs nothing; one that changes logs route_set
+// with the route as it was and as it is. A bead claimed through the route
+// keeps its group until its session ends; the new chain serves the next
+// claim. Adding a route's rule is the set's: from a session's or a crew
+// member's pane the write is recorded as that session's actor or that crew
+// member, whatever actor says; from anywhere else, as given (paneAuthor).
+func (s *Store) SetRoute(ctx context.Context, id string, e RouteEdit, actor string) (*RouteChange, error) {
+	var ch *RouteChange
+	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
+		ch = new(RouteChange)
+		if ok, err := get(w.Tx, bRoutes, id, &ch.Was); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("route %s: %w", id, ErrNotFound)
+		}
+		// Read again, not copied: the two share no slice.
+		if _, err := get(w.Tx, bRoutes, id, &ch.Is); err != nil {
+			return err
+		}
+		r := &ch.Is
+		if e.Group != nil {
+			r.Group, r.When = e.Group.Name, e.Group.When
+		}
+		if e.Else != nil {
+			r.Else = slices.Clone(*e.Else)
+			if len(r.Else) == 0 {
+				r.Else = nil
+			}
+		}
+		if e.Priority != nil {
+			r.Priority = *e.Priority
+		}
+		if e.Note != nil {
+			r.Note = *e.Note
+		}
+		// Compared as stored, as SetGroup compares.
+		was, err := json.Marshal(ch.Was)
+		if err != nil {
+			return err
+		}
+		if is, err := json.Marshal(r); err != nil {
+			return err
+		} else if bytes.Equal(was, is) {
+			ch.Is = ch.Was
+			return nil
+		}
+		if _, err := checkRouteGroups(w.Tx, *r); err != nil {
+			return err
+		}
+		operator, err := operatorIn(w.Tx)
+		if err != nil {
+			return err
+		}
+		if err := checkRouteTie(w.Tx, *r, operator, "set"); err != nil {
+			return err
+		}
+		if err := put(w.Tx, bRoutes, id, *r); err != nil {
+			return err
+		}
+		return w.event("", "route_set", actor, map[string]any{"was": routeEvent(ch.Was), "is": routeEvent(*r)})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ch, nil
 }
 
 // sameScope reports whether a and b stand in one scope: both yard
@@ -1037,11 +1149,18 @@ func describeKey(r Route, operator string) string {
 // chain is the same route. A route of another scope, another key or
 // another priority stands: whether two routes of different keys ever
 // meet depends on beads not yet made, and they are ranked in the open
-// (priority, specificity, own before default, then id).
-func checkRouteTie(tx *bolt.Tx, r Route, operator string) error {
+// (priority, specificity, own before default, then id). op is the write
+// refused, "add" or "set", as the refusal names it: a set never changes
+// the filters, so its guidance names the priority alone.
+func checkRouteTie(tx *bolt.Tx, r Route, operator, op string) error {
 	key := r.matchKey(operator)
 	var tie *Route
 	if err := each(tx, bRoutes, "", func(_ []byte, o *Route) error {
+		// The route itself under SetRoute: an add's route has no id yet,
+		// and no stored route has none, so this skips nothing for an add.
+		if o.ID == r.ID {
+			return nil
+		}
 		if tie != nil || o.Priority != r.Priority || !sameScope(*o, r) || o.matchKey(operator) != key {
 			return nil
 		}
@@ -1062,13 +1181,16 @@ func checkRouteTie(tx *bolt.Tx, r Route, operator string) error {
 		tie.ID, scope, tie.Priority, describeKey(*tie, operator), tie.GroupList())
 	if sameChain(*tie, r) {
 		if tie.Note == r.Note {
-			return fmt.Errorf("%s: the same route; no add is needed", base)
+			return fmt.Errorf("%s: the same route; no %s is needed", base, op)
 		}
-		return fmt.Errorf("%s: the same route's note differs. An operator or yardmaster can replace it with `yardr route rm %s`; then retry this add",
-			base, tie.ID)
+		return fmt.Errorf("%s: the same route's note differs. An operator or yardmaster can replace it with `yardr route rm %s`; then retry this %s",
+			base, tie.ID, op)
 	}
-	return fmt.Errorf("%s. Two routes that take the same beads at the same priority are ordered by id, which nobody chose. "+
-		"Change the new route's priority or filters, or have an operator or yardmaster remove the standing route with `yardr route rm %s` before retrying this add",
+	fix := "Change the new route's priority or filters, or have an operator or yardmaster remove the standing route with `yardr route rm %s` before retrying this add"
+	if op == "set" {
+		fix = "Change the route's priority, or have an operator or yardmaster remove the standing route with `yardr route rm %s` before retrying this set"
+	}
+	return fmt.Errorf("%s. Two routes that take the same beads at the same priority are ordered by id, which nobody chose. "+fix,
 		base, tie.ID)
 }
 
@@ -1349,6 +1471,45 @@ func EffectiveRoutes(routes []Route, depot *string, operator string) []Route {
 			out = append(out, r)
 		case r.Depot == nil && !own[r.matchKey(operator)]:
 			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// SetAside is a yard default a depot's own routes set aside there: the
+// default, and the depot's own route that states its match key (Own),
+// the highest-ranked where several own routes state it.
+type SetAside struct {
+	Route Route `json:"route"`
+	Own   Route `json:"own"`
+}
+
+// SetAsideRoutes are the yard defaults the depot's own routes set aside:
+// every default whose match key an own route of the depot states, with
+// the own route that states it. A depot that states nothing sets nothing
+// aside. routes is the yard's routes in any order; the result keeps their
+// order.
+func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
+	setter := map[routeKey]Route{}
+	for _, r := range routes {
+		if r.Depot == nil || *r.Depot != depot {
+			continue
+		}
+		k := r.matchKey(operator)
+		// Same key, so as specific as each other: the ranking is the
+		// priority, then the id, as SortRoutes ranks.
+		if s, ok := setter[k]; !ok || r.Priority > s.Priority ||
+			(r.Priority == s.Priority && r.ID < s.ID) {
+			setter[k] = r
+		}
+	}
+	var out []SetAside
+	for _, r := range routes {
+		if r.Depot != nil {
+			continue
+		}
+		if s, ok := setter[r.matchKey(operator)]; ok {
+			out = append(out, SetAside{Route: r, Own: s})
 		}
 	}
 	return out

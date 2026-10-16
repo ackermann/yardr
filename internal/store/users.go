@@ -220,9 +220,10 @@ func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass
 
 // operatorOrYardmaster passes the operator's call (notOperator) or the
 // crew member's the yardmaster setting names, and refuses anyone else in
-// words naming both. Only DeleteRoute reads it: a route has no update,
-// so changing one is rm plus add, and the yardmaster that may add the new
-// route may remove the old one, instead of leaving duplicates behind.
+// words naming both. Only DeleteRoute reads it: changing where a route's
+// beads go is route set, which anyone may do, and restating which beads
+// they are is rm plus add, so the yardmaster that may add the new route
+// may remove the old one, instead of leaving duplicates behind.
 // ask marks whether a run ask may propose it, as with operatorOnly.
 func operatorOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
 	operator, _, err := notOperator(ctx, tx, actor)

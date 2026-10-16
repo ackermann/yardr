@@ -78,11 +78,11 @@ func TestRouteAddTakesSeveralLabelsAndABeadPriority(t *testing.T) {
 		rows = append(rows, strings.Join(strings.Fields(line), " "))
 	}
 	want := []string{
-		"ID STAGE TYPE DEPOT LABEL BEADS ORIGINATOR PRI GROUP",
-		ids["urgent"] + " new - default - P0-P1 any 5 people",
-		ids["two"] + " new - default difficulty:3, size:large - - 0 b",
-		ids["one"] + " new - default difficulty:3 - - 0 a",
-		ids["plain"] + " new - default - - - 0 a",
+		"ID SCOPE STAGE TYPE LABEL BEADS ORIGINATOR PRI GROUP NOTE",
+		ids["urgent"] + " default new - - P0-P1 any 5 people",
+		ids["two"] + " default new - difficulty:3, size:large - - 0 b",
+		ids["one"] + " default new - difficulty:3 - - 0 a",
+		ids["plain"] + " default new - - - - 0 a",
 	}
 	if strings.Join(rows, "\n") != strings.Join(want, "\n") {
 		t.Errorf("route list =\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))

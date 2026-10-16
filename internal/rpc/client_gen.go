@@ -225,6 +225,9 @@ func (c *Client) DeleteGroup(ctx context.Context, name, actor string) (int, erro
 func (c *Client) AddRoute(ctx context.Context, r store.Route, actor string) (*store.Route, error) {
 	return callV[*store.Route](c, ctx, "AddRoute", r, actor)
 }
+func (c *Client) SetRoute(ctx context.Context, id string, e store.RouteEdit, actor string) (*store.RouteChange, error) {
+	return callV[*store.RouteChange](c, ctx, "SetRoute", id, e, actor)
+}
 func (c *Client) Routes(ctx context.Context) ([]store.Route, error) {
 	return callV[[]store.Route](c, ctx, "Routes")
 }

@@ -15,6 +15,7 @@ change:
 | `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
 | `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)); `note` where the route carries one |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
+| `route_set` | `route set` | `was`, `is`: the route's fields as `route_added` carries them, before and after |
 
 Removing a group or a route that is not there logs nothing. A depot's routes
 that go with `yardr depot rm` are named by its `depot_removed`.
@@ -136,8 +137,9 @@ only in that depot; an own route with any other key leaves every default
 in place, so the yard's `difficulty:3` route in `new` keeps taking hard
 beads in a depot that routes its plain `new` beads itself, until that
 depot states `new` with the label `difficulty:3` for itself. A bead with
-no depot has the defaults alone. `yardr route list` prints a default's
-depot as `default`.
+no depot has the defaults alone. `yardr route list` prints the scope in
+the column `SCOPE`: the depot's name for its own routes, `default` for a
+yard default. The note is the column `NOTE`.
 
 Of the routes that match a bead, in its depot's effective routes (its
 own routes plus the defaults none of them sets aside), the one with the
@@ -152,6 +154,10 @@ beads that is to win over a route for a label therefore needs a higher
 `--priority`, as in the example. `yardr route list` prints the routes in
 that order, the labels in the column `LABEL`, the bead priorities as
 `P0-P1` in the column `BEADS` and the originator in `ORIGINATOR`.
+`yardr route list --depot <depot>` lists that depot's effective routes
+in the same order, each marked `own` or `default`, with the defaults its
+own routes set aside named underneath, each with the own route that
+states its key.
 
 Adding a route that states the same key at the same priority as a route
 of the same scope already standing (two defaults, or two own routes of
@@ -170,6 +176,27 @@ the web view's flows) asks for a bead made with no label, no priority
 operator's; what is said of a bead (`yardr bead show`, a brief's
 outcomes, `yardr review`) is by that bead's labels, priority and
 originator, as the dispatcher reads them.
+
+## Changing a route
+
+`yardr route set <id>` changes where a route's beads go and keeps which
+beads they are: `--group` with its condition, the further groups with
+`--else`, `--priority` and `--note`. What is not named is kept, and the
+route keeps its id, so events and bead show lines that cite it still name
+this route. `--else` replaces the further groups, so every one wanted is
+named; `--else ''` drops them, and `--note ''` drops the note. A set that
+changes nothing writes nothing and logs nothing; one that changes
+something logs `route_set` with the route as it was and as it is. A set
+that would tie a route of the same scope already standing is refused, as
+an add is. A bead claimed through the route keeps its group until its
+session ends; the next claim takes the new chain. Anyone may set a route,
+as anyone may add one, and the write is recorded as the pane-resolved
+actor.
+
+The stage, type, depot, labels, bead priority and originator are the
+route's identity: changing them is removing one route and adding another
+(`yardr route rm <id>` and `yardr route add`), with the tie check and a
+new id honestly saying so.
 
 ## A route with further groups and quota conditions
 
