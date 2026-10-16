@@ -66,10 +66,10 @@ calls:
     about: Write a draft, never send one
     params:
       # The whole RFC 2822 message (From, To and Subject headers, a blank
-      # line, the body), base64url-encoded without padding. How to make
-      # one is in the pack's SETUP.md. At most a million characters,
+      # line, the body), base64url-encoded with or without padding. How to
+      # make one is in the pack's SETUP.md. At most a million characters,
       # about 750 KB of message, under Gmail's 35 MB.
-      raw: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 1000000 }
+      raw: { type: string, pattern: "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}(?:==)?|[A-Za-z0-9_-]{3}=?|[A-Za-z0-9_-]{4})$", max: 1000000 }
     request:
       method: POST
       path: /gmail/v1/users/me/drafts

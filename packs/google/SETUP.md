@@ -94,11 +94,11 @@ stored anywhere.
    yardr call google-mail search q="from:me" maxResults=5
    yardr call google-mail message id=<an id the search showed> format=metadata
    ```
-   A draft takes the whole RFC 2822 message, base64url-encoded without
-   padding: headers, a blank line, the body. The yard writes the draft;
+   A draft takes the whole RFC 2822 message, base64url-encoded, with or
+   without padding: headers, a blank line, the body. The yard writes the draft;
    the person presses send in Gmail:
    ```sh
-   raw=$(printf 'From: me\nTo: someone@example.com\nSubject: hello\n\nThe body.\n' | base64 | tr '+/' '-_' | tr -d '=')   # GNU base64 wraps: base64 -w0 there
+   raw=$(printf 'From: me\nTo: someone@example.com\nSubject: hello\n\nThe body.\n' | base64 | tr -d '=\n' | tr '+/' '-_')
    yardr call google-mail draft raw="$raw"
    ```
    A doc is an empty file the drive source makes, whose id the docs
