@@ -47,6 +47,13 @@ func page(t *testing.T) *httptest.Server {
 // script's own Chrome bound.
 const shotTimeout = time.Minute
 
+// shotLoadTimeout is the deadline the window-sized-PNG test gives a
+// loaded machine: ten seconds, twenty times a prompt Chrome's half a
+// second. Under load that test skips a Chrome that misses its deadline,
+// so the full minute would be spent only to skip (yardr-c2vt: 65-72 s
+// under -race on a loaded machine, 6 s quiet).
+const shotLoadTimeout = 10 * time.Second
+
 // shotCtx gives runShot its deadline: the tests never wait on the script
 // past a minute, whatever Chrome does.
 func shotCtx(t *testing.T) context.Context {
@@ -54,6 +61,16 @@ func shotCtx(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), shotTimeout)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+// windowTimeout is the deadline TestShotWritesAWindowSizedPNG gives the
+// shot: the full minute when quiet, short under load, where a stalled
+// Chrome skips instead of failing.
+func windowTimeout() time.Duration {
+	if underLoad() {
+		return shotLoadTimeout
+	}
+	return shotTimeout
 }
 
 // runShot runs the script with args and the environment added to its own.
@@ -363,21 +380,26 @@ func pngSize(t *testing.T, path string) (uint32, uint32) {
 
 // The shot itself, with real Chrome against the local page: a window-sized
 // PNG. A machine with no Chrome skips it; the stand-in test above proves
-// the flags there. A Chrome that misses its minute under load skips too,
-// with the reason: a slow machine is not a failure of the shot code.
+// the flags there. Under load the deadline is short and a Chrome that
+// misses it skips too, with the reason: a slow machine is not a failure
+// of the shot code, and the skip must not cost the full minute.
 func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
 	out := filepath.Join(t.TempDir(), "shot.png")
-	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out})
+	timeout := windowTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel)
+	rc, text := runShot(ctx, t, []string{s.URL + "/page", out},
+		"SHOT_TIMEOUT="+strconv.Itoa(int(timeout/time.Second)))
 	if rc != 0 && strings.Contains(text, "no headless Chrome") {
 		t.Skip("no headless Chrome: " + strings.TrimSpace(text))
 	}
 	if strings.Contains(text, "chrome did not finish within") {
 		if underLoad() {
-			t.Skip("chrome missed its minute under load: " + strings.TrimSpace(text))
+			t.Skip("chrome missed its deadline under load: " + strings.TrimSpace(text))
 		}
 		t.Fatalf("shot: exit %d: %s", rc, text)
 	}
@@ -387,6 +409,36 @@ func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if w, h := pngSize(t, out); w != 1280 || h != 800 {
 		t.Errorf("the shot is %dx%d, want 1280x800", w, h)
 	}
+}
+
+// Under load a Chrome that never answers must fail fast: the window-sized
+// test skips a stalled Chrome there, so its deadline is short, and the
+// package stays inside the 60 s budget (docs/testing.md R1). A sleeper
+// stands in for the stalled Chrome; the bound is three times the loaded
+// deadline, waited on, not slept for.
+func TestShotWindowTimeoutIsShortUnderLoad(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	t.Setenv("YARDR_LANDING", "1")
+	if !underLoad() {
+		t.Fatal("YARDR_LANDING=1 must read as under load")
+	}
+	s := page(t)
+	env, pids := sleeper(t, "chrome is warming up", false)
+	timeout := windowTimeout()
+	env = append(env, "SHOT_TIMEOUT="+strconv.Itoa(int(timeout/time.Second)))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel)
+	start := time.Now()
+	rc, text := runShot(ctx, t, []string{s.URL + "/page", filepath.Join(t.TempDir(), "shot.png")}, env...)
+	if rc == 0 || !strings.Contains(text, "chrome did not finish within") {
+		t.Fatalf("a Chrome past the loaded deadline: exit %d, %q, want a refusal naming the deadline", rc, text)
+	}
+	if dt := time.Since(start); dt > 3*shotLoadTimeout {
+		t.Errorf("the refusal took %s, want the loaded deadline of %s", dt.Round(time.Millisecond), timeout)
+	}
+	dead(t, pids)
 }
 
 // sleeper is a SHOT_CHROME that prints line and never finishes: it sleeps
