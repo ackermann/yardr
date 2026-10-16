@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
+	"yardr.dev/yardr/internal/store"
 )
 
 // errDaemonRunning is what a second daemon on the same home fails with.
@@ -67,7 +69,8 @@ func lockDaemon(path string, wait time.Duration) (unlock func(), err error) {
 }
 
 // homeCheck is how often the daemon looks whether its home is still its own.
-const homeCheck = config.HomeCheck
+// Tests shorten it.
+var homeCheck = config.HomeCheck
 
 // whileHomeStands returns a context that ends, with one line in the log,
 // when the daemon's home is gone or its lock file is no longer the one it
@@ -78,12 +81,17 @@ const homeCheck = config.HomeCheck
 // held already. release ends the watch.
 // A daemon a test starts stops the same way when the test process it was
 // told about (YARDR_TEST_OWNER) is gone, as the server does.
+//
+// The home watch ends the context with a homeGone cause (see
+// homeLostCause), so the daemon tells this end from a SIGTERM apart: on
+// this one it closes its herdr sessions first, on a SIGTERM it leaves
+// them for down or the daemon that takes them over.
 func whileHomeStands(ctx context.Context, cfg *config.Config, every time.Duration, log *slog.Logger) (context.Context, func(), error) {
 	held, err := cfg.Hold(cfg.DaemonLock())
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
 	gone := held.Watch(ctx, every)
 	owner, ownerStart, watched := config.TestOwner()
 	var ownerGone <-chan struct{}
@@ -96,12 +104,60 @@ func whileHomeStands(ctx context.Context, cfg *config.Config, every time.Duratio
 		select {
 		case why := <-gone:
 			log.Warn("the yardr daemon's home is no longer its own; stopping", "home", cfg.Home, "reason", why)
-			cancel()
+			cancel(homeGone{reason: why})
 		case <-ownerGone:
 			log.Warn("the test that started the yardr daemon is gone; stopping", "owner", owner)
-			cancel()
+			cancel(nil)
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, func() { cancel(); held.Close() }, nil
+	return ctx, func() { cancel(nil); held.Close() }, nil
+}
+
+// homeGone is the cause with which the home watch ends the daemon's
+// context when its home is lost: the watch's reason, not a new flag.
+type homeGone struct{ reason string }
+
+func (e homeGone) Error() string { return e.reason }
+
+// homeLostCause is the reason the home watch ended ctx for, "" when
+// something else (a SIGTERM, a self-replace) ended it.
+func homeLostCause(err error) string {
+	var gone homeGone
+	if errors.As(err, &gone) {
+		return gone.reason
+	}
+	return ""
+}
+
+// closeHomeSessions ends every herdr session the daemon is responsible for:
+// each crew member's line and conversation sessions and each running bead
+// session, through the runner's Stop with the handle on record. It is what
+// the daemon does when its home is gone under it: nothing else can close
+// such a pane, the yard is gone and `yardr down` has nothing to read. Only
+// herdr sessions are closed; anything of another runner is left as a
+// SIGTERM leaves it. There is no handoff and nothing is written to the
+// store, and each failure is logged and skipped.
+func closeHomeSessions(ctx context.Context, st store.API, runners map[string]dispatch.Runner, log *slog.Logger) {
+	agents, err := yardAgents(ctx, st, runners, false)
+	if err != nil {
+		log.Warn("the yard's sessions could not be listed; their herdr panes are left running", "err", err)
+		return
+	}
+	herdr := runners["herdr"]
+	if herdr == nil {
+		log.Warn("herdr's runner is gone; the yard's herdr panes are left running")
+		return
+	}
+	for i := range agents {
+		g := &agents[i]
+		if g.runner != "herdr" || len(g.handle) == 0 {
+			continue
+		}
+		if err := herdr.Stop(ctx, g.handle); err != nil {
+			log.Warn("could not close the herdr session", "session", g.String(), "agent", g.Agent, "err", err)
+			continue
+		}
+		log.Info("closed the herdr session", "session", g.String(), "agent", g.Agent)
+	}
 }

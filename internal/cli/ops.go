@@ -85,6 +85,12 @@ func (a *app) serverCmd() *cobra.Command {
 	return cmd
 }
 
+// daemonRunners are the runners the daemon supervises sessions with; tests
+// stand one in for herdr's runner.
+var daemonRunners = func(home string, st store.API, log *slog.Logger, onError func(error)) map[string]dispatch.Runner {
+	return runner.All(home, st, log, onError)
+}
+
 func (a *app) daemonCmd() *cobra.Command {
 	var interval time.Duration
 	var attempts int
@@ -136,9 +142,10 @@ func (a *app) daemonCmd() *cobra.Command {
 			if err != nil {
 				log.Warn("cannot watch the yardr binary; the daemon will not replace itself", "err", err)
 			}
+			runners := daemonRunners(a.cfg.Home, st, log, onError)
 			d := &dispatch.Dispatcher{
 				Store:       st,
-				Runners:     runner.All(a.cfg.Home, st, log, onError),
+				Runners:     runners,
 				Log:         log,
 				Home:        a.cfg.Home,
 				Interval:    interval,
@@ -148,7 +155,19 @@ func (a *app) daemonCmd() *cobra.Command {
 				PeerKey:     a.cfg.PeerKey(),
 			}
 			log.Info("yardr daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
-			return d.Run(ctx)
+			runErr := d.Run(ctx)
+			if homeLostCause(context.Cause(ctx)) != "" {
+				// The home is gone under the daemon: its herdr sessions
+				// are closed first, since nothing else can close them
+				// now. On a SIGTERM they are left, for down or the next
+				// daemon. ctx is ended, so the closes get their own,
+				// bounded: a herdr that hangs must not keep the daemon
+				// from exiting.
+				closeCtx, cancel := context.WithTimeout(context.Background(), stopWait)
+				defer cancel()
+				closeHomeSessions(closeCtx, st, runners, log)
+			}
+			return runErr
 		},
 	}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "safety-net reconcile period")
