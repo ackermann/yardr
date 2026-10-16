@@ -163,6 +163,9 @@ func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
 func (c *Client) EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error) {
 	return callV[map[string]*eta.Result](c, ctx, "EstimateMany", ids)
 }
+func (c *Client) Arrivals(ctx context.Context) ([]eta.ArrivalRow, error) {
+	return callV[[]eta.ArrivalRow](c, ctx, "Arrivals")
+}
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
 }

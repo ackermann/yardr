@@ -43,6 +43,7 @@ var Calls = map[string][]string{
 	"GetCrew":              {"name"},
 	"UserAsks":             {"name"},
 	"Bead":                 {"bead"},
+	"Arrivals":             {},
 	"AnswerAsk":            {"bead", "ask", "option", "words", "actor"},
 	"DeferAsk":             {"bead", "ask", "actor"},
 	"DeclineAsk":           {"bead", "ask", "words", "actor"},
