@@ -1764,11 +1764,12 @@ func raceDeadPID(t *testing.T) int {
 	return cmd.Process.Pid
 }
 
-// The --race-queue view prints the holder and the waiters with their
-// beads and ages, oldest first, skipping dead tickets without taking
-// anything. Synthetic tickets stand in for queued runs: the test's own
-// pid is the live one, a reaped child the dead one. Its own home stands
-// in for the yard's, so no real gate waits on it.
+// The --race-queue view prints the holder and waiters with their beads
+// and ages, oldest first, skipping dead tickets without leaving a ticket
+// or lock behind. Synthetic tickets stand in for queued runs: a helper
+// process stands in for the holder, the test's own pid for live waiters,
+// and a reaped child for a dead waiter. Its own home stands in for the
+// yard's, so no real gate waits on it.
 func TestYardTestRaceQueueView(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
@@ -1781,6 +1782,16 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	}
 	self := os.Getpid()
 	now := time.Now().Unix()
+	holderProc := exec.Command("sleep", "30")
+	if err := holderProc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = holderProc.Process.Kill()
+		_ = holderProc.Wait()
+	})
+	holderPID := holderProc.Process.Pid
+	holderStart := raceOwnStart(t, holderPID)
 	write := func(dir, name, body string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
@@ -1794,10 +1805,11 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	}
 	live := raceOwnStart(t, self)
 	ticket(now-400, raceDeadPID(t), "bogus", "gone-bead", "/wt/gone")
+	ticket(now-350, holderPID, holderStart, "holder-bead", "/wt/holder")
 	ticket(now-300, self, live, "old-bead", "/wt/old")
 	ticket(now-30, self, live, "new-bead", "/wt/new")
 	write(yard, "race.holder",
-		"pid="+strconv.Itoa(self)+"\nstart="+live+"\nbead=holder-bead\ndir=/wt/holder\nsince="+strconv.FormatInt(now-360, 10)+"\n")
+		"pid="+strconv.Itoa(holderPID)+"\nstart="+holderStart+"\nbead=holder-bead\ndir=/wt/holder\nsince="+strconv.FormatInt(now-360, 10)+"\n")
 	view := func() string {
 		t.Helper()
 		cmd := exec.Command(driver, "--show-queue")
@@ -1828,6 +1840,9 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	}
 	if strings.Contains(out, "gone-bead") {
 		t.Errorf("the view lists the dead ticket:\n%s", out)
+	}
+	if strings.Contains(out, "holder-bead waiting") {
+		t.Errorf("the view lists the holder as a waiter:\n%s", out)
 	}
 	// The lock free and no holder recorded: free, the waiters still listed.
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {

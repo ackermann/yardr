@@ -392,8 +392,8 @@ sub status_line {
   }
 }
 # show_queue prints the holder and the waiters with their beads and
-# ages, and takes nothing: the --race-queue view. Dead tickets are
-# skipped, not removed.
+# ages, without waiting for or leaving the lock held: the --race-queue
+# view. Dead tickets are skipped, not removed.
 sub show_queue {
   my $hkv = read_kv($holder);
   my $live = defined($hkv) && alive($hkv->{pid}, $hkv->{start});
@@ -431,6 +431,10 @@ sub show_queue {
   for my $n (queued()) {
     my ($pid, $start, $kv) = ids($n);
     next unless alive($pid, $start);
+    # The holder keeps its ticket until exit so queued runs count it in
+    # their place. Show it above as the holder, not again as a waiter.
+    next if $live && defined($hkv->{pid}) && defined($pid) && $pid eq $hkv->{pid}
+      && (!defined($hkv->{start}) || $hkv->{start} eq "" || !defined($start) || $start eq "" || $start eq $hkv->{start});
     $i++;
     my ($cs) = $n =~ /^(\d{10})/;
     my $age = defined($cs) ? time - $cs : 0;

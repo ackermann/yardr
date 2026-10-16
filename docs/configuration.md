@@ -486,7 +486,7 @@ contention. Waiters take the lock in arrival order, on tickets in
 blocking); a waiting gate says its place and the holder, at once and then
 each minute (`test: race lock: 3rd in line, held by yardr-cayh for 6 m`),
 and `sh .yardr/test --race-queue` shows the holder and the queue, oldest
-first, without taking anything.
+first, without waiting for or leaving the lock held.
 
 ## Briefs are not config
 
