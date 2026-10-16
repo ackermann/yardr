@@ -45,7 +45,10 @@ packages, 42 with tests, 3,337 test functions in 531 test files, 186,272
 test lines against 135,542 code lines. New test files per calendar week: 98,
 220 and 187 in the weeks of 28 Sep, 5 Oct and 12 Oct (the last to 16 Oct).
 Eight `testing.Short` skips exist, all in `contrib/release`, and the gate
-never passes `-short`, so they never skip.
+never passes `-short`, so they never skip. Main has since moved to
+b1f20c0e, 76 files on from f0b1a22d including cli, dispatch and store test
+files; the numbers below are the f0b1a22d measurement, named so the
+re-measure (B11) can show what the move changed.
 
 ### 2.1 The measurement
 
@@ -60,7 +63,11 @@ package-seconds, green, with cli and store inflated by the rival. Run 3 ran
 green. The quiet run ran 08:38:43-08:41:11 at load 3.5-6.6 with no rival
 race leg and no landing anywhere in the window: wall 148 s, 959
 package-seconds, green. The raw JSON of runs 1 and 2 is attached to the
-first draft's notes; run 3's and the quiet run's to the second's.
+first draft's notes; run 3's and the quiet run's to the second's. Two
+selection replays ran 09:04-09:07 at bb062869 (docs-only over f0b1a22d,
+so the package times compare), load 2.5-8.6, no landing in the window;
+their commands and raw JSON are with the third draft's notes (5966-5967)
+and section 2.2.
 Per-package seconds under `-race`:
 
 ```
@@ -160,8 +167,8 @@ The top 40 tests by wall time in run 1, with what each waits on:
   `TestPRTrainHoldsOnAPRFromAnotherHeadRepository` (5.3 s). Each builds a
   fresh home (`newYard`/`newTrainYard`), inits git repos, and runs a dozen
   real CLI commands of the test binary; the train yards run `t.Parallel`.
-- Real down-script runs over sleeper processes (6 tests, 76 s):
-  isolated-yard `TestDownAfterTheBinaryWasRebuilt` (28.7 s, rebuilds the
+- Real down-script runs over sleeper processes (7 tests, 83 s):
+  isolated-yard `TestDownAfterTheBinaryWasRebuilt` (28.6 s, rebuilds the
   binaries first), `TestDownLeavesTheProcessesOfOtherYards` (16.3 s),
   `TestDownStopsAServerStartedFromAnotherBinary` (11.9 s),
   `TestDownLeavesProbesOutOfTheStandInCount` (7.6 s),
@@ -272,26 +279,46 @@ review-security.md: skip the rerun when the test line names the handed
 tip); the sample shows the practice holds, except repeat builder passes,
 which no rule covers.
 
-A plain run's wall is its selection's slowest package plus vet, build and
-pick. Measured at the landed cs5z commit (f0b1a22d) with no rival: the
-bare 3-package selection (root, cli, web) takes 88.8 s wall (cli 87.7 s
-binds; root 30.8 s, web 50.4 s), vet 4.3 s and build 1.1 s on a warm
-cache. Under usual load the same selection is cli at 118-191 s plus vet
-at 8-25 s. Replaying ten landings in plan mode at their landed commits
-selects 3-32 packages (median 26) and selects internal/cli in all ten;
-both endpoints re-verified for this revision (cs5z: exactly root, cli,
-web; dx5f: 31 packages, 28 with tests, matching the live "28 packages
-ok" line).
+No central log records how long those builder and extra plain runs took
+or how long they queued: a note carries only the package count, and
+refinery.log carries only landing legs -- a plain run's `waited` line
+goes to the session transcript, which no query reads. So the plain-leg
+wall below is not a sample from the week; it is a range from controlled
+replays, and the builder lock wait is bounded, not measured, by the
+landing waits on the same lock (52-263 s, n=7 since the lock landed,
+plus the docs-only 3x17 landing's 156 s wait on a 6-package selection).
+
+A plain run's wall is its race leg (the selection's slowest package,
+under the race lock, so with a wait but no rival) plus gofmt,
+`go vet ./...`, `go build ./...` and the package pick. Measured at
+bb062869 with no landing in the window and load 2.5-3.3:
+`go test -race -json -count=1 . ./internal/cli ./internal/web` (the cs5z
+replay selection: root, cli, web) takes 91 s wall (cli 88.9 s binds;
+root 31.8 s, web 51.7 s; note 5966). On a warm cache vet takes about 4 s
+and build about 1 s, the pick a few more, so a quiet cli-bound plain run
+is about 100-110 s wall before any lock wait. Under usual load the same
+leg is cli at 106-118 s (the quiet and run-1 full-run columns, no rival)
+plus vet at 8-25 s, about 120-145 s. Replaying ten landings in plan mode
+at their landed commits selects 3-32 packages (median 26) and selects
+internal/cli in all ten; both endpoints re-verified for this revision
+(cs5z: exactly root, cli, web; dx5f: 31 packages, 28 with tests, matching
+the live "28 packages ok" line).
 
 Forcing the three always-run suites onto that replay (root, cli, web plus
-release, isolated-yard and server-yard, same conditions): 118.8 s wall
-against 88.8 s bare. The suites' own slowest (release 53.2 s) runs inside
-cli's 100.4 s, but the selection's own packages slow under the added
-contention (cli 87.7 to 100.4 s, root 30.8 to 45.0 s, web 50.4 to 59.6
-s), so the suites cost about 30 s of wall on a cli-bound selection, not
-nothing. On a small selection with no slow package they set the floor
-instead: about 45-75 s quiet (release 53, isolated-yard 44, server-yard
-21 here), about 90-110 s under load.
+release, isolated-yard and server-yard):
+`go test -race -json -count=1 . ./internal/cli ./internal/web
+./contrib/release ./contrib/isolated-yard ./contrib/server-yard`, same
+conditions, load 3.2-8.6, takes 98 s wall (cli 96.3, root 40.2, web
+54.4, release 48.1, isolated-yard 35.0, server-yard 14.3; note 5967)
+against 91 s bare. The suites' own slowest (release 48.1 s) runs inside
+cli's 96.3 s, and the selection's own packages slow under the added
+contention (cli 88.9 to 96.3 s, root 31.8 to 40.2 s, web 51.7 to 54.4
+s), so the suites cost about 7 s of wall on a cli-bound selection when
+quiet. The previous revision's 119 s against 89 s bare (about 30 s) was
+the same replay under load. Together they bound the cost at about 7-30 s
+of wall on a cli-bound selection, load-dependent. On a small selection
+with no slow package the suites set the floor instead: about 50-75 s
+quiet (release 48 s binds here), about 90-110 s under load.
 
 The import-graph claim holds in-process but not over the binary. `go list
 -test` dependency lists include test-only imports (contrib/assembly imports
@@ -310,9 +337,10 @@ exercise a binary containing the change and do not run. Today three things
 cover the hole: `go build ./...` catches compile breaks everywhere, the
 importing packages' own tests catch behavior breaks, and the landing runs
 the whole suite anyway. An incremental landing must instead always run the
-three black-box suites (server-yard ~21 s quiet/~35 s loaded,
-isolated-yard ~44/~92, release ~53/~110), at the measured ~30 s of wall on
-a cli-bound selection, or accept the hole. The socket leg's existing gate
+three black-box suites (server-yard ~14 s quiet/~35 s loaded,
+isolated-yard ~35/~92, release ~48/~110), at the measured 7-30 s of wall
+on a cli-bound selection depending on load, or accept the hole. The
+socket leg's existing gate
 already accepts the same reach argument: it runs only when the plain
 selection holds store, dispatch or bdp.
 
@@ -320,26 +348,34 @@ selection holds store, dispatch or bdp.
 
 Seven rules, each with the number that justifies it. They land as
 `docs/testing.md` (new; no such file exists) plus the script changes in
-the beads below. What a bead pays today, and after: today a bead pays, in
-wall time, one builder plain run of 90-180 s (89 s measured quiet for a
-3-package cli-bound selection plus vet and build; about 145 s loaded)
-plus about 0.6 extra plain runs from branch moves and repeat passes
-(11-bead sample), plus the landing's 283 s median wall (14-16 Oct, n=212,
-waits included) -- roughly 500-550 s of waiting (8-9 minutes), over
+the beads below. What a bead pays today, and after -- wall time first,
+then machine time. Today, in wall time: one builder plain run of about
+100-145 s (91 s race leg quiet for the 3-package cli-bound replay plus
+vet, build and pick, section 2.2; about 120-145 s loaded), plus about 0.6
+extra plain runs at the same rate from branch moves and repeat passes (7
+over the 11-bead sample: 5 from new shas, 2 same-sha), plus the landing's
+283 s median wall (14-16 Oct, n=212, lock waits included) -- 100-145 +
+0.6 x 100-145 + 283 = roughly 445-515 s of waiting (8-9 minutes), over
 typically two race legs (one plain, one landing), not four: reviewers in
-the sample never reran an unchanged sha. In machine time the same bead
-costs 300-920 machine-s plain (3 vs 28 test packages, race
-package-seconds summed, run-1 column) plus the extras, plus about 1,340
-at landing (race package-seconds 959-1,382 plus the socket leg's 115 s
-median beside the wall plus the vets) -- roughly 2,000-2,700 machine-s
-(35-45 machine-minutes). After the beads, the plain wall is about 75 s (a
-cli at budget plus vet, build and pick) over one leg per sha, and the
-landing, if open question 2 is answered yes, is the incremental selection
-plus the always-run suites at about 120-150 s wall and about 700
-machine-s -- roughly 200-225 s of waiting (3.5 minutes) and about
-1,150-1,300 machine-s per bead. At 60-140 landings a day (13-15 Oct),
-landing machine
-time falls from about 23-52 machine-hours a day toward about 12-27. If
+the sample never reran an unchanged sha. Builder lock waits are not in
+that sum: they are never logged (section 2.2), so the sum understates the
+wait by whatever the plain leg queued on the shared lock (0-263 s seen on
+landings). In machine time the same bead costs 300-920 machine-s plain (3
+vs 28 test packages, race package-seconds summed, run-1 column) plus the
+extras at the same rate, plus about 1,340 at landing (race
+package-seconds 959-1,382 plus the socket leg's 115 s median beside the
+wall plus the vets) -- roughly 2,000-2,700 machine-s (35-45
+machine-minutes); lock waits are idle and cost no machine time. After the
+beads, the plain wall is about 75 s (a cli at budget plus vet, build and
+pick) over one leg per sha plus branch-move extras (about 0.4 per bead:
+R4 removes only the same-sha repeats), and the landing, if open question
+2 is answered yes, is the incremental selection plus the always-run
+suites at about 110-150 s wall (98 s race leg quiet plus vet, build and
+pick, toward 145 s loaded) and about 700 machine-s beside the socket
+leg's ~115 -- 75 + 0.4 x 75 + 110-150 = roughly 215-255 s of waiting
+(under 4.5 minutes) and about 1,000-1,300 machine-s per bead. At 60-140
+landings a day (13-15 Oct), landing machine
+time falls from about 23-52 machine-hours a day toward about 12-32. If
 question 2 is answered no, the landing stays whole and only the budgets
 pay: plain about 75 s, landing toward 100-150 s wall as packages hit
 budget, at about 1,000 machine-s per landing.
@@ -368,21 +404,30 @@ shape, and temp homes and dirs are already what the tests use. The other
 five over-budget packages have under 100 tests each and are fixed without
 this rule (B5-B7); packages under budget comply until they breach it, and
 the budget is their backstop then.
-R4. One race leg per sha. A stage whose branch is unchanged since a green
-test line on that sha does not rerun the depot suite. The roles already
-say this for reviewers, and the 11-bead sample shows zero same-sha review
-reruns, so the rule restates the practice as the depot's and closes the
-one gap the sample shows: repeat builder passes (dx5f ran the same sha
-three times across a hold and unhold). Each note says `reran` or `names
-this tip` so the next sample can tell. A stage that committed -- a review
-fix, a security fix -- still runs the suite on its new sha.
+R4. One plain race leg per sha, in builder and review stages only. A
+builder or review stage whose branch is unchanged since a green test line
+on that sha does not rerun the plain suite. The roles already say this
+for reviewers, and the 11-bead sample shows zero same-sha review reruns,
+so the rule restates the practice as the depot's and closes the one gap
+the sample shows: repeat builder passes (dx5f ran the same sha three
+times across a hold and unhold). Each note says `reran` or `names this
+tip` so the next sample can tell. A stage that committed -- a review fix,
+a security fix -- still runs the suite on its new sha. The assembly's
+runs are outside this rule: the landing always runs the base's script
+with `YARDR_LANDING=1` on exactly what lands, every time, including after
+a merger's rebase that changed nothing
+(`contrib/assembly/merge-local`:177-180), and its whole-suite gate differs
+from any plain run (`.yardr/test`:434-460), so no plain test line ever
+satisfies it.
 R5. The landing runs the incremental selection -- today's `pick` -- plus
 always the three black-box suites (server-yard, isolated-yard, release),
 plus the socket leg as today. The replay selects 3-32 packages (median
-26) against today's 42; the forced replay measures 119 s wall against 89
-s bare on a cli-bound selection (the suites cost about 30 s, contention
-included), and the suites set a 45-75 s floor under small selections; the
-wall drops from the 283 s median toward 120-150 s. This rule needs the
+26) against today's 42; the forced replay measures 98 s wall against 91 s
+bare quiet (the suites cost about 7 s, contention included) and 119 s
+against 89 s under load (about 30 s), so the suites cost about 7-30 s of
+wall on a cli-bound selection depending on load, and set a 50-75 s floor
+under small selections quiet (about 90-110 s loaded); the wall drops from
+the 283 s median toward 110-150 s. This rule needs the
 operator to lift the yardr-1vt3 condition (open question 2): today the
 whole suite gates every landing that changes code, and the gate still
 implements that (`.yardr/test` `whole()`).
@@ -433,14 +478,16 @@ confirms and extends it rather than assuming it).
    landing, the whole suite on a quiet machine with a red-base event.
    Cost: the base can be red between quiet runs with no bead to send back,
    and B10 is new machinery to build and watch. Gain: landing wall 283 s
-   toward 120-150 s, landing machine about 1,340 s toward about 700 s per
-   bead, shorter lock queues. (b) No: the yardr-1vt3 condition stands (the
-   whole suite stays one command and gates every landing that changes
-   code, per mckean's pick on ask 2847), every code landing stays whole,
+   toward 110-150 s, landing machine about 1,340 s toward about 700 s per
+   bead beside the socket leg, shorter lock queues. (b) No: the yardr-1vt3
+   condition stands (the whole suite stays one command and gates every
+   landing that changes code, per mckean's pick on ask 2847), every code
+   landing stays whole,
    and R5/R6/B8/B10 close as wont-fix; the budgets still pay (plain about
    75 s, landing toward 100-150 s wall as packages hit budget, at full
    machine cost). Take (a): the forced replay shows the selection plus the
-   suites covers the measured hole at a known ~30 s, and the quiet backstop
+   suites covers the measured hole at a known 7-30 s depending on load,
+   and the quiet backstop
    keeps one whole-suite verdict on the base. The timer variant is not
    offered: mckean declined it.
 3. The incremental landing (R5), if question 2 is yes: now, or after the
@@ -448,12 +495,14 @@ confirms and extends it rather than assuming it).
    600 machine-s per code landing (at 100 landings a day, about 4 hours of
    wall waits and about 17 machine-hours) with the hole closed by the
    always-run suites; waiting adds nothing but delay. Take now.
-4. The review legs (R4): restate one-race-leg-per-sha as the depot's rule
-   and close the repeat-pass gap, as proposed, or leave the roles as the
-   only text? Leaving them risks nothing measured -- the sample shows zero
-   same-sha review reruns -- but repeat builder passes have no rule at all
-   (dx5f ran one sha three times). Take the proposal: one short docs bead
-   (B9) pins the practice where the re-measure can check it.
+4. The builder and review legs (R4): restate one-plain-race-leg-per-sha
+   as the depot's rule and close the repeat-pass gap, as proposed, or
+   leave the roles as the only text? The landing always runs either way
+   (R4 excludes it). Leaving the roles as the only text risks nothing
+   measured -- the sample shows zero same-sha review reruns -- but repeat
+   builder passes have no rule at all (dx5f ran one sha three times).
+   Take the proposal: one short docs bead (B9) pins the practice where
+   the re-measure can check it.
 5. The whole-suite backstop (R6), if question 2 is yes: a quiet-machine run
    that raises an event on red, as proposed, or never scheduled (the gaps
    are closed, the command stays manual)? "Never" is simpler and honest if
@@ -549,12 +598,13 @@ test invocation and timing lines), `docs/line.md` and
 `contrib/assembly/README.md` for the landing docs. Done when: the ten
 replayed landings select as in section 2.2; a landing on a fixture branch
 runs the selection plus server-yard, isolated-yard and release and says so
-in the log; the forced replay of section 2.2 (119 s wall) is the wall
-reference within 20%; the socket leg still follows the 022s gate.
+in the log; the forced replay of section 2.2 (98 s wall quiet, 91 s
+bare, notes 5966-5967) is the wall reference within 20% under quiet
+conditions; the socket leg still follows the 022s gate.
 
-B9. One race leg per sha, as the depot's rule. Goal: R4 as text plus the
-repeat-pass gap closed, with no new script flag: the reviewer and
-security roles already skip the rerun on an unchanged sha
+B9. One plain race leg per sha, as the depot's rule. Goal: R4 as text
+plus the repeat-pass gap closed, with no new script flag: the reviewer
+and security roles already skip the rerun on an unchanged sha
 (packs/starter/roles/reviewer.md, review-security.md) and the 11-bead
 sample shows zero same-sha review reruns, so the rule restates that
 practice as the depot's in `docs/testing.md`, requires each note to say
@@ -562,8 +612,11 @@ practice as the depot's in `docs/testing.md`, requires each note to say
 repeat builder passes (dx5f ran one sha three times across hold and
 unhold: a pass with no new commit since a green line does not rerun). A
 stage that committed -- a review fix, a security fix -- still runs the
-suite on its new sha. Done when: `docs/testing.md` carries the rule with
-the reran-or-names requirement; the roles are verified sufficient as they
+suite on its new sha. The rule's scope stops at the assembly: the landing
+always runs, and the text says so. Done when: `docs/testing.md` carries
+the rule with the reran-or-names requirement and the landing-always-runs
+exclusion (citing merge-local's every-time run and the landing gate's
+difference from any plain run); the roles are verified sufficient as they
 stand, by reading; B11 counts same-sha reruns in its window.
 
 B10. The whole suite runs on a quiet machine. Goal: R6 as machinery. Needs
