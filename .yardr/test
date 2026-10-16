@@ -30,9 +30,10 @@
 # Two budgets (docs/testing.md R1 and R2): a package's tests finish in 60 s
 # under -race, and a test sleeps no more than 500 ms at a site. Each has its
 # allow-list below, naming why each entry is over and which bead brings it
-# under; the fix beads delete the rows. A race leg fails when a package it
-# ran is over budget and not allow-listed, and the run fails when a test
-# file sleeps over budget at a site that is not.
+# under; the fix beads delete the rows. A race leg runs a package it ran
+# over budget and not allow-listed again by itself, and fails when the
+# package is over budget alone too; the run fails when a test file sleeps
+# over budget at a site that is not.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went. The run ends
@@ -178,6 +179,12 @@ again() {
       if [ -z "$YARDR_RACE_HELD" ]; then
         under=racelocked
       fi
+      # The leg's hold for what runs after the step, the package budget's
+      # re-run: the step runs in a pipe, so the hold racelocked sets dies
+      # with its subshell, and the re-run shares this one instead of
+      # waiting on the lock again.
+      YARDR_RACE_HELD=1
+      export YARDR_RACE_HELD
       ;;
   esac
   { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
@@ -254,9 +261,10 @@ again() {
   fi
   took "$t0" "$*"
   # The package budget, after a green race leg: a leg whose tests failed
-  # is already red without it.
+  # is already red without it. The leg's command goes with, for the
+  # re-run's flags.
   if [ "$rc" = 0 ] && [ "$race" = 1 ]; then
-    packagebudget "$acc" || rc=$?
+    packagebudget "$acc" "$@" || rc=$?
   fi
   [ "$rc" = 0 ] || failed "$log" "$@"
   case " $* " in
@@ -299,25 +307,37 @@ summary() {
 # bead that brings it under budget, and why it is over. Two are over even
 # alone, none only in full runs (docs/design/2026-10-16-yardr-635g-test-time.md
 # section 2.1). A race leg that runs one of these over 60 s still passes;
-# any other package over 60 s fails the run. The fix beads delete the rows;
-# a row whose package is gone fails nothing, since no result line maps to
-# it, but delete it anyway.
+# any other package over 60 s is run again alone, and fails the run when
+# over 60 s again. The fix beads delete the rows; a row whose package is
+# gone fails nothing, since no result line maps to it, but delete it
+# anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
 contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
 contrib/shot yardr-c2vt 72.6 s in a loaded full landing run on 16 Oct; alone not yet measured; yardr-c2vt measures it and removes this row or keeps it with the number
 '
-# packagebudget fails the run when a go test -race leg ran a package over
-# the 60 s budget (docs/testing.md R1) that the allow-list above does not
-# name. Its input is the leg's output ($1): only the ok lines carry judged
-# seconds, a package whose tests failed being already red without it.
-# Cached packages print no seconds and are not judged. The allow-list goes
-# by file, as the reads table does: awk takes no newline in -v. It says
-# which packages, sorted, and returns 1 when there are any.
+# packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
+# -race leg's output ($1): only the ok lines carry judged seconds, a
+# package whose tests failed being already red without it. Cached packages
+# print no seconds and are not judged. The allow-list goes by file, as the
+# reads table does: awk takes no newline in -v.
+# A package over budget that the allow-list does not name is run again by
+# itself, and judged by the re-run: over 60 s alone fails, naming both
+# times, and under passes with both times and why. The re-run is the leg's
+# own command ($2 on: the same flags), with -count=1 so it is timed and
+# not cached, and the one package; several are re-run one after another,
+# sorted, not in parallel. It shares the leg's hold on the race lock
+# (YARDR_RACE_HELD, which the leg set): it waits on nothing again. A
+# re-run that fails, or prints no seconds, fails the run: the leg saw an
+# over-budget package the re-run did not clear.
 packagebudget() {
+  legout=$1
+  shift
   allow=$(mktemp)
   printf '%s\n' "$over60" >"$allow"
-  out=$(awk '
+  over=$(mktemp)
+  unsorted=$(mktemp)
+  awk '
     FILENAME == ARGV[1] {
       if ($0 ~ /^[^ ]+ /) { dir = $0; sub(/ .*/, "", dir); over[dir] = 1 }
       next
@@ -329,15 +349,56 @@ packagebudget() {
       else next
       if (secs + 0 > 60 && !(dir in over) && !(dir in bad)) {
         bad[dir] = 1
-        printf "test: %s took %s s with -race, over the 60 s budget (docs/testing.md R1)\n", pkg, secs
+        printf "%s %s\n", pkg, secs
       }
-    }' "$allow" "$1") || { rm -f "$allow"; return 1; }
+    }' "$allow" "$legout" >"$unsorted" || { rm -f "$allow" "$over" "$unsorted"; return 1; }
   rm -f "$allow"
-  if [ -n "$out" ]; then
-    printf '%s\n' "$out" | sort
-    return 1
-  fi
-  return 0
+  sort "$unsorted" >"$over"
+  rm -f "$unsorted"
+  [ -s "$over" ] || { rm -f "$over"; return 0; }
+  # The same flags as the leg, the failed packages' pattern: the prefix up
+  # to and including "test" (go test), then the flags (what after test
+  # starts with -). Packages and flags have no spaces.
+  prefix=""
+  flags=""
+  seen_test=0
+  for a in "$@"; do
+    if [ "$seen_test" = 0 ]; then
+      prefix="$prefix $a"
+      if [ "$a" = "test" ]; then
+        seen_test=1
+      fi
+    else
+      case "$a" in
+        -*) flags="$flags $a" ;;
+      esac
+    fi
+  done
+  st=0
+  while read -r pkg secs; do
+    [ -n "$pkg" ] || continue
+    run=$(mktemp)
+    # The re-run reads no stdin: the loop's is the over-budget list. Its
+    # output is printed, as it comes, and kept for its seconds.
+    # shellcheck disable=SC2086
+    { rrc=0; $prefix $flags -count=1 "$pkg" </dev/null 2>&1 || rrc=$?; echo "$rrc" >"$run.rc"; } | tee "$run"
+    rrc=$(cat "$run.rc")
+    alone=$(awk '/^ok[ \t]/ && $3 ~ /^[0-9.]+s$/ { s = $3; sub(/s$/, "", s); print s; exit }' "$run")
+    if [ "$rrc" = 0 ] && [ -n "$alone" ]; then
+      if awk -v s="$alone" 'BEGIN { exit !(s + 0 > 60) }'; then
+        echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1)"
+        st=1
+      else
+        echo "test: R1: $pkg took $secs s in the run, $alone s alone: under budget, loaded run"
+      fi
+    else
+      echo "test: $pkg took $secs s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
+      st=1
+    fi
+    rm -f "$run" "$run.rc"
+  done <"$over"
+  rm -f "$over"
+  return "$st"
 }
 # The test sleeps over the 500 ms budget (docs/testing.md R2): the file,
 # the milliseconds it sleeps, and why it must use the real clock. The gate

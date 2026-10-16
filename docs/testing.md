@@ -13,11 +13,12 @@ whose site is gone is deleted with the fix, not left for later.
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
 The wall is the slowest package, so one package over budget is every run
-over budget. The cap is judged in representative full-suite runs -- the
-landing's whole-suite mode and the quiet full run -- not alone: an alone
-floor at or under 60 s is the cheap early signal a builder sees, but
-contention moves packages (dispatch is 68 s alone, 79-94 s in full runs),
-so it does not satisfy R1 by itself.
+over budget. The gate judges an over-budget package by running it again
+alone, under the race leg's hold: over 60 s a second time fails the run,
+naming both times, and under passes with a `test: R1:` line naming both,
+the run having been loaded. Load multiplies every package up to ~2.5x
+(dispatch is 68 s alone, 79-94 s in full runs), so the run's time alone
+fails nothing.
 
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. Exactly 500 ms complies; over fails unless

@@ -1302,6 +1302,111 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 	}
 }
 
+// The package budget's re-run shares the race leg's hold on the lock: a
+// package over budget in the run is run again alone, with the leg's flags
+// and -count=1, and judged by the re-run, and the leg takes the lock once,
+// for the run, never again for the re-run. The perl is a stand-in that
+// logs every hold and runs the rest, so the run takes no real lock.
+func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
+	t.Parallel()
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		alone string // the re-run's seconds: fast passes, over fails
+		ok    bool
+		want  string // the verdict line
+	}{
+		{"under alone passes", "12.3", true,
+			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"},
+		{"over alone fails naming both", "66.6", false,
+			"test: yardr.dev/yardr/internal/web took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fake, dir := t.TempDir(), t.TempDir()
+			// A go whose race leg runs one package over budget and whose
+			// re-run of it reports FAKE_ALONE, writing down every call
+			// with YARDR_RACE_HELD; a perl that logs every hold and runs
+			// the rest, as racelocked calls it.
+			goFake := `#!/bin/sh
+echo "$* held=${YARDR_RACE_HELD-unset}" >>"$FAKE/calls"
+if [ "$1" = test ]; then
+  case "$*" in
+  *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/web\t%ss\n' "$FAKE_ALONE" ;;
+  *) printf 'ok  \tyardr.dev/yardr/internal/web\t61.2s\n' ;;
+  esac
+fi
+`
+			perlFake := `#!/bin/sh
+echo "hold $3" >>"$FAKE/locks"
+shift 3
+exec "$@"
+`
+			for name, text := range map[string]string{"go": goFake, "perl": perlFake, "gofmt": "#!/bin/sh\n"} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tmp := filepath.Join(fake, "tmp")
+			if err := os.Mkdir(tmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			home := t.TempDir()
+			// A branch that changed go.mod: a plain run tests every
+			// package, and asks go for no list of them.
+			mod := filepath.Join(dir, "go.mod")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitT(t, dir, "init", "-q", "-b", "main")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "base")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", string(script))
+			cmd.Dir = dir
+			// No YARDR_RACE_HELD: the race leg takes the lock itself, as
+			// a top-level run does, and the re-run shares the hold.
+			cmd.Env = append(scriptEnv(),
+				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake, "FAKE_ALONE="+c.alone)
+			b, err := cmd.CombinedOutput()
+			out := string(b)
+			if (err == nil) != c.ok {
+				t.Errorf("err %v, want ok %v", err, c.ok)
+			}
+			if !strings.Contains(out, c.want+"\n") {
+				t.Errorf("the output has no verdict line %q", c.want)
+			}
+			// The re-run is the leg's flags and -count=1 on the one
+			// package, inside the hold the leg set.
+			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+			wantCalls := "vet ./... held=unset\n" +
+				"build ./... held=unset\n" +
+				"test -race ./... held=1\n" +
+				"test -race -count=1 yardr.dev/yardr/internal/web held=1"
+			if got := strings.TrimSpace(string(calls)); got != wantCalls {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
+			}
+			// One hold, for the race leg: the re-run waited on nothing.
+			locks, _ := os.ReadFile(filepath.Join(fake, "locks"))
+			if got, want := strings.TrimSpace(string(locks)), "hold "+filepath.Join(home, ".yardr", "race.lock"); got != want {
+				t.Errorf("the lock was held as:\n%s\nwant:\n%s", got, want)
+			}
+			if t.Failed() {
+				t.Logf("output:\n%s", out)
+			}
+			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+				t.Errorf("left behind: %v", left)
+			}
+		})
+	}
+}
+
 // yardTestProbe pulls the budget checks out of .yardr/test: the two
 // allow-lists, the two functions that judge them, and took, which one calls.
 // The probe runs them as the script has them, so a case over it fails when
@@ -1388,10 +1493,13 @@ func TestYardTestBudgets(t *testing.T) {
 	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run := func(dir string, args ...string) (string, int) {
+	runEnv := func(dir string, env []string, args ...string) (string, int) {
 		t.Helper()
 		cmd := exec.Command("sh", append([]string{probePath}, args...)...)
 		cmd.Dir = dir
+		if env != nil {
+			cmd.Env = append(os.Environ(), env...)
+		}
 		out, err := cmd.CombinedOutput()
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -1400,6 +1508,10 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Fatal(err)
 		}
 		return string(out), 0
+	}
+	run := func(dir string, args ...string) (string, int) {
+		t.Helper()
+		return runEnv(dir, nil, args...)
 	}
 	write := func(dir, name, content string) {
 		t.Helper()
@@ -1465,7 +1577,39 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
-	t.Run("the package budget judges race legs", func(t *testing.T) {
+	// r1go is a go for the package budget's re-run: it reports the alone
+	// seconds FAKE_OVER names over budget, every other package fast, and
+	// fails every re-run when FAKE_FAIL is set. It writes down every call
+	// with YARDR_RACE_HELD.
+	r1go := func(t *testing.T) (fake string, env []string) {
+		t.Helper()
+		fake = t.TempDir()
+		goFake := `#!/bin/sh
+echo "$* held=${YARDR_RACE_HELD-unset}" >>"$FAKE/calls"
+for last in "$@"; do pkg=$last; done
+if [ -n "$FAKE_FAIL" ]; then
+  echo "--- FAIL: TestX (0.00s)"
+  echo "FAIL"
+  printf 'FAIL\t%s\t0.123s\n' "$pkg"
+  exit 1
+fi
+case " $FAKE_OVER " in
+*" $pkg "*) secs=66.6 ;;
+*) secs=12.3 ;;
+esac
+printf 'ok  \t%s\t%ss\n' "$pkg" "$secs"
+`
+		if err := os.WriteFile(filepath.Join(fake, "go"), []byte(goFake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		env = []string{
+			"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH"),
+			"FAKE=" + fake, "YARDR_RACE_HELD=1",
+		}
+		return fake, env
+	}
+
+	t.Run("the package budget judges race legs by re-measuring alone", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "red.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
@@ -1479,34 +1623,92 @@ func TestYardTestBudgets(t *testing.T) {
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		out, code := run(dir, "packagebudget", "red.txt")
+		// cli is allow-listed, exactly 60 s complies, and cached, failed
+		// and foreign lines are not judged: only root, web, pack and
+		// store are re-run, sorted, one package after another, with the
+		// leg's flags and -count=1, inside its hold. The module path is
+		// the root, whose allow-list row yardr-1x36 deleted, as
+		// yardr-3cc4 deleted store's.
+		fake, env := r1go(t)
+		out, code := runEnv(dir, append(env, "FAKE_OVER=yardr.dev/yardr"),
+			"packagebudget", "red.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
-		// cli is allow-listed, exactly 60 s complies, and cached, failed
-		// and foreign lines are not judged. The module path is the root,
-		// whose allow-list row yardr-1x36 deleted, and store's row
-		// yardr-3cc4 deleted: over budget they fail with web and pack.
-		if got := strings.Count(out, "over the 60 s budget"); got != 4 {
-			t.Fatalf("output %q, want 4 budget lines, got %d", out, got)
-		}
-		root := "test: yardr.dev/yardr took 65.5 s with -race, over the 60 s budget (docs/testing.md R1)"
-		web := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1)"
-		pack := "test: yardr.dev/yardr/internal/pack took 61.5 s with -race, over the 60 s budget (docs/testing.md R1)"
-		store := "test: yardr.dev/yardr/internal/store took 60.1 s with -race, over the 60 s budget (docs/testing.md R1)"
-		if !strings.Contains(out, root) || !strings.Contains(out, web) || !strings.Contains(out, pack) || !strings.Contains(out, store) {
+		// The root is over alone too: the run fails, naming both times.
+		// Web, pack and store are under alone: each passes with the R1
+		// line. Store's allow-list row yardr-3cc4 deleted, so over
+		// budget it is re-run with the rest.
+		root := "test: yardr.dev/yardr took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+		web := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
+		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
+		if !strings.Contains(out, root+"\n") || !strings.Contains(out, web+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") {
 			t.Fatalf("output %q, want it to name root, web, pack and store", out)
 		}
-		if strings.Index(out, pack) > strings.Index(out, web) {
-			t.Errorf("output %q, want the pack line sorted before the web line", out)
+		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
+			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
 		}
+		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+		want := "test -race -count=1 yardr.dev/yardr held=1\n" +
+			"test -race -count=1 yardr.dev/yardr/internal/pack held=1\n" +
+			"test -race -count=1 yardr.dev/yardr/internal/store held=1\n" +
+			"test -race -count=1 yardr.dev/yardr/internal/web held=1"
+		if got := strings.TrimSpace(string(calls)); got != want {
+			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("a package under budget alone passes", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/web\t61.2s\n")
+		fake, env := r1go(t)
+		out, code := runEnv(dir, append(env, "FAKE_OVER="),
+			"packagebudget", "loaded.txt", "go", "test", "-race", "./...")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		want := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+		if strings.Contains(out, "over the 60 s budget") {
+			t.Errorf("output %q, want no budget failure", out)
+		}
+		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/web held=1"; got != want {
+			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("a re-run that fails fails the run", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/web\t61.2s\n")
+		_, env := r1go(t)
+		out, code := runEnv(dir, append(env, "FAKE_FAIL=1"),
+			"packagebudget", "flaky.txt", "go", "test", "-race", "./...")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		want := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+	})
+
+	t.Run("a leg with nothing over budget runs nothing again", func(t *testing.T) {
+		dir := t.TempDir()
 		write(dir, "green.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
 				"ok  \tyardr.dev/yardr/internal/store\t55.0s\n"+
 				"ok  \tyardr.dev/yardr\t31.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t21.0s\n")
-		if out, code := run(dir, "packagebudget", "green.txt"); code != 0 || out != "" {
+		fake, env := r1go(t)
+		if out, code := runEnv(dir, env, "packagebudget", "green.txt", "go", "test", "-race", "./..."); code != 0 || out != "" {
 			t.Errorf("exit %d, output %q, want exit 0 and no output", code, out)
+		}
+		if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); len(calls) != 0 {
+			t.Errorf("go was run as:\n%s\nwant no re-run", calls)
 		}
 	})
 
