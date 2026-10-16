@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/limits"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -31,15 +34,19 @@ type routeReportOpts struct {
 
 // routeReportRow is one GROUP/ORIGINATOR/LABEL cell of the report: the
 // closed beads one group claimed in the stages for one user, what they
-// cost. SentBack is send-backs per bead; MedianBuild is how long a claim
-// took to leave the stage, nil when no counted claim did (its exit aged
-// out of the log, or the bead closed without leaving the stage).
+// cost. SentBack is send-backs per bead, ReviewFixed review's forward
+// fixes per bead and SecFixed the security review's; MedianBuild is how
+// long a claim took to leave the stage, nil when no counted claim did
+// (its exit aged out of the log, or the bead closed without leaving the
+// stage).
 type routeReportRow struct {
 	Group       string  `json:"group"`
 	Originator  string  `json:"originator"`
 	Label       string  `json:"label"`
 	Beads       int     `json:"beads"`
 	SentBack    float64 `json:"sent_back"`
+	ReviewFixed float64 `json:"review_fixed"`
+	SecFixed    float64 `json:"sec_fixed"`
 	Failed      int     `json:"failed"`
 	MedianBuild *string `json:"median_build"`
 }
@@ -58,11 +65,22 @@ type routeKindRow struct {
 
 // routeReport is the report: From is when the oldest retained event was
 // logged (nil when the log holds none), Rows one row per group and label,
-// ByKind one row per harness kind.
+// ByKind one row per harness kind, best the best builder per difficulty,
+// text only.
 type routeReport struct {
 	From   *time.Time       `json:"from"`
 	Rows   []routeReportRow `json:"rows"`
 	ByKind []routeKindRow   `json:"by_kind"`
+	best   []routeBest
+}
+
+// routeBest is one best line: the group with the lowest sent back +
+// repaired per bead for a difficulty label, over the report's own rows.
+type routeBest struct {
+	label   string
+	group   string
+	perBead float64
+	beads   int
 }
 
 // reportClaim is one claimed event the report counts: who held which bead in
@@ -96,14 +114,197 @@ func reportOriginator(b store.Bead, operator string) string {
 	return operator
 }
 
+// reviewFixStages are the stages whose forward fixes the report counts.
+// Stays in any other stage count nowhere.
+var reviewFixStages = []string{"review", "review-security"}
+
+// reviewStages are the stages where review happens: the default flow's
+// two, and design's critique, which is review work under another name
+// (packs/design/flows/design/critique.md, worked by the reviewers). A
+// group qualifies for a best line only by claiming a bead elsewhere.
+var reviewStages = []string{"review", "review-security", "critique"}
+
+// fixSHARe matches a commit SHA as a review note names it: 7 to 40 hex
+// digits on word boundaries.
+var fixSHARe = regexp.MustCompile(`\b[0-9a-fA-F]{7,40}\b`)
+
+// fixSHAs is the commit SHAs text names, lowercased and deduped, in
+// order. A match without a digit is prose, not a SHA ("defaced"), and
+// reads as none; an all-letter short SHA reads as prose with it.
+func fixSHAs(text string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range fixSHARe.FindAllString(text, -1) {
+		if !strings.ContainsAny(m, "0123456789") {
+			continue
+		}
+		sha := strings.ToLower(m)
+		if !seen[sha] {
+			seen[sha] = true
+			out = append(out, sha)
+		}
+	}
+	return out
+}
+
+// round1 is x to one decimal, as the per-bead columns print.
+func round1(x float64) float64 { return math.Round(x*10) / 10 }
+
+// beadFixes is the forward fixes a bead's review stages named new: the
+// commits their notes name that no earlier note on the bead named.
+type beadFixes struct{ review, sec int }
+
+// countBeadFixes counts bead's forward fixes from its notes, oldest
+// first. For stage S the attributed notes are those by the stage's agent
+// (runner.AgentName) or by an actor that advanced the bead out of S,
+// which covers manual and exec reviews, whose actors are not agent names;
+// a note matching both stages reads as review's. A SHA counts for the
+// stage of the attributed note that first names it, so a quoted builder
+// SHA never counts and a re-quote across send-backs counts once. Only
+// notes at or after since count; the earlier set spans every note
+// whatever its date.
+func countBeadFixes(bead string, notes []store.Note, advancedBy map[string]map[string]bool, since time.Time) beadFixes {
+	var out beadFixes
+	attributed := func(author, stage string) bool {
+		return author == runner.AgentName(bead, stage) || advancedBy[stage][author]
+	}
+	ordered := slices.Clone(notes)
+	slices.SortFunc(ordered, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
+	seen := map[string]bool{}
+	for _, n := range ordered {
+		stage := ""
+		if attributed(n.Author, "review") {
+			stage = "review"
+		} else if attributed(n.Author, "review-security") {
+			stage = "review-security"
+		}
+		for _, sha := range fixSHAs(n.Text) {
+			if seen[sha] {
+				continue
+			}
+			seen[sha] = true
+			if stage == "" || n.At.Before(since) {
+				continue
+			}
+			if stage == "review" {
+				out.review++
+			} else {
+				out.sec++
+			}
+		}
+	}
+	return out
+}
+
+// claimedBefore reports whether stages holds a stage the bead reached
+// before fix: visited is its stages in the order it first reached them.
+func claimedBefore(visited []string, stages map[string]bool, fix string) bool {
+	at := slices.Index(visited, fix)
+	if at < 0 {
+		return false
+	}
+	for s := range stages {
+		if i := slices.Index(visited, s); i >= 0 && i < at {
+			return true
+		}
+	}
+	return false
+}
+
+// routeCell is one GROUP/ORIGINATOR/LABEL cell while the report sums it.
+type routeCell struct {
+	beads       map[string]bool
+	stages      map[string]map[string]bool // bead -> stages claimed by this group
+	sendBacks   int
+	reviewFixes int
+	secFixes    int
+	failed      int
+	builds      []time.Duration
+}
+
+// bestBuilders names, per difficulty label in the cells, the group with
+// the lowest sent back + repaired per bead: the send-back and fix counts
+// summed over the group's cells for the label, across originators, over
+// their beads. Only a group that claimed one of those beads outside the
+// review stages qualifies, so reviewer rows never win; ties go to more
+// beads, then to the name. Over the report's own rows, whatever --since
+// says.
+func bestBuilders(cells map[string]*routeCell) []routeBest {
+	type acc struct {
+		beads     int
+		total     int
+		qualified bool
+	}
+	byLabel := map[string]map[string]*acc{}
+	for k, ce := range cells {
+		group, rest, _ := strings.Cut(k, "\x00")
+		_, label, _ := strings.Cut(rest, "\x00")
+		if !strings.HasPrefix(label, "difficulty:") {
+			continue
+		}
+		gl := byLabel[label]
+		if gl == nil {
+			gl = map[string]*acc{}
+			byLabel[label] = gl
+		}
+		a := gl[group]
+		if a == nil {
+			a = &acc{}
+			gl[group] = a
+		}
+		a.beads += len(ce.beads)
+		a.total += ce.sendBacks + ce.reviewFixes + ce.secFixes
+		for bead := range ce.beads {
+			for s := range ce.stages[bead] {
+				if !slices.Contains(reviewStages, s) {
+					a.qualified = true
+					break
+				}
+			}
+			if a.qualified {
+				break
+			}
+		}
+	}
+	var out []routeBest
+	for label, gl := range byLabel {
+		var groups []string
+		for g := range gl {
+			groups = append(groups, g)
+		}
+		slices.Sort(groups)
+		winner := ""
+		var wt, wb int
+		for _, g := range groups {
+			a := gl[g]
+			if !a.qualified || a.beads == 0 {
+				continue
+			}
+			// Names ascend, so a tie on the metric and the beads
+			// keeps the earlier name.
+			if winner == "" || a.total*wb < wt*a.beads ||
+				(a.total*wb == wt*a.beads && a.beads > wb) {
+				winner, wt, wb = g, a.total, a.beads
+			}
+		}
+		if winner != "" {
+			out = append(out, routeBest{label: label, group: winner, perBead: round1(float64(wt) / float64(wb)), beads: wb})
+		}
+	}
+	slices.SortFunc(out, func(a, b routeBest) int { return strings.Compare(a.label, b.label) })
+	return out
+}
+
 // summarizeRouteEvents builds the report from the events read oldest first.
 // Beads come from the bead records, not the log: only closed beads count,
 // under the labels they have now and the user each is for, or under "-"
 // when they have none of the prefixes. A bead a group never claimed is in
-// no cell; one two groups worked in one stage is in each group's. BY
-// HARNESS counts every claim with a kind under the same stage, time and
-// originator filters, open beads included: sessions ran, not beads closed.
-func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts) *routeReport {
+// no cell; one two groups worked in one stage is in each group's. Notes
+// are the bead's notes by handle, in seq order: what the fix columns
+// count. BY HARNESS counts every claim with a kind under the same stage,
+// time and originator filters, open beads included: sessions ran, not
+// beads closed.
+func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts, notes map[string][]store.Note) *routeReport {
 	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}}
 	if len(evs) > 0 {
 		from := evs[0].At
@@ -166,6 +367,34 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			}
 		}
 	}
+	// advancedBy is, per bead and review stage, who moved the bead out of
+	// the stage: manual and exec reviewers, whose actors are not agent
+	// names. It reads every retained advanced event, whatever --since
+	// says.
+	advancedBy := map[string]map[string]map[string]bool{}
+	for _, e := range evs {
+		if e.Kind != "advanced" || e.Bead == nil || e.Actor == "" {
+			continue
+		}
+		from, _ := e.Data["from"].(string)
+		if from != "review" && from != "review-security" {
+			continue
+		}
+		bead := *e.Bead
+		if advancedBy[bead] == nil {
+			advancedBy[bead] = map[string]map[string]bool{}
+		}
+		if advancedBy[bead][from] == nil {
+			advancedBy[bead][from] = map[string]bool{}
+		}
+		advancedBy[bead][from][e.Actor] = true
+	}
+	fixes := map[string]beadFixes{}
+	for bead, ns := range notes {
+		if f := countBeadFixes(bead, ns, advancedBy[bead], o.since); f != (beadFixes{}) {
+			fixes[bead] = f
+		}
+	}
 	// Failures are the counted claims' sessions that failed, died, or got
 	// stuck: blocked at a prompt, stalled on its first prompt, gave up on
 	// it, or stopped on a harness error. Each session counts once,
@@ -221,14 +450,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			kindBuilds[c.kind] = append(kindBuilds[c.kind], d)
 		}
 	}
-	type cell struct {
-		beads     map[string]bool
-		stages    map[string]map[string]bool // bead -> stages claimed by this group
-		sendBacks int
-		failed    int
-		builds    []time.Duration
-	}
-	cells := map[string]*cell{}
+	cells := map[string]*routeCell{}
 	for _, c := range claims {
 		b, ok := beads[c.bead]
 		if !ok || b.Status != "closed" {
@@ -253,7 +475,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			k := c.group + "\x00" + org + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
-				ce = &cell{beads: map[string]bool{}, stages: map[string]map[string]bool{}}
+				ce = &routeCell{beads: map[string]bool{}, stages: map[string]map[string]bool{}}
 				cells[k] = ce
 			}
 			// A bead claimed twice in one stage counts once; a bead two
@@ -273,6 +495,19 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			for s := range ce.stages[bead] {
 				ce.sendBacks += sendBacks[bead+"\x00"+s]
 			}
+			// Fixes from a review stage count in the cell when the
+			// group claimed the bead in a stage the bead reached
+			// before that one: a builder cell shows both, a reviewer
+			// row reads 0.0 for its own, and security repairs on
+			// beads a group passed still show on its row.
+			if f, ok := fixes[bead]; ok {
+				if claimedBefore(visited[bead], ce.stages[bead], "review") {
+					ce.reviewFixes += f.review
+				}
+				if claimedBefore(visited[bead], ce.stages[bead], "review-security") {
+					ce.secFixes += f.sec
+				}
+			}
 		}
 	}
 	keys := make([]string, 0, len(cells))
@@ -285,12 +520,14 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		group, rest, _ := strings.Cut(k, "\x00")
 		org, label, _ := strings.Cut(rest, "\x00")
 		row := routeReportRow{
-			Group:      group,
-			Originator: org,
-			Label:      label,
-			Beads:      len(ce.beads),
-			SentBack:   math.Round(float64(ce.sendBacks)/float64(len(ce.beads))*10) / 10,
-			Failed:     ce.failed,
+			Group:       group,
+			Originator:  org,
+			Label:       label,
+			Beads:       len(ce.beads),
+			SentBack:    round1(float64(ce.sendBacks) / float64(len(ce.beads))),
+			ReviewFixed: round1(float64(ce.reviewFixes) / float64(len(ce.beads))),
+			SecFixed:    round1(float64(ce.secFixes) / float64(len(ce.beads))),
+			Failed:      ce.failed,
 		}
 		if len(ce.builds) > 0 {
 			s := limits.Span(store.MedianDuration(ce.builds))
@@ -334,6 +571,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		}
 		rep.ByKind = append(rep.ByKind, row)
 	}
+	rep.best = bestBuilders(cells)
 	return rep
 }
 
@@ -392,8 +630,9 @@ func reportStages(ctx context.Context, st store.API, stage string) (map[string]b
 	return stages, nil
 }
 
-// collectRouteReport reads the whole retained log, oldest first, and the
-// beads, and summarizes them. It writes nothing.
+// collectRouteReport reads the whole retained log, oldest first, the
+// beads, and the notes of every closed bead, and summarizes them. It
+// writes nothing.
 func collectRouteReport(ctx context.Context, st store.API, o routeReportOpts) (*routeReport, error) {
 	var evs []store.Event
 	var after uint64
@@ -419,12 +658,27 @@ func collectRouteReport(ctx context.Context, st store.API, o routeReportOpts) (*
 	for _, b := range bs {
 		beads[b.ID] = b
 	}
+	// The fix columns read the notes, which stay when the log prunes, so
+	// they are the record of what the review stages repaired.
+	notes := map[string][]store.Note{}
+	for _, b := range bs {
+		if b.Status != "closed" {
+			continue
+		}
+		ns, err := st.Notes(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(ns) > 0 {
+			notes[b.ID] = ns
+		}
+	}
 	settings, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	o.operator = settings[store.OperatorSetting]
-	return summarizeRouteEvents(evs, beads, o), nil
+	return summarizeRouteEvents(evs, beads, o, notes), nil
 }
 
 func (a *app) routeReportCmd() *cobra.Command {
@@ -436,7 +690,9 @@ func (a *app) routeReportCmd() *cobra.Command {
 		Long: `Read the event log and print, for each group, each originator and each estimate label, what the beads cost.
 
 BEADS is the closed beads the group claimed in the stage. SENT BACK is how
-often per bead a later stage moved one back to the stage. FAILED is the
+often per bead a later stage moved one back to the stage. REVIEW FIXED is
+how often per bead review fixed one on its branch instead of sending it
+back, SEC FIXED how often the security review did. FAILED is the
 group's sessions for them that failed, died, or got stuck: blocked at a
 prompt, stalled on its first prompt, gave up on it, or stopped on a
 harness error; each session counts once. MEDIAN BUILD is from the claim
@@ -444,6 +700,18 @@ to the move that left the stage. A bead two groups worked in one stage
 counts for each, under the user it is for; a bead with no estimate label
 counts under "-"; a bead that never closed counts nowhere. ORIGINATOR is
 that user, beside the group; --originator reads one person's beads.
+
+The fix columns read the beads' notes, which stay when sessions and events
+prune: a commit a review note names counts when no earlier note on the
+bead named it. A note counts for review when its author is the review
+session's agent or moved the bead out of review, and likewise for the
+security review. A group's cell shows a stage's fixes when the group
+claimed the bead in a stage the bead reached before that one, so a
+reviewer row reads 0.0 for its own stage. Under the first table, one line
+per difficulty names the builder with the lowest sent back + repaired
+per bead; a group qualifies by claiming a bead outside the review
+stages (review, review-security, critique), so reviewer groups never
+win.
 
 BY HARNESS prints one row per harness kind the groups ran: SESSIONS is
 its claims in the window, HOURS their claim-to-exit time summed and
@@ -496,9 +764,16 @@ them: the eta line of yardr bead show (docs/line.md).`,
 						median = *r.MedianBuild
 					}
 					rows[i] = []string{r.Group, r.Originator, r.Label, strconv.Itoa(r.Beads),
-						strconv.FormatFloat(r.SentBack, 'f', 1, 64), strconv.Itoa(r.Failed), median}
+						strconv.FormatFloat(r.SentBack, 'f', 1, 64),
+						strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64),
+						strconv.FormatFloat(r.SecFixed, 'f', 1, 64),
+						strconv.Itoa(r.Failed), median}
 				}
-				table("GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tFAILED\tMEDIAN BUILD", rows)
+				table("GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
+				for _, b := range rep.best {
+					fmt.Printf("best %s: %s at %s sent back + repaired per bead (%d beads)\n",
+						b.label, b.group, strconv.FormatFloat(b.perBead, 'f', 1, 64), b.beads)
+				}
 				fmt.Println("BY HARNESS")
 				kinds := make([][]string, len(rep.ByKind))
 				for i, r := range rep.ByKind {

@@ -327,13 +327,30 @@ the route and each group passed over with the reason in words, a bead no
 condition holds for waits with one `quota_wait` event until it starts,
 and `yardr bead show` prints either as one line. And `yardr route
 report` reads the events back: for each group and estimate label, how
-many beads it built, how often review sent them back, how many sessions
-failed, and the median build; and BY HARNESS, one row per harness kind
-with its sessions, hours, median and stages. A wrong estimate goes to a
-weak group and comes back from review, as a wrong label does today;
-someone changes the label and the bead is routed again, and the report
-shows the pattern. Nothing changes a route from those numbers: a person
-reads them and edits the routes or the rubric.
+many beads it built, how often review sent them back, how often review
+and the security review repaired them instead (REVIEW FIXED, SEC FIXED),
+how many sessions failed, and the median build; and BY HARNESS, one row
+per harness kind with its sessions, hours, median and stages. A wrong
+estimate goes to a weak group and comes back from review, as a wrong
+label does today; someone changes the label and the bead is routed again,
+and the report shows the pattern. Nothing changes a route from those
+numbers: a person reads them and edits the routes or the rubric.
+
+The fix columns count the commits the review notes name new: a note of
+the `review` or the `review-security` stage — by its session's agent, or
+by whoever moved the bead out of that stage — names a commit SHA no
+earlier note on the bead named. The notes are the record because they
+stay when sessions and events prune; the branches are gone at report
+time. A group's cell shows a stage's fixes when the group claimed the
+bead in a stage the bead reached before that one, so builders show both
+and a reviewer row reads 0.0 for its own stage. Under the first table,
+one line per difficulty names the best builder by sent back + repaired
+per bead; a group qualifies by claiming a bead outside the review stages
+(review, review-security, and design's critique, which is review work
+under another name), so reviewer groups never win. Two edges are
+accepted: a re-review note after a merge rebase
+may count range-diff SHAs as fixes, and a note by whoever moved another's
+bead out of review counts when it names new SHAs.
 
 ## What a group's beads cost: the estimate cells
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -112,24 +113,44 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	if len(lines) < 2 {
 		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
 	}
-	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "FAILED", "MEDIAN", "BUILD"}) {
-		t.Fatalf("route report %v header %q, want the originator beside the group", args, lines[1])
+	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD"}) {
+		t.Fatalf("route report %v header %q, want the fix columns beside sent back", args, lines[1])
 	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
 		if l == "BY HARNESS" {
 			break
 		}
+		if strings.HasPrefix(l, "best ") {
+			continue
+		}
 		f := strings.Fields(l)
-		if len(f) < 7 {
-			t.Fatalf("route report %v row %q, want 7 fields", args, l)
+		if len(f) < 9 {
+			t.Fatalf("route report %v row %q, want 9 fields", args, l)
 		}
 		// The median is the rest of the line: it reads "under a
 		// minute" or "3h 5m" as well as "41m".
-		f[6] = strings.Join(f[6:], " ")
-		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:7]
+		f[8] = strings.Join(f[8:], " ")
+		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:9]
 	}
 	return lines[0], rows
+}
+
+// reportBest runs route report and returns its best lines, in order.
+func reportBest(t *testing.T, st store.API, args ...string) []string {
+	t.Helper()
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.routeReportCmd(), args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var best []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.HasPrefix(l, "best ") {
+			best = append(best, l)
+		}
+	}
+	return best
 }
 
 // reportKinds runs route report --json and returns its BY HARNESS rows by kind.
@@ -165,13 +186,14 @@ func TestRouteReport(t *testing.T) {
 	}
 	// A bead two groups worked in one stage counts for each; the failed
 	// session counts for the group that ran it; the open and unclaimed
-	// beads count nowhere.
+	// beads count nowhere. No bead has a review note, so both fix columns
+	// read 0.0.
 	want := map[string][]string{
-		"opus\x00me\x00difficulty:3": {"2", "0.5", "1"},
-		"muse\x00me\x00difficulty:3": {"1", "1.0", "0"},
-		"muse\x00me\x00difficulty:2": {"1", "0.0", "0"},
-		"opus\x00me\x00size:large":   {"1", "1.0", "0"},
-		"muse\x00me\x00size:large":   {"1", "1.0", "0"},
+		"opus\x00me\x00difficulty:3": {"2", "0.5", "0.0", "0.0", "1"},
+		"muse\x00me\x00difficulty:3": {"1", "1.0", "0.0", "0.0", "0"},
+		"muse\x00me\x00difficulty:2": {"1", "0.0", "0.0", "0.0", "0"},
+		"opus\x00me\x00size:large":   {"1", "1.0", "0.0", "0.0", "0"},
+		"muse\x00me\x00size:large":   {"1", "1.0", "0.0", "0.0", "0"},
 		// The open bead, the manual claim and the unclaimed bead are
 		// in no default row.
 		"opus\x00me\x00difficulty:1":   nil,
@@ -190,11 +212,12 @@ func TestRouteReport(t *testing.T) {
 			t.Errorf("no row for %q", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] {
-			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[3], got[4], got[5], w[0], w[1], w[2])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
+			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
 		}
-		if got[6] == "-" {
-			t.Errorf("row %q median %q, want a build duration", k, got[6])
+		if got[8] == "-" {
+			t.Errorf("row %q median %q, want a build duration", k, got[8])
 		}
 	}
 	if len(rows) != 5 {
@@ -244,11 +267,11 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 	if !ok {
 		t.Fatalf("no row for the stalled bead: %v", rows)
 	}
-	if row[3] != "1" || row[5] != "1" {
-		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[5])
+	if row[3] != "1" || row[7] != "1" {
+		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[7])
 	}
-	if row[6] != "-" {
-		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[6])
+	if row[8] != "-" {
+		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[8])
 	}
 }
 
@@ -269,10 +292,10 @@ func TestRouteReportFlags(t *testing.T) {
 	// The two beads with no size label have a row of their own per
 	// group, under "-"; the failed session counts in its bead's.
 	wantSize := map[string][]string{
-		"opus\x00me\x00size:large": {"1", "1.0", "0"},
-		"muse\x00me\x00size:large": {"1", "1.0", "0"},
-		"opus\x00me\x00-":          {"1", "0.0", "1"},
-		"muse\x00me\x00-":          {"1", "0.0", "0"},
+		"opus\x00me\x00size:large": {"1", "1.0", "0.0", "0.0", "0"},
+		"muse\x00me\x00size:large": {"1", "1.0", "0.0", "0.0", "0"},
+		"opus\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "1"},
+		"muse\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "0"},
 	}
 	if len(rows) != 4 {
 		t.Errorf("%d rows with --prefix size, want 4", len(rows))
@@ -283,8 +306,9 @@ func TestRouteReportFlags(t *testing.T) {
 			t.Errorf("no row for %q with --prefix size", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] {
-			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[3], got[4], got[5], w[0], w[1], w[2])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
+			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
 		}
 	}
 
@@ -325,14 +349,17 @@ func TestRouteReportFlags(t *testing.T) {
 		if r.Originator != "me" {
 			t.Errorf("--json row %+v names originator %q, want me", r, r.Originator)
 		}
-		if f[3] != strconv.Itoa(r.Beads) || f[5] != strconv.Itoa(r.Failed) {
+		if f[3] != strconv.Itoa(r.Beads) || f[7] != strconv.Itoa(r.Failed) {
 			t.Errorf("--json row %+v differs from text row %v", r, f)
+		}
+		if f[5] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[6] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
+			t.Errorf("--json row %+v fixes differ from text row %v", r, f)
 		}
 		median := "-"
 		if r.MedianBuild != nil {
 			median = *r.MedianBuild
 		}
-		if f[6] != median {
+		if f[8] != median {
 			t.Errorf("--json row %+v median differs from text row %v", r, f)
 		}
 	}
@@ -428,16 +455,16 @@ func TestSummarizeRouteEventsOriginator(t *testing.T) {
 		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
 	}
 	o := routeReportOpts{prefixes: []string{"difficulty:"}, stages: map[string]bool{"new": true}, operator: "jo"}
-	rep := summarizeRouteEvents(evs, beads, o)
+	rep := summarizeRouteEvents(evs, beads, o, nil)
 	if len(rep.Rows) != 1 || rep.Rows[0].Originator != "jo" {
 		t.Fatalf("rows = %+v, want the bead under the operator's", rep.Rows)
 	}
 	o.originator = "jo"
-	if rep := summarizeRouteEvents(evs, beads, o); len(rep.Rows) != 1 {
+	if rep := summarizeRouteEvents(evs, beads, o, nil); len(rep.Rows) != 1 {
 		t.Errorf("rows for originator jo = %+v, want the bead", rep.Rows)
 	}
 	o.originator = "hal"
-	if rep := summarizeRouteEvents(evs, beads, o); len(rep.Rows) != 0 {
+	if rep := summarizeRouteEvents(evs, beads, o, nil); len(rep.Rows) != 0 {
 		t.Errorf("rows for originator hal = %+v, want none", rep.Rows)
 	}
 }
@@ -490,7 +517,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		claimed(17, t0, "yard-e", "g", "new", "s7"),
 		claimed(18, t0, "yard-f", "g", "new", "s8"),
 		claimed(19, t0, "yard-a", "g", "review", "s9"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	if rep.From == nil || !rep.From.Equal(t0) {
 		t.Fatalf("from = %v, want the oldest event at %v", rep.From, t0)
 	}
@@ -522,7 +549,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		claimed(4, t0, "yard-b", "g", "new", "wrong-bead"),
 		advanced(5, t0.Add(20*time.Minute), "yard-b", "new", "review"),
 		ev(6, t0.Add(30*time.Minute), "yard-a", "session_stalled", map[string]any{"session": "wrong-bead"}),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	if len(rep.Rows) != 1 {
 		t.Fatalf("late failure report rows = %+v, want one", rep.Rows)
 	}
@@ -549,7 +576,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		ev(13, t0.Add(time.Minute), "yard-b", "held", map[string]any{"session": "s6"}),
 		claimed(14, t0, "yard-c", "g", "new", "s7"),
 		ev(15, t0.Add(time.Minute), "yard-c", "session_aborted", map[string]any{"session": "s7"}),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	if len(rep.Rows) != 1 {
 		t.Fatalf("stuck rows = %+v, want one", rep.Rows)
 	}
@@ -563,7 +590,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
 		claimed(3, t0, "yard-b", "g", "new", "s2"),
 		advanced(4, t0.Add(20*time.Minute), "yard-b", "new", "review"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	if got := rep.Rows[0].MedianBuild; got == nil || *got != "15m" {
 		t.Errorf("median of two builds = %v, want 15m", got)
 	}
@@ -576,7 +603,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		advanced(3, t0.Add(2*time.Minute), "yard-a", "review", "new"),
 		claimed(4, t0.Add(3*time.Minute), "yard-a", "g", "new", "s2"),
 		advanced(5, t0.Add(4*time.Minute), "yard-a", "new", "review"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	r = rep.Rows[0]
 	if r.Beads != 1 || r.SentBack != 1 {
 		t.Errorf("row after a send-back = %+v, want one bead sent back once", r)
@@ -585,7 +612,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	// No exit: no median, but the bead still counts.
 	rep = summarizeRouteEvents([]store.Event{
 		claimed(1, t0, "yard-a", "g", "new", "s1"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
 	r = rep.Rows[0]
 	if r.Beads != 1 || r.SentBack != 0 || r.MedianBuild != nil {
 		t.Errorf("row without an exit = %+v, want one bead and no median", r)
@@ -598,7 +625,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
 		claimed(3, t0.Add(48*time.Hour), "yard-b", "g", "new", "s2"),
 		advanced(4, t0.Add(48*time.Hour+20*time.Minute), "yard-b", "new", "review"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)}, nil)
 	if rep.From == nil || !rep.From.Equal(t0) {
 		t.Errorf("from with --since = %v, want the log's oldest event at %v", rep.From, t0)
 	}
@@ -620,7 +647,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		advanced(2, t0.Add(time.Minute), "yard-a", "new", "review"),
 		advanced(3, t0.Add(25*time.Hour), "yard-a", "review", "new"),
 		claimed(4, t0.Add(25*time.Hour+time.Minute), "yard-a", "g", "new", "s2"),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)}, nil)
 	if len(rep.Rows) != 1 || rep.Rows[0].SentBack != 1 {
 		t.Errorf("recent send-back with earlier context = %+v, want one", rep.Rows)
 	}
@@ -632,14 +659,14 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		ev(2, t0.Add(time.Minute), "yard-a", "advanced", map[string]any{"from": "new", "to": "review", "group": "g1"}),
 		claimed(3, t0.Add(2*time.Minute), "yard-a", "g2", "review", "s2"),
 		ev(4, t0.Add(3*time.Minute), "yard-a", "advanced", map[string]any{"from": "review", "to": "new", "group": "g2"}),
-	}, beads, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}})
+	}, beads, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}}, nil)
 	if len(rep.Rows) != 2 || rep.Rows[0].SentBack != 1 || rep.Rows[1].SentBack != 0 {
 		t.Errorf("stage-specific send-back rows = %+v, want g1=1 and g2=0", rep.Rows)
 	}
 	if rep.Rows[1].MedianBuild == nil || *rep.Rows[1].MedianBuild != "1m" {
 		t.Errorf("review group build = %v, want 1m", rep.Rows[1].MedianBuild)
 	}
-	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}); rep.From != nil || len(rep.Rows) != 0 {
+	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil); rep.From != nil || len(rep.Rows) != 0 {
 		t.Errorf("empty log = %+v, want no from and no rows", rep)
 	}
 }
@@ -685,7 +712,7 @@ func TestSummarizeRouteEventsByKind(t *testing.T) {
 		claimedKind(10, t0.Add(2*time.Minute), "yard-e", "g1", "new", "s6", "muse"),
 		advancedGroup(11, t0.Add(42*time.Minute), "yard-e", "new", "review", "g1"),
 		claimedKind(12, t0, "yard-f", "people", "new", "s7", ""),
-	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages})
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages}, nil)
 	if len(rep.ByKind) != 2 {
 		t.Fatalf("by_kind = %+v, want muse and claude", rep.ByKind)
 	}
@@ -723,7 +750,7 @@ func TestSummarizeRouteEventsByKind(t *testing.T) {
 		advancedGroup(2, t0.Add(10*time.Minute), "yard-a", "new", "review", "g1"),
 		claimedKind(3, t0.Add(48*time.Hour), "yard-b", "g2", "new", "s2", "muse"),
 		advancedGroup(4, t0.Add(48*time.Hour+20*time.Minute), "yard-b", "new", "review", "g2"),
-	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages, since: t0.Add(24 * time.Hour)})
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages, since: t0.Add(24 * time.Hour)}, nil)
 	if rep.From == nil || !rep.From.Equal(t0) {
 		t.Errorf("from with --since = %v, want %v", rep.From, t0)
 	}
@@ -740,11 +767,11 @@ func TestSummarizeRouteEventsByKind(t *testing.T) {
 	// No exit: sessions count, hours and median stay nil.
 	rep = summarizeRouteEvents([]store.Event{
 		claimedKind(1, t0, "yard-d", "g1", "new", "s4", "claude"),
-	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages})
+	}, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages}, nil)
 	if len(rep.ByKind) != 1 || rep.ByKind[0].Sessions != 1 || rep.ByKind[0].Hours != nil || rep.ByKind[0].Median != nil {
 		t.Errorf("kind row without an exit = %+v, want one session and no times", rep.ByKind)
 	}
-	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages}); rep.ByKind == nil || len(rep.ByKind) != 0 {
+	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: []string{"difficulty:"}, stages: stages}, nil); rep.ByKind == nil || len(rep.ByKind) != 0 {
 		t.Errorf("empty log by_kind = %+v, want an empty list", rep.ByKind)
 	}
 }
@@ -871,5 +898,453 @@ func TestRouteReportByKind(t *testing.T) {
 	}
 	if len(counted) != len(kinds) {
 		t.Errorf("hand count kinds = %v, by_kind = %v", counted, kinds)
+	}
+}
+
+// The fix columns count the commits the review stages' notes name new:
+// review's and the security review's. A note counts for its stage by its
+// author's agent name or by whoever moved the bead out of the stage; a
+// quoted builder SHA never counts, and a re-quote across send-backs counts
+// once.
+func TestSummarizeRouteEventsReviewFixes(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
+		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
+	}
+	claimed := func(seq uint64, at time.Time, bead, group, stage, session string) store.Event {
+		return ev(seq, at, bead, "claimed", map[string]any{"group": group, "stage": stage, "session": session})
+	}
+	advanced := func(seq uint64, at time.Time, bead, from, to string) store.Event {
+		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to, "group": "g"})
+	}
+	advancedBy := func(seq uint64, at time.Time, bead, from, to, actor string) store.Event {
+		e := advanced(seq, at, bead, from, to)
+		e.Actor = actor
+		return e
+	}
+	note := func(seq uint64, at time.Time, author, text string) store.Note {
+		return store.Note{Author: author, Text: text, At: at, Seq: seq}
+	}
+	agent := runner.AgentName
+	prefixes := []string{"difficulty:"}
+	stages := map[string]bool{"new": true}
+	beads := map[string]store.Bead{
+		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
+	}
+	row := func(rep *routeReport, group string) routeReportRow {
+		t.Helper()
+		for _, r := range rep.Rows {
+			if r.Group == group {
+				return r
+			}
+		}
+		t.Fatalf("no row for %s in %+v", group, rep.Rows)
+		return routeReportRow{}
+	}
+	built := []store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+	}
+
+	// One fix named new, beside a quoted builder SHA: 1.0.
+	rep := summarizeRouteEvents(built, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it\ntest: sh .yardr/test @ abc1234: pass"),
+			note(2, t0.Add(10*time.Minute), agent("yard-a", "review"), "review fix a4df3d30, on top of abc1234"),
+		},
+	})
+	if r := row(rep, "g"); r.Beads != 1 || r.ReviewFixed != 1 || r.SecFixed != 0 {
+		t.Errorf("one fix row = %+v, want beads 1 review 1.0 sec 0.0", r)
+	}
+
+	// A review note quoting only the builder's SHA fixes nothing, and
+	// neither does a bead with no review note at all.
+	rep = summarizeRouteEvents(built, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+			note(2, t0.Add(10*time.Minute), agent("yard-a", "review"), "looks good, verified abc1234"),
+		},
+	})
+	if r := row(rep, "g"); r.ReviewFixed != 0 || r.SecFixed != 0 {
+		t.Errorf("quote-only row = %+v, want no fixes", r)
+	}
+	rep = summarizeRouteEvents(built, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+		},
+	})
+	if r := row(rep, "g"); r.ReviewFixed != 0 || r.SecFixed != 0 {
+		t.Errorf("no review note row = %+v, want no fixes", r)
+	}
+	// Order is by seq, not by the slice: the builder's earlier note still
+	// excludes the SHA.
+	rep = summarizeRouteEvents(built, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(2, t0.Add(10*time.Minute), agent("yard-a", "review"), "review fix abc1234"),
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+		},
+	})
+	if r := row(rep, "g"); r.ReviewFixed != 0 {
+		t.Errorf("unordered notes row = %+v, want no fixes", r)
+	}
+
+	// A security note naming a fix: SEC FIXED.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		advanced(3, t0.Add(20*time.Minute), "yard-a", "review", "review-security"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+			note(2, t0.Add(20*time.Minute), agent("yard-a", "review-security"), "Fixed in 38667bcd"),
+		},
+	})
+	if r := row(rep, "g"); r.ReviewFixed != 0 || r.SecFixed != 1 {
+		t.Errorf("sec fix row = %+v, want review 0.0 sec 1.0", r)
+	}
+
+	// Two stays in review sum their fixes; a SHA both name counts once.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		advanced(3, t0.Add(time.Hour), "yard-a", "review", "new"),
+		claimed(4, t0.Add(time.Hour), "yard-a", "g", "new", "s2"),
+		advanced(5, t0.Add(2*time.Hour), "yard-a", "new", "review"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+			note(2, t0.Add(30*time.Minute), agent("yard-a", "review"), "review fix a4df3d30"),
+			note(3, t0.Add(90*time.Minute), agent("yard-a", "review"), "review fix a4df3d30 and 1122334"),
+		},
+	})
+	if r := row(rep, "g"); r.SentBack != 1 || r.ReviewFixed != 2 {
+		t.Errorf("two stays row = %+v, want sent back 1.0 review 2.0", r)
+	}
+
+	// A reviewer-group row reads 0.0 for its own stage while the builder
+	// row shows both counts; security repairs on beads the group passed
+	// still show on its row.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "builders", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		claimed(3, t0.Add(10*time.Minute), "yard-a", "reviewers", "review", "s2"),
+		advanced(4, t0.Add(20*time.Minute), "yard-a", "review", "review-security"),
+		advanced(5, t0.Add(30*time.Minute), "yard-a", "review-security", "approved"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ abc1234"),
+			note(2, t0.Add(15*time.Minute), agent("yard-a", "review"), "review fix a4df3d30"),
+			note(3, t0.Add(25*time.Minute), agent("yard-a", "review-security"), "Fixed in 38667bcd"),
+		},
+	})
+	if r := row(rep, "builders"); r.ReviewFixed != 1 || r.SecFixed != 1 {
+		t.Errorf("builder row = %+v, want review 1.0 sec 1.0", r)
+	}
+	if r := row(rep, "reviewers"); r.Beads != 1 || r.ReviewFixed != 0 || r.SecFixed != 1 {
+		t.Errorf("reviewer row = %+v, want beads 1 review 0.0 sec 1.0", r)
+	}
+
+	// --since drops a pre-window review note's fixes, while a pre-window
+	// builder note still excludes its SHA.
+	since := t0.Add(24 * time.Hour)
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0.Add(25*time.Hour), "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(25*time.Hour+10*time.Minute), "yard-a", "new", "review"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: since}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it @ beef111"),
+			note(2, t0.Add(time.Hour), agent("yard-a", "review"), "review fix cafe222"),
+			note(3, t0.Add(26*time.Hour), agent("yard-a", "review"), "re-review: beef111 stands, review fix dead333"),
+		},
+	})
+	if r := row(rep, "g"); r.Beads != 1 || r.ReviewFixed != 1 {
+		t.Errorf("since row = %+v, want beads 1 review 1.0", r)
+	}
+
+	// All-letter hex words are prose, not SHAs; an uppercase SHA counts,
+	// and a later lowercase quote of it counts once.
+	rep = summarizeRouteEvents(built, beads, routeReportOpts{prefixes: prefixes, stages: stages}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it"),
+			note(2, t0.Add(10*time.Minute), agent("yard-a", "review"), "traced deadbeef through the defaced path, review fix A4DF3D30"),
+			note(3, t0.Add(20*time.Minute), agent("yard-a", "review"), "confirmed a4df3d30"),
+		},
+	})
+	if r := row(rep, "g"); r.ReviewFixed != 1 {
+		t.Errorf("prose row = %+v, want review 1.0", r)
+	}
+
+	// A note by whoever moved the bead out of review counts, whenever the
+	// move was: the actor attribution reads past --since.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(time.Hour), "yard-a", "new", "review"),
+		advancedBy(3, t0.Add(2*time.Hour), "yard-a", "review", "approved", "mckean"),
+		claimed(4, t0.Add(25*time.Hour), "yard-a", "g", "new", "s2"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: since}, map[string][]store.Note{
+		"yard-a": {
+			note(1, t0, agent("yard-a", "new"), "built it"),
+			note(2, t0.Add(25*time.Hour), "mckean", "brakeman review, fixed in beef5ec"),
+		},
+	})
+	if r := row(rep, "g"); r.Beads != 1 || r.ReviewFixed != 1 {
+		t.Errorf("manual review row = %+v, want beads 1 review 1.0", r)
+	}
+}
+
+func TestFixSHAs(t *testing.T) {
+	sha40 := "0123456789abcdef0123456789abcdef01234567"
+	for _, tc := range []struct {
+		text string
+		want []string
+	}{
+		{"review fix a4df3d30", []string{"a4df3d30"}},
+		{"Fixed in 38667BCD and a4df3d30", []string{"38667bcd", "a4df3d30"}},
+		{"a4df3d30 and A4DF3D30", []string{"a4df3d30"}},
+		{"traced deadbeef through the defaced path", nil},
+		{"short abc12 and 123456 too", nil},
+		{"seven with a digit abcdef0 counts", []string{"abcdef0"}},
+		{sha40, []string{sha40}},
+		{sha40 + "8", nil},
+		{"test: sh .yardr/test @ abc1234: pass", []string{"abc1234"}},
+	} {
+		if got := fixSHAs(tc.text); !slices.Equal(got, tc.want) {
+			t.Errorf("fixSHAs(%q) = %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+// Under the first table, one line per difficulty names the builder with
+// the lowest sent back + repaired per bead, across originators; reviewer
+// groups never win, and a difficulty with no qualifying row stays silent.
+func TestSummarizeRouteEventsBest(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
+		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
+	}
+	claimed := func(seq uint64, at time.Time, bead, group, stage, session string) store.Event {
+		return ev(seq, at, bead, "claimed", map[string]any{"group": group, "stage": stage, "session": session})
+	}
+	advanced := func(seq uint64, at time.Time, bead, from, to string) store.Event {
+		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to, "group": "g"})
+	}
+	note := func(seq uint64, at time.Time, author, text string) store.Note {
+		return store.Note{Author: author, Text: text, At: at, Seq: seq}
+	}
+	agent := runner.AgentName
+	beads := map[string]store.Bead{
+		"yard-m1": {ID: "yard-m1", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-h1": {ID: "yard-h1", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
+		"yard-h2": {ID: "yard-h2", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
+		"yard-h3": {ID: "yard-h3", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
+		"yard-g1": {ID: "yard-g1", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-r1": {ID: "yard-r1", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-c1": {ID: "yard-c1", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-s1": {ID: "yard-s1", Status: "closed", Labels: []string{"difficulty:2"}},
+	}
+	// g1: one bead sent back twice, three clean ones for hal: 2 over 4.
+	// g2: one bead fixed twice: 2 over 1. The reviewers' rows read 0.0
+	// but never win: they claimed only in review and in design's
+	// critique, which is review work under another name.
+	rep := summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-m1", "g1", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-m1", "new", "review"),
+		advanced(3, t0.Add(time.Hour), "yard-m1", "review", "new"),
+		claimed(4, t0.Add(time.Hour), "yard-m1", "g1", "new", "s2"),
+		advanced(5, t0.Add(2*time.Hour), "yard-m1", "new", "review"),
+		advanced(6, t0.Add(3*time.Hour), "yard-m1", "review", "new"),
+		claimed(7, t0, "yard-h1", "g1", "new", "s3"),
+		advanced(8, t0.Add(10*time.Minute), "yard-h1", "new", "review"),
+		claimed(9, t0, "yard-h2", "g1", "new", "s4"),
+		advanced(10, t0.Add(10*time.Minute), "yard-h2", "new", "review"),
+		claimed(11, t0, "yard-h3", "g1", "new", "s5"),
+		advanced(12, t0.Add(10*time.Minute), "yard-h3", "new", "review"),
+		claimed(13, t0, "yard-g1", "g2", "new", "s6"),
+		advanced(14, t0.Add(10*time.Minute), "yard-g1", "new", "review"),
+		claimed(15, t0, "yard-r1", "reviewers", "review", "s7"),
+		claimed(16, t0, "yard-s1", "reviewers", "review", "s8"),
+		claimed(17, t0, "yard-c1", "reviewers", "critique", "s9"),
+	}, beads, routeReportOpts{
+		prefixes: []string{"difficulty:"},
+		stages:   map[string]bool{"new": true, "review": true, "critique": true},
+		operator: "me",
+	}, map[string][]store.Note{
+		"yard-g1": {
+			note(1, t0, agent("yard-g1", "new"), "built it"),
+			note(2, t0.Add(10*time.Minute), agent("yard-g1", "review"), "review fix beef111 and cafe222"),
+		},
+	})
+	if len(rep.best) != 1 {
+		t.Fatalf("best = %+v, want the one difficulty:3 line", rep.best)
+	}
+	if b := rep.best[0]; b.label != "difficulty:3" || b.group != "g1" || b.perBead != 0.5 || b.beads != 4 {
+		t.Errorf("best = %+v, want g1 at 0.5 over 4 beads", b)
+	}
+	// The best line is text only: --json carries no best.
+	out, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded["best"]; ok {
+		t.Errorf("--json carries best: %s", out)
+	}
+}
+
+// The built report counts review and security fixes from the notes, prints
+// the best builder per difficulty, and stays silent where only reviewers
+// worked.
+func TestRouteReportReviewFixed(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr", Limit: 4}, "me"))
+	for _, r := range []store.Route{
+		{Stage: "new", Group: "builders"},
+		{Stage: "review", Group: "reviewers"},
+		{Stage: "review-security", Group: "reviewers"},
+	} {
+		_, err := st.AddRoute(ctx, r, "me")
+		must(err)
+	}
+	claim := func(id, group, stage string) {
+		t.Helper()
+		_, err := st.Claim(ctx, id, group, stage, "me")
+		must(err)
+	}
+	move := func(id, stage string) {
+		t.Helper()
+		_, err := st.Advance(ctx, id, stage, store.Expect{}, "me")
+		must(err)
+	}
+	close := func(id string) {
+		t.Helper()
+		_, err := st.CloseBead(ctx, id, "done", store.Expect{}, "me")
+		must(err)
+	}
+	noted := func(id, text, author string) {
+		t.Helper()
+		_, err := st.AddNoted(ctx, id, text, author)
+		must(err)
+	}
+	agent := runner.AgentName
+
+	_, err := st.CreateBead(ctx, store.NewBead{ID: "yard-a", Title: "fixed", Depot: "yard", Labels: []string{"difficulty:3", "size:large"}}, "me")
+	must(err)
+	claim("yard-a", "builders", "new")
+	move("yard-a", "review")
+	claim("yard-a", "reviewers", "review")
+	move("yard-a", "review-security")
+	claim("yard-a", "reviewers", "review-security")
+	move("yard-a", "approved")
+	close("yard-a")
+	noted("yard-a", "built it\ntest: sh .yardr/test @ abc1234: pass", agent("yard-a", "new"))
+	noted("yard-a", "review fix a4df3d30, verified abc1234", agent("yard-a", "review"))
+	noted("yard-a", "Fixed in 38667bcd", agent("yard-a", "review-security"))
+
+	_, err = st.CreateBead(ctx, store.NewBead{ID: "yard-b", Title: "clean", Depot: "yard", Labels: []string{"difficulty:3"}}, "me")
+	must(err)
+	claim("yard-b", "builders", "new")
+	move("yard-b", "review")
+	claim("yard-b", "reviewers", "review")
+	move("yard-b", "approved")
+	close("yard-b")
+	noted("yard-b", "built it @ b1b2b34", agent("yard-b", "new"))
+	noted("yard-b", "looks good", agent("yard-b", "review"))
+
+	_, rows := reportRows(t, st)
+	want := map[string][]string{
+		// beads, sent back, review fixed, sec fixed, failed
+		"builders\x00me\x00difficulty:3":  {"2", "0.0", "0.5", "0.5", "0"},
+		"reviewers\x00me\x00difficulty:3": {"2", "0.0", "0.0", "0.5", "0"},
+	}
+	for k, w := range want {
+		got, ok := rows[k]
+		if !ok {
+			t.Errorf("no row for %q", k)
+			continue
+		}
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
+			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		}
+	}
+
+	// --json carries the fix columns as review_fixed/sec_fixed.
+	a := &app{st: st, actor: "me", json: true}
+	out, err := run(t, a.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	for _, r := range rep.Rows {
+		f, ok := rows[r.Group+"\x00"+r.Originator+"\x00"+r.Label]
+		if !ok {
+			t.Errorf("--json row %+v has no text row", r)
+			continue
+		}
+		if f[5] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[6] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
+			t.Errorf("--json row %+v fixes differ from text row %v", r, f)
+		}
+	}
+	if len(rep.Rows) != len(rows) {
+		t.Errorf("--json has %d rows, text has %d", len(rep.Rows), len(rows))
+	}
+
+	// The best line names the builder, not the reviewers' lower but
+	// disqualified row.
+	best := reportBest(t, st)
+	wantBest := []string{"best difficulty:3: builders at 1.0 sent back + repaired per bead (2 beads)"}
+	if !slices.Equal(best, wantBest) {
+		t.Errorf("best = %q, want %q", best, wantBest)
+	}
+
+	// Where only reviewers worked, no best line prints.
+	best = reportBest(t, st, "--stage", "review")
+	if len(best) != 0 {
+		t.Errorf("best for --stage review = %q, want none", best)
+	}
+	if _, rows := reportRows(t, st, "--stage", "review"); len(rows) == 0 {
+		t.Errorf("no rows for --stage review, want the reviewers' rows without a best line")
+	}
+
+	// --prefix size keeps the new columns, with the fixes on the large row.
+	_, rows = reportRows(t, st, "--prefix", "size")
+	wantSize := map[string][]string{
+		"builders\x00me\x00size:large":  {"1", "0.0", "1.0", "1.0", "0"},
+		"reviewers\x00me\x00size:large": {"1", "0.0", "0.0", "1.0", "0"},
+		"builders\x00me\x00-":           {"1", "0.0", "0.0", "0.0", "0"},
+		"reviewers\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "0"},
+	}
+	if len(rows) != 4 {
+		t.Errorf("%d rows with --prefix size, want 4", len(rows))
+	}
+	for k, w := range wantSize {
+		got, ok := rows[k]
+		if !ok {
+			t.Errorf("no row for %q with --prefix size", k)
+			continue
+		}
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
+			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		}
 	}
 }
