@@ -1156,9 +1156,10 @@ func checkRouteTie(tx *bolt.Tx, r Route, operator, op string) error {
 	key := r.matchKey(operator)
 	var tie *Route
 	if err := each(tx, bRoutes, "", func(_ []byte, o *Route) error {
-		// The route itself under SetRoute: an add's route has no id yet,
-		// and no stored route has none, so this skips nothing for an add.
-		if o.ID == r.ID {
+		// The route itself under SetRoute alone: AddRoute mints the
+		// route's id, so an id a caller names on an add is not its own
+		// and skips no standing route.
+		if op == "set" && o.ID == r.ID {
 			return nil
 		}
 		if tie != nil || o.Priority != r.Priority || !sameScope(*o, r) || o.matchKey(operator) != key {

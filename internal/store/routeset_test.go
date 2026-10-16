@@ -205,6 +205,21 @@ func TestSetRouteHoldsGroupsAsAnAddDoes(t *testing.T) {
 	}
 }
 
+// An add that names a standing route's id does not skip that route in
+// the tie check: the store mints the new route's id, so a caller-named
+// id is not the route's own, and the tie is refused as for any add.
+func TestAddRouteNamingAStandingRouteStillRefusesItsTie(t *testing.T) {
+	s, ctx := defaultsYard(t)
+	standing := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
+	if _, err := s.AddRoute(ctx, store.Route{ID: standing.ID, Stage: "new", Group: "spare"}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "route "+standing.ID+" already takes these beads") {
+		t.Errorf("an add naming the standing route: %v, want its tie refused naming it", err)
+	}
+	if routes, err := s.Routes(ctx); err != nil || len(routes) != 1 {
+		t.Errorf("routes after a refused add = %+v, %v; want the standing route alone", routes, err)
+	}
+}
+
 // Setting a route that is not there is not found.
 func TestSetRouteOnAnUnknownRoute(t *testing.T) {
 	s, ctx := defaultsYard(t)
