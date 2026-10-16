@@ -435,14 +435,16 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 		// line says why, so the queue names nothing.
 		return queueWait{}
 	}
-	if q.Capped && q.Running >= q.Max {
+	if g.Limit == 0 {
+		return queueWait{part: "group " + g.Name + " paused (limit 0)"}
+	}
+	// max_sessions counts only runners that start an agent or script on
+	// this machine; manual claims and peer work can still start under it.
+	if g.Runner != "manual" && g.Runner != "peer" && q.Capped && q.Running >= q.Max {
 		if q.Max == 0 {
 			return queueWait{part: "yard paused (max_sessions 0)"}
 		}
 		return queueWait{part: "behind the yard's cap"}
-	}
-	if g.Limit == 0 {
-		return queueWait{part: "group " + g.Name + " paused (limit 0)"}
 	}
 	var out queueWait
 	out.clocked = true

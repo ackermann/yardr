@@ -566,6 +566,35 @@ func TestQueuePaused(t *testing.T) {
 	if r.ETA.Queue != "" || r.ETA.Ahead != 0 {
 		t.Fatalf("paused queue numbered: queue %q ahead %d", r.ETA.Queue, r.ETA.Ahead)
 	}
+
+	// A paused group is the direct blocker even when the yard is paused too.
+	pausedQueue := Queue{Order: order, Running: 0, Max: 0, Capped: true}
+	r = Estimate(b, flow, routes, paused, cells, pausedQueue, testNow, "")
+	line, _ = lines(t, r)
+	if want := "eta usual 1h–2h (group builders paused (limit 0); new ~1h; unclocked after new)"; line != want {
+		t.Fatalf("both pauses line:\n got %q\nwant %q", line, want)
+	}
+}
+
+func TestQueueYardPauseLeavesManualAndPeerAlone(t *testing.T) {
+	b := testBead("yardr-9c2k", "new")
+	// The yard pause only holds work that starts an agent or script here.
+	// Manual and peer groups can still take their bead, as dispatch does.
+	for _, group := range []Group{
+		{Name: "people", Runner: "manual", Limit: 2},
+		{Name: "far", Runner: "peer", Limit: 2, Peer: "north"},
+	} {
+		t.Run(group.Name, func(t *testing.T) {
+			order := []Queued{{Bead: b.ID, Stage: "new", Type: "task", Labels: b.Labels, Priority: b.Priority}}
+			q := Queue{Order: order, Max: 0, Capped: true}
+			wait := simulateQueue(b, group, cellMap(nil), q, testNow, func(Queued) (Group, bool) {
+				return group, true
+			})
+			if wait.part != "" || wait.wait != 0 {
+				t.Fatalf("yard pause blocked %s work: %+v", group.Runner, wait)
+			}
+		})
+	}
 }
 
 func TestQueueSkipped(t *testing.T) {
