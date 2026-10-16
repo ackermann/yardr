@@ -72,6 +72,15 @@ type ArrivalRow struct {
 	Tone     string `json:"tone"`
 }
 
+// An ArrivalBoard is what the yard serves for the board: the rows beside
+// the platforms in the order the beads travel, so a reader groups the
+// rows by the served list without knowing the flows. Every platform a
+// row stands on is in the list.
+type ArrivalBoard struct {
+	Rows      []ArrivalRow `json:"rows"`
+	Platforms []string     `json:"platforms"`
+}
+
 // Arrivals answers the board's rows for beads: running sessions first,
 // then by the low end in minutes, then by stage age and id, capped at
 // ArrivalLimit. A low that reads as no span — "under a minute" among
