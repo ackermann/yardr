@@ -84,6 +84,9 @@ func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 		return err
 	}
 	for _, r := range rs {
+		d.noteHomeCrew(r)
+	}
+	for _, r := range rs {
 		if err := d.member(ctx, r, paused); err != nil {
 			d.Log.Error("crew", "crew", r.Name, "err", err)
 		}
@@ -252,6 +255,9 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 			if err := gone(ctx, def.Name, s.user, "the session is gone"); err != nil {
 				return err
 			}
+			// Its handle is kept where the runtime closes leftovers, not
+			// where the home-gone close looks.
+			d.dropHome(crewHomeKey(def.Name, s.user))
 			s.st.State = "stopped"
 			if early && s.st.RestartRequested == "" {
 				// Its harness exits at once (a broken install, a bad flag, an
@@ -316,6 +322,10 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	handle, err := starter.StartCrew(ctx, def, s.user)
 	if err != nil {
 		return d.crewStartFailed(ctx, runner, s, handle, err)
+	}
+	if def.Runner == "herdr" {
+		// The pane is open from here, whatever the store says next.
+		d.noteHomeStarted(startedCrewHome(def.Name, s.user, def.Runner, handle))
 	}
 	d.Log.Info("crew session started", "crew", def.Name, "session", s.label())
 	key := s.key()
@@ -742,6 +752,7 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, s *memberSession,
 const nudgeAtDialog = "nudge held: at a dialog"
 
 func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSession, reason string) error {
+	d.dropHome(crewHomeKey(s.member.Name, s.user))
 	if len(s.st.Handle) > 0 {
 		if err := runner.Stop(ctx, s.st.Handle); err != nil {
 			d.Log.Warn("crew stop", "crew", s.member.Name, "session", s.label(), "err", err)

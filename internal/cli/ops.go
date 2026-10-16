@@ -165,7 +165,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				// from exiting.
 				closeCtx, cancel := context.WithTimeout(context.Background(), stopWait)
 				defer cancel()
-				closeHomeSessions(closeCtx, st, runners, log)
+				closeHomeSessions(closeCtx, d.HomeSessions(), runners, log)
 			}
 			return runErr
 		},

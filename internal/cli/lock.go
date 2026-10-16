@@ -13,7 +13,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
-	"yardr.dev/yardr/internal/store"
 )
 
 // errDaemonRunning is what a second daemon on the same home fails with.
@@ -130,34 +129,30 @@ func homeLostCause(err error) string {
 	return ""
 }
 
-// closeHomeSessions ends every herdr session the daemon is responsible for:
-// each crew member's line and conversation sessions and each running bead
-// session, through the runner's Stop with the handle on record. It is what
-// the daemon does when its home is gone under it: nothing else can close
-// such a pane, the yard is gone and `yardr down` has nothing to read. Only
-// herdr sessions are closed; anything of another runner is left as a
-// SIGTERM leaves it. There is no handoff and nothing is written to the
-// store, and each failure is logged and skipped.
-func closeHomeSessions(ctx context.Context, st store.API, runners map[string]dispatch.Runner, log *slog.Logger) {
-	agents, err := yardAgents(ctx, st, runners, false)
-	if err != nil {
-		log.Warn("the yard's sessions could not be listed; their herdr panes are left running", "err", err)
-		return
-	}
+// closeHomeSessions ends every herdr session in the snapshot the daemon
+// kept: each crew member's line and conversation sessions and each running
+// bead session, through the runner's Stop with the handle on record. It is
+// what the daemon does when its home is gone under it: nothing else can
+// close such a pane, the yard is gone and `yardr down` has nothing to read.
+// The store is behind the server's socket in the home, so no listing can be
+// made now; the snapshot was taken while it could. Only herdr sessions are
+// closed; anything of another runner is left as a SIGTERM leaves it. There
+// is no handoff and nothing is written to the store, and each failure is
+// logged and skipped.
+func closeHomeSessions(ctx context.Context, sessions []dispatch.HomeSession, runners map[string]dispatch.Runner, log *slog.Logger) {
 	herdr := runners["herdr"]
 	if herdr == nil {
 		log.Warn("herdr's runner is gone; the yard's herdr panes are left running")
 		return
 	}
-	for i := range agents {
-		g := &agents[i]
-		if g.runner != "herdr" || len(g.handle) == 0 {
+	for _, s := range sessions {
+		if s.Runner != "herdr" || len(s.Handle) == 0 {
 			continue
 		}
-		if err := herdr.Stop(ctx, g.handle); err != nil {
-			log.Warn("could not close the herdr session", "session", g.String(), "agent", g.Agent, "err", err)
+		if err := herdr.Stop(ctx, s.Handle); err != nil {
+			log.Warn("could not close the herdr session", "session", s.String(), "agent", s.Agent, "err", err)
 			continue
 		}
-		log.Info("closed the herdr session", "session", g.String(), "agent", g.Agent)
+		log.Info("closed the herdr session", "session", s.String(), "agent", s.Agent)
 	}
 }

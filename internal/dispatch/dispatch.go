@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -320,6 +321,12 @@ type Dispatcher struct {
 	// (store.RunsHere), over all groups, as of this pass: what route holds
 	// against the yard's max_sessions.
 	running int
+	// home are the herdr sessions of the last pass that ran through, with
+	// their handles, plus every session started since; pass is the one in
+	// progress, nil outside a pass. See HomeSessions.
+	homeMu sync.Mutex
+	home   map[string]HomeSession
+	pass   map[string]HomeSession
 }
 
 // outage is a group whose runner could not start anything: the runtime is
@@ -760,6 +767,7 @@ func (d *Dispatcher) noteStart(ctx context.Context) {
 // the copy of the store that is due.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
+	d.beginHomePass()
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).
 	ctx = WithPaneCache(ctx)
@@ -822,8 +830,10 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// is fetched in it.
 	err = d.peers(ctx)
 	d.fetches(ctx)
-	// The pass ran: stamp it, whatever the peers said.
+	// The pass ran: stamp it, whatever the peers said, and publish the
+	// herdr sessions it saw and started.
 	d.stampPass()
+	d.endHomePass()
 	return err
 }
 
@@ -857,8 +867,12 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 	// live counts s for its group, and for the yard when it runs here.
 	live := func(s store.Session) {
 		active[s.Group]++
-		if store.RunsHere(runnerName(s, groups)) {
+		name := runnerName(s, groups)
+		if store.RunsHere(name) {
 			d.running++
+		}
+		if name == "herdr" {
+			d.noteHome(beadHome(s, name))
 		}
 	}
 	for _, s := range sessions {
@@ -1404,6 +1418,10 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 		d.runtimeUp(ctx, g)
+		if g.Runner == "herdr" {
+			// The pane is open from here, whatever the store says next.
+			d.noteHomeStarted(startedBeadHome(b.ID, b.Stage, g.Name, sess.ID, g.Runner, handle))
+		}
 		if err := d.Store.MarkRunning(ctx, sess.ID, handle); err != nil {
 			return err
 		}

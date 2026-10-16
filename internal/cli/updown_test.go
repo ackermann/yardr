@@ -31,10 +31,18 @@ type paneRunner struct {
 	stopped, nudged []string
 	// onNudge is what an agent does with what it is typed.
 	onNudge func(agent, text string)
+	// onStart starts a session; nil starts nothing, as down's stand-in does.
+	onStart func(dispatch.Job) (map[string]any, error)
 }
 
-func (p *paneRunner) Start(context.Context, dispatch.Job) (map[string]any, error) {
-	return nil, errors.New("down starts nothing")
+func (p *paneRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
+	p.mu.Lock()
+	onStart := p.onStart
+	p.mu.Unlock()
+	if onStart == nil {
+		return nil, errors.New("down starts nothing")
+	}
+	return onStart(j)
 }
 
 func (p *paneRunner) Status(_ context.Context, h map[string]any) (string, error) {
