@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -147,6 +148,20 @@ var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 func checkName(what, name string) error {
 	if !validName.MatchString(name) {
 		return fmt.Errorf("%s %q: use lowercase letters, digits, '.', '_' or '-' (starting with a letter or digit)", what, name)
+	}
+	return nil
+}
+
+// checkLabels refuses a label holding white space: routes match labels
+// exactly, so one with a space never matches anything and fails silently
+// (a shell loop without word splitting once filed "difficulty:3
+// size:large" as one label, and the difficulty:3 route did not match).
+// Labels are given one per flag.
+func checkLabels(labels []string) error {
+	for _, label := range labels {
+		if strings.IndexFunc(label, unicode.IsSpace) >= 0 {
+			return fmt.Errorf("label %q: labels are given one per flag, so one holds no white space", label)
+		}
 	}
 	return nil
 }
@@ -386,6 +401,9 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 	}
 	typ := or(nb.Type, "task")
 	if err := checkName("bead type", typ); err != nil {
+		return nil, err
+	}
+	if err := checkLabels(nb.Labels); err != nil {
 		return nil, err
 	}
 	var depot *string
@@ -1129,6 +1147,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		if err := checkName("bead type", *p.Type); err != nil {
 			return nil, err
 		}
+	}
+	if err := checkLabels(p.AddLabels); err != nil {
+		return nil, err
 	}
 	pin := PinnedFlow(&Bead{Metadata: p.Metadata})
 	var repo *RepoFlows

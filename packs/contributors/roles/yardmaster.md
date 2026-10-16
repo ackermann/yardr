@@ -197,7 +197,9 @@ with no picture asked and none opened. A refactor, a doc, a flag take
 none: nothing to see.
 
 `yardr bead update <id> --add-label difficulty:2 --add-label size:medium`
-writes both; `-p` sets the priority. Estimate what the bead is, not where
+writes both; `-p` sets the priority. A label holds no white space:
+labels are given one per `--add-label`, so two estimates in one flag are
+refused. Estimate what the bead is, not where
 it should go: the routes decide the group, and the quota can change their
 answer. A bead with no estimate goes where an unlabelled bead goes, to
 the route with no label filter. When an estimate proves wrong, change the
