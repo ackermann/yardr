@@ -11,7 +11,8 @@ package assembly
 // repository with base main and branch yard/r-1 in its worktree, a stub
 // yardr that says yes to every move, and a sleep that records the fds it
 // was started with. The run inherits open files above 2, as a race run
-// holds its lock: filler to fd 9 and the lock stand-in at fd 10.
+// holds its lock: filler to fd 9, the lock stand-in at fd 10, and fd 1024
+// when the process limit permits.
 
 import (
 	"errors"
@@ -50,7 +51,7 @@ func watcherGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func newWatcherRun(t *testing.T, test, limit string) *watcherRun {
+func newWatcherRun(t *testing.T, test, limit string, highFD bool) *watcherRun {
 	t.Helper()
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -80,13 +81,14 @@ func newWatcherRun(t *testing.T, test, limit string) *watcherRun {
 	}
 	record := filepath.Join(dir, "sleep-record")
 	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in:
-	// ExtraFiles entry i is the child's fd 3+i.
+	// ExtraFiles entry i is the child's fd 3+i. Reuse one filler file to
+	// put a sentinel at fd 1024 too, when the process limit permits it.
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var extra []*os.File
 	for i := 0; i < 7; i++ {
-		null, err := os.Open(os.DevNull)
-		if err != nil {
-			t.Fatal(err)
-		}
 		extra = append(extra, null)
 	}
 	lock, err := os.Create(filepath.Join(dir, "lock"))
@@ -94,9 +96,24 @@ func newWatcherRun(t *testing.T, test, limit string) *watcherRun {
 		t.Fatal(err)
 	}
 	extra = append(extra, lock)
+	var fdLimit syscall.Rlimit
+	if highFD {
+		if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
+			t.Fatal(err)
+		}
+		if fdLimit.Cur > 1024 {
+			for len(extra) < 1022 { // entry 1021 becomes child fd 1024
+				extra = append(extra, null)
+			}
+		}
+	}
 	t.Cleanup(func() {
+		closed := make(map[*os.File]bool)
 		for _, f := range extra {
-			f.Close()
+			if !closed[f] {
+				closed[f] = true
+				_ = f.Close()
+			}
 		}
 	})
 	script, err := filepath.Abs("merge-local")
@@ -243,9 +260,9 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 	t.Parallel()
 	// Into a file, not a pipe: an orphaned sleep would hold a pipe open
 	// past the run's own exit, and the wait below with it.
-	finished := func(test, limit string) *watcherRun {
+	finished := func(test, limit string, highFD bool) *watcherRun {
 		t.Helper()
-		w := newWatcherRun(t, test, limit)
+		w := newWatcherRun(t, test, limit, highFD)
 		t.Cleanup(func() { killWatcherSleepers(t, limit) })
 		log, err := os.Create(filepath.Join(w.tmp, "out"))
 		if err != nil {
@@ -265,8 +282,17 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 		awaitNoWatcherSleepers(t, limit)
 		return w
 	}
-	finished("true", "1799")
-	w := finished("sleep 2", "1797")
+	finished("true", "1799", false)
+	var fdLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
+		t.Fatal(err)
+	}
+	highFD := fdLimit.Cur > 1024
+	test := "sleep 2"
+	if highFD {
+		test = "[ -e /dev/fd/1024 ] || [ -L /dev/fd/1024 ] || exit 42; exec 1024<&-; sleep 2"
+	}
+	w := finished(test, "1797", highFD)
 	assertWatcherSleepFds(t, w.record, "1797")
 }
 
@@ -286,7 +312,7 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	})
 	// A slow test command, so merge-local is mid-run when it is killed;
 	// its own sleep is killed above, whatever outlives the run.
-	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789")
+	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", false)
 	cmd := w.cmd()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
