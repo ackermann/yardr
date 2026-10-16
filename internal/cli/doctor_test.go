@@ -1148,8 +1148,7 @@ func TestDoctorTry(t *testing.T) {
 	// Only kimi is looked at: in so short a time the others may hang too.
 	// Its output is not asserted because a slow start can time out before
 	// the script prints anything. The hanging script sleeps 30 s, so any
-	// short timeout names the hang; 300 ms is what the version check's
-	// hanging test waits.
+	// short timeout names the hang; 300 ms keeps this test quick.
 	tools["kimi"] = tryTool(called, "echo 'thinking'; sleep 30")
 	fakeTools(t, tools)
 	stub(t, &tryTimeout, 300*time.Millisecond)
