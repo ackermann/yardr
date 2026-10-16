@@ -185,7 +185,8 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Test != (testResult{Depot: "invoices", Kind: store.DepotDir, Path: invoices.Path}) {
 		t.Fatalf("json: %v, %+v\n%s", err, res, out)
 	}
-	if err := a.st.PutDepot(ctx, store.Depot{Name: "invoices", Path: invoices.Path, Kind: store.DepotDir, Test: "sh count"}, "me"); err != nil {
+	// Setting the test command is the operator's; the run below is init's.
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "invoices", Path: invoices.Path, Kind: store.DepotDir, Test: "sh count"}, "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, a.depotCmd(), "init", "invoices", "--pack", "dir", "--yes")
