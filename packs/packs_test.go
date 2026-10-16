@@ -43,8 +43,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, packs.Linear, "pushover", packs.Starter, "telegram"}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, linear, pushover, starter and telegram", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google", packs.Linear, "pushover", packs.Starter, "telegram"}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google, linear, pushover, starter and telegram", names)
 	}
 }
 

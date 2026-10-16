@@ -1,0 +1,109 @@
+#!/bin/sh
+# Mints a Google access token from the operator's gws login: the
+# mint_command of the google pack's sources, whose credential names
+# GOOGLE_ACCOUNT under credential.mint. The core runs it with {inputs,
+# scope} on stdin and reads {token, expires_at} on stdout:
+#
+#   yardr source set google-mail mint_command=/Users/me/bin/google-mint
+#
+# GOOGLE_ACCOUNT is the account's address, no secret. The refresh
+# credentials come from the local gws login (gws 0.22.5, config in
+# ~/.config/gws): gws auth status tells whose login it is, and gws auth
+# export --unmasked prints the client id, client secret and refresh
+# token, which are exchanged at the token endpoint for an access token.
+# No new copy of a secret is stored: the three are held in this
+# process's memory alone, sent in the exchange's body, and never
+# printed, neither on stdout nor on stderr, nor written anywhere.
+#
+# Needs gws and curl on PATH: GWS_BIN names another gws, else the one
+# on PATH, else /opt/homebrew/bin/gws. GOOGLE_TOKEN_ENDPOINT names
+# another token endpoint than https://oauth2.googleapis.com/token, for
+# a test's stand-in. The scope is the call's; Google's token narrows by
+# the gws grant, not by call, so it is read and ignored.
+set -eu
+
+fail() { echo "google-mint: $*" >&2; exit 1; }
+
+command -v curl >/dev/null 2>&1 || fail "needs curl on PATH"
+if [ -n "${GWS_BIN:-}" ]; then
+  case $GWS_BIN in "~/"*) GWS_BIN=$HOME/${GWS_BIN#"~/"} ;; "~") GWS_BIN=$HOME ;; esac
+  [ -x "$GWS_BIN" ] || fail "GWS_BIN=$GWS_BIN is no program to run"
+  GWS=$GWS_BIN
+elif command -v gws >/dev/null 2>&1; then
+  GWS=gws
+elif [ -x /opt/homebrew/bin/gws ]; then
+  GWS=/opt/homebrew/bin/gws
+else
+  fail "needs gws on PATH (or GWS_BIN=/path/to/gws): the operator's gws login is what the token is minted from"
+fi
+
+input=$(cat)
+[ -n "$input" ] || fail "reads {inputs, scope} on stdin, and got nothing"
+
+# first <text> <key> is the value of the first "key": "value" in text, ""
+# when there is none. Values with an escaped quote in them are not read:
+# an account, a scope, gws's answers and Google's have none. A line gws
+# prints outside its answer (Using keyring backend: keyring, on stderr)
+# has no quoted pair in it, so it is passed over either way.
+first() {
+  printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" |
+    head -n 1 | sed 's/^[^:]*:[[:space:]]*"//;s/"$//'
+}
+
+# num <text> <key> is the number of the first "key": <number> in text, ""
+# when there is none.
+num() {
+  printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9][0-9]*" |
+    head -n 1 | sed -n 's/[^0-9]*\([0-9][0-9]*\)/\1/p'
+}
+
+account=$(first "$input" GOOGLE_ACCOUNT)
+[ -n "$account" ] || fail "its inputs name no GOOGLE_ACCOUNT"
+printf '%s' "$input" | grep -q '"scope"' || fail "reads {inputs, scope} on stdin, and got no scope"
+endpoint=${GOOGLE_TOKEN_ENDPOINT:-https://oauth2.googleapis.com/token}
+
+# Whose login gws holds: the exchange below mints for whoever that is,
+# so another account than the inputs name is refused, not minted.
+status_out=$("$GWS" auth status 2>&1) || fail "gws auth status failed (exit $?): $(printf '%s' "$status_out" | head -c 500)"
+user=$(first "$status_out" user)
+[ -n "$user" ] || fail "gws auth status answered with no user"
+[ "$user" = "$account" ] || fail "the gws login is for $user, not GOOGLE_ACCOUNT=$account"
+
+# The refresh credentials, decrypted by gws: masked without --unmasked,
+# so that flag is the point. What fails is said in one line: the three
+# values reach neither stdout nor stderr from here on.
+export_out=$("$GWS" auth export --unmasked 2>&1) || fail "gws auth export failed (exit $?)"
+# (What it said is not repeated: on this line the refresh credentials
+# themselves would be the leak.)
+client_id=$(first "$export_out" client_id)
+client_secret=$(first "$export_out" client_secret)
+refresh_token=$(first "$export_out" refresh_token)
+[ -n "$client_id" ] && [ -n "$client_secret" ] && [ -n "$refresh_token" ] ||
+  fail "gws auth export answered with no refresh credentials"
+
+# The exchange is one form, sent as it is: what gws exports (letters,
+# digits, dots, tildes, slashes and hyphens) needs no encoding, and
+# anything else is refused rather than sent half-encoded. The body goes
+# over the pipe, not in an argument and not in a file.
+case $client_id$client_secret$refresh_token in
+*[!A-Za-z0-9._~/-]*)
+  fail "what gws answered is no refresh credentials" ;;
+esac
+out=$(printf 'grant_type=refresh_token&client_id=%s&client_secret=%s&refresh_token=%s' \
+  "$client_id" "$client_secret" "$refresh_token" |
+  curl -s --max-time 10 -w '\n%{http_code}' -d @- "$endpoint") ||
+  fail "could not reach $endpoint (curl exit $?)"
+code=$(printf '%s' "$out" | tail -n 1)
+body=$(printf '%s' "$out" | sed '$d')
+[ "$code" = "200" ] || fail "minting a token was answered $code: $(printf '%s' "$body" | head -c 500)"
+token=$(first "$body" access_token)
+expires_in=$(num "$body" expires_in)
+[ -n "$token" ] && [ -n "$expires_in" ] || fail "minting a token came back with no token"
+# The answer is JSON the core reads: a token outside what Google sends
+# is refused rather than printed through it.
+case $token in *[!A-Za-z0-9._-]*) fail "the token Google answered is no token" ;; esac
+now=$(date +%s)
+exp=$(date -u -r "$((now + expires_in))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
+  date -u -d "@$((now + expires_in))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) ||
+  fail "cannot write the time (date reads neither -r nor -d here)"
+printf '{"token":"%s","expires_at":"%s"}' "$token" "$exp"

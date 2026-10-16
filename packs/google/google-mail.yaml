@@ -1,0 +1,77 @@
+# Gmail as a declared source: reading mail and writing drafts, through
+# users.messages, users.threads and users.drafts.create. What it never
+# does is send: no messages.send, no drafts.send, no drafts.update, no
+# drafts.delete, no modify of labels, no trash and no delete. Sending
+# stays the person's; the yard writes the draft, the person presses send.
+#
+# Checked against the discovery document
+# (https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest) on 16
+# October 2026: list takes q and maxResults (default 100) and answers
+# one page with messages, nextPageToken and resultSizeEstimate; get
+# takes format (minimal, full, raw, metadata; default full); threads.get
+# takes the same formats but full, metadata and minimal; drafts.create
+# takes {message: {raw}} and answers {id, message}.
+#
+# A credential that expires is minted, not kept: GOOGLE_ACCOUNT names
+# the account (an address, no secret) and the operator sets the command
+# that turns it into a token (yardr source set google-mail
+# mint_command=<path to contrib/google-mint>), run with {inputs, scope}
+# on stdin for a {token, expires_at}. The token is handed to each call
+# under GOOGLE_TOKEN, and kept in memory alone. No pack brings the
+# command. Gmail takes no idempotency key, so the file names none: a
+# draft tried again after a lost answer is written twice.
+name: google-mail
+about: Gmail read and drafts. Searches, reads messages and threads, and writes drafts; sends nothing.
+base: https://gmail.googleapis.com
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GOOGLE_ACCOUNT]
+calls:
+  search:
+    kind: read
+    about: Search mail, one page of at most 50
+    params:
+      q: { type: string, max: 1000, optional: true }   # free text, Gmail's search syntax; left out, the newest mail
+      maxResults: { type: string, pattern: "^([1-9]|[1-4][0-9]|50)$" }   # 1 to 50, always given: Gmail's own default is 100
+    request:
+      method: GET
+      path: /gmail/v1/users/me/messages
+      query: { q: "{q}", maxResults: "{maxResults}" }
+    answer: { select: [messages, nextPageToken, resultSizeEstimate] }   # nextPageToken says there is more; paging is left out, so one page is all a call reads
+  message:
+    kind: read
+    about: Read one message, headers alone or with its text
+    params:
+      id: { type: string, pattern: "^[0-9a-f]+$", max: 64, log: true }
+      format: { type: enum, values: [metadata, full] }   # metadata keeps the headers, full keeps the text part too
+    request:
+      method: GET
+      path: /gmail/v1/users/me/messages/{id}
+      query: { format: "{format}" }
+    answer: { select: [id, threadId, labelIds, snippet, payload], max: 262144 }   # headers and the text part are in payload
+  thread:
+    kind: read
+    about: Read one thread, whole
+    params:
+      id: { type: string, pattern: "^[0-9a-f]+$", max: 64, log: true }
+      format: { type: enum, values: [metadata, full] }
+    request:
+      method: GET
+      path: /gmail/v1/users/me/threads/{id}
+      query: { format: "{format}" }
+    answer: { select: [id, messages], max: 524288 }
+  draft:
+    kind: update
+    about: Write a draft, never send one
+    params:
+      # The whole RFC 2822 message (From, To and Subject headers, a blank
+      # line, the body), base64url-encoded without padding. How to make
+      # one is in the pack's SETUP.md. At most a million characters,
+      # about 750 KB of message, under Gmail's 35 MB.
+      raw: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 1000000 }
+    request:
+      method: POST
+      path: /gmail/v1/users/me/drafts
+      body: { message: { raw: "{raw}" } }
+    answer: { select: [id, message] }

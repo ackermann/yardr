@@ -1,0 +1,64 @@
+# Google Slides as a declared source: a deck read, and a slide with
+# title and body text appended to it. One source per host, so Slides is
+# its own; the empty deck it fills is made by the drive source's slides
+# call. No other batchUpdate request is declared.
+#
+# Checked against the discovery document
+# (https://www.googleapis.com/discovery/v1/apis/slides/v1/rest) on 16
+# October 2026: presentations.get answers the deck with title and
+# slides; presentations.batchUpdate takes {requests} and answers
+# {presentationId, replies}. CreateSlide takes an objectId, a
+# slideLayoutReference with predefinedLayout TITLE_AND_BODY, and
+# placeholderIdMappings naming the title and body placeholders' ids, so
+# one batch creates the slide and writes both texts; with no
+# insertionIndex the slide goes last. A caller-chosen id starts with a
+# letter, digit or underscore, holds those with hyphen past it, and is 5
+# to 50 characters; the title and body ids derive from the slide's with
+# _title and _body, so the slide's is 5 to 44.
+#
+# The credential mints like google-mail's: GOOGLE_ACCOUNT names the
+# account (an address, no secret) and the operator sets mint_command to
+# contrib/google-mint, which no pack brings. Slides takes no idempotency
+# key, so the file names none: a slide tried again after a lost answer
+# is added twice.
+name: google-slides
+about: Google Slides decks read, and slides with title and body appended.
+base: https://slides.googleapis.com
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GOOGLE_ACCOUNT]
+calls:
+  deck:
+    kind: read
+    about: Read one deck, title and slides
+    params:
+      id: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: GET
+      path: /v1/presentations/{id}
+    answer: { select: [title, slides], max: 262144 }
+  slide:
+    kind: update
+    about: Append a slide with title and body text
+    params:
+      id: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      # The slide's id, the caller's to choose and unique in the deck:
+      # letters, digits, _ and -, starting with one of the first three.
+      slide: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{4,43}$", log: true }
+      title: { type: string, max: 500 }   # free text: its value is in no event
+      body: { type: string, max: 10000 }
+    request:
+      method: POST
+      path: /v1/presentations/{id}:batchUpdate
+      body:
+        requests:
+          - createSlide:
+              objectId: "{slide}"
+              slideLayoutReference: { predefinedLayout: TITLE_AND_BODY }
+              placeholderIdMappings:
+                - { layoutPlaceholder: { type: TITLE, index: 0 }, objectId: "{slide}_title" }
+                - { layoutPlaceholder: { type: BODY, index: 0 }, objectId: "{slide}_body" }
+          - insertText: { objectId: "{slide}_title", text: "{title}" }
+          - insertText: { objectId: "{slide}_body", text: "{body}" }
+    answer: { select: [presentationId, replies] }

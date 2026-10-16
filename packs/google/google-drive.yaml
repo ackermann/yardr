@@ -1,0 +1,80 @@
+# Drive as a declared source: files listed and read, folders and empty
+# Google Docs and Slides created for the docs and slides sources to
+# fill. What it never does: no delete, no update, no trash, no upload of
+# content (multipart, which a declared source cannot say), no export (a
+# media download, not JSON), and no paging (pageToken is not declared,
+# so one page is all a call reads).
+#
+# Checked against the discovery document
+# (https://www.googleapis.com/discovery/v1/apis/drive/v3/rest) on 16
+# October 2026: files.list takes q (default pageSize 100) and answers
+# one page with files, incompleteSearch and nextPageToken; files.get
+# answers the file's metadata; files.create takes {name, mimeType,
+# parents} and answers the file.
+#
+# The credential mints like google-mail's: GOOGLE_ACCOUNT names the
+# account (an address, no secret) and the operator sets mint_command to
+# contrib/google-mint, which no pack brings. Drive takes no idempotency
+# key, so the file names none: a folder tried again after a lost answer
+# is made twice.
+name: google-drive
+about: Drive files listed and read; folders and empty Docs and Slides created.
+base: https://www.googleapis.com
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GOOGLE_ACCOUNT]
+check: files
+calls:
+  files:
+    kind: read
+    about: List files, one page
+    params:
+      q: { type: string, max: 1000, optional: true }   # free text, Drive's query syntax; left out, the drive's files
+    request:
+      method: GET
+      path: /drive/v3/files
+      query: { q: "{q}" }
+    answer: { select: [files, incompleteSearch, nextPageToken] }   # nextPageToken says there is more; paging is left out
+  file:
+    kind: read
+    about: Read one file's metadata
+    params:
+      id: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: GET
+      path: /drive/v3/files/{id}
+    answer: { select: [id, name, mimeType, parents, modifiedTime, size, trashed] }
+  folder:
+    kind: update
+    about: Make a folder in a parent
+    params:
+      name: { type: string, max: 200 }   # free text: its value is in no event
+      parent: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: POST
+      path: /drive/v3/files
+      body: { name: "{name}", mimeType: "application/vnd.google-apps.folder", parents: ["{parent}"] }
+    answer: { select: [id, name, mimeType, parents] }
+  doc:
+    kind: update
+    about: Make an empty Google Doc for the docs source to fill
+    params:
+      name: { type: string, max: 200 }
+      parent: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: POST
+      path: /drive/v3/files
+      body: { name: "{name}", mimeType: "application/vnd.google-apps.document", parents: ["{parent}"] }
+    answer: { select: [id, name, mimeType, parents] }
+  slides:
+    kind: update
+    about: Make an empty Google Slides deck for the slides source to fill
+    params:
+      name: { type: string, max: 200 }
+      parent: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: POST
+      path: /drive/v3/files
+      body: { name: "{name}", mimeType: "application/vnd.google-apps.presentation", parents: ["{parent}"] }
+    answer: { select: [id, name, mimeType, parents] }
