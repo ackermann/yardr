@@ -104,11 +104,25 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # output is what makes it visible, and the yardmaster files a bead from it.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
-# The output of both runs is printed, as it comes: the step's stdout and
-# stderr go through one pipe to tee, so the exit status is passed in a file
-# beside the log. Then the line that says how long the step took, both runs
-# of it where there were two. A step that failed for good is followed by what
-# of its output says so (failed).
+# A step's output is kept in its log and printed. Outside the race worker it
+# streams through tee; inside it is captured in a file first. A test can leave
+# an orphan holding stdout open, so the worker must not use a pipe for go
+# commands: that would keep tee and the lock holder alive after go test exits.
+# Then the line that says how long the step took, both runs of it where there
+# were two. A step that failed for good is followed by what of its output says so.
+runlogged() {
+  runlog=$1
+  shift
+  if [ -n "$race_leg_child" ]; then
+    runstatus=0
+    "$@" >"$runlog" 2>&1 || runstatus=$?
+    cat "$runlog"
+    return "$runstatus"
+  fi
+  { runstatus=0; "$@" 2>&1 || runstatus=$?; echo "$runstatus" >"$runlog.rc"; } | tee "$runlog"
+  runstatus=$(cat "$runlog.rc")
+  return "$runstatus"
+}
 # racelocked runs the race leg under the machine-wide race lock: one go test
 # -race run at a time on this machine. Five worktrees' race suites side by
 # side on ten cores slow each other past Go's per-package timeout, while one
@@ -121,7 +135,8 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # same call. The perl holds the lock itself while the worker it forked runs
 # the race leg under it: the worker closes the lock's fd before it execs,
 # so nothing the leg starts can hold the lock past the leg, however long it
-# outlives it (an orphaned sleep once did: yardr-tsms). One hold covers the
+# outlives it (an orphaned sleep once did: yardr-tsms). It runs in its own
+# process group, so TERM and INT stop its children too. One hold covers the
 # leg, its failed-test retry and the package-budget re-measurement, which
 # share it through YARDR_RACE_HELD instead of waiting on it again. The perl
 # exits with the worker's status, 128+n for a worker ended by signal n, and
@@ -141,7 +156,7 @@ racelocked() {
   # YARDR_RACE_HELD set, so those commands share this hold instead of
   # waiting on it.
   perl -e 'use Fcntl qw(:DEFAULT :flock);
-use POSIX qw(:sys_wait_h);
+use POSIX qw(:sys_wait_h setpgid);
 use Errno qw(EINTR);
 $lock = shift;
 $script = shift;
@@ -157,11 +172,16 @@ $ENV{YARDR_TEST_RACE_LEG} = 1;
 # execs, so the lock dies with this process, whatever the worker leaves
 # behind. TERM and INT go to the worker too, so a killed gate still stops
 # the leg.
-$SIG{TERM} = sub { kill("TERM", $pid) if $pid };
-$SIG{INT} = sub { kill("INT", $pid) if $pid };
+sub forward {
+  my $signal = shift;
+  if ($pid) { kill($signal, -$pid) || kill($signal, $pid) }
+}
+$SIG{TERM} = sub { forward("TERM") };
+$SIG{INT} = sub { forward("INT") };
 $pid = fork();
 die "test: cannot fork: $!\n" unless defined $pid;
 if ($pid == 0) {
+  setpgid(0, 0) or die "test: cannot set worker process group: $!\n";
   close($fh);
   $SIG{TERM} = "DEFAULT";
   $SIG{INT} = "DEFAULT";
@@ -207,8 +227,8 @@ again() {
       fi
       ;;
   esac
-  { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
-  rc=$(cat "$log.rc")
+  rc=0
+  runlogged "$log" "$under" "$@" || rc=$?
   if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
   waited_total=$((waited_total + $(waitcount "$log")))
   step_ok=0
@@ -220,8 +240,8 @@ again() {
   retried=0
   if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
-    { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
-    rc=$(cat "$log.rc")
+    rc=0
+    runlogged "$log" "$under" "$@" || rc=$?
     if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
     waited_total=$((waited_total + $(waitcount "$log")))
     case " $* " in
@@ -261,8 +281,8 @@ again() {
           done
           echo "test: running the failed packages again: $pkgs_line" >&2
           # shellcheck disable=SC2086
-          { rc=0; "$under" $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
-          rc=$(cat "$log.rc")
+          rc=0
+          runlogged "$log" "$under" $prefix $flags $pkgs || rc=$?
           if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
           waited_total=$((waited_total + $(waitcount "$log")))
           # The rerun ran only the failed packages: its passes add to the
@@ -416,10 +436,10 @@ packagebudget() {
     [ -n "$pkg" ] || continue
     run=$(mktemp)
     # The re-run reads no stdin: the loop's is the over-budget list. Its
-    # output is printed, as it comes, and kept for its seconds.
+    # output is printed and kept for its seconds.
     # shellcheck disable=SC2086
-    { rrc=0; $prefix $flags -count=1 "$pkg" </dev/null 2>&1 || rrc=$?; echo "$rrc" >"$run.rc"; } | tee "$run"
-    rrc=$(cat "$run.rc")
+    rrc=0
+    runlogged "$run" $prefix $flags -count=1 "$pkg" </dev/null || rrc=$?
     alone=$(awk '
       function seconds(s, total, n) {
         if (s == "") return -1

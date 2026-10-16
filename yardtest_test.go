@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1323,21 +1324,33 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 		t.Errorf("a run ended by TERM is reported as %d, want 143:\n%s", code, out)
 	}
 	// A TERM to the holder stops the run with it: the run TERMs its
-	// parent, the holder, and must itself die of the forwarded TERM.
+	// parent, the holder, and the holder must stop the worker's whole
+	// process group, including a child the run leaves in the background.
 	victim := filepath.Join(home, "victim")
+	victimChild := filepath.Join(home, "victim-child")
 	t.Cleanup(func() {
-		if p, err := os.ReadFile(victim); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
+		for _, path := range []string{victim, victimChild} {
+			if p, err := os.ReadFile(path); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
 			}
 		}
 	})
-	_, code, out = run(context.Background(), "sh", "-c", "echo $$ >"+quote(victim)+"; kill -TERM $PPID; exec sleep 30")
+	_, code, out = run(context.Background(), "sh", "-c", "echo $$ >"+quote(victim)+"; sleep 30 & echo $! >"+quote(victimChild)+"; kill -TERM $PPID; wait")
 	if code != 143 {
 		t.Fatalf("a run that TERMs its holder is reported as %d, want 143:\n%s", code, out)
 	}
 	if pid := pidOf(victim); syscall.Kill(pid, 0) == nil {
 		t.Errorf("the run (pid %d) survived the TERM to its holder: it was not forwarded", pid)
+	}
+	childPID := pidOf(victimChild)
+	deadline := time.Now().Add(5 * time.Second)
+	for syscall.Kill(childPID, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(childPID, 0) == nil {
+		t.Errorf("the run's child (pid %d) survived the TERM to its holder", childPID)
 	}
 }
 
@@ -1488,6 +1501,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 		return start + mid + end
 	}
 	took := cut("\ntook() {", "}\n")
+	runlogfn := cut("\nrunlogged() {", "}\n")
 	over := cut("\nover60='\n", "\n'\n")
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
@@ -1526,7 +1540,132 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+}
+
+// The race lock is released when the race-leg command and its R1 checks end,
+// even if a test leaves a background process holding stdout open. The worker
+// logs each command to a regular file so an inherited pipe cannot keep tee
+// and the lock holder alive after go test exits.
+func TestYardTestRaceLegLockDiesWithOrphan(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, fake, dir, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	for name, text := range map[string]string{
+		"go": `#!/bin/sh
+if [ "$1" = test ]; then
+  sleep 300 &
+  echo $! >"$FAKE/sleeper"
+  echo 'ok  yardr.dev/yardr/internal/web 12.3s'
+  : >"$FAKE/test-done"
+fi
+`,
+		"gofmt": "#!/bin/sh\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", ".yardr/test")
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+base, "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
+	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outFile.Close()
+	cmd.Stdout, cmd.Stderr = outFile, outFile
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+	pidPath := filepath.Join(fake, "sleeper")
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(pidPath); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cmd.Process.Kill()
+			<-done
+			t.Fatalf("the race leg never reached go test")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	lock, err := os.OpenFile(filepath.Join(home, ".yardr", "race.lock"), os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockDeadline := time.Now().Add(5 * time.Second)
+	lockAcquired := false
+	for time.Now().Before(lockDeadline) {
+		if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			lockAcquired = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !lockAcquired {
+		if b, readErr := os.ReadFile(pidPath); readErr == nil {
+			if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(b))); parseErr == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			cmd.Process.Kill()
+		}
+		outFile.Seek(0, 0)
+		b, _ := io.ReadAll(outFile)
+		t.Fatalf("the race lock stayed held after go test exited; output:\n%s", b)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			outFile.Seek(0, 0)
+			b, _ := io.ReadAll(outFile)
+			t.Fatalf("run failed: %v\n%s", err, b)
+		}
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("race-leg worker did not finish after releasing the lock")
+	}
 }
 
 // sleepSite is one sleep line for a fixture, built from parts so this file
