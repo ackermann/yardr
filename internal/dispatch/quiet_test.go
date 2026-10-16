@@ -85,24 +85,33 @@ func (y *quietYard) land(t *testing.T, title string) {
 // waitQuiet waits for the depot's quiet runs to be told of as kind says.
 func waitQuiet(t *testing.T, s store.API, kind string, n int) []store.Event {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		evs, err := s.EventsOfKind(context.Background(), kind, 50)
-		must(t, err)
-		var mine []store.Event
-		for _, e := range evs {
-			if e.Data["depot"] == "yard" {
-				mine = append(mine, e)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ch, err := s.Subscribe(ctx, 0)
+	must(t, err)
+	var mine []store.Event
+	for e := range ch {
+		if e.Kind == kind && e.Data["depot"] == "yard" {
+			mine = append(mine, e)
+			if len(mine) >= n {
+				return mine
 			}
 		}
-		if len(mine) >= n {
-			return mine
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("waited for %d %s events for the depot, got %d", n, kind, len(mine))
-		}
-		time.Sleep(5 * time.Millisecond)
 	}
+	t.Fatalf("waited for %d %s events for the depot, got %d", n, kind, len(mine))
+	return nil
+}
+
+type quietScanStore struct {
+	store.API
+	firstScan chan struct{}
+	once      sync.Once
+}
+
+func (s *quietScanStore) EventsSince(ctx context.Context, after uint64, limit int) ([]store.Event, error) {
+	events, err := s.API.EventsSince(ctx, after, limit)
+	s.once.Do(func() { close(s.firstScan) })
+	return events, err
 }
 
 func TestQuietPackagesAndRelevance(t *testing.T) {
@@ -119,6 +128,12 @@ func TestQuietPackagesAndRelevance(t *testing.T) {
 		if got := dispatch.QuietRelevant(store.Event{Kind: kind}); got != want {
 			t.Errorf("QuietRelevant(%s) = %v, want %v", kind, got, want)
 		}
+	}
+	if !dispatch.QuietRelevant(store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.QuietLandingsSetting}}) {
+		t.Error("quiet_landings setting change is not relevant to quiet-run judging")
+	}
+	if dispatch.QuietRelevant(store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.NameSetting}}) {
+		t.Error("unrelated setting change is relevant to quiet-run judging")
 	}
 }
 
@@ -161,8 +176,9 @@ func TestQuietThresholdWaitsForQuietAndIsNotLost(t *testing.T) {
 	y.land(t, "one")
 	y.land(t, "two")
 
-	waiting, err := y.s.CreateBead(ctx, store.NewBead{Title: "waiting", Depot: "yard"}, "me")
+	waiting, err := y.s.CreateBead(ctx, store.NewBead{Title: "waiting"}, "me")
 	must(t, err)
+	// This bead has no depot, but the approval queue is yard-wide.
 	_, err = y.s.Advance(ctx, waiting.ID, "approved", store.Expect{}, "me")
 	must(t, err)
 	dispatch.QuietMaybe(y.d, ctx)
@@ -174,8 +190,10 @@ func TestQuietThresholdWaitsForQuietAndIsNotLost(t *testing.T) {
 	_, err = y.s.Advance(ctx, waiting.ID, "review", store.Expect{}, "me")
 	must(t, err)
 	must(t, y.s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}, "me"))
-	work, err := y.s.CreateBead(ctx, store.NewBead{Title: "work", Depot: "yard"}, "me")
+	work, err := y.s.CreateBead(ctx, store.NewBead{Title: "work"}, "me")
 	must(t, err)
+	// Nor does a builder session need to belong to this depot to keep the
+	// whole-suite run off a busy machine.
 	sess, err := y.s.Claim(ctx, work.ID, "builders", "new", "me")
 	must(t, err)
 	dispatch.QuietMaybe(y.d, ctx)
@@ -212,8 +230,6 @@ func TestQuietRunIsSingleFlight(t *testing.T) {
 	dispatch.QuietMaybe(y.d, ctx)
 	close(y.block)
 	waitQuiet(t, y.s, store.QuietPassed, 1)
-	// Let the re-arm after the finish judge too: it owes nothing.
-	time.Sleep(50 * time.Millisecond)
 	if n := y.runCalls(); n != 1 {
 		t.Fatalf("calls = %d, want single-flight: one run only", n)
 	}
@@ -246,9 +262,16 @@ func TestQuietTriggerFiresOnLandingEvents(t *testing.T) {
 	y := newQuietYard(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	watch := &quietScanStore{API: y.s, firstScan: make(chan struct{})}
+	y.d.Store = watch
 	go dispatch.QuietTrigger(y.d, ctx)
-	// The trigger judges once as it starts, when nothing is owed.
-	time.Sleep(50 * time.Millisecond)
+	// The initial pass has read the zero landing count and is returning;
+	// subscriptions are already live, so the following moves must wake it.
+	select {
+	case <-watch.firstScan:
+	case <-time.After(10 * time.Second):
+		t.Fatal("quiet trigger did not make its initial landing scan")
+	}
 	if n := y.runCalls(); n != 0 {
 		t.Fatalf("run started at trigger start with nothing owed, calls = %d", n)
 	}
@@ -260,10 +283,31 @@ func TestQuietTriggerFiresOnLandingEvents(t *testing.T) {
 	}
 }
 
+func TestQuietThresholdChangeRejudgesThroughEventStream(t *testing.T) {
+	y := newQuietYard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watch := &quietScanStore{API: y.s, firstScan: make(chan struct{})}
+	y.d.Store = watch
+	go dispatch.QuietTrigger(y.d, ctx)
+	select {
+	case <-watch.firstScan:
+	case <-time.After(10 * time.Second):
+		t.Fatal("quiet trigger did not make its initial landing scan")
+	}
+	y.land(t, "one")
+	must(t, y.s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
+	waitQuiet(t, y.s, store.QuietPassed, 1)
+	if n := y.runCalls(); n != 1 {
+		t.Fatalf("calls = %d, want the threshold-change event to fire one run", n)
+	}
+}
+
 // The real run, as a drill: a fixture depot whose base carries a failing
 // check at its head commit. The run tests that commit in its own
 // worktree, and the yard is told it failed, with the package and commit.
 func TestQuietExecRunAgainstARedBase(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ctx := context.Background()
 	repo := t.TempDir()
 	git := func(args ...string) string {
@@ -316,6 +360,10 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 // its worktree before adding it, so the two name it the same way.
 func TestQuietExecRunResolvesItsWorktree(t *testing.T) {
 	t.Setenv("TMPDIR", "/tmp")
+	userHome := t.TempDir()
+	yardHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("YARDR_HOME", yardHome)
 	ctx := context.Background()
 	repo := t.TempDir()
 	git := func(args ...string) {
@@ -330,18 +378,25 @@ func TestQuietExecRunResolvesItsWorktree(t *testing.T) {
 	}
 	git("init", "-b", "main")
 	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
-		[]byte("[ \"$(git rev-parse --show-toplevel)\" = \"$PWD\" ]\n"), 0o755))
+		[]byte("[ \"$(git rev-parse --show-toplevel)\" = \"$PWD\" ] && [ -f \"$HOME/.yardr/race.lock\" ] && [ ! -e \"$YARDR_HOME/race.lock\" ]\n"), 0o755))
 	git("add", "check.sh")
 	git("commit", "-m", "a green base")
 
 	s := storetest.New(t)
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
 	must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
-	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
+	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: yardHome}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "landing", Depot: "yard"}, "me")
 	must(t, err)
 	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
 	must(t, err)
 	dispatch.QuietMaybe(d, ctx)
 	waitQuiet(t, s, store.QuietPassed, 1)
+	lock, err := os.Stat(filepath.Join(userHome, ".yardr", "race.lock"))
+	if err != nil || lock.Mode().Perm() != 0o600 {
+		t.Fatalf("machine race lock = %v, %v; want mode 0600 under HOME", lock, err)
+	}
+	if _, err := os.Stat(filepath.Join(yardHome, "race.lock")); !os.IsNotExist(err) {
+		t.Fatalf("race lock appeared under the configured yard home: %v", err)
+	}
 }

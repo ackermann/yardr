@@ -28,10 +28,9 @@ import (
 // hold at once, so a threshold reached while the yard is busy is not
 // lost: the count stays in the log, and the next quiet event fires it.
 //
-//   - no bead waits in approved for the assembly, in the depot;
-//   - no bead session of the depot is live (builder and reviewer sessions
-//     are bead sessions; crew sessions are not, and the assembly's own
-//     cannot be live while no bead waits in approved);
+//   - no bead waits in approved for the assembly anywhere in the yard;
+//   - no live bead session is running anywhere in the yard (builder and
+//     reviewer sessions are bead sessions; crew sessions are not);
 //   - at least quiet_landings code landings (store.QuietLandings, ten
 //     while unset) have landed on the depot's base since the last quiet
 //     run started there.
@@ -63,6 +62,8 @@ func quietRelevant(e store.Event) bool {
 	switch e.Kind {
 	case "advanced", "closed", "session_died", "session_failed", "session_aborted":
 		return true
+	case "setting_changed":
+		return e.Data["key"] == store.QuietLandingsSetting
 	}
 	return false
 }
@@ -148,10 +149,10 @@ func (d *Dispatcher) maybeQuiet(ctx context.Context) {
 	}
 }
 
-// quietReady judges one depot at once: whether a quiet run is owed (at
-// least n code landings since the last one started there) and the yard is
-// quiet for it (nothing in approved, no live bead session). since is the
-// landing count either way, for the run's own telling.
+// quietReady judges whether one depot owes a run (at least n code landings
+// since its last one started) while the whole yard is quiet: nothing waits
+// in approved and no bead session is live. since is the landing count
+// either way, for the run's own telling.
 func (d *Dispatcher) quietReady(ctx context.Context, depot store.Depot, n int) (ready bool, since int, err error) {
 	since, err = d.landingsSinceQuiet(ctx, depot.Name)
 	if err != nil || since < n {
@@ -161,23 +162,15 @@ func (d *Dispatcher) quietReady(ctx context.Context, depot store.Depot, n int) (
 	if err != nil {
 		return false, since, err
 	}
-	for _, b := range waiting {
-		if b.Depot != nil && *b.Depot == depot.Name {
-			return false, since, nil
-		}
+	if len(waiting) > 0 {
+		return false, since, nil
 	}
 	sessions, err := d.Store.Sessions(ctx, false)
 	if err != nil {
 		return false, since, err
 	}
-	for _, s := range sessions {
-		b, err := d.Store.GetBead(ctx, s.Bead)
-		if err != nil {
-			continue // a session whose bead is gone holds nothing here
-		}
-		if b.Depot != nil && *b.Depot == depot.Name {
-			return false, since, nil
-		}
+	if len(sessions) > 0 {
+		return false, since, nil
 	}
 	return true, since, nil
 }
@@ -309,17 +302,14 @@ func quietLoad() string {
 // quietRaceLock holds the machine-wide race lock (.yardr/test's flock)
 // until the returned release, so a quiet run never overlaps a landing
 // leg. The wait is the kernel's, like the script's: a landing leg ahead
-// is waited out, never polled. The lock file is the script's own, beside
-// the yard's home as $HOME/.yardr/race.lock is beside the user's.
-func (d *Dispatcher) quietRaceLock(ctx context.Context) (release func(), err error) {
-	home := d.Home
-	if home == "" {
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		home = filepath.Join(home, ".yardr")
+// is waited out, never polled. The lock is under the process user's home,
+// even when this yard has a custom home of its own.
+func quietRaceLock() (release func(), err error) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
+	home := filepath.Join(userHome, ".yardr")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
 	}
@@ -331,11 +321,29 @@ func (d *Dispatcher) quietRaceLock(ctx context.Context) (release func(), err err
 		f.Close()
 		return nil, err
 	}
-	_ = ctx // the flock has no deadline; Run's end leaves with the process
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
+}
+
+// quietCommand gives a test command its own process group. CommandContext
+// otherwise kills only the shell running .yardr/test; a go test below it
+// could outlive the daemon, after the daemon had released the race lock.
+func quietCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if err == syscall.ESRCH {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	return cmd
 }
 
 // execQuietRun is the real quiet run: the depot's base in a worktree of
@@ -370,20 +378,26 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	if _, err := git("-C", depot.Path, "worktree", "add", "--detach", tmp, commit); err != nil {
 		return QuietResult{Commit: commit, Load: quietLoad()}, fmt.Errorf("quiet run: worktree of %s at %s: %w", depot.Name, commit, err)
 	}
-	defer func() { _, _ = git("-C", depot.Path, "worktree", "remove", "--force", tmp) }()
+	defer func() {
+		out, err := exec.Command("git", "-C", depot.Path, "worktree", "remove", "--force", tmp).CombinedOutput()
+		if err != nil && d.Log != nil {
+			d.Log.Warn("quiet run: remove worktree", "depot", depot.Name, "worktree", tmp,
+				"err", err, "output", strings.TrimSpace(string(out)))
+		}
+	}()
 
-	load := quietLoad()
-	release, err := d.quietRaceLock(ctx)
+	release, err := quietRaceLock()
 	if err != nil {
-		return QuietResult{Commit: commit, Load: load}, fmt.Errorf("quiet run: race lock: %w", err)
+		return QuietResult{Commit: commit, Load: quietLoad()}, fmt.Errorf("quiet run: race lock: %w", err)
 	}
 	defer release()
+	load := quietLoad()
 
 	var cmd *exec.Cmd
 	if _, err := os.Stat(filepath.Join(tmp, depot.Test)); err == nil && !strings.ContainsAny(depot.Test, " \t|&;<>") {
-		cmd = exec.CommandContext(ctx, "sh", depot.Test) // the base's own copy, as a landing runs it
+		cmd = quietCommand(ctx, "sh", depot.Test) // the base's own copy, as a landing runs it
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", depot.Test)
+		cmd = quietCommand(ctx, "sh", "-c", depot.Test)
 	}
 	cmd.Dir = tmp
 	cmd.Env = append(os.Environ(), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1")

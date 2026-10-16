@@ -491,7 +491,9 @@ note neither delivery took: see "Done waits for unread notes" in
 [line.md](line.md)), `install_failed`
 (an install of a new yardr failed), `rolled_back` (a failed install put
 the previous build back) and `hook_quiet` (a hook that used to deliver
-delivered nothing for longer than its usual gap: [below](#a-quiet-hook)), and `quiet_failed` (a whole-suite run on a quiet machine found its depot's base red: [testing.md](testing.md)).
+delivered nothing for longer than its usual gap: [below](#a-quiet-hook)),
+and `quiet_failed` (a whole-suite run on a quiet machine found its
+depot's base red: [testing.md](testing.md)).
 The list is yardr's, one for the yard and
 every release's own: no command changes it.
 
@@ -506,9 +508,10 @@ The name goes where a kind goes, and what is stored is the name:
   kind=attention` is what needs someone in one depot, and not in another.
   A user subscribes to it the same way. As every yardr subscription it
   carries the events of work beads; beside them, `install_failed`,
-  `rolled_back` and `hook_quiet`, which are about no bead, match a filter
-  on kind alone: `kind=install_failed`, `kind=rolled_back`,
-  `kind=hook_quiet`, or `kind=attention`, with no
+  `rolled_back`, `hook_quiet` and the quiet-run events, which are about
+  no bead, match a filter on kind alone: `kind=install_failed`,
+  `kind=rolled_back`, `kind=hook_quiet`, `kind=quiet_started`,
+  `kind=quiet_passed`, `kind=quiet_failed`, or `kind=attention`, with no
   bead key (`bead`, `depot`, `stage`, …) beside it. `runtime_down` and
   `backup_failed`, about no bead, and `crew_gave_up`, which is on a crew
   member's journal, come through `--on` alone.
@@ -857,12 +860,11 @@ bead: `quiet_started` carries `depot`, `base` and `landings` (how many
 landings owed it), and its end is `quiet_passed` or `quiet_failed`, each
 carrying `depot`, `base`, `commit`, `wall_s` and `load`; a failure also
 carries `packages`, the packages that failed, and `reason`. `quiet_failed`
-is of the class `attention`, so the yardmaster hears of a red base
-through its default `--on`. It is of the class
-[`attention`](#the-class-attention), so the yardmaster hears it through
-its default `--on`, and it matches a yardr subscription on kind alone,
-like the upgrade's failure kinds: `yardr subscribe <name> yardr --where
-kind=hook_quiet` carries it.
+is of the class [`attention`](#the-class-attention), so the yardmaster
+hears of a red base through its default `--on`. The three quiet-run
+events match a yardr subscription on kind alone, like the upgrade's
+failure kinds: `yardr subscribe <name> yardr --where kind=quiet_failed`
+carries red-base events.
 
 Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log

@@ -70,12 +70,14 @@ R6. The whole suite still runs, but on a quiet machine, not on a timer
 and not as a gate on any bead. The daemon's trigger
 (`internal/dispatch/quiet.go`) subscribes to the event stream and judges
 the yard on each event that can make it quiet or owe a run -- a bead
-advancing, a bead closing, a session ending -- never by polling and
-never on a timer. A run starts only when all hold at once, in one depot:
-no bead waits in `approved` for the assembly, no bead session of the
-depot is live, and at least `quiet_landings` code landings (ten while
-unset: about two hours at the 60-140 landings a day of 14-16 Oct 2026)
-have landed on the base since the last quiet run started there. A
+advancing, a bead closing, a session ending, or a change to
+`quiet_landings` -- never by polling and never on a timer. A run for a
+depot starts only when all hold at once:
+no bead waits in `approved` for the assembly anywhere in the yard, no
+builder or reviewer bead session is live anywhere in the yard, and at
+least `quiet_landings` code landings (ten while unset: about two hours
+at the 60-140 landings a day of 14-16 Oct 2026) have landed on that
+depot's base since its last quiet run started. A
 threshold reached while the yard is busy stays in the log and fires at
 the next quiet event. The run tests the depot's base in a worktree of
 its own with `YARDR_LANDING=1`, holding the machine-wide race lock for
