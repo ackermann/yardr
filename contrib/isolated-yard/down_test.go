@@ -351,10 +351,9 @@ func TestDownRefusesWhenPsFails(t *testing.T) {
 func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 	d := bare(t)
 	in(t, d, "yardr", "init", "--harness", "claude", "--operator", "jo")
-	// doctor exits 1 here (no depot yet); the probe is what matters. Its
-	// output is kept for the failure below: without the probe's start the
-	// log alone does not say whether doctor ran it.
-	doctorOut, doctorErr := exec.Command(filepath.Join(d, "e"), "yardr", "doctor").CombinedOutput()
+	// The probe is the one doctor runs; it is started directly, as the
+	// one-shot call is, so the test does not depend on doctor.
+	in(t, d, "claude", "--version")
 	in(t, d, "claude", "-p", "say ok")
 	// One real start: the stand-in with no probe args, its stdin closed
 	// so it exits.
@@ -365,7 +364,7 @@ func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 	}
 	for _, probe := range []string{`args=["--version"]`, `args=["-p" "say ok"]`} {
 		if !strings.Contains(string(log), probe) {
-			t.Errorf("agents.log has no start with %s (doctor err %v):\n%s\ndoctor said:\n%s", probe, doctorErr, log, doctorOut)
+			t.Errorf("agents.log has no start with %s:\n%s", probe, log)
 		}
 	}
 	out, err := script(t, "down", d)
