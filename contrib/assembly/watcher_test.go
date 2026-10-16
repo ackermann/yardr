@@ -54,19 +54,25 @@ func watcherGit(t *testing.T, dir string, args ...string) string {
 }
 
 // highSentinel is the high fd one run inherits, proving the watcher closes
-// descriptors far above the shell's own: 512, under the process's own
+// descriptors far above the shell's own: 512, under the child shell's
 // open-files limit and well under FD_SETSIZE (a fixed 1024 aborted a
-// landing: yardr-tsms). The entries are contiguous from 3, and the spawn
-// wants room above them besides (88 spare fails the spawn, 588 passes),
-// so the limit must clear 2048. Too low a limit for one is not a
-// failure: the slow run still proves the rest without it.
+// landing: yardr-tsms). Read the child limit from sh because Go raises its
+// own soft limit and restores the original only for child processes. The
+// entries are contiguous from 3, and the spawn wants room above them too
+// (88 spare fails the spawn, 588 passes), so the limit must clear 2048. Too
+// low a limit for one is not a failure: the slow run still proves the rest
+// without it.
 func highSentinel(t *testing.T) (int, bool) {
 	t.Helper()
-	var fdLimit syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &fdLimit); err != nil {
-		t.Fatal(err)
+	out, err := exec.Command("sh", "-c", "ulimit -n").Output()
+	if err != nil {
+		t.Fatalf("reading the child shell's open-files limit: %v", err)
 	}
-	if fdLimit.Cur < 2048 {
+	fdLimit, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		t.Fatalf("child shell's open-files limit %q is not a number", out)
+	}
+	if fdLimit < 2048 {
 		return 0, false
 	}
 	return 512, true
@@ -161,27 +167,46 @@ func (w *watcherRun) cmd() *exec.Cmd {
 	return cmd
 }
 
-// watcherSleepers is every "sleep <limit>" process ps sees, as pid and
-// ppid: the watcher's sleep, by the limit no other test uses.
-func watcherSleepers(t *testing.T, limit string) [][2]int {
+// watcherSleepers is this run's recorded timeout sleep, as pid and ppid.
+// It scopes both assertions and cleanup to PIDs created by the fake sleep
+// on this test's PATH, so another run's sleep is never signaled.
+func watcherSleepers(t *testing.T, record, limit string) [][2]int {
 	t.Helper()
-	out, err := exec.Command("ps", "-axo", "pid", "-o", "ppid", "-o", "command").CombinedOutput()
+	files, err := filepath.Glob(record + ".*")
 	if err != nil {
-		t.Fatalf("ps: %v\n%s", err, out)
+		t.Fatalf("glob sleep records: %v", err)
 	}
+	fakeSleep := filepath.Join(filepath.Dir(record), "bin", "sleep")
 	var found [][2]int
-	for i, line := range strings.Split(string(out), "\n") {
-		if i == 0 || strings.TrimSpace(line) == "" {
-			continue // the header
-		}
-		f := strings.Fields(line)
-		if len(f) < 4 {
+	for _, file := range files {
+		pid, err := strconv.Atoi(strings.TrimPrefix(file, record+"."))
+		if err != nil {
 			continue
 		}
-		pid, err1 := strconv.Atoi(f[0])
-		ppid, err2 := strconv.Atoi(f[1])
-		argv := f[2:]
-		if err1 != nil || err2 != nil || len(argv) != 2 || filepath.Base(argv[0]) != "sleep" || argv[1] != limit {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading sleep record %s: %v", file, err)
+		}
+		first, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+		if first != "argv: "+limit {
+			continue
+		}
+		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
+		if err != nil && strings.TrimSpace(string(out)) != "" {
+			t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) < 3 || strings.Contains(fields[1], "Z") {
+			continue
+		}
+		ppid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			t.Fatalf("ps pid %d has invalid parent %q", pid, fields[0])
+		}
+		command := strings.Join(fields[2:], " ")
+		argv := strings.Fields(command)
+		if len(argv) == 0 || argv[len(argv)-1] != limit ||
+			(filepath.Base(argv[0]) != "sleep" && !strings.Contains(command, fakeSleep)) {
 			continue
 		}
 		found = append(found, [2]int{pid, ppid})
@@ -189,14 +214,14 @@ func watcherSleepers(t *testing.T, limit string) [][2]int {
 	return found
 }
 
-// awaitNoWatcherSleepers fails unless every "sleep <limit>" is gone within
-// the wait: a killed sleep takes a moment to die, an orphaned one never
-// leaves.
-func awaitNoWatcherSleepers(t *testing.T, limit string) {
+// awaitNoWatcherSleepers fails unless every timeout sleep recorded by this
+// run is gone within the wait: a killed sleep takes a moment to die, an
+// orphaned one never leaves.
+func awaitNoWatcherSleepers(t *testing.T, record, limit string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		strays := watcherSleepers(t, limit)
+		strays := watcherSleepers(t, record, limit)
 		if len(strays) == 0 {
 			return
 		}
@@ -240,14 +265,14 @@ func assertWatcherSleepFds(t *testing.T, record, limit string) {
 	}
 }
 
-// awaitWatcherSleep waits for the watcher's sleep to show in ps and
+// awaitWatcherSleep waits for the watcher's recorded sleep to show in ps and
 // returns its pid and ppid: the ppid is the watcher. Whatever starts the
 // sleep, a run whose sleep never shows has nothing to kill.
-func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, limit string) (int, int) {
+func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, record, limit string) (int, int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if strays := watcherSleepers(t, limit); len(strays) > 0 {
+		if strays := watcherSleepers(t, record, limit); len(strays) > 0 {
 			return strays[0][0], strays[0][1]
 		}
 		if time.Now().After(deadline) {
@@ -259,11 +284,11 @@ func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, limit string) (int, int) {
 	}
 }
 
-// killWatcherSleepers kills every "sleep <limit>" it sees: a failing run's
-// hygiene, so an orphan it proved never outlives the test by half an hour.
-func killWatcherSleepers(t *testing.T, limit string) {
+// killWatcherSleepers kills only this run's recorded timeout sleep: a
+// failing run's hygiene without signaling another process.
+func killWatcherSleepers(t *testing.T, record, limit string) {
 	t.Helper()
-	for _, s := range watcherSleepers(t, limit) {
+	for _, s := range watcherSleepers(t, record, limit) {
 		_ = syscall.Kill(s[0], syscall.SIGKILL)
 	}
 }
@@ -279,7 +304,7 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 	finished := func(test, limit string, hi int) *watcherRun {
 		t.Helper()
 		w := newWatcherRun(t, test, limit, hi)
-		t.Cleanup(func() { killWatcherSleepers(t, limit) })
+		t.Cleanup(func() { killWatcherSleepers(t, w.record, limit) })
 		log, err := os.Create(filepath.Join(w.tmp, "out"))
 		if err != nil {
 			t.Fatal(err)
@@ -295,7 +320,7 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 		if main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD"); main != tip {
 			t.Fatalf("merge-local (%s): main %s is not the landed branch %s:\n%s", test, main, tip, out)
 		}
-		awaitNoWatcherSleepers(t, limit)
+		awaitNoWatcherSleepers(t, w.record, limit)
 		return w
 	}
 	finished("true", "1799", 0)
@@ -320,24 +345,24 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "testpid")
+	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", 0)
 	t.Cleanup(func() {
 		if p, err := os.ReadFile(pidFile); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
 			}
 		}
-		killWatcherSleepers(t, "1789")
+		killWatcherSleepers(t, w.record, "1789")
 	})
 	// A slow test command, so merge-local is mid-run when it is killed;
 	// its own sleep is killed above, whatever outlives the run.
-	w := newWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", 0)
 	cmd := w.cmd()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	// In ps, the sleep has exec'd past the recording stand-in, so the
 	// recording is complete before it is killed below.
-	_, watcher := awaitWatcherSleep(t, cmd, "1789")
+	_, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -355,6 +380,6 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	if syscall.Kill(watcher, 0) == nil {
 		t.Errorf("the watcher (pid %d) survived the TERM to merge-local", watcher)
 	}
-	awaitNoWatcherSleepers(t, "1789")
+	awaitNoWatcherSleepers(t, w.record, "1789")
 	assertWatcherSleepFds(t, w.record, "1789")
 }
