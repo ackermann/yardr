@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -983,4 +984,204 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 			t.Errorf("%s is %o, want %o", path, got, want)
 		}
 	}
+}
+
+// yardTestProbe pulls the budget checks out of .yardr/test: the two
+// allow-lists, the two functions that judge them, and took, which one calls.
+// The probe runs them as the script has them, so a case over it fails when
+// the gate would. It also returns the allow-listed directories and how many
+// distinct sleep sites the table holds. A script the cuts no longer follow
+// fails the test, telling its editor to move the probe with it.
+func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites int) {
+	t.Helper()
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	cut := func(start, end string) string {
+		t.Helper()
+		_, rest, ok := strings.Cut(s, start)
+		if !ok {
+			t.Fatalf("%s has no %q: move the probe with the script", yardTest, start)
+		}
+		mid, _, ok := strings.Cut(rest, end)
+		if !ok {
+			t.Fatalf("%s has no %q after %q: move the probe with the script", yardTest, end, start)
+		}
+		return start + mid + end
+	}
+	took := cut("\ntook() {", "}\n")
+	over := cut("\nover60='\n", "\n'\n")
+	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
+	long := cut("\nlongsleeps='\n", "\n'\n")
+	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") {
+		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
+	}
+	for _, line := range strings.Split(over, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || f[0] == "over60='" || line == "'" {
+			continue
+		}
+		if len(f) < 3 {
+			t.Fatalf("over60 row %q: want a directory, a bead and why", line)
+		}
+		overDirs = append(overDirs, f[0])
+	}
+	keys := map[[2]string]bool{}
+	for _, line := range strings.Split(long, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || f[0] == "longsleeps='" || line == "'" {
+			continue
+		}
+		if len(f) < 3 {
+			t.Fatalf("longsleeps row %q: want a file, milliseconds and why", line)
+		}
+		if _, err := strconv.Atoi(f[1]); err != nil {
+			t.Fatalf("longsleeps row %q: the milliseconds are a number", line)
+		}
+		keys[[2]string{f[0], f[1]}] = true
+	}
+	if len(overDirs) == 0 || len(keys) == 0 {
+		t.Fatal("the probe found no allow-list rows: move it with .yardr/test")
+	}
+	return took + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, len(keys)
+}
+
+// sleepSite is one sleep line for a fixture, built from parts so this file
+// holds no over-budget sleep of its own for the gate to judge.
+func sleepSite(dur string) string {
+	return "time.Sleep" + "(" + dur + ")"
+}
+
+// The budgets .yardr/test enforces (docs/testing.md R1 and R2), through the
+// script's own functions: an over-budget package or sleep fails unless the
+// allow-list names it, and the allow-list names nothing the tree no longer
+// holds. The cases run the probe above, so they fail when the gate would:
+// macOS awk takes no newline in -v, and an allow-list passed that way fails
+// every run on this machine (yardr-v7v8).
+func TestYardTestBudgets(t *testing.T) {
+	probe, overDirs, sleepSites := yardTestProbe(t)
+	probePath := filepath.Join(t.TempDir(), "probe.sh")
+	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(dir string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{probePath}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return string(out), ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return string(out), 0
+	}
+	write := func(dir, name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("a compliant tree passes the sleep budget", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "ok_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestOk(t *testing.T) {\n\t"+
+			sleepSite("500 * time.Millisecond")+"\n\t"+sleepSite("10 * time.Millisecond")+"\n\tdelay := 300 * time.Millisecond\n\t"+sleepSite("delay")+"\n}\n")
+		// A sleep in a line comment is not code, and a sleep outside a
+		// test file is not judged.
+		write(dir, "comment_test.go", "package p\n\n// "+sleepSite("30 * time.Second")+" in a comment is not a sleep.\n")
+		write(dir, "other.go", "package p\n\nimport \"time\"\n\nfunc wait() { "+sleepSite("30 * time.Second")+" }\n")
+		out, code := run(dir, "sleepbudget")
+		if code != 0 || strings.Contains(out, "over the 500 ms budget") {
+			t.Errorf("exit %d, output %q, want exit 0 and no budget line", code, out)
+		}
+	})
+
+	t.Run("an over-budget site fails the sleep budget", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "bad_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t"+
+			sleepSite("2 * time.Second")+"\n\t"+sleepSite("600 * time.Millisecond")+"\n\t"+sleepSite("time.Second")+"\n}\n")
+		out, code := run(dir, "sleepbudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		for _, want := range []string{
+			"bad_test.go:9 sleeps 2 * time.Second, over the 500 ms budget (docs/testing.md R2)",
+			"bad_test.go:10 sleeps 600 * time.Millisecond, over the 500 ms budget (docs/testing.md R2)",
+			"bad_test.go:11 sleeps time.Second, over the 500 ms budget (docs/testing.md R2)",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output %q, want it to contain %q", out, want)
+			}
+		}
+	})
+
+	t.Run("the tree's allow-listed sleeps are counted", func(t *testing.T) {
+		// On the checkout itself: green, with every row's site still in
+		// the tree. A row whose site is gone, or a site no row names,
+		// fails here as it fails the gate.
+		out, code := run(".", "sleepbudget")
+		if code != 0 {
+			t.Fatalf("sleepbudget on the tree: exit %d\n%s", code, out)
+		}
+		if want := "test: " + strconv.Itoa(sleepSites) + " sleeps over 500 ms allow-listed"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("the package budget judges race legs", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "red.txt",
+			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
+				"ok  \tyardr.dev/yardr\t65.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/web\t61.2s\n"+
+				"ok  \tyardr.dev/yardr/internal/pack\t61.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/rpc\t60s\n"+
+				"ok  \tyardr.dev/yardr/internal/bdp\t(cached)\n"+
+				"?   \tyardr.dev/yardr/internal/harnesses\t[no test files]\n"+
+				"FAIL\tyardr.dev/yardr/internal/broken\n"+
+				"--- FAIL: TestBroken (0.01s)\n"+
+				"ok  \texample.com/other\t99.9s\n")
+		out, code := run(dir, "packagebudget", "red.txt")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		// cli is allow-listed, the module path is the allow-listed root,
+		// exactly 60 s complies, and cached, failed and foreign lines
+		// are not judged: only web and pack fail, sorted.
+		if got := strings.Count(out, "over the 60 s budget"); got != 2 {
+			t.Fatalf("output %q, want 2 budget lines, got %d", out, got)
+		}
+		web := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1)"
+		pack := "test: yardr.dev/yardr/internal/pack took 61.5 s with -race, over the 60 s budget (docs/testing.md R1)"
+		if !strings.Contains(out, web) || !strings.Contains(out, pack) {
+			t.Fatalf("output %q, want it to name web and pack", out)
+		}
+		if strings.Index(out, pack) > strings.Index(out, web) {
+			t.Errorf("output %q, want the pack line sorted before the web line", out)
+		}
+		write(dir, "green.txt",
+			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
+				"ok  \tyardr.dev/yardr/internal/store\t90.0s\n"+
+				"ok  \tyardr.dev/yardr\t31.2s\n"+
+				"ok  \tyardr.dev/yardr/internal/pack\t21.0s\n")
+		if out, code := run(dir, "packagebudget", "green.txt"); code != 0 || out != "" {
+			t.Errorf("exit %d, output %q, want exit 0 and no output", code, out)
+		}
+	})
+
+	t.Run("allow-listed packages are there", func(t *testing.T) {
+		for _, dir := range overDirs {
+			info, err := os.Stat(dir)
+			if err != nil {
+				t.Errorf("allow-listed %s: %v", dir, err)
+			} else if !info.IsDir() {
+				t.Errorf("allow-listed %s: not a directory", dir)
+			}
+		}
+	})
 }

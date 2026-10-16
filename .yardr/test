@@ -27,6 +27,13 @@
 # agent's session and the assembly have it: main, or the train's branch for
 # a wagon), else origin/main. The first line of the output says which.
 #
+# Two budgets (docs/testing.md R1 and R2): a package's tests finish in 60 s
+# under -race, and a test sleeps no more than 500 ms at a site. Each has its
+# allow-list below, naming why each entry is over and which bead brings it
+# under; the fix beads delete the rows. A race leg fails when a package it
+# ran is over budget and not allow-listed, and the run fails when a test
+# file sleeps over budget at a site that is not.
+#
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went.
 #
@@ -106,11 +113,15 @@ die "test: cannot run $ARGV[0]: $!\n";' "$lock" "$@"
 again() {
   t0=$(date +%s)
   log=$(mktemp)
+  acc=$(mktemp)
   # The race leg, and only it, runs under the machine-wide lock: go vet,
   # go build and the socket leg beside the first run wait for nothing.
+  # Its output is also kept whole across runs, for the package budget.
   under=env
+  race=0
   case " $* " in
     *" go test -race "*)
+      race=1
       if [ -z "$YARDR_RACE_HELD" ]; then
         under=racelocked
       fi
@@ -118,11 +129,13 @@ again() {
   esac
   { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
   rc=$(cat "$log.rc")
+  if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
   retried=0
   if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
     { rc=0; "$under" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
     rc=$(cat "$log.rc")
+    if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
     retried=1
   fi
   if [ "$rc" != 0 ] && [ "$retried" = 0 ]; then
@@ -156,6 +169,7 @@ again() {
           # shellcheck disable=SC2086
           { rc=0; "$under" $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
           rc=$(cat "$log.rc")
+          if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
           if [ "$rc" = 0 ]; then
             if [ -n "$tests" ]; then
               echo "test: flaky: $tests_line ($pkgs_line) passed on rerun"
@@ -168,8 +182,13 @@ again() {
     esac
   fi
   took "$t0" "$*"
+  # The package budget, after a green race leg: a leg whose tests failed
+  # is already red without it.
+  if [ "$rc" = 0 ] && [ "$race" = 1 ]; then
+    packagebudget "$acc" || rc=$?
+  fi
   [ "$rc" = 0 ] || failed "$log" "$@"
-  rm -f "$log" "$log.rc"
+  rm -f "$log" "$log.rc" "$acc"
   return "$rc"
 }
 # failed prints the lines of a failed step's output that say what failed: a
@@ -180,6 +199,132 @@ failed() {
   shift
   echo "test: FAILED: $*"
   grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" | head -n 60 || true
+}
+# The packages over the 60 s budget (docs/testing.md R1): a directory, the
+# bead that brings it under budget, and why it is over. Four are over even
+# alone, four only in full runs (docs/design/2026-10-16-yardr-635g-test-time.md
+# section 2.1). A race leg that runs one of these over 60 s still passes;
+# any other package over 60 s fails the run. The fix beads delete the rows;
+# a row whose package is gone fails nothing, since no result line maps to
+# it, but delete it anyway.
+over60='
+internal/cli yardr-cayh 834 sequential tests at 0.14 s mean, no t.Parallel; 118 s alone
+contrib/assembly yardr-9df1 the 60 s owner end-to-end test plus the train yards; 92 s alone
+internal/store yardr-3cc4 798 sequential tests plus the index walk after every write; 90 s alone
+internal/dispatch yardr-j41w 384 sequential tests at 0.24 s mean, no t.Parallel; 68 s alone
+. yardr-1x36 three whole-repo walks plus the gate-script runs; 31 s alone, 65-94 s in full runs
+contrib/isolated-yard yardr-mzjv real down-script runs over sleeper processes; 30 s alone, 51-92 s in full runs
+contrib/deploy yardr-mzjv 39 tests each starting a server of its own; 22 s alone, 41-61 s in full runs
+contrib/release yardr-mzjv the real ./build runs; 36 s alone, 74-121 s in full runs
+'
+# packagebudget fails the run when a go test -race leg ran a package over
+# the 60 s budget (docs/testing.md R1) that the allow-list above does not
+# name. Its input is the leg's output ($1): only the ok lines carry judged
+# seconds, a package whose tests failed being already red without it.
+# Cached packages print no seconds and are not judged. The allow-list goes
+# by file, as the reads table does: awk takes no newline in -v. It says
+# which packages, sorted, and returns 1 when there are any.
+packagebudget() {
+  allow=$(mktemp)
+  printf '%s\n' "$over60" >"$allow"
+  out=$(awk '
+    FILENAME == ARGV[1] {
+      if ($0 ~ /^[^ ]+ /) { dir = $0; sub(/ .*/, "", dir); over[dir] = 1 }
+      next
+    }
+    /^ok[ \t]/ && $3 ~ /^[0-9.]+s$/ {
+      pkg = $2; secs = $3; sub(/s$/, "", secs)
+      if (pkg == "yardr.dev/yardr") dir = "."
+      else if (pkg ~ /^yardr\.dev\/yardr\//) { dir = pkg; sub(/^yardr\.dev\/yardr\//, "", dir) }
+      else next
+      if (secs + 0 > 60 && !(dir in over) && !(dir in bad)) {
+        bad[dir] = 1
+        printf "test: %s took %s s with -race, over the 60 s budget (docs/testing.md R1)\n", pkg, secs
+      }
+    }' "$allow" "$1") || { rm -f "$allow"; return 1; }
+  rm -f "$allow"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" | sort
+    return 1
+  fi
+  return 0
+}
+# The test sleeps over the 500 ms budget (docs/testing.md R2): the file,
+# the milliseconds it sleeps, and why it must use the real clock. The gate
+# reads literal durations in *_test.go files; a sleep it cannot read, such
+# as a variable, is not judged. A row whose site is gone fails nothing
+# here; the root package's test counts the rows against the tree, so delete
+# the row with the fix.
+longsleeps='
+yardtest_test.go 3000 the race-lock test holds the lock 3 s past the build step so the wait spans whole seconds however slowly the run started
+internal/dispatch/peerhold_test.go 2000 yardr-j41w counts poll rates over real time, about 20 asks in 2 s
+internal/dispatch/peerhold_test.go 2500 yardr-j41w counts held-question rates over real time, 2 or 3 asks in 2.5 s
+internal/dispatch/harness_reset_test.go 1000 a session age reads the wall clock, not the dispatchers, so the test sleeps past its 1 s max_age
+internal/dispatch/failure_test.go 2050 a session age reads the wall clock, so the test sleeps past its 2 s max_age
+internal/server/server_test.go 1000 the drain test holds the store past the grace, then releases it
+internal/rpc/stream_test.go 600 the blocked write hits its deadline
+contrib/assembly/owner_test.go 1000 yardr-9df1 polls once a second for up to 90 s while the owner watch ticks its real minute
+contrib/isolated-yard/down_test.go 300000 non-elapsing: the sleeper process waits to be killed at test end
+'
+# sleepbudget fails the run when a *_test.go file sleeps over the 500 ms
+# budget (docs/testing.md R2) at a site the allow-list above does not name.
+# A site is time.Sleep with a literal duration: N * time.Unit (N a number)
+# or time.Unit alone; anything else is not judged. Line comments are not
+# code. The allow-list goes by file, as the reads table does: awk takes no
+# newline in -v. It says how many allow-listed sleeps the tree holds, so
+# the re-measure can count the real-clock debt.
+sleepbudget() {
+  t0=$(date +%s)
+  st=0
+  allow=$(mktemp)
+  printf '%s\n' "$longsleeps" >"$allow"
+  out=$(grep -rn --include='*_test.go' --exclude-dir=.git 'time\.Sleep(' . 2>/dev/null | awk '
+    BEGIN {
+      ms["Nanosecond"] = 0.000001
+      ms["Microsecond"] = 0.001
+      ms["Millisecond"] = 1
+      ms["Second"] = 1000
+      ms["Minute"] = 60000
+      ms["Hour"] = 3600000
+    }
+    FILENAME == ARGV[1] {
+      if ($0 ~ /^[^ ]+ [0-9]+ /) {
+        f = $0; sub(/ .*/, "", f)
+        m = $0; sub(/^[^ ]+ /, "", m); sub(/ .*/, "", m)
+        over[f SUBSEP m] = 1
+      }
+      next
+    }
+    {
+      code = $0; sub(/\/\/.*$/, "", code)
+      if (code !~ /time\.Sleep\(/) next
+      f = code; sub(/:[0-9]+:.*$/, "", f); sub(/^\.\//, "", f)
+      line = code; sub(/^[^:]*:/, "", line); sub(/:.*$/, "", line)
+      e = code; sub(/.*time\.Sleep\(/, "", e); sub(/\).*$/, "", e)
+      n = e; unit = e
+      if (match(e, /\*/)) {
+        n = substr(e, 1, RSTART - 1); unit = substr(e, RSTART + RLENGTH)
+      } else n = 1
+      gsub(/ /, "", n); gsub(/ /, "", unit); sub(/^time\./, "", unit)
+      if (n !~ /^[0-9.]+$/ || !(unit in ms)) next
+      dur = int(n * ms[unit] + 0.5)
+      if (dur <= 500) next
+      key = f SUBSEP dur
+      if (key in over) {
+        if (!(key in seen)) { seen[key] = 1; nseen++ }
+        next
+      }
+      printf "test: %s:%s sleeps %s, over the 500 ms budget (docs/testing.md R2)\n", f, line, e
+      bad++
+    }
+    END {
+      if (bad > 0) exit 1
+      if (nseen > 0) printf "test: %d sleeps over 500 ms allow-listed\n", nseen
+    }' "$allow" -) || st=$?
+  rm -f "$allow"
+  took "$t0" "sleep budgets"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  [ "$st" = 0 ] || exit 1
 }
 formatted() {
   t0=$(date +%s)
@@ -235,6 +380,7 @@ whole() {
   # CI runs on linux and this on a Mac: a darwin-only syscall.Getsid got
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
   again env GOOS=linux go vet ./...
+  sleepbudget
   # The same suites through the unix-socket client, beside the first run and
   # not after it (yardr-9xd9): both mostly wait, so a landing is as long as
   # the slower of the two instead of their sum. The socket step's output is
@@ -346,6 +492,7 @@ built() {
   formatted
   again go vet ./...
   again go build ./...
+  sleepbudget
 }
 changed=$(git diff --name-only "$from")
 # What is tested, with the race detector: the packages that changed, and

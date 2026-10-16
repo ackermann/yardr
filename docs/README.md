@@ -31,6 +31,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | [web.md](web.md) | `yardr web serve`: the yard in a browser, read-only; its pages and their JSON, the layout, the look's tokens, adding a page |
 | [upgrade.md](upgrade.md) | `yardr upgrade --check`: asserting the yard runs this build, read-only, one line per check; the install itself, planned |
 | [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |
+| [testing.md](testing.md) | the test rules: the 60 s package and 500 ms sleep budgets the gate enforces, parallelism, one race leg per sha, the incremental landing, the quiet whole-suite run, the re-measure |
 
 Pages mark features that are not built yet as **planned**.
 
