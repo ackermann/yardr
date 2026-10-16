@@ -83,7 +83,8 @@ func TestHookAskSetup(t *testing.T) {
 	}
 	does := strings.Join(runAsk.Ask.Run.Does, "\n")
 	for _, want := range []string{
-		"it adds the hook linear: POST /hooks/linear takes deliveries from the source linear (https://api.linear.app), verified with its signing secret.",
+		"it adds the hook linear: POST /hooks/linear takes deliveries from the source linear (https://api.linear.app).",
+		"what it sends in: deliveries are verified by HMAC-SHA256 over the body (scheme hmac-sha256, signed: body), the signature in the header Linear-Signature as hex past the prefix none",
 		"the signing secret is given on the hook's own secret card for linear and kept in " + HookSecretFile(y.home, "linear") + " (mode 0600); the hook names that file, and the value is in no note, event or answer.",
 	} {
 		if !strings.Contains(does, want) {
@@ -248,5 +249,71 @@ func TestHookAskRefusals(t *testing.T) {
 	}
 	if _, err := os.Lstat(HookSecretFile(y.home, "linear")); !os.IsNotExist(err) {
 		t.Fatalf("refused givings wrote the file: %v", err)
+	}
+}
+
+const trackerDecl = `name: tracker
+base: https://tracker.example.com
+credential: { env: TRACKER_TOKEN }
+hook:
+  verify: { scheme: secret, signature: { header: X-Tracker-Secret } }
+  bodies: unique
+  normalize: [tracker/normalize]
+  keys: [project]
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// The row is for any declared source with a hook key: the card's words
+// about the source come from its declaration (here the secret scheme
+// and its header), and the same two asks set the hook up.
+func TestHookAskGenericSource(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if _, err := y.PutSource(y.ctx, "tracker.yaml", trackerDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	secretSeq := y.ask(t, hookSecretAsk("tracker", "tracker"), "yardmaster")
+	runSeq := y.ask(t, hookRunAsk("hook add tracker --source tracker"), "yardmaster")
+	does := strings.Join(y.asked(t, runSeq).Ask.Run.Does, "\n")
+	if !strings.Contains(does, "deliveries are verified by the header X-Tracker-Secret holding the hook's secret itself (scheme secret)") {
+		t.Fatalf("the card says:\n%s", does)
+	}
+	if _, err := y.GiveSecret(y.ctx, y.bead, secretSeq,
+		map[string]string{"TRACKER_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	hook, err := y.GetHook(y.ctx, "tracker")
+	if err != nil || hook.Source != "tracker" {
+		t.Fatalf("the hook = %+v, %v", hook, err)
+	}
+}
+
+// A source the loose road added (a source add run ask) takes a hook
+// the same way once it stands declared.
+func TestHookAskAfterSourceAdd(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	add := sourceAddAsk(carriedOf(t, trackerDecl, map[string]string{"tracker/normalize": "#!/bin/sh\ncat >/dev/null\n"}))
+	add.Run.Argv = []string{"source add tracker.yaml"}
+	addSeq := y.ask(t, add, "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, addSeq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	secretSeq := y.ask(t, hookSecretAsk("tracker", "tracker"), "yardmaster")
+	runSeq := y.ask(t, hookRunAsk("hook add tracker --source tracker"), "yardmaster")
+	if _, err := y.GiveSecret(y.ctx, y.bead, secretSeq,
+		map[string]string{"TRACKER_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "hook tracker saved: POST /hooks/tracker (tracker)" {
+		t.Fatalf("the approval answers %+v", done)
 	}
 }

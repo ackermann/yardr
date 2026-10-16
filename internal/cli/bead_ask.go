@@ -273,11 +273,11 @@ what the person asked does, and this is the asker's own.`,
     --context "It is on the first page of the service after login."
   yardr bead ask yardr-k3vd "The code the sign-in page showed" --secret-login claude-a1b2c3d4 \
     --context "The login waits for what the sign-in page showed."
-  yardr bead ask yardr-k3vd "The signing secret for Linear" --secret-hook linear --source linear \
-    --context "It is shown once where the webhook is made in Linear."
-  yardr bead ask yardr-k3vd "Set up the Linear webhook?" \
+  yardr bead ask yardr-k3vd "The signing secret for it" --secret-hook <hook> --source <source> \
+    --context "It is shown once where the webhook is made in the service."
+  yardr bead ask yardr-k3vd "Set up the webhook?" \
     --context "The signing secret is asked for on the ask above; give it first." \
-    --run "hook add linear --source linear"
+    --run "hook add <hook> --source <source>"
   yardr bead ask yardr-k3vd "Take more mail from airy?" \
     --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
     --run "peer allow airy --mail-limit 300"

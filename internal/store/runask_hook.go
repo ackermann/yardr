@@ -94,7 +94,8 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 	return AskRun{
 		Argv: argv,
 		Does: []string{
-			fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s), verified with its signing secret.", name, name, sourceName, sourceHost(d)),
+			fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s).", name, name, sourceName, sourceHost(d)),
+			hookSays(d),
 			fmt.Sprintf("the signing secret is given on the hook's own secret card for %s and kept in %s (mode 0600); the hook names that file, and the value is in no note, event or answer.", name, HookSecretFile(w.home, name)),
 		},
 		Back:   runCommandLine([]string{"hook", "rm", name}),
