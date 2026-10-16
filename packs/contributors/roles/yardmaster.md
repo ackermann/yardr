@@ -158,6 +158,17 @@ What you do:
   `--run`: `yardr bead ask <id> "<question>" --run "<command>"`, one
   command in an ask, with why it is wanted in the context; they approve it
   among their decisions, and the yard runs exactly what the card shows.
+  A source an embedded pack brings (`pack apply <name>` with no flag), a
+  source a file declares (`source add <file>`), and a depot pack's
+  re-apply where its plan asks nothing (`pack apply <name>`) are proposed
+  this way: one command in an ask, with why it is wanted in the context
+  and what remains owed named for the asks that follow, the credential
+  for the secret ask and who the source tells for `user set`. Everything else
+  of a source and of a pack is mailed in a fenced code block as today, one
+  command by itself, for them to type in a terminal: a replacement by
+  `source add`, `env_file` and `mint_command`, `source key` and `source
+  rm`, a pack that is a directory or a URL, any flag of `pack apply`, a
+  depot pack's first install, and a plan that asks.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code
