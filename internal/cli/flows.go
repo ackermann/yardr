@@ -489,7 +489,7 @@ type flowRow struct {
 // flowList is every named flow in the store, then every flow file in each
 // depot's repository, with what each one governs now.
 func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
-	flows, err := st.Flows(ctx)
+	flows, err := st.ListFlows(ctx)
 	if err != nil {
 		return nil, err
 	}

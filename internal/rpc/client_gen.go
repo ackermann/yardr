@@ -166,6 +166,9 @@ func (c *Client) EstimateMany(ctx context.Context, ids []string) (map[string]*et
 func (c *Client) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 	return callV[*eta.ArrivalBoard](c, ctx, "Arrivals")
 }
+func (c *Client) Flows(ctx context.Context) (*store.FlowsBoard, error) {
+	return callV[*store.FlowsBoard](c, ctx, "Flows")
+}
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
 }
@@ -232,8 +235,8 @@ func (c *Client) DeleteRoute(ctx context.Context, id, actor string) error {
 func (c *Client) PutFlow(ctx context.Context, f store.Flow, actor string) (*store.Flow, error) {
 	return callV[*store.Flow](c, ctx, "PutFlow", f, actor)
 }
-func (c *Client) Flows(ctx context.Context) ([]store.Flow, error) {
-	return callV[[]store.Flow](c, ctx, "Flows")
+func (c *Client) ListFlows(ctx context.Context) ([]store.Flow, error) {
+	return callV[[]store.Flow](c, ctx, "ListFlows")
 }
 func (c *Client) GetFlow(ctx context.Context, name string) (*store.Flow, error) {
 	return callV[*store.Flow](c, ctx, "GetFlow", name)

@@ -823,7 +823,7 @@ func TestBuildWritesNothing(t *testing.T) {
 	build(t, st, load(t, starter), o)
 	after, _ := st.Head(ctx)
 	groups, _ := st.Groups(ctx)
-	flows, _ := st.Flows(ctx)
+	flows, _ := st.ListFlows(ctx)
 	entries, _ := os.ReadDir(o.Home)
 	if after != head || len(groups) != 0 || len(flows) != 0 || len(entries) != 0 {
 		t.Fatalf("events %d -> %d, groups %v, flows %v, home %v", head, after, groups, flows, entries)

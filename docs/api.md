@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 73,
+  "seq": 83,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 74,
+  "seq": 84,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 75,
+  "seq": 85,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -636,7 +636,7 @@ POST /call/Head
 {}
 
 {
-  "result": 70
+  "result": 80
 }
 ```
 
@@ -1042,7 +1042,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 71,
+      "seq": 81,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1050,7 +1050,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 72,
+      "seq": 82,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1076,7 +1076,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 71,
+      "seq": 81,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1084,7 +1084,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 72,
+      "seq": 82,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1111,7 +1111,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 73,
+      "seq": 83,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2118,7 +2118,7 @@ POST /call/Arrivals
         "bead": "yd-train",
         "title": "Release train",
         "platform": "new",
-        "line": "",
+        "line": "yard",
         "expected": "—",
         "remark": "",
         "tone": "none"
@@ -2136,7 +2136,7 @@ POST /call/Arrivals
         "bead": "yd-greet",
         "title": "The greeting",
         "platform": "new",
-        "line": "",
+        "line": "drafts",
         "expected": "—",
         "remark": "",
         "tone": "none"
@@ -2172,6 +2172,141 @@ The order is the board's: beads with a running session first, then by the low en
 Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.
 
 Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.
+
+### `Flows`
+
+The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.
+
+```
+POST /call/Flows
+{}
+
+{
+  "result": {
+    "travelling": 5,
+    "depots": [
+      {
+        "name": "drafts",
+        "kind": "dir",
+        "travelling": 1,
+        "flows": [],
+        "elsewhere": [
+          {
+            "bead": "yd-greet",
+            "title": "The greeting",
+            "expected": "—",
+            "remark": "",
+            "tone": "none",
+            "working": false
+          }
+        ],
+        "error": ".yardr/flows/default.flow: flow line 1: want 'stage -\u003e next on outcome | other' or 'stage terminal', got \"this is no flow\""
+      },
+      {
+        "name": "yard",
+        "kind": "git",
+        "travelling": 1,
+        "flows": [
+          {
+            "name": "default",
+            "type": "",
+            "source": "store",
+            "stages": [
+              {
+                "stage": "new",
+                "group": "builders",
+                "human": false,
+                "lamp": "none",
+                "beads": [
+                  {
+                    "bead": "yd-train",
+                    "title": "Release train",
+                    "expected": "—",
+                    "remark": "",
+                    "tone": "none",
+                    "working": false
+                  }
+                ]
+              },
+              {
+                "stage": "shipped",
+                "group": "elders",
+                "human": true,
+                "lamp": "none",
+                "beads": []
+              }
+            ]
+          }
+        ],
+        "elsewhere": []
+      }
+    ],
+    "unassigned": [
+      {
+        "bead": "yd-crm",
+        "title": "Read the CRM",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
+        "bead": "yd-links",
+        "title": "Move the links",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
+        "bead": "yd-shed",
+        "title": "Paint the shed",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      }
+    ]
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `travelling` | number | the yard's open beads outside the backlog: the depots' totals plus the unassigned count, complete, not capped |
+| `depots[].name` | string | the depot |
+| `depots[].kind` | string | `git` or `dir`, as the depot is |
+| `depots[].travelling` | number | the depot's open beads outside the backlog |
+| `depots[].flows[].name` | string | the flow |
+| `depots[].flows[].type` | string | the bead type it governs, `""` for the depot's own |
+| `depots[].flows[].source` | string | where the flow comes from, as `yardr flow show` says it: `store`, `repo@<sha>`, `repo (directory)` |
+| `depots[].flows[].stages[].stage` | string | the stage |
+| `depots[].flows[].stages[].group` | string | the group a bead of the flow's type would be routed to here, `""` when no route matches |
+| `depots[].flows[].stages[].human` | bool | the group is a manual one |
+| `depots[].flows[].stages[].lamp` | string | `fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise |
+| `depots[].flows[].stages[].beads[].bead` | string | the bead's handle |
+| `depots[].flows[].stages[].beads[].title` | string | the bead's title |
+| `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
+| `depots[].flows[].stages[].beads[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
+| `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+| `depots[].elsewhere[].bead` | string | the bead's handle |
+| `depots[].elsewhere[].title` | string | the bead's title |
+| `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
+| `depots[].elsewhere[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
+| `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+| `depots[].error` | string, may be absent | why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read |
+| `unassigned[].bead` | string | the bead's handle |
+| `unassigned[].title` | string | the bead's title |
+| `unassigned[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
+| `unassigned[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
+| `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+
+Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.
+
+Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated` and `depot_removed`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.
 
 ### `AnswerAsk`
 

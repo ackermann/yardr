@@ -66,6 +66,7 @@ type API interface {
 	Estimate(ctx context.Context, id string) (*eta.Result, error)
 	EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error)
 	Arrivals(ctx context.Context) (*eta.ArrivalBoard, error)
+	Flows(ctx context.Context) (*FlowsBoard, error)
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
@@ -90,7 +91,7 @@ type API interface {
 	DeleteRoute(ctx context.Context, id, actor string) error
 
 	PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error)
-	Flows(ctx context.Context) ([]Flow, error)
+	ListFlows(ctx context.Context) ([]Flow, error)
 	GetFlow(ctx context.Context, name string) (*Flow, error)
 	DeleteFlow(ctx context.Context, name, actor string) error
 	SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error

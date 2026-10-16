@@ -36,8 +36,21 @@ func (s *Store) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 	if len(travelling) == 0 {
 		return &eta.ArrivalBoard{Rows: []eta.ArrivalRow{}, Platforms: []string{}}, nil
 	}
+	inputs, err := s.arrivalInputs(ctx, travelling)
+	if err != nil {
+		return nil, err
+	}
+	rows := eta.Arrivals(inputs)
+	return &eta.ArrivalBoard{Rows: rows, Platforms: s.arrivalPlatforms(ctx, travelling, rows)}, nil
+}
+
+// arrivalInputs answers each bead as the arrivals view reads it: with its
+// stay start, running hold, fault, wait and estimate beside it. The board
+// reads the travelling beads; the flows view reads every bead it draws,
+// and both rows come from the same inputs.
+func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalBead, error) {
 	var ids []string
-	for _, b := range travelling {
+	for _, b := range beads {
 		ids = append(ids, b.ID)
 	}
 	ests, err := s.EstimateMany(ctx, ids)
@@ -74,8 +87,8 @@ func (s *Store) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 	if err != nil {
 		return nil, err
 	}
-	inputs := make([]eta.ArrivalBead, 0, len(travelling))
-	for _, b := range travelling {
+	inputs := make([]eta.ArrivalBead, 0, len(beads))
+	for _, b := range beads {
 		in := eta.ArrivalBead{ID: b.ID, Title: b.Title, Stage: b.Stage,
 			StayStart: stays[b.ID], Hold: b.Hold}
 		if b.Depot != nil {
@@ -117,8 +130,7 @@ func (s *Store) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 		}
 		inputs = append(inputs, in)
 	}
-	rows := eta.Arrivals(inputs)
-	return &eta.ArrivalBoard{Rows: rows, Platforms: s.arrivalPlatforms(ctx, travelling, rows)}, nil
+	return inputs, nil
 }
 
 // arrivalPlatforms orders the platforms the served rows stand on in the

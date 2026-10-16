@@ -10,7 +10,7 @@ import (
 )
 
 func (b *planner) flows(flows []Flow) error {
-	have, err := b.st.Flows(b.ctx)
+	have, err := b.st.ListFlows(b.ctx)
 	if err != nil {
 		return err
 	}

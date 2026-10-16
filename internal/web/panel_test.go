@@ -492,6 +492,130 @@ func TestPanelBlockedKinds(t *testing.T) {
 	}
 }
 
+// The served flows view is /flows and the panel as served: the same depots
+// each with its flows, each flow its stages in travel order with the same
+// group, beads and lamp, the same Elsewhere rows, and the travelling totals
+// over the same beads.
+func TestFlowsCallMatchesFlowsPage(t *testing.T) {
+	f := newFixture(t)
+	kindsYard(t, f)
+	ctx := context.Background()
+	var page web.Flows
+	f.getJSON("/flows", &page)
+	board, err := f.st.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Depots) != len(page.Depots) {
+		t.Fatalf("%d depots served, page has %d", len(board.Depots), len(page.Depots))
+	}
+	travelling, unassigned := 0, []string{}
+	beads, err := f.st.ListBeads(ctx, store.BeadFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range beads {
+		if b.Stage == "backlog" {
+			continue
+		}
+		travelling++
+		if b.Depot == nil {
+			unassigned = append(unassigned, b.ID)
+		}
+	}
+	if board.Travelling != travelling {
+		t.Errorf("travelling = %d, want %d open beads outside backlog", board.Travelling, travelling)
+	}
+	if len(board.Unassigned) != len(unassigned) {
+		t.Errorf("%d unassigned rows, want %d beads with no depot", len(board.Unassigned), len(unassigned))
+	}
+	r := f.get("/flows?panel=1")
+	if r.status != 200 {
+		t.Fatalf("status %d: %s", r.status, r.body)
+	}
+	svg := diagram(t, r.body, "code")
+	lamp := func(stage string) string {
+		t.Helper()
+		part := stagePart(t, svg, stage)
+		switch {
+		case strings.Contains(part, `class="lamp fault"`):
+			return "fault"
+		case strings.Contains(part, `class="lamp turn"`):
+			return "turn"
+		default:
+			return "none"
+		}
+	}
+	ids := func(cards []web.Card) []string {
+		var out []string
+		for _, c := range cards {
+			out = append(out, c.ID)
+		}
+		return out
+	}
+	rows := func(beads []store.FlowBead) []string {
+		var out []string
+		for _, b := range beads {
+			out = append(out, b.Bead)
+		}
+		return out
+	}
+	for i, depot := range page.Depots {
+		served := board.Depots[i]
+		if served.Name != depot.Name || served.Kind != depot.Kind || served.Error != depot.Error {
+			t.Errorf("depot %d = %+v, page has %+v", i, served, depot)
+			continue
+		}
+		want := 0
+		for _, b := range beads {
+			if b.Depot != nil && *b.Depot == depot.Name && b.Stage != "backlog" {
+				want++
+			}
+		}
+		if served.Travelling != want {
+			t.Errorf("%s travelling = %d, want %d", depot.Name, served.Travelling, want)
+		}
+		if len(served.Flows) != len(depot.Flows) {
+			t.Errorf("%s: %d flows served, page has %d", depot.Name, len(served.Flows), len(depot.Flows))
+			continue
+		}
+		for j, col := range depot.Flows {
+			got := served.Flows[j]
+			if got.Name != col.Name || got.Type != col.Type || got.Source != col.Source {
+				t.Errorf("%s flow %d = %+v, page has %+v", depot.Name, j, got, col)
+				continue
+			}
+			if len(got.Stages) != len(col.Stages) {
+				t.Errorf("%s %s: %d stages served, page has %d", depot.Name, col.Name, len(got.Stages), len(col.Stages))
+				continue
+			}
+			for k, st := range col.Stages {
+				stage := got.Stages[k]
+				if stage.Stage != st.Stage || stage.Group != st.Group || stage.Human != st.Human {
+					t.Errorf("%s %s %s served as %+v, page has %+v", depot.Name, col.Name, st.Stage, stage, st)
+				}
+				if !reflect.DeepEqual(rows(stage.Beads), ids(st.Beads)) {
+					t.Errorf("%s %s %s beads = %v, page has %v", depot.Name, col.Name, st.Stage, rows(stage.Beads), ids(st.Beads))
+				}
+				for l, b := range stage.Beads {
+					if b.Title != st.Beads[l].Title || b.Working != st.Beads[l].Working {
+						t.Errorf("%s served as %+v, page card %+v", b.Bead, b, st.Beads[l])
+					}
+				}
+				// The panel draws the depot's flows; loose has none.
+				if depot.Name == "shop" {
+					if stage.Lamp != lamp(st.Stage) {
+						t.Errorf("%s %s lamp = %q, panel lights %q", depot.Name, st.Stage, stage.Lamp, lamp(st.Stage))
+					}
+				}
+			}
+		}
+		if !reflect.DeepEqual(rows(served.Elsewhere), ids(depot.Elsewhere)) {
+			t.Errorf("%s elsewhere = %v, page has %v", depot.Name, rows(served.Elsewhere), ids(depot.Elsewhere))
+		}
+	}
+}
+
 // quietYard holds no fault, no hold and no failed return: a running
 // session, a quiet bead, and parked beads in manual stages (a person's
 // turn, blue).

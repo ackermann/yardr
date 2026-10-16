@@ -116,13 +116,21 @@ func Arrivals(beads []ArrivalBead) []ArrivalRow {
 	}
 	out := make([]ArrivalRow, 0, len(aged))
 	for _, b := range aged {
-		remark, tone := arrivalRemark(b)
-		out = append(out, ArrivalRow{
-			Bead: b.ID, Title: b.Title, Platform: b.Stage, Line: b.Depot,
-			Expected: arrivalTime(b), Remark: remark, Tone: tone,
-		})
+		out = append(out, ArrivalRowFor(b))
 	}
 	return out
+}
+
+// ArrivalRowFor answers the board's row for one bead: the expected arrival
+// as the yard prints it, with the remark and its tone. Arrivals maps it
+// over the capped board; the flows view maps it over every bead it draws,
+// so the two can never disagree about one.
+func ArrivalRowFor(b ArrivalBead) ArrivalRow {
+	remark, tone := arrivalRemark(b)
+	return ArrivalRow{
+		Bead: b.ID, Title: b.Title, Platform: b.Stage, Line: b.Depot,
+		Expected: arrivalTime(b), Remark: remark, Tone: tone,
+	}
 }
 
 // arrivalTime is the row's time: the yard's range, one span when both

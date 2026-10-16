@@ -455,7 +455,7 @@ func TestFlowTypeOverridesDepot(t *testing.T) {
 	if err != nil || got.Name != "yard.decision" {
 		t.Fatalf("GetFlow = %+v, %v", got, err)
 	}
-	all, _ := s.Flows(ctx)
+	all, _ := s.ListFlows(ctx)
 	if len(all) != 2 || all[0].Name != "yard" || all[1].Name != "yard.decision" {
 		t.Fatalf("flows = %+v", all)
 	}

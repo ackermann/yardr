@@ -421,8 +421,8 @@ func flowStrays(tx *bolt.Tx, f Flow) ([]string, error) {
 	return out, err
 }
 
-// Flows lists the named flows in the store, by name.
-func (s *Store) Flows(ctx context.Context) ([]Flow, error) {
+// ListFlows lists the named flows in the store, by name.
+func (s *Store) ListFlows(ctx context.Context) ([]Flow, error) {
 	out := []Flow{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bFlows, "", func(_ []byte, f *Flow) error {

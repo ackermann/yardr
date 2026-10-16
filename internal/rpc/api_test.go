@@ -138,6 +138,19 @@ func runAsked(prefix string) []field {
 	}
 }
 
+// A flow bead is the same on a stage, off the line and travelling with no
+// line: the bead with its Arrivals row.
+func flowBead(prefix string) []field {
+	return []field{
+		{prefix + "bead", "string", "the bead's handle"},
+		{prefix + "title", "string", "the bead's title"},
+		{prefix + "expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none"},
+		{prefix + "remark", "string", "held, stalled, waits for a person, late, in that order; `\"\"` when there is none"},
+		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark"},
+		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
+	}
+}
+
 // A crew member is the same in the list and alone.
 func crewMember(prefix string) []field {
 	return []field{
@@ -432,6 +445,32 @@ var apiCalls = []apiCall{
 		after: "The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), waits for a person, late, in that order.\n\n" +
 			"Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.\n\n" +
 			"Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.",
+	},
+	{
+		method:   "Flows",
+		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.",
+		requests: []string{`{}`},
+		fields: slices.Concat([]field{
+			{"travelling", "number", "the yard's open beads outside the backlog: the depots' totals plus the unassigned count, complete, not capped"},
+			{"depots[].name", "string", "the depot"},
+			{"depots[].kind", "string", "`git` or `dir`, as the depot is"},
+			{"depots[].travelling", "number", "the depot's open beads outside the backlog"},
+			{"depots[].flows[].name", "string", "the flow"},
+			{"depots[].flows[].type", "string", "the bead type it governs, `\"\"` for the depot's own"},
+			{"depots[].flows[].source", "string", "where the flow comes from, as `yardr flow show` says it: `store`, `repo@<sha>`, `repo (directory)`"},
+			{"depots[].flows[].stages[].stage", "string", "the stage"},
+			{"depots[].flows[].stages[].group", "string", "the group a bead of the flow's type would be routed to here, `\"\"` when no route matches"},
+			{"depots[].flows[].stages[].human", "bool", "the group is a manual one"},
+			{"depots[].flows[].stages[].lamp", "string", "`fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise"},
+		},
+			flowBead("depots[].flows[].stages[].beads[]."),
+			flowBead("depots[].elsewhere[]."),
+			[]field{
+				{"depots[].error", "string?", "why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read"},
+			},
+			flowBead("unassigned[].")),
+		after: "Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.\n\n" +
+			"Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated` and `depot_removed`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.",
 	},
 	{
 		method: "AnswerAsk",
@@ -745,7 +784,6 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	greet, err := st.CreateBead(ctx, store.NewBead{Title: "The greeting", ID: "yd-greet"}, "yardmaster")
 	must(err)
-	_ = train
 	_, err = st.AddNotedAs(ctx, links.ID, "the test passed on a copy", "yardmaster", "", store.BlobFile{Hash: shed.Hash, Name: "shed.png"})
 	must(err)
 	ask := func(id string, a store.Ask) uint64 {
@@ -941,6 +979,34 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	t.Cleanup(docCancel)
 	go func() { _, _ = st.LoginWait(docCtx, "claude-example2") }()
 	apiSecretAsks[3] = docLogin
+
+	// The flows view: a depot with a store flow, routes and groups, holding
+	// one bead on its first stage, and a depot whose flow file reads as no
+	// flow, holding another off the line. Last again, for the seqs above;
+	// the Arrivals rows of the two moved beads gain their lines.
+	must(st.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "jo"))
+	flow, err := store.ParseFlow("new -> shipped\nshipped terminal\n")
+	must(err)
+	flow.Name = "default"
+	_, err = st.PutFlow(ctx, *flow, "jo")
+	must(err)
+	must(st.SetFlowPointer(ctx, "yard", "", "default", "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 5}, "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "elders", Runner: "manual", Limit: 5, Members: []string{"jo"}}, "jo"))
+	_, err = st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "jo")
+	must(err)
+	_, err = st.AddRoute(ctx, store.Route{Stage: "shipped", Group: "elders"}, "jo")
+	must(err)
+	online := "yard"
+	_, err = st.UpdateBead(ctx, train.ID, store.BeadPatch{Depot: &online}, store.Expect{}, "jo")
+	must(err)
+	drafts := filepath.Join(t.TempDir(), "drafts")
+	must(os.MkdirAll(filepath.Join(drafts, ".yardr", "flows"), 0o755))
+	must(st.PutDepot(ctx, store.Depot{Name: "drafts", Path: drafts, Kind: store.DepotDir}, "jo"))
+	offline := "drafts"
+	_, err = st.UpdateBead(ctx, greet.ID, store.BeadPatch{Depot: &offline}, store.Expect{}, "jo")
+	must(err)
+	must(os.WriteFile(filepath.Join(drafts, ".yardr", "flows", "default.flow"), []byte("this is no flow\n"), 0o644))
 	return st, d.Token
 }
 
@@ -1149,8 +1215,8 @@ func TestCallsAreTheDocs(t *testing.T) {
 	// What the listener serves every device is Calls, as it was before
 	// there was a second list, and a device of the operator the two calls of
 	// OperatorCalls besides: a call is added to either on purpose, here too.
-	if len(Calls) != 23 || len(OperatorCalls) != 2 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 23 and 2", len(Calls), len(OperatorCalls))
+	if len(Calls) != 24 || len(OperatorCalls) != 2 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 24 and 2", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
