@@ -1621,6 +1621,17 @@ fi
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	sleeper, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("the fake test did not leave a sleeper pid: %v", err)
+	}
+	sleeperPID, err := strconv.Atoi(strings.TrimSpace(string(sleeper)))
+	if err != nil {
+		t.Fatalf("the fake test left invalid sleeper pid %q: %v", sleeper, err)
+	}
+	if err := syscall.Kill(sleeperPID, 0); err != nil {
+		t.Fatalf("the fake test's stdout-holding sleeper (pid %d) is already gone: %v", sleeperPID, err)
+	}
 	lock, err := os.OpenFile(filepath.Join(home, ".yardr", "race.lock"), os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
