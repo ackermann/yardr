@@ -149,6 +149,33 @@ func TestHomeSessionsKeepUnclosedPartialCrewStarts(t *testing.T) {
 	}
 }
 
+// A failed ordinary stop leaves the pane open; retain its handle so a home
+// loss during this pass can still close it from the snapshot.
+func TestHomeSessionsKeepCrewWhenStopFails(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	member, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	member.Runner, member.Enabled = "herdr", false
+	_, err = s.PutCrew(ctx, *member, "me")
+	must(t, err)
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", false, "", "me"))
+	must(t, s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster", "tab": "tab-1"}))
+	d.Runners = map[string]dispatch.Runner{"herdr": &failedCrewStop{crewRunner: f}}
+
+	must(t, d.Reconcile(ctx))
+	got := d.HomeSessions()
+	if len(got) != 1 || got[0].Name != "yardmaster" || got[0].Handle["tab"] != "tab-1" {
+		t.Fatalf("HomeSessions after the crew stop failed = %+v, want its open tab", got)
+	}
+}
+
+type failedCrewStop struct{ *crewRunner }
+
+func (failedCrewStop) Stop(context.Context, map[string]any) error {
+	return errors.New("herdr is unavailable")
+}
+
 type partialCrewStart struct {
 	*crewRunner
 	stopErr error

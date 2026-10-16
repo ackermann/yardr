@@ -759,10 +759,13 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, s *memberSession,
 const nudgeAtDialog = "nudge held: at a dialog"
 
 func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSession, reason string) error {
-	d.dropHome(crewHomeKey(s.member.Name, s.user))
 	if len(s.st.Handle) > 0 {
 		if err := runner.Stop(ctx, s.st.Handle); err != nil {
 			d.Log.Warn("crew stop", "crew", s.member.Name, "session", s.label(), "err", err)
+		} else {
+			// Keep the handle in the home-loss snapshot if the runner could
+			// not close it; a home watch can cancel this pass's stop.
+			d.dropHome(crewHomeKey(s.member.Name, s.user))
 		}
 	}
 	d.Log.Info("crew session stopped", "crew", s.member.Name, "session", s.label(), "reason", reason)
