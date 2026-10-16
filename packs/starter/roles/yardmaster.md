@@ -171,8 +171,9 @@ What you do:
   command by itself, for them to type in a terminal: a replacement by
   `source add`, a loose declaration with an absolute command program, a
   source card over its limits, `env_file` and `mint_command`, `source key`
-  and `source rm`, a pack that is a directory or a URL, any flag of `pack
-  apply`, an embedded pack whose card is over 40 lines (Google), a pack
+  and `source rm`, a pack that is not embedded (a directory, URL or earlier
+  import's record), any flag of `pack apply`, an embedded pack whose card is
+  over 40 lines (Google), a pack
   held by more than one depot, a depot pack's first install, and a plan that
   asks, is refused, or would overwrite an edited file.
   The yard checks whether the asker can run it and whether it is the
