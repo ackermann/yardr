@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -1174,6 +1175,130 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 		if got := fi.Mode().Perm(); got != want {
 			t.Errorf("%s is %o, want %o", path, got, want)
 		}
+	}
+}
+
+// The race lock dies with the run, whatever the run leaves behind: a run
+// under racelocked that backgrounds a long sleep and exits releases the
+// lock at once, so a second run gets it within a second (an orphaned sleep
+// once held it past the run: yardr-tsms). The holder also ends as a shell
+// would: the run's exit status, 128+n for a run ended by signal n, and a
+// TERM to the holder stops the run with it. Its own home stands in for the
+// yard's, so no real gate waits on it.
+func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The function as the script has it, to the next function: a script
+	// the cuts no longer follow fails the test, telling its editor to
+	// move the probe with it.
+	_, fn, ok := strings.Cut(string(b), "racelocked() {")
+	if ok {
+		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
+	}
+	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") {
+		t.Fatalf("cannot cut racelocked out of %s: move the probe with the script", yardTest)
+	}
+	home := t.TempDir()
+	driver := filepath.Join(t.TempDir(), "driver.sh")
+	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nracelocked \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+	run := func(ctx context.Context, args ...string) (time.Duration, int, []byte) {
+		t.Helper()
+		// Into a file, not a pipe: a run that orphans a sleep would hold
+		// a pipe open past its own exit, and the wait below with it.
+		outFile, err := os.CreateTemp("", "racelocked")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(outFile.Name())
+		cmd := exec.CommandContext(ctx, driver, args...)
+		cmd.Env = append(scriptEnv(), "HOME="+home)
+		cmd.Stdout, cmd.Stderr = outFile, outFile
+		start := time.Now()
+		err = cmd.Run()
+		el := time.Since(start)
+		outFile.Close()
+		out, _ := os.ReadFile(outFile.Name())
+		if err == nil {
+			return el, 0, out
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return el, exit.ExitCode(), out
+		}
+		t.Fatalf("racelocked %v: %v\n%s", args, err, out)
+		return 0, 0, nil
+	}
+	pidOf := func(path string) int {
+		t.Helper()
+		p, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(p)))
+		if err != nil {
+			t.Fatalf("%s holds %q, not a pid", path, p)
+		}
+		return pid
+	}
+	// A run that backgrounds a long sleep and exits: the sleep outlives
+	// it, and the lock must not.
+	pidFile := filepath.Join(home, "sleeper")
+	t.Cleanup(func() {
+		if p, err := os.ReadFile(pidFile); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	if _, code, out := run(context.Background(), "sh", "-c", "sleep 300 & echo $! >"+quote(pidFile)); code != 0 {
+		t.Fatalf("the run that orphans a sleep exits %d, want 0:\n%s", code, out)
+	}
+	if pid := pidOf(pidFile); syscall.Kill(pid, 0) != nil {
+		t.Fatalf("the backgrounded sleep (pid %d) is already gone: the run below proves nothing", pid)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	el, code, out := run(ctx, "true")
+	if ctx.Err() != nil {
+		t.Fatalf("a second run waits past 30 s for a lock the first left behind:\n%s", out)
+	}
+	if code != 0 {
+		t.Fatalf("a second run exits %d, want 0:\n%s", code, out)
+	}
+	if el >= time.Second {
+		t.Errorf("a second run gets the lock after %s, want within a second", el)
+	}
+	// The holder reports the run's end as a shell would.
+	if _, code, out := run(context.Background(), "sh", "-c", "exit 3"); code != 3 {
+		t.Errorf("a run that exits 3 is reported as %d:\n%s", code, out)
+	}
+	if _, code, out := run(context.Background(), "sh", "-c", "kill -TERM $$"); code != 143 {
+		t.Errorf("a run ended by TERM is reported as %d, want 143:\n%s", code, out)
+	}
+	// A TERM to the holder stops the run with it: the run TERMs its
+	// parent, the holder, and must itself die of the forwarded TERM.
+	victim := filepath.Join(home, "victim")
+	t.Cleanup(func() {
+		if p, err := os.ReadFile(victim); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	_, code, out = run(context.Background(), "sh", "-c", "echo $$ >"+quote(victim)+"; kill -TERM $PPID; exec sleep 30")
+	if code != 143 {
+		t.Fatalf("a run that TERMs its holder is reported as %d, want 143:\n%s", code, out)
+	}
+	if pid := pidOf(victim); syscall.Kill(pid, 0) == nil {
+		t.Errorf("the run (pid %d) survived the TERM to its holder: it was not forwarded", pid)
 	}
 }
 

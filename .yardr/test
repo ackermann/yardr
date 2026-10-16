@@ -117,8 +117,13 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # never a file the gate removes again, which a dead gate leaves behind
 # blocking every landing. The file is the yard's, 0600 in a 0700 home, as
 # its other files are. macOS has no flock binary; perl's flock is the
-# same call, and the perl execs the run, so the run itself holds the lock.
-# It waits without a limit, and says so, with the seconds, when it waited.
+# same call. The perl holds the lock itself while the run, forked without
+# the lock's fd, runs under it: nothing the run starts can hold the lock
+# past the run, however long it outlives it (an orphaned sleep once did:
+# yardr-tsms). The perl exits with the run's status, 128+n for a run ended
+# by signal n, and forwards TERM and INT to the run, so a killed gate still
+# stops it. It waits without a limit, and says so, with the seconds, when
+# it waited.
 # A run nested in another's race leg shares its hold instead of waiting on
 # it (YARDR_RACE_HELD, which the run's own tests set too): without that the
 # tests, which run this script, would wait on the run they are in.
@@ -128,15 +133,35 @@ racelocked() {
   YARDR_RACE_HELD=1
   export YARDR_RACE_HELD
   perl -e 'use Fcntl qw(:DEFAULT :flock);
-$^F = 100; # fds above $^F close on exec; keep the lock open across it
+use POSIX qw(:sys_wait_h);
+use Errno qw(EINTR);
 $lock = shift;
 sysopen(my $fh, $lock, O_WRONLY | O_APPEND | O_CREAT, 0600) or die "test: cannot open $lock: $!\n";
 $t = time;
 flock($fh, LOCK_EX) or die "test: cannot lock $lock: $!\n";
 $w = time - $t;
 warn "test: waited $w s for the race lock\n" if $w > 0;
-exec(@ARGV);
-die "test: cannot run $ARGV[0]: $!\n";' "$lock" "$@"
+# The run must not inherit the lock: the child closes it before it execs,
+# so the lock dies with this process, whatever the run leaves behind.
+# TERM and INT go to the run too, so a killed gate still stops it.
+$SIG{TERM} = sub { kill("TERM", $pid) if $pid };
+$SIG{INT} = sub { kill("INT", $pid) if $pid };
+$pid = fork();
+die "test: cannot fork: $!\n" unless defined $pid;
+if ($pid == 0) {
+  close($fh);
+  $SIG{TERM} = "DEFAULT";
+  $SIG{INT} = "DEFAULT";
+  exec(@ARGV);
+  die "test: cannot run $ARGV[0]: $!\n";
+}
+do { $kid = waitpid($pid, 0) } while ($kid == -1 && $! == EINTR);
+$st = $?;
+$pid = 0;
+$SIG{TERM} = "DEFAULT";
+$SIG{INT} = "DEFAULT";
+if (WIFSIGNALED($st)) { exit(128 + WTERMSIG($st)) }
+exit(WEXITSTATUS($st));' "$lock" "$@"
 }
 again() {
   t0=$(date +%s)
