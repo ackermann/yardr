@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -1531,6 +1533,21 @@ func TestRunAskCrewIdentity(t *testing.T) {
 	if want := "It is u1 / boss in crm now."; !slices.Contains(got.Does, want) {
 		t.Fatalf("the second card says %q, want it to hold %q", got.Does, want)
 	}
+}
+
+// A chmod of a command copy under the identity's source after the ask
+// makes the approval stale: the card's source fingerprint holds the
+// whole destination inventory (path, sha256, mode), as a source set or
+// grant card's does since B2.
+func TestRunAskCrewIdentityStaleOnChmod(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	seq := y.ask(t, listAsk("mckean", "crew identity yardmaster --source wired --id u1"), "yardmaster")
+	if err := os.Chmod(filepath.Join(dir, "wired", "thread"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written from another declaration of the source wired: it was replaced since")
 }
 
 // Saying who a crew member is in a source is refused past its row: a
