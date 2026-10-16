@@ -678,6 +678,7 @@ summary() {
 # anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
+contrib/assembly yardr-2ddt per-yard CLI fixture, ~75% of each test; fixture rewrite in yardr-2ddt; 29 s alone, 45-68 s in full runs
 contrib/shot yardr-c2vt 72.6 s in a loaded full landing run on 16 Oct; alone not yet measured; yardr-c2vt measures it and removes this row or keeps it with the number
 '
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
