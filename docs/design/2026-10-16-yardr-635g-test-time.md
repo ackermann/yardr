@@ -304,21 +304,37 @@ internal/cli in all ten; both endpoints re-verified for this revision
 (cs5z: exactly root, cli, web; dx5f: 31 packages, 28 with tests, matching
 the live "28 packages ok" line).
 
-Forcing the three always-run suites onto that replay (root, cli, web plus
-release, isolated-yard and server-yard):
+Forcing the three always-run suites as first proposed onto that replay
+(root, cli, web plus release, isolated-yard and server-yard):
 `go test -race -json -count=1 . ./internal/cli ./internal/web
 ./contrib/release ./contrib/isolated-yard ./contrib/server-yard`, same
 conditions, load 3.2-8.6, takes 98 s wall (cli 96.3, root 40.2, web
 54.4, release 48.1, isolated-yard 35.0, server-yard 14.3; note 5967)
-against 91 s bare. The suites' own slowest (release 48.1 s) runs inside
-cli's 96.3 s, and the selection's own packages slow under the added
-contention (cli 88.9 to 96.3 s, root 31.8 to 40.2 s, web 51.7 to 54.4
-s), so the suites cost about 7 s of wall on a cli-bound selection when
-quiet. The previous revision's 119 s against 89 s bare (about 30 s) was
-the same replay under load. Together they bound the cost at about 7-30 s
-of wall on a cli-bound selection, load-dependent. On a small selection
-with no slow package the suites set the floor instead: about 50-75 s
-quiet (release 48 s binds here), about 90-110 s under load.
+against 91 s bare. The suites' own slowest in that replay (release 48.1 s)
+runs inside cli's 96.3 s, and the selection's own packages slow under the
+added contention (cli 88.9 to 96.3 s, root 31.8 to 40.2 s, web 51.7 to
+54.4 s), so those three cost about 7 s of wall on a cli-bound selection
+when quiet. The previous revision reported 119 s against 89 s bare
+(about 30 s) for the same pair under load; that loaded pair is reported,
+not re-verified with an attached run in this revision -- the verified
+figure here is the quiet 7 s. The three verify the shape: on a cli-bound
+selection a black-box suite that finishes inside cli's time costs only
+the contention it adds, not its own seconds. With all six suites the
+arithmetic changes at the floor, not at the cli bound. Assembly (92.9 s
+quiet) sits near cli's 88.9-96.3 s in that replay, so a cli-bound landing
+still binds on cli or assembly whichever is slower, with the same
+contention increment; a small selection with no slow package binds on
+assembly instead of release: about 93 s quiet (assembly's floor) against
+about 48 s for the three-suite floor, and about 106 s under load
+(assembly in run 1) against about 90-110 s loaded for three. The total
+machine cost of six on every landing is the sum of their quiet times,
+about 265 s (assembly 92.9 + release 73.7 + isolated-yard 53.0 +
+deploy 42.4 + server-yard 21.4 + peer 10.7 minus overlaps where pick
+already selected the suite), against about 148 s for three; the wall that
+matters is the floor above and the cli-bound increment, which B8 must
+measure with a six-suite replay (the six-suite quiet wall is an
+extrapolation from the three-suite replay and the per-package floors,
+not a measured replay).
 
 The import-graph claim holds in-process but not over the binary. `go list
 -test` dependency lists include test-only imports (contrib/assembly imports
@@ -326,23 +342,34 @@ no yardr package in its code but over twenty in its test variant), and
 `pick` propagates transitively, so a change reaches exactly the packages
 whose test binaries link it -- plus the 40 reads-table rows for files tests
 open by path, with unknown files, `go.mod`/`go.sum`, and (at landing)
-deletions falling back to everything. The hole is the suites that build the
-tree's binary and drive it as a black box: contrib/server-yard and
-contrib/isolated-yard import no yardr package at all, contrib/release only
-itself, and assembly/peer/deploy do not import cli, web, chat, pack, bdp
-or flowdraw -- yet their tests run CLI commands of a binary that links all
-of them. A change to internal/web, for example, selects only root, cli and
-web (the cs5z replay above), while the assembly and server-yard suites
-exercise a binary containing the change and do not run. Today three things
-cover the hole: `go build ./...` catches compile breaks everywhere, the
-importing packages' own tests catch behavior breaks, and the landing runs
-the whole suite anyway. An incremental landing must instead always run the
-three black-box suites (server-yard ~14 s quiet/~35 s loaded,
-isolated-yard ~35/~92, release ~48/~110), at the measured 7-30 s of wall
-on a cli-bound selection depending on load, or accept the hole. The
-socket leg's existing gate
-already accepts the same reach argument: it runs only when the plain
-selection holds store, dispatch or bdp.
+deletions falling back to everything. The hole is the six suites that build
+the tree's binary and drive it as a black box. Three import no yardr code
+into the binary they test at all: contrib/server-yard (2 tests, 21.4 s
+quiet / 34.8 s in run 1, builds `yardr.dev/yardr` in its test helper),
+contrib/isolated-yard (13 tests, 53.0 s quiet / 92.2 s in run 1, whose
+down tests rebuild `yardr.dev/yardr` during the run), and contrib/release
+(29 tests, 73.7 s quiet / 109.5 s in run 1, which runs the real `./build`).
+Three more import only a subset in their test binaries -- internal/config,
+dispatch, rpc, runner, server and store -- yet their `TestMain` builds a
+separate `yardr` binary from the whole tree and runs it as CLI commands:
+contrib/assembly (66 tests, 92.9 s quiet / 106.2 s in run 1,
+`contrib/assembly/merge_local_test.go` builds `yardr.dev/yardr` in
+`TestMain` and drives it), contrib/peer (9 tests, 10.7 s quiet / 27.5 s in
+run 1, `contrib/peer/return_branch_test.go` does the same), and
+contrib/deploy (39 tests, 42.4 s quiet / 61.3 s in run 1,
+`contrib/deploy/deploy_dokku_test.go` does the same). A change to a package
+none of the six imports -- internal/web, for example -- alters the binary
+each suite exercises but does not appear in any of their `Deps`, so `pick`
+misses them: the cs5z replay selects only root, cli and web, while all six
+suites exercise a binary containing the change and do not run. For a change
+to internal/store the three subset suites are already selected, because
+their test binaries import store; the remaining three never are. Today three
+things cover the hole: `go build ./...` catches compile breaks everywhere,
+the importing packages' own tests catch behaviour breaks, and the landing
+runs the whole suite anyway. An incremental landing must instead always run
+all six black-box suites, at the quiet costs above, or accept the hole. The
+socket leg's existing gate already accepts the same reach argument: it runs
+only when the plain selection holds store, dispatch or bdp.
 
 ## 3. The proposal
 
@@ -368,17 +395,20 @@ wall plus the vets) -- roughly 2,000-2,700 machine-s (35-45
 machine-minutes); lock waits are idle and cost no machine time. After the
 beads, the plain wall is about 75 s (a cli at budget plus vet, build and
 pick) over one leg per sha plus branch-move extras (about 0.4 per bead:
-R4 removes only the same-sha repeats), and the landing, if open question
-2 is answered yes, is the incremental selection plus the always-run
-suites at about 110-150 s wall (98 s race leg quiet plus vet, build and
-pick, toward 145 s loaded) and about 700 machine-s beside the socket
-leg's ~115 -- 75 + 0.4 x 75 + 110-150 = roughly 215-255 s of waiting
-(under 4.5 minutes) and about 1,000-1,300 machine-s per bead. At 60-140
-landings a day (13-15 Oct), landing machine
-time falls from about 23-52 machine-hours a day toward about 12-32. If
-question 2 is answered no, the landing stays whole and only the budgets
-pay: plain about 75 s, landing toward 100-150 s wall as packages hit
-budget, at about 1,000 machine-s per landing.
+R4 removes only the same-sha repeats), and the landing -- with decision 2
+answered yes and taken now (decision 3) -- is the incremental selection
+plus the six always-run suites at about 115-155 s wall (the measured
+98 s quiet replay for three suites plus the assembly floor and vet,
+build and pick, toward the loaded end) and about 700-750 machine-s
+beside the socket leg's ~115 (the 265 s of six-suite quiet time minus
+the suites pick already selected, plus the selection's own packages) --
+75 + 0.4 x 75 + 115-155 = roughly 220-260 s of waiting (under 4.5
+minutes) and about 1,050-1,350 machine-s per bead. At 60-140 landings a
+day (13-15 Oct), landing machine time falls from about 23-52
+machine-hours a day toward about 12-33. Had decision 2 been no, the
+landing would stay whole and only the budgets would pay: plain about
+75 s, landing toward 100-150 s wall as packages hit budget, at about
+1,000 machine-s per landing.
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
 Eight packages are over today (run 1: cli 118, release 110, assembly 106,
@@ -386,9 +416,14 @@ dispatch 94, root 94, isolated-yard 92, store 92, deploy 61); the wall is
 the slowest package, so one package over budget is every run over budget.
 Four are over even alone (cli 118, assembly 92, store 90, dispatch 68)
 and four only in full runs (root 31, isolated-yard 30, deploy 22,
-release 36 alone). The script enforces the cap with an allow-list that
-names, per package, why it is over and which bead fixes it; the fix beads
-below delete the entries.
+release 36 alone). The cap is judged in representative full-suite runs
+-- the landing's whole-suite mode and the quiet full run -- not alone:
+dispatch is 67.7 s alone, 94.3 s in run 1 and 79.5 s in the quiet full
+run, so an alone pass can still fail the gate where packages contend.
+An alone floor at or under 60 s is the cheap early signal a builder
+sees; it does not satisfy R1 by itself. The script enforces the cap with
+an allow-list that names, per package, why it is over and which bead
+fixes it; the fix beads below delete the entries.
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. 135 of 144 sleep sites already comply; the 8
 longer sites are named in the allow-list, and the 60 s owner end-to-end
@@ -420,26 +455,49 @@ a merger's rebase that changed nothing
 from any plain run (`.yardr/test`:434-460), so no plain test line ever
 satisfies it.
 R5. The landing runs the incremental selection -- today's `pick` -- plus
-always the three black-box suites (server-yard, isolated-yard, release),
-plus the socket leg as today. The replay selects 3-32 packages (median
-26) against today's 42; the forced replay measures 98 s wall against 91 s
-bare quiet (the suites cost about 7 s, contention included) and 119 s
-against 89 s under load (about 30 s), so the suites cost about 7-30 s of
-wall on a cli-bound selection depending on load, and set a 50-75 s floor
-under small selections quiet (about 90-110 s loaded); the wall drops from
-the 283 s median toward 110-150 s. This rule needs the
-operator to lift the yardr-1vt3 condition (open question 2): today the
-whole suite gates every landing that changes code, and the gate still
-implements that (`.yardr/test` `whole()`).
-R6. If question 2 is answered yes, the whole suite still runs, but on a
-quiet machine, not on a timer and not on any bead: when the load is low
-it runs over main, and a red base raises an event (bead B10 builds the
-trigger and the event). This replaces per-landing gating with gating at a
-stated quiet point plus the always-run suites; it does not keep mckean's
-1vt3 condition, which is why it is asked, not assumed. mckean declined
-the timer; load-gating runs the suite when it is cheapest and most stable
-instead (148 s wall at load 3.5-6.6, green). `YARDR_LANDING=1` stays the
-one command anyone can run.
+always the six black-box suites (assembly, peer, deploy, server-yard,
+isolated-yard, release), plus the socket leg as today. The replay selects
+3-32 packages (median 26) against today's 42; the measured three-suite
+forced replay is 98 s wall against 91 s bare quiet (suites cost about 7 s
+of wall on a cli-bound selection, contention included, note 5967). The
+reported loaded pair, 119 s against 89 s bare (about 30 s), is from the
+previous revision and has no attached run here; the verified increment
+in this revision is the quiet 7 s, so the cli-bound cost of the suites
+is 7 s verified, 7-30 s as a reported range. With six suites the wall
+on a cli-bound selection still binds on cli or assembly (both near
+90-96 s quiet), while a small selection's floor rises to assembly's
+93 s quiet (about 106 s in run 1) instead of release's 48 s. The
+landing wall drops from the 283 s median toward about 115-155 s
+(the six-suite quiet leg plus vet, build and pick, toward the loaded
+end). This rule lifts the yardr-1vt3 condition that the whole suite
+gates every landing that changes code, with the operator's yes on
+decision 2 below; the gate today still implements that condition
+(`.yardr/test` `whole()`), and R5/R6 together replace it.
+R6. The whole suite still runs, but on a quiet machine, not on a timer
+and not as a gate on any bead. It starts on yard events, never by
+polling and never on a timer: mckean, answering ask 6019, said verbatim
+"promise not to forget this, the whole point of yardr is that it's
+event driven and polling can end up in overlaps and inefficiencies",
+and the yardmaster recorded that as memory mem-0w78 -- the trigger must
+honour it. The events are the yard's own: an assembly landing
+finishing (a bead advanced to `merged` or a landing queue emptying), a
+session becoming idle (no builder or reviewer sessions running), or
+N code landings since the last whole-suite run (the threshold B10
+measures), observed through the event stream (`GET /events`) or the
+daemon's landing lifecycle, never by a loop that sleeps and re-reads
+state. The run takes the machine-wide race lock (`$HOME/.yardr/race.lock`,
+as every race leg does since yardr-cecb), so it never overlaps a landing
+leg; it is single-flight: while one quiet run is running, a further
+event does not start a second, and the trigger re-arms only when the
+first finishes. When it runs it runs over `main` with
+`YARDR_LANDING=1`; a red base raises an event naming the failing
+packages and the base commit (B10 builds the trigger and the event).
+This replaces per-landing gating with gating at a stated quiet point
+plus the always-run suites; it does not keep mckean's 1vt3 condition
+intact, which is why decision 2 below was asked, not assumed. mckean
+declined the timer; the event-driven quiet run is cheapest and most
+stable instead (148 s wall at load 3.5-6.6, green). `YARDR_LANDING=1`
+stays the one command anyone can run.
 R7. The rules are judged by re-measurement: the same per-package table one
 week after the last fix bead lands, against this document's table and its
 attached JSON. Timer t107 (20 Oct) already reads landing timings; its card
@@ -449,7 +507,8 @@ confirms and extends it rather than assuming it).
 
 ## 4. Left out
 
-- The whole suite on a timer: mckean declined it; R6 is load-gated instead.
+- The whole suite on a timer: mckean declined it; R6 is event-driven
+  instead (see decision 5), never a poll and never a timer.
 - Batching at landing: yardr-8zm4 owns it, with its card about 20 Oct
   (timer t66); this design's numbers feed that card, and batching's savings
   multiply these (fewer landings, each cheaper) rather than overlapping them.
@@ -466,62 +525,82 @@ confirms and extends it rather than assuming it).
 - A new script flag for skipping race legs: the roles already skip the
   rerun on an unchanged sha, so R4 needs text, not a flag.
 
-## 5. Open questions
+## 5. Decisions (the open questions, decided)
 
-1. The budget numbers: 60 s per package and 500 ms per sleep, as proposed,
-   or looser (120 s / 1 s)? Tighter means eight packages over budget now
-   and six fix beads (B2-B7 cover all eight, deploy with B7); looser
-   leaves the wall at ~120 s and the sleeps where they are. Take 60/500:
-   the fixes are ordinary parallelism, and the allow-list carries the tail.
+The questions this section held when drafted were put to the operator
+and the yardmaster on 16 Oct 2026 and are decided. Each entry keeps the
+options as drafted, the pick, and what the pick costs. The rules and
+beads above and below are written for the picked options; where a
+different pick would have closed a bead, that is now history.
+
+1. The budget numbers: 60 s per package and 500 ms per sleep, as
+   proposed, or looser (120 s / 1 s)? Tighter means eight packages over
+   budget now and six fix beads (B2-B7 cover all eight, deploy with B7);
+   looser leaves the wall at ~120 s and the sleeps where they are.
+   **Decided: 60 s / 500 ms** (ask 6015, mckean picked 1). Cost: the six
+   fix beads run; the allow-list carries the tail that cannot meet it.
+   The looser budget would have left one package over budget setting
+   every run's wall.
 2. May a landing that changes code run less than the whole suite? (a) Yes,
-   as R5+R6: the incremental selection plus the three always-run suites at
+   as R5+R6: the incremental selection plus the six always-run suites at
    landing, the whole suite on a quiet machine with a red-base event.
-   Cost: the base can be red between quiet runs with no bead to send back,
-   and B10 is new machinery to build and watch. Gain: landing wall 283 s
-   toward 110-150 s, landing machine about 1,340 s toward about 700 s per
-   bead beside the socket leg, shorter lock queues. (b) No: the yardr-1vt3
-   condition stands (the whole suite stays one command and gates every
-   landing that changes code, per mckean's pick on ask 2847), every code
-   landing stays whole,
-   and R5/R6/B8/B10 close as wont-fix; the budgets still pay (plain about
-   75 s, landing toward 100-150 s wall as packages hit budget, at full
-   machine cost). Take (a): the forced replay shows the selection plus the
-   suites covers the measured hole at a known 7-30 s depending on load,
-   and the quiet backstop
-   keeps one whole-suite verdict on the base. The timer variant is not
-   offered: mckean declined it.
-3. The incremental landing (R5), if question 2 is yes: now, or after the
-   fix beads? The script change alone saves about 150 s of wall and about
-   600 machine-s per code landing (at 100 landings a day, about 4 hours of
-   wall waits and about 17 machine-hours) with the hole closed by the
-   always-run suites; waiting adds nothing but delay. Take now.
+   Cost: the base can be red between quiet runs with no bead to send
+   back, and B10 is new machinery to build and watch. Gain: landing wall
+   283 s toward about 115-155 s, landing machine about 1,340 s toward
+   about 700-750 s per bead beside the socket leg, shorter lock queues.
+   (b) No: the yardr-1vt3 condition stands (the whole suite stays one
+   command and gates every landing that changes code, per mckean's pick
+   on ask 2847), every code landing stays whole, and R5/R6/B8/B10 close
+   as wont-fix; the budgets still pay (plain about 75 s, landing toward
+   100-150 s wall as packages hit budget, at full machine cost). The
+   timer variant was not offered: mckean declined it. **Decided: yes**
+   (ask 6016, mckean picked 1). The 1vt3 condition is lifted for code
+   landings; `YARDR_LANDING=1` stays the one whole-suite command, now
+   run by the quiet backstop and on demand.
+3. The incremental landing (R5), now that question 2 is yes: now, or after
+   the fix beads? The script change alone saves about 150 s of wall and about
+   600 machine-s per code landing (at 100 landings a day, about 4 hours
+   of wall waits and about 17 machine-hours) with the hole closed by the
+   always-run suites; waiting adds nothing but delay. **Decided: now**
+   (ask 6017, mckean picked 1). B8 lands before the fix beads finish;
+   the savings start at once and the always-run suites close the
+   measured hole either way.
 4. The builder and review legs (R4): restate one-plain-race-leg-per-sha
    as the depot's rule and close the repeat-pass gap, as proposed, or
    leave the roles as the only text? The landing always runs either way
    (R4 excludes it). Leaving the roles as the only text risks nothing
    measured -- the sample shows zero same-sha review reruns -- but repeat
    builder passes have no rule at all (dx5f ran one sha three times).
-   Take the proposal: one short docs bead (B9) pins the practice where
-   the re-measure can check it.
-5. The whole-suite backstop (R6), if question 2 is yes: a quiet-machine run
-   that raises an event on red, as proposed, or never scheduled (the gaps
-   are closed, the command stays manual)? "Never" is simpler and honest if
-   the re-measure agrees; the quiet run catches what the table's rows and
-   the always-run list miss, like a new black-box suite nobody registered.
-   Take the quiet run, and let the re-measure argue for never. If question
-   2 is no, there is no backstop question: the landing is the whole suite.
-6. The 60 s owner end-to-end test: a test-only tick setting (take it;
-   `YARDR_TEST_OWNER` is the precedent), allow-list the 60 s (assembly can
-   never meet R1 then), or move the test to the quiet leg (a new leg for
-   one test)?
+   **Decided by the yardmaster: take the proposal** (B9). One short docs
+   bead pins the practice where the re-measure can check it; no new
+   script flag is made.
+5. The whole-suite backstop (R6), now that question 2 is yes: a
+   quiet-machine run that raises an event on red, as proposed, or never
+   scheduled (the
+   gaps are closed, the command stays manual)? "Never" is simpler and
+   honest if the re-measure agrees; the quiet run catches what the
+   table's rows and the always-run list miss, like a new black-box suite
+   nobody registered. **Decided: scheduled, event-driven** (ask 6019,
+   mckean picked 1, with the condition verbatim: "promise not to forget
+   this, the whole point of yardr is that it's event driven and polling
+   can end up in overlaps and inefficiencies"). The run starts on yard
+   events only, never by polling or a timer (R6 and B10 name the events
+   and the overlap rule). If question 2 had been no there would be no
+   backstop question; the landing would be the whole suite.
+6. The 60 s owner end-to-end test: a test-only tick setting, allow-list
+   the 60 s (assembly can never meet R1 then), or move the test to the
+   quiet leg (a new leg for one test)? **Decided by the yardmaster: a
+   test-only tick setting**, `YARDR_TEST_OWNER` as precedent (B6). The
+   e2e keeps the real CLI path and fails if the watch is removed; the
+   tick shortens only the wait it polls.
 
 ## 6. The beads it would become
 
 In landing order. B2-B7 are independent of each other and can build in
 parallel; B1 first, since it writes the cap and the allow-list the rest
-delete from; B8 after B1 and after question 2 is answered yes; B9 after
-B1, since it writes into `docs/testing.md`; B10 after questions 2 and 5
-are answered yes and quiet-run; B11 after the last of B2-B10 lands.
+delete from; B8 now (decision 3), after B1; B9 after B1, since it writes
+into `docs/testing.md`; B10 after B8, with decisions 2 and 5 answered yes;
+B11 after the last of B2-B10 lands.
 
 B1. The gate enforces the budgets. Goal: R1 and R2 as script behavior plus
 `docs/testing.md` carrying all seven rules. Where to look: `.yardr/test`
@@ -538,18 +617,25 @@ B2. internal/cli runs parallel, to 60 s. Goal: the wall binder stops
 binding. Where to look: the 834 tests (mean 0.14 s, no `t.Parallel`),
 following the assembly train-yard shape (temp homes, no shared state);
 30 test files shell to git -- keep the subprocesses, parallelize around
-them. Done when: the package's uncontended floor (`-count=1`, alone) is at
-most 60 s; no test is allow-listed without a reason; the B1 allow-list
+them. Done when: the package meets R1 in representative full-suite
+runs, not alone -- at most 60 s in three consecutive `-count=1`
+full-suite runs (`go test -race -count=1 ./...`, quiet or beside the
+usual load with no rival race leg beyond the suite itself), and its
+uncontended floor (`-count=1`, alone) is at most 60 s as the early
+signal; no test is allow-listed without a reason; the B1 allow-list
 entry for cli is deleted.
 
 B3. internal/dispatch runs parallel, to 60 s. Goal and shape as B2 for 384
-tests (mean 0.24 s), including `TestPeersDaemonHoldsOrPolls` (2 s + 2.5 s
-of real sleeps to count poll rates -- shorten against the fake clock the
-test already owns or allow-list with the number). Done when: as B2, for
-dispatch.
+tests (mean 0.24 s, alone 67.7 s, 94.3 s in run 1, 79.5 s in the quiet
+full run), including `TestPeersDaemonHoldsOrPolls` (2 s + 2.5 s of real
+sleeps to count poll rates -- shorten against the fake clock the test
+already owns or allow-list with the number). Done when: as B2, for
+dispatch -- at most 60 s in three consecutive full-suite runs and at
+most 60 s alone; B1's entry is deleted.
 
 B4. internal/store runs parallel and the index walks get cheaper, to 60 s.
-Goal: 798 tests (mean 0.13 s) parallel, plus
+Goal: 798 tests (mean 0.13 s, alone 90.3 s, 92.0 s in run 1, 83.7 s
+quiet) parallel, plus
 `TestSessionIndexesMatchAWalkAfterEveryWrite` (24.6 s) and
 `TestOpenIndexMatchesAWalkAfterEveryWrite` (4.4 s) compare less often than
 after every write while still pinning the invariant. Where to look: the
@@ -561,8 +647,9 @@ runs after every 10th successful write (about 60 comparisons over the 600
 steps) and after the first success of each of the 13 op kinds, the two
 reopens and the last write, so every op kind is compared at least once
 and the seen-coverage gate (a running pane, a shared pid, an unstopped
-session, a closed workspace, a pruned session) stays; the package floor
-is at most 60 s as B2; B1's entry is deleted.
+session, a closed workspace, a pruned session) stays; the package meets
+R1 as B2 -- at most 60 s in three consecutive full-suite runs and at
+most 60 s alone; B1's entry is deleted.
 
 B5. The root package shares one repo walk, to 60 s. Goal: the three
 `TestNoGoCodeNames*` tests (31 s together) walk the repository once and
@@ -573,9 +660,10 @@ when: as B7 (three consecutive `-count=1` full-suite runs at most 60 s),
 for root; B1's entry for root is deleted.
 
 B6. The assembly owner test leaves the real minute, package to 60 s. Goal:
-per open question 6's pick, a test-only tick shortens the owner watch in
-the end-to-end test while the real CLI path stays exercised; the rest is
-already largely parallel. Done when: the package floor is at most 60 s;
+per decision 6, a test-only tick shortens the owner watch in the
+end-to-end test while the real CLI path stays exercised; the rest is
+already largely parallel. Done when: the package meets R1 as B2 -- at
+most 60 s in three consecutive full-suite runs and at most 60 s alone;
 the e2e still starts the server through the real CLI and still fails if
 the watch is removed; B1's entry for assembly is deleted.
 
@@ -591,16 +679,18 @@ consecutive `-count=1` runs of each in the full suite land within 20% of
 each other and at most 60 s; B1's three entries are deleted.
 
 B8. The landing runs the incremental selection plus the black-box suites.
-Goal: R5 as script behavior. Needs open question 2 answered yes; on no,
-close as wont-fix. Where to look: `whole()` in `.yardr/test` (the Go-free
-early-out is the shape to extend), `contrib/assembly/merge-local` (the
-test invocation and timing lines), `docs/line.md` and
-`contrib/assembly/README.md` for the landing docs. Done when: the ten
-replayed landings select as in section 2.2; a landing on a fixture branch
-runs the selection plus server-yard, isolated-yard and release and says so
-in the log; the forced replay of section 2.2 (98 s wall quiet, 91 s
-bare, notes 5966-5967) is the wall reference within 20% under quiet
-conditions; the socket leg still follows the 022s gate.
+Goal: R5 as script behavior, now (decision 3). Where to look: `whole()` in
+`.yardr/test` (the Go-free early-out is the shape to extend),
+`contrib/assembly/merge-local` (the test invocation and timing lines),
+`docs/line.md` and `contrib/assembly/README.md` for the landing docs.
+Done when: the ten replayed landings select as in section 2.2; a landing
+on a fixture branch runs the selection plus all six black-box suites --
+assembly, peer, deploy, server-yard, isolated-yard, release -- and says
+so in the log; a six-suite quiet replay is measured (the section 2.2
+three-suite replay, 98 s wall quiet against 91 s bare, notes 5966-5967,
+is the method; the six-suite wall is within 20% of the measured six
+under quiet conditions); the socket leg still follows the selection's
+existing gate (store, dispatch or bdp).
 
 B9. One plain race leg per sha, as the depot's rule. Goal: R4 as text
 plus the repeat-pass gap closed, with no new script flag: the reviewer
@@ -619,18 +709,27 @@ exclusion (citing merge-local's every-time run and the landing gate's
 difference from any plain run); the roles are verified sufficient as they
 stand, by reading; B11 counts same-sha reruns in its window.
 
-B10. The whole suite runs on a quiet machine. Goal: R6 as machinery. Needs
-open questions 2 and 5 answered yes and quiet-run. Where to look: the
-quiet-run evidence in section 2.1 (148 s wall at load 3.5-6.6, green),
-`docs/timers.md` (why a timer is the wrong shape -- mckean declined it;
-the trigger is load, not time), the red-base event precedents (find what
-raises an event today), `.yardr/test` `whole()` (the suite it runs). Done
-when: a load trigger runs the whole suite over main when the machine is
-quiet (the bead states the threshold it measured, with no race leg
-running as part of it); a red base raises an event naming the failing
-packages and the base commit, proven by a drill against a worktree at a
-historical red commit; one quiet whole-suite run over main is logged with
-its wall and load.
+B10. The whole suite runs on a quiet machine, event-driven. Goal: R6 as
+machinery. Where to look: the quiet-run evidence in section 2.1 (148 s
+wall at load 3.5-6.6, green), `docs/timers.md` (why a timer is the wrong
+shape -- mckean declined it; the trigger is an event, not time, and
+`docs/timers.md` says "Prefer an event" over a timer), the red-base
+event precedents in the event stream (`GET /events`, `yardr events`),
+`.yardr/test` `whole()` (the suite it runs), and the assembly's landing
+lifecycle (a bead advanced to `merged`). Done when: the run starts on
+yard events only and contains no poll and no timer -- its trigger
+subscribes to the event stream or the daemon's landing lifecycle and
+fires when the landing queue empties (no bead in `approved` waiting
+for the assembly), when sessions go idle (no builder or reviewer
+sessions running), or when N code landings have landed since the last
+whole-suite run (the bead states the N it measured against the queue
+waits in section 2.2); it takes the race lock so it never overlaps a
+landing leg, and it is single-flight (while one quiet run runs, a
+further event does not start a second; the trigger re-arms only when
+the first finishes); a red base raises an event naming the failing
+packages and the base commit, proven by a drill against a worktree at
+a historical red commit; one quiet whole-suite run over main is logged
+with its wall and load.
 
 B11. Re-measure in a week. Goal: R7 -- the same table, the verdict on the
 rules. Where to look: this document's table and attached JSON, timer t107
