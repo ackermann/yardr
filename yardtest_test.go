@@ -643,6 +643,8 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			// One line a step says how long it took, both runs of it where
 			// there were two: gofmt's, then go's in the order they ran.
+			// The sleep budget is timed too, after the build and before
+			// the tests.
 			steps := []string{"gofmt -l ."}
 			for _, call := range slices.Compact(slices.Clone(c.calls)) {
 				call = "go " + call
@@ -652,6 +654,12 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 					call = "env YARDR_TEST_RPC=1 go " + after
 				}
 				steps = append(steps, call)
+			}
+			for i, step := range steps {
+				if strings.HasPrefix(step, "go test ") {
+					steps = slices.Insert(steps, i, "sleep budgets")
+					break
+				}
 			}
 			var took []string
 			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {
@@ -697,17 +705,17 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		steps []string
 	}{
 		{"plain: passes on rerun", "1", true, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}},
 		{"plain: fails twice", "2", false, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
 		{"landing: passes on rerun", "1", true, landing, noBase,
-			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
 		{"landing: fails twice", "2", false, landing, noBase,
-			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
