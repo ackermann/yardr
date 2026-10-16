@@ -715,7 +715,10 @@ type ReadyBead struct {
 }
 
 // Dispatchable lists ready beads that no group owns yet, by priority, then
-// creation time.
+// stage-entry time: within a priority the bead that entered its stage
+// first goes first, so a young bead waits behind no older bead that
+// reached the stage later. The sort stays stable over openBeads'
+// creation order, and runs on the rows, so ReadyBead carries no time.
 func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 	out := []ReadyBead{}
 	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
@@ -725,10 +728,20 @@ func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 			if err != nil {
 				return err
 			}
+			var cands []*beadRow
 			for _, r := range rows {
 				if r.Group != nil || !ready(tx, &r.Bead, look) {
 					continue
 				}
+				cands = append(cands, r)
+			}
+			sort.SliceStable(cands, func(i, j int) bool {
+				if cands[i].Priority != cands[j].Priority {
+					return cands[i].Priority < cands[j].Priority
+				}
+				return cands[i].StayStart.Before(cands[j].StayStart)
+			})
+			for _, r := range cands {
 				model, _ := r.Metadata["model"].(string)
 				out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
 					Labels: slices.Clone(r.Labels), Model: model, Priority: r.Priority, Originator: r.Originator})
@@ -736,7 +749,6 @@ func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 			return nil
 		})
 	})
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
 }
 

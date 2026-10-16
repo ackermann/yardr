@@ -52,6 +52,11 @@ at most 5 at a time. The daemon opens a worktree
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
 role prompt, the bead, and the outcomes its stage offers.
 
+Within a priority, the group takes the bead that entered the stage first:
+the queue is stage-entry order, and priority still wins first. A bead sent
+back to an earlier stage and returned queues again at the end, from when it
+re-entered.
+
 **How agents are attributed.** The agent runs in a herdr tab created with
 its identity in the environment: `YARDR_ACTOR` (the agent's name,
 `<bead>-<stage>`), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`,
