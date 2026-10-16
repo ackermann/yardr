@@ -1472,6 +1472,7 @@ func TestYardTestBudgets(t *testing.T) {
 				"ok  \tyardr.dev/yardr\t65.5s\n"+
 				"ok  \tyardr.dev/yardr/internal/web\t61.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t61.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/store\t60.1s\n"+
 				"ok  \tyardr.dev/yardr/internal/rpc\t60s\n"+
 				"ok  \tyardr.dev/yardr/internal/bdp\t(cached)\n"+
 				"?   \tyardr.dev/yardr/internal/harnesses\t[no test files]\n"+
@@ -1484,16 +1485,17 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		// cli is allow-listed, exactly 60 s complies, and cached, failed
 		// and foreign lines are not judged. The module path is the root,
-		// whose allow-list row yardr-1x36 deleted: over budget it fails
-		// with web and pack.
-		if got := strings.Count(out, "over the 60 s budget"); got != 3 {
-			t.Fatalf("output %q, want 3 budget lines, got %d", out, got)
+		// whose allow-list row yardr-1x36 deleted, and store's row
+		// yardr-3cc4 deleted: over budget they fail with web and pack.
+		if got := strings.Count(out, "over the 60 s budget"); got != 4 {
+			t.Fatalf("output %q, want 4 budget lines, got %d", out, got)
 		}
 		root := "test: yardr.dev/yardr took 65.5 s with -race, over the 60 s budget (docs/testing.md R1)"
 		web := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1)"
 		pack := "test: yardr.dev/yardr/internal/pack took 61.5 s with -race, over the 60 s budget (docs/testing.md R1)"
-		if !strings.Contains(out, root) || !strings.Contains(out, web) || !strings.Contains(out, pack) {
-			t.Fatalf("output %q, want it to name root, web and pack", out)
+		store := "test: yardr.dev/yardr/internal/store took 60.1 s with -race, over the 60 s budget (docs/testing.md R1)"
+		if !strings.Contains(out, root) || !strings.Contains(out, web) || !strings.Contains(out, pack) || !strings.Contains(out, store) {
+			t.Fatalf("output %q, want it to name root, web, pack and store", out)
 		}
 		if strings.Index(out, pack) > strings.Index(out, web) {
 			t.Errorf("output %q, want the pack line sorted before the web line", out)
