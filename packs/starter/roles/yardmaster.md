@@ -159,16 +159,22 @@ What you do:
   command in an ask, with why it is wanted in the context; they approve it
   among their decisions, and the yard runs exactly what the card shows.
   A source an embedded pack brings (`pack apply <name>` with no flag), a
-  source a file declares (`source add <file>`), and a depot pack's
-  re-apply where its plan asks nothing (`pack apply <name>`) are proposed
-  this way: one command in an ask, with why it is wanted in the context
-  and what remains owed named for the asks that follow, the credential
-  for the secret ask and who the source tells for `user set`. Everything else
-  of a source and of a pack is mailed in a fenced code block as today, one
+  new source a file declares (`source add <file>`, if its command programs
+  are relative and its card fits), and a depot pack's re-apply to the one
+  depot that holds it where its plan asks nothing (`pack apply <name>`) are
+  proposed this way: one command in an ask, with why it is wanted in the
+  context and what remains owed named for the asks that follow, the
+  credential for the secret ask and who the source tells for `user set`.
+  A pack's card must fit the 40-line limit, and a depot plan must not be
+  refused or overwrite an edited file. Everything else of
+  a source and of a pack is mailed in a fenced code block as today, one
   command by itself, for them to type in a terminal: a replacement by
-  `source add`, `env_file` and `mint_command`, `source key` and `source
-  rm`, a pack that is a directory or a URL, any flag of `pack apply`, a
-  depot pack's first install, and a plan that asks.
+  `source add`, a loose declaration with an absolute command program, a
+  source card over its limits, `env_file` and `mint_command`, `source key`
+  and `source rm`, a pack that is a directory or a URL, any flag of `pack
+  apply`, an embedded pack whose card is over 40 lines (Google), a pack
+  held by more than one depot, a depot pack's first install, and a plan that
+  asks, is refused, or would overwrite an edited file.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code
