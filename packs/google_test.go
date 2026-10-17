@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -186,6 +187,7 @@ type googleStandin struct {
 type googleRequest struct {
 	method, path string
 	query        url.Values
+	auth         string
 	body         []byte
 }
 
@@ -465,10 +467,8 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 		{name: "docs doc", d: docs, call: "doc", params: map[string]string{"docId": docID},
 			method: "GET", path: "/v1/documents/" + docID,
 			wantAnswer: `{"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]},"title":"lunch"}`},
-		{name: "write", d: docs, call: "write", params: map[string]string{"docId": docID, "text": "Lunch places", "style": "HEADING_1", "start": "1", "end": "2"},
-			method: "POST", path: "/v1/documents/" + docID + ":batchUpdate",
-			body:       `{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"Lunch places"}},{"updateParagraphStyle":{"range":{"startIndex":1,"endIndex":2},"paragraphStyle":{"namedStyleType":"HEADING_1"},"fields":"namedStyleType"}}]}`,
-			wantAnswer: `{"documentId":"` + docID + `","replies":[{},{"updateParagraphStyle":{"objectId":"kix.1"}}]}`},
+		// The write call builds its body per call; its goldens and round
+		// trip are TestGoogleDocsWriteBuilds and TestGoogleDocsWriteRoundTrip.
 		{name: "deck", d: slides, call: "deck", params: map[string]string{"id": deckID},
 			method: "GET", path: "/v1/presentations/" + deckID,
 			wantAnswer: `{"slides":[{"objectId":"friday_1"}],"title":"friday"}`},
@@ -614,9 +614,9 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"reply long content", drive, "reply", map[string]string{"fileId": "abc", "commentId": "abc", "content": strings.Repeat("x", 10001)}, "parameter content is 10001 characters, and at most 10000"},
 		{"reply reopen", drive, "reply", map[string]string{"fileId": "abc", "commentId": "abc", "content": "x", "action": "reopen"}, "parameter action is one of resolve"},
 		{"doc dots", docs, "doc", map[string]string{"docId": ".."}, "parameter docId does not match its pattern"},
-		{"write heading 3", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "HEADING_3", "start": "1", "end": "2"}, "parameter style is one of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2"},
-		{"write fractional start", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "TITLE", "start": "1.5", "end": "2"}, "parameter start is no whole number"},
-		{"write without end", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "TITLE", "start": "1"}, "parameter end is missing"},
+		{"write without paragraphs", docs, "write", map[string]string{"docId": "abc"}, "parameter paragraphs is missing"},
+		{"write long paragraphs", docs, "write", map[string]string{"docId": "abc", "paragraphs": strings.Repeat("x", 60001)}, "parameter paragraphs is 60001 characters, and at most 60000"},
+		{"write text", docs, "write", map[string]string{"docId": "abc", "paragraphs": "[]", "text": "x"}, `"text" is no parameter`},
 		{"slide short id", slides, "slide", map[string]string{"id": "abc", "slide": "ab", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide dashed id", slides, "slide", map[string]string{"id": "abc", "slide": "-abcde", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide long id", slides, "slide", map[string]string{"id": "abc", "slide": strings.Repeat("a", 45), "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
@@ -878,4 +878,258 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The write call builds its batchUpdate per call: its build script reads the
+// document for its body's end index, works out each paragraph's range
+// itself, and prints the body the yard posts. The first appended character
+// sits at E-1, before the body's last newline, and each paragraph starts
+// past the newline before it. Indices are UTF-16 code units, so an astral
+// character counts double. No test calls Google.
+func TestGoogleDocsWriteBuilds(t *testing.T) {
+	paras := `[{"text":"Lunch places","style":"TITLE"},{"text":"Friday","style":"HEADING_1"},` +
+		`{"text":"We shipped the condiments.","style":"NORMAL_TEXT"},{"text":"Ada picks the place.","style":"NORMAL_TEXT"}]`
+	insert := `{"endOfSegmentLocation":{},"text":"Lunch places\nFriday\nWe shipped the condiments.\nAda picks the place."}`
+	style := func(start, end int, named string) string {
+		return `{"range":{"startIndex":` + strconv.Itoa(start) + `,"endIndex":` + strconv.Itoa(end) +
+			`},"paragraphStyle":{"namedStyleType":"` + named + `"},"fields":"namedStyleType"}`
+	}
+	for _, tc := range []struct {
+		name   string
+		doc    string // the stand-in's doc: an empty one, or one with text
+		paras  string
+		insert string
+		styles []string
+	}{
+		{name: "title heading bodies on an empty doc", doc: "empty", paras: paras, insert: insert,
+			styles: []string{style(1, 13, "TITLE"), style(14, 20, "HEADING_1"), style(21, 47, "NORMAL_TEXT"), style(48, 68, "NORMAL_TEXT")}},
+		{name: "title heading bodies on a doc with text", doc: "full", paras: paras, insert: insert,
+			styles: []string{style(12, 24, "TITLE"), style(25, 31, "HEADING_1"), style(32, 58, "NORMAL_TEXT"), style(59, 79, "NORMAL_TEXT")}},
+		{name: "an emoji counts double", doc: "full",
+			paras:  `[{"text":"Lunch 🍜 places","style":"HEADING_1"},{"text":"Friday it is.","style":"NORMAL_TEXT"}]`,
+			insert: `{"endOfSegmentLocation":{},"text":"Lunch 🍜 places\nFriday it is."}`,
+			styles: []string{style(12, 27, "HEADING_1"), style(28, 41, "NORMAL_TEXT")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			standin, srv := writeStandin(t)
+			defer srv.Close()
+			docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+			body, err := source.BuildBody(context.Background(), docs, "write",
+				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", writeHome(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got, want any
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatalf("built body = %s: %v", body, err)
+			}
+			golden := `{"requests":[{"insertText":` + tc.insert + `}`
+			for _, s := range tc.styles {
+				golden += `,{"updateParagraphStyle":` + s + `}`
+			}
+			golden += `]}`
+			if err := json.Unmarshal([]byte(golden), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("built body = %s, want %s", body, golden)
+			}
+			// The pre-read the ranges came from: the doc, read with the
+			// call's credential, asking for its end indices alone.
+			gotReqs := standin.requests()
+			if len(gotReqs) != 1 {
+				t.Fatalf("the stand-in heard %d requests, want the one pre-read", len(gotReqs))
+			}
+			pre := gotReqs[0]
+			if pre.method != "GET" || pre.path != "/v1/documents/"+standin.doc(tc.doc) {
+				t.Fatalf("pre-read = %s %s", pre.method, pre.path)
+			}
+			if pre.auth != "Bearer tok" {
+				t.Fatalf("pre-read Authorization = %q, want the call's credential", pre.auth)
+			}
+			if pre.query.Get("fields") != "body(content(endIndex))" {
+				t.Fatalf("pre-read fields = %q", pre.query.Get("fields"))
+			}
+		})
+	}
+}
+
+// What the write call refuses to build: nothing is posted, and the caller
+// reads the script's own words. The stand-in hears the pre-read alone, or
+// nothing where the paragraphs never parsed.
+func TestGoogleDocsWriteRefusals(t *testing.T) {
+	standin, srv := writeStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	home := writeHome(t)
+	for _, tc := range []struct {
+		name  string
+		doc   string
+		paras string
+		words string
+		pre   bool // the refusal came after the pre-read
+	}{
+		{"no JSON", "full", "nope", "paragraphs is no JSON array of text/style pairs", false},
+		{"no array", "full", `{"text":"x"}`, "paragraphs is no JSON array of text/style pairs", false},
+		{"no paragraphs", "full", "[]", "paragraphs holds no paragraph to append", false},
+		{"no pair", "full", `["x"]`, "paragraph 1 is no text/style pair", false},
+		{"no text", "full", `[{"style":"TITLE"}]`, "paragraph 1 names no text", false},
+		{"no style", "full", `[{"text":"x","style":"SNACK"}]`, "paragraph 1 styles with SNACK, which is no style: one of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2", false},
+		{"a line break", "full", `[{"text":"Lunch places","style":"TITLE"},{"text":"on\nFriday","style":"NORMAL_TEXT"}]`, "paragraph 2 holds a line break: one pair is one paragraph", false},
+		{"no text at all", "full", `[{"text":"","style":"TITLE"}]`, "paragraphs holds no text to append", false},
+		{"no such doc", "missing", `[{"text":"x","style":"TITLE"}]`, "could not be read", true},
+		{"no end index", "empty-answered", `[{"text":"x","style":"TITLE"}]`, "answered no end index", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(standin.requests())
+			_, err := source.BuildBody(context.Background(), docs, "write",
+				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", home)
+			var refused *source.CallError
+			if !errors.As(err, &refused) || refused.Reason != source.BuildRefused || !strings.Contains(err.Error(), tc.words) {
+				t.Fatalf("err = %v, want %s containing %q", err, source.BuildRefused, tc.words)
+			}
+			want := 0
+			if tc.pre {
+				want = 1
+			}
+			if n := len(standin.requests()) - before; n != want {
+				t.Fatalf("the stand-in heard %d requests past the %d before, want %d", n, before, want)
+			}
+		})
+	}
+}
+
+// The built body posted: one write appends its paragraphs in one batchUpdate,
+// and the answer passes through the call's select.
+func TestGoogleDocsWriteRoundTrip(t *testing.T) {
+	standin, srv := writeStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	paras := `[{"text":"Lunch places","style":"TITLE"},{"text":"Friday","style":"HEADING_1"},` +
+		`{"text":"We shipped the condiments.","style":"NORMAL_TEXT"},{"text":"Ada picks the place.","style":"NORMAL_TEXT"}]`
+	body, err := source.BuildBody(context.Background(), docs, "write",
+		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", writeHome(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := source.DoKeyedBody(context.Background(), docs, "write",
+		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", "", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotReqs := standin.requests()
+	if len(gotReqs) != 2 {
+		t.Fatalf("the stand-in heard %d requests, want the pre-read and the batchUpdate", len(gotReqs))
+	}
+	post := gotReqs[1]
+	if post.method != "POST" || post.path != "/v1/documents/"+standin.doc("empty")+":batchUpdate" {
+		t.Fatalf("post = %s %s", post.method, post.path)
+	}
+	if post.auth != "Bearer tok" {
+		t.Fatalf("post Authorization = %q", post.auth)
+	}
+	var got, want any
+	if err := json.Unmarshal(post.body, &got); err != nil {
+		t.Fatalf("posted body = %s: %v", post.body, err)
+	}
+	if err := json.Unmarshal(body, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("posted body = %s, want the built %s", post.body, body)
+	}
+	if want := `{"documentId":"` + standin.doc("empty") + `","replies":[{},{},{},{}]}`; string(res.Answer) != want {
+		t.Fatalf("answer = %s, want %s", res.Answer, want)
+	}
+}
+
+// writeHome installs the write call's build script from the embedded pack,
+// as a source add copies it, and returns the home it stands under. The
+// script reads docs with curl and counts with jq.
+func writeHome(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the write build script reads the doc with it")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the write build script counts with it")
+	}
+	script, err := fs.ReadFile(packs.FS, "google-docs/google-docs/build-write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := source.WriteCopies(home, "google-docs", []source.FileCopy{{Program: "google-docs/build-write", Data: script}}); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", "google-docs"))
+	return home
+}
+
+// writeDoc is one doc the write stand-in serves: its id, and the end indices
+// its body answers with.
+type writeDoc struct {
+	id   string
+	ends []int
+}
+
+// docsStandin answers documents.get for an empty doc and a doc with text,
+// and batchUpdate with stock replies, keeping every request it was sent.
+type docsStandin struct {
+	t    *testing.T
+	mu   sync.Mutex
+	got  []googleRequest
+	docs map[string]writeDoc
+}
+
+func writeStandin(t *testing.T) (*docsStandin, *httptest.Server) {
+	t.Helper()
+	s := &docsStandin{t: t, docs: map[string]writeDoc{
+		"empty":          {id: "1Empty0123456789abcdefghijklmnop", ends: []int{2}},
+		"full":           {id: "1FullDoc0123456789abcdefghijklm", ends: []int{7, 13}},
+		"empty-answered": {id: "1NoEnds0123456789abcdefghijklmno", ends: nil},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s.mu.Lock()
+		s.got = append(s.got, googleRequest{method: r.Method, path: r.URL.Path, query: r.URL.Query(), auth: r.Header.Get("Authorization"), body: body})
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		for _, d := range s.docs {
+			switch {
+			case r.Method == "GET" && r.URL.Path == "/v1/documents/"+d.id:
+				if d.ends == nil {
+					io.WriteString(w, `{}`)
+					return
+				}
+				var ends []string
+				for _, e := range d.ends {
+					ends = append(ends, `{"endIndex":`+strconv.Itoa(e)+`}`)
+				}
+				io.WriteString(w, `{"body":{"content":[`+strings.Join(ends, ",")+`]}}`)
+				return
+			case r.Method == "POST" && r.URL.Path == "/v1/documents/"+d.id+":batchUpdate":
+				io.WriteString(w, `{"documentId":"`+d.id+`","replies":[{},{},{},{}],"writeControl":{"requiredRevisionId":"9"}}`)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"code":404,"message":"no such doc"}}`)
+	}))
+	return s, srv
+}
+
+// doc is the id of the write stand-in's named doc; "missing" is one it has
+// no answer for.
+func (s *docsStandin) doc(name string) string {
+	if d, ok := s.docs[name]; ok {
+		return d.id
+	}
+	return "1Missing0123456789abcdefghijklmno"
+}
+
+func (s *docsStandin) requests() []googleRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]googleRequest(nil), s.got...)
 }

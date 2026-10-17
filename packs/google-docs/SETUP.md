@@ -42,7 +42,7 @@ google packs' shared setup, said once in `docs/google.md`.
    ```sh
    yardr bead ask <bead> "Let the yardmaster read Docs" --run "source grant google-docs read --crew yardmaster" --context "The yardmaster reads docs to work beads; the card names each call it covers."
    yardr bead ask <bead> "Let the yardmaster read Slides" --run "source grant google-slides read --crew yardmaster" --context "The yardmaster reads decks to work beads; the card names each call it covers."
-   yardr bead ask <bead> "Let the yardmaster append to Docs" --run "source grant google-docs write --crew yardmaster" --context "Text appended at the end of a doc, with a style."
+   yardr bead ask <bead> "Let the yardmaster append to Docs" --run "source grant google-docs write --crew yardmaster" --context "Paragraphs appended at the end of a doc, each with its style."
    yardr bead ask <bead> "Let the yardmaster append slides" --run "source grant google-slides slide --crew yardmaster" --context "Slides appended to a deck, with title and body."
    ```
    By hand they are the operator's to type:
@@ -68,16 +68,14 @@ google packs' shared setup, said once in `docs/google.md`.
 7. **Try it.** As the operator, who may make any call. A doc is an
    empty file the drive source makes, whose id this pack's docs
    source then fills, so the google-drive pack is applied first and
-   tried up to its own step 7. Read the doc for its endIndex E
-   first: text appends at the end, and the style lands on the range
-   start and end overlap, so appending to the last paragraph styles
-   with start=E-1, end=E, and a new paragraph begun with a blank
-   line starts at E:
+   tried up to its own step 7. One write appends several paragraphs
+   in one call, each with its style: the call reads the doc for its
+   end index itself and works out each paragraph's range, and the
+   first paragraph continues the doc's last paragraph:
    ```sh
    yardr call google-drive folder name="notes" parent=<a folder id>
    yardr call google-drive doc name="lunch" parent=<the folder's id>
-   yardr call google-docs doc docId=<the doc's id>   # its body's endIndex E
-   yardr call google-docs write docId=<the id> text="Lunch places" style=HEADING_1 start=<E-1> end=<E>
+   yardr call google-docs write docId=<the doc's id> paragraphs='[{"text":"Lunch places","style":"HEADING_1"},{"text":"Friday we ship.","style":"NORMAL_TEXT"}]'
    ```
    A slide is the same shape: an empty deck the drive source makes,
    then a slide with the caller's own id for it, unique in the deck:

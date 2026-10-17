@@ -1,7 +1,7 @@
 # Google Docs as a declared source: a document read, and appended to at
-# the end with a style for the paragraph. One source per host, so Docs
-# is its own; the empty file it fills is made by the drive source's doc
-# call. No other batchUpdate request is declared.
+# the end with several styled paragraphs in one call. One source per
+# host, so Docs is its own; the empty file it fills is made by the drive
+# source's doc call. No other batchUpdate request is declared.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/docs/v1/rest) on 16
@@ -11,7 +11,10 @@
 # end of the body with no index; UpdateParagraphStyle takes a range, a
 # paragraphStyle with namedStyleType (NORMAL_TEXT, TITLE, HEADING_1
 # through HEADING_6) and fields, and styles the paragraphs the range
-# overlaps.
+# overlaps. Indices are UTF-16 code units, so an astral character counts
+# double; the write call's build script reads the document for its body's
+# end index, works out each paragraph's range itself, and prints the
+# batchUpdate that appends them.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
 # account (an address, no secret) and the operator sets mint_command to
@@ -19,7 +22,7 @@
 # key, so the file names none: a write tried again after a lost answer
 # is appended twice.
 name: google-docs
-about: Google Docs read and appended to, with a style for the paragraph.
+about: Google Docs read and appended to, several styled paragraphs in one call.
 base: https://docs.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -37,24 +40,20 @@ calls:
     answer: { select: [title, body], max: 262144 }   # the text is in body's paragraphs
   write:
     kind: update
-    about: Append text at the end, styling a paragraph
+    about: Append paragraphs at the end, each with its style
     params:
       docId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
-      # Free text: its value is in no event. Appended at the end of the
-      # body; to start a new paragraph, begin it with a blank line.
-      text: { type: string, max: 50000 }
-      style: { type: enum, values: [NORMAL_TEXT, TITLE, HEADING_1, HEADING_2] }   # NORMAL_TEXT writes plain
-      # The range the style applies to, from a doc read: the paragraphs
-      # it overlaps are styled. Text appended to the last paragraph read
-      # at endIndex E styles with start=E-1, end=E; a new paragraph begun
-      # with a blank line starts at E, so start=E, end=E+1.
-      start: { type: int }
-      end: { type: int }
+      # One JSON array of text/style pairs, the paragraphs to append:
+      # [{"text":"Lunch places","style":"HEADING_1"}]. Each style is one
+      # of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2; NORMAL_TEXT writes
+      # plain. Free text: its value is in no event. The build script
+      # reads the document for its body's end index, works out each
+      # paragraph's range itself, and prints the batchUpdate; the first
+      # pair continues the doc's last paragraph, so on a doc with text
+      # it styles that paragraph whole.
+      paragraphs: { type: string, max: 60000 }
     request:
       method: POST
       path: /v1/documents/{docId}:batchUpdate
-      body:
-        requests:
-          - insertText: { endOfSegmentLocation: {}, text: "{text}" }
-          - updateParagraphStyle: { range: { startIndex: "{start}", endIndex: "{end}" }, paragraphStyle: { namedStyleType: "{style}" }, fields: "namedStyleType" }
+    build: [google-docs/build-write]
     answer: { select: [documentId, replies] }

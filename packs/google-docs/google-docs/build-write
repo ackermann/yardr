@@ -1,0 +1,62 @@
+#!/bin/bash
+# build-write: the body of the google-docs write call, built per call. One
+# JSON object on stdin ({"params": {"docId", "paragraphs"}}), the
+# batchUpdate body on stdout. GOOGLE_TOKEN and YARDR_SOURCE_BASE, the
+# declaration's base, are in the environment. Needs curl and jq.
+#
+# paragraphs is one JSON array of text/style pairs; the script reads the
+# document for its body's end index, works out each paragraph's range
+# itself, and prints the one batchUpdate that appends them all. The
+# document is read for its end indices alone, not its text. Indices are
+# UTF-16 code units, so an astral character counts double: jq's length
+# counts codepoints, and the script adds one per codepoint past U+FFFF.
+# The first appended character sits at E-1, before the body's last
+# newline, and each paragraph starts past the newline before it; the
+# first pair continues the doc's last paragraph. Anything the body cannot
+# be built from is a refusal: words on stderr, exit 1, nothing sent.
+set -euo pipefail
+in=$(cat)
+docId=$(jq -r '.params.docId // ""' <<<"$in")
+paras=$(jq -c '.params.paragraphs | fromjson? // null' <<<"$in")
+[ -n "$docId" ] || { echo "write was handed no docId" >&2; exit 1; }
+[ "$paras" != "null" ] || { echo "paragraphs is no JSON array of text/style pairs" >&2; exit 1; }
+: "${GOOGLE_TOKEN:?GOOGLE_TOKEN is not set}"
+: "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+# The pairs are checked before the document is read, so a refusal for
+# bad paragraphs sends nothing.
+checked=$(jq -c -n --argjson paras "$paras" '
+  def styles: ["NORMAL_TEXT", "TITLE", "HEADING_1", "HEADING_2"];
+  def check($i; $p):
+    if ($p | type) != "object" then "paragraph \($i + 1) is no text/style pair"
+    elif ($p.text | type) != "string" then "paragraph \($i + 1) names no text"
+    elif ($p.style | type) != "string" or ((styles | index($p.style)) | not) then
+      "paragraph \($i + 1) styles with \($p.style), which is no style: one of \(styles | join(", "))"
+    elif $p.text | contains("\n") then "paragraph \($i + 1) holds a line break: one pair is one paragraph"
+    else null end;
+  if ($paras | type) != "array" then {"refusal": "paragraphs is no JSON array of text/style pairs"}
+  elif ($paras | length) == 0 then {"refusal": "paragraphs holds no paragraph to append"}
+  else ([range(0; $paras | length) | check(.; $paras[.]) | select(. != null)][0]) as $bad
+    | if $bad != null then {"refusal": $bad}
+      elif ([$paras[].text] | join("\n")) == "" then {"refusal": "paragraphs holds no text to append"}
+      else {"ok": true} end end
+')
+refusal=$(jq -r '.refusal // empty' <<<"$checked")
+[ -z "$refusal" ] || { echo "$refusal" >&2; exit 1; }
+doc=$(curl -sS --fail-with-body --get --data-urlencode "fields=body(content(endIndex))" \
+  -H "Authorization: Bearer $GOOGLE_TOKEN" \
+  "$YARDR_SOURCE_BASE/v1/documents/$docId") || {
+  echo "document $docId could not be read (curl exit $?)" >&2; exit 1
+}
+e=$(jq -r '.body.content[-1].endIndex | select(type == "number") // empty' <<<"$doc")
+[[ "$e" =~ ^[0-9]+$ ]] && [ "$e" -ge 2 ] || { echo "document $docId answered no end index" >&2; exit 1; }
+jq -c -n --argjson paras "$paras" --argjson e "$e" '
+  def utf16: length + ([explode[] | select(. > 65535)] | length);
+  (reduce range(0; $paras | length) as $i ({start: ($e - 1), reqs: []};
+    ($paras[$i]) as $p
+    | ($p.text | utf16) as $len
+    | .reqs += [{updateParagraphStyle: {
+        range: {startIndex: .start, endIndex: (.start + (if $len == 0 then 1 else $len end))},
+        paragraphStyle: {namedStyleType: $p.style}, fields: "namedStyleType"}}]
+    | .start += $len + 1)) as $r
+  | {requests: ([{insertText: {endOfSegmentLocation: {}, text: ([$paras[].text] | join("\n"))}}] + $r.reqs)}
+'
