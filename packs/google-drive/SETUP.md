@@ -1,10 +1,11 @@
 # Setting up Drive
 
 The pack wires Drive into the yard as the declared source
-`google-drive`: files listed and read, folders made, empty Docs and
-Slides made for the google-docs pack's sources to fill. Each call goes
-out with a short-lived token minted from a gws login on this machine,
-so no new copy of a secret is stored anywhere. The login, the
+`google-drive`: files listed, read and shared with one address,
+folders made, empty Docs and Slides made for the google-docs pack's
+sources to fill. Each call goes out with a short-lived token minted
+from a gws login on this machine, so no new copy of a secret is
+stored anywhere. The login, the
 account, the mint and calling as a user are the three google packs'
 shared setup, said once in `docs/google.md`.
 
@@ -24,7 +25,7 @@ shared setup, said once in `docs/google.md`.
    ```sh
    yardr pack apply google-drive
    # applied pack google-drive to the yard: 1 created, 0 changed, 0 unchanged
-   # source google-drive is declared: 5 calls under https://www.googleapis.com (yardr source show google-drive)
+   # source google-drive is declared: 6 calls under https://www.googleapis.com (yardr source show google-drive)
    ```
 3. **The account.** Give the yard's Google account for `google-drive`,
    one card, as described in `docs/google.md` (step 3).
@@ -41,6 +42,7 @@ shared setup, said once in `docs/google.md`.
    yardr bead ask <bead> "Let the yardmaster make Drive folders" --run "source grant google-drive folder --crew yardmaster" --context "Folders to keep the yard's Drive files in."
    yardr bead ask <bead> "Let the yardmaster make empty Drive docs" --run "source grant google-drive doc --crew yardmaster" --context "Empty docs for the google-docs pack's sources to fill."
    yardr bead ask <bead> "Let the yardmaster make empty decks" --run "source grant google-drive slides --crew yardmaster" --context "Empty decks for the google-docs pack's sources to fill."
+   yardr bead ask <bead> "Let the yardmaster share Drive files" --run "source grant google-drive share --crew yardmaster" --context "Shares one file with one address as reader or commenter; each share to a new address is asked on its own card first."
    ```
    By hand they are the operator's to type:
    ```sh
@@ -48,11 +50,18 @@ shared setup, said once in `docs/google.md`.
    yardr source grant google-drive folder --crew yardmaster
    yardr source grant google-drive doc --crew yardmaster
    yardr source grant google-drive slides --crew yardmaster
+   yardr source grant google-drive share --crew yardmaster
    ```
+   Sharing sends yard content to a person outside it, so `share` is a
+   grant the operator may give or withhold: without it a crew member
+   shares nothing. The grant alone allows any address. The
+   yardmaster's habit, not a mechanism, is to ask on a card before
+   each share to a new address, naming the file and the address, and
+   to pass `notify=false` unless the person expects mail.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with
-   `read`, `folder`, `doc` and `slides` from above. There is no
+   `read`, `folder`, `doc`, `slides` and `share` from above. There is no
    typed way beside these: a grant `as` ada is ada's to give.
    `yardr source show google-drive` lists each call with its kind
    and who may make it, plain and `as` each user.
@@ -70,6 +79,11 @@ shared setup, said once in `docs/google.md`.
    yardr call google-drive folder name="notes" parent=<a folder id>
    yardr call google-drive doc name="lunch" parent=<the folder's id>
    ```
+   And a share, which is for real: the address sees the file, quiet
+   unless `notify=true`:
+   ```sh
+   yardr call google-drive share fileId=<the file's id> email=<an address> role=reader notify=false
+   ```
 
 Calling as a user — the yard reading another person's drive with
 their own credential — is the shared setup too: `docs/google.md`
@@ -78,6 +92,7 @@ has it.
 What is not there, on purpose: deleting, updating, trash; uploading
 file content and attachments (multipart, which a declared source
 cannot say); exporting file content (a media download, not JSON);
-paging past the first page; and no call the pack does not list. The
-yard's source format cannot express what is not listed, and the pack
-does not change yardr.
+paging past the first page; writer or owner shares, domain or
+anyone-with-link shares, and unsharing; and no call the pack does
+not list. The yard's source format cannot express what is not
+listed, and the pack does not change yardr.

@@ -1,7 +1,8 @@
 # Drive as a pack of kind source: the integration, imported into the
 # yard and into no depot. What Drive is here: the declared source
-# google-drive, which lists and reads files and makes folders and
-# empty Docs and Slides for the google-docs pack's sources to fill.
+# google-drive, which lists and reads files, shares one file with one
+# address, and makes folders and empty Docs and Slides for the
+# google-docs pack's sources to fill.
 # Its credential mints from a gws login on this machine, with
 # contrib/google-mint as its mint_command, which the operator sets by
 # hand: no pack brings the command. One command mints every account,
@@ -16,7 +17,9 @@
 # pack of kind source asks no grants at import, so what a crew member
 # may call is granted afterwards, by the setup notes: read for the
 # reads, each update by its name, plain by the operator and as a user
-# by that user alone.
+# by that user alone. The share grant allows any address: the setup
+# notes teach it as the operator's to give, and each new address as
+# asked on its own card.
 name: google-drive
 kind: source
 setup: SETUP.md

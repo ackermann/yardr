@@ -107,7 +107,7 @@ func TestGoogleDeclarations(t *testing.T) {
 		"google-drive.yaml": {
 			{Name: "files", Kind: source.Read}, {Name: "file", Kind: source.Read},
 			{Name: "folder", Kind: source.Update}, {Name: "doc", Kind: source.Update},
-			{Name: "slides", Kind: source.Update},
+			{Name: "slides", Kind: source.Update}, {Name: "share", Kind: source.Update},
 		},
 		"google-docs.yaml": {
 			{Name: "doc", Kind: source.Read}, {Name: "write", Kind: source.Update},
@@ -247,6 +247,16 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			out, _ := json.Marshal(map[string]any{"kind": "drive#file", "id": "1NeWFiLe0123456789abcdefghijklm", "name": made.Name, "mimeType": made.MimeType, "parents": made.Parents})
 			return string(out)
 		},
+		"POST /drive/v3/files/" + driveID + "/permissions": func(_ url.Values, body []byte) string {
+			var made struct {
+				Type, Role, EmailAddress string
+			}
+			if err := json.Unmarshal(body, &made); err != nil {
+				t.Fatalf("the stand-in was sent %s: %v", body, err)
+			}
+			out, _ := json.Marshal(map[string]any{"kind": "drive#permission", "id": "00362519876543210987", "type": made.Type, "role": made.Role, "emailAddress": made.EmailAddress})
+			return string(out)
+		},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(standin.handler))
 	defer srv.Close()
@@ -302,6 +312,14 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 		{name: "drive slides", d: drive, call: "slides", params: map[string]string{"name": "friday", "parent": parent},
 			method: "POST", path: "/drive/v3/files", body: `{"name":"friday","mimeType":"application/vnd.google-apps.presentation","parents":["` + parent + `"]}`,
 			wantAnswer: `{"id":"1NeWFiLe0123456789abcdefghijklm","mimeType":"application/vnd.google-apps.presentation","name":"friday","parents":["1PaReNt0123456789abcdefghijklm"]}`},
+		{name: "share quiet", d: drive, call: "share", params: map[string]string{"fileId": driveID, "email": "bob@example.com", "role": "reader", "notify": "false"},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/permissions", query: map[string]string{"sendNotificationEmail": "false"},
+			body:       `{"type":"user","role":"reader","emailAddress":"bob@example.com"}`,
+			wantAnswer: `{"id":"00362519876543210987","type":"user","role":"reader"}`},
+		{name: "share notified commenter", d: drive, call: "share", params: map[string]string{"fileId": driveID, "email": "ada@example.com", "role": "commenter", "notify": "true"},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/permissions", query: map[string]string{"sendNotificationEmail": "true"},
+			body:       `{"type":"user","role":"commenter","emailAddress":"ada@example.com"}`,
+			wantAnswer: `{"id":"00362519876543210987","type":"user","role":"commenter"}`},
 		{name: "docs doc", d: docs, call: "doc", params: map[string]string{"docId": docID},
 			method: "GET", path: "/v1/documents/" + docID,
 			wantAnswer: `{"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]},"title":"lunch"}`},
@@ -398,6 +416,12 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"files long q", drive, "files", map[string]string{"q": strings.Repeat("x", 1001)}, "parameter q is 1001 characters, and at most 1000"},
 		{"file slashed id", drive, "file", map[string]string{"id": "a/b"}, "parameter id does not match its pattern"},
 		{"folder long name", drive, "folder", map[string]string{"name": strings.Repeat("x", 201), "parent": "abc"}, "parameter name is 201 characters, and at most 200"},
+		{"share slashed fileId", drive, "share", map[string]string{"fileId": "a/b", "email": "bob@example.com", "role": "reader", "notify": "false"}, "parameter fileId does not match its pattern"},
+		{"share bare email", drive, "share", map[string]string{"fileId": "abc", "email": "bob", "role": "reader", "notify": "false"}, "parameter email does not match its pattern"},
+		{"share spaced email", drive, "share", map[string]string{"fileId": "abc", "email": "bob @example.com", "role": "reader", "notify": "false"}, "parameter email does not match its pattern"},
+		{"share writer", drive, "share", map[string]string{"fileId": "abc", "email": "bob@example.com", "role": "writer", "notify": "false"}, "parameter role is one of reader, commenter"},
+		{"share notify yes", drive, "share", map[string]string{"fileId": "abc", "email": "bob@example.com", "role": "reader", "notify": "yes"}, "parameter notify is true or false"},
+		{"share without notify", drive, "share", map[string]string{"fileId": "abc", "email": "bob@example.com", "role": "reader"}, "parameter notify is missing"},
 		{"doc dots", docs, "doc", map[string]string{"docId": ".."}, "parameter docId does not match its pattern"},
 		{"write heading 3", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "HEADING_3", "start": "1", "end": "2"}, "parameter style is one of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2"},
 		{"write fractional start", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "TITLE", "start": "1.5", "end": "2"}, "parameter start is no whole number"},

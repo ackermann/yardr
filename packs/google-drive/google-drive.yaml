@@ -1,16 +1,20 @@
-# Drive as a declared source: files listed and read, folders and empty
-# Google Docs and Slides created for the docs and slides sources to
-# fill. What it never does: no delete, no update, no trash, no upload of
-# content (multipart, which a declared source cannot say), no export (a
-# media download, not JSON), and no paging (pageToken is not declared,
-# so one page is all a call reads).
+# Drive as a declared source: files listed, read and shared with one
+# address, folders and empty Google Docs and Slides created for the
+# docs and slides sources to fill. What it never does: no delete, no
+# update, no trash, no upload of content (multipart, which a declared
+# source cannot say), no export (a media download, not JSON), and no
+# paging (pageToken is not declared, so one page is all a call reads).
+# A share is reader or commenter to one address: no writer or owner,
+# no domain or anyone-with-link share, no unsharing.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/drive/v3/rest) on 16
 # October 2026: files.list takes q (default pageSize 100) and answers
 # one page with files, incompleteSearch and nextPageToken; files.get
 # answers the file's metadata; files.create takes {name, mimeType,
-# parents} and answers the file.
+# parents} and answers the file. permissions.create checked 17 October
+# 2026: it takes {type, role, emailAddress} with sendNotificationEmail
+# (Drive's own default true) and answers the permission.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
 # account (an address, no secret) and the operator sets mint_command to
@@ -18,7 +22,7 @@
 # key, so the file names none: a folder tried again after a lost answer
 # is made twice.
 name: google-drive
-about: Drive files listed and read; folders and empty Docs and Slides created.
+about: Drive files listed, read and shared; folders and empty Docs and Slides created.
 base: https://www.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -78,3 +82,17 @@ calls:
       path: /drive/v3/files
       body: { name: "{name}", mimeType: "application/vnd.google-apps.presentation", parents: ["{parent}"] }
     answer: { select: [id, name, mimeType, parents] }
+  share:
+    kind: update
+    about: Share a file with one address, reader or commenter
+    params:
+      fileId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      email: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, log: true }   # one address; the grant allows any
+      role: { type: enum, values: [reader, commenter] }   # no writer or owner
+      notify: { type: bool }   # always given: Drive's own default notifies, so quiet is said out loud
+    request:
+      method: POST
+      path: /drive/v3/files/{fileId}/permissions
+      query: { sendNotificationEmail: "{notify}" }
+      body: { type: "user", role: "{role}", emailAddress: "{email}" }
+    answer: { select: [id, type, role] }   # the permission it made; kind is left out
