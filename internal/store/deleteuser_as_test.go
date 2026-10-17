@@ -107,6 +107,48 @@ func TestDeleteUserRemovesAsGrantAndCredential(t *testing.T) {
 	}
 }
 
+// If the default env-file name has become a symlink, removing its user
+// refuses and leaves the target alone. The yard must never follow the
+// link and delete a file outside that name.
+func TestDeleteUserRefusesDefaultEnvFileSymlink(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	s, err := store.Open(filepath.Join(home, "yard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	ctx := crmYard(t, s)
+	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, "users", "ada.env")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "outside.env")
+	const contents = "CRM_TOKEN=keep-this-file\n"
+	if err := os.WriteFile(target, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, file); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, "ada", "jo"); err == nil ||
+		!strings.Contains(err.Error(), "their credential file "+file+" is a symbolic link") {
+		t.Fatalf("removing ada with a symlink at her default file = %v", err)
+	}
+	if _, err := s.GetUser(ctx, "ada"); err != nil {
+		t.Fatalf("ada went on a refused removal: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != contents {
+		t.Fatalf("the symlink target after a refused removal = %q, %v", b, err)
+	}
+	if st, err := os.Lstat(file); err != nil || st.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the default symlink after a refused removal = %v, %v", st, err)
+	}
+}
+
 // Two users pointed at one custom file: removing the first is refused
 // whole — her record, her as grant, and both a credential name and an
 // address name in the file untouched — until the second is moved to a

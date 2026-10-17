@@ -568,8 +568,25 @@ func (w *wtx) clearUserCredential(name string, u *User) error {
 	}
 	if def, err := userEnvFile(w.home, name); err == nil {
 		if defResolved, err := resolvedEnvFile(def); err == nil && defResolved == resolved {
-			if err := os.Remove(resolved); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("user %s is not removed: their credential file %s is not removed: %w", name, resolved, err)
+			// Remove the path the yard chose, not its resolved target: if
+			// the default name has become a symlink, following it here would
+			// delete a file outside that name. The credential writer refuses
+			// symlinks, so there is no valid default credential to preserve.
+			st, err := os.Lstat(file)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("user %s is not removed: their credential file %s is not removed: %w", name, file, err)
+			}
+			if st.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("user %s is not removed: their credential file %s is a symbolic link, and the yard removes none", name, file)
+			}
+			if !st.Mode().IsRegular() {
+				return fmt.Errorf("user %s is not removed: their credential file %s is not a regular file", name, file)
+			}
+			if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("user %s is not removed: their credential file %s is not removed: %w", name, file, err)
 			}
 			return nil
 		}
