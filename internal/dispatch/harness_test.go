@@ -290,6 +290,10 @@ func TestHarnessErrorLines(t *testing.T) {
 		{"claude", "  ⎿  Credit balance is too low", dispatch.ReasonOther},
 		{"claude", "⏺ API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}", dispatch.ReasonOther},
 		{"claude", "⏺ The session limit reached its end; see the API Error: 529 above.", ""},
+		{"muse", "model failed: server_error: The model failed to generate a response. (request id: 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)", dispatch.ReasonOther},
+		{"muse", "◆ model failed: server_error: The model failed to generate a response. (request id: 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)", dispatch.ReasonOther},
+		{"muse", "◆ The pane said model failed: server_error last night.", ""},
+		{"muse", "❯ Why did it say model failed: server_error?", ""},
 		{"kimi", "   Error: [provider.auth_error] 403 You've reached your", dispatch.ReasonRateLimited},
 		{"kimi", "   Error: [provider.auth_error] 403 You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends.", dispatch.ReasonRateLimited},
 		{"kimi", "   Error: [provider.rate_limit] 429 Too many requests", dispatch.ReasonRateLimited},
@@ -395,6 +399,31 @@ func TestKimiSessionAtItsUsageLimitIsReported(t *testing.T) {
 	if len(evs) != 1 || evs[0].Data["reason"] != dispatch.ReasonRateLimited || evs[0].Data["kind"] != "kimi" ||
 		evs[0].Data["line"] != "Error: [provider.auth_error] 403 You've reached your" {
 		t.Fatalf("session_harness_error = %v, want one, rate_limited, with kimi's line", evs)
+	}
+}
+
+// The pane of a builder (muse) on 17 Oct 2026, which stopped on a failed
+// turn and of which nobody heard for four hours (yardr-thet): the model
+// answered nothing, with a request id to find it by. Muse's own message
+// begins with ◆, which the match takes off with the other error marks.
+const museServerError = "◆ model failed: server_error: The model failed to generate a response. (request id:\n" +
+	" 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)\n" +
+	"── Voice input (alt(option)+v to start) ──…\n" +
+	"❯ \n" +
+	"───…\n" +
+	"    muse-spark-1.3 · max · /private/tmp/lyr0/work · Auto-review"
+
+// A bead's session of kind muse that stops on a failed turn is told of as
+// claude's, codex's and kimi's are.
+func TestMuseSessionOnAFailedTurnIsReported(t *testing.T) {
+	t.Parallel()
+	s, r, d, b := harnessSetup(t, "muse", nil)
+	r.show("idle", museServerError)
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 || evs[0].Data["reason"] != dispatch.ReasonOther || evs[0].Data["kind"] != "muse" ||
+		evs[0].Data["line"] != "◆ model failed: server_error: The model failed to generate a response. (request id:" {
+		t.Fatalf("session_harness_error = %v, want one, other, with muse's line", evs)
 	}
 }
 

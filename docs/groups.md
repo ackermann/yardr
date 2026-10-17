@@ -639,6 +639,7 @@ before the general one:
 | `kimi` | `rate_limited` | `^Error: \[provider\.rate_limit\]` |
 | `kimi` | `at_capacity` | `^Error: \[provider\.overloaded\]` |
 | `kimi` | `not_logged_in` | `^Error: \[(auth\.(login_required\|token_missing\|token_unauthorized)\|provider\.auth_error)\]` |
+| `muse` | `other` | `^model failed: server_error` |
 | any other | | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
 <!-- /harness errors -->
 

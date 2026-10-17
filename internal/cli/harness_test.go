@@ -88,7 +88,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		"~/.local/share/muse/sessions/*/*/*/{session}/session.jsonl: payload.record.model_id of the first line whose payload_type is run.model.configured",
 		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
 		"  ^(Log in with browser|Set an API key)", "  ^↓↑ to select · Esc to quit",
-		"none known: nothing is reported, and session_idle with its tail is what there is",
+		"other   ^model failed: server_error",
 		"muse-spark-1.3-contributor (Spark 1.3 Contributor), recommended for a yardmaster", "muse-wonder-1.0 (Wonder 1.0)")
 	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")
 	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id",

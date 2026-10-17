@@ -97,8 +97,15 @@ login:
   - pattern: '^(Log in with browser|Set an API key)'
   - pattern: '^↓↑ to select · Esc to quit'
 
-# No errors: no line a Muse pane stops on was read. `muse exec` fails out
-# loud (missing meta credentials, a model that does not exist), but the
-# TUI shows its login screen for the first and answers anyway for the
-# second (read live, Muse Code 1.4.9), so neither line ever ends a pane;
-# a dead base URL warns once at startup and its turns answer too.
+# The lines a Muse pane stops on. `muse exec` fails out loud (missing
+# meta credentials, a model that does not exist), but the TUI shows its
+# login screen for the first and answers anyway for the second (read
+# live, Muse Code 1.4.9), so neither line ever ends a pane; a dead base
+# URL warns once at startup and its turns answer too. The one line read
+# from a pane that sat on it (a builder's, 17 Oct 2026, Muse Code
+# 1.4.10, yardr-thet) is a failed turn: the model answered nothing, with
+# a request id to find it by. It is no capacity yardr retries, as a
+# 529 is, but a turn that failed, as claude's API Error: 500 is: other.
+errors:
+  - reason: other
+    pattern: '^model failed: server_error'
