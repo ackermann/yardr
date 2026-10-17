@@ -82,7 +82,9 @@ it with what to rename.
 A command acts as a user when its actor is a user's name: `--actor`, else
 `$YARDR_ACTOR`, else the login name, as for every command. yardr does not
 authenticate anyone: whoever can run yardr on the yard's machine can name
-any actor.
+any actor. A grant made as a user (`yardr source grant … --as <user>`) is
+the same line, not a wall: only that user may give it, and the refusal
+catches a mistake, not a terminal that claims their name.
 
 When the actor is the login name (neither `--actor` nor `$YARDR_ACTOR`
 given) and it is neither a user nor a crew member, a command that acts as

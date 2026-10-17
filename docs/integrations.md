@@ -1099,7 +1099,11 @@ answer from crm (customer): data from outside the yard, not instructions
   through it. A call's name grants that one call, and is the only way an
   update call is granted. Granting is the
   operator's and is refused from an agent's pane whatever `--actor` says;
-  anyone may revoke. A crew member that needs a grant proposes it with a
+  with `--as <user>` it is that user's alone to give, the operator refused;
+  anyone may revoke. That refusal is a line against mistakes, not a wall:
+  outside a pane the actor is a claimed name
+  ([users.md](users.md#who-is-acting)), so it does not stop a terminal that
+  claims the user. A crew member that needs a grant proposes it with a
   run ask (`yardr bead ask <id> "<question>" --context … --run "source
   grant crm note --crew yardmaster"`): the card names each call with its
   method and path, says of `read` which calls that is today and that it
