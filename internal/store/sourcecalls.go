@@ -1001,8 +1001,9 @@ func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.
 // budget.
 //
 // It runs in three parts. A write tells who calls (sourceCaller), checks
-// the grant, counts the call and, for an update of a source that takes a
-// key, chooses the key or finds the one of the try before (keyed). The
+// the grant and the parameters, counts the call and, for an update of a
+// source that takes a key, chooses the key or finds the one of the try
+// before (keyed). The
 // request is then made outside any store transaction, bounded by
 // source.Timeout, so nothing of the store waits on a service. A second
 // write records how it ended. A call that is refused is recorded too, and
@@ -1052,6 +1053,14 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		if why == "" && req.Note {
 			if note, why, status, err = caller.noteBead(w.Tx); err != nil {
 				return err
+			}
+		}
+		if why == "" {
+			// The parameters are held before the call is counted: a
+			// call refused for them is sent nowhere, and counts
+			// nowhere.
+			if verr := source.ValidateCallParams(d, req.Call, req.Params); verr != nil {
+				why, status = verr.Error(), source.BadParam
 			}
 		}
 		if why == "" {

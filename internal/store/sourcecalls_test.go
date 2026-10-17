@@ -734,6 +734,50 @@ func TestSourceUpdateLimit(t *testing.T) {
 	}
 }
 
+// A call refused for its parameters sends nothing and counts nowhere: N+1
+// bad calls leave the limit untouched and the next valid call goes through,
+// while a valid call still counts and one over the limit is still refused.
+func TestSourceBadParamLeavesLimitUntouched(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx, crm := updateYard(t, s)
+	if _, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSource(ctx, "crm", store.SourceUpdatesPerHour, "2", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	_, sess := session(t, s, "support")
+	bad := store.SourceCall{Source: "crm", Call: "note", Session: sess.ID, Actor: "x", Params: map[string]string{"id": "7"}}
+	for i := 0; i < 3; i++ {
+		if _, err := s.CallSource(ctx, bad); err == nil || !strings.Contains(err.Error(), "parameter text is missing") {
+			t.Fatalf("bad call %d = %v", i+1, err)
+		}
+	}
+	if n := crm.NotesAsked(); n != 0 {
+		t.Fatalf("the refused calls reached the service %d times", n)
+	}
+	if _, data := lastCall(t, s); !strings.Contains(data, `"status":"bad_param"`) {
+		t.Fatalf("its event = %s", data)
+	}
+	for i := 0; i < 2; i++ {
+		good := store.SourceCall{Source: "crm", Call: "note", Session: sess.ID, Actor: "x", Params: map[string]string{"id": "7", "text": fmt.Sprint("note ", i)}}
+		if _, err := s.CallSource(ctx, good); err != nil {
+			t.Fatalf("valid call %d: %v", i+1, err)
+		}
+	}
+	if n := len(crm.CustomerNotes()); n != 2 || crm.NotesAsked() != 2 {
+		t.Fatalf("the service has %d notes, asked %d times", n, crm.NotesAsked())
+	}
+	_, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "note", Session: sess.ID, Actor: "x", Params: map[string]string{"id": "7", "text": "one more"}})
+	if err == nil || !strings.Contains(err.Error(), "has made the 2 updates of the source") {
+		t.Fatalf("over the limit = %v", err)
+	}
+	if _, data := lastCall(t, s); !strings.Contains(data, `"status":"limit"`) {
+		t.Fatalf("its event = %s", data)
+	}
+}
+
 // yardr call --note writes the answer on the bead of the session that
 // calls, under the line that says it is data. A caller that works no bead
 // is refused before anything is sent; an answer over a note's bound is
