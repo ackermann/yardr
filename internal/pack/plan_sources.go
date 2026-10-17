@@ -506,7 +506,7 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 			out = append(out, Diff{"call " + c.Name, "", line(c)})
 		case !reflect.DeepEqual(asRead(*old), asRead(*c)):
 			// The same line on both sides says the change is in the call's
-			// parameters, body or answer.
+			// parameters, body, build or answer.
 			out = append(out, Diff{"call " + c.Name, line(old), line(c)})
 		}
 	}

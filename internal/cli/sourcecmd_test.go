@@ -631,6 +631,58 @@ func TestSourceCommandFiles(t *testing.T) {
 	}
 }
 
+// A built call is shown with its build under it: the argv and the copy's
+// file line. Check says of the build whether its program can be run,
+// running none.
+func TestSourceShowBuiltCall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("YARDR_HOME", home)
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	dir := t.TempDir()
+	decl := "name: docs\nbase: https://docs.googleapis.com\ncredential: { env: DOCS_TOKEN }\ncalls:\n" +
+		"  write:\n    kind: update\n    params:\n      docId: { type: string, max: 200 }\n" +
+		"    request: { method: POST, path: \"/v1/documents/{docId}:batchUpdate\" }\n    build: [docs/build-write]\n"
+	file := filepath.Join(dir, "docs.yaml")
+	if err := os.WriteFile(file, []byte(decl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho '{}'\n"
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "build-write"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, a.sourceCmd(), "show", "docs")
+	sum := sha256.Sum256([]byte(script))
+	copied := filepath.Join(home, "sources", "docs", "docs", "build-write")
+	for _, want := range []string{
+		"call write  update  POST /v1/documents/{docId}:batchUpdate",
+		"build: docs/build-write",
+		"file " + copied + " sha256 " + hex.EncodeToString(sum[:]),
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("show printed no %q: %q %v", want, out, err)
+		}
+	}
+
+	// No check call, so nothing is sent: the credential is looked at and
+	// the build's program is said to run.
+	env := envFile(t, "DOCS_TOKEN=tok-test\n", 0o600)
+	if _, err := run(t, a.sourceCmd(), "set", "docs", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.sourceCmd(), "check", "docs")
+	if want := "docs: command call.write.build (docs/build-write): can be run"; err != nil || !strings.Contains(out, want) {
+		t.Fatalf("check printed no %q: %q %v", want, out, err)
+	}
+}
+
 // The set help's env_file example never types the token as a command's
 // word: that line would stay in the shell's history. It reads the token
 // blind, as the packs' setup pages do.

@@ -1844,7 +1844,8 @@ a call would and reports the credential — the names set and missing,
 and with a mint whether a mint command is set; it mints where the file
 sets the mint's names and makes the check call with the credential, and
 fails unless the service answers 2xx; it says of every command the file
-names beside the check call — thread's, hook's, events' — whether its
+names beside the check call — thread's, hook's, events', and each
+call's build — whether its
 program is there and can be run, and fails when one cannot, running
 none. A file that names no check call is sent
 nothing: its credential is looked at and that is all. With `--user` the
@@ -1853,6 +1854,22 @@ message. So a new source declares a `check` with a ping-like read call
 behind it, and ships every command's program in the pack; `source
 check` then passes before the first delivery, and says which program or
 name does not hold when it does not.
+
+**A call may build its body with a command.** Where a fixed body cannot
+say the request — ranges worked out from a read first, a message
+encoded — the call names `build` beside its `request`: an argv whose
+program is a file beside the declaration's file, copied into
+`~/.yardr/sources/<name>/`, hashed and drift-checked as every command's
+file is. The call keeps its kind, method, path, query and answer; at
+each call the yard runs the command with the parameters on stdin and
+the credential in its environment, and sends the JSON it prints. The
+command may make its own requests to the service with the credential
+while it builds, and a refusal from it sends nothing. `yardr source
+show` prints the build under its call, the pack plan hashes and diffs
+the script, and the apply card says the call builds its body with a
+command run with the credential and free to make its own requests. The
+check, notify and hook-register calls name no build: those paths send
+the template.
 
 Two more places know sources by name: `internal/standin`, the stand-in for
 the services' APIs that the tests and an isolated yard use, and the docs.

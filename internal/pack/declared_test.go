@@ -1,9 +1,12 @@
 package pack_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -428,6 +431,64 @@ func TestApplyReplacesADeclaredSourceAndThePlanShowsWhatChanges(t *testing.T) {
 	src, err := st.GetSource(ctx, "pushover")
 	if err != nil || src.Text != changed || src.EnvFile != env {
 		t.Fatalf("source = %+v, %v", src, err)
+	}
+}
+
+// A declared source may build a call's body with a pack script: the plan
+// hashes the script beside the call, whose summary stays its name and
+// kind, and a replacement whose script changed shows the file's old hash
+// against its new one.
+func TestDeclaredSourceWithABuiltCall(t *testing.T) {
+	const decl = `name: docs
+base: https://docs.googleapis.com
+credential:
+  env: DOCS_TOKEN
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+  write:
+    kind: update
+    params:
+      docId: { type: string, max: 200 }
+    request: { method: POST, path: "/v1/documents/{docId}:batchUpdate" }
+    build: [docs/build-write]
+`
+	st, o := yard(t)
+	yaml := small + "sources:\n  docs:\n    declaration: sources/docs.yaml\n"
+	files := smallFiles(yaml)
+	files["sources/docs.yaml"] = decl
+	script := "#!/bin/sh\necho '{}'\n"
+	files["sources/docs/build-write"] = script
+	dir := writePack(t, files)
+	plan := build(t, st, load(t, dir), o)
+
+	d := declared(t, plan, "docs")
+	if !slices.Contains(d.Calls, "write (update)") {
+		t.Fatalf("the plan's calls = %v, want the built call by name and kind", d.Calls)
+	}
+	sum := sha256.Sum256([]byte(script))
+	var cmd *pack.CommandPlan
+	for i := range d.Commands {
+		if d.Commands[i].Key == "call.write.build" {
+			cmd = &d.Commands[i]
+		}
+	}
+	if cmd == nil || cmd.Program != "docs/build-write" || cmd.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("the plan's commands = %+v, want the build with its sha256", d.Commands)
+	}
+
+	apply(t, st, plan, nil)
+
+	// The pack's script changed: the plan shows the changed file.
+	changed := "#!/bin/sh\necho '{\"built\":true}'\n"
+	if err := os.WriteFile(filepath.Join(dir, "sources", "docs", "build-write"), []byte(changed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	got := find(t, plan, "source", "docs")
+	newer := sha256.Sum256([]byte(changed))
+	want := []pack.Diff{{Field: "file docs/build-write", Old: "sha256 " + hex.EncodeToString(sum[:])[:12], New: "sha256 " + hex.EncodeToString(newer[:])[:12]}}
+	if got.Action != pack.Change || !reflect.DeepEqual(got.Changes, want) {
+		t.Fatalf("after the script changed: %+v", got)
 	}
 }
 

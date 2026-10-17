@@ -421,7 +421,9 @@ func callSaysWhole(d *source.Declaration, c *source.Call) []string {
 	}
 	first := fmt.Sprintf("call %s (%s): %s. %s, %s", c.Name, c.Kind, c.Request.Line(), takes, sends)
 	var second string
-	if c.Request.Body != nil {
+	if len(c.Build) > 0 {
+		second = fmt.Sprintf("call %s builds its body with the command %s, run with the credential at each call and free to make its own requests with it while it builds", c.Name, showCommand(c.Build))
+	} else if c.Request.Body != nil {
 		raw, _ := json.Marshal(c.Request.Body)
 		second = fmt.Sprintf("call %s sends the body %s", c.Name, raw)
 	} else {
@@ -676,13 +678,17 @@ func commandSays(d *source.Declaration, carried AskSource) []string {
 }
 
 // commandGetsCredential follows the runners: limits and hook.normalize see
-// no credential; thread and events read-back commands do.
+// no credential; thread and events read-back commands and each call's
+// build do.
 func commandGetsCredential(key string) bool {
 	switch key {
 	case "thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
 		return true
 	default:
-		return false
+		// A call's build runs on the call path with the call's
+		// credential in its environment; call names hold no dots,
+		// so the key is call.<name>.build and nothing else.
+		return strings.HasPrefix(key, "call.") && strings.HasSuffix(key, ".build")
 	}
 }
 

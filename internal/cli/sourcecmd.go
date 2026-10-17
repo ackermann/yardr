@@ -694,6 +694,10 @@ credential in it whether their file sets that. The value is never printed.
 					for _, p := range call.Params {
 						fmt.Println("    " + paramLine(p))
 					}
+					if len(call.Build) > 0 {
+						fmt.Printf("    build: %s\n", strings.Join(call.Build, " "))
+						fmt.Println("    " + commandFileLine(files["call."+call.Name+".build"]))
+					}
 					if len(call.Answer.Select) > 0 {
 						fmt.Printf("    answers %s\n", strings.Join(call.Answer.Select, ", "))
 					}

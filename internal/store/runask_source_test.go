@@ -165,6 +165,47 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 	}
 }
 
+// A built call's card says it builds its body with its command, run with
+// the credential at each call and free to make its own requests while it
+// builds, and the script's file stands with its hash whole.
+func TestSourceAddCardNamesABuiltCall(t *testing.T) {
+	y, _ := runYard(t)
+	ask := sourceAddAsk(carriedOf(t, builtDecl, builtFiles))
+	ask.Run.Argv = []string{"source add docs.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
+	sum := sha256.Sum256([]byte(builtFiles["docs/build-write"]))
+	for _, want := range []string{
+		"call write builds its body with the command [docs/build-write], run with the credential at each call and free to make its own requests with it while it builds",
+		"(call.write.build, handed the credential)",
+		"command file docs/build-write:",
+		"sha256 " + hex.EncodeToString(sum[:]),
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "call write sends no body") {
+		t.Errorf("the built call reads as sending no body:\n%s", joined)
+	}
+}
+
+const builtDecl = `name: docs
+base: https://docs.googleapis.com
+credential: { env: DOCS_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  write:
+    kind: update
+    params:
+      docId: { type: string, max: 200 }
+    request: { method: POST, path: "/v1/documents/{docId}:batchUpdate" }
+    build: [docs/build-write]
+`
+
+var builtFiles = map[string]string{
+	"docs/build-write": "#!/bin/sh\n# build\n",
+}
+
 func TestSourceAddCardNamesCredentialForAbsoluteCommands(t *testing.T) {
 	decl := wiredDecl
 	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
