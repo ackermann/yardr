@@ -2,17 +2,21 @@
 # into the yard and into no depot. What they are here: the declared
 # sources google-docs and google-slides, which read documents and
 # decks and append text and slides to them. Each source's credential
-# mints from the operator's gws login, with contrib/google-mint as its
-# mint_command, which the operator sets by hand: no pack brings the
-# command. The login, the mint and calling as a user are the three
-# google packs' shared setup, said once in docs/google.md.
+# mints from a gws login on this machine, with contrib/google-mint as
+# its mint_command, which the operator sets by hand: no pack brings
+# the command. One command mints every account, choosing the login by
+# the account it is given: the yard's login for the yard's calls, that
+# account's own login beside it for a call --as a user. The login, the
+# account, the mint and calling as a user are the three google packs'
+# shared setup, said once in docs/google.md.
 #
 #   yardr pack apply google-docs
 #
-# The sources are named google-docs and google-slides. A pack of kind
-# source asks no grants at import, so the operator grants what a crew
-# member may call afterwards, by the setup notes: read for the reads,
-# each update by its name.
+# A person applies the packs they want, each by one card or typed. A
+# pack of kind source asks no grants at import, so what a crew member
+# may call is granted afterwards, by the setup notes: read for the
+# reads, each update by its name, plain by the operator and as a user
+# by that user alone.
 name: google-docs
 kind: source
 setup: SETUP.md
