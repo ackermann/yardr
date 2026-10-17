@@ -593,6 +593,7 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"draft spaced", mail, "draft", map[string]string{"raw": "ab c"}, "parameter raw does not match its pattern"},
 		{"draft long", mail, "draft", map[string]string{"raw": strings.Repeat("a", 1000001)}, "parameter raw is 1000001 characters, and at most 1000000"},
 		{"draft spaced to", mail, "draft", map[string]string{"to": "bob @example.com"}, "parameter to does not match its pattern"},
+		{"draft tab to", mail, "draft", map[string]string{"to": "bob\t@example.com"}, "parameter to does not match its pattern"},
 		{"draft long to", mail, "draft", map[string]string{"to": "a@" + strings.Repeat("b", 300) + ".com"}, "parameter to is 306 characters, and at most 254"},
 		{"draft bare cc", mail, "draft", map[string]string{"cc": "bob"}, "parameter cc does not match its pattern"},
 		{"draft long subject", mail, "draft", map[string]string{"subject": strings.Repeat("x", 501)}, "parameter subject is 501 characters, and at most 500"},
@@ -652,12 +653,12 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 }
 
 // The draft call builds its body with the pack's script: the headers of a
-// composed draft, a UTF-8 subject, a reply's threadId and reply headers,
-// the raw passthrough, and the refusal of a shape that is neither. The
-// script runs from an installed copy, as the yard runs it; the stand-in
-// answers the thread's messages, and hears nothing where no thread is
-// given. The non-ASCII subjects are escapes, not literals, so the goldens
-// below hold exactly the bytes the script was given.
+// composed draft, a UTF-8 subject and body, a reply's threadId and reply
+// headers, the raw passthrough, and the refusal of a shape that is neither.
+// The script runs from an installed copy, as the yard runs it; the stand-in
+// answers the thread's messages and receives the built draft. The non-ASCII
+// subject is an escape, not a literal, so the golden holds exactly the bytes
+// the script was given.
 func TestGoogleMailDraftBuild(t *testing.T) {
 	for _, tool := range []string{"curl", "jq", "base64"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -671,15 +672,31 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 	missingThreadID := "18c4a1b2c3d4e404"
 	noidThreadID := "18c4a1b2c3d4e111"
 	noidLastID := "18c4a1b2c3d4e112"
+	badLastThreadID := "18c4a1b2c3d4e222"
+	badHeaderThreadID := "18c4a1b2c3d4e333"
+	badHeaderLastID := "18c4a1b2c3d4e334"
+	escapedToken := "tok\"\\word"
 	type draftRequest struct{ method, path, query string }
 	var mu sync.Mutex
 	var got []draftRequest
+	var posts []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth := r.Header.Get("Authorization"); auth != "Bearer tok" {
+		if auth := r.Header.Get("Authorization"); auth != "Bearer tok" && auth != "Bearer "+escapedToken {
 			t.Errorf("%s %s: Authorization %q, want a Bearer tok", r.Method, r.URL.Path, auth)
+		}
+		var requestBody string
+		if r.Method == http.MethodPost {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read draft body: %v", err)
+			}
+			requestBody = string(b)
 		}
 		mu.Lock()
 		got = append(got, draftRequest{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery})
+		if r.Method == http.MethodPost {
+			posts = append(posts, requestBody)
+		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		format := r.URL.Query().Get("format")
@@ -696,6 +713,10 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			io.WriteString(w, `{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}`)
 		case "GET /gmail/v1/users/me/threads/" + noidThreadID:
 			io.WriteString(w, `{"id":"`+noidThreadID+`","messages":[{"id":"`+noidLastID+`","threadId":"`+noidThreadID+`"}]}`)
+		case "GET /gmail/v1/users/me/threads/" + badLastThreadID:
+			io.WriteString(w, `{"id":"`+badLastThreadID+`","messages":[{"id":"bad\"\nurl = \"https://attacker.example\"","threadId":"`+badLastThreadID+`"}]}`)
+		case "GET /gmail/v1/users/me/threads/" + badHeaderThreadID:
+			io.WriteString(w, `{"id":"`+badHeaderThreadID+`","messages":[{"id":"`+badHeaderLastID+`","threadId":"`+badHeaderThreadID+`"}]}`)
 		case "GET /gmail/v1/users/me/messages/" + lastID:
 			if format != "metadata" {
 				t.Errorf("messages.get was sent format %q, want metadata", format)
@@ -703,6 +724,11 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			io.WriteString(w, `{"id":"`+lastID+`","threadId":"`+threadID+`","labelIds":["INBOX","UNREAD"],"snippet":"Lunch on Friday?","payload":{"mimeType":"multipart/alternative","headers":[{"name":"From","value":"ada@example.com"},{"name":"Subject","value":"Lunch"},{"name":"Message-ID","value":"`+parent+`"}]}}`)
 		case "GET /gmail/v1/users/me/messages/" + noidLastID:
 			io.WriteString(w, `{"id":"`+noidLastID+`","threadId":"`+noidThreadID+`","payload":{"mimeType":"text/plain","headers":[{"name":"From","value":"ada@example.com"}]}}`)
+		case "GET /gmail/v1/users/me/messages/" + badHeaderLastID:
+			io.WriteString(w, `{"id":"`+badHeaderLastID+`","threadId":"`+badHeaderThreadID+`","payload":{"mimeType":"text/plain","headers":[{"name":"Message-ID","value":"<abc123@mail.gmail.com>\nBcc: attacker@example.com"}]}}`)
+		case "POST /gmail/v1/users/me/drafts":
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f6","labelIds":["DRAFT"]}}`)
 		default:
 			t.Errorf("the stand-in has no answer for %s %s", r.Method, r.URL.Path)
 			http.Error(w, "no such recorded shape", 404)
@@ -721,30 +747,37 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 	scripttest.Relink(t, filepath.Join(home, "sources", "google-mail"))
 	folded := strings.Repeat("\u00e9", 23)
 	for _, tc := range []struct {
-		name        string
-		params      map[string]string
-		wantMIME    string // the decoded raw; "" with wantRaw for the passthrough
-		wantRaw     string
-		wantThread  string // "" means the answer holds no threadId
-		wantRefusal string // "" means the build succeeds
-		wantGets    []draftRequest
+		name         string
+		params       map[string]string
+		credential   string
+		wantMIME     string // the decoded raw; "" with wantRaw for the passthrough
+		wantRaw      string
+		wantThread   string // "" means the answer holds no threadId
+		wantRefusal  string // "" means the build succeeds
+		wantRequests []draftRequest
 	}{
 		{name: "headers", params: map[string]string{"to": "someone@example.com", "subject": "hello", "body": "The body."},
-			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n\nThe body.\n"},
+			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHku\n"},
 		{name: "cc", params: map[string]string{"to": "someone@example.com", "cc": "boss@example.com", "subject": "hello", "body": "The body."},
-			wantMIME: "To: someone@example.com\nCc: boss@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n\nThe body.\n"},
+			wantMIME: "To: someone@example.com\nCc: boss@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHku\n"},
 		{name: "utf-8 subject", params: map[string]string{"to": "someone@example.com", "subject": "Caf\u00e9 Friday", "body": "The body."},
-			wantMIME: "To: someone@example.com\nSubject: =?UTF-8?B?Q2Fmw6kgRnJpZGF5?=\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n\nThe body.\n"},
+			wantMIME: "To: someone@example.com\nSubject: =?UTF-8?B?Q2Fmw6kgRnJpZGF5?=\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHku\n"},
 		{name: "long utf-8 subject folds whole characters", params: map[string]string{"to": "someone@example.com", "subject": folded, "body": "The body."},
-			wantMIME: "To: someone@example.com\nSubject: =?UTF-8?B?w6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6k=?=\n =?UTF-8?B?w6k=?=\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n\nThe body.\n"},
+			wantMIME: "To: someone@example.com\nSubject: =?UTF-8?B?w6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6k=?=\n =?UTF-8?B?w6k=?=\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHku\n"},
 		{name: "reply", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": threadID},
-			wantMIME:   "To: ada@example.com\nSubject: Re: Lunch\nIn-Reply-To: <abc123@mail.gmail.com>\nReferences: <abc123@mail.gmail.com>\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n\nFriday works.\n",
+			credential: escapedToken,
+			wantMIME:   "To: ada@example.com\nSubject: Re: Lunch\nIn-Reply-To: <abc123@mail.gmail.com>\nReferences: <abc123@mail.gmail.com>\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nRnJpZGF5IHdvcmtzLg==\n",
 			wantThread: threadID,
-			wantGets: []draftRequest{
+			wantRequests: []draftRequest{
 				{"GET", "/gmail/v1/users/me/threads/" + threadID, "format=minimal"},
 				{"GET", "/gmail/v1/users/me/messages/" + lastID, "format=metadata"},
 			}},
+		{name: "body keeps trailing newlines", params: map[string]string{"to": "someone@example.com", "subject": "hello", "body": "The body.\n\n"},
+			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHkuCgo=\n"},
+		{name: "utf-8 body", params: map[string]string{"to": "someone@example.com", "subject": "hello", "body": "Caf\u00e9 \u2615"},
+			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nQ2Fmw6kg4piV\n"},
 		{name: "raw passthrough", params: map[string]string{"raw": "RnJvbTptZQ"}, wantRaw: "RnJvbTptZQ"},
+		{name: "padded raw passthrough", params: map[string]string{"raw": "RnJvbTptZQ=="}, wantRaw: "RnJvbTptZQ=="},
 		{name: "mixed raw and to", params: map[string]string{"raw": "RnJvbTptZQ", "to": "someone@example.com"},
 			wantRefusal: "raw was given with to: pass raw alone, or to, subject and body"},
 		{name: "mixed raw and thread", params: map[string]string{"raw": "RnJvbTptZQ", "thread": threadID},
@@ -753,26 +786,42 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			wantRefusal: "a draft is to, subject and body, or raw alone; missing: subject, body"},
 		{name: "subject line break", params: map[string]string{"to": "someone@example.com", "subject": "a\nb", "body": "The body."},
 			wantRefusal: "subject holds a line break: a header is one line"},
+		{name: "subject trailing line break", params: map[string]string{"to": "someone@example.com", "subject": "hello\n", "body": "The body."},
+			wantRefusal: "subject holds a line break: a header is one line"},
 		{name: "to outside ascii", params: map[string]string{"to": "m\u00fcll@example.com", "subject": "hello", "body": "The body."},
 			wantRefusal: "to holds a character outside ASCII: addresses are ASCII"},
 		{name: "thread gone", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": missingThreadID},
-			wantRefusal: "thread " + missingThreadID + " could not be read: Requested entity was not found.",
-			wantGets:    []draftRequest{{"GET", "/gmail/v1/users/me/threads/" + missingThreadID, "format=minimal"}}},
+			wantRefusal:  "thread " + missingThreadID + " could not be read: Requested entity was not found.",
+			wantRequests: []draftRequest{{"GET", "/gmail/v1/users/me/threads/" + missingThreadID, "format=minimal"}}},
 		{name: "thread empty", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": emptyThreadID},
-			wantRefusal: "thread " + emptyThreadID + " holds no message to answer",
-			wantGets:    []draftRequest{{"GET", "/gmail/v1/users/me/threads/" + emptyThreadID, "format=minimal"}}},
+			wantRefusal:  "thread " + emptyThreadID + " holds no message to answer",
+			wantRequests: []draftRequest{{"GET", "/gmail/v1/users/me/threads/" + emptyThreadID, "format=minimal"}}},
 		{name: "last message without id", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": noidThreadID},
 			wantRefusal: "message " + noidLastID + " has no Message-ID header to answer",
-			wantGets: []draftRequest{
+			wantRequests: []draftRequest{
 				{"GET", "/gmail/v1/users/me/threads/" + noidThreadID, "format=minimal"},
 				{"GET", "/gmail/v1/users/me/messages/" + noidLastID, "format=metadata"},
+			}},
+		{name: "invalid last message id", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": badLastThreadID},
+			wantRefusal:  "thread " + badLastThreadID + " holds an invalid message id",
+			wantRequests: []draftRequest{{"GET", "/gmail/v1/users/me/threads/" + badLastThreadID, "format=minimal"}}},
+		{name: "message id line break", params: map[string]string{"to": "ada@example.com", "subject": "Re: Lunch", "body": "Friday works.", "thread": badHeaderThreadID},
+			wantRefusal: "message " + badHeaderLastID + " Message-ID holds a line break: a header is one line",
+			wantRequests: []draftRequest{
+				{"GET", "/gmail/v1/users/me/threads/" + badHeaderThreadID, "format=minimal"},
+				{"GET", "/gmail/v1/users/me/messages/" + badHeaderLastID, "format=metadata"},
 			}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mu.Lock()
 			got = nil
+			posts = nil
 			mu.Unlock()
-			body, err := source.BuildBody(context.Background(), d, "draft", tc.params, "tok", home)
+			credential := tc.credential
+			if credential == "" {
+				credential = "tok"
+			}
+			body, err := source.BuildBody(context.Background(), d, "draft", tc.params, credential, home)
 			if tc.wantRefusal != "" {
 				var failed *source.CallError
 				if !errors.As(err, &failed) || failed.Reason != source.BuildRefused {
@@ -809,11 +858,23 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 						t.Fatalf("threadId = %q, want %q", out.Message.ThreadID, tc.wantThread)
 					}
 				}
+				res, err := source.DoKeyedBody(context.Background(), d, "draft", tc.params, credential, "", body)
+				if err != nil || res.Status != http.StatusCreated {
+					t.Fatalf("DoKeyedBody = %+v, %v; want a created draft", res, err)
+				}
+				tc.wantRequests = append(tc.wantRequests, draftRequest{"POST", "/gmail/v1/users/me/drafts", ""})
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if !reflect.DeepEqual(got, tc.wantGets) {
-				t.Fatalf("the stand-in heard %v, want %v", got, tc.wantGets)
+			if !reflect.DeepEqual(got, tc.wantRequests) {
+				t.Fatalf("the stand-in heard %v, want %v", got, tc.wantRequests)
+			}
+			wantPosts := []string(nil)
+			if tc.wantRefusal == "" {
+				wantPosts = []string{string(body)}
+			}
+			if !reflect.DeepEqual(posts, wantPosts) {
+				t.Fatalf("draft POST bodies = %q, want %q", posts, wantPosts)
 			}
 		})
 	}

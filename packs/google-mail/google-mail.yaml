@@ -70,10 +70,10 @@ calls:
       # optional here so raw alone reaches the build script, which
       # refuses a shape that is neither and builds the raw message
       # itself; "never sends" stands.
-      to: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, optional: true, log: true }   # one address, as drive's share takes one
-      cc: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, optional: true, log: true }   # one address beside to, or none
+      to: { type: string, pattern: "^[^@[:space:]]+@[^@[:space:]]+$", max: 254, optional: true, log: true }   # one address, as drive's share takes one
+      cc: { type: string, pattern: "^[^@[:space:]]+@[^@[:space:]]+$", max: 254, optional: true, log: true }   # one address beside to, or none
       subject: { type: string, max: 500, optional: true }   # free text, as long as calendar's summary; encoded where it is not ASCII
-      body: { type: string, max: 100000, optional: true }   # plain text; 100000 characters encode worst case past 500 KB, under the 1 MiB a build may print
+      body: { type: string, max: 100000, optional: true }   # plain text; even 4 UTF-8 bytes per character plus MIME and base64 fits the 1 MiB build bound
       thread: { type: string, pattern: "^[0-9a-f]+$", max: 64, optional: true, log: true }   # the thread the draft answers, whose last message the script reads for its reply headers
       # The escape hatch: the whole RFC 2822 message (headers, a blank
       # line, the body), base64url-encoded with or without padding,

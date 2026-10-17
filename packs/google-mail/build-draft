@@ -17,8 +17,20 @@
 set -euo pipefail
 in=$(cat)
 refuse() { echo "$1" >&2; exit 1; }
-param() { jq -r --arg k "$1" '.params[$k] // ""' <<<"$in"; }
+param_into() {
+  local key="$1" name="$2" value
+  # Command substitution drops trailing newlines. Keep a sentinel after the
+  # exact JSON string so headers can reject them and the body can preserve them.
+  value=$(jq -rj --arg k "$key" '.params[$k] // ""' <<<"$in"; printf '\034')
+  printf -v "$name" '%s' "${value%$'\034'}"
+}
 given() { jq -e --arg k "$1" '(.params // {}) | has($k)' <<<"$in" >/dev/null; }
+curl_quote() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf '"%s"' "$value"
+}
 gmail_get() { # $1 path and query, $2 what the words name: one GET with the credential
   # The token goes to curl as a config line on its stdin, as telegram's
   # thread script hands it: an argument can be read by every process on the
@@ -26,8 +38,15 @@ gmail_get() { # $1 path and query, $2 what the words name: one GET with the cred
   local out code detail
   # Silent, not show-errors: the refusal below carries the words, and
   # curl's own line would stand in front of them.
-  out=$(printf 'url = "%s%s"\nheader = "Authorization: Bearer %s"\n' "$YARDR_SOURCE_BASE" "$1" "$GOOGLE_TOKEN" \
-    | curl -s --fail-with-body -K -) || {
+  out=$(
+    {
+      printf 'url = '
+      curl_quote "$YARDR_SOURCE_BASE$1"
+      printf '\nheader = '
+      curl_quote "Authorization: Bearer $GOOGLE_TOKEN"
+      printf '\n'
+    } | curl -s --fail-with-body -K -
+  ) || {
     code=$?
     detail=$(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || true)
     [ -n "$detail" ] || detail="curl exit $code"
@@ -48,7 +67,8 @@ fi
 if [ -n "$raw_given" ]; then
   # The escape hatch: raw is the whole message already, base64url-encoded
   # by the caller, and goes to Gmail untouched, with no thread of its own.
-  jq -c -n --arg raw "$(param raw)" '{message: {raw: $raw}}'
+  param_into raw raw
+  jq -c -n --arg raw "$raw" '{message: {raw: $raw}}'
   exit 0
 fi
 missing=""
@@ -58,11 +78,11 @@ done
 if [ -n "$missing" ]; then
   refuse "a draft is to, subject and body, or raw alone; missing: ${missing%, }"
 fi
-to=$(param to)
-cc=$(param cc)
-subject=$(param subject)
-body=$(param body)
-thread=$(param thread)
+param_into to to
+param_into cc cc
+param_into subject subject
+param_into body body
+param_into thread thread
 
 # A header is one line: a line break in to, cc or subject would smuggle a
 # header of the caller's choosing (a Bcc) into the message. An address is
@@ -79,6 +99,8 @@ ascii() { # $1 field, $2 value
 }
 ascii to "$to"
 [ -z "$cc" ] || ascii cc "$cc"
+case "$to" in *[[:space:][:cntrl:]]*) refuse "to holds whitespace or a control character: addresses are one token";; esac
+[ -z "$cc" ] || case "$cc" in *[[:space:][:cntrl:]]*) refuse "cc holds whitespace or a control character: addresses are one token";; esac
 
 msgid=""
 if [ -n "$thread" ]; then
@@ -88,11 +110,16 @@ if [ -n "$thread" ]; then
   # minimal form (ids alone, however long the thread), then its headers for
   # the Message-ID the reply points at.
   list=$(gmail_get "/gmail/v1/users/me/threads/$thread?format=minimal" "thread $thread")
-  last=$(jq -r '(.messages // []) | if length == 0 then "" else (.[-1].id // "") end' <<<"$list")
+  last=$(jq -rj '(.messages // []) | if length == 0 then "" else (.[-1].id // "") end' <<<"$list"; printf '\034')
+  last=${last%$'\034'}
   [ -n "$last" ] || refuse "thread $thread holds no message to answer"
+  case "$last" in *[!0123456789abcdef]*) refuse "thread $thread holds an invalid message id";; esac
+  [ "${#last}" -le 64 ] || refuse "thread $thread holds an invalid message id"
   msg=$(gmail_get "/gmail/v1/users/me/messages/$last?format=metadata" "message $last")
-  msgid=$(jq -r '(.payload.headers // []) | map(select((.name | ascii_downcase) == "message-id") | .value) | first // ""' <<<"$msg")
+  msgid=$(jq -rj '(.payload.headers // []) | map(select((.name | ascii_downcase) == "message-id") | .value) | first // ""' <<<"$msg"; printf '\034')
+  msgid=${msgid%$'\034'}
   [ -n "$msgid" ] || refuse "message $last has no Message-ID header to answer"
+  linebreak "message $last Message-ID" "$msgid"
 fi
 
 # The subject goes out plain where it is ASCII, and as RFC 2047 encoded
@@ -118,7 +145,10 @@ mime="To: $to"
 [ -z "$cc" ] || mime+=$'\n'"Cc: $cc"
 mime+=$'\n'"$subject_header"
 [ -z "$msgid" ] || mime+=$'\n'"In-Reply-To: $msgid"$'\n'"References: $msgid"
-mime+=$'\n'"MIME-Version: 1.0"$'\n'"Content-Type: text/plain; charset=UTF-8"$'\n\n'"$body"$'\n'
+# Encode the text part as well: a UTF-8 charset alone does not change MIME's
+# default 7-bit transfer encoding, and bodies may contain non-ASCII text.
+encoded_body=$(printf '%s' "$body" | base64)
+mime+=$'\n'"MIME-Version: 1.0"$'\n'"Content-Type: text/plain; charset=UTF-8"$'\n'"Content-Transfer-Encoding: base64"$'\n\n'"$encoded_body"$'\n'
 
 # base64url, Gmail's raw: standard base64 without padding or newlines, +/
 # as -_. The recipe is the pack's SETUP.md's.
