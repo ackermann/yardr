@@ -109,12 +109,14 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 	checkEnvStart(t, readCalls(t, calls), "tab.create", "yard-13-review", handle, logs.String())
 }
 
-// A kind's file gives the pane of every agent of the kind its environment
-// (yardr-k9ew): Kimi's sets KIMI_CODE_TRUST_WORKSPACE=1, which 2.2.0
-// honours by never showing its trust dialog. It is yardr's own entry, so
-// a group's env_file does not override it; a kind that names none adds
-// nothing.
-func TestHerdrStartSetsHarnessPaneEnv(t *testing.T) {
+// Kimi 2.2.0 skips its trust dialog with KIMI_CODE_TRUST_WORKSPACE=1, so
+// the runner sets it only when automatic trust is allowed. Its env_file
+// cannot override the harness setting or turn the bypass on when trust=false.
+func TestHerdrStartSetsTrustEnv(t *testing.T) {
+	cleared := func(env map[string]string) bool {
+		v, ok := env["KIMI_CODE_TRUST_WORKSPACE"]
+		return ok && v == ""
+	}
 	start := func(t *testing.T, cfg map[string]any) map[string]string {
 		t.Helper()
 		wt := t.TempDir()
@@ -141,12 +143,22 @@ func TestHerdrStartSetsHarnessPaneEnv(t *testing.T) {
 	if env := start(t, map[string]any{"kind": "kimi", "env_file": over}); env["KIMI_CODE_TRUST_WORKSPACE"] != "1" {
 		t.Errorf("env_file overrode the harness entry: %v", env)
 	}
+	if env := start(t, map[string]any{"kind": "kimi", "trust": false}); !cleared(env) {
+		t.Errorf("trust=false does not clear Kimi's dialog bypass: %v", env)
+	}
+	trustOver := filepath.Join(t.TempDir(), "trust.env")
+	if err := os.WriteFile(trustOver, []byte("KIMI_CODE_TRUST_WORKSPACE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if env := start(t, map[string]any{"kind": "kimi", "trust": false, "env_file": trustOver}); !cleared(env) {
+		t.Errorf("env_file bypassed trust=false: %v", env)
+	}
 	if env := start(t, map[string]any{"kind": "claude"}); env["KIMI_CODE_TRUST_WORKSPACE"] != "" {
 		t.Errorf("claude tab.create carries kimi's entry: %v", env)
 	}
 }
 
-func TestStartCrewSetsHarnessPaneEnv(t *testing.T) {
+func TestStartCrewSetsTrustEnv(t *testing.T) {
 	h, calls, _ := envHerdr(t, "")
 	r := store.CrewMember{Name: "kimi-security", Dir: t.TempDir(), Config: map[string]any{"kind": "kimi"}}
 	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
@@ -155,6 +167,19 @@ func TestStartCrewSetsHarnessPaneEnv(t *testing.T) {
 	env := envOf(apiCall(t, readCalls(t, calls), "workspace.create"))
 	if env["KIMI_CODE_TRUST_WORKSPACE"] != "1" {
 		t.Errorf("kimi workspace.create lacks the harness entry: %v", env)
+	}
+	trustOver := filepath.Join(t.TempDir(), "trust.env")
+	if err := os.WriteFile(trustOver, []byte("KIMI_CODE_TRUST_WORKSPACE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h, calls, _ = envHerdr(t, "")
+	r.Config = map[string]any{"kind": "kimi", "trust": false, "env_file": trustOver}
+	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	env = envOf(apiCall(t, readCalls(t, calls), "workspace.create"))
+	if v, ok := env["KIMI_CODE_TRUST_WORKSPACE"]; !ok || v != "" {
+		t.Errorf("crew env_file bypassed trust=false: %v", env)
 	}
 }
 

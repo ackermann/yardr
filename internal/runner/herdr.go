@@ -608,9 +608,10 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	// settings of the yard's server cannot be left out of it, only blanked;
 	// set here, they are not the env file's to give either (withEnvFile).
 	env = append(env, config.BlankServerSettings()...)
-	// What the kind's harness needs set to run unattended (Kimi's trust
-	// bypass): yardr's own entries, likewise not the env file's to give.
-	return append(env, agents.PaneEnv(agents.Kind(job.Group.Config))...)
+	// A harness can skip its folder-trust dialog with an environment entry
+	// (Kimi 2.2.0). When trust is disabled, blank its entry so an inherited
+	// value or env_file cannot bypass the operator's choice.
+	return append(env, agents.TrustEnv(agents.Kind(job.Group.Config), job.Group.Config["trust"] != false)...)
 }
 
 // shellOn puts the pid of pane's shell on handle. The shell is what the

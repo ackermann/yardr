@@ -178,10 +178,15 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 		name, label = CrewConversationAgentName(yard, r.Name, user), CrewConversationLabel(yard, r.Name, user)
 	}
 	// The settings of the yard's server are blanked, as for a bead's agent
-	// (agentEnv). What the kind's harness needs set to run unattended
-	// goes with them, likewise not the env file's to give (withEnvFile).
+	// (agentEnv). The kind's trust-bypass environment goes with them only
+	// when this crew member allows automatic trust; env_file cannot set it
+	// in its place (withEnvFile).
 	kind := agents.Kind(r.Config)
-	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings(), agents.PaneEnv(kind))
+	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
+	// As for a bead's agent, a harness can skip its folder-trust dialog
+	// with an environment entry (Kimi 2.2.0). Blank it when trust is
+	// disabled, so an inherited value or env_file cannot bypass the choice.
+	env = append(env, agents.TrustEnv(kind, r.Config["trust"] != false)...)
 	if user != "" {
 		// How the session's commands read their slice: prime, inbox and
 		// the rest resolve the session from it.

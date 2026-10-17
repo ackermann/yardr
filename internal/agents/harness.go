@@ -50,15 +50,8 @@ type Harness struct {
 	// Trust is the harness's folder-trust dialog, which yardr answers
 	// (internal/runner/trust.go); nil when it answers none.
 	Trust *Trust `yaml:"trust" json:"trust,omitempty"`
-	// Env are KEY=VALUE entries the pane of every agent of the kind
-	// starts with: what the harness needs set to run unattended. Kimi
-	// 2.2.0 honours KIMI_CODE_TRUST_WORKSPACE=1 by never showing its
-	// trust dialog (2.1.1 ignores it), so its file sets it. They are
-	// yardr's own entries, so a group's env_file does not override
-	// them. nil when the file names none.
-	Env   []string `yaml:"env" json:"env,omitempty"`
-	Marks Marks    `yaml:"marks" json:"marks"`
-	Flags Flags    `yaml:"flags" json:"flags"`
+	Marks Marks  `yaml:"marks" json:"marks"`
+	Flags Flags  `yaml:"flags" json:"flags"`
 	// Offers are the models the file suggests a person pick: a list to
 	// choose from, not what is installed, which Models lists live. nil
 	// when the file names none.
@@ -90,12 +83,17 @@ type Harness struct {
 // is answered only when the mark shows, one answer shows exactly, and the
 // cursor is seen on that answer (internal/runner/trust.go). There is one
 // answer per harness version that renamed it: Kimi 2.2.0 renamed 'Trust
-// this folder' to 'Trust and continue', so its file names both. The cursor
-// is the dialog's own mark: Kimi's is ❯ though its input mark is ">".
+// this folder' to 'Trust and continue', so its file names both. Env are
+// entries that let a harness skip this dialog; the runner sets their active
+// values only when it is allowed to answer the dialog. EnvNames exposes
+// their names without values in JSON. The cursor is the dialog's own mark:
+// Kimi's is ❯ though its input mark is ">".
 type Trust struct {
-	Dialog  string   `yaml:"dialog" json:"dialog"`
-	Answers []string `yaml:"answers" json:"answers"`
-	Cursor  string   `yaml:"cursor" json:"cursor"`
+	Dialog   string   `yaml:"dialog" json:"dialog"`
+	Answers  []string `yaml:"answers" json:"answers"`
+	Cursor   string   `yaml:"cursor" json:"cursor"`
+	Env      []string `yaml:"env" json:"-"`
+	EnvNames []string `yaml:"-" json:"env,omitempty"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -415,12 +413,17 @@ func (h *Harness) check() error {
 			return fmt.Errorf("flags.permissions: one without label or args")
 		}
 	}
-	if t := h.Trust; t != nil && (t.Dialog == "" || len(t.Answers) == 0 || slices.Contains(t.Answers, "") || t.Cursor == "") {
-		return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answers and its cursor")
-	}
-	for i, e := range h.Env {
-		if k, _, ok := strings.Cut(e, "="); !ok || !harnessEnvKey.MatchString(k) {
-			return fmt.Errorf("env: entry %d: want KEY=VALUE", i+1)
+	if t := h.Trust; t != nil {
+		if t.Dialog == "" || len(t.Answers) == 0 || slices.Contains(t.Answers, "") || t.Cursor == "" {
+			return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answers and its cursor")
+		}
+		t.EnvNames = nil
+		for i, e := range t.Env {
+			k, _, ok := strings.Cut(e, "=")
+			if !ok || !harnessEnvKey.MatchString(k) {
+				return fmt.Errorf("trust.env: entry %d: want KEY=VALUE", i+1)
+			}
+			t.EnvNames = append(t.EnvNames, k)
 		}
 	}
 	if h.Fetch != nil {
@@ -521,9 +524,24 @@ func (h Harness) Models(ctx context.Context) ([]string, error) {
 // it has none.
 func UnattendedArgs(kind string) []string { return byName[kind].Flags.Unattended }
 
-// PaneEnv are the KEY=VALUE entries the pane of every agent of kind
-// starts with, as its file names them; nil when it names none.
-func PaneEnv(kind string) []string { return byName[kind].Env }
+// TrustEnv are the KEY=VALUE entries the pane of kind starts with for its
+// folder-trust dialog. When enabled is false, each key is set to an empty
+// value so the harness cannot inherit a trust bypass from herdr or env_file.
+func TrustEnv(kind string, enabled bool) []string {
+	h, ok := Lookup(kind)
+	if !ok || h.Trust == nil {
+		return nil
+	}
+	if enabled {
+		return h.Trust.Env
+	}
+	out := make([]string, 0, len(h.Trust.Env))
+	for _, e := range h.Trust.Env {
+		k, _, _ := strings.Cut(e, "=")
+		out = append(out, k+"=")
+	}
+	return out
+}
 
 // UnattendedHelp lists the unattended flags per kind, one line each, for
 // command help.

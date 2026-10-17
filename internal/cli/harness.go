@@ -86,7 +86,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(h.Hints != (agents.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
 	add(h.Trust != nil, "trust dialog")
-	add(len(h.Env) > 0, "pane environment")
+	add(h.Trust != nil && len(h.Trust.Env) > 0, "trust environment")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
 	add(h.Flags.Model != "", "model flag")
 	add(len(h.Flags.Always) > 0, "flags always passed")
@@ -149,11 +149,11 @@ func printHarness(h agents.Harness, has bool) {
 	}
 	if h.Trust != nil {
 		fmt.Println("  trust: yardr answers its folder-trust dialog (unless the group or crew member says trust=false)")
+		if len(h.Trust.Env) > 0 {
+			fmt.Printf("  trust environment (automatic only): %s\n", strings.Join(envKeys(h.Trust.Env), ", "))
+		}
 	} else {
 		fmt.Println("  trust: yardr answers no dialog of it")
-	}
-	if len(h.Env) > 0 {
-		fmt.Printf("  pane environment: %s\n", strings.Join(envKeys(h.Env), ", "))
 	}
 	fmt.Println("\nMarks its pane is read by")
 	if m := h.Marks; m.Input == "" {
