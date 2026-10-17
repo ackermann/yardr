@@ -1,0 +1,23 @@
+# Drive as a pack of kind source: the integration, imported into the
+# yard and into no depot. What Drive is here: the declared source
+# google-drive, which lists and reads files and makes folders and
+# empty Docs and Slides for the google-docs pack's sources to fill.
+# Its credential mints from the operator's gws login, with
+# contrib/google-mint as its mint_command, which the operator sets by
+# hand: no pack brings the command. The login, the mint and calling
+# as a user are the three google packs' shared setup, said once in
+# docs/google.md.
+#
+#   yardr pack apply google-drive
+#
+# The source is named google-drive. A pack of kind source asks no
+# grants at import, so the operator grants what a crew member may call
+# afterwards, by the setup notes: read for the reads, each update by
+# its name.
+name: google-drive
+kind: source
+setup: SETUP.md
+
+sources:
+  google-drive:
+    declaration: google-drive.yaml

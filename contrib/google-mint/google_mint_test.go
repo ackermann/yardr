@@ -1,5 +1,5 @@
 // Package googlemint tests contrib/google-mint/google-mint, the
-// mint_command of the google pack's sources, against a fake gws on PATH
+// mint_command of the google packs' sources, against a fake gws on PATH
 // and a fake token endpoint. No test reaches Google.
 package googlemint
 

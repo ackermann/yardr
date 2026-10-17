@@ -19,28 +19,38 @@ import (
 	"yardr.dev/yardr/packs"
 )
 
-// The google pack is four declared sources, one per host, read here from
-// the embedded pack, as the yard reads them: Gmail, Drive, Docs and
-// Slides. No test calls Google.
-func TestGooglePackDeclaresFourSources(t *testing.T) {
-	sub, err := fs.Sub(packs.FS, "google")
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := pack.Load(sub, packs.Embedded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Kind != "source" {
-		t.Fatalf("kind %q, want source", p.Kind)
-	}
-	var names []string
-	for _, d := range p.Declared {
-		names = append(names, d.Name)
-	}
-	want := []string{"google-mail", "google-drive", "google-docs", "google-slides"}
-	if !reflect.DeepEqual(names, want) {
-		t.Fatalf("sources = %v, want %v", names, want)
+// The google packs are four declared sources, one per host, read here
+// from the embedded packs, as the yard reads them: Gmail, Drive, and
+// Docs with Slides. No test calls Google.
+func TestGooglePacksDeclareTheirSources(t *testing.T) {
+	for _, tc := range []struct {
+		pack string
+		want []string
+	}{
+		{"google-mail", []string{"google-mail"}},
+		{"google-drive", []string{"google-drive"}},
+		{"google-docs", []string{"google-docs", "google-slides"}},
+	} {
+		t.Run(tc.pack, func(t *testing.T) {
+			sub, err := fs.Sub(packs.FS, tc.pack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := pack.Load(sub, packs.Embedded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Kind != "source" {
+				t.Fatalf("kind %q, want source", p.Kind)
+			}
+			var names []string
+			for _, d := range p.Declared {
+				names = append(names, d.Name)
+			}
+			if !reflect.DeepEqual(names, tc.want) {
+				t.Fatalf("sources = %v, want %v", names, tc.want)
+			}
+		})
 	}
 }
 
@@ -51,7 +61,7 @@ func TestGooglePackDeclaresFourSources(t *testing.T) {
 // pointing at Google would call it.
 func googleDeclaration(t *testing.T, file, base, standin string) *source.Declaration {
 	t.Helper()
-	raw, err := fs.ReadFile(packs.FS, "google/"+file)
+	raw, err := fs.ReadFile(packs.FS, googlePackOf(file)+"/"+file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +73,19 @@ func googleDeclaration(t *testing.T, file, base, standin string) *source.Declara
 		t.Fatalf("%s: base %s, want the stand-in", file, d.Base)
 	}
 	return d
+}
+
+// googlePackOf is the embedded pack a Google declaration file ships
+// in: mail and drive each alone, docs with slides.
+func googlePackOf(file string) string {
+	switch file {
+	case "google-mail.yaml":
+		return "google-mail"
+	case "google-drive.yaml":
+		return "google-drive"
+	default:
+		return "google-docs"
+	}
 }
 
 // Each declaration mints from GOOGLE_ACCOUNT, names no idempotency key
@@ -94,7 +117,7 @@ func TestGoogleDeclarations(t *testing.T) {
 		},
 	}
 	for file, base := range bases {
-		raw, err := fs.ReadFile(packs.FS, "google/"+file)
+		raw, err := fs.ReadFile(packs.FS, googlePackOf(file)+"/"+file)
 		if err != nil {
 			t.Fatal(err)
 		}
