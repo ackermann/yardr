@@ -226,3 +226,37 @@ func TestBuildBodyHandsTypedParamsAndUpdateCredential(t *testing.T) {
 		t.Fatalf("refusal = %v", err)
 	}
 }
+
+func TestBuildBodyRedactsCredentialFromStderr(t *testing.T) {
+	d, err := Parse("crm.yaml", []byte(buildTestDeclaration))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	program := filepath.Join(home, "sources", "crm", "crm", "build")
+	if err := os.MkdirAll(filepath.Dir(program), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(program, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	params := map[string]string{"count": "2", "ok": "true", "mode": "fast"}
+	for name, tc := range map[string]struct {
+		command string
+		reason  string
+	}{
+		"refusal": {`echo "$CRM_UPDATE_TOKEN" >&2; exit 1`, BuildRefused},
+		"failure": {`echo "$CRM_UPDATE_TOKEN" >&2; printf 'not JSON'`, BuildFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			write(tc.command)
+			_, err := BuildBody(context.Background(), d, "write", params, "write-token", home)
+			if reason(err) != tc.reason || strings.Contains(err.Error(), "write-token") {
+				t.Fatalf("BuildBody = %v; want %s without the credential", err, tc.reason)
+			}
+		})
+	}
+}

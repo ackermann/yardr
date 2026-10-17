@@ -51,10 +51,9 @@ const (
 // CallError is a call that returned nothing, with why. Its text names the
 // source, the call and the cause. Except for a build command's bounded
 // stderr, it never holds a parameter's value, the credential, the request's
-// body or the address with its values in it: what a caller logs of a failed
-// call is safe to keep. A build's own words may repeat parameters or
-// service-derived metadata to the caller; the source_call event keeps only
-// the reason.
+// body or the address with its values in it. The stderr may repeat parameters
+// or service-derived metadata, but the credential's literal value is removed;
+// the source_call event keeps only the reason.
 type CallError struct {
 	Source, Call, Reason string
 	// Status is what the service answered, 0 when nothing was sent or

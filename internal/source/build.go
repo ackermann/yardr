@@ -84,6 +84,12 @@ func BuildBody(ctx context.Context, d *Declaration, name string, params map[stri
 	fail := func(reason, format string, args ...any) error {
 		return &CallError{Source: d.Name, Call: name, Reason: reason, msg: fmt.Sprintf(format, args...)}
 	}
+	redact := func(text string) string {
+		if credential != "" {
+			text = strings.ReplaceAll(text, credential, "[credential redacted]")
+		}
+		return text
+	}
 	c, ok := d.Call(name)
 	if !ok {
 		return nil, fail(NoCall, "the source has no call of that name")
@@ -114,9 +120,9 @@ func BuildBody(ctx context.Context, d *Declaration, name string, params map[stri
 	body, refusal, err := RunBuild(ctx, what, argv, map[string]any{"params": typed}, d.CommandEnvOf(c.Kind, credential), home, 0)
 	switch {
 	case err != nil:
-		return nil, fail(BuildFailed, "%v", err)
+		return nil, fail(BuildFailed, "%s", redact(err.Error()))
 	case refusal != "":
-		return nil, fail(BuildRefused, "%s", refusal)
+		return nil, fail(BuildRefused, "%s", redact(refusal))
 	default:
 		return body, nil
 	}
