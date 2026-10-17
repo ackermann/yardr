@@ -43,7 +43,7 @@ import (
 //
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
-// when the group sets it, and idle never does, since they cannot tell.
+// when the group sets it, and idle and still never do, since they cannot tell.
 //
 // A peer group's session is a bead at another yard (Waiter): its max_age
 // is 24h unless set, session_aged is raised at it once, and neither grace
@@ -99,10 +99,11 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 
 	if agent {
 		st := d.status[s.ID]
+		idleAt := d.now()
 		idleNow := st == "idle" || st == "done"
 		if st != "working" {
 			delete(d.still, s.ID)
-		} else if d.stillIdle(ctx, r, s, g) {
+		} else if d.stillIdle(ctx, r, s, g, idleAt) {
 			// Its pane has stood unchanged past the group's still
 			// limit: it counts as idle, whatever herdr says, and
 			// everything below holds for it.
@@ -130,10 +131,10 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			if !ok {
 				// Counted from the first pass that saw it idle; a restarted
 				// daemon starts the count again.
-				since = now
-				d.idleSince[s.ID] = now
+				since = idleAt
+				d.idleSince[s.ID] = idleAt
 			}
-			idleFor := now.Sub(since)
+			idleFor := idleAt.Sub(since)
 			tell := idleOn && idleFor >= idle && !d.idleTold[s.ID]
 			// The pane says why an agent is idle, where a status cannot: it
 			// is read while the spell is young, for a harness that stopped
@@ -153,7 +154,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				// limit on, and a grace does not end it meanwhile.
 				d.Log.Info("session idle with background work running: not told", "session", s.ID, "bead", s.Bead,
 					"idle", round(idleFor))
-				d.idleSince[s.ID] = now
+				d.idleSince[s.ID] = idleAt
 				tell, idleFor = false, 0
 			}
 			if !d.idleTold[s.ID] && s.Handle[HarnessErrorKey] == nil {
@@ -250,7 +251,7 @@ type stillPane struct {
 // session_idle would ever fire for it. Only bead sessions are judged, and
 // only runners with a pane to read; what is remembered is this process's,
 // and a daemon that replaced itself counts again.
-func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, g store.Group) bool {
+func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, g store.Group, now time.Time) bool {
 	lim, on := limit(g.Config, "still", DefaultStillLimit, true)
 	t, ok := r.(Tailer)
 	if !on || !ok {
@@ -259,9 +260,9 @@ func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, 
 	}
 	tail, err := t.Tail(ctx, s.Handle, stallTail)
 	if err != nil {
+		delete(d.still, s.ID)
 		return false // a pane that cannot be read says nothing either way
 	}
-	now := d.now()
 	if was, ok := d.still[s.ID]; ok && was.tail == tail {
 		return now.Sub(was.since) >= lim
 	}

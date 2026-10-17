@@ -17,9 +17,10 @@ import (
 // worktree that may have changed, as herdr's do.
 type agentRunner struct {
 	*statusRunner
-	tail   string
-	worked bool
-	look   string // what Start's look at the first prompt saw, for the handle
+	tail    string
+	tailErr error
+	worked  bool
+	look    string // what Start's look at the first prompt saw, for the handle
 }
 
 func (a *agentRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
@@ -33,7 +34,13 @@ func (a *agentRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any
 func (a *agentRunner) Tail(context.Context, map[string]any, int) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tail, nil
+	return a.tail, a.tailErr
+}
+
+func (a *agentRunner) setTailError(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tailErr = err
 }
 
 func (a *agentRunner) Worked(context.Context, map[string]any) (bool, error) {

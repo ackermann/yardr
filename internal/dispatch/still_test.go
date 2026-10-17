@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -29,17 +30,19 @@ func TestStillWorkingPaneCountsAsIdle(t *testing.T) {
 	t.Parallel()
 	s, r, d, b := harnessSetup(t, "muse", map[string]any{"still": "30ms", "idle": "30ms", "stall": "off"})
 	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
 	r.show("working", museUnknownError)
 	must(t, d.Reconcile(ctx)) // the pane stands, short of the still limit
 	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
 		t.Fatalf("session_idle before the still limit: %d", n)
 	}
-	time.Sleep(40 * time.Millisecond)
+	now = now.Add(31 * time.Millisecond)
 	must(t, d.Reconcile(ctx)) // still past the limit: the idle spell starts
 	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
 		t.Fatalf("session_idle before the idle limit: %d", n)
 	}
-	time.Sleep(40 * time.Millisecond)
+	now = now.Add(31 * time.Millisecond)
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_idle")
 	if len(evs) != 1 || evs[0].Data["tail"] != museUnknownError {
@@ -52,6 +55,7 @@ func TestStillWorkingPaneCountsAsIdle(t *testing.T) {
 	// The pane moves again: the spell is over, and nothing more is told
 	// until a pane stands past the still limit anew.
 	r.show("working", "◆ Thinking (3s · esc to interrupt)")
+	now = now.Add(time.Millisecond)
 	must(t, d.Reconcile(ctx))
 	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 1 {
 		t.Fatalf("session_idle events = %d, want 1 once the pane moves", n)
@@ -66,18 +70,47 @@ func TestMovingWorkingPaneCountsAsWorking(t *testing.T) {
 	t.Parallel()
 	s, r, d, b := harnessSetup(t, "muse", map[string]any{"still": "30ms", "idle": "30ms", "stall": "off"})
 	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
 	for _, tail := range []string{"◆ Thinking (3s · esc to interrupt)", "◆ Thinking (65s · esc to interrupt)",
 		"◆ Thinking (3s · esc to interrupt)", "◆ Thinking (65s · esc to interrupt)"} {
 		r.show("working", tail)
 		must(t, d.Reconcile(ctx))
-		time.Sleep(40 * time.Millisecond)
+		now = now.Add(20 * time.Millisecond)
 	}
+	// Each redraw arrived before the unchanged-pane limit, even though the
+	// whole sequence ran longer than it.
 	must(t, d.Reconcile(ctx))
 	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
 		t.Fatalf("session_idle for a pane that redraws: %d", n)
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_harness_error")); n != 0 {
 		t.Fatalf("session_harness_error for a pane that redraws: %d", n)
+	}
+}
+
+// A failed pane read cannot prove that the pane stayed unchanged. When it
+// becomes readable again, the still interval starts with that observation.
+func TestUnreadableWorkingPaneResetsStillObservation(t *testing.T) {
+	t.Parallel()
+	s, r, d, b := harnessSetup(t, "muse", map[string]any{"still": "30ms", "idle": "30ms", "stall": "off"})
+	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	r.show("working", museUnknownError)
+	must(t, d.Reconcile(ctx)) // first readable observation
+
+	now = now.Add(31 * time.Millisecond)
+	r.setTailError(errors.New("pane read failed"))
+	must(t, d.Reconcile(ctx)) // no observation: reset the interval
+
+	now = now.Add(31 * time.Millisecond)
+	r.setTailError(nil)
+	must(t, d.Reconcile(ctx)) // same tail, but it has only just become readable
+	now = now.Add(31 * time.Millisecond)
+	must(t, d.Reconcile(ctx)) // the idle spell starts now, after a full still interval
+	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
+		t.Fatalf("session_idle while the recovered pane was only just deemed still: %d", n)
 	}
 }
 
@@ -92,6 +125,7 @@ func TestStillWorkingPaneWithNoCheckIsWorking(t *testing.T) {
 		"no pane to read": {cfg: map[string]any{"still": "30ms", "idle": "30ms", "stall": "off"}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			now := time.Now()
 			s := storetest.New(t)
 			ctx := context.Background()
 			var r dispatch.Runner
@@ -101,6 +135,7 @@ func TestStillWorkingPaneWithNoCheckIsWorking(t *testing.T) {
 				r = &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 			}
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+			dispatch.SetClock(d, func() time.Time { return now })
 			conf := map[string]any{"kind": "muse"}
 			for k, v := range tc.cfg {
 				conf[k] = v
@@ -115,9 +150,9 @@ func TestStillWorkingPaneWithNoCheckIsWorking(t *testing.T) {
 				a.show("working", tc.tail)
 			}
 			must(t, d.Reconcile(ctx))
-			time.Sleep(40 * time.Millisecond)
+			now = now.Add(time.Minute)
 			must(t, d.Reconcile(ctx))
-			time.Sleep(40 * time.Millisecond)
+			now = now.Add(time.Minute)
 			must(t, d.Reconcile(ctx))
 			if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
 				t.Fatalf("session_idle = %d, want none", n)
