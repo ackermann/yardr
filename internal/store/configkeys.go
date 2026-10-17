@@ -89,6 +89,7 @@ var ConfigKeys = []ConfigKey{
 	{"max_age", ConfigLimit, nil, GroupConfig, "how long a session may run before a session_aged event"},
 	{"grace", ConfigLimit, nil, GroupConfig, "how long after its event a session still idle or running is stopped"},
 	{"stall", ConfigLimit, nil, GroupConfig, "how long an agent may sit idle after its first prompt before a session_stalled event"},
+	{"still", ConfigLimit, nil, GroupConfig, "how long an agent herdr calls working may show an unchanged pane before it counts as idle"},
 	{"keep", ConfigBool, nil, GroupConfig, "true: a session that ended is not stopped, so what it ran in stays to be looked at"},
 	{"cleanup", ConfigBool, nil, GroupConfig, "false: what a closed bead's sessions left behind (its worktree) is kept"},
 	{OpenThreads, ConfigNames, nil, CrewConfig, "the sources the crew member may open threads in"},

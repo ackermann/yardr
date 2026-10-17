@@ -36,6 +36,10 @@ import (
 //	stall    how long an agent may sit idle after its first prompt, having
 //	         done nothing, before a session_stalled event; default 2m (see
 //	         stall.go)
+//	still    how long an agent herdr calls working may show a pane whose
+//	         end stands unchanged before it counts as idle, whatever it
+//	         shows; default 10m (see stillIdle). A harness at work redraws
+//	         its screen, so a still pane is not working.
 //
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
@@ -50,6 +54,9 @@ const (
 	// AgeCapFactor times max_age is the hard cap on a session's age when
 	// the group sets no grace.
 	AgeCapFactor = 2
+	// DefaultStillLimit is how long an agent herdr calls working may show
+	// a pane whose end stands unchanged before it counts as idle.
+	DefaultStillLimit = 10 * time.Minute
 )
 
 // AgedAt is a handle key: when session_aged was raised for the session. It
@@ -93,6 +100,18 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	if agent {
 		st := d.status[s.ID]
 		idleNow := st == "idle" || st == "done"
+		if st != "working" {
+			delete(d.still, s.ID)
+		} else if d.stillIdle(ctx, r, s, g) {
+			// Its pane has stood unchanged past the group's still
+			// limit: it counts as idle, whatever herdr says, and
+			// everything below holds for it.
+			if _, ok := d.idleSince[s.ID]; !ok {
+				d.Log.Info("session's pane unchanged while working: counted as idle",
+					"session", s.ID, "bead", s.Bead)
+			}
+			idleNow = true
+		}
 		if due, waits := handleTime(s.Handle, harnessResetAt); idleNow && waits {
 			// It waits for the window of its usage limit to reset, which the
 			// yardmaster was told of with the time, and yardr prompts it then
@@ -213,6 +232,44 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		}
 	}
 	return true
+}
+
+// stillPane is the end of a working agent's pane as last seen, and when it
+// was first seen as it is.
+type stillPane struct {
+	tail  string
+	since time.Time
+}
+
+// stillIdle reports whether s, which herdr calls working, counts as idle:
+// the end of its pane has stood unchanged for the group's still limit
+// (default 10m; "off" or "0" turns it off). A harness at work redraws its
+// screen (a spinner, the seconds a turn has taken, streamed text), so a
+// pane that stands is not working: its harness stopped on something no
+// error line knows, and without this neither session_harness_error nor
+// session_idle would ever fire for it. Only bead sessions are judged, and
+// only runners with a pane to read; what is remembered is this process's,
+// and a daemon that replaced itself counts again.
+func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, g store.Group) bool {
+	lim, on := limit(g.Config, "still", DefaultStillLimit, true)
+	t, ok := r.(Tailer)
+	if !on || !ok {
+		delete(d.still, s.ID)
+		return false
+	}
+	tail, err := t.Tail(ctx, s.Handle, stallTail)
+	if err != nil {
+		return false // a pane that cannot be read says nothing either way
+	}
+	now := d.now()
+	if was, ok := d.still[s.ID]; ok && was.tail == tail {
+		return now.Sub(was.since) >= lim
+	}
+	if d.still == nil {
+		d.still = map[string]stillPane{}
+	}
+	d.still[s.ID] = stillPane{tail: tail, since: now}
+	return false
 }
 
 // idleNudge sends the idle session s one prompt when its bead is still in

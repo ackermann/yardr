@@ -314,6 +314,9 @@ type Dispatcher struct {
 	idleSince    map[string]time.Time
 	idleTold     map[string]bool // session -> session_idle raised this idle spell
 	idleNudged   map[string]bool // session -> idle nudge sent this idle spell
+	// still is session -> the end of its working pane as last seen, and
+	// when it was first seen as it is: what stillIdle judges by.
+	still map[string]stillPane
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
@@ -473,6 +476,7 @@ func (d *Dispatcher) defaults() {
 		d.idleSince = map[string]time.Time{}
 		d.idleTold = map[string]bool{}
 		d.idleNudged = map[string]bool{}
+		d.still = map[string]stillPane{}
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
@@ -1106,6 +1110,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)
 	delete(d.idleNudged, id)
+	delete(d.still, id)
 	delete(d.fresh, id)
 	delete(d.promptIdle, id)
 	delete(d.drafts, id)

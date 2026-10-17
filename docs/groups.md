@@ -544,7 +544,12 @@ that ends on an error may tell it nothing: Kimi, stopped on a usage limit
 mid-work, stays `working`, and a screen-judged harness can strand one the
 same way. An agent herdr calls `working`, whose pane ends in a known error
 line of its `kind` and has not changed for a minute, is idle to the yard,
-and everything below holds for it.
+and everything below holds for it. One whose pane ends in anything no line
+knows is caught by the longer net instead: a `working` pane whose end has
+stood unchanged for the group's `still` (default 10m, `off` turns it off)
+counts as idle whatever it shows, so `session_idle` fires at the `idle`
+limit with the end of its pane in `tail`. A harness at work redraws its
+screen, so a still pane for that long is not working.
 
 **`session_harness_error`.** The pane says what herdr's status cannot. On
 each pass in the first 2 minutes of an idle spell (status `idle` or `done`)
@@ -823,7 +828,7 @@ key sets them.
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)) |
 | `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees`, `env_file` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `still`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
 What an exec session's command prints, stdout and stderr, is appended to
