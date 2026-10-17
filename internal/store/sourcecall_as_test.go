@@ -354,7 +354,8 @@ func TestSourceCallAsSharesTheCallersBudget(t *testing.T) {
 // call with the same parameters as bia: each is sent under its own
 // idempotency key. A second try as ada takes ada's key again.
 func TestSourceUpdateAsAUserHasItsOwnKey(t *testing.T) {
-	// Sequential: drives source.Timeout, which every source call reads.
+	// Sequential: source.Timeout is package-global; keep it long enough for
+	// context cancellation after the stand-in has taken the first update.
 	was := source.Timeout
 	t.Cleanup(func() { source.Timeout = was })
 	source.Timeout = time.Hour
@@ -372,17 +373,37 @@ func TestSourceUpdateAsAUserHasItsOwnKey(t *testing.T) {
 		}
 	}
 	_, sess := session(t, s, "support")
-	note := func(as, text string) (*store.SourceAnswer, error) {
+	note := func(ctx context.Context, as, text string) (*store.SourceAnswer, error) {
 		return s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "note", As: as, Session: sess.ID, Actor: "x", Params: map[string]string{"id": "7", "text": text}})
 	}
 
-	source.Timeout = 300 * time.Millisecond
-	crm.HoldNote() // the service takes the note and its answer never comes
-	if _, err := note("ada", "called back"); err == nil || !strings.Contains(err.Error(), "nothing within") {
-		t.Fatalf("a held update as ada = %v", err)
+	taken := crm.HoldNote() // the service takes the note and holds its answer
+	callCtx, cancel := context.WithCancel(ctx)
+	type callResult struct {
+		answer *store.SourceAnswer
+		err    error
 	}
-	source.Timeout = time.Hour
-	if _, err := note("bia", "called back"); err != nil {
+	done := make(chan callResult, 1)
+	go func() {
+		answer, err := note(callCtx, "ada", "called back")
+		done <- callResult{answer: answer, err: err}
+	}()
+	select {
+	case <-taken:
+	case <-time.After(5 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("the stand-in did not take ada's update")
+	}
+	cancel()
+	first := <-done
+	if first.err == nil || !strings.Contains(first.err.Error(), "context canceled") {
+		t.Fatalf("the held update as ada = %+v, %v", first.answer, first.err)
+	}
+	if notes, asked := crm.CustomerNotes(), crm.NotesAsked(); len(notes) != 1 || asked != 1 {
+		t.Fatalf("the stand-in has not taken ada's update: %+v, asked %d times", notes, asked)
+	}
+	if _, err := note(ctx, "bia", "called back"); err != nil {
 		t.Fatalf("the same call as bia = %v", err)
 	}
 	notes := crm.CustomerNotes()
@@ -394,7 +415,7 @@ func TestSourceUpdateAsAUserHasItsOwnKey(t *testing.T) {
 	}
 	// A second try as ada takes ada's key again: the service writes
 	// nothing more.
-	res, err := note("ada", "called back")
+	res, err := note(ctx, "ada", "called back")
 	if err != nil || string(res.Answer) != `{"customer":"7","id":"n1"}` {
 		t.Fatalf("the same call as ada again = %+v, %v", res, err)
 	}

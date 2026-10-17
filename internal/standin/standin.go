@@ -297,8 +297,9 @@ type Server struct {
 	asked    int // requests to /1/messages.json, taken or not
 	answer   int // what one is answered with, 0 for 200
 	notes    []CustomerNote
-	notesFor int  // requests for a note, written or not
-	hold     bool // the next note is written and its answer held
+	notesFor int           // requests for a note, written or not
+	hold     bool          // the next note is written and its answer held
+	holdNote chan struct{} // closed when that note is written and held
 }
 
 // CustomerNote is a note the customer system took at POST
@@ -328,11 +329,14 @@ func (s *Server) NotesAsked() int {
 
 // HoldNote has the next note written and its answer held until the caller
 // gives up: a service that took an update and whose answer was lost on the
-// way, which is what a key is sent for.
-func (s *Server) HoldNote() {
+// way, which is what a key is sent for. It returns a channel closed once
+// the service has taken the note, so a test can wait on that effect.
+func (s *Server) HoldNote() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hold = true
+	s.holdNote = make(chan struct{})
+	return s.holdNote
 }
 
 // Message is a message the stand-in took at POST /1/messages.json, whose
@@ -614,9 +618,14 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, customer string) {
 		s.notes = append(s.notes, n)
 	}
 	hold := s.hold
+	held := s.holdNote
 	s.hold = false
+	s.holdNote = nil
 	s.mu.Unlock()
 	if hold {
+		if held != nil {
+			close(held)
+		}
 		select {
 		case <-r.Context().Done():
 		case <-time.After(5 * time.Minute):
