@@ -222,14 +222,15 @@ func TestMintRunsAndCaches(t *testing.T) {
 // process that asks has them, since a helper that reads the user's
 // keyring looks it up by user name.
 func TestMintSeesUser(t *testing.T) {
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	t.Cleanup(SetMintClock(func() time.Time { return now }))
 	t.Setenv("USER", "mint-user")
-	t.Setenv("LOGNAME", "mint-user")
-	t.Cleanup(SetMintClock(time.Now))
+	t.Setenv("LOGNAME", "mint-login")
 	p := filepath.Join(t.TempDir(), "mint")
 	body := `#!/bin/sh
 [ "$USER" = "mint-user" ] || { echo "USER is ${USER-unset}" >&2; exit 1; }
-[ "$LOGNAME" = "mint-user" ] || { echo "LOGNAME is ${LOGNAME-unset}" >&2; exit 1; }
-printf '{"token":"tok-1","expires_at":"2027-01-01T00:00:00Z"}'
+[ "$LOGNAME" = "mint-login" ] || { echo "LOGNAME is ${LOGNAME-unset}" >&2; exit 1; }
+printf '{"token":"tok-1","expires_at":"` + now.Add(time.Hour).Format(time.RFC3339) + `"}'
 `
 	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
