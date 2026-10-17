@@ -243,7 +243,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 			if !o.Calls[c.Grantee().String()][CallKey(c.Source, w)] {
 				continue
 			}
-			if _, err := st.GrantSource(ctx, c.Source, w, c.Grantee(), o.Actor); err != nil {
+			if _, err := st.GrantSource(ctx, c.Source, w, c.Grantee(), "", o.Actor); err != nil {
 				return nil, fmt.Errorf("letting %s call %s of the source %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", c.Grantee(), w, c.Source, err)
 			}
 			yes = append(yes, w)

@@ -410,15 +410,18 @@ made by the yard's server.
   yardr source grant crm read --group builders --group reviewers   # every read call
   yardr source grant crm customer --crew yardmaster                # one read call
   yardr source grant crm note --group support                      # one update call
+  yardr source grant crm read --crew yardmaster --as ada           # read, made with ada's credential
   yardr source revoke crm read --group reviewers
 
 A grant is kept on its own, by source and grantee, and not in a group's
 definition, which yardr group add replaces whole. read is every read call of
 the source, one a later file adds included: yardr source add says who gets a
 call that is new or changed. An update call is granted by its name and no
-other way: there is no word for every update. Granting is the operator's,
-and is refused from the pane of an agent whatever --actor says; anyone may
-revoke. Removing a source removes its grants.`,
+other way: there is no word for every update. Granting plainly is the
+operator's, and is refused from the pane of an agent whatever --actor says;
+a grant --as <user> is that user's to give alone, and the operator is
+refused it. Anyone may revoke, by the same words. Removing a source removes
+its grants, plain and as a user alike.`,
 	}
 
 	add := &cobra.Command{
@@ -1086,20 +1089,27 @@ again, and it ends as one giving that worked.`,
 		}
 		return to, nil
 	}
+	var grantAs string
 	grant := &cobra.Command{
-		Use:   "grant <name> read|<call> --group <group> | --crew <crew member>",
+		Use:   "grant <name> read|<call> --group <group> | --crew <crew member> [--as <user>]",
 		Short: "Let a group's sessions or a crew member make calls of a source",
 		Long: `read is every read call of the source, one a later file adds included; a
 call's name is that one call. An update call is granted by its name alone:
 read does not cover it, and there is no word for every update. Both flags
-repeat. A grant is the operator's to give, and is refused from the pane of
-an agent whatever --actor says.
+repeat. A plain grant is the operator's to give, and is refused from the
+pane of an agent whatever --actor says.
+
+With --as <user> the call is made with that user's credential, from their
+env_file: a grant of it is that user's to give alone, and the operator is
+refused it, at a terminal as on a card. It covers no plain call, and a
+plain grant no call as them.
 
 A session whose bead came from another yard makes no call, whatever its
 group is granted.`,
 		Example: `  yardr source grant crm read --group builders --group reviewers
   yardr source grant crm customer --crew yardmaster
-  yardr source grant crm note --group support`,
+  yardr source grant crm note --group support
+  yardr source grant crm read --crew yardmaster --as ada`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			to, err := grantees()
@@ -1112,7 +1122,7 @@ group is granted.`,
 			}
 			var saved []*store.SourceGrant
 			for _, g := range to {
-				s, err := st.GrantSource(c.Context(), args[0], args[1], g, a.who())
+				s, err := st.GrantSource(c.Context(), args[0], args[1], g, grantAs, a.who())
 				if err != nil {
 					return err
 				}
@@ -1121,17 +1131,19 @@ group is granted.`,
 			words := grantWords(c.Context(), st)
 			return a.out(saved, func() {
 				for _, s := range saved {
-					fmt.Printf("%s may call %s: %s\n", s.Grantee, s.Source, words(*s))
+					fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
 				}
 			})
 		},
 	}
 	revoke := &cobra.Command{
-		Use:   "revoke <name> read|<call> --group <group> | --crew <crew member>",
+		Use:   "revoke <name> read|<call> --group <group> | --crew <crew member> [--as <user>]",
 		Short: "Take a grant of a source's calls back",
-		Long: `Takes back what yardr source grant gave, by the same word: read, or a
-call's name. A grantee that has read and a call by name keeps the one that
-is not named here. Anyone may revoke.`,
+		Long: `Takes back what yardr source grant gave, by the same words: read, or a
+call's name, and --as <user> where the grant was given as that user. A
+grantee that has read and a call by name keeps the one that is not named
+here, and a plain grant and one as a user are taken back apart. Anyone
+may revoke.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			to, err := grantees()
@@ -1144,7 +1156,7 @@ is not named here. Anyone may revoke.`,
 			}
 			var left []*store.SourceGrant
 			for _, g := range to {
-				s, err := st.RevokeSource(c.Context(), args[0], args[1], g, a.who())
+				s, err := st.RevokeSource(c.Context(), args[0], args[1], g, grantAs, a.who())
 				if err != nil {
 					return err
 				}
@@ -1152,8 +1164,8 @@ is not named here. Anyone may revoke.`,
 			}
 			words := grantWords(c.Context(), st)
 			return a.out(left, func() {
-				for i, s := range left {
-					fmt.Printf("%s may call %s: %s\n", to[i], args[0], or(words(*s), "nothing"))
+				for _, s := range left {
+					fmt.Printf("%s may call %s: %s\n", s.Holder(), args[0], or(words(*s), "nothing"))
 				}
 			})
 		},
@@ -1161,6 +1173,7 @@ is not named here. Anyone may revoke.`,
 	for _, cmd := range []*cobra.Command{grant, revoke} {
 		cmd.Flags().StringArrayVar(&groups, "group", nil, "a group: each session it starts (repeatable)")
 		cmd.Flags().StringArrayVar(&crew, "crew", nil, "a crew member (repeatable)")
+		cmd.Flags().StringVar(&grantAs, "as", "", "make the call with this user's credential, from their env_file; a grant of it is theirs alone to give")
 	}
 
 	var checkUser string
@@ -1499,6 +1512,15 @@ func grantWords(ctx context.Context, st store.API) func(store.SourceGrant) strin
 	}
 }
 
+// asSuffix is " as <user>" for a grant made as a user, "" for a plain
+// one: how a line about a grant says who a call is made as.
+func asSuffix(g store.SourceGrant) string {
+	if g.As == "" {
+		return ""
+	}
+	return " as " + g.As
+}
+
 // stillGranted says who holds, by its name, a call the replaced declaration
 // changes: the grant was given for the call as it was, and an update that
 // now writes something else is still theirs to make. A line per call.
@@ -1515,7 +1537,7 @@ func stillGranted(was, now *source.Declaration, grants []store.SourceGrant) []st
 		var who []string
 		for _, g := range grants {
 			if slices.Contains(g.Calls, c.Name) {
-				who = append(who, g.Grantee.String())
+				who = append(who, g.Holder())
 			}
 		}
 		if len(who) > 0 {
@@ -1533,9 +1555,9 @@ func grantedCall(grants []store.SourceGrant, c *source.Call) []string {
 	for _, g := range grants {
 		switch {
 		case slices.Contains(g.Calls, c.Name):
-			who = append(who, g.Grantee.String())
-		case g.Covers(c):
-			who = append(who, g.Grantee.String()+" (through "+store.GrantRead+")")
+			who = append(who, g.Holder())
+		case g.Covers(c, g.As):
+			who = append(who, g.Holder()+" (through "+store.GrantRead+")")
 		}
 	}
 	return who

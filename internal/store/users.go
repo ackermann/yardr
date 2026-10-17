@@ -6,7 +6,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -472,13 +475,113 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 
 // DeleteUser removes the user, with their subscriptions and notifications,
 // their devices and what was still to be told them outside the yard; the
-// mail to and from them stays in the log.
+// mail to and from them stays in the log. It also removes every grant of
+// a call made as them and clears their credential from their env file, so
+// a user added again under the name finds neither waiting: a name is
+// reusable, and the first's access must not be the second's.
 // The operator's user is not removed: the setting names someone else
 // first. Like adding one, it is the operator's to do (operatorOnly).
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		return w.deleteUser(ctx, name, actor, nil)
 	})
+}
+
+// effectiveEnvFile is the file a user's credential and address are read
+// from: the one their record names, or the yard's default for their name
+// (userEnvFile); no file for a name the yard chooses none for.
+func effectiveEnvFile(home string, u *User) (string, bool) {
+	if u.EnvFile != "" {
+		return u.EnvFile, true
+	}
+	file, err := userEnvFile(home, u.Name)
+	if err != nil {
+		return "", false
+	}
+	return file, true
+}
+
+// resolvedEnvFile is a path as the one file it names: a leading ~/ made
+// the home and the result made absolute and cleaned (config.ExpandPath),
+// with a symbolic link evaluated where the file stands, so its spellings
+// and a link to it count as the one file. The comparison is on the
+// records, whether the file stands today or not.
+func resolvedEnvFile(path string) (string, error) {
+	p, err := config.ExpandPath(path)
+	if err != nil {
+		return "", err
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r, nil
+	}
+	return p, nil
+}
+
+// userCredentialNames are every name a user's env file holds for a
+// source: each declared source's credential names (its static ones and
+// every name under its mint) and the address name of each notify key,
+// across the yard's sources. Sorted, each once.
+func userCredentialNames(tx *bolt.Tx) ([]string, error) {
+	set := map[string]bool{}
+	err := each(tx, bSources, "", func(_ []byte, src *Source) error {
+		d, err := src.Declaration()
+		if err != nil {
+			// One this build does not read names no name it can clear.
+			return nil
+		}
+		if d.Credential != nil {
+			for _, n := range d.Credential.Variables() {
+				set[n] = true
+			}
+		}
+		if d.Notify != nil && d.Notify.AddressEnv != "" {
+			set[d.Notify.AddressEnv] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// clearUserCredential takes the user name's credential out of their
+// effective file, before their record goes: the yard's own default file
+// is removed outright, a file a person keeps elsewhere has every
+// credential and address name struck from it by the whole-file write an
+// env file is written by, its other lines and comments kept. A file
+// already gone is no error; one that cannot be cleared refuses the
+// removal whole, with the record, the grants and the file as they were.
+func (w *wtx) clearUserCredential(name string, u *User) error {
+	file, has := effectiveEnvFile(w.home, u)
+	if !has {
+		return nil
+	}
+	resolved, err := resolvedEnvFile(file)
+	if err != nil {
+		return fmt.Errorf("user %s is not removed: %w", name, err)
+	}
+	if def, err := userEnvFile(w.home, name); err == nil {
+		if defResolved, err := resolvedEnvFile(def); err == nil && defResolved == resolved {
+			if err := os.Remove(resolved); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("user %s is not removed: their credential file %s is not removed: %w", name, resolved, err)
+			}
+			return nil
+		}
+	}
+	names, err := userCredentialNames(w.Tx)
+	if err != nil {
+		return err
+	}
+	if _, _, err := config.RemoveEnvNames(file, names); err != nil {
+		return fmt.Errorf("user %s is not removed: their credential is not cleared from %s: %w", name, resolved, err)
+	}
+	return nil
 }
 
 // deleteUser is DeleteUser inside the transaction, so that an approved run
@@ -488,13 +591,66 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 	if err := w.operatorOnly(ctx, actor, "remove a user", Askable); err != nil {
 		return err
 	}
-	if _, err := getUser(w.Tx, name); err != nil {
+	u, err := getUser(w.Tx, name)
+	if err != nil {
 		return err
 	}
 	if operator, err := operatorIn(w.Tx); err != nil {
 		return err
 	} else if operator == name {
 		return fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
+	}
+	// Before any grant is deleted and before the file is touched: where
+	// another user's effective file is the same file, clearing it would
+	// take their credential or address with this one's, so the removal
+	// is refused whole, with the move that frees it named.
+	if file, has := effectiveEnvFile(w.home, u); has {
+		resolved, err := resolvedEnvFile(file)
+		if err != nil {
+			return fmt.Errorf("user %s is not removed: %w", name, err)
+		}
+		var shared string
+		err = each(w.Tx, bUsers, "", func(_ []byte, other *User) error {
+			if other.Name == name || shared != "" {
+				return nil
+			}
+			otherFile, ok := effectiveEnvFile(w.home, other)
+			if !ok {
+				return nil
+			}
+			otherResolved, err := resolvedEnvFile(otherFile)
+			if err != nil {
+				return err
+			}
+			if otherResolved == resolved {
+				shared = other.Name
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if shared != "" {
+			return fmt.Errorf("user %s is not removed: %s's env_file is the same file (%s); move one of them first (yardr user set %s env_file=<file>) and remove %s again", name, shared, resolved, shared, name)
+		}
+	}
+	// The grants of calls made as them, in the same write as the record.
+	var asKeys []string
+	if err := each(w.Tx, bSourceGrants, "", func(k []byte, g *SourceGrant) error {
+		if g.As == name {
+			asKeys = append(asKeys, string(k))
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := w.clearUserCredential(name, u); err != nil {
+		return err
+	}
+	for _, k := range asKeys {
+		if err := w.Bucket(bSourceGrants).Delete([]byte(k)); err != nil {
+			return err
+		}
 	}
 	if err := w.Bucket(bUsers).Delete([]byte(name)); err != nil {
 		return err
@@ -506,6 +662,9 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 		return err
 	}
 	data := map[string]any{"user": name}
+	if len(asKeys) > 0 {
+		data["as_grants"] = len(asKeys)
+	}
 	if err := dropDevices(w.Tx, name, data); err != nil {
 		return err
 	}

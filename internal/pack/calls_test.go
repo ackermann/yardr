@@ -240,7 +240,7 @@ func TestPlanAsksAboutCallsOnceTheSourceHasItsCredential(t *testing.T) {
 
 	// A no is answered after all; a yes that was taken back is asked again,
 	// never given back unasked.
-	if _, err := st.RevokeSource(ctx, "crm", "read", builders, "me"); err != nil {
+	if _, err := st.RevokeSource(ctx, "crm", "read", builders, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan = build(t, st, load(t, dir), o)
@@ -263,7 +263,7 @@ func TestACallCoveredByReadIsHad(t *testing.T) {
 	dir := writePack(t, callsFiles(smallCalls, crm))
 	applyCalls(t, st, build(t, st, load(t, dir), o), nil)
 	credential(t, st, "crm", "CRM_TOKEN=not-a-real-one\n")
-	if _, err := st.GrantSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "me"); err != nil {
+	if _, err := st.GrantSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	c := asked(t, build(t, st, load(t, dir), o), "yardmaster", "crm")
@@ -332,7 +332,7 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 		if to.Crew != "" {
 			what = "customer"
 		}
-		if _, err := st.GrantSource(ctx, "crm", what, to, "me"); err != nil {
+		if _, err := st.GrantSource(ctx, "crm", what, to, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -348,7 +348,7 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	}
 
 	// With nobody holding read, a new read call reaches nobody.
-	if _, err := st.RevokeSource(ctx, "crm", "read", store.Grantee{Group: "web-builders"}, "me"); err != nil {
+	if _, err := st.RevokeSource(ctx, "crm", "read", store.Grantee{Group: "web-builders"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm"); d.Reaches != nil {

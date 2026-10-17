@@ -353,6 +353,12 @@ type runCommand struct {
 	// for one of the two, and the one asked approves. nil for a command
 	// that is the operator's alone.
 	whose func(argv []string) string
+	// sole is the user who alone may be asked to approve the command,
+	// with no operator leg beside them: "" where the command is not one,
+	// or not in that form (a plain source grant is the operator's, one as
+	// a user is that user's alone). It takes the place of whose and of
+	// the operator's leg wherever it answers a name.
+	sole func(argv []string) string
 	// commas says a word of the command is a list with commas between, as
 	// the parts of tell= are. No other command takes the character.
 	commas bool
@@ -394,13 +400,17 @@ var runList = []runCommand{{
 	},
 }, {
 	words:       []string{"source", "grant"},
-	use:         "yardr source grant <source> read|<call> --group <group>|--crew <crew member>",
+	use:         "yardr source grant <source> read|<call> --group <group>|--crew <crew member> [--as <user>]",
 	description: "Let a group's sessions or a crew member make calls of a source",
 	parse:       parseGrant,
 	check:       checkGrant,
 	card:        (*wtx).grantCard,
 	stale:       (*wtx).grantStale,
 	run:         runGrant,
+	sole: func(argv []string) string {
+		_, _, _, as := grantOf(argv)
+		return as
+	},
 }, {
 	words:       []string{"source", "add"},
 	use:         "yardr source add <file>",
@@ -992,6 +1002,10 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 			return c.checkRun(ctx, w, sent, actor)
 		}
 	}
+	sole := ""
+	if c.sole != nil {
+		sole = c.sole(argv)
+	}
 	if check != nil {
 		// The command's own check as the asker: nothing says run it
 		// yourself better than the yard allowing it, and nothing says
@@ -1002,11 +1016,17 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 			} else if ask == Alone {
 				return nil, aloneRefusal(err)
 			}
-			// The operator must be allowed it: the ask proposes what
-			// they would run. Their leg runs without the asker's pane,
-			// which is the asker's, not theirs.
-			if err := check(context.Background(), w, argv, operator); err != nil {
-				return nil, fmt.Errorf("running it as the operator would be refused: %w", err)
+			// The one who would give it must be allowed it: the ask
+			// proposes what they would run. Their leg runs without the
+			// asker's pane, which is the asker's, not theirs. For a
+			// command one user alone gives, that leg is theirs, and
+			// there is no operator's beside it.
+			giver, asWho := operator, "the operator"
+			if sole != "" {
+				giver, asWho = sole, sole
+			}
+			if err := check(context.Background(), w, argv, giver); err != nil {
+				return nil, fmt.Errorf("running it as %s would be refused: %w", asWho, err)
 			}
 		} else {
 			return nil, fmt.Errorf("%s needs no approval: run it yourself", runCommandLine(argv))
@@ -1017,6 +1037,9 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 		user = c.whose(argv)
 	}
 	switch {
+	case sole != "" && to == sole:
+	case sole != "":
+		return nil, fmt.Errorf("this command is %s's to approve alone, and nobody else's: the yard runs it as them, so %s cannot be asked to", sole, to)
 	case user != "" && to == user:
 	case user != "" && to != operator:
 		whose := user + "'s to approve"
@@ -1060,7 +1083,9 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // ask by naming the operator. A command that is a user's own, as that
 // user's subscriptions and what their phone is told of are, is approved by
 // the one it was asked of, that
-// user or the operator, and by nobody else (mayApproveOwn). It refuses when
+// user or the operator, and by nobody else (mayApproveOwn); a command one
+// user alone gives, a grant as them, is approved by that user alone, with
+// no operator leg (mayApproveSole). It refuses when
 // the yard would not write the
 // same card now: what the command names was replaced under its name (Seen),
 // or what it changes is not what the card says it is (Does). And what the
@@ -1142,7 +1167,9 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	// Before anything is written: an agent's approval changes nothing, not
 	// even what the transaction would take back.
-	if c.whose != nil {
+	if c.sole != nil && c.sole(argv) != "" {
+		err = w.mayApproveSole(ctx, actor, r.Ask.To, c.sole(argv))
+	} else if c.whose != nil {
 		err = w.mayApproveOwn(ctx, actor, r.Ask.To, c.whose(argv))
 	} else {
 		err = w.mayApprove(ctx, actor)
@@ -1262,6 +1289,32 @@ func (w *wtx) mayApproveOwn(ctx context.Context, actor, to, whose string) error 
 	}
 	if to != whose && to != operator {
 		return fmt.Errorf("this command is %s's own to approve, or the operator's for them, and %s is neither now", whose, to)
+	}
+	return nil
+}
+
+// mayApproveSole is mayApproveOwn for a command one user alone gives:
+// the one asked must be that user, and the operator has no leg beside
+// them, so an approval by the operator (or by anyone else) is refused
+// whoever the ask was put to. An agent's pane is refused first, as in
+// mayApproveOwn.
+func (w *wtx) mayApproveSole(ctx context.Context, actor, to, sole string) error {
+	why := "approving this command is " + sole + "'s alone, and nobody else's: the yard runs it as them"
+	pane, err := agentPane(ctx, w.Tx)
+	if err != nil {
+		return err
+	}
+	if pane != "" {
+		return fmt.Errorf("%s; this is %s", why, pane)
+	}
+	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
+		return fmt.Errorf("%s; %s is a crew member", why, actor)
+	}
+	if actor != to {
+		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
+	}
+	if to != sole {
+		return fmt.Errorf("this command is %s's own to approve alone, and %s is not them", sole, to)
 	}
 	return nil
 }

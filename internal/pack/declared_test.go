@@ -372,7 +372,7 @@ func TestDeclaredSourceNeedsNoEnvFileACrewMemberHolds(t *testing.T) {
 
 	// A grant is a call the server makes with the source's file: the need
 	// is back.
-	if _, err := st.GrantSource(ctx, "pushover", "message", store.Grantee{Crew: "boss"}, "me"); err != nil {
+	if _, err := st.GrantSource(ctx, "pushover", "message", store.Grantee{Crew: "boss"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	d = declared(t, build(t, st, load(t, dir), o), "pushover")

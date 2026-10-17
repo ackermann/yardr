@@ -877,7 +877,7 @@ func TestSetupWritesFromAPaneAreThatPanesActor(t *testing.T) {
 		if _, err := api.PutSource(ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", "http://127.0.0.1:9", 1), "jo"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := api.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "jo"); err != nil {
+		if _, err := api.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "", "jo"); err != nil {
 			t.Fatal(err)
 		}
 		f, err := store.ParseFlow(outcomeFlow)
@@ -934,7 +934,7 @@ func TestSetupWritesFromAPaneAreThatPanesActor(t *testing.T) {
 		if recs, _ := api.Packs(ctx); len(recs) != 1 || recs[0].By != "yardmaster" {
 			t.Fatalf("pack record = %+v, want it by yardmaster", recs)
 		}
-		if g, err := api.RevokeSource(pane, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "jo"); err != nil {
+		if g, err := api.RevokeSource(pane, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "", "jo"); err != nil {
 			t.Fatalf("RevokeSource from the pane as the operator: %v", err)
 		} else if len(g.Calls) != 0 {
 			t.Fatalf("grant after the revoke = %+v", g)

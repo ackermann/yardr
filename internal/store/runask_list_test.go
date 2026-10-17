@@ -334,7 +334,7 @@ func TestRunAskGrant(t *testing.T) {
 	if err := y.PutGroup(y.ctx, Group{Name: "others", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.GrantSource(y.ctx, "crm", "note", Grantee{Group: "others"}, "mckean"); err != nil {
+	if _, err := y.GrantSource(y.ctx, "crm", "note", Grantee{Group: "others"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	limit := 4
@@ -384,7 +384,7 @@ func TestRunAskGrant(t *testing.T) {
 		t.Errorf("the approved card:\n%s", strings.Join(card, "\n"))
 	}
 	// Anyone takes it back.
-	if _, err := y.RevokeSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "ada"); err != nil {
+	if _, err := y.RevokeSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "ada"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -483,7 +483,7 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 	// And a grant the grantee was given in between is on the card.
 	y = listYard(t)
 	seq = y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
-	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "mckean"); err != nil {
+	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	y.refusedStale(t, seq, "It is granted read (every read call) of crm now.\" now: the card is from before that changed. ")
@@ -496,7 +496,7 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 func TestRunAskListRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
-	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "builders"}, "mckean"); err != nil {
+	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "builders"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	const terminal = "the operator's to type in a terminal"
@@ -1237,7 +1237,7 @@ func TestRunAskSourceGrantUsesItsStoreCheck(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, directErr := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "reviewers"}, "yardmaster")
+	_, directErr := y.GrantSource(y.ctx, "crm", "read", Grantee{Group: "reviewers"}, "", "yardmaster")
 	if directErr == nil || askerErr == nil || askerErr.Error() != directErr.Error() {
 		t.Fatalf("run row check = %v, direct source grant = %v", askerErr, directErr)
 	}

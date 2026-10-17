@@ -100,31 +100,60 @@ func (g Grantee) key(src string) string {
 	return join(src, "group", g.Group)
 }
 
+// grantKey is where the grant of src to to is kept: the key a plain grant
+// has always had, with the user called as appended for a grant as one, so
+// a grantee's grant as one user and its grant as another (or plain) are
+// two records, and a record written before As reads back as a plain one.
+func grantKey(src string, to Grantee, as string) string {
+	if as == "" {
+		return to.key(src)
+	}
+	return join(to.key(src), as)
+}
+
 // SourceGrant is what one grantee may call of one source.
 type SourceGrant struct {
 	Source string `json:"source"`
 	Grantee
+	// As is the user whose credential a call under this grant is made
+	// with, "" for a plain grant (and for every grant written before it):
+	// a plain grant covers no call as a user, and one as a user no plain
+	// call.
+	As string `json:"as,omitempty"`
 	// Calls are GrantRead and the names of calls, sorted.
 	Calls []string  `json:"calls"`
 	At    time.Time `json:"at"`
 	By    string    `json:"by"`
 }
 
-// Covers reports whether the grant lets its grantee make c.
-func (g SourceGrant) Covers(c *source.Call) bool {
-	return c.Kind == source.Read && slices.Contains(g.Calls, GrantRead) || slices.Contains(g.Calls, c.Name)
+// Holder is who holds the grant, with the user called as where there is
+// one: "crew member yardmaster as ada".
+func (g SourceGrant) Holder() string {
+	if g.As == "" {
+		return g.Grantee.String()
+	}
+	return g.Grantee.String() + " as " + g.As
+}
+
+// Covers reports whether the grant lets its grantee make c, as the user
+// as ("" for a plain call): the grant's As must be the call's.
+func (g SourceGrant) Covers(c *source.Call, as string) bool {
+	return g.As == as && (c.Kind == source.Read && slices.Contains(g.Calls, GrantRead) || slices.Contains(g.Calls, c.Name))
 }
 
 // GrantSource lets to make what of the source src: GrantRead, or one call
-// by its name, which is the one way an update call is granted. Giving a
-// grant is the operator's and is refused from an
+// by its name, which is the one way an update call is granted. With as it
+// is a grant of that call made with the user as's credential. Giving a
+// plain grant is the operator's and is refused from an
 // agent's pane whatever actor it names, as a change to the source itself
 // is (maySource): an agent then cannot grant itself a call by naming the
-// operator.
-func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error) {
+// operator. A grant as a user is that user's to give, and nobody else's:
+// the operator is refused it, at a terminal and on a card, with no leg of
+// their own left in the check.
+func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, as, actor string) (*SourceGrant, error) {
 	var g *SourceGrant
 	err := s.write(func(w *wtx) (err error) {
-		g, err = w.grantSource(ctx, src, what, to, actor, nil)
+		g, err = w.grantSource(ctx, src, what, to, as, actor, nil)
 		return err
 	})
 	if err != nil {
@@ -136,8 +165,8 @@ func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, a
 // grantSource is GrantSource inside the transaction. by is the ask the
 // grant was approved on, nil for one typed at a terminal: the event then
 // names it (ApproveAsk).
-func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, actor string, by *approvedOn) (*SourceGrant, error) {
-	if err := w.checkGrantSource(ctx, actor); err != nil {
+func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, as string, actor string, by *approvedOn) (*SourceGrant, error) {
+	if err := w.checkGrantSource(ctx, src, what, to, as, actor); err != nil {
 		return nil, err
 	}
 	d, err := declared(w.Tx, src)
@@ -147,23 +176,28 @@ func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, act
 	if err := grantee(w.Tx, to); err != nil {
 		return nil, err
 	}
+	if as != "" {
+		if _, err := getUser(w.Tx, as); err != nil {
+			return nil, err
+		}
+	}
 	if err := grantable(d, what); err != nil {
 		return nil, err
 	}
 	g := &SourceGrant{}
-	if _, err := get(w.Tx, bSourceGrants, to.key(src), g); err != nil {
+	if _, err := get(w.Tx, bSourceGrants, grantKey(src, to, as), g); err != nil {
 		return nil, err
 	}
 	if slices.Contains(g.Calls, what) {
 		return g, nil
 	}
-	g.Source, g.Grantee, g.At, g.By = src, to, now(), actor
+	g.Source, g.Grantee, g.As, g.At, g.By = src, to, as, now(), actor
 	g.Calls = append(g.Calls, what)
 	sort.Strings(g.Calls)
-	if err := put(w.Tx, bSourceGrants, to.key(src), g); err != nil {
+	if err := put(w.Tx, bSourceGrants, grantKey(src, to, as), g); err != nil {
 		return nil, err
 	}
-	data := grantData(src, what, to)
+	data := grantData(src, what, to, as)
 	if by != nil {
 		data["approved"] = by
 	}
@@ -171,9 +205,57 @@ func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, act
 }
 
 // checkGrantSource is the permission check for giving a source grant. A
-// run ask uses the same check for the asker's and operator's legs.
-func (w *wtx) checkGrantSource(ctx context.Context, actor string) error {
-	return w.maySource(ctx, actor, "granting a call of a source", Askable)
+// run ask uses the same check for the asker's leg, and for the leg of the
+// one who would give it: the operator of a plain grant, the named user
+// alone of one as them.
+func (w *wtx) checkGrantSource(ctx context.Context, src, what string, to Grantee, as, actor string) error {
+	if as == "" {
+		return w.maySource(ctx, actor, "granting a call of a source", Askable)
+	}
+	// No operator leg: a grant as a user is theirs to give, so that a
+	// person trusts what is called as them to their own word alone.
+	flag := "--group " + to.Group
+	if to.Crew != "" {
+		flag = "--crew " + to.Crew
+	}
+	why := fmt.Sprintf("granting a call of a source as %s is %s's to give, and nobody else's: ask %s on a card (yardr bead ask <bead> \"<question>\" --run \"source grant %s %s %s --as %s\")", as, as, as, src, what, flag, as)
+	refuse := func(who string) error {
+		return &OperatorOnlyError{msg: why + "; this is " + who, ask: Askable}
+	}
+	sess, err := paneSession(w.Tx, callerOf(ctx))
+	if err != nil {
+		return err
+	}
+	if sess != nil && !sess.Manual() {
+		return refuse("the session " + sess.ID + " of a bead's agent")
+	}
+	r, err := paneCrew(w.Tx, callerOf(ctx))
+	if err != nil {
+		return err
+	}
+	if r != nil {
+		return refuse("the crew member " + r.Name)
+	}
+	if err := startingRefused(w.Tx, sessionOf(ctx)); err != nil {
+		return err
+	}
+	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
+		return refuse("the crew member " + actor)
+	}
+	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	if resolved == as {
+		return nil
+	}
+	who := or(resolved, "nobody")
+	if operator, err := operatorIn(w.Tx); err != nil {
+		return err
+	} else if operator != "" && resolved == operator {
+		who = "the operator (" + operator + ")"
+	}
+	return refuse(who)
 }
 
 // grantable refuses what as a grant of the source d declares: it is
@@ -204,7 +286,7 @@ func (g SourceGrant) Words(d *source.Declaration) string {
 // or a crew member's pane the write is recorded as that session's actor or
 // that crew member, whatever actor says; from anywhere else, as given
 // (paneAuthor).
-func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error) {
+func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, as, actor string) (*SourceGrant, error) {
 	g := &SourceGrant{}
 	err := s.write(func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
@@ -213,23 +295,23 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 		}
 		actor = resolved
 		*g = SourceGrant{}
-		ok, err := get(w.Tx, bSourceGrants, to.key(src), g)
+		ok, err := get(w.Tx, bSourceGrants, grantKey(src, to, as), g)
 		if err != nil {
 			return err
 		}
 		if !ok || !slices.Contains(g.Calls, what) {
-			return fmt.Errorf("%s has no grant of %s of the source %s: %w", to, what, src, ErrNotFound)
+			return fmt.Errorf("%s has no grant of %s of the source %s: %w", (&SourceGrant{Grantee: to, As: as}).Holder(), what, src, ErrNotFound)
 		}
 		g.Calls = slices.DeleteFunc(g.Calls, func(c string) bool { return c == what })
 		if len(g.Calls) == 0 {
-			err = w.Bucket(bSourceGrants).Delete([]byte(to.key(src)))
+			err = w.Bucket(bSourceGrants).Delete([]byte(grantKey(src, to, as)))
 		} else {
-			err = put(w.Tx, bSourceGrants, to.key(src), g)
+			err = put(w.Tx, bSourceGrants, grantKey(src, to, as), g)
 		}
 		if err != nil {
 			return err
 		}
-		return w.event("", "source_revoked", actor, grantData(src, what, to))
+		return w.event("", "source_revoked", actor, grantData(src, what, to, as))
 	})
 	if err != nil {
 		return nil, err
@@ -237,8 +319,11 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 	return g, nil
 }
 
-func grantData(src, what string, to Grantee) map[string]any {
-	data := map[string]any{"source": src, "what": what}
+// grantData is the data of a source_granted or source_revoked event: the
+// source, what was granted, the grantee, and the user called as under
+// "as", "" for a plain grant. It never holds a credential.
+func grantData(src, what string, to Grantee, as string) map[string]any {
+	data := map[string]any{"source": src, "what": what, "as": as}
 	if to.Crew != "" {
 		data["crew"] = to.Crew
 	} else {
@@ -288,7 +373,9 @@ func Widened(was, now *source.Declaration, grants []SourceGrant) (calls []string
 		calls = append(calls, c.Name)
 	}
 	for _, g := range grants {
-		if g.Source == now.Name && slices.Contains(g.Calls, GrantRead) {
+		// A grant as a user widens calls as that user, which no plain
+		// call reaches and no plain showing here names.
+		if g.Source == now.Name && g.As == "" && slices.Contains(g.Calls, GrantRead) {
 			who = append(who, g.Grantee)
 		}
 	}
@@ -573,7 +660,7 @@ func (c *sourceCaller) may(tx *bolt.Tx, d *source.Declaration, call *source.Call
 	if _, err := get(tx, bSourceGrants, to.key(d.Name), &g); err != nil {
 		return "", "", err
 	}
-	if g.Covers(call) {
+	if g.Covers(call, "") {
 		return "", "", nil
 	}
 	flag := "--group " + to.Group

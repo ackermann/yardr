@@ -163,7 +163,23 @@ func openPrivate(what, path string) (*os.File, string, error) {
 // it was, to the byte, and no second file; one with it true (the
 // directory's sync) left the new content in place. Errors name the file and
 // the names, never a value.
-func WriteEnvFile(path string, values map[string]string) (resolved string, renamed bool, err error) {
+//
+// A name in remove is struck instead of set, its lines dropped and no line
+// added for it: the same write, for taking a credential out of a file a
+// person keeps. A file that is not there is made, as setting wants.
+func WriteEnvFile(path string, values map[string]string, remove ...string) (resolved string, renamed bool, err error) {
+	return writeEnvFile(path, values, remove, true)
+}
+
+// RemoveEnvNames strikes each of names from the env file at path, by the
+// write WriteEnvFile makes, keeping every other line and comment. A file
+// that is not there is not made: there is nothing to strike, and that is
+// no error.
+func RemoveEnvNames(path string, names []string) (resolved string, renamed bool, err error) {
+	return writeEnvFile(path, nil, names, false)
+}
+
+func writeEnvFile(path string, values map[string]string, remove []string, create bool) (resolved string, renamed bool, err error) {
 	p, err := ExpandPath(path)
 	if err != nil {
 		return path, false, fmt.Errorf("env_file %s: %w", path, err)
@@ -188,10 +204,20 @@ func WriteEnvFile(path string, values map[string]string) (resolved string, renam
 	// In one order whatever the map's, so the same values write the same
 	// file.
 	sort.Strings(names)
+	struck := make(map[string]bool, len(remove))
+	for _, name := range remove {
+		if !envKey.MatchString(name) {
+			return p, false, fmt.Errorf("env_file %s: %q is no name of a variable", p, name)
+		}
+		struck[name] = true
+	}
 
 	var old []byte
 	switch st, err := os.Lstat(p); {
 	case errors.Is(err, os.ErrNotExist):
+		if !create {
+			return p, false, nil
+		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			return p, false, fmt.Errorf("env_file %s: %w", p, err)
 		}
@@ -226,7 +252,7 @@ func WriteEnvFile(path string, values map[string]string) (resolved string, renam
 		if err := f.Chmod(0o600); err != nil {
 			return err
 		}
-		if _, err := f.Write(setEnv(old, names, values)); err != nil {
+		if _, err := f.Write(setEnv(old, names, values, struck)); err != nil {
 			return err
 		}
 		return f.Sync()
@@ -261,7 +287,8 @@ func EnvFileNew(path string) string {
 // value: on the first line that sets the name, as parseEnv reads a line;
 // later lines of that name are dropped, since the last one is what a reader
 // takes (source.Lookup); a name the file does not set is a line at the end.
-func setEnv(old []byte, names []string, values map[string]string) []byte {
+// A name in struck is dropped wherever it stands and never added.
+func setEnv(old []byte, names []string, values map[string]string, struck map[string]bool) []byte {
 	var out bytes.Buffer
 	done := map[string]bool{}
 	text := string(old)
@@ -271,6 +298,10 @@ func setEnv(old []byte, names []string, values map[string]string) []byte {
 		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") {
 			k, _, ok := strings.Cut(t, "=")
 			k = strings.TrimSpace(k)
+			if ok && struck[k] {
+				done[k] = true
+				continue
+			}
 			if _, given := values[k]; ok && given {
 				if !done[k] {
 					done[k] = true

@@ -158,7 +158,7 @@ func TestSourceCallBySession(t *testing.T) {
 	t.Parallel()
 	_, s := storetest.NewOwned(t)
 	ctx := crmYard(t, s)
-	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "jo"); err != nil {
+	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	b, sess := session(t, s, "builders")
@@ -220,7 +220,7 @@ func TestSourceCallBySession(t *testing.T) {
 	}
 
 	// A grant from the agent's pane is refused, whoever it says it is.
-	if _, err := s.GrantSource(pane, "crm", store.GrantRead, store.Grantee{Group: "reviewers"}, "jo"); err == nil ||
+	if _, err := s.GrantSource(pane, "crm", store.GrantRead, store.Grantee{Group: "reviewers"}, "", "jo"); err == nil ||
 		!strings.Contains(err.Error(), "granting a call of a source is the operator's (jo)") || !strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent") {
 		t.Fatalf("a grant from a session's pane as jo = %v", err)
 	}
@@ -284,23 +284,23 @@ func TestSourceCallGrants(t *testing.T) {
 	}
 
 	to := store.Grantee{Crew: "yardmaster"}
-	if _, err := s.GrantSource(ctx, "crm", "nosuch", to, "jo"); err == nil || !strings.Contains(err.Error(), `source crm has no call "nosuch" (it has: ping, customer, moved, big, write)`) {
+	if _, err := s.GrantSource(ctx, "crm", "nosuch", to, "", "jo"); err == nil || !strings.Contains(err.Error(), `source crm has no call "nosuch" (it has: ping, customer, moved, big, write)`) {
 		t.Errorf("granting a call the source does not have = %v", err)
 	}
 	for _, bad := range []store.Grantee{{Crew: "nobody"}, {Group: "nogroup"}, {}, {Group: "builders", Crew: "yardmaster"}} {
-		if _, err := s.GrantSource(ctx, "crm", store.GrantRead, bad, "jo"); err == nil {
+		if _, err := s.GrantSource(ctx, "crm", store.GrantRead, bad, "", "jo"); err == nil {
 			t.Errorf("a grant to %+v was given", bad)
 		}
 	}
-	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "yardmaster"); err == nil || !strings.Contains(err.Error(), "yardmaster is a crew member") {
+	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "", "yardmaster"); err == nil || !strings.Contains(err.Error(), "yardmaster is a crew member") {
 		t.Fatalf("a crew member granting itself = %v", err)
 	}
-	if _, err := s.GrantSource(ctx, "nosuch", store.GrantRead, to, "jo"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.GrantSource(ctx, "nosuch", store.GrantRead, to, "", "jo"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a grant of a source that is not there = %v", err)
 	}
 
 	// One call by its name: that one and no other.
-	if g, err := s.GrantSource(ctx, "crm", "customer", to, "jo"); err != nil || strings.Join(g.Calls, ",") != "customer" || g.By != "jo" {
+	if g, err := s.GrantSource(ctx, "crm", "customer", to, "", "jo"); err != nil || strings.Join(g.Calls, ",") != "customer" || g.By != "jo" {
 		t.Fatalf("grant = %+v, %v", g, err)
 	}
 	if _, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "customer", Actor: "yardmaster", Params: map[string]string{"id": "7"}}); err != nil {
@@ -317,7 +317,7 @@ func TestSourceCallGrants(t *testing.T) {
 		t.Fatalf("SourceCalls = %+v, %v", may, err)
 	}
 	// read is every read call, and the two are taken back apart.
-	if g, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "jo"); err != nil || strings.Join(g.Calls, ",") != "customer,read" {
+	if g, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "", "jo"); err != nil || strings.Join(g.Calls, ",") != "customer,read" {
 		t.Fatalf("grant = %+v, %v", g, err)
 	}
 	if _, err := s.CallSource(ctx, ping); err != nil {
@@ -339,10 +339,10 @@ func TestSourceCallGrants(t *testing.T) {
 	if _, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "nosuch", Actor: "jo"}); err == nil || !strings.Contains(err.Error(), `source crm has no call "nosuch"`) {
 		t.Fatalf("a call the source does not have = %v", err)
 	}
-	if g, err := s.RevokeSource(ctx, "crm", store.GrantRead, to, "yardmaster"); err != nil || strings.Join(g.Calls, ",") != "customer" {
+	if g, err := s.RevokeSource(ctx, "crm", store.GrantRead, to, "", "yardmaster"); err != nil || strings.Join(g.Calls, ",") != "customer" {
 		t.Fatalf("revoke = %+v, %v", g, err)
 	}
-	if _, err := s.RevokeSource(ctx, "crm", store.GrantRead, to, "jo"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.RevokeSource(ctx, "crm", store.GrantRead, to, "", "jo"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("revoking it twice = %v", err)
 	}
 	if gs, err := s.SourceGrants(ctx, "crm"); err != nil || len(gs) != 1 || gs[0].Crew != "yardmaster" {
@@ -372,7 +372,7 @@ func TestSourceCallLimit(t *testing.T) {
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "jo"); err != nil {
+	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetSource(ctx, "crm", store.SourceCallsPerHour, "none", "jo"); err == nil {
@@ -426,7 +426,7 @@ func TestSourceCallFromPeerRefused(t *testing.T) {
 	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.GrantSource(y.ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "jo"); err != nil {
+	if _, err := y.api.GrantSource(y.ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.take(t, beadMsg("b1", "web-k3f9", nil))
@@ -512,10 +512,10 @@ func TestSourceUpdateIsGrantedByName(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
-	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "reviewers"}, "jo"); err != nil {
+	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "reviewers"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if g, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "jo"); err != nil || strings.Join(g.Calls, ",") != "note" {
+	if g, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "", "jo"); err != nil || strings.Join(g.Calls, ",") != "note" {
 		t.Fatalf("granting an update by its name = %+v, %v", g, err)
 	}
 	_, reviewer := session(t, s, "reviewers")
@@ -602,7 +602,7 @@ func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 	// two held calls are given up on after 300ms.
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
-	if _, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "jo"); err != nil {
+	if _, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	_, sess := session(t, s, "support")
@@ -665,7 +665,7 @@ func TestSourceUpdateLimit(t *testing.T) {
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
 	for _, what := range []string{"note", store.GrantRead} {
-		if _, err := s.GrantSource(ctx, "crm", what, store.Grantee{Group: "support"}, "jo"); err != nil {
+		if _, err := s.GrantSource(ctx, "crm", what, store.Grantee{Group: "support"}, "", "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -747,7 +747,7 @@ func TestSourceCallNote(t *testing.T) {
 	}
 	for _, to := range []store.Grantee{{Group: "support"}, {Crew: "yardmaster"}} {
 		for _, what := range []string{"note", store.GrantRead} {
-			if _, err := s.GrantSource(ctx, "crm", what, to, "jo"); err != nil {
+			if _, err := s.GrantSource(ctx, "crm", what, to, "", "jo"); err != nil {
 				t.Fatal(err)
 			}
 		}

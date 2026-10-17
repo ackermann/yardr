@@ -124,6 +124,23 @@ func TestWriteEnvFile(t *testing.T) {
 		t.Fatalf("written twice =\n%s", b)
 	}
 
+	// Names struck by the same write are dropped wherever they stand,
+	// and a file that is not there is not made by striking.
+	struck := writeEnv(t, "# mine\nTOKEN=gone\nOTHER=kept\nTOKEN=again\n", 0o600)
+	if _, renamed, err := RemoveEnvNames(struck, []string{"TOKEN", "ABSENT"}); err != nil || !renamed {
+		t.Fatalf("RemoveEnvNames = %v, %v", renamed, err)
+	}
+	if b, _ := os.ReadFile(struck); string(b) != "# mine\nOTHER=kept\n" {
+		t.Fatalf("struck file =\n%s", b)
+	}
+	missing := filepath.Join(t.TempDir(), "none.env")
+	if _, renamed, err := RemoveEnvNames(missing, []string{"TOKEN"}); err != nil || renamed {
+		t.Fatalf("a missing file: renamed %v, %v", renamed, err)
+	}
+	if _, err := os.Lstat(missing); !os.IsNotExist(err) {
+		t.Fatalf("striking made the file: %v", err)
+	}
+
 	// A file that is not there is made, with its directory, and read back
 	// under the rule.
 	fresh := filepath.Join(t.TempDir(), "sources", "crm.env")

@@ -230,7 +230,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			"peer allow airy --send mail --receive mail,ping",
 		},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":            {"source set crm updates_per_hour=3"},
-		"yardr source grant <source> read|<call> --group <group>|--crew <crew member>": {"source grant crm note --crew yardmaster --group builders"},
+		"yardr source grant <source> read|<call> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
 		"yardr source add <file>":                                       {"source add " + addedFile},
 		"yardr pack apply <name>":                                       {"pack apply telegram"},
 		"yardr hook add <name> --source <declared source>":              {"hook add linear --source linear"},

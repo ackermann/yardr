@@ -380,7 +380,11 @@ func (b *planner) calls() error {
 				recorded = b.rec.Calls[a.to.String()]
 			}
 			var has store.SourceGrant
-			if i := slices.IndexFunc(grants, func(g store.SourceGrant) bool { return g.Source == asked.Source && g.Grantee == a.to }); i >= 0 {
+			// A pack asks for plain calls alone: a grant as a user is
+			// that user's to give and no pack carries one.
+			if i := slices.IndexFunc(grants, func(g store.SourceGrant) bool {
+				return g.Source == asked.Source && g.Grantee == a.to && g.As == ""
+			}); i >= 0 {
 				has = grants[i]
 			}
 			// unready is why nothing of the source is asked about yet.
@@ -421,7 +425,7 @@ func (b *planner) calls() error {
 					}
 					c.Lacks = append(c.Lacks, w)
 					c.Missing = append(c.Missing, Need{"call", "missing", fmt.Sprintf("the source %s has no call %s (it has: %s)", asked.Source, w, strings.Join(names, ", "))})
-				case w == store.GrantRead && slices.Contains(has.Calls, w), call != nil && has.Covers(call):
+				case w == store.GrantRead && slices.Contains(has.Calls, w), call != nil && has.Covers(call, ""):
 					// What the grantee has is said as it is, whatever is missing.
 					c.Has = append(c.Has, w)
 				case unready:

@@ -590,7 +590,7 @@ yardmaster):
 					// sources: "crm: note (update), read; wiki: page".
 					var calls []string
 					for _, gr := range grantedTo(grants, store.Grantee{Group: g.Name}) {
-						calls = append(calls, gr.Source+": "+words(gr))
+						calls = append(calls, gr.Source+asSuffix(gr)+": "+words(gr))
 					}
 					limit := strconv.Itoa(g.Limit)
 					if g.Limit == 0 {
@@ -710,7 +710,7 @@ yardmaster):
 					fmt.Printf("  route %s: %s · priority %d\n", r.ID, line, r.Priority)
 				}
 				for _, gr := range mayCall {
-					fmt.Printf("  calls %s: %s\n", gr.Source, words(gr))
+					fmt.Printf("  calls %s%s: %s\n", gr.Source, asSuffix(gr), words(gr))
 				}
 			})
 		},

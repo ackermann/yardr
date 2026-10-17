@@ -479,7 +479,9 @@ func (e *exporter) groups() error {
 	// its yard has the source and a credential for it.
 	calls := map[string]map[string][]string{}
 	for _, grant := range grants {
-		if grant.Group == "" || !slices.Contains(e.routed, grant.Group) {
+		// A grant as a user is that user's to give: a pack carries no
+		// call as anyone, so it is left out, not written as a plain one.
+		if grant.Group == "" || grant.As != "" || !slices.Contains(e.routed, grant.Group) {
 			continue
 		}
 		if calls[grant.Group] == nil {

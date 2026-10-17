@@ -291,20 +291,23 @@ func (w *wtx) sourceLimitStale(seq uint64, was, now AskRun) error {
 }
 
 // parseGrant reads the words of source grant <source> read|<call> with its
-// --group and --crew, each as often as it is given. The grantees are stored
+// --group and --crew, each as often as it is given, and its --as <user>
+// where the grant is of a call made as that user. The grantees are stored
 // once each, the groups before the crew members and each in the order of
-// their names.
+// their names, and the user last.
 func parseGrant(rest []string) ([]string, error) {
-	const use = "yardr source grant <source> read|<call> --group <group> or --crew <crew member>"
-	args, values, err := runWords(use, "source grant", "the operator's", rest, map[string]bool{"--group": true, "--crew": true})
+	const use = "yardr source grant <source> read|<call> --group <group> or --crew <crew member> [--as <user>]"
+	args, values, err := runWords(use, "source grant", "the operator's", rest, map[string]bool{"--group": true, "--crew": true, "--as": true})
 	if err != nil {
 		return nil, err
 	}
 	switch {
 	case len(args) != 2:
 		return nil, fmt.Errorf("--run takes %s: one source and read or one call, not %d words", use, len(args))
-	case len(values) == 0:
+	case len(values["--group"])+len(values["--crew"]) == 0:
 		return nil, fmt.Errorf("--run takes %s: it names nobody the grant is for", use)
+	case len(values["--as"]) > 1:
+		return nil, fmt.Errorf("--run takes %s: one --as <user>, not %d", use, len(values["--as"]))
 	}
 	out := []string{args[0], args[1]}
 	for _, flag := range []string{"--group", "--crew"} {
@@ -314,20 +317,26 @@ func parseGrant(rest []string) ([]string, error) {
 			out = append(out, flag, name)
 		}
 	}
+	if as := values["--as"]; len(as) > 0 {
+		out = append(out, "--as", as[0])
+	}
 	return out, nil
 }
 
-// grantOf is the source, the grant and the grantees of a parsed source
-// grant, in the order they are written in.
-func grantOf(argv []string) (src, what string, to []Grantee) {
+// grantOf is the source, the grant, the grantees and the user called as
+// of a parsed source grant, in the order they are written in.
+func grantOf(argv []string) (src, what string, to []Grantee, as string) {
 	for i := 4; i+1 < len(argv); i += 2 {
-		if argv[i] == "--group" {
+		switch argv[i] {
+		case "--group":
 			to = append(to, Grantee{Group: argv[i+1]})
-		} else {
+		case "--crew":
 			to = append(to, Grantee{Crew: argv[i+1]})
+		case "--as":
+			as = argv[i+1]
 		}
 	}
-	return argv[2], argv[3], to
+	return argv[2], argv[3], to, as
 }
 
 // seenKey is the name a run ask keeps what it saw of the grantee under.
@@ -402,7 +411,7 @@ func callSays(c source.Call) string {
 // against the declaration as it is when it runs. Asking refuses a grantee
 // that holds the grant already.
 func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
-	name, what, to := grantOf(argv)
+	name, what, to, as := grantOf(argv)
 	src, d, err := sourceIn(w.Tx, name)
 	if err != nil {
 		return AskRun{}, err
@@ -411,7 +420,10 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 		return AskRun{}, err
 	}
 	of := fmt.Sprintf("of the source %s (%s)", name, sourceHost(d))
-	if d.Credential != nil {
+	switch {
+	case as != "":
+		of += fmt.Sprintf(" as %s, with the credential in %s's env file", as, as)
+	case d.Credential != nil:
 		of += ", with the credential the yard holds for it"
 	}
 	may := ""
@@ -437,23 +449,31 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 		return AskRun{}, err
 	}
 	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: fingerprint}}
+	if as != "" {
+		u, err := getUser(w.Tx, as)
+		if err != nil {
+			return AskRun{}, err
+		}
+		card.Seen["user "+as] = seen(u.Name, u.EnvFile, u.CreatedAt)
+	}
 	back := []string{"source", "revoke", name, what}
 	for _, t := range to {
-		as, fingerprint, err := w.granteeSeen(t)
+		who, fingerprint, err := w.granteeSeen(t)
 		if err != nil {
 			return AskRun{}, err
 		}
 		var g SourceGrant
-		if _, err := get(w.Tx, bSourceGrants, t.key(name), &g); err != nil {
+		if _, err := get(w.Tx, bSourceGrants, grantKey(name, t, as), &g); err != nil {
 			return AskRun{}, err
 		}
+		holder := (&SourceGrant{Grantee: t, As: as}).Holder()
 		c, isCall := d.Call(what)
 		switch {
 		case !asking:
 		case slices.Contains(g.Calls, what):
-			return AskRun{}, fmt.Errorf("%s is granted %s of the source %s already: leave it out of the command, which would change nothing for it", t, what, name)
-		case isCall && g.Covers(c):
-			return AskRun{}, fmt.Errorf("%s may make %s of the source %s already, through its grant of %s: leave it out of the command, which would change nothing for it", t, what, name, GrantRead)
+			return AskRun{}, fmt.Errorf("%s is granted %s of the source %s already: leave it out of the command, which would change nothing for it", holder, what, name)
+		case isCall && g.Covers(c, as):
+			return AskRun{}, fmt.Errorf("%s may make %s of the source %s already, through its grant of %s: leave it out of the command, which would change nothing for it", holder, what, name, GrantRead)
 		}
 		held := "nothing"
 		if len(g.Calls) > 0 {
@@ -465,7 +485,11 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 			}
 			held = andList(words)
 		}
-		card.Does = append(card.Does, fmt.Sprintf("%s %s It is granted %s of %s now.", as, may, held, name))
+		heldOf := name
+		if as != "" {
+			heldOf = name + " as " + as
+		}
+		card.Does = append(card.Does, fmt.Sprintf("%s %s It is granted %s of %s now.", who, may, held, heldOf))
 		card.Seen[t.seenKey()] = fingerprint
 		if t.Crew != "" {
 			back = append(back, "--crew", t.Crew)
@@ -473,17 +497,25 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 			back = append(back, "--group", t.Group)
 		}
 	}
+	if as != "" {
+		back = append(back, "--as", as)
+	}
 	card.Back = runCommandLine(back)
 	return card, nil
 }
 
 // grantStale says why the ask seq for source grant is approved no more: the
-// source, a group or a crew member is another under its name, or a grantee
-// holds another grant than the card says.
+// source, a group or a crew member is another under its name, the user
+// called as is another, or a grantee holds another grant than the card
+// says.
 func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
-	name, _, to := grantOf(was.Argv)
+	name, _, to, as := grantOf(was.Argv)
 	if err := w.staleSource(seq, name, was, now); err != nil {
 		return err
+	}
+	if as != "" && was.Seen["user "+as] != now.Seen["user "+as] {
+		e := lastEvent(w.Tx, "user_set", naming("user", as))
+		return fmt.Errorf("ask %d was written when the user %s was another: what a source needs of them was set since%s. %s", seq, as, since(e), nothingRan)
 	}
 	for _, t := range to {
 		if key := t.seenKey(); was.Seen[key] == now.Seen[key] {
@@ -503,22 +535,27 @@ func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
 // grantees, in this one write, and answers a line for each as yardr source
 // grant prints it.
 func checkGrant(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.checkGrantSource(ctx, actor)
+	name, what, to, as := grantOf(argv)
+	var first Grantee
+	if len(to) > 0 {
+		first = to[0]
+	}
+	return w.checkGrantSource(ctx, name, what, first, as, actor)
 }
 
 func runGrant(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
-	name, what, to := grantOf(argv)
+	name, what, to, as := grantOf(argv)
 	d, err := declared(w.Tx, name)
 	if err != nil {
 		return "", err
 	}
 	var lines []string
 	for _, t := range to {
-		g, err := w.grantSource(ctx, name, what, t, actor, by)
+		g, err := w.grantSource(ctx, name, what, t, as, actor, by)
 		if err != nil {
 			return "", err
 		}
-		lines = append(lines, fmt.Sprintf("%s may call %s: %s", g.Grantee, g.Source, g.Words(d)))
+		lines = append(lines, fmt.Sprintf("%s may call %s: %s", g.Holder(), g.Source, g.Words(d)))
 	}
 	return strings.Join(lines, "\n"), nil
 }

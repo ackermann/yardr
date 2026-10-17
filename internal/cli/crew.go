@@ -369,7 +369,7 @@ for its links (yardr peer list).`,
 					fmt.Printf("  may open threads in %s\n", strings.Join(may, ", "))
 				}
 				for _, g := range mayCall {
-					fmt.Printf("  may call %s: %s\n", g.Source, words(g))
+					fmt.Printf("  may call %s%s: %s\n", g.Source, asSuffix(g), words(g))
 				}
 				if may := r.MaySetState(); len(may) > 0 {
 					fmt.Printf("  may set the status of threads in %s\n", strings.Join(may, ", "))
@@ -2077,8 +2077,9 @@ func grantedTo(grants []store.SourceGrant, to store.Grantee) []store.SourceGrant
 	return out
 }
 
-// crewCalls are the calls the crew member name may make: those of each
-// source its grants cover.
+// crewCalls are the calls the crew member name may make plainly: those
+// of each source its plain grants cover. A grant as a user names no call
+// this build makes plainly, so it is not listed as one.
 func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable, error) {
 	grants, err := st.SourceGrants(ctx, "")
 	if err != nil {
@@ -2086,6 +2087,9 @@ func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable
 	}
 	var out []store.Callable
 	for _, g := range grantedTo(grants, store.Grantee{Crew: name}) {
+		if g.As != "" {
+			continue
+		}
 		src, err := st.GetSource(ctx, g.Source)
 		if err != nil {
 			return nil, err
@@ -2096,7 +2100,7 @@ func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable
 			continue
 		}
 		for i := range d.Calls {
-			if c := &d.Calls[i]; g.Covers(c) {
+			if c := &d.Calls[i]; g.Covers(c, "") {
 				out = append(out, store.Callable{Source: d.Name, Name: c.Name, Kind: c.Kind, About: c.About, Params: c.Params})
 			}
 		}
