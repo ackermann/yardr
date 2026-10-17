@@ -287,10 +287,10 @@ Users:
   needs pairing. On another machine the device calls the yard's listener.
   `hook_addr` sets where it listens, and the operator must make it reachable
   from the device. Use an HTTPS `--url` the device can reach; the connection
-  protects the code and the device's token. The operator opens a pairing
-  with `yardr user device pair <user> <device> --url <address>` and reads
-  the code to the person to type into footplate. Only the operator opens a
-  pairing, never from an agent's pane, so hand them the command. This is not
+  protects the code and the device's token. Only the operator opens a
+  pairing with `yardr user device pair <user> <device> --url <address>` and
+  reads the code to the person, who types it into footplate. Never open a
+  pairing from an agent's pane; hand the command to the operator. This is not
   `yardr peer pair`, which links two yards.
 
 Other yards:
