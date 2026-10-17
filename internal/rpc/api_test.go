@@ -1036,7 +1036,8 @@ var apiRunAsk uint64
 
 // apiSecretAsks are the five secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them: two for a source's credential, one
-// for a user's own address in a source, and one for a waiting login's input.
+// for a user's own address in a source, one for a waiting login's input,
+// and one for a crew member's credential.
 var apiSecretAsks [5]uint64
 
 // apiNotifySource is the declaration of a source of the doc's yard that
