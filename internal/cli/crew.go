@@ -2077,9 +2077,9 @@ func grantedTo(grants []store.SourceGrant, to store.Grantee) []store.SourceGrant
 	return out
 }
 
-// crewCalls are the calls the crew member name may make plainly: those
-// of each source its plain grants cover. A grant as a user names no call
-// this build makes plainly, so it is not listed as one.
+// crewCalls are the calls the crew member name may make: those of each
+// source its grants cover, each as the command that makes it, with the
+// user for one made as them.
 func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable, error) {
 	grants, err := st.SourceGrants(ctx, "")
 	if err != nil {
@@ -2087,9 +2087,6 @@ func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable
 	}
 	var out []store.Callable
 	for _, g := range grantedTo(grants, store.Grantee{Crew: name}) {
-		if g.As != "" {
-			continue
-		}
 		src, err := st.GetSource(ctx, g.Source)
 		if err != nil {
 			return nil, err
@@ -2100,8 +2097,8 @@ func crewCalls(ctx context.Context, st store.API, name string) ([]store.Callable
 			continue
 		}
 		for i := range d.Calls {
-			if c := &d.Calls[i]; g.Covers(c, "") {
-				out = append(out, store.Callable{Source: d.Name, Name: c.Name, Kind: c.Kind, About: c.About, Params: c.Params})
+			if c := &d.Calls[i]; g.Covers(c, g.As) {
+				out = append(out, store.Callable{Source: d.Name, Name: c.Name, Kind: c.Kind, About: c.About, Params: c.Params, As: g.As})
 			}
 		}
 	}

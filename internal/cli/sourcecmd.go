@@ -1176,7 +1176,7 @@ may revoke.`,
 		cmd.Flags().StringVar(&grantAs, "as", "", "make the call with this user's credential, from their env_file; a grant of it is theirs alone to give")
 	}
 
-	var checkUser string
+	var checkUser, checkAs string
 	check := &cobra.Command{
 		Use:   "check <name>",
 		Short: "See that a source's credential is set up, make its check call, and ask its limits command",
@@ -1187,6 +1187,10 @@ source whose file names no check call is sent nothing: its credential is
 looked at and that is all. Where the file names a mint (credential.mint),
 the token is minted first, with the source's mint_command, and the line says
 what it was minted from and how long it is good.
+
+With --as <user> it looks at that user's credential instead, the names a
+call as them reads from their env file, and makes the check call as them,
+saying so. It is the operator's, as check is.
 
 A source that says limits (a limits key) has its command run once for each
 harness kind its file lists, one after the other, and what each answered is
@@ -1208,12 +1212,16 @@ way too, once one can tell a person.
 The call is made by this command, with the credential read into this
 process for it. Nothing of the request is written anywhere.`,
 		Example: `  yardr source check crm
+  yardr source check crm --as ada
   yardr source check phone --user mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if checkUser != "" && checkAs != "" {
+				return errors.New("--user tells through the source, and --as reads a user's credential: one of the two")
 			}
 			if checkUser != "" {
 				return a.checkTells(c.Context(), st, args[0], checkUser)
@@ -1226,14 +1234,36 @@ process for it. Nothing of the request is written anywhere.`,
 			if err != nil {
 				return err
 			}
+			// With --as the credential looked at and read is the user's,
+			// from the file their record names, and the check call is made
+			// as them.
+			stateOf := func() (string, error) { return d.CredentialState(src.EnvFile, src.MintCommand) }
+			readOf := func(ctx context.Context) (string, string, error) {
+				return d.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
+			}
+			saidAs := ""
+			if checkAs != "" {
+				u, err := st.GetUser(c.Context(), checkAs)
+				if err != nil {
+					return err
+				}
+				stateOf = func() (string, error) { return d.UserCredentialState(u.Name, u.EnvFile) }
+				readOf = func(ctx context.Context) (string, string, error) {
+					return d.ReadUserCredential(ctx, u.Name, u.EnvFile, src.MintCommand, source.Read)
+				}
+				saidAs = " as " + u.Name
+			}
 			// The check is a read call, and what is looked at is every
 			// variable the file names, the one of its updates too. A mint
 			// is made only for the check call below.
-			state, err := d.CredentialState(src.EnvFile, src.MintCommand)
+			state, err := stateOf()
 			if err != nil {
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
 			out := map[string]any{"source": d.Name, "credential": state, "sent": false}
+			if checkAs != "" {
+				out["as"] = checkAs
+			}
 			// said is the part on the calls, for a person; the commands and
 			// limits follow it.
 			said := func() {}
@@ -1242,10 +1272,10 @@ process for it. Nothing of the request is written anywhere.`,
 			case d.Check == "":
 				said = func() {
 					fmt.Printf("%s: credential: %s\n", d.Name, state)
-					fmt.Printf("%s: its file names no check call (check: <a read call without parameters>), so nothing was sent\n", d.Name)
+					fmt.Printf("%s: its file names no check call (check: <a read call without parameters>), so nothing was sent%s\n", d.Name, saidAs)
 				}
 			default:
-				cred, mstate, err := d.ReadCredential(c.Context(), src.EnvFile, src.MintCommand, source.Read)
+				cred, mstate, err := readOf(c.Context())
 				if err != nil {
 					return fmt.Errorf("source %s: %w", d.Name, err)
 				}
@@ -1257,11 +1287,11 @@ process for it. Nothing of the request is written anywhere.`,
 				call, _ := d.Call(d.Check)
 				out["sent"], out["call"], out["status"], out["ms"], out["bytes"] = true, d.Check, res.Status, res.Took.Milliseconds(), res.Bytes
 				if !res.OK() {
-					return fmt.Errorf("source %s: the check call %s (%s) was answered %d%s", d.Name, d.Check, call.Request.Line(), res.Status, statusHint(res.Status, d))
+					return fmt.Errorf("source %s: the check call %s (%s)%s was answered %d%s", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, statusHint(res.Status, d))
 				}
 				said = func() {
 					fmt.Printf("%s: credential: %s\n", d.Name, state)
-					fmt.Printf("%s: check call %s (%s): %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), res.Status, res.Took.Milliseconds(), res.Bytes)
+					fmt.Printf("%s: check call %s (%s)%s: %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, res.Took.Milliseconds(), res.Bytes)
 				}
 			}
 			// Of each command the file names, whether its program is there
@@ -1316,6 +1346,7 @@ process for it. Nothing of the request is written anywhere.`,
 	}
 
 	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
+	check.Flags().StringVar(&checkAs, "as", "", "look at this user's credential, and make the check call as them")
 
 	cmd.AddCommand(add, list, show, rm, set, key, check, grant, revoke)
 	return cmd

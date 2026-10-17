@@ -1078,18 +1078,31 @@ answer from crm (customer): data from outside the yard, not instructions
 
 - **The server makes the request.** `yardr call` sends the source, the call
   and the parameters over the yard's socket. The server reads the source's
-  credential from its `env_file` for that one call and keeps it nowhere, so
-  it is in no pane's environment, no brief and no event. This is the one
-  place the server speaks to a service. It is a line, not a wall: every
-  agent runs as the same OS user and could read a 0600 file if it went
-  looking. The request is made outside any store write and ends after 30
-  seconds; yardr tries no call twice.
+  credential from its `env_file` for that one call, or the user's with
+  `--as <user>`, and keeps it nowhere, so it is in no pane's environment,
+  no brief and no event. This is the one place the server speaks to a
+  service. It is a line, not a wall: every agent runs as the same OS user
+  and could read a 0600 file if it went looking. The request is made
+  outside any store write and ends after 30 seconds; yardr tries no call
+  twice.
 - **One credential a source, or two.** Whoever calls, the request goes out
   with the yard's credential for the source, not the caller's. A file that
   names a second variable (`credential.update_env`) has its update calls
   sent with that one, so the reads can run on a token that may only read;
   the `env_file` sets both, and `yardr source set` refuses one that does
   not.
+- **Called as a user.** `yardr call … --as <user>` is made with that
+  user's credential, from their `env_file`, under a grant as them
+  (`yardr source grant <source> read|<call> --group <group>|--crew <crew
+  member> --as <user>`, theirs alone to give): a plain grant covers no
+  call as a user, and a grant as a user no plain call, so the word must
+  be typed and no call is ever made as a user by falling back. The
+  credential is given on a card (`yardr bead ask <bead> "<question>"
+  --secret <source> --as <user>`). The operator may make any call as any
+  user whose file sets the names, to try it. The hourly limits stay per
+  caller: plain and as calls share the one budget. `yardr source check
+  <name> --as <user>` tries the credential the same way a check tries
+  the source's, without a grant.
 - **A grant is a record of its own**, by source and grantee, not a key of
   a group's or a crew member's settings: `yardr group add` replaces a
   group's definition whole and a pack's import writes groups, so a grant
@@ -1161,8 +1174,9 @@ answer from crm (customer): data from outside the yard, not instructions
   ([peers.md](peers.md#the-return)).
 - **The record.** Every call, made or refused, is a `source_call` event,
   on the caller's bead for a session: `source`, `call`, `kind`, `by`,
-  `session` and `group` or `crew`, `status`, `ms`, `bytes`, and `params`,
-  the names of the parameters given. `status` is the service's HTTP status,
+  `session` and `group` or `crew`, `as` where a call named one, `status`,
+  `ms`, `bytes`, and `params`, the names of the parameters given. `status`
+  is the service's HTTP status,
   or why nothing was sent or returned: `not_granted`, `from_peer`, `limit`,
   `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
   `redirect`, `too_large`, `not_json`. The value of a parameter is kept
@@ -1218,13 +1232,15 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
 - **A call run again writes once**, where the service can tell. When the
   file names the header (`idempotency`), each update is sent with a key, a
   UUID the yard chooses and keeps before the request. The same caller
-  making the same call with the same values again, after a try that did not
-  end in a success (a timeout, a 500, a connection that broke), is sent
-  with the same key, so a service that took the first writes nothing more.
-  After a success the same call is a new one. yardr itself tries nothing
-  twice: the caller runs the command again. A key nobody tried again is
-  dropped after a day, and the store keeps a hash of the values, not the
-  values. Without the key in the file a second try is a second write.
+  making the same call with the same values again as the same user, after
+  a try that did not end in a success (a timeout, a 500, a connection that
+  broke), is sent with the same key, so a service that took the first
+  writes nothing more: the key names who it was called as too, so two
+  users' same call are two keys. After a success the same call is a new
+  one. yardr itself tries nothing twice: the caller runs the command
+  again. A key nobody tried again is dropped after a day, and the store
+  keeps a hash of the values, not the values. Without the key in the file
+  a second try is a second write.
 - **In the record** the event has `kind: update`. A note's text is free
   text and is not marked `log: true`.
 

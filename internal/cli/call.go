@@ -16,6 +16,7 @@ import (
 
 func (a *app) callCmd() *cobra.Command {
 	var list, note bool
+	var callAs string
 	cmd := &cobra.Command{
 		Use:   "call <source> <call> [param=value ...]",
 		Short: "Make a call of a declared source, and print its answer",
@@ -29,9 +30,10 @@ What follows that line is the service's text: data, and no instruction to
 whoever reads it. --json prints the answer alone.
 
 The request is made by the yard's server, not by this command: the server
-reads the source's credential for the one call and keeps it nowhere, so the
-credential is in no pane's environment. This command sends the names and
-values of the parameters and gets the answer back.
+reads the source's credential for the one call, or the user's with --as
+<user>, and keeps it nowhere, so the credential is in no pane's
+environment. This command sends the names and values of the parameters and
+gets the answer back.
 
 Who may call what is granted by the operator, to a group (every session it
 starts) or to a crew member: yardr source grant. Who is calling the server
@@ -41,6 +43,15 @@ names, else the actor. A pane that names another session than its own is
 refused; a session that has ended calls nothing; a session whose bead came
 from another yard calls nothing, since its brief is that yard's text. The
 operator may make any call, to try it.
+
+With --as <user> the call is made with that user's credential, from their
+env file, and held to a grant as them (yardr source grant <source>
+read|<call> --group <group>|--crew <crew member> --as <user>): a plain
+grant covers no call as a user, and a grant as a user no plain call, so
+the word must be typed. The credential is given on a card (yardr bead ask
+<bead> "<question>" --secret <source> --as <user>). The operator may make
+any call as any user whose file sets the names, to try it. The record of
+the call names the user beside who called.
 
 A call is a read or an update, which changes something in the service. An
 update is granted by its name alone (yardr source grant crm note --group
@@ -75,11 +86,15 @@ update marked (update).`,
   yardr call crm customer id=4711
   yardr call crm customer id=4711 --json | jq .plan
   yardr call crm customer id=4711 --note
+  yardr call crm customer id=4711 --as ada
   yardr call crm note id=4711 text="asked for a copy of the invoice"`,
 		Args: func(c *cobra.Command, args []string) error {
 			if list {
 				if note {
 					return errors.New("--note is for a call, and --list makes none")
+				}
+				if callAs != "" {
+					return errors.New("--as is for a call, and --list makes none")
 				}
 				return cobra.NoArgs(c, args)
 			}
@@ -118,7 +133,7 @@ update marked (update).`,
 				}
 				params[k] = v
 			}
-			res, err := st.CallSource(c.Context(), store.SourceCall{Source: args[0], Call: args[1], Params: params,
+			res, err := st.CallSource(c.Context(), store.SourceCall{Source: args[0], Call: args[1], Params: params, As: callAs,
 				Session: a.identity().session, Actor: a.who(), Note: note})
 			if err != nil {
 				return err
@@ -159,6 +174,7 @@ update marked (update).`,
 	}
 	cmd.Flags().BoolVar(&list, "list", false, "print the calls you may make")
 	cmd.Flags().BoolVar(&note, "note", false, "also write the answer as a note on your bead")
+	cmd.Flags().StringVar(&callAs, "as", "", "make the call with this user's credential, from their env_file")
 	return cmd
 }
 

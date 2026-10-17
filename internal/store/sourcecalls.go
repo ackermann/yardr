@@ -32,7 +32,8 @@ var (
 	bSourceCalls = []byte("source_calls")
 	// bSourceKeys holds the key of each update call whose outcome is not
 	// known to be a success, <source>\x00session|crew|user\x00<id>\x00<hash
-	// of the call and its parameters' values>: see updateKey.
+	// of the user called as, the call and its parameters' values>: see
+	// updateKey.
 	bSourceKeys = []byte("source_keys")
 )
 
@@ -451,6 +452,10 @@ type SourceCall struct {
 	Source string            `json:"source"`
 	Call   string            `json:"call"`
 	Params map[string]string `json:"params,omitempty"`
+	// As is the user the call is made as (yardr call --as): the
+	// credential is read from their env file, and the caller is held to
+	// a grant as them. "" is a plain call, with the source's own.
+	As string `json:"as,omitempty"`
 	// Session is the session the calling process says it is of
 	// ($YARDR_SESSION), "" outside one, and Actor who it says it is. The
 	// store goes by its own records before either (sourceCaller).
@@ -488,15 +493,22 @@ type Callable struct {
 	Kind   string         `json:"kind"`
 	About  string         `json:"about,omitempty"`
 	Params []source.Param `json:"params,omitempty"`
+	// As is the user the call is made as, "" for a plain call.
+	As string `json:"as,omitempty"`
 }
 
 // Update reports whether the call changes something in the service.
 func (c Callable) Update() bool { return c.Kind == source.Update }
 
 // Line is the call as a command, each parameter with its type: "yardr call
-// crm customer id=<string>". An optional parameter is in brackets.
+// crm customer id=<string>", and with the user for one made as them:
+// "yardr call crm customer --as ada id=<string>". An optional parameter is
+// in brackets.
 func (c Callable) Line() string {
 	parts := []string{"yardr call", c.Source, c.Name}
+	if c.As != "" {
+		parts = append(parts, "--as", c.As)
+	}
 	for _, p := range c.Params {
 		arg := p.Name + "=<" + p.Type + ">"
 		if p.Type == "enum" {
@@ -560,6 +572,18 @@ func (c *sourceCaller) bead() string {
 		return c.sess.Bead
 	}
 	return ""
+}
+
+// grantee is the caller as a grant holds it: a session's group, or the
+// crew member. The operator and nobody hold no grant.
+func (c *sourceCaller) grantee() (Grantee, bool) {
+	switch {
+	case c.sess != nil:
+		return Grantee{Group: c.sess.Group}, true
+	case c.crew != nil:
+		return Grantee{Crew: c.crew.Name}, true
+	}
+	return Grantee{}, false
 }
 
 // sourceCallerIn tells who makes a call, by the store's own records before
@@ -636,9 +660,12 @@ func sourceCallerIn(ctx context.Context, tx *bolt.Tx, session, actor string) (*s
 	return c, nil
 }
 
-// may says whether the caller may make call c of d: "" when it may, else
-// why not, with the status of the refusal.
-func (c *sourceCaller) may(tx *bolt.Tx, d *source.Declaration, call *source.Call) (refused, status string, err error) {
+// may says whether the caller may make call c of d as the user as (""
+// for a plain call): "" when it may, else why not, with the status of the
+// refusal. A plain grant covers no call as a user, and a grant as a user
+// no plain call. The operator may make any call as any user, to try it,
+// as the operator may make any call.
+func (c *sourceCaller) may(tx *bolt.Tx, d *source.Declaration, call *source.Call, as string) (refused, status string, err error) {
 	if c.refused != "" {
 		return c.refused, c.status, nil
 	}
@@ -655,15 +682,18 @@ func (c *sourceCaller) may(tx *bolt.Tx, d *source.Declaration, call *source.Call
 		to.Crew = c.crew.Name
 	}
 	var g SourceGrant
-	if _, err := get(tx, bSourceGrants, to.key(d.Name), &g); err != nil {
+	if _, err := get(tx, bSourceGrants, grantKey(d.Name, to, as), &g); err != nil {
 		return "", "", err
 	}
-	if g.Covers(call, "") {
+	if g.Covers(call, as) {
 		return "", "", nil
 	}
 	flag := "--group " + to.Group
 	if to.Crew != "" {
 		flag = "--crew " + to.Crew
+	}
+	if as != "" {
+		return fmt.Sprintf("%s is not granted it as %s; %s grants it with: yardr source grant %s %s %s --as %s", to, as, as, d.Name, call.Name, flag, as), CallNotGranted, nil
 	}
 	return fmt.Sprintf("%s is not granted it; the operator grants it with: yardr source grant %s %s %s", to, d.Name, call.Name, flag), CallNotGranted, nil
 }
@@ -713,7 +743,9 @@ func (s *Store) SessionCalls(ctx context.Context, session string) (*Callables, e
 	return out, err
 }
 
-// callables are the calls of every source the caller may make.
+// callables are the calls of every source the caller may make: each plain
+// call its plain grant covers, and each call as a user its grants as one
+// cover, as the command that makes it.
 func (c *sourceCaller) callables(tx *bolt.Tx) (*Callables, error) {
 	out := &Callables{Caller: c.String(), Calls: []Callable{}}
 	err := each(tx, bSources, "", func(_ []byte, src *Source) error {
@@ -722,21 +754,42 @@ func (c *sourceCaller) callables(tx *bolt.Tx) (*Callables, error) {
 		if err != nil {
 			return nil
 		}
-		for i := range d.Calls {
-			call := &d.Calls[i]
-			refused, status, err := c.may(tx, d, call)
+		// The caller's grants as a user, for the as-lines below; the
+		// operator holds none (maySource is not a grant).
+		var asGrants []SourceGrant
+		if to, ok := c.grantee(); ok {
+			grants, err := grantsOf(tx, d.Name)
 			if err != nil {
 				return err
 			}
-			if refused != "" {
+			for _, g := range grants {
+				if g.As != "" && g.Grantee == to {
+					asGrants = append(asGrants, g)
+				}
+			}
+		}
+		for i := range d.Calls {
+			call := &d.Calls[i]
+			refused, status, err := c.may(tx, d, call, "")
+			if err != nil {
+				return err
+			}
+			switch {
+			case refused == "":
+				out.Calls = append(out.Calls, Callable{Source: d.Name, Name: call.Name, Kind: call.Kind, About: call.About, Params: call.Params})
+			case status == CallFromPeer || c.refused != "":
 				// Why it may call nothing at all, not that one call is
 				// not granted.
-				if status == CallFromPeer || c.refused != "" {
-					out.Refused = refused
-				}
+				out.Refused = refused
 				continue
 			}
-			out.Calls = append(out.Calls, Callable{Source: d.Name, Name: call.Name, Kind: call.Kind, About: call.About, Params: call.Params})
+			// Not granted plainly: an as grant may still cover it as a
+			// user, and the word must be typed, so a call lists each.
+			for _, g := range asGrants {
+				if g.Covers(call, g.As) {
+					out.Calls = append(out.Calls, Callable{Source: d.Name, Name: call.Name, Kind: call.Kind, About: call.About, Params: call.Params, As: g.As})
+				}
+			}
 		}
 		return nil
 	})
@@ -825,10 +878,13 @@ type updateKey struct {
 	At       time.Time `json:"at"` // the last try
 }
 
-// updateKeyOf is where the key of caller's call with params is kept. The
-// values are hashed: a note's text is in the store no more than in an
-// event.
-func updateKeyOf(caller, call string, params map[string]string) string {
+// updateKeyOf is where the key of caller's call with params, made as the
+// user as ("" for a plain call), is kept. The values are hashed: a note's
+// text is in the store no more than in an event. Where as is empty the key
+// is the key it has always been, so a plain update already tried keeps the
+// key it was sent with; where a user is named, their name is hashed first,
+// so two users' same call are two keys and no two of them collide.
+func updateKeyOf(caller, call string, params map[string]string, as string) string {
 	names := make([]string, 0, len(params))
 	for name := range params {
 		names = append(names, name)
@@ -837,6 +893,9 @@ func updateKeyOf(caller, call string, params map[string]string) string {
 	// Each part with its length before it: a value is the caller's text,
 	// and no text in one reads as the start of the next.
 	h := sha256.New()
+	if as != "" {
+		fmt.Fprintf(h, "%d:%s", len(as), as)
+	}
 	fmt.Fprintf(h, "%d:%s", len(call), call)
 	for _, name := range names {
 		fmt.Fprintf(h, "%d:%s%d:%s", len(name), name, len(params[name]), params[name])
@@ -891,11 +950,15 @@ func noteText(a *SourceAnswer) string {
 
 // sourceCalled writes the record of one call, made or refused: the
 // source_call event, on the caller's bead for a session. It keeps who
-// called, what and how it ended, the names of the parameters given, and
-// the value of each the declaration marks log: true. Never the credential,
-// the request's body, the answer or the address with its values in it.
-func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.Call, params map[string]string, status any, res *source.Result, attempt int) error {
+// called and, where a call names one, who it was called as, what and how
+// it ended, the names of the parameters given, and the value of each the
+// declaration marks log: true. Never the credential, the request's body,
+// the answer or the address with its values in it.
+func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.Call, params map[string]string, status any, res *source.Result, attempt int, as string) error {
 	data := map[string]any{"source": d.Name, "call": call.Name, "kind": call.Kind, "by": c.String(), "status": status}
+	if as != "" {
+		data["as"] = as
+	}
 	// An update sent again with the key of a try before it.
 	if attempt > 1 {
 		data["attempt"] = attempt
@@ -932,8 +995,10 @@ func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.
 // CallSource makes one call of a declared source for whoever asks, when
 // they may, and returns the service's answer. It is the yard's server that
 // makes the request: the credential is read from the source's env_file for
-// this one call and kept nowhere, so it is in no pane's environment, no
-// brief and no event.
+// this one call, or from the user's where the call names one (As), and
+// kept nowhere, so it is in no pane's environment, no brief and no event.
+// The count stays per caller either way: plain and as calls share the one
+// budget.
 //
 // It runs in three parts. A write tells who calls (sourceCaller), checks
 // the grant, counts the call and, for an update of a source that takes a
@@ -952,11 +1017,12 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		call    *source.Call
 		refused string
 		note    string     // the bead the answer is noted on
+		asFile  string     // the file a call as a user reads, from their record
 		keyAt   string     // where the update's key is kept
 		key     *updateKey // nil for a call that is sent none
 	)
 	err := s.write(func(w *wtx) error {
-		refused, note, keyAt, key = "", "", "", nil // a batch may run this twice
+		refused, note, asFile, keyAt, key = "", "", "", "", nil // a batch may run this twice
 		var err error
 		if src, d, err = sourceIn(w.Tx, req.Source); err != nil {
 			return err
@@ -966,10 +1032,20 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 			return fmt.Errorf("source %s has no call %q (it has: %s)", d.Name, req.Call, or(strings.Join(callNames(d), ", "), "none"))
 		}
 		call = c
+		if req.As != "" {
+			u, err := getUser(w.Tx, req.As)
+			if err != nil {
+				return err
+			}
+			// The record's file, and no default where it names none: a
+			// user without one has no credential per user, wherever a
+			// file stands.
+			asFile = u.EnvFile
+		}
 		if caller, err = sourceCallerIn(ctx, w.Tx, req.Session, req.Actor); err != nil {
 			return err
 		}
-		why, status, err := caller.may(w.Tx, d, call)
+		why, status, err := caller.may(w.Tx, d, call, req.As)
 		if err != nil {
 			return err
 		}
@@ -989,13 +1065,13 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		}
 		if why == "" {
 			if call.Kind == source.Update && d.Idempotency != "" {
-				keyAt = updateKeyOf(caller.key(d.Name), call.Name, req.Params)
+				keyAt = updateKeyOf(caller.key(d.Name), call.Name, req.Params, req.As)
 				key, err = w.keyed(keyAt)
 			}
 			return err
 		}
 		refused = why
-		return w.sourceCalled(caller, d, call, req.Params, status, nil, 0)
+		return w.sourceCalled(caller, d, call, req.Params, status, nil, 0, req.As)
 	})
 	if err != nil {
 		return nil, err
@@ -1009,7 +1085,12 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	if key != nil {
 		sentWith, attempt = key.Key, key.Attempts
 	}
-	cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.MintCommand, call.Kind)
+	var cred string
+	if req.As == "" {
+		cred, _, err = d.ReadCredential(ctx, src.EnvFile, src.MintCommand, call.Kind)
+	} else {
+		cred, _, err = d.ReadUserCredential(ctx, req.As, asFile, src.MintCommand, call.Kind)
+	}
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)
 	} else {
@@ -1034,7 +1115,7 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 				return err
 			}
 		}
-		return w.sourceCalled(caller, d, call, req.Params, status, res, attempt)
+		return w.sourceCalled(caller, d, call, req.Params, status, res, attempt, req.As)
 	})
 	if rerr != nil && err == nil {
 		err = rerr

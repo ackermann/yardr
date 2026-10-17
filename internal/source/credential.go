@@ -25,6 +25,33 @@ func (d *Declaration) ReadCredential(ctx context.Context, envFile, mintCommand, 
 	if err != nil {
 		return "", "", err
 	}
+	return d.resolveSelected(ctx, sel, mintCommand, kind)
+}
+
+// ReadUserCredential reads the credential of d for a call made as the user:
+// the value of the variable d names for that kind from envFile, the file
+// their record names, read now, or the token its mint's inputs mint, with
+// the source's mint_command and no scope. The precedence, the mint and what
+// state says are ReadCredential's; err says why there is none, with the
+// card that gives it.
+func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile, mintCommand, kind string) (value, state string, err error) {
+	if d.Credential == nil {
+		return "", "none: the file names no credential", nil
+	}
+	card := userCredentialCard(d.Name, user)
+	if envFile == "" {
+		return "", "", fmt.Errorf("%s is not set for %s: %s", strings.Join(d.Credential.MintOrStatic(), " and "), user, card)
+	}
+	sel, err := d.SelectCredential(envFile, kind)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: %s", err, card)
+	}
+	return d.resolveSelected(ctx, sel, mintCommand, kind)
+}
+
+// resolveSelected is what a selected credential is for a call of kind: the
+// static value, or the token the mint's inputs mint.
+func (d *Declaration) resolveSelected(ctx context.Context, sel *Selected, mintCommand, kind string) (value, state string, err error) {
 	if sel.Inputs == nil {
 		name := d.Credential.EnvOf(kind)
 		return sel.Value, name + " is set in " + sel.File, nil
@@ -72,11 +99,17 @@ func (d *Declaration) CredentialState(envFile, mintCommand string) (state string
 // a minted credential the input names, without the mint command, which is
 // the source's and is said on its line. err is the first that is not, with
 // the card that gives it.
+// userCredentialCard is the card that gives the user's credential in the
+// source: asked of them, or of the operator for them.
+func userCredentialCard(src, user string) string {
+	return fmt.Sprintf("yardr bead ask <bead> \"<question>\" --secret %s --as %s --context \"<where to get it>\" asks %s for it", src, user, user)
+}
+
 func (d *Declaration) UserCredentialState(user, file string) (string, error) {
 	if d.Credential == nil {
 		return "none: the file names no credential", nil
 	}
-	card := fmt.Sprintf("yardr bead ask <bead> \"<question>\" --secret %s --as %s --context \"<where to get it>\" asks %s for it", d.Name, user, user)
+	card := userCredentialCard(d.Name, user)
 	if file == "" {
 		return "", fmt.Errorf("%s is not set for %s: %s", strings.Join(d.Credential.MintOrStatic(), " and "), user, card)
 	}
