@@ -62,11 +62,11 @@ func oneValue(what string, out []byte) error {
 		return fmt.Errorf("%s: it printed nothing: a build's answer is one JSON value", what)
 	}
 	dec := json.NewDecoder(bytes.NewReader(out))
-	var v any
+	var v json.RawMessage
 	if err := dec.Decode(&v); err != nil {
 		return fmt.Errorf("%s: what it printed is not one JSON value", what)
 	}
-	var extra any
+	var extra json.RawMessage
 	if err := dec.Decode(&extra); err == nil {
 		return fmt.Errorf("%s: it printed more than one JSON value", what)
 	} else if err != io.EOF {

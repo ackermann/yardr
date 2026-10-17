@@ -97,7 +97,10 @@ func TestRunBuildHandsInputAndReadsAnyJSONValue(t *testing.T) {
 	if string(in) != `{"params":{"count":2,"ok":false,"text":"x"}}` {
 		t.Fatalf("stdin = %s", in)
 	}
-	for _, value := range []string{`{}`, `[]`, `"text"`, `2`, `false`, `null`} {
+	for _, value := range []string{
+		`{}`, `[]`, `"text"`, `2`, `false`, `null`,
+		`9007199254740993123456789`, `1e1000`, `{"id":9007199254740993123456789}`,
+	} {
 		if err := oneValue("build", []byte(value)); err != nil {
 			t.Errorf("%s is one JSON value: %v", value, err)
 		}
