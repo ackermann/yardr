@@ -360,6 +360,9 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	if _, err := st.RevokeSource(ctx, "crm", "read", store.Grantee{Group: "web-builders"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.RevokeSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	if d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm"); d.Reaches != nil {
 		t.Fatalf("reaches %+v with no grant of read", d.Reaches)
 	}
