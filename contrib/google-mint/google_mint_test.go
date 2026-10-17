@@ -476,6 +476,37 @@ func TestGoogleMintHostileAccount(t *testing.T) {
 	}
 }
 
+// The login command a refusal names is one shell word for its
+// directory: an account with a ';', a '$', a space or a quote in it is
+// data naming a directory, and must not become a command when the
+// person the refusal is shown to copies that command into a shell.
+// Without the quoting the directory after ';' would be run as a
+// second command.
+func TestGoogleMintLoginCommandQuoted(t *testing.T) {
+	endpoint := &fakeToken{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+	defer srv.Close()
+	for _, account := range []string{"a;id@example.com", "$(id)@example.com", "a b@example.com", "a'b@example.com"} {
+		home := t.TempDir()
+		dir := filepath.Join(home, ".config", "gws-accounts", account)
+		quoted := "'" + strings.ReplaceAll(dir, "'", "'\\''") + "'"
+		want := "GOOGLE_WORKSPACE_CLI_CONFIG_DIR=" + quoted + " gws auth login -s gmail,drive,docs,slides"
+		stdout, stderr, err := mintHome(t, home, stdinFor(account, ""), srv.URL)
+		if err == nil {
+			t.Errorf("mint %s: minted with no login:\n%s", account, stdout)
+		}
+		if !strings.Contains(stderr, want) {
+			t.Errorf("mint %s: stderr lacks quoted login command %q:\n%s", account, want, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("mint %s: stdout = %q", account, stdout)
+		}
+		if len(endpoint.sent()) != 0 {
+			t.Errorf("mint %s: the endpoint was asked", account)
+		}
+	}
+}
+
 // GWS_BIN names the gws, ahead of whatever is on PATH: the mint goes
 // through it, with ~/ expanded.
 func TestGoogleMintGWSBin(t *testing.T) {

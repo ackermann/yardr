@@ -61,6 +61,21 @@ num() {
     head -n 1 | sed -n 's/[^0-9]*\([0-9][0-9]*\)/\1/p'
 }
 
+# shell_quote <text> is text as one shell word: as it is when nothing in
+# it is special, single-quoted otherwise. For the login command a
+# refusal names: the account that names its directory is data, so a
+# ';', '$' or space in it must not become a command when it is copied.
+shell_quote() {
+  case $1 in
+    *[!A-Za-z0-9/._+:,@%=-]*|'')
+      printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+      ;;
+    *)
+      printf '%s' "$1"
+      ;;
+  esac
+}
+
 account=$(first "$input" GOOGLE_ACCOUNT)
 [ -n "$account" ] || fail "its inputs name no GOOGLE_ACCOUNT"
 printf '%s' "$input" | grep -q '"scope"' || fail "reads {inputs, scope} on stdin, and got no scope"
@@ -98,7 +113,7 @@ else
   esac
   [ -n "${HOME:-}" ] || fail "HOME is not set: cannot find the login for GOOGLE_ACCOUNT=$account"
   acct_dir=$HOME/.config/gws-accounts/$account
-  login_cmd="GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$acct_dir gws auth login -s gmail,drive,docs,slides"
+  login_cmd="GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$(shell_quote "$acct_dir") gws auth login -s gmail,drive,docs,slides"
   # gws just answered above, so what fails here is the login in that
   # directory, not gws: the refusal names the login that makes it, and
   # not what gws said.
