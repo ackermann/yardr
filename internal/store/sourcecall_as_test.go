@@ -59,12 +59,16 @@ func crewPane(t *testing.T, s store.API, ctx context.Context, crew string) conte
 	return store.WithCaller(ctx, me)
 }
 
-// A call as a user from a granted crew member's pane reads the user's file
-// and its event names as beside by, with neither the credential nor the
-// answer in any event. A bare call from the as-only grantee is refused, a
-// caller without the as grant is refused with the command that grants it,
-// the operator tries any set-up user, and a user the yard does not have is
+// A call as a user from a granted crew member reads the user's file and
+// its event names as beside by, with neither the credential nor the answer
+// in any event. A bare call from the as-only grantee is refused, a caller
+// without the as grant is refused with the command that grants it, the
+// operator tries any set-up user, and a user the yard does not have is
 // refused before anything is recorded.
+//
+// No pane is recorded here, so the test runs over the socket too, where
+// every call has the test process as its caller: a recorded pane would
+// resolve every call to it.
 func TestSourceCallAsAUser(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
@@ -76,11 +80,10 @@ func TestSourceCallAsAUser(t *testing.T) {
 	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "ada", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	pane := crewPane(t, s, ctx, "yardmaster")
 
-	res, err := s.CallSource(pane, store.SourceCall{Source: "crm", Call: "customer", As: "ada", Actor: "yardmaster", Params: map[string]string{"id": "4711"}})
+	res, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "customer", As: "ada", Actor: "yardmaster", Params: map[string]string{"id": "4711"}})
 	if err != nil || string(res.Answer) != `{"id":"4711","name":"Ada","plan":"pro"}` {
-		t.Fatalf("a call as ada from the crew pane = %+v, %v", res, err)
+		t.Fatalf("a call as ada = %+v, %v", res, err)
 	}
 	if _, data := lastCall(t, s); !strings.Contains(data, `"by":"crew member yardmaster"`) || !strings.Contains(data, `"as":"ada"`) ||
 		!strings.Contains(data, `"crew":"yardmaster"`) || !strings.Contains(data, `"status":200`) {
@@ -88,7 +91,7 @@ func TestSourceCallAsAUser(t *testing.T) {
 	}
 
 	// A bare call from the as-only grantee is refused, and names no user.
-	_, err = s.CallSource(pane, store.SourceCall{Source: "crm", Call: "customer", Actor: "yardmaster", Params: map[string]string{"id": "1"}})
+	_, err = s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "customer", Actor: "yardmaster", Params: map[string]string{"id": "1"}})
 	if err == nil || !strings.Contains(err.Error(), "crew member yardmaster is not granted it; the operator grants it with: yardr source grant crm customer --crew yardmaster") {
 		t.Fatalf("a bare call on an as grant alone = %v", err)
 	}
@@ -130,7 +133,7 @@ func TestSourceCallAsAUser(t *testing.T) {
 	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, to, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if res, err := s.CallSource(pane, store.SourceCall{Source: "crm", Call: "ping", Actor: "yardmaster"}); err != nil || res.Status != 401 {
+	if res, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "ping", Actor: "yardmaster"}); err != nil || res.Status != 401 {
 		t.Fatalf("a plain call on the source's wrong token = %+v, %v", res, err)
 	}
 	if _, data := lastCall(t, s); !strings.Contains(data, `"status":401`) || strings.Contains(data, `"as"`) {
@@ -140,6 +143,28 @@ func TestSourceCallAsAUser(t *testing.T) {
 	all, _ := json.Marshal(calls(t, s))
 	if strings.Contains(string(all), crmToken) || strings.Contains(string(all), "tok-wrong") || strings.Contains(string(all), "Ada") {
 		t.Fatalf("an event has a credential or the answer in it: %s", all)
+	}
+}
+
+// A call as a user from the granted crew member's pane is the crew
+// member's, whatever actor it names: the pane's crew member, naming the
+// operator, calls as ada on its as grant. The owning store, not the
+// socket's client, so the pane is the test's own in both modes.
+func TestSourceCallAsAUserFromACrewPane(t *testing.T) {
+	t.Parallel()
+	_, s := storetest.NewOwned(t)
+	ctx := asYard(t, s)
+	if _, err := s.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	pane := crewPane(t, s, ctx, "yardmaster")
+
+	res, err := s.CallSource(pane, store.SourceCall{Source: "crm", Call: "customer", As: "ada", Actor: "jo", Params: map[string]string{"id": "4711"}})
+	if err != nil || string(res.Answer) != `{"id":"4711","name":"Ada","plan":"pro"}` {
+		t.Fatalf("a call as ada from the crew pane = %+v, %v", res, err)
+	}
+	if _, data := lastCall(t, s); !strings.Contains(data, `"by":"crew member yardmaster"`) || !strings.Contains(data, `"as":"ada"`) {
+		t.Fatalf("its event = %s", data)
 	}
 }
 
