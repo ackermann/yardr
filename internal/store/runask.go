@@ -951,13 +951,14 @@ func runPeerAllow(ctx context.Context, w *wtx, argv []string, actor string, by *
 // It refuses a command that is not on the list (telling apart one the
 // asker may run themselves, one that is the operator's alone, and none
 // the yard runs from a card), one the yard would refuse or that would
-// change nothing, anyone but the operator as the one asked
-// (for a command that is a user's own, anyone but that user and the
-// operator: runCommand.whose), and a writer that is no crew member and no user of the yard: a bead's
+// change nothing, anyone but the required approver as the one asked
+// (for a command that is a user's own, that user or the operator:
+// runCommand.whose; for one user alone, only that user: runCommand.sole),
+// and a writer that is no crew member and no user of the yard: a bead's
 // agent reads text from outside the yard and is the one most likely to be
 // talked into proposing something, so the store knows it by its pane,
 // whatever actor it names. Asking gives the asker nothing: the ask is words
-// until the operator approves it.
+// until its required approver approves it.
 func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskRun, error) {
 	c, argv, err := parseRow(run.Argv)
 	if err != nil && err != errNotRow {
