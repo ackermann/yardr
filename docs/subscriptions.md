@@ -429,6 +429,13 @@ and the group starts no further session with that model meanwhile.
 bead subscription hears them too (`yardr subscribe <name> yardr --where
 kind=session_stalled`).
 
+`session_harness_dialog`: a session whose agent sits idle at its start at
+its harness's folder-trust dialog with answers this yardr does not know.
+Its `kind` is the harness, `version` what the installed harness reports,
+`dialog` the dialog's lines and `tail` the end of the pane; the `hint`
+names the file to update (`harnesses/<kind>.yaml`)
+([groups.md](groups.md#herdr-setup)).
+
 `session_harness_error`: a session whose agent's harness stopped on an
 error of its own and sits idle. Its `reason` is `at_capacity`,
 `not_logged_in`, `rate_limited` or `other`, `line` is the error as the
@@ -481,6 +488,7 @@ for a manual group than its `wait` allows
 are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
 `workspace_kept`, `crew_gave_up`, `runtime_down`, `session_idle`,
 `session_aged`, `session_stalled`, `session_harness_error`,
+`session_harness_dialog`,
 `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `held`,
 `waited`, `nudge_held` (an agent's input holds text, a dialog of its
 harness, or its login screen, so nothing is typed there: see "Text in the

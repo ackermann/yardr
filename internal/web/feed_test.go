@@ -144,6 +144,9 @@ func TestFeedOtherWords(t *testing.T) {
 	must(t, api.LogDispatch(ctx, b.ID, "session_idle", "yard", map[string]any{"session": "s1"}))
 	must(t, api.LogDispatch(ctx, b.ID, "session_harness_error", "yard", map[string]any{"session": "s1", "reason": "at_capacity",
 		"line": "■ Selected model is at capacity.", "hint": "a long hint", "tail": "› \n■ Selected model is at capacity."}))
+	must(t, api.LogDispatch(ctx, b.ID, "session_harness_dialog", "yard", map[string]any{"session": "s1", "kind": "kimi",
+		"version": "kimi-code 2.9.9", "dialog": "Trust this folder?\n   ❯ Trust this folder and remember it",
+		"hint": "a long hint", "tail": "tail"}))
 	must(t, api.LogDispatch(ctx, b.ID, "session_blocked", "yard", map[string]any{"session": "s1",
 		"handle": map[string]any{"agent": "window-new"},
 		"tail":   strings.Repeat("⏺ an earlier line of the pane\n", 20) + "│ Do you want to proceed?\n│ ❯ 1. Yes"}))
@@ -165,6 +168,8 @@ func TestFeedOtherWords(t *testing.T) {
 		"session_idle":   {Text: "session idle", Note: "session s1"},
 		"session_harness_error": {Text: "harness stopped on an error: at capacity", Note: "■ Selected model is at capacity.",
 			Tone: "held"},
+		"session_harness_dialog": {Text: "harness drew a dialog yardr does not know: kimi",
+			Note: "Trust this folder?\n   ❯ Trust this folder and remember it", Tone: "held"},
 		"move_refused": {Text: "move refused (not allowed): yardr bead done " + b.ID + " --outcome shipped",
 			Note: "flow has no outcome shipped", Tone: "held"},
 		"closed":          {Text: "closed: dropped"},

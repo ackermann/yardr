@@ -111,6 +111,29 @@ func kimiTrustDialog22(on string) string {
 `
 }
 
+// kimiTrustDialogUnknown is a Kimi folder-trust dialog whose answers this
+// yardr does not know (yardr-tzkk): a later version renamed them again,
+// the cursor on the answer `on`.
+func kimiTrustDialogUnknown(on string) string {
+	mark := func(answer string) string {
+		if answer == on {
+			return "   ❯ " + answer
+		}
+		return "     " + answer
+	}
+	return ` ────────────────────────────────────────────
+  Trust this folder?
+  ↑↓ navigate · Enter select · Esc exit
+
+  /private/tmp/y1z/wt/r1/b1
+
+  No project integrations or instructions to activate.
+
+` + mark("Trust this folder and remember it") + `
+` + mark("Exit without trusting") + `
+`
+}
+
 // codexTrustDialog is Codex's folder-trust dialog as a review session's
 // pane showed it (codex-cli 0.160.1, 15 Oct 2026): one long paragraph,
 // wrapped by the pane, then the answers, the cursor on the answer `on`.
@@ -344,6 +367,30 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 			strings.Contains(got, "enter") || strings.Contains(got, "agent prompt") ||
 			(c.keys == "" && strings.Contains(got, "send-keys")) {
 			t.Errorf("%s: handle = %v\n%s", c.name, handle, got)
+		}
+	}
+}
+
+// A harness that renamed its trust answers again (yardr-tzkk) is left for
+// a human, no key sent that could answer something else: the known dialog
+// with none of its known answers is the daemon's to tell of
+// (session_harness_dialog), not the runner's to answer.
+func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
+	shortTrustWait(t)
+	kimi, _ := agents.Lookup("kimi")
+	for _, start := range []string{"Trust this folder and remember it", "Exit without trusting"} {
+		h, calls := trustHerdr(t, kimiTrustDialog("Don't trust"), kimiTrustDialog(kimi.Trust.Answers[0]),
+			kimiTrustDialogUnknown(start), "idle")
+		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, kimi.Trust)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handle[store.PendingPrompt] != "read the brief" || handle["trust_accepted"] != nil {
+			t.Errorf("cursor on %q: handle = %v", start, handle)
+		}
+		if got := calls(); strings.Contains(got, "send-keys") || strings.Contains(got, "agent prompt") {
+			t.Errorf("cursor on %q: a key was sent:\n%s", start, got)
 		}
 	}
 }

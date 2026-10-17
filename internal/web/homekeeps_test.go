@@ -30,6 +30,7 @@ func TestHomeKeepsKinds(t *testing.T) {
 		{"crew_gave_up", nil, true},
 		{"resident_gave_up", nil, true},
 		{"session_harness_error", nil, true},
+		{"session_harness_dialog", nil, true},
 		{"session_failed", nil, true},
 		{"session_died", nil, true},
 		{"closed", nil, true},

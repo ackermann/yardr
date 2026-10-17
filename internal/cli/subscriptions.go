@@ -965,7 +965,8 @@ func printBeadDelivery(e store.Event, member string) {
 	// answer to it.
 	lead := ""
 	if first := map[string][]string{"session_harness_error": {"reason", "line"},
-		store.MoveRefused: {"reason", "command", "error"}}[e.Kind]; first != nil {
+		"session_harness_dialog": {"kind", "version", "dialog"},
+		store.MoveRefused:        {"reason", "command", "error"}}[e.Kind]; first != nil {
 		for _, k := range first {
 			if v, ok := data[k]; ok {
 				lead += k + "=" + show(v) + " "

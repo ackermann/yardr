@@ -58,6 +58,27 @@ func TestNudgeHeldReachesWhoHearsTheClass(t *testing.T) {
 	}
 }
 
+// session_harness_dialog is a dispatch kind of the class attention
+// (yardr-tzkk): a crew member that hears the class has it in its inbox.
+func TestHarnessDialogIsADispatchKindOfTheClass(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", On: []string{store.KindAttention}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogDispatch(ctx, b.ID, "session_harness_dialog", "yard", map[string]any{"kind": "kimi"}); err != nil {
+		t.Fatalf("LogDispatch: %v", err)
+	}
+	if got := inboxKinds(t, s, "yardmaster"); got != "session_harness_dialog" {
+		t.Errorf("the yardmaster hears %q, want the dialog", got)
+	}
+}
+
 // install_failed and rolled_back are dispatch kinds of the class attention
 // (yardr-x6s0): a crew member that hears the class has them in its inbox.
 // daemon_started is a dispatch kind but a routine start, so of no class.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -52,18 +51,15 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
 // which takes its mark and one accepting answer on separate lines,
-// selected when the dialog's cursor is on the exact answer line. A mark is
-// the start of its dialog's question: what follows it wraps wherever the
-// pane wraps, so match it at either edge; the answer line stays exact,
-// with the cursor t.Cursor on it.
+// selected when the dialog's cursor is on the exact answer line.
 func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
-		l = strings.TrimSpace(l)
-		dialog = dialog || strings.HasPrefix(l, t.Dialog) || strings.HasSuffix(l, t.Dialog)
-		answerText := strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
-		if !answer && slices.Contains(t.Answers, answerText) {
-			answer, selected = true, t.Cursor != "" && strings.HasPrefix(l, t.Cursor)
+		dialog = dialog || t.ShowsDialog(l)
+		if !answer {
+			if a, on := t.ShowsAnswer(l); a != "" {
+				answer, selected = true, on
+			}
 		}
 	}
 	return dialog && answer, selected
@@ -113,6 +109,13 @@ func (h *Herdr) acceptTrust(ctx context.Context, pane string, t agents.Trust) bo
 		}
 	}
 	return false
+}
+
+// HarnessVersion is the version the installed harness of kind reports
+// (dispatch.Versioner): what a session_harness_dialog names beside the
+// dialog it does not know. "" when nothing answers.
+func (h *Herdr) HarnessVersion(ctx context.Context, kind string) string {
+	return agents.HarnessVersion(ctx, kind)
 }
 
 // ready waits, up to trustWait, for the agent to take a prompt.

@@ -380,6 +380,7 @@ var etaFailedKinds = map[string]bool{
 	"session_stalled":        true,
 	"session_prompt_gave_up": true,
 	"session_harness_error":  true,
+	"session_harness_dialog": true,
 }
 
 // IsETAFailedKind reports whether a session event excludes a claim from build

@@ -77,7 +77,7 @@ func inHomeFeed(ctx context.Context, r *reader, e store.Event) bool {
 		return true
 	case kind == "session_blocked" || kind == "session_unblocked":
 		return true
-	case kind == "gave_up" || kind == "crew_gave_up" || kind == "session_harness_error":
+	case kind == "gave_up" || kind == "crew_gave_up" || kind == "session_harness_error" || kind == "session_harness_dialog":
 		return true
 	case kind == "closed" || kind == "released" || kind == "reopened" || kind == "timer":
 		return true
@@ -404,6 +404,10 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		// The reason and the harness's own line, not everything the event
 		// carries: its hint and the pane's end would be all an entry shows.
 		out.Text, out.Note, out.Tone = "harness stopped on an error: "+strings.ReplaceAll(str("reason"), "_", " "), str("line"), "held"
+	case e.Kind == "session_harness_dialog":
+		// The kind and the dialog's lines, not everything the event
+		// carries: its hint and the pane's end would be all an entry shows.
+		out.Text, out.Note, out.Tone = "harness drew a dialog yardr does not know: "+str("kind"), str("dialog"), "held"
 	case e.Kind == "session_blocked":
 		// What the agent asks stands at the end of its pane, so the note is
 		// cut from the front, where every other is cut at the end.

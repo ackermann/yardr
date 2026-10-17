@@ -277,6 +277,7 @@ func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Sessio
 		if _, waits := harnessWaits(s); waits {
 			d.markHarnessError(ctx, s, "", nil)
 		}
+		d.harnessDialog(ctx, r, s, g, tail)
 		return
 	}
 	data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage, "kind": kind,
@@ -435,9 +436,10 @@ func inputEmpty(ctx context.Context, r Runner, handle map[string]any) bool {
 // harnessOver ends the spell a session_harness_error was raised in, or a
 // try waited in: s's agent is doing something again, so its next error is
 // told again. The count of tries stays: it is for the session's life, or an
-// agent that works for a moment after each would be prompted for ever.
+// agent that works for a moment after each would be prompted for ever. A
+// dialog told of ends with it.
 func (d *Dispatcher) harnessOver(ctx context.Context, s *store.Session) {
-	for _, key := range []string{HarnessErrorKey, harnessRetryAt, harnessResetAt, harnessPrompted} {
+	for _, key := range []string{HarnessErrorKey, HarnessDialogKey, harnessRetryAt, harnessResetAt, harnessPrompted} {
 		if s.Handle[key] != nil {
 			d.markHarnessError(ctx, s, "", nil)
 			return
@@ -447,14 +449,14 @@ func (d *Dispatcher) harnessOver(ctx context.Context, s *store.Session) {
 
 // markHarnessError keeps reason on s's handle, or takes the mark off for "".
 // Either ends every wait there was, for a try, for a reset or for what a
-// prompt did; wake is the wait for a reset that begins with the mark (see
-// resetWake), nil for none.
+// prompt did, and a dialog told of; wake is the wait for a reset that
+// begins with the mark (see resetWake), nil for none.
 func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, reason string, wake map[string]any) {
 	h := maps.Clone(s.Handle)
 	if h == nil {
 		h = map[string]any{}
 	}
-	for _, key := range []string{harnessRetryAt, harnessResetAt, harnessResetWindow, harnessResetModel, harnessPrompted} {
+	for _, key := range []string{HarnessDialogKey, harnessRetryAt, harnessResetAt, harnessResetWindow, harnessResetModel, harnessPrompted} {
 		delete(h, key)
 	}
 	maps.Copy(h, wake)

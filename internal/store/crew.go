@@ -861,7 +861,7 @@ const KindAttention = "attention"
 // resolved when an event is matched.
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
-	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held", "backup_failed",
+	"session_harness_error", "session_harness_dialog", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held", "backup_failed",
 	"note_untold", "install_failed", "rolled_back", HookQuiet, QuietFailed}
 
 // KindsOf are the kinds word names where a kind is given: those of the

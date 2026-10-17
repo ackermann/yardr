@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -83,17 +84,109 @@ type Harness struct {
 // is answered only when the mark shows, one answer shows exactly, and the
 // cursor is seen on that answer (internal/runner/trust.go). There is one
 // answer per harness version that renamed it: Kimi 2.2.0 renamed 'Trust
-// this folder' to 'Trust and continue', so its file names both. Env are
-// entries that let a harness skip this dialog; the runner sets their active
-// values only when it is allowed to answer the dialog. EnvNames exposes
-// their names without values in JSON. The cursor is the dialog's own mark:
-// Kimi's is ❯ though its input mark is ">".
+// this folder' to 'Trust and continue', so its file names both. Answers
+// arrive as one string or a list, and the file's old `answer` still reads
+// as one. Env are entries that let a harness skip this dialog; the runner
+// sets their active values only when it is allowed to answer the dialog.
+// EnvNames exposes their names without values in JSON. The cursor is the
+// dialog's own mark: Kimi's is ❯ though its input mark is ">".
 type Trust struct {
 	Dialog   string   `yaml:"dialog" json:"dialog"`
 	Answers  []string `yaml:"answers" json:"answers"`
 	Cursor   string   `yaml:"cursor" json:"cursor"`
 	Env      []string `yaml:"env" json:"-"`
 	EnvNames []string `yaml:"-" json:"env,omitempty"`
+}
+
+// UnmarshalYAML reads a trust dialog: answers arrive as one string or a
+// list (a renamed answer is one added line), and the file's old `answer`
+// still reads as one. Both keys at once is refused, and so is any other
+// key, as the loader's KnownFields would.
+func (t *Trust) UnmarshalYAML(value *yaml.Node) error {
+	var keys map[string]any
+	if err := value.Decode(&keys); err != nil {
+		return err
+	}
+	for k := range keys {
+		switch k {
+		case "dialog", "answer", "answers", "cursor", "env":
+		default:
+			return fmt.Errorf("field %s not found in type agents.Trust", k)
+		}
+	}
+	var raw struct {
+		Dialog  string   `yaml:"dialog"`
+		Answer  any      `yaml:"answer"`
+		Answers any      `yaml:"answers"`
+		Cursor  string   `yaml:"cursor"`
+		Env     []string `yaml:"env"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	answers, err := trustAnswers(raw.Answer, raw.Answers)
+	if err != nil {
+		return err
+	}
+	t.Dialog, t.Answers, t.Cursor, t.Env = raw.Dialog, answers, raw.Cursor, raw.Env
+	return nil
+}
+
+// trustAnswers is what a dialog's answer and answers name: one string or a
+// list of strings each, the two never together.
+func trustAnswers(answer, answers any) ([]string, error) {
+	one := func(v any) ([]string, error) {
+		switch v := v.(type) {
+		case nil:
+			return nil, nil
+		case string:
+			return []string{v}, nil
+		case []any:
+			out := make([]string, 0, len(v))
+			for _, e := range v {
+				s, ok := e.(string)
+				if !ok {
+					return nil, fmt.Errorf("trust: answers wants a string or a list of strings")
+				}
+				out = append(out, s)
+			}
+			return out, nil
+		default:
+			return nil, fmt.Errorf("trust: answers wants a string or a list of strings")
+		}
+	}
+	a, err := one(answer)
+	if err != nil {
+		return nil, err
+	}
+	b, err := one(answers)
+	if err != nil {
+		return nil, err
+	}
+	if a != nil && b != nil {
+		return nil, fmt.Errorf("trust: answer and answers are the same answers under two names; keep one")
+	}
+	return append(a, b...), nil
+}
+
+// ShowsDialog reports whether line, one line of a pane, shows t's dialog
+// mark: the start of its question, matched at either edge, since what
+// follows it wraps wherever the pane wraps.
+func (t Trust) ShowsDialog(line string) bool {
+	l := strings.TrimSpace(line)
+	return strings.HasPrefix(l, t.Dialog) || strings.HasSuffix(l, t.Dialog)
+}
+
+// ShowsAnswer reports whether line is one of t's accepting answers: the
+// dialog's cursor taken off, the rest exact. selected says the cursor is
+// on it.
+func (t Trust) ShowsAnswer(line string) (answer string, selected bool) {
+	l := strings.TrimSpace(line)
+	answer = strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
+	if !slices.Contains(t.Answers, answer) {
+		return "", false
+	}
+	return answer, t.Cursor != "" && strings.HasPrefix(l, t.Cursor)
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -559,6 +652,43 @@ func UnattendedHelp() string {
 // VersionArgs are the arguments that make kind's harness print its version
 // and exit; nil when none is known.
 func VersionArgs(kind string) []string { return byName[kind].Flags.Version }
+
+// harnessVersionTimeout bounds reading an installed harness's version; a
+// test shortens it. A harness answers in well under a second; the rest is
+// room for a cold start.
+var harnessVersionTimeout = 5 * time.Second
+
+// HarnessVersion is the version the installed harness of kind reports: the
+// first line its file's version flags print, "" when the file names none,
+// the harness is not installed, or it does not answer in time. It runs a
+// program but changes nothing, as doctor's probe does.
+func HarnessVersion(ctx context.Context, kind string) string {
+	h, ok := Lookup(kind)
+	if !ok || len(h.Flags.Version) == 0 {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, harnessVersionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, Executable(kind), h.Flags.Version...).Output()
+	if err != nil {
+		return ""
+	}
+	return versionLine(string(out))
+}
+
+// versionLine is the first line of out that is not blank, cut to a length
+// an event carries.
+func versionLine(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			if r := []rune(l); len(r) > 60 {
+				l = string(r[:60]) + "…"
+			}
+			return l
+		}
+	}
+	return ""
+}
 
 // OneShotArgs are the arguments that make kind's harness answer prompt and
 // exit: one real call to its model. nil when no such form is known.

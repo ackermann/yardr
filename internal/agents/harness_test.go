@@ -1,10 +1,14 @@
 package agents
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // The files yardr is built with are read (a file that is not would have
@@ -552,5 +556,121 @@ func TestModelIn(t *testing.T) {
 	}
 	if got, want := muse.Model.Pattern("/h", "x1"), "/h/sessions/*/*/*/x1/session.jsonl"; got != want {
 		t.Errorf("pattern %q, want %q", got, want)
+	}
+}
+
+// A trust dialog's answers arrive as one string or a list, and the file's
+// old `answer` still reads as one (yardr-tzkk): a renamed answer is one
+// added line, and a file written either way reads. Both keys at once is
+// refused, as a key the dialog has none of.
+func TestTrustAnswerForms(t *testing.T) {
+	file := func(trust string) map[string]string {
+		return map[string]string{"claude.yaml": "version: 1\nlabel: x\ntrust:\n" + trust}
+	}
+	for _, c := range []struct {
+		name  string
+		trust string
+		want  []string
+	}{
+		{"a list", "  dialog: 'Sure?'\n  answers: ['Yes', 'Yes please']\n  cursor: '>'\n", []string{"Yes", "Yes please"}},
+		{"one string", "  dialog: 'Sure?'\n  answers: 'Yes'\n  cursor: '>'\n", []string{"Yes"}},
+		{"the old answer", "  dialog: 'Sure?'\n  answer: 'Yes'\n  cursor: '>'\n", []string{"Yes"}},
+		{"a list under the old answer", "  dialog: 'Sure?'\n  answer: ['Yes', 'Yes please']\n  cursor: '>'\n", []string{"Yes", "Yes please"}},
+	} {
+		hs, err := load(t, file(c.trust))
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		if got := hs[0].Trust.Answers; !slices.Equal(got, c.want) {
+			t.Errorf("%s: answers %q, want %q", c.name, got, c.want)
+		}
+	}
+	for name, trust := range map[string]string{
+		"both keys":                    "  dialog: 'Sure?'\n  answer: 'Yes'\n  answers: ['Yes']\n  cursor: '>'\n",
+		"answers a number":             "  dialog: 'Sure?'\n  answers: 3\n  cursor: '>'\n",
+		"a number among answers":       "  dialog: 'Sure?'\n  answers: ['Yes', 3]\n  cursor: '>'\n",
+		"a key the dialog has none of": "  dialog: 'Sure?'\n  answers: ['Yes']\n  cursor: '>'\n  colour: red\n",
+	} {
+		if _, err := load(t, file(trust)); err == nil {
+			t.Errorf("%s: loaded, want refused", name)
+		} else if name == "both keys" && !strings.Contains(err.Error(), "under two names") {
+			t.Errorf("%s: error %q, want it to name the two keys", name, err)
+		} else if name == "a key the dialog has none of" && !strings.Contains(err.Error(), "field colour not found") {
+			t.Errorf("%s: error %q, want it to name the key", name, err)
+		}
+	}
+}
+
+// One line of a pane shows a trust dialog's mark at either edge, and one
+// of its answers exact with the cursor off, the cursor saying which is
+// selected. The runner answers by this, and the daemon tells a dialog with
+// none of the answers by it.
+func TestTrustShowsLines(t *testing.T) {
+	claude, _ := Lookup("claude")
+	yes := claude.Trust.Answers[0]
+	for line, want := range map[string]bool{
+		"Quick safety check:": true,
+		"Quick safety check: Is this a project you created or one you trust?": true,
+		"own code). Quick safety check:":                                      true,
+		"Quick safety checklist:":                                             false,
+		"the Quick safety check: is over":                                     false,
+		" ❯ " + yes:                                                           false,
+	} {
+		if got := claude.Trust.ShowsDialog(line); got != want {
+			t.Errorf("ShowsDialog(%q) = %v, want %v", line, got, want)
+		}
+	}
+	for _, c := range []struct {
+		line     string
+		answer   string
+		selected bool
+	}{
+		{" ❯ " + yes, yes, true},
+		{"   " + yes, yes, false},
+		{yes, yes, false},
+		{"   No, exit", "", false},
+		{"❯ Please choose " + yes, "", false},
+		{"I typed: " + yes + ", honest", "", false},
+		{"Quick safety check:", "", false},
+	} {
+		if answer, selected := claude.Trust.ShowsAnswer(c.line); answer != c.answer || selected != c.selected {
+			t.Errorf("ShowsAnswer(%q) = %q, %v; want %q, %v", c.line, answer, selected, c.answer, c.selected)
+		}
+	}
+}
+
+// The installed harness's version is the first line its file's version
+// flags print; "" when there is nothing to ask or no answer to read.
+func TestHarnessVersion(t *testing.T) {
+	ctx := context.Background()
+	if got := HarnessVersion(ctx, "cursor"); got != "" {
+		t.Errorf("a kind with no file: version %q, want none", got)
+	}
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	if got := HarnessVersion(ctx, "kimi"); got != "" {
+		t.Errorf("a harness not installed here: version %q, want none", got)
+	}
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "kimi"), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("#!/bin/sh\necho\necho 'kimi-code 2.9.9 (ae6bbc1 2026-10-20)'\necho noise\n")
+	if got, want := HarnessVersion(ctx, "kimi"), "kimi-code 2.9.9 (ae6bbc1 2026-10-20)"; got != want {
+		t.Errorf("version %q, want %q", got, want)
+	}
+	write("#!/bin/sh\necho boom >&2\nexit 1\n")
+	if got := HarnessVersion(ctx, "kimi"); got != "" {
+		t.Errorf("a failing harness: version %q, want none", got)
+	}
+	write("#!/bin/sh\nsleep 30\n")
+	old := harnessVersionTimeout
+	harnessVersionTimeout = 50 * time.Millisecond
+	defer func() { harnessVersionTimeout = old }()
+	if got := HarnessVersion(ctx, "kimi"); got != "" {
+		t.Errorf("a hanging harness: version %q, want none", got)
 	}
 }
