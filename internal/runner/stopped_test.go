@@ -27,13 +27,26 @@ const kimiStopped = "       Error: [provider.auth_error] 403 You've reached your
 	"     │ >                                                        │\n" +
 	"     ╰──────────────────────────────────────────────────────────╯\n"
 
+// The pane of a builder (muse) on 17 Oct 2026, which stopped on a failed
+// turn and of which nobody heard for four hours (yardr-thet): the model
+// answered nothing, with a request id to find it by. herdr judged it from
+// the screen and kept calling it working, so no check that reads an idle
+// agent's pane ever ran.
+const museStopped = "◆ model failed: server_error: The model failed to generate a response. (request id:\n" +
+	" 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)\n" +
+	"── Voice input (alt(option)+v to start) ──…\n" +
+	"❯ \n" +
+	"───…\n" +
+	"    muse-spark-1.3 · max · /private/tmp/lyr0/work · Auto-review"
+
 // herdr has a Kimi agent's status from Kimi's hooks alone, and a turn that
-// ends on an error tells it nothing: the builder above was "working" to
-// herdr until a person prompted it, so no check that reads an idle agent's
-// pane ever ran. An agent herdr calls working on the hooks' word, whose
-// pane ends in an error of its harness and has stood still for stopStill,
-// is idle. One whose pane still moves, one herdr watches the screen of, and
-// one with no error at its pane's end are working as herdr says.
+// ends on an error tells it nothing: the Kimi builder above was "working"
+// to herdr until a person prompted it, so no check that reads an idle
+// agent's pane ever ran. A screen-judged harness strands one the same way
+// (the Muse builder above). An agent herdr calls working, judged from its
+// hooks or its screen, whose pane ends in an error of its harness and has
+// stood still for stopStill, is idle. One whose pane still moves, and one
+// with no error at its pane's end, are working as herdr says.
 func TestStatusOfAHarnessThatStoppedWhileHerdrSaysWorking(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -47,6 +60,7 @@ func TestStatusOfAHarnessThatStoppedWhileHerdrSaysWorking(t *testing.T) {
 	}
 	const hooks = `{"result":{"agent":{"agent":"kimi","agent_status":"working","screen_detection_skipped":true}}}`
 	const screen = `{"result":{"agent":{"agent":"kimi","agent_status":"working"}}}`
+	const muse = `{"result":{"agent":{"agent":"muse","agent_status":"working"}}}`
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "pane read") cat `+dir+`/screen ;;
   "agent get") cat `+dir+`/agent ;;
@@ -60,39 +74,61 @@ esac`)}
 		}
 	}
 	// later is stopStill passing over what is remembered of the pane.
-	later := func() {
+	later := func(pane string) {
 		t.Helper()
-		s, ok := h.stops["w1:p2"]
+		s, ok := h.stops[pane]
 		if !ok {
 			t.Fatal("nothing is remembered of the pane")
 		}
 		s.since = s.since.Add(-stopStill)
-		h.stops["w1:p2"] = s
+		h.stops[pane] = s
 	}
 
 	show(kimiStopped, hooks)
 	status("working", "the error has just been printed")
-	later()
+	later("w1:p2")
 	status("idle", "the error has stood for stopStill")
 	status("idle", "and stands")
 
 	// It was prompted and works: the screen moves, the old error still on it.
 	show(" ✨ continue\n"+kimiStopped+" ⠋ Thinking 3s\n", hooks)
 	status("working", "the pane changed")
-	later()
+	later("w1:p2")
 	show(" ✨ continue\n"+kimiStopped+" ⠙ Thinking 65s\n", hooks)
 	status("working", "the pane changed again")
 
-	// herdr reads this agent's screen itself: its word stands.
+	// herdr reads this agent's screen itself: a still error stops it all
+	// the same, since a harness at work redraws its screen.
 	show(kimiStopped, screen)
-	status("working", "herdr watches the screen")
-	if len(h.stops) != 0 {
-		t.Fatalf("remembered of the pane: %v, want nothing", h.stops)
-	}
+	status("working", "the screen-judged error has just been printed")
+	later("w1:p2")
+	status("idle", "the screen-judged error has stood for stopStill")
+
+	// But a redrawn spinner under an old error line is a harness at work:
+	// the pane's end moves between reads, so nothing stands.
+	show(" ✨ continue\n"+kimiStopped+" ⠋ Thinking 3s\n", screen)
+	status("working", "the screen-judged pane changed")
+	later("w1:p2")
+	show(" ✨ continue\n"+kimiStopped+" ⠙ Thinking 65s\n", screen)
+	status("working", "the screen-judged pane changed again")
+
+	// The Muse builder herdr judged from the screen: its failed turn ends
+	// the pane, and once it has stood, the agent is idle, for the
+	// dispatcher to raise session_harness_error over (see
+	// TestMuseSessionOnAFailedTurnIsReported).
+	handle = map[string]any{"agent": "yardr-86nc-new", "pane": "w1:p3", "kind": "muse"}
+	show(museStopped, muse)
+	status("working", "muse's error has just been printed")
+	later("w1:p3")
+	status("idle", "muse's error has stood for stopStill")
 
 	// A pane with no error at its end is never remembered.
+	handle = map[string]any{"agent": "yardr-embp-new", "pane": "w1:p2", "kind": "kimi"}
 	show(" ● Used Read (herdr.go) · 130 lines\n ⠋ Thinking 3s\n", hooks)
 	status("working", "no error in the pane")
+	handle = map[string]any{"agent": "yardr-86nc-new", "pane": "w1:p3", "kind": "muse"}
+	show(" ◆ Thinking…\n", muse)
+	status("working", "no error in muse's pane")
 	if len(h.stops) != 0 {
 		t.Fatalf("remembered of the pane: %v, want nothing", h.stops)
 	}

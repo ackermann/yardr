@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
@@ -33,16 +34,15 @@ func (h *Herdr) Status(ctx context.Context, handle map[string]any) (string, erro
 	case err == nil:
 		var info struct {
 			Agent struct {
-				Status   string `json:"agent_status"`
-				Kind     string `json:"agent"`
-				NoScreen bool   `json:"screen_detection_skipped"`
+				Status string `json:"agent_status"`
+				Kind   string `json:"agent"`
 			} `json:"agent"`
 		}
 		_ = json.Unmarshal(raw, &info)
 		if info.Agent.Status == "" {
 			return "unknown", nil
 		}
-		if h.stopped(ctx, handle, info.Agent.Kind, info.Agent.Status == "working" && info.Agent.NoScreen) {
+		if h.stopped(ctx, handle, info.Agent.Kind, info.Agent.Status == "working") {
 			return "idle", nil
 		}
 		return info.Agent.Status, nil
@@ -76,20 +76,22 @@ const (
 
 // stopped reports whether the agent of handle, which herdr calls working,
 // stopped on an error of its harness and waits for input. looks is whether
-// that can be at all: herdr says working and has its word from the
-// harness's hooks alone (`screen_detection_skipped`), not from the screen.
+// that can be at all: herdr says working.
 //
-// Such a harness tells herdr when a turn ends, and one that ends on an error
-// may tell nothing: herdr's hooks for Kimi (integration v7) hear Stop and
-// Interrupt, and Kimi ends a turn its provider refused with StopFailure. So
-// a Kimi builder that hit its 5-hour limit mid-work stayed "working" to
-// herdr for three and a half hours, and the dispatcher, which reads the
-// pane of an idle agent only, raised neither session_harness_error nor
-// session_idle (yardr-re0h). The pane says it: the error line is at its end
-// (kind's `errors`), and nothing is drawn after it. A line alone is not
-// enough, since an agent at work may print one (a test's source, a log), so
-// the pane's end has to stand as it is for stopStill; what is remembered of
-// it is this process's, and a daemon that replaced itself counts again.
+// A harness that ends a turn on an error may tell herdr nothing: herdr's
+// hooks for Kimi (integration v7) hear Stop and Interrupt, and Kimi ends a
+// turn its provider refused with StopFailure. So a Kimi builder that hit
+// its 5-hour limit mid-work stayed "working" to herdr for three and a half
+// hours, and the dispatcher, which reads the pane of an idle agent only,
+// raised neither session_harness_error nor session_idle (yardr-re0h). A
+// screen-judged harness strands one the same way: a Muse builder sat four
+// hours on a failed turn herdr kept calling working (yardr-thet). The pane
+// says it either way: the error line is at its end (kind's `errors`), and
+// nothing is drawn after it, since a harness at work redraws its screen.
+// A line alone is not enough, since an agent at work may print one (a
+// test's source, a log), so the pane's end has to stand as it is for
+// stopStill; what is remembered of it is this process's, and a daemon that
+// replaced itself counts again.
 func (h *Herdr) stopped(ctx context.Context, handle map[string]any, kind string, looks bool) bool {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
@@ -105,6 +107,13 @@ func (h *Herdr) stopped(ctx context.Context, handle map[string]any, kind string,
 	// word for the agent is the same for the kinds it knows.
 	if k, _ := handle["kind"].(string); k != "" {
 		kind = k
+	}
+	// A kind with no known error lines is never stopped, so its pane is
+	// not read at all: every working agent passes here on every status
+	// poll, and for those kinds the poll costs a lookup, not a capture.
+	if hn, _ := agents.Lookup(kind); len(hn.Errors) == 0 {
+		delete(h.stops, pane)
+		return false
 	}
 	tail, err := h.Tail(ctx, handle, stopLines)
 	if err != nil {
