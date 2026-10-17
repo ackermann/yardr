@@ -79,6 +79,13 @@ once in `docs/google.md`.
    Times are RFC 3339 with their zone, and the event created or
    edited invites no one: no invitation goes out of the yard.
 
+Both write calls set `sendUpdates=none`. Calendar documents that as
+no notifications and warns it can prevent syncing to external
+calendars or lose events for some users. An edit to an event with
+existing guests also sends them no change notice. Use these calls
+only when that is intended ([events.patch](https://developers.google.com/workspace/calendar/api/v3/reference/events/patch),
+[events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)).
+
 Calling as a user — the yard reading another person's calendar with
 their own credential — is the shared setup too: `docs/google.md`
 has it.
