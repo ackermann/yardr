@@ -47,8 +47,12 @@ checked=$(jq -c -n --argjson paras "$paras" '
 ')
 refusal=$(jq -r '.refusal // empty' <<<"$checked")
 [ -z "$refusal" ] || { echo "$refusal" >&2; exit 1; }
-doc=$(curl -sS --fail-with-body --get --data-urlencode "fields=revisionId,body(content(endIndex))" \
-  -H "Authorization: Bearer $GOOGLE_TOKEN" \
+# An argument can be read by every process on the machine while curl runs,
+# so the token goes to curl as a config line on its stdin, written by the
+# shell itself, as the other packs' scripts hand theirs over.
+doc=$(printf 'header = "Authorization: Bearer %s"\n' "$GOOGLE_TOKEN" \
+  | curl -sS --fail-with-body --get -K - \
+  --data-urlencode "fields=revisionId,body(content(endIndex))" \
   "$YARDR_SOURCE_BASE/v1/documents/$docId") || {
   echo "document $docId could not be read (curl exit $?)" >&2; exit 1
 }

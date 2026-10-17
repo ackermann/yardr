@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -1045,6 +1046,41 @@ func TestGoogleDocsWriteRoundTrip(t *testing.T) {
 	}
 	if want := `{"documentId":"` + standin.doc("empty") + `","replies":[{},{},{},{}]}`; string(res.Answer) != want {
 		t.Fatalf("answer = %s, want %s", res.Answer, want)
+	}
+}
+
+// The pre-read's credential is no argument of curl's: an argument is
+// readable by every process on the machine while curl runs, so the script
+// hands the header to curl as a config line on its stdin, as the other
+// packs' scripts hand theirs over. A stand-in curl first on PATH records
+// its arguments and delegates to the real one.
+func TestGoogleDocsWriteHandsCurlNoToken(t *testing.T) {
+	real, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl is not installed, and the write build script reads the doc with it")
+	}
+	bin := t.TempDir()
+	argv := filepath.Join(bin, "argv")
+	scripttest.Write(t, filepath.Join(bin, "curl"),
+		"printf '%s\n' \"$@\" > \""+argv+"\"\nexec \""+real+"\" \"$@\"\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	standin, srv := writeStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	if _, err := source.BuildBody(context.Background(), docs, "write",
+		map[string]string{"docId": standin.doc("empty"), "paragraphs": `[{"text":"x","style":"TITLE"}]`},
+		"the-secret-token", writeHome(t)); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := os.ReadFile(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(recorded), "the-secret-token") {
+		t.Fatalf("curl was called with the credential in an argument: %s", recorded)
+	}
+	if got := standin.requests()[0].auth; got != "Bearer the-secret-token" {
+		t.Fatalf("pre-read Authorization = %q, want the credential, handed over out of the arguments", got)
 	}
 }
 
