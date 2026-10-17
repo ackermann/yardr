@@ -1003,11 +1003,11 @@ func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.
 // It runs in three parts. A write tells who calls (sourceCaller), checks
 // the grant and the parameters, counts the call and, for an update of a
 // source that takes a key, chooses the key or finds the one of the try
-// before (keyed). The
-// request is then made outside any store transaction, bounded by
-// source.Timeout, so nothing of the store waits on a service. A second
-// write records how it ended. A call that is refused is recorded too, and
-// returned as an error. The answer of a call that asked for it (Note) is
+// before (keyed). The credential is read, any build command is run, and the
+// request is then made, all outside any store transaction and each bounded
+// by its own source.Timeout, so nothing of the store waits on a command or
+// service. A second write records how it ended. A call that is refused is
+// recorded too, and returned as an error. The answer of a call that asked for it (Note) is
 // then written on the caller's bead, in a write of its own: a note that
 // cannot be written leaves the call made and recorded.
 func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, error) {
@@ -1102,6 +1102,12 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	}
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)
+	} else if len(call.Build) > 0 {
+		var body json.RawMessage
+		body, err = source.BuildBody(ctx, d, call.Name, req.Params, cred, s.home)
+		if err == nil {
+			res, err = source.DoKeyedBody(ctx, d, call.Name, req.Params, cred, sentWith, body)
+		}
 	} else {
 		res, err = source.DoKeyed(ctx, d, call.Name, req.Params, cred, sentWith)
 	}

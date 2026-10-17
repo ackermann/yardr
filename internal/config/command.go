@@ -56,8 +56,8 @@ func (c Command) Output(ctx context.Context) ([]byte, error) {
 }
 
 // OutputWithStderr runs the command like Output and also returns the last
-// lines of stderr on success. This lets a caller report a successful process
-// that printed an invalid answer without ever exposing its stdout.
+// lines of stderr, whether it succeeded or failed. This lets a caller report
+// an invalid answer or a refusal without ever exposing the command's stdout.
 func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 	prog, err := envProgram(c.Argv[0], c.Dir)
 	if err != nil {
@@ -128,19 +128,20 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 	if ctx.Err() != nil && cmd.Process != nil {
 		kill()
 	}
+	lines := stderr.lines()
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return nil, "", fmt.Errorf("%s: no answer within %s%s", c.What, c.Timeout, stderr.lines())
+		return nil, lines, fmt.Errorf("%s: no answer within %s%s", c.What, c.Timeout, lines)
 	case ctx.Err() != nil:
-		return nil, "", fmt.Errorf("%s: %w", c.What, ctx.Err())
+		return nil, lines, fmt.Errorf("%s: %w", c.What, ctx.Err())
 	case err != nil:
 		// An exit status, or why it could not be run: neither holds
 		// anything the command printed.
-		return nil, "", fmt.Errorf("%s: %w%s", c.What, err, stderr.lines())
+		return nil, lines, fmt.Errorf("%s: %w%s", c.What, err, lines)
 	case stdout.over:
-		return nil, "", fmt.Errorf("%s: printed more than %d bytes%s", c.What, c.Max, stderr.lines())
+		return nil, lines, fmt.Errorf("%s: printed more than %d bytes%s", c.What, c.Max, lines)
 	}
-	return stdout.buf.Bytes(), stderr.lines(), nil
+	return stdout.buf.Bytes(), lines, nil
 }
 
 // statOf reads what the OS says of the process pid, from the fake table

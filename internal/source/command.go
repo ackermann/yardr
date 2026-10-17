@@ -89,9 +89,15 @@ func oneObject(what string, out []byte) error {
 // declaration's base, so a test can point the command at a stand-in.
 // Nothing else of the yard's environment reaches a command.
 func (d *Declaration) CommandEnv(credential string) []string {
+	return d.CommandEnvOf(Read, credential)
+}
+
+// CommandEnvOf is CommandEnv for a call of kind: an update's credential is
+// under update_env where the declaration names a second one.
+func (d *Declaration) CommandEnvOf(kind, credential string) []string {
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	if d.Credential != nil && credential != "" {
-		env = append(env, d.Credential.Env+"="+credential)
+		env = append(env, d.Credential.EnvOf(kind)+"="+credential)
 	}
 	return append(env, config.Env("SOURCE_BASE", d.Base)...)
 }
@@ -105,8 +111,8 @@ type Command struct {
 }
 
 // Commands are the commands the declaration names: the limits command,
-// thread's reply, posted, read, open, opened and state, hook.normalize
-// and events' pr and ci, in that order.
+// thread's reply, posted, read, open, opened and state, hook.normalize,
+// events' pr and ci, and each call's build, in that order.
 func (d *Declaration) Commands() []Command {
 	var out []Command
 	if d.Limits != nil && len(d.Limits.Command) > 0 {
@@ -137,6 +143,11 @@ func (d *Declaration) Commands() []Command {
 			if len(c.Argv) > 0 {
 				out = append(out, c)
 			}
+		}
+	}
+	for _, c := range d.Calls {
+		if len(c.Build) > 0 {
+			out = append(out, Command{Key: "call." + c.Name + ".build", Argv: c.Build})
 		}
 	}
 	return out

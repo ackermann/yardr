@@ -44,12 +44,17 @@ const (
 	Redirect     = "redirect"  // the service answered 3xx, which is not followed
 	TooLarge     = "too_large" // the answer is over its bound
 	NotJSON      = "not_json"
+	BuildRefused = "build_refused" // the build command exited non-zero, refusing the call
+	BuildFailed  = "build_failed"  // the build command could not produce one bounded JSON value
 )
 
 // CallError is a call that returned nothing, with why. Its text names the
-// source, the call and the cause, and never a parameter's value, the
-// credential, the request's body or the address with its values in it:
-// what a caller logs of a failed call is safe to keep.
+// source, the call and the cause. Except for a build command's bounded
+// stderr, it never holds a parameter's value, the credential, the request's
+// body or the address with its values in it: what a caller logs of a failed
+// call is safe to keep. A build's own words may repeat parameters or
+// service-derived metadata to the caller; the source_call event keeps only
+// the reason.
 type CallError struct {
 	Source, Call, Reason string
 	// Status is what the service answered, 0 when nothing was sent or
@@ -110,6 +115,17 @@ func ValidateCallParams(d *Declaration, name string, params map[string]string) e
 // it; "" sends none. credential is the value of the variable d names for
 // the call's kind (Credential.EnvOf).
 func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, nil)
+}
+
+// DoKeyedBody is DoKeyed with body already built, rather than filled from
+// the call's template. The body is sent unchanged; nil sends no body. Path,
+// query, credential and key are filled and checked as DoKeyed fills them.
+func DoKeyedBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, body json.RawMessage) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, body)
+}
+
+func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage) (*Result, error) {
 	fail := func(reason string, status int, format string, args ...any) error {
 		return &CallError{Source: d.Name, Call: name, Reason: reason, Status: status, msg: fmt.Sprintf(format, args...)}
 	}
@@ -150,7 +166,9 @@ func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	var body io.Reader
-	if c.Request.Body != nil {
+	if built != nil {
+		body = bytes.NewReader(built)
+	} else if c.Request.Body != nil {
 		filled, _ := fill(c.Request.Body, vals, credential)
 		raw, err := json.Marshal(filled)
 		if err != nil {

@@ -200,7 +200,10 @@ type Call struct {
 	About   string  `json:"about,omitempty"`
 	Params  []Param `json:"params,omitempty"` // in file order
 	Request Request `json:"request"`
-	Answer  Answer  `json:"answer"`
+	// Build is the command that prints the request's body, instead of
+	// Request.Body. Its program is always a file beside the declaration's.
+	Build  []string `json:"build,omitempty"`
+	Answer Answer   `json:"answer"`
 }
 
 // Param is one parameter of a call. All are required unless Optional or
@@ -625,6 +628,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			r.errf(check.v, check.path, "%s is no call of this file", name)
 		case c.Kind != Read:
 			r.errf(check.v, check.path, "%s is an update: the check is a read call, made to see that the source answers", name)
+		case len(c.Build) > 0:
+			r.errf(check.v, check.path, "%s names build: source check and yardr doctor send the request's template and run no build command", name)
 		case slices.ContainsFunc(c.Params, func(p Param) bool { return !p.Optional }):
 			r.errf(check.v, check.path, "%s needs a parameter: the check is a call without any", name)
 		default:
@@ -662,6 +667,10 @@ func (r *reader) hookRegisterCheck(d *Declaration, hookE entry) {
 	}
 	if c.Kind != Update {
 		r.errf(hookE.v, join(base, "call"), "%s is a %s call: registering a webhook sends something, so it is an %s", reg.Call, c.Kind, Update)
+		return
+	}
+	if len(c.Build) > 0 {
+		r.errf(hookE.v, join(base, "call"), "%s names build: registering a webhook sends the request's template and runs no build command", reg.Call)
 		return
 	}
 	fills := map[string]string{}
@@ -881,9 +890,9 @@ func (r *reader) mintNames(e entry) []string {
 
 func (r *reader) call(e entry, credential, inPath bool) Call {
 	c := Call{Name: e.key, Answer: Answer{Max: AnswerMax}}
-	var request *entry
+	var request, build *entry
 	kind := false
-	for _, f := range r.entries(e.v, e.path, "kind", "about", "params", "request", "answer") {
+	for _, f := range r.entries(e.v, e.path, "kind", "about", "params", "request", "build", "answer") {
 		switch f.key {
 		case "kind":
 			kind = true
@@ -907,6 +916,12 @@ func (r *reader) call(e entry, credential, inPath bool) Call {
 			}
 		case "request":
 			request = &f
+		case "build":
+			build = &f
+			c.Build = r.command(f, "argument")
+			if len(c.Build) > 0 && strings.HasPrefix(c.Build[0], "/") {
+				r.errf(f.v, f.path, "the program %q is absolute: a build's program must be relative, a file beside the declaration's file that the yard copies and hashes", c.Build[0])
+			}
 		case "answer":
 			for _, a := range r.entries(f.v, f.path, "select", "max") {
 				switch a.key {
@@ -930,7 +945,10 @@ func (r *reader) call(e entry, credential, inPath bool) Call {
 		r.errf(e.v, join(e.path, "request"), "missing: the method and the path the call sends")
 		return c
 	}
-	r.request(&c, *request, credential, inPath)
+	hasBody := r.request(&c, *request, credential, inPath)
+	if build != nil && hasBody {
+		r.errf(build.v, build.path, "a call names request.body or build, never both")
+	}
 	return c
 }
 
@@ -1061,7 +1079,7 @@ func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
 	return raw, true
 }
 
-func (r *reader) request(c *Call, e entry, credential, inPath bool) {
+func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody bool) {
 	method, path := false, false
 	// marks checks the {name}s of a string that stands at where (a path,
 	// a query): each a parameter of the call and none optional, and the
@@ -1131,6 +1149,7 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) {
 				}
 			}
 		case "body":
+			hasBody = true
 			c.Request.Body = r.body(c, f.v, f.path, credential)
 			// Left out of a mapping or a list, an optional parameter that is
 			// not given leaves a body. As the whole body it leaves none to
@@ -1151,6 +1170,7 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) {
 	if !path {
 		r.errf(e.v, join(e.path, "path"), "missing: the path under the source's base")
 	}
+	return hasBody
 }
 
 // pairs are a query's keys and values: any text for a key (filter[name]),

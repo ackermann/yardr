@@ -119,6 +119,8 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 			r.errf(f.v, f.path, "%s is no call of this file", name)
 		case found.Kind != Update:
 			r.errf(f.v, f.path, "%s is a %s call: telling a person sends something, so it is an %s", name, Read, Update)
+		case len(found.Build) > 0:
+			r.errf(f.v, f.path, "%s names build: telling a person sends the request's template and runs no build command", name)
 		default:
 			n.Call, c = name, found
 		}
