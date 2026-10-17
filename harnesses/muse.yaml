@@ -101,11 +101,16 @@ login:
 # meta credentials, a model that does not exist), but the TUI shows its
 # login screen for the first and answers anyway for the second (read
 # live, Muse Code 1.4.9), so neither line ever ends a pane; a dead base
-# URL warns once at startup and its turns answer too. The one line read
-# from a pane that sat on it (a builder's, 17 Oct 2026, Muse Code
-# 1.4.10, yardr-thet) is a failed turn: the model answered nothing, with
-# a request id to find it by. It is no capacity yardr retries, as a
-# 529 is, but a turn that failed, as claude's API Error: 500 is: other.
+# URL warns once at startup and its turns answer too. The lines read
+# from panes that sat on them are failed turns: the model answered
+# nothing, with a request id to find it by (a builder's, 17 Oct 2026,
+# Muse Code 1.4.10, yardr-thet: `model failed: server_error: ...`; a
+# builder's, 17 Oct 2026, yardr-k1nf: `model failed: stream protocol
+# error: function_call_arguments.done name mismatch ...`). Every
+# `model failed:` line is one: no rate limit or capacity of Muse's is
+# known to print under it, so there is no narrower reason to keep first.
+# It is no capacity yardr retries, as a 529 is, but a turn that failed,
+# as claude's API Error: 500 is: other.
 errors:
   - reason: other
-    pattern: '^model failed: server_error'
+    pattern: '^model failed:'

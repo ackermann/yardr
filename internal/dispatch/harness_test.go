@@ -292,6 +292,8 @@ func TestHarnessErrorLines(t *testing.T) {
 		{"claude", "⏺ The session limit reached its end; see the API Error: 529 above.", ""},
 		{"muse", "model failed: server_error: The model failed to generate a response. (request id: 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)", dispatch.ReasonOther},
 		{"muse", "◆ model failed: server_error: The model failed to generate a response. (request id: 688dfffa-1833-4175-96d6-ae6513c47149, response: resp_6ad2e591f2d29e424980460b)", dispatch.ReasonOther},
+		{"muse", "model failed: stream protocol error: function_call_arguments.done name mismatch for `fc_0192a3f4` (request id: 9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d)", dispatch.ReasonOther},
+		{"muse", "◆ model failed: stream protocol error: function_call_arguments.done name mismatch for `fc_0192a3f4` (request id: 9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d)", dispatch.ReasonOther},
 		{"muse", "◆ The pane said model failed: server_error last night.", ""},
 		{"muse", "❯ Why did it say model failed: server_error?", ""},
 		{"kimi", "   Error: [provider.auth_error] 403 You've reached your", dispatch.ReasonRateLimited},
