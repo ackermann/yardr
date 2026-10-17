@@ -674,16 +674,16 @@ summary() {
   echo "test: sh .yardr/test @ $(git rev-parse --short HEAD): $res, $pkgs_ok packages ok, $pkgs_failed failed, $(($(date +%s) - started)) s, waited $waited_total s"
 }
 # The packages over the 60 s budget (docs/testing.md R1): a directory, the
-# bead that brings it under budget, and why it is over. Two are over even
+# bead that brings it under budget, and why it is over. One is over even
 # alone, none only in full runs (docs/design/2026-10-16-yardr-635g-test-time.md
-# section 2.1). A race leg that runs one of these over 60 s still passes;
+# section 2.1 measured two; yardr-2ddt brought assembly under budget).
+# A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s is run again alone, and fails the run when
 # over 60 s again. The fix beads delete the rows; a row whose package is
 # gone fails nothing, since no result line maps to it, but delete it
 # anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
-contrib/assembly yardr-2ddt per-yard CLI fixture, ~75% of each test; fixture rewrite in yardr-2ddt; 29 s alone, 45-68 s in full runs
 '
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
 # -race leg's output ($1): only the ok lines carry judged durations, a

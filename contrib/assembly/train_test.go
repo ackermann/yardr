@@ -56,6 +56,53 @@ func newTrainYard(t *testing.T, check string) *yard {
 	// The test names itself to the servers it starts, so a run killed by its
 	// timeout leaves none behind (storetest.TestOwnerEnv).
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	y.git(".", "init", "-q", "-b", "main", y.repo)
+	y.commit(y.repo, "a.txt", "one\n")
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	y.git(".", "init", "-q", "--bare", remote)
+	y.git(y.repo, "remote", "add", "origin", remote)
+	y.git(y.repo, "push", "-q", "origin", "main")
+	y.push = "origin"
+
+	// One CLI to start the server; the setup goes over rpc, as newYard's.
+	y.yardr("server", "start")
+	y.initStore()
+	y.putDepot("r", y.repo, "main", check)
+	y.putFlow("code", childFlow)
+	y.pointFlow("r", "", "code")
+	// The train flow exactly as the repo carries it, under the test's name.
+	y.putFlowFile("yard.train", storetest.RepoFlow(t, "yardr.train"))
+	y.pointFlow("r", "train", "yard.train")
+
+	y.createBead("the train", "r-e", "r", "train", "open")
+	y.git(y.repo, "branch", "yard/r-e") // the herdr runner branches it from main
+	for i, id := range []string{"r-1", "r-2"} {
+		y.createBead("child", id, "r", "", "approved")
+		y.addParent("r-e", id)
+		wt := filepath.Join(home, "worktrees", "r", id)
+		y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+id, wt, "yard/r-e")
+		y.commit(wt, "child"+string(rune('1'+i))+".txt", id+"\n")
+	}
+	return y
+}
+
+// newTrainYardCLI is newTrainYard through the real CLI end to end, for the
+// one test that keeps that path: TestTrainEndToEnd.
+func newTrainYardCLI(t *testing.T, check string) *yard {
+	t.Helper()
+	t.Parallel() // as newYard
+	home, err := os.MkdirTemp("", "yr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
+	t.Cleanup(func() {
+		if err := server.Stop(&config.Config{Home: home}); err != nil {
+			t.Log(err)
+		}
+		os.RemoveAll(home)
+	})
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
@@ -97,7 +144,7 @@ func (y *yard) ready(id string) bool {
 }
 
 func TestTrainEndToEnd(t *testing.T) {
-	y := newTrainYard(t, "test ! -e RED")
+	y := newTrainYardCLI(t, "test ! -e RED")
 	if y.ready("r-e") {
 		t.Fatal("the train is ready while its children are open")
 	}

@@ -130,6 +130,42 @@ func newYard(t *testing.T) *yard {
 	// timeout leaves none behind (storetest.TestOwnerEnv).
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
 
+	y.git(".", "init", "-q", "-b", "main", y.repo)
+	y.commit(y.repo, "a.txt", "one\n")
+	// One CLI to start the server; the setup goes over rpc, the same
+	// store.API the CLI uses, with the same actor. newYardCLI keeps the
+	// real CLI path end to end for one test.
+	y.yardr("server", "start")
+	y.initStore()
+	// The tests are red when the tree has a file RED.
+	y.putDepot("r", y.repo, "main", "test ! -e RED")
+	y.putFlow("f", flow)
+	y.pointFlow("r", "", "f")
+	y.createBead("work", "r-1", "r", "", "approved")
+	y.git(y.repo, "branch", "yard/r-1")
+	y.git(y.repo, "worktree", "add", "-q", y.wt, "yard/r-1")
+	return y
+}
+
+// newYardCLI is newYard through the real CLI end to end, for the one test
+// that keeps that path: TestMergeLocalClean.
+func newYardCLI(t *testing.T) *yard {
+	t.Helper()
+	t.Parallel()
+	home, err := os.MkdirTemp("", "yr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := server.Stop(&config.Config{Home: home}); err != nil {
+			t.Log(err)
+		}
+		os.RemoveAll(home)
+	})
+	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
+		wt: filepath.Join(home, "worktrees", "r", "r-1")}
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
@@ -143,6 +179,90 @@ func newYard(t *testing.T) *yard {
 	y.git(y.repo, "branch", "yard/r-1")
 	y.git(y.repo, "worktree", "add", "-q", y.wt, "yard/r-1")
 	return y
+}
+
+// initStore is `yardr init --harness claude --dir <home> --operator test`
+// through the store API: the settings and the yardmaster crew, in init's
+// order. The role file is not installed: nothing here reads it (the daemon
+// never runs in this package), and the crew's prompt and unattended args
+// go with it.
+func (y *yard) initStore() {
+	y.t.Helper()
+	ctx := context.Background()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.SetSetting(ctx, store.OperatorSetting, "test", "test"); err != nil {
+		y.t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.YardmasterSetting, "yardmaster", "test"); err != nil {
+		y.t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "greet": "test"}, Dir: y.home,
+		On: []string{store.KindAttention}, MaxAge: "6h", HandoffGrace: "15m"}, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.DefaultKindSetting, "claude", "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+func (y *yard) putDepot(name, path, base, test string) {
+	y.t.Helper()
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.PutDepot(context.Background(), store.Depot{Name: name, Path: abs, Kind: store.DepotGit, Base: base, Test: test}, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+func (y *yard) putFlow(name, text string) {
+	y.t.Helper()
+	f, err := store.ParseFlow(text)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	f.Name = name
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if _, err := st.PutFlow(context.Background(), *f, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+func (y *yard) putFlowFile(name, path string) {
+	y.t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	y.putFlow(name, string(raw))
+}
+
+func (y *yard) pointFlow(depot, typ, flow string) {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.SetFlowPointer(context.Background(), depot, typ, flow, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+func (y *yard) createBead(title, id, depot, typ, stage string) {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if _, err := st.CreateBead(context.Background(), store.NewBead{Title: title, ID: id,
+		Depot: depot, Type: typ, Stage: stage, Priority: store.DefaultPriority}, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+func (y *yard) addParent(train, child string) {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.AddDep(context.Background(), train, child, store.DepParent, "", "", "test"); err != nil {
+		y.t.Fatal(err)
+	}
 }
 
 func (y *yard) run(dir, name string, stdin string, args ...string) string {
@@ -325,7 +445,7 @@ func (y *yard) refused() []string {
 }
 
 func TestMergeLocalClean(t *testing.T) {
-	y := newYard(t)
+	y := newYardCLI(t)
 	remote := filepath.Join(t.TempDir(), "origin.git")
 	y.git(".", "init", "-q", "--bare", remote)
 	y.git(y.repo, "remote", "add", "origin", remote)
