@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 90,
+  "seq": 93,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 91,
+  "seq": 94,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 92,
+  "seq": 95,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -369,7 +369,7 @@ A bead closed, by an explicit close or by entering a terminal stage of its flow.
 
 ```json
 {
-  "seq": 87,
+  "seq": 90,
   "bead": "yd-sweep",
   "kind": "closed",
   "actor": "jo",
@@ -666,7 +666,7 @@ POST /call/Head
 {}
 
 {
-  "result": 87
+  "result": 90
 }
 ```
 
@@ -1072,7 +1072,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 88,
+      "seq": 91,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1080,7 +1080,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 89,
+      "seq": 92,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1106,7 +1106,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 88,
+      "seq": 91,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1114,7 +1114,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 89,
+      "seq": 92,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1141,7 +1141,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 90,
+      "seq": 93,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
