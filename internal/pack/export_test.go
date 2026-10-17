@@ -396,10 +396,16 @@ func TestExportTurnsGroupCallsIntoAsks(t *testing.T) {
 	if _, err := st.PutSource(ctx, "crm.yaml", crm, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, call := range []string{store.GrantRead, "note"} {
-		if _, err := st.GrantSource(ctx, "crm", call, store.Grantee{Group: "web-one"}, "", "me"); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := st.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Group: "web-one"}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	// A pack carries the group's plain grants as asks, but must not turn
+	// Ada's grant of an update as her into a plain grant on import.
+	if _, err := st.GrantSource(ctx, "crm", "note", store.Grantee{Group: "web-one"}, "ada", "ada"); err != nil {
+		t.Fatal(err)
 	}
 	depot := "web"
 	route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
@@ -407,7 +413,7 @@ func TestExportTurnsGroupCallsIntoAsks(t *testing.T) {
 	ex, dir := export(t, st, "web", home, "")
 	p := load(t, dir)
 	if len(p.Groups) != 1 || len(p.Groups[0].Calls) != 1 || p.Groups[0].Calls[0].Source != "crm" ||
-		!slices.Equal(p.Groups[0].Calls[0].Calls, []string{"note", store.GrantRead}) {
+		!slices.Equal(p.Groups[0].Calls[0].Calls, []string{store.GrantRead}) {
 		t.Fatalf("group calls in the pack = %+v", p.Groups)
 	}
 	if len(p.Declared) != 0 || len(p.Sources) != 0 || len(p.Crew) != 0 {
@@ -425,7 +431,7 @@ func TestExportTurnsGroupCallsIntoAsks(t *testing.T) {
 	}
 	credential(t, target, "crm", "CRM_TOKEN=not-a-real-one\n")
 	plan := build(t, target, p, pack.Options{Depot: "site", Home: t.TempDir()})
-	if len(plan.Calls) != 1 || !slices.Equal(plan.Calls[0].Asks, []string{"note", store.GrantRead}) || len(plan.Calls[0].Has) != 0 {
+	if len(plan.Calls) != 1 || !slices.Equal(plan.Calls[0].Asks, []string{store.GrantRead}) || len(plan.Calls[0].Has) != 0 {
 		t.Fatalf("the import does not ask again for the calls: %+v", plan.Calls)
 	}
 	if grants, err := target.SourceGrants(ctx, "crm"); err != nil || len(grants) != 0 {
