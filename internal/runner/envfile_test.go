@@ -109,6 +109,55 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 	checkEnvStart(t, readCalls(t, calls), "tab.create", "yard-13-review", handle, logs.String())
 }
 
+// A kind's file gives the pane of every agent of the kind its environment
+// (yardr-k9ew): Kimi's sets KIMI_CODE_TRUST_WORKSPACE=1, which 2.2.0
+// honours by never showing its trust dialog. It is yardr's own entry, so
+// a group's env_file does not override it; a kind that names none adds
+// nothing.
+func TestHerdrStartSetsHarnessPaneEnv(t *testing.T) {
+	start := func(t *testing.T, cfg map[string]any) map[string]string {
+		t.Helper()
+		wt := t.TempDir()
+		gitT(t, wt, "init", "-q", "-b", "main")
+		h, calls, _ := envHerdr(t, wt)
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yard-13", Stage: "build"},
+			Group:   store.Group{Name: "g", Config: cfg},
+			Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Session: store.Session{ID: "s1"},
+		}
+		if _, err := h.Start(context.Background(), job); err != nil {
+			t.Fatal(err)
+		}
+		return envOf(apiCall(t, readCalls(t, calls), "tab.create"))
+	}
+	if env := start(t, map[string]any{"kind": "kimi"}); env["KIMI_CODE_TRUST_WORKSPACE"] != "1" {
+		t.Errorf("kimi tab.create lacks the harness entry: %v", env)
+	}
+	over := filepath.Join(t.TempDir(), "g.env")
+	if err := os.WriteFile(over, []byte("KIMI_CODE_TRUST_WORKSPACE=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if env := start(t, map[string]any{"kind": "kimi", "env_file": over}); env["KIMI_CODE_TRUST_WORKSPACE"] != "1" {
+		t.Errorf("env_file overrode the harness entry: %v", env)
+	}
+	if env := start(t, map[string]any{"kind": "claude"}); env["KIMI_CODE_TRUST_WORKSPACE"] != "" {
+		t.Errorf("claude tab.create carries kimi's entry: %v", env)
+	}
+}
+
+func TestStartCrewSetsHarnessPaneEnv(t *testing.T) {
+	h, calls, _ := envHerdr(t, "")
+	r := store.CrewMember{Name: "kimi-security", Dir: t.TempDir(), Config: map[string]any{"kind": "kimi"}}
+	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	env := envOf(apiCall(t, readCalls(t, calls), "workspace.create"))
+	if env["KIMI_CODE_TRUST_WORKSPACE"] != "1" {
+		t.Errorf("kimi workspace.create lacks the harness entry: %v", env)
+	}
+}
+
 // A file others can read, or none at all, refuses the start before herdr is
 // asked for anything, as Blocked, and the error shows no value.
 func TestEnvFileRefusedBlocksStart(t *testing.T) {

@@ -50,8 +50,15 @@ type Harness struct {
 	// Trust is the harness's folder-trust dialog, which yardr answers
 	// (internal/runner/trust.go); nil when it answers none.
 	Trust *Trust `yaml:"trust" json:"trust,omitempty"`
-	Marks Marks  `yaml:"marks" json:"marks"`
-	Flags Flags  `yaml:"flags" json:"flags"`
+	// Env are KEY=VALUE entries the pane of every agent of the kind
+	// starts with: what the harness needs set to run unattended. Kimi
+	// 2.2.0 honours KIMI_CODE_TRUST_WORKSPACE=1 by never showing its
+	// trust dialog (2.1.1 ignores it), so its file sets it. They are
+	// yardr's own entries, so a group's env_file does not override
+	// them. nil when the file names none.
+	Env   []string `yaml:"env" json:"env,omitempty"`
+	Marks Marks    `yaml:"marks" json:"marks"`
+	Flags Flags    `yaml:"flags" json:"flags"`
 	// Offers are the models the file suggests a person pick: a list to
 	// choose from, not what is installed, which Models lists live. nil
 	// when the file names none.
@@ -386,6 +393,10 @@ func Load(fsys fs.FS) ([]Harness, error) {
 	return out, nil
 }
 
+// harnessEnvKey is a name of a variable: the env_file rule
+// (internal/config/envfile.go), for a file's own entries.
+var harnessEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // check finds what a harness file says that yardr cannot go by, and
 // compiles its error lines.
 func (h *Harness) check() error {
@@ -406,6 +417,11 @@ func (h *Harness) check() error {
 	}
 	if t := h.Trust; t != nil && (t.Dialog == "" || len(t.Answers) == 0 || slices.Contains(t.Answers, "") || t.Cursor == "") {
 		return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answers and its cursor")
+	}
+	for i, e := range h.Env {
+		if k, _, ok := strings.Cut(e, "="); !ok || !harnessEnvKey.MatchString(k) {
+			return fmt.Errorf("env: entry %d: want KEY=VALUE", i+1)
+		}
 	}
 	if h.Fetch != nil {
 		if err := h.Fetch.Check(Executable(h.Kind)); err != nil {
@@ -504,6 +520,10 @@ func (h Harness) Models(ctx context.Context) ([]string, error) {
 // UnattendedArgs are kind's unattended flags (Flags.Unattended); nil when
 // it has none.
 func UnattendedArgs(kind string) []string { return byName[kind].Flags.Unattended }
+
+// PaneEnv are the KEY=VALUE entries the pane of every agent of kind
+// starts with, as its file names them; nil when it names none.
+func PaneEnv(kind string) []string { return byName[kind].Env }
 
 // UnattendedHelp lists the unattended flags per kind, one line each, for
 // command help.

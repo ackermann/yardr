@@ -31,6 +31,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	out := ask(0, "harness", "list")
 	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, trust dialog,",
 		"codex     Codex        v1    pane marks, error lines, reported model, trust dialog, unattended flags, model flag, flags always passed,",
+		"kimi      Kimi         v1    pane marks, error lines, dialogs told of, hints, trust dialog, pane environment, unattended flags,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
 	var listed struct {
@@ -52,6 +53,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)",
 		"Models it offers", "gpt-6-luna (GPT-6 Luna), recommended for a yardmaster", "gpt-6-astra (GPT-6 Astra)")
 	wantText(t, ask(0, "harness", "show", "kimi"), "trust: yardr answers its folder-trust dialog",
+		"pane environment: KIMI_CODE_TRUST_WORKSPACE",
 		"after the box's edge: │", "a message it took:    ✨",
 		"no source known: nothing is recorded and nothing compared",
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",

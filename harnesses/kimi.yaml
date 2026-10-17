@@ -19,6 +19,12 @@ trust:
   answers: ["Trust this folder", "Trust and continue"]
   cursor: "❯"
 
+# 2.2.0 honours KIMI_CODE_TRUST_WORKSPACE=1: with it set its trust dialog
+# never shows (read live with stdin closed, 17 Oct 2026, yardr-k9ew), so
+# every agent of the kind starts with it. 2.1.1 ignores it and stops at
+# its dialog, which yardr answers (trust, above).
+env: ["KIMI_CODE_TRUST_WORKSPACE=1"]
+
 # Kimi's input is a box (read live, Kimi Code 2.1.1),
 #
 #   ╭──────────────────────────╮

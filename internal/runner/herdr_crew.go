@@ -178,8 +178,10 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 		name, label = CrewConversationAgentName(yard, r.Name, user), CrewConversationLabel(yard, r.Name, user)
 	}
 	// The settings of the yard's server are blanked, as for a bead's agent
-	// (agentEnv).
-	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
+	// (agentEnv). What the kind's harness needs set to run unattended
+	// goes with them, likewise not the env file's to give (withEnvFile).
+	kind := agents.Kind(r.Config)
+	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings(), agents.PaneEnv(kind))
 	if user != "" {
 		// How the session's commands read their slice: prime, inbox and
 		// the rest resolve the session from it.
@@ -235,7 +237,6 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 		return handle, err
 	}
 
-	kind := agents.Kind(r.Config)
 	handle[harnessKind] = kind
 	start := []string{"agent", "start", name, "--kind", kind, "--pane", ws.RootPane.ID}
 	if extra := agentArgs(r.Config, "", h.YardHome, dir); len(extra) > 0 {

@@ -47,11 +47,11 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" || h.Provider != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" || h.Provider != "" || h.Env != nil ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
-		if UnattendedArgs(kind) != nil || VersionArgs(kind) != nil || OneShotArgs(kind, "x") != nil {
+		if UnattendedArgs(kind) != nil || VersionArgs(kind) != nil || OneShotArgs(kind, "x") != nil || PaneEnv(kind) != nil {
 			t.Errorf("%q has flags", kind)
 		}
 		if ms, err := h.Models(t.Context()); ms != nil || err != nil {
@@ -158,6 +158,23 @@ func TestTrust(t *testing.T) {
 	muse, _ := Lookup("muse")
 	if muse.Trust == nil || muse.Trust.Dialog != "Do you trust this workspace?" || !slices.Equal(muse.Trust.Answers, []string{"1  Trust and continue"}) || muse.Trust.Cursor != "⟩" {
 		t.Errorf("muse: trust %+v", muse.Trust)
+	}
+}
+
+// The pane environment a file gives every agent of its kind (yardr-k9ew):
+// Kimi's sets KIMI_CODE_TRUST_WORKSPACE=1, which 2.2.0 honours by never
+// showing its trust dialog. No other file names any.
+func TestEnv(t *testing.T) {
+	for _, h := range Harnesses {
+		if (len(h.Env) > 0) != (h.Kind == "kimi") {
+			t.Errorf("%s: env %v; only kimi's file names any", h.Kind, h.Env)
+		}
+	}
+	if got := PaneEnv("kimi"); !slices.Equal(got, []string{"KIMI_CODE_TRUST_WORKSPACE=1"}) {
+		t.Errorf("kimi: pane env %v", got)
+	}
+	if got := PaneEnv("cursor"); got != nil {
+		t.Errorf("a kind with no file has pane env: %v", got)
 	}
 }
 
@@ -465,6 +482,8 @@ func TestLoadRefuses(t *testing.T) {
 		"trust, answers empty":     {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: [], cursor: '>'}\n", "names its text, its accepting answers and its cursor"},
 		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
 		"trust, no cursor":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"env, no KEY=VALUE":        {"claude.yaml", "version: 1\nlabel: x\nenv: ['JUSTAKEY']\n", "env: entry 1: want KEY=VALUE"},
+		"env, bad key":             {"claude.yaml", "version: 1\nlabel: x\nenv: ['1BAD=x']\n", "env: entry 1: want KEY=VALUE"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},

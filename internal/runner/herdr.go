@@ -607,7 +607,10 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	// The pane starts with herdr's environment, not the daemon's, so the
 	// settings of the yard's server cannot be left out of it, only blanked;
 	// set here, they are not the env file's to give either (withEnvFile).
-	return append(env, config.BlankServerSettings()...)
+	env = append(env, config.BlankServerSettings()...)
+	// What the kind's harness needs set to run unattended (Kimi's trust
+	// bypass): yardr's own entries, likewise not the env file's to give.
+	return append(env, agents.PaneEnv(agents.Kind(job.Group.Config))...)
 }
 
 // shellOn puts the pid of pane's shell on handle. The shell is what the
