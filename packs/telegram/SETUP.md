@@ -170,7 +170,20 @@ no status and no bead link to a chat.
    bot's token, as every reply is answered with the crew member's own
    credential: there is one bot for the whole yard and it speaks as the
    bot. The token is the same value the source's env file holds, in the
-   crew member's env file. First note which file that is:
+   crew member's env file. Have a crew member ask for it, and answer on
+   its card, in footplate or in `yardr chat` (`ctrl+o`), where the field
+   shows dots:
+   ```sh
+   yardr bead ask <bead> "The token it answers with" --secret telegram --for-crew yardmaster --context "@BotFather answered /newbot with it."
+   ```
+   The yard's server writes it into the crew member's env file, or with
+   none set into `~/.yardr/crew/yardmaster.env`, which is then set as
+   `yardr crew set` sets it. The running session does not see the new
+   value: it takes effect when it next starts, so restart it:
+   ```sh
+   yardr crew restart yardmaster
+   ```
+   By hand it is yours instead. First note which file that is:
    ```sh
    yardr crew show yardmaster
    ```

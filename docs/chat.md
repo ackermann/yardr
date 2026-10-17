@@ -280,8 +280,16 @@ PUSHOVER_USER, ada's own address in the source pushover (…); ada is told
 through pushover once it is given and yardr user set ada notify=pushover
 is run`, it is that user's to answer or the operator's, the same way, and
 the value goes to a file of the user's
-([users.md](users.md#told-outside-the-yard)). One more kind is for a waiting
-login: `--secret-login <login>` asks for the input of the harness login
+([users.md](users.md#told-outside-the-yard)). One more kind is for a crew
+member: `--secret <source> --for-crew <crew member>` asks for that crew
+member's own credential in the source, which a reply answers with. Its
+line reads `a secret: <names>, for crew member <name> in the source
+<source> (…); the env_file line is the one written, and it takes effect
+when <name> next starts (rotation or yardr crew restart <name>)`, it is
+the operator's to answer, the value goes to the crew member's env_file,
+and nothing restarts it: its next session starts with the new value. One
+more kind is for a waiting login: `--secret-login <login>` asks for the
+input of the harness login
 that waits under that reference, the one its leader's input need names. Its
 line reads `a secret: INPUT, for the waiting login <login>`, the value is
 handed to the login and kept nowhere, to no note and no file, and a giving

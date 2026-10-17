@@ -384,6 +384,11 @@ type SourceKeyed struct {
 	// comes after it, in a line: the one that tells the user through the
 	// source, or once that is said the one that tries it.
 	User string `json:"user,omitempty"`
+	// Crew is whose own credential in the source was given, and whose
+	// file File is; "" for a source's credential and for a user's
+	// address. Next is then when the value takes effect, in a line: the
+	// running session does not see it, so when its next one starts.
+	Crew string `json:"crew,omitempty"`
 	Next string `json:"next,omitempty"`
 	// State is where every variable of the credential is set now
 	// (CredentialState); Missing is what it still wants, in the words of
@@ -434,6 +439,12 @@ func (k *sourceKey) keyed() *SourceKeyed {
 		}
 		return out
 	}
+	if c := k.crew; c != nil {
+		out.Crew = c.Name
+		out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
+		out.Next = fmt.Sprintf("it takes effect when %s next starts (rotation or yardr crew restart %s)", c.Name, c.Name)
+		return out
+	}
 	if d, err := k.src.Declaration(); err == nil {
 		out.State, err = d.CredentialState(k.src.EnvFile, k.src.MintCommand)
 		if err != nil {
@@ -444,12 +455,14 @@ func (k *sourceKey) keyed() *SourceKeyed {
 }
 
 // sourceKey is one giving of a source's credential, as keySource left it,
-// or of a user's own address in the source, as keyUser did (user is then
-// set). It outlives the transaction: a batch may run either twice, and
-// renamed stays true once any run renamed the file.
+// of a user's own address in the source, as keyUser did (user is then
+// set), or of a crew member's own credential in it, as giveCrewSecret did
+// (crew is then set). It outlives the transaction: a batch may run any of
+// them twice, and renamed stays true once any run renamed the file.
 type sourceKey struct {
 	src  *Source
 	user *User
+	crew *CrewMember
 	// hook is the hook whose signing secret was given, "" for a
 	// credential: File is then the hook's secret file.
 	hook    string

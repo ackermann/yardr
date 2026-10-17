@@ -10,7 +10,10 @@
 // people instead (AskSecret.User): the variable the source's notify key
 // names, kept in that user's env file. It is the user's to give, or the
 // operator's for them, as the settings that say where a user is told are
-// (mayTell).
+// (mayTell). Or it may ask for a crew member's own credential in the
+// source (AskSecret.Crew), kept in that crew member's env file: the
+// operator's alone to give, taking effect when the crew member next
+// starts.
 package store
 
 import (
@@ -18,10 +21,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -55,6 +61,12 @@ type AskSecret struct {
 	// notify key names, and the answer goes to the user's env file, not the
 	// source's. "" asks for the source's credential.
 	User string `json:"user,omitempty"`
+	// Crew makes it an ask for that crew member's own credential in the
+	// source, which a reply answers with: Env is then variables of the
+	// source's credential, as for the source's own, and the answer goes
+	// to the crew member's env file. "" asks for the source's
+	// credential. Never set with User.
+	Crew string `json:"crew,omitempty"`
 }
 
 // Names are the variables asked for, in words.
@@ -62,10 +74,12 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 
 // Line is what a card says a secret ask asks for, in the yard's words and
 // never the asker's: whatever the question and its context say, the value
-// becomes these variables of this source, or of this user's file. Giving a
-// user's address does not say the user is told through the source, so the
-// line names the command that does. A login input goes to the login that
-// waits, and names it.
+// becomes these variables of this source, of this user's file, or of this
+// crew member's. Giving a user's address does not say the user is told
+// through the source, so the line names the command that does. A crew
+// member's running session does not see the new value, so its line says
+// the env_file line is the one written and when it takes effect. A login
+// input goes to the login that waits, and names it.
 func (s AskSecret) Line() string {
 	if s.Hook != "" {
 		return fmt.Sprintf("a secret: the signing secret for the hook %s (POST /hooks/%s), for the source %s (%s)", s.Hook, s.Hook, s.Source, s.Host)
@@ -77,17 +91,23 @@ func (s AskSecret) Line() string {
 		return fmt.Sprintf("a secret: %s, %s's own address in the source %s (%s); %s is told through %s once it is given and yardr user set %s %s=%s is run",
 			s.Names(), s.User, s.Source, s.Host, s.User, s.Source, s.User, UserNotify, s.Source)
 	}
+	if s.Crew != "" {
+		return fmt.Sprintf("a secret: %s, for crew member %s in the source %s (%s); the env_file line is the one written, and it takes effect when %s next starts (rotation or yardr crew restart %s)",
+			s.Names(), s.Crew, s.Source, s.Host, s.Crew, s.Crew)
+	}
 	return fmt.Sprintf("a secret: %s, for the source %s (%s)", s.Names(), s.Source, s.Host)
 }
 
 // SecretAsked is the secret an ask asks for, as a client shows it: the
 // source, the names to ask the person for, the user whose own address it
-// is (absent for a source's credential), the waiting login it goes to
-// (absent for any other secret), and the card's line whole.
+// is (absent for a source's credential), the crew member whose own
+// credential it is (absent for any other secret), the waiting login it
+// goes to (absent for any other secret), and the card's line whole.
 type SecretAsked struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
 	User   string   `json:"user,omitempty"`
+	Crew   string   `json:"crew,omitempty"`
 	Login  string   `json:"login,omitempty"`
 	// Hook is the hook whose signing secret is asked for; absent on any
 	// other secret.
@@ -101,7 +121,7 @@ func (a Ask) asked() *SecretAsked {
 	if a.Secret == nil {
 		return nil
 	}
-	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Login: a.Secret.Login, Hook: a.Secret.Hook, Line: a.Secret.Line()}
+	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Crew: a.Secret.Crew, Login: a.Secret.Login, Hook: a.Secret.Hook, Line: a.Secret.Line()}
 }
 
 // sourceHost is where the calls of the source d declares go: the scheme and
@@ -122,7 +142,8 @@ func sourceHost(d *source.Declaration) string {
 // setting a source's credential, which is the operator's alone (maySource).
 //
 // With a User it is that user's own address in the source that is asked
-// for (askedAddress). With a Login it is the waiting login's input
+// for (askedAddress), with a Crew that crew member's own credential in
+// it (askedCrewSecret). With a Login it is the waiting login's input
 // (askedLogin).
 func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	if strings.TrimSpace(sec.Login) != "" {
@@ -150,7 +171,13 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 		return w.askedHookSecret(d, hook, sec, to)
 	}
 	if user := strings.TrimSpace(sec.User); user != "" {
+		if crew := strings.TrimSpace(sec.Crew); crew != "" {
+			return nil, fmt.Errorf("a secret ask names a user or a crew member, not both: --for-user %s or --for-crew %s", user, crew)
+		}
 		return w.askedAddress(d, user, sec.Env, to)
+	}
+	if crew := strings.TrimSpace(sec.Crew); crew != "" {
+		return w.askedCrewSecret(d, crew, sec.Env, to)
 	}
 	if d.Credential == nil {
 		return nil, fmt.Errorf("source %s: its declaration names no credential, so there is no secret to ask for", name)
@@ -202,6 +229,8 @@ func (w *wtx) askedHookSecret(d *source.Declaration, hook string, sec AskSecret,
 	switch {
 	case strings.TrimSpace(sec.User) != "":
 		return nil, fmt.Errorf("a hook's signing secret is the operator's to give, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
+	case strings.TrimSpace(sec.Crew) != "":
+		return nil, fmt.Errorf("a hook's signing secret is the operator's to give, not crew member %s's credential: it takes no --for-crew", strings.TrimSpace(sec.Crew))
 	case !hookName.MatchString(hook):
 		return nil, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", hook)
 	case d.Hook == nil:
@@ -240,6 +269,8 @@ func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 		return nil, fmt.Errorf("a secret ask names a waiting login or a source, not both: --secret-login %s or --secret <source>", login)
 	case strings.TrimSpace(sec.User) != "":
 		return nil, fmt.Errorf("a login input is the operator's login's to take, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
+	case strings.TrimSpace(sec.Crew) != "":
+		return nil, fmt.Errorf("a login input is the operator's login's to take, not crew member %s's credential: it takes no --for-crew", strings.TrimSpace(sec.Crew))
 	}
 	for _, n := range sec.Env {
 		if n != loginInputName {
@@ -291,6 +322,44 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 	return &AskSecret{Source: d.Name, Env: []string{d.Notify.AddressEnv}, Host: sourceHost(d), User: user}, nil
 }
 
+// askedCrewSecret checks an ask for the crew member's own credential in
+// the source d declares, asked of to, and answers it as the ask stores
+// it: the source by its own name, the names in the declaration's order
+// (every one of its credential when the asker narrowed to none), and the
+// host. It refuses a source whose declaration names no credential, a crew
+// member the yard does not have, a name the declaration does not have,
+// and anyone but the operator as the one asked: giving is setting what a
+// session of the yard runs with, which is the operator's alone.
+func (w *wtx) askedCrewSecret(d *source.Declaration, crew string, env []string, to string) (*AskSecret, error) {
+	if d.Credential == nil {
+		return nil, fmt.Errorf("source %s: its declaration names no credential, so there is no secret to ask for", d.Name)
+	}
+	if w.Bucket(bCrew).Get([]byte(crew)) == nil {
+		return nil, fmt.Errorf("a crew member's credential is asked for a crew member of the yard (yardr crew list): crew member %s: %w", crew, ErrNotFound)
+	}
+	has := d.Credential.Variables()
+	for _, n := range env {
+		if !slices.Contains(has, n) {
+			return nil, fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
+		}
+	}
+	names := has
+	if len(env) > 0 {
+		names = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(env, n) })
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case operator == "":
+		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
+	case to != operator:
+		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a crew member's credential is theirs alone, so %s cannot be asked for one", operator, to)
+	}
+	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), Crew: crew}, nil
+}
+
 // GiveSecret answers the secret ask ask on the bead id with values, the
 // names it asked for to the values they take: the values are written into
 // the file the source's credential is read from (KeySource), and the answer
@@ -308,6 +377,13 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // where the user is told (mayTell: the user and the operator, and never the
 // pane of an agent). It sets no notify: that the user is told through the
 // source is a second thing, and theirs to say.
+//
+// An ask for a crew member's own credential in the source (AskSecret.Crew)
+// is given the same way into that crew member's env file
+// (giveCrewSecret), by the operator alone: the crew member's running
+// session does not see the new value, which takes effect when it next
+// starts. It restarts nothing: that is a second thing, and the card and
+// the answer say when the value takes effect.
 //
 // An ask for a hook's signing secret (AskSecret.Hook) is given the same
 // way into the hook's secret file the yard owns (giveHookSecret), by the
@@ -378,6 +454,8 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	// what the transaction would take back.
 	if sec.User != "" {
 		err = w.mayTell(ctx, sec.User, actor)
+	} else if sec.Crew != "" {
+		err = w.operatorOnly(ctx, actor, "give a crew member's credential", Alone)
 	} else if sec.Hook != "" {
 		err = w.operatorOnly(ctx, actor, "give a hook's signing secret", Alone)
 	} else if sec.Login != "" {
@@ -418,6 +496,9 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	if sec.User != "" {
 		return w.keyUser(ctx, home, sec.User, sec.Source, values, actor, k)
 	}
+	if sec.Crew != "" {
+		return w.giveCrewSecret(ctx, home, sec, &src, values, actor, k)
+	}
 	return w.keySource(ctx, home, sec.Source, values, actor, k)
 }
 
@@ -445,6 +526,85 @@ func (w *wtx) giveHookSecret(home string, sec *AskSecret, src *Source, values ma
 	k.file, k.renamed = file, k.renamed || renamed
 	if err != nil {
 		return err
+	}
+	if afterKeyRename != nil {
+		return afterKeyRename()
+	}
+	return nil
+}
+
+// crewEnvFile is where the yard keeps what a source needs of the crew
+// member name when nobody named a file for them: <home>/crew/<name>.env,
+// beside the store and not in it. A name with a path separator in it
+// could name a file outside that directory or another member's, so the
+// yard chooses no file for it.
+func crewEnvFile(home, name string) (string, error) {
+	if strings.ContainsAny(name, `/\\`) {
+		return "", fmt.Errorf("crew member %s has no env_file, and the yard chooses no file for a name with a path separator in it: yardr crew set %s env_file=<file> first", name, name)
+	}
+	return filepath.Join(home, CrewDir, name+".env"), nil
+}
+
+// giveCrewSecret is giveSecret for a crew member's own credential in the
+// source: the values go to the crew member's env file, in the order
+// keySource keeps: the answer note is put first and the file's rename
+// last, so the store never says "gave" of a value the file does not
+// hold, and a commit that fails after the rename leaves the value in the
+// file with the ask open (KeyNotRecorded, through k). With no env_file
+// set the file is crewEnvFile, which is then set as yardr crew set sets
+// it, through the same write. The crew member the ask names must still
+// be the yard's, and the names are held to the source's credential as it
+// stands now, since its declaration may have changed since the ask. The
+// running session is restarted by nothing here: it reads its environment
+// when its next session starts.
+func (w *wtx) giveCrewSecret(ctx context.Context, home string, sec *AskSecret, src *Source, values map[string]string, actor string, k *sourceKey) error {
+	var r CrewMember
+	if ok, err := get(w.Tx, bCrew, sec.Crew, &r); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("crew member %s: %w", sec.Crew, ErrNotFound)
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return err
+	}
+	if d.Credential == nil {
+		return fmt.Errorf("source %s: its declaration names no credential now, so there is no secret to give", sec.Source)
+	}
+	// givable held the names to the ask's; the declaration is the
+	// writer's to check, without saying back what was sent.
+	names := make([]string, 0, len(values))
+	for n := range values {
+		if !slices.Contains(d.Credential.Variables(), n) {
+			return fmt.Errorf("source %s: %s is no variable of its credential now (its declaration names %s)", sec.Source, n, d.Credential.Names())
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	saved := &r
+	file, _ := r.Config["env_file"].(string)
+	if file == "" {
+		// The server chooses the path: nothing a caller sends is one.
+		if file, err = crewEnvFile(home, sec.Crew); err != nil {
+			return err
+		}
+		def := r
+		def.Config = make(map[string]any, len(r.Config)+1)
+		for key, value := range r.Config {
+			def.Config[key] = value
+		}
+		def.Config["env_file"] = file
+		def.Revision = r.Revision
+		if saved, err = w.putCrew(ctx, def, actor, nil); err != nil {
+			return err
+		}
+	}
+	k.src, k.crew, k.names = src, saved, names
+	resolved, renamed, err := config.WriteEnvFile(file, values)
+	k.file = resolved
+	k.renamed = k.renamed || renamed
+	if err != nil {
+		return fmt.Errorf("crew member %s: %w", sec.Crew, err)
 	}
 	if afterKeyRename != nil {
 		return afterKeyRename()

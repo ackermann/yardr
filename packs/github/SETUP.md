@@ -40,11 +40,21 @@ file's.
    approving the hook makes `POST /hooks/gh`. The manual steps above
    remain available; `--map`, `--says` and `--as` stay in a terminal.
 3. **The crew member's credential.** A token in an env file of the crew
-   member's own, mode 0600, never in the store. A new file takes its
-   mode from the shell's umask, so narrow it first. The token is never
-   a command's word: that line would stay in the shell's history. Each
-   command below is one thing to type, in a block of its own; run the
-   second, type or paste the token blind and press Enter:
+   member's own, mode 0600, never in the store. Have the crew member ask
+   for it, and answer on its card, in footplate or in `yardr chat`
+   (`ctrl+o`), where the field shows dots:
+   ```sh
+   yardr bead ask <bead> "The token it answers with" --secret github --for-crew <name> --env GITHUB_TOKEN --context "A token that reads and writes the repository's issues and pull requests."
+   ```
+   The yard's server writes it into the crew member's env file, or with
+   none set into `~/.yardr/crew/<name>.env`, which is then set as `yardr
+   crew set` sets it. The running session does not see the new value:
+   restart the crew member after giving it. By hand it is yours instead.
+   A new file takes its mode from the shell's umask, so narrow it first.
+   The token is never a command's word: that line would stay in the
+   shell's history. Each command below is one thing to type, in a block
+   of its own; run the second, type or paste the token blind and press
+   Enter:
    ```sh
    umask 077
    ```
