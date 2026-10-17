@@ -621,6 +621,10 @@ func TestPutDepotKindChangeIsTheOperators(t *testing.T) {
 		"notes": {Name: "notes", Path: "/srv/notes", Kind: store.DepotDir},
 	}
 	api, own, ctx := depotYard(t)
+	// Re-putting a directory depot with its kind unchanged stays anyone's.
+	if err := api.PutDepot(ctx, store.Depot{Name: "docs", Path: "/srv/docs", Kind: store.DepotDir}, "yardmaster"); err != nil {
+		t.Fatalf("re-adding an unchanged directory depot as yardmaster: %v", err)
+	}
 	head, err := api.Head(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -669,6 +673,36 @@ func TestPutDepotKindChangeIsTheOperators(t *testing.T) {
 			err.Error() != "only the operator (jo) may "+does+"; this is clerk" {
 			t.Fatalf("%s to %s from clerk's pane as the operator = %v", name, r.Kind, err)
 		}
+	}
+	// A bead session's pane cannot change kind by naming the operator either.
+	s := storetest.New(t)
+	ctx = context.Background()
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutDepot(ctx, store.Depot{Name: "notes", Path: "/srv/notes"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	putFlow(t, s, "notes", "", outcomeFlow)
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "notes", Depot: "notes", Stage: "new"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.Claim(ctx, b.ID, "builders", "new", "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := b.ID + "-new"
+	if err := s.MarkRunning(ctx, session.ID, paneShell(t, actor)); err != nil {
+		t.Fatal(err)
+	}
+	flip := store.Depot{Name: "notes", Path: "/srv/notes", Kind: store.DepotDir}
+	if err := s.PutDepot(store.WithCaller(ctx, os.Getpid()), flip, "jo"); err == nil ||
+		err.Error() != "only the operator (jo) may "+does+"; this is "+actor {
+		t.Fatalf("%s to %s from a bead session pane as the operator = %v", "notes", flip.Kind, err)
 	}
 }
 
