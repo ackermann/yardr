@@ -16,15 +16,20 @@ names another gws, else the one on PATH, else
 `/opt/homebrew/bin/gws`.
 
 `GOOGLE_ACCOUNT` is the account's address, no secret. The script asks
-gws whose login it holds (`gws auth status`, gws 0.22.5) and refuses
-when that is another account; it reads the client id, client secret
-and refresh token (`gws auth export --unmasked`) and exchanges them at
-`https://oauth2.googleapis.com/token` (`GOOGLE_TOKEN_ENDPOINT` may name
-a loopback HTTP endpoint for a test's stand-in). No new copy of a secret is
-stored: the three are held in this process's memory alone and never
-printed, neither on stdout nor on stderr, nor written anywhere. The
-scope it is handed is the call's; Google's token narrows by the gws
-grant, not by call, so the scope is read and ignored.
+gws whose login it holds (`gws auth status`, gws 0.22.5): the default
+login where it is for that account, else that account's own login in
+`~/.config/gws-accounts/<account>`, chosen with
+`GOOGLE_WORKSPACE_CLI_CONFIG_DIR` for the gws it starts alone. It
+refuses an account with no login of its own, naming the login that
+makes it, and a login for another account; it reads the client id,
+client secret and refresh token (`gws auth export --unmasked`) and
+exchanges them at `https://oauth2.googleapis.com/token`
+(`GOOGLE_TOKEN_ENDPOINT` may name a loopback HTTP endpoint for a
+test's stand-in). No new copy of a secret is stored: the three are held
+in this process's memory alone and never printed, neither on stdout
+nor on stderr, nor written anywhere. The scope it is handed is the
+call's; Google's token narrows by the gws grant, not by call, so the
+scope is read and ignored.
 
 Either way stdout is `{token, expires_at}`, and nothing of either is
 printed elsewhere; of the inputs only the account, where it says the
@@ -32,5 +37,6 @@ login is another's. The core caches the token in memory alone, keyed
 by the credential and the scope.
 
 `go test ./contrib/google-mint/` runs it against a fake gws on PATH
-and a fake token endpoint: a good exchange, a wrong account refused,
-and every refusal with no secret in its output or stderr.
+and a fake token endpoint: a good exchange, two accounts minting two
+tokens, a missing or wrong per-account login refused, and every
+refusal with no secret in its output or stderr.

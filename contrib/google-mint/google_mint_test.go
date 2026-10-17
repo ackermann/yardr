@@ -30,15 +30,26 @@ const (
 )
 
 // fakeGWS is a gws shaped like the real one's for the two commands the
-// script runs, steered by GWS_* variables: GWS_USER (the login's
+// script runs, steered by GWS_* variables: GWS_USER (the default login's
 // account, op@example.com), GWS_STATUS_EXIT and GWS_EXPORT_EXIT (a
 // failing command), GWS_STATUS_BODY (no-user, bad-json) and GWS_EXPORT
 // (no-refresh, bad-json, weird-chars). Like the real one it notes the
-// keyring backend on stderr, which the script passes over.
+// keyring backend on stderr, which the script passes over. Like the real
+// one it reads one login from GOOGLE_WORKSPACE_CLI_CONFIG_DIR where that
+// variable is set: the login is the fake-login and fake-refresh files in
+// that directory, and a directory without them answers no login. Where
+// GWS_OBSERVE names a file, each command appends the config directory it
+// was started with, so a test sees which login each gws run read.
 const fakeGWS = `#!/bin/sh
 echo "Using keyring backend: keyring" >&2
+if [ -n "${GWS_OBSERVE:-}" ]; then echo "$1 $2 config_dir=${GOOGLE_WORKSPACE_CLI_CONFIG_DIR:-<unset>}" >> "$GWS_OBSERVE"; fi
+dir=${GOOGLE_WORKSPACE_CLI_CONFIG_DIR:-}
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   if [ "${GWS_STATUS_EXIT:-0}" != "0" ]; then echo "Error: fake status failed" >&2; exit 1; fi
+  if [ -n "$dir" ]; then
+    if [ -f "$dir/fake-login" ]; then echo "{\"user\":\"$(cat "$dir/fake-login")\"}"; exit 0; fi
+    echo "Error: fake has no login in $dir" >&2; exit 1
+  fi
   case "${GWS_STATUS_BODY:-good}" in
     no-user) echo '{"nobody":true}' ;;
     bad-json) echo '{' ;;
@@ -49,6 +60,10 @@ fi
 if [ "$1" = "auth" ] && [ "$2" = "export" ]; then
   if [ "$3" != "--unmasked" ]; then echo "Error: fake export wants --unmasked" >&2; exit 2; fi
   if [ "${GWS_EXPORT_EXIT:-0}" != "0" ]; then echo "Error: fake not logged in" >&2; exit 1; fi
+  if [ -n "$dir" ]; then
+    if [ -f "$dir/fake-refresh" ]; then echo "{\"client_id\":\"` + fakeClientID + `\",\"client_secret\":\"` + fakeClientSecret + `\",\"refresh_token\":\"$(cat "$dir/fake-refresh")\",\"type\":\"authorized_user\"}"; exit 0; fi
+    echo "Error: fake has no login in $dir" >&2; exit 1
+  fi
   case "${GWS_EXPORT:-good}" in
     no-refresh) echo '{"client_id":"fake-client-id","client_secret":"fake-client-secret","type":"authorized_user"}' ;;
     bad-json) echo '{' ;;
@@ -101,8 +116,24 @@ func (f *fakeToken) handler(w http.ResponseWriter, r *http.Request) {
 	case "weird-token":
 		io.WriteString(w, `{"access_token":"has space","expires_in":3599}`)
 	default:
-		io.WriteString(w, `{"access_token":"`+fakeAccess+`","expires_in":3599,"scope":"openid","token_type":"Bearer"}`)
+		io.WriteString(w, `{"access_token":"`+tokenFor(form.Get("refresh_token"))+`","expires_in":3599,"scope":"openid","token_type":"Bearer"}`)
 	}
+}
+
+// tokenFor is the access token the fake endpoint answers for a refresh
+// token: the fixed fake token for the default fake login, and a token
+// derived from any other refresh token, so two logins mint two tokens.
+func tokenFor(refresh string) string {
+	if refresh == fakeRefresh {
+		return fakeAccess
+	}
+	return "ya29." + strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.' || r == '_' || r == '-':
+			return r
+		}
+		return -1
+	}, refresh)
 }
 
 func (f *fakeToken) sent() []url.Values {
@@ -131,17 +162,76 @@ func (f *fakeToken) firstType() string {
 // the endpoint and the fake's steering. Extra steering goes in env.
 func mint(t *testing.T, stdin, endpoint string, env ...string) (string, string, error) {
 	t.Helper()
+	return mintHome(t, t.TempDir(), stdin, endpoint, env...)
+}
+
+// mintHome runs the script as mint does, with home as its HOME, so a
+// test plants a per-account login where the script derives it.
+func mintHome(t *testing.T, home, stdin, endpoint string, env ...string) (string, string, error) {
+	t.Helper()
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "gws"), []byte(fakeGWS), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("./google-mint")
-	cmd.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GOOGLE_TOKEN_ENDPOINT=" + endpoint}, env...)
+	cmd.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH"), "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + endpoint}, env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
+}
+
+// A second account with its own login and refresh token, beside the
+// default fake login's op@example.com.
+const (
+	adaAccount = "ada@example.com"
+	adaRefresh = "1//fake-ada-refresh-token-value-aaaa"
+)
+
+// writeLogin plants a fake gws login in account's own directory under
+// home, as gws auth login with that config directory would: the login
+// answers user, with refresh as its refresh token, or no export where
+// refresh is empty.
+func writeLogin(t *testing.T, home, account, user, refresh string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".config", "gws-accounts", account)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fake-login"), []byte(user+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if refresh != "" {
+		if err := os.WriteFile(filepath.Join(dir, "fake-refresh"), []byte(refresh), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// filesUnder lists every file under dir, relative, so a test holds that
+// the script wrote none beside what the test planted: no refresh
+// credential reaches a file.
+func filesUnder(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			out = append(out, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func stdinFor(account, scope string) string {
@@ -193,21 +283,196 @@ func TestGoogleMintGoodExchange(t *testing.T) {
 	}
 }
 
-// A gws login for another account than the inputs name is refused, not
-// minted: the endpoint hears nothing, and stdout stays empty.
-func TestGoogleMintWrongAccount(t *testing.T) {
+// Two accounts with two logins mint two tokens: the default login's and
+// a per-account one's, each exchange carrying its own refresh token and
+// each answer its own access token. The observe file holds which login
+// each gws run read: the default account's runs set no config directory,
+// exactly as before, and the other's set that account's directory for
+// both status and export. Afterwards the home holds nothing the script
+// wrote: no refresh credential reaches a file.
+func TestGoogleMintTwoAccounts(t *testing.T) {
 	endpoint := &fakeToken{t: t}
 	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
 	defer srv.Close()
-	stdout, stderr, err := mint(t, stdinFor("someone@example.com", ""), srv.URL)
-	if err == nil || !strings.Contains(stderr, "the gws login is for op@example.com, not GOOGLE_ACCOUNT=someone@example.com") {
-		t.Fatalf("err = %v\n%s", err, stderr)
+	home := t.TempDir()
+	adaDir := writeLogin(t, home, adaAccount, adaAccount, adaRefresh)
+	observe := filepath.Join(t.TempDir(), "observe")
+	for _, tc := range []struct{ account, refresh string }{
+		{"op@example.com", fakeRefresh},
+		{adaAccount, adaRefresh},
+	} {
+		stdout, stderr, err := mintHome(t, home, stdinFor(tc.account, ""), srv.URL, "GWS_OBSERVE="+observe)
+		if err != nil {
+			t.Fatalf("mint %s: %v\n%s", tc.account, err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("mint %s: stderr = %q", tc.account, stderr)
+		}
+		var o struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &o); err != nil {
+			t.Fatalf("mint %s: answer = %q: %v", tc.account, stdout, err)
+		}
+		if want := tokenFor(tc.refresh); o.Token != want {
+			t.Fatalf("mint %s: token = %q, want %q", tc.account, o.Token, want)
+		}
+		for _, secret := range []string{fakeClientID, fakeClientSecret, fakeRefresh, adaRefresh} {
+			if strings.Contains(stdout, secret) {
+				t.Errorf("mint %s: the answer holds %q", tc.account, secret)
+			}
+		}
+	}
+	if tokenFor(fakeRefresh) == tokenFor(adaRefresh) {
+		t.Fatalf("the two accounts minted one token: %q", tokenFor(fakeRefresh))
+	}
+	forms := endpoint.sent()
+	if len(forms) != 2 {
+		t.Fatalf("exchanges: %d, want 2", len(forms))
+	}
+	for i, want := range []string{fakeRefresh, adaRefresh} {
+		if got := forms[i].Get("refresh_token"); got != want {
+			t.Fatalf("exchange %d refresh_token = %q, want %q", i, got, want)
+		}
+	}
+	seen, err := os.ReadFile(observe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantObserve := "auth status config_dir=<unset>\n" +
+		"auth export config_dir=<unset>\n" +
+		"auth status config_dir=<unset>\n" +
+		"auth status config_dir=" + adaDir + "\n" +
+		"auth export config_dir=" + adaDir + "\n"
+	if string(seen) != wantObserve {
+		t.Fatalf("gws runs:\n%s\nwant:\n%s", seen, wantObserve)
+	}
+	wantFiles := []string{
+		filepath.Join(".config", "gws-accounts", adaAccount, "fake-login"),
+		filepath.Join(".config", "gws-accounts", adaAccount, "fake-refresh"),
+	}
+	if got := filesUnder(t, home); strings.Join(got, "\n") != strings.Join(wantFiles, "\n") {
+		t.Fatalf("files under home = %q, want %q", got, wantFiles)
+	}
+}
+
+// An account with no login of its own is refused with the login that
+// makes it: the endpoint hears nothing, and stdout stays empty.
+func TestGoogleMintNoLogin(t *testing.T) {
+	endpoint := &fakeToken{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+	defer srv.Close()
+	stdout, stderr, err := mint(t, stdinFor(adaAccount, ""), srv.URL)
+	if err == nil {
+		t.Fatalf("mint minted with no login:\n%s", stdout)
+	}
+	for _, want := range []string{
+		"no gws login for GOOGLE_ACCOUNT=" + adaAccount,
+		filepath.Join(".config", "gws-accounts", adaAccount),
+		"GOOGLE_WORKSPACE_CLI_CONFIG_DIR=",
+		"gws auth login -s gmail,drive,docs,slides",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, stderr)
+		}
+	}
+	if !strings.HasPrefix(stderr, "google-mint: ") {
+		t.Errorf("names no command: %q", stderr)
 	}
 	if stdout != "" {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	if len(endpoint.sent()) != 0 {
 		t.Fatal("the endpoint was asked for a token it must not mint")
+	}
+}
+
+// A per-account login for another account than the inputs name is
+// refused, not minted: the endpoint hears nothing, and stdout stays
+// empty. The refusal names the login it found and the one that makes
+// the account's own.
+func TestGoogleMintWrongAccount(t *testing.T) {
+	endpoint := &fakeToken{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+	defer srv.Close()
+	home := t.TempDir()
+	adaDir := writeLogin(t, home, adaAccount, "mallory@example.com", adaRefresh)
+	stdout, stderr, err := mintHome(t, home, stdinFor(adaAccount, ""), srv.URL)
+	if err == nil {
+		t.Fatalf("mint minted for a login of another account:\n%s", stdout)
+	}
+	for _, want := range []string{
+		"the gws login in " + adaDir + " is for mallory@example.com, not GOOGLE_ACCOUNT=" + adaAccount,
+		"gws auth login -s gmail,drive,docs,slides",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, stderr)
+		}
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(endpoint.sent()) != 0 {
+		t.Fatal("the endpoint was asked for a token it must not mint")
+	}
+	for _, secret := range []string{fakeClientID, fakeClientSecret, fakeRefresh, adaRefresh} {
+		if strings.Contains(stderr, secret) {
+			t.Errorf("stderr holds %q", secret)
+		}
+	}
+}
+
+// A per-account login whose export fails is refused without repeating
+// what gws said: on that line the refresh credentials themselves would
+// be the leak.
+func TestGoogleMintPerAccountExportFails(t *testing.T) {
+	endpoint := &fakeToken{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+	defer srv.Close()
+	home := t.TempDir()
+	writeLogin(t, home, adaAccount, adaAccount, "")
+	stdout, stderr, err := mintHome(t, home, stdinFor(adaAccount, ""), srv.URL)
+	if err == nil || !strings.Contains(stderr, "gws auth export for GOOGLE_ACCOUNT="+adaAccount) {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if strings.Contains(stderr, "fake has no login") {
+		t.Errorf("a failed export repeats gws: %q", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if len(endpoint.sent()) != 0 {
+		t.Fatal("the endpoint was asked for a token it must not mint")
+	}
+}
+
+// An account that is no single directory name is refused before it
+// names a login directory: gws runs once, for the default login, and
+// never with a crafted config directory.
+func TestGoogleMintHostileAccount(t *testing.T) {
+	endpoint := &fakeToken{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+	defer srv.Close()
+	for _, account := range []string{"../elsewhere@example.com", adaAccount + "/evil", ".."} {
+		home := t.TempDir()
+		observe := filepath.Join(t.TempDir(), "observe")
+		stdout, stderr, err := mintHome(t, home, stdinFor(account, ""), srv.URL, "GWS_OBSERVE="+observe)
+		if err == nil || !strings.Contains(stderr, "names no per-account login") {
+			t.Errorf("mint %s: err = %v\n%s", account, err, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("mint %s: stdout = %q", account, stdout)
+		}
+		seen, rerr := os.ReadFile(observe)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if want := "auth status config_dir=<unset>\n"; string(seen) != want {
+			t.Errorf("mint %s: gws runs:\n%s\nwant:\n%s", account, seen, want)
+		}
+		if len(endpoint.sent()) != 0 {
+			t.Errorf("mint %s: the endpoint was asked", account)
+		}
 	}
 }
 

@@ -1,19 +1,23 @@
 #!/bin/sh
-# Mints a Google access token from the operator's gws login: the
-# mint_command of the google pack's sources, whose credential names
-# GOOGLE_ACCOUNT under credential.mint. The core runs it with {inputs,
-# scope} on stdin and reads {token, expires_at} on stdout:
+# Mints a Google access token from a gws login: the mint_command of the
+# google pack's sources, whose credential names GOOGLE_ACCOUNT under
+# credential.mint. The core runs it with {inputs, scope} on stdin and
+# reads {token, expires_at} on stdout:
 #
 #   yardr source set google-mail mint_command=/Users/me/bin/google-mint
 #
 # GOOGLE_ACCOUNT is the account's address, no secret. The refresh
-# credentials come from the local gws login (gws 0.22.5, config in
-# ~/.config/gws): gws auth status tells whose login it is, and gws auth
-# export --unmasked prints the client id, client secret and refresh
-# token, which are exchanged at the token endpoint for an access token.
-# No new copy of a secret is stored: the three are held in this
-# process's memory alone, sent in the exchange's body, and never
-# printed, neither on stdout nor on stderr, nor written anywhere.
+# credentials come from the local gws login for that account (gws
+# 0.22.5): the default login in ~/.config/gws where it is for that
+# account, else that account's own login in
+# ~/.config/gws-accounts/<account>, chosen by this script with
+# GOOGLE_WORKSPACE_CLI_CONFIG_DIR for the gws it starts alone. gws auth
+# status tells whose login one is, and gws auth export --unmasked prints
+# the client id, client secret and refresh token, which are exchanged at
+# the token endpoint for an access token. No new copy of a secret is
+# stored: the three are held in this process's memory alone, sent in the
+# exchange's body, and never printed, neither on stdout nor on stderr,
+# nor written anywhere.
 #
 # Needs gws and curl on PATH: GWS_BIN names another gws, else the one
 # on PATH, else /opt/homebrew/bin/gws. GOOGLE_TOKEN_ENDPOINT may name a
@@ -74,16 +78,36 @@ if [ "$endpoint" != "https://oauth2.googleapis.com/token" ]; then
 fi
 
 # Whose login gws holds: the exchange below mints for whoever that is,
-# so another account than the inputs name is refused, not minted.
+# so another account than the inputs name is refused, not minted. The
+# default login is tried first, exactly as before; only where it answers
+# another account is that account's own login tried, in the directory the
+# pack declares beside gws's own.
 status_out=$("$GWS" auth status 2>&1) || fail "gws auth status failed (exit $?): $(printf '%s' "$status_out" | head -c 500)"
 user=$(first "$status_out" user)
 [ -n "$user" ] || fail "gws auth status answered with no user"
-[ "$user" = "$account" ] || fail "the gws login is for $user, not GOOGLE_ACCOUNT=$account"
-
-# The refresh credentials, decrypted by gws: masked without --unmasked,
-# so that flag is the point. What fails is said in one line: the three
-# values reach neither stdout nor stderr from here on.
-export_out=$("$GWS" auth export --unmasked 2>&1) || fail "gws auth export failed (exit $?)"
+if [ "$user" = "$account" ]; then
+  # The refresh credentials, decrypted by gws: masked without
+  # --unmasked, so that flag is the point. What fails is said in one
+  # line: the three values reach neither stdout nor stderr from here on.
+  export_out=$("$GWS" auth export --unmasked 2>&1) || fail "gws auth export failed (exit $?)"
+else
+  # The account names a directory below, so one that is no single name
+  # is refused before it names one.
+  case $account in
+    *"/"*|"."|"..") fail "GOOGLE_ACCOUNT=$account names no per-account login (~/.config/gws-accounts/<account>)" ;;
+  esac
+  [ -n "${HOME:-}" ] || fail "HOME is not set: cannot find the login for GOOGLE_ACCOUNT=$account"
+  acct_dir=$HOME/.config/gws-accounts/$account
+  login_cmd="GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$acct_dir gws auth login -s gmail,drive,docs,slides"
+  # gws just answered above, so what fails here is the login in that
+  # directory, not gws: the refusal names the login that makes it, and
+  # not what gws said.
+  status_out=$(GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$acct_dir "$GWS" auth status 2>&1) || fail "no gws login for GOOGLE_ACCOUNT=$account in $acct_dir ($login_cmd makes it)"
+  user=$(first "$status_out" user)
+  [ -n "$user" ] || fail "no gws login for GOOGLE_ACCOUNT=$account in $acct_dir ($login_cmd makes it)"
+  [ "$user" = "$account" ] || fail "the gws login in $acct_dir is for $user, not GOOGLE_ACCOUNT=$account ($login_cmd makes it)"
+  export_out=$(GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$acct_dir "$GWS" auth export --unmasked 2>&1) || fail "gws auth export for GOOGLE_ACCOUNT=$account in $acct_dir failed (exit $?)"
+fi
 # (What it said is not repeated: on this line the refresh credentials
 # themselves would be the leak.)
 client_id=$(first "$export_out" client_id)
