@@ -1564,7 +1564,7 @@ func grantedCall(grants []store.SourceGrant, c *source.Call) []string {
 }
 
 // widened says who a replaced declaration now lets reach more: the read
-// calls that are new or changed, and the grantees that get them through a
+// calls that are new or changed, and the holders that get them through a
 // grant of read, which was given before the call was as it is
 // (store.Widened). "" when nobody does.
 func widened(was, now *source.Declaration, grants []store.SourceGrant) string {
@@ -1574,7 +1574,7 @@ func widened(was, now *source.Declaration, grants []store.SourceGrant) string {
 	}
 	who := make([]string, len(to))
 	for i, g := range to {
-		who[i] = g.String()
+		who[i] = g.Holder()
 	}
 	return fmt.Sprintf("through their grant of %s, %s may now call: %s (yardr source revoke %s %s takes it back)",
 		store.GrantRead, strings.Join(who, ", "), strings.Join(calls, ", "), now.Name, store.GrantRead)

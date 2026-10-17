@@ -336,6 +336,12 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GrantSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	if d := declared(t, build(t, st, load(t, dir), o), "crm"); d.Reaches != nil {
 		t.Fatalf("an unchanged declaration reaches %+v", d.Reaches)
 	}
@@ -343,7 +349,10 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	wider := crm + "  orders: { kind: read, request: { method: GET, path: /orders } }\n  close: { kind: update, request: { method: POST, path: /close } }\n"
 	d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm")
 	if d.Action != pack.Change || d.Reaches == nil || !slices.Equal(d.Reaches.Calls, []string{"orders"}) ||
-		!slices.Equal(d.Reaches.Who, []store.Grantee{{Group: "web-builders"}}) {
+		!slices.Equal(d.Reaches.Who, []pack.ReachHolder{
+			{Grantee: store.Grantee{Crew: "yardmaster"}, As: "ada"},
+			{Grantee: store.Grantee{Group: "web-builders"}},
+		}) {
 		t.Fatalf("declared = %+v, reaches %+v", d, d.Reaches)
 	}
 

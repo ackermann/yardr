@@ -74,6 +74,17 @@ func TestSourceGrantAs(t *testing.T) {
 		!strings.Contains(out, "crm: read") || !strings.Contains(out, "crm as ada: customer") {
 		t.Fatalf("group list = %q, %v", out, err)
 	}
+	// A later read call is covered by both the plain and as-user read
+	// grants, so source add names both holders of the widened access.
+	added := strings.Replace(calledSource, "calls:\n", "calls:\n  orders: { kind: read, request: { method: GET, path: /orders } }\n", 1)
+	added = strings.Replace(added, "BASE", "https://crm.example.com", 1)
+	if err := os.WriteFile(file, []byte(added), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, jo.sourceCmd(), "add", file); err != nil ||
+		!strings.Contains(out, "through their grant of read, crew member yardmaster as ada, group builders may now call: orders") {
+		t.Fatalf("source add with a new read call = %q, %v", out, err)
+	}
 
 	// Anyone takes an as grant back, by the same words, and the plain
 	// one stands.

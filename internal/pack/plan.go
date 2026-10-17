@@ -353,12 +353,24 @@ type DeclaredPlan struct {
 }
 
 // Reach is what a replaced declaration widens without a new grant: the
-// read calls it adds or changes, and the grantees that get them through
+// read calls it adds or changes, and the holders that get them through
 // their grant of store.GrantRead, which was given before the call was as it
 // is (store.Widened). A plan shows it, since nobody is asked about it.
 type Reach struct {
-	Calls []string        `json:"calls"`
-	Who   []store.Grantee `json:"who"`
+	Calls []string      `json:"calls"`
+	Who   []ReachHolder `json:"who"`
+}
+
+// ReachHolder is a grantee reached through read, with As set when that
+// grant makes calls with a user's credential. Embedding Grantee keeps the
+// existing plain-holder JSON shape and adds only the as field where needed.
+type ReachHolder struct {
+	store.Grantee
+	As string `json:"as,omitempty"`
+}
+
+func (h ReachHolder) Holder() string {
+	return (store.SourceGrant{Grantee: h.Grantee, As: h.As}).Holder()
 }
 
 // MapPlan is what an import does about the stage map a pack carries for

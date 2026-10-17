@@ -358,10 +358,10 @@ func grantsOf(tx *bolt.Tx, src string) ([]SourceGrant, error) {
 
 // Widened is what a declaration that replaces was lets be reached through a
 // grant of GrantRead that was given before it: calls are the read calls now
-// has that are new or changed, and who the grantees that hold GrantRead of
-// the source among grants. Both are empty when nobody gets a call that way,
-// and for a source that is new (was nil).
-func Widened(was, now *source.Declaration, grants []SourceGrant) (calls []string, who []Grantee) {
+// has that are new or changed, and the holders of a GrantRead grant that
+// gain those calls. Both are empty when nobody gets a call that way, and
+// for a source that is new (was nil).
+func Widened(was, now *source.Declaration, grants []SourceGrant) (calls []string, who []SourceGrant) {
 	if was == nil {
 		return nil, nil
 	}
@@ -373,10 +373,8 @@ func Widened(was, now *source.Declaration, grants []SourceGrant) (calls []string
 		calls = append(calls, c.Name)
 	}
 	for _, g := range grants {
-		// A grant as a user widens calls as that user, which no plain
-		// call reaches and no plain showing here names.
-		if g.Source == now.Name && g.As == "" && slices.Contains(g.Calls, GrantRead) {
-			who = append(who, g.Grantee)
+		if g.Source == now.Name && slices.Contains(g.Calls, GrantRead) {
+			who = append(who, g)
 		}
 	}
 	if len(calls) == 0 || len(who) == 0 {

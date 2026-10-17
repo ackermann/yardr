@@ -592,7 +592,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 		if calls, who := Widened(was, d, grants); len(calls) > 0 {
 			names := make([]string, len(who))
 			for i, g := range who {
-				names[i] = g.String()
+				names[i] = g.Holder()
 			}
 			extra = append(extra, fmt.Sprintf("a standing grant of read of source %s widens to %s for %s.", carried.Name, strings.Join(calls, ", "), strings.Join(names, ", ")))
 		}

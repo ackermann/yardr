@@ -1854,8 +1854,8 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 		if r := d.Reaches; r != nil {
 			who := make([]string, len(r.Who))
-			for i, g := range r.Who {
-				who[i] = g.String()
+			for i, holder := range r.Who {
+				who[i] = holder.Holder()
 			}
 			fmt.Printf("  through their grant of %s, %s would then call: %s (nobody is asked: %s covers the read calls a later file adds; yardr source revoke %s %s takes it back)\n",
 				store.GrantRead, strings.Join(who, ", "), strings.Join(r.Calls, ", "), store.GrantRead, d.Source, store.GrantRead)

@@ -151,7 +151,11 @@ func (b *planner) declared() error {
 					return err
 				}
 				if calls, who := store.Widened(was, decl, grants); len(calls) > 0 {
-					dp.Reaches = &Reach{Calls: calls, Who: who}
+					holders := make([]ReachHolder, len(who))
+					for i, g := range who {
+						holders[i] = ReachHolder{Grantee: g.Grantee, As: g.As}
+					}
+					dp.Reaches = &Reach{Calls: calls, Who: holders}
 				}
 			}
 			changes = append(changes, b.commandDiffs(d, was, commands)...)

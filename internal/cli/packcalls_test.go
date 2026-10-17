@@ -392,6 +392,12 @@ func TestPackApplyOnlyTheOperatorGrantsCalls(t *testing.T) {
 func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 	dir, _ := deskPack(t)
 	a := deskYard(t, dir)
+	if _, err := a.st.AddUser(context.Background(), "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.GrantSource(context.Background(), "crm", "read", store.Grantee{Group: "web-builders"}, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes", "--calls", "builders=crm:read"}, deskFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -409,7 +415,7 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 	}
 	for _, want := range []string{
 		"  change           crm\n                     call orders: (none) -> (read) GET /orders\n",
-		"  through their grant of read, group web-builders would then call: orders (nobody is asked: read covers the read calls a later file adds; yardr source revoke crm read takes it back)\n",
+		"  through their grant of read, group web-builders, group web-builders as ada would then call: orders (nobody is asked: read covers the read calls a later file adds; yardr source revoke crm read takes it back)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack check lacks %q:\n%s", want, out)
