@@ -60,6 +60,24 @@ func createdOriginator(t *testing.T, s store.API, ctx context.Context, b *store.
 	return ""
 }
 
+// closedOriginator is the originator the bead's closed event carries, and
+// whether it carries one.
+func closedOriginator(t *testing.T, s store.API, ctx context.Context, b *store.Bead) (string, bool) {
+	t.Helper()
+	evs, err := s.Events(ctx, b.ID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Kind == "closed" {
+			o, ok := e.Data["originator"].(string)
+			return o, ok
+		}
+	}
+	t.Fatalf("no closed event among %+v", evs)
+	return "", false
+}
+
 // A bead created by a user names them; one created with --for names them,
 // whoever files it outside a bead agent's pane; a crew member's, a hook's
 // and any other non-user actor's create is the operator's. The created
@@ -313,6 +331,75 @@ func TestBeadUpdateOriginator(t *testing.T) {
 	evs, _ = s.Events(ctx, b.ID, 10)
 	if len(evs) != 4 || evs[2].Kind != "originator_changed" || evs[3].Kind != "updated" {
 		t.Fatalf("events after a combined change = %+v", evs)
+	}
+}
+
+// A bead's closed event carries its originator at close: by an explicit
+// close and by entering a terminal stage, the new one after the
+// originator changed, and none when the bead has none.
+func TestClosedCarriesOriginator(t *testing.T) {
+	t.Parallel()
+	s, ctx := originatorYard(t)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", For: "hal"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := closedOriginator(t, s, ctx, b); !ok || got != "hal" {
+		t.Errorf("an explicit close carries %q, %v; want hal", got, ok)
+	}
+
+	m, err := s.CreateBead(ctx, store.NewBead{Title: "y", Depot: "yard", For: "hal"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []string{"new", "review", "approved", "merged"} {
+		if _, err := s.Advance(ctx, m.ID, stage, store.Expect{}, "jo"); err != nil {
+			t.Fatalf("advance to %s: %v", stage, err)
+		}
+	}
+	if got, ok := closedOriginator(t, s, ctx, m); !ok || got != "hal" {
+		t.Errorf("entering a terminal stage carries %q, %v; want hal", got, ok)
+	}
+
+	c, err := s.CreateBead(ctx, store.NewBead{Title: "z", Depot: "yard", For: "hal"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jo := "jo"
+	if _, err := s.UpdateBead(ctx, c.ID, store.BeadPatch{Originator: &jo}, store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseBead(ctx, c.ID, "done", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := closedOriginator(t, s, ctx, c); !ok || got != "jo" {
+		t.Errorf("a close after the change carries %q, %v; want jo", got, ok)
+	}
+
+	// With no operator and no user filing, the bead has none, and neither
+	// event names one.
+	bare := storetest.New(t)
+	n, err := bare.CreateBead(ctx, store.NewBead{Title: "w"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Originator != "" {
+		t.Fatalf("a bead with no one to be for = %q", n.Originator)
+	}
+	if _, err := bare.CloseBead(ctx, n.ID, "done", store.Expect{}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := bare.Events(ctx, n.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if _, ok := e.Data["originator"]; ok {
+			t.Errorf("the %s event names an originator on a bead with none: %v", e.Kind, e.Data)
+		}
 	}
 }
 

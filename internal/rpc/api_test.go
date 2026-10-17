@@ -699,6 +699,21 @@ var apiEvents = []apiEvent{
 			{"data.ask", "number?", "the ask's seq on its bead, for a question another yard asked; absent otherwise"},
 		},
 	},
+	{
+		title: "A bead was closed: `closed`",
+		says:  "A bead closed, by an explicit close or by entering a terminal stage of its flow. It says no more than that the bead is done: read `Bead` again when `bead` is one shown.",
+		is:    kindOf("closed"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`closed`"},
+			{"bead", "string", "the bead that closed: a handle"},
+			{"actor", "string", "who closed it"},
+			{"at", "time", "when"},
+			{"data.reason", "string", "why: the reason the close named, or the terminal stage it entered"},
+			{"data.group", "string?", "the group whose work ended; absent when no group held the bead"},
+			{"data.originator", "string?", "whose bead it was, the user the bead was for; absent when the bead names none"},
+		},
+	},
 }
 
 // apiErrors are the requests the doc shows refused, each with why.
@@ -1023,6 +1038,15 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.UpdateBead(ctx, greet.ID, store.BeadPatch{Depot: &offline}, store.Expect{}, "jo")
 	must(err)
 	must(os.WriteFile(filepath.Join(drafts, ".yardr", "flows", "default.flow"), []byte("this is no flow\n"), 0o644))
+
+	// A bead worked and closed, so the stream has a closed event with a
+	// group and an originator to show. Last again, for the seqs above.
+	swept, err := st.CreateBead(ctx, store.NewBead{Title: "Sweep the platform", ID: "yd-sweep"}, "yardmaster")
+	must(err)
+	_, err = st.Claim(ctx, swept.ID, "builders", "new", "yard")
+	must(err)
+	_, err = st.CloseBead(ctx, swept.ID, "done", store.Expect{}, "jo")
+	must(err)
 	return st, d.Token
 }
 

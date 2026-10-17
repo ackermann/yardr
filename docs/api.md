@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 87,
+  "seq": 90,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 88,
+  "seq": 91,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 89,
+  "seq": 92,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -362,6 +362,36 @@ A note was added to the bead: a plain note, a question (an ask), or an answer (a
 | `at` | time | when |
 | `data.note` | number, may be absent | the note's seq; absent on a question another yard asked |
 | `data.ask` | number, may be absent | the ask's seq on its bead, for a question another yard asked; absent otherwise |
+
+### A bead was closed: `closed`
+
+A bead closed, by an explicit close or by entering a terminal stage of its flow. It says no more than that the bead is done: read `Bead` again when `bead` is one shown.
+
+```json
+{
+  "seq": 87,
+  "bead": "yd-sweep",
+  "kind": "closed",
+  "actor": "jo",
+  "data": {
+    "group": "builders",
+    "originator": "jo",
+    "reason": "done"
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `closed` |
+| `bead` | string | the bead that closed: a handle |
+| `actor` | string | who closed it |
+| `at` | time | when |
+| `data.reason` | string | why: the reason the close named, or the terminal stage it entered |
+| `data.group` | string, may be absent | the group whose work ended; absent when no group held the bead |
+| `data.originator` | string, may be absent | whose bead it was, the user the bead was for; absent when the bead names none |
 
 <!-- /events -->
 
@@ -636,7 +666,7 @@ POST /call/Head
 {}
 
 {
-  "result": 84
+  "result": 87
 }
 ```
 
@@ -1042,7 +1072,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 85,
+      "seq": 88,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1050,7 +1080,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 86,
+      "seq": 89,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1076,7 +1106,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 85,
+      "seq": 88,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1084,7 +1114,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 86,
+      "seq": 89,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1111,7 +1141,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 87,
+      "seq": 90,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",

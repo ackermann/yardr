@@ -1851,6 +1851,11 @@ func (w *wtx) want(e Expect, sess *Session, other bool) string {
 func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, error) {
 	return func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		data := withGroup(b, map[string]any{"reason": reason})
+		// Whose bead closed, as created says whose was born: a reader of
+		// the stream tells its own without reading the bead.
+		if b.Originator != "" {
+			data["originator"] = b.Originator
+		}
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
