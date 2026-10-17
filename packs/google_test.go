@@ -19,9 +19,9 @@ import (
 	"yardr.dev/yardr/packs"
 )
 
-// The google packs are four declared sources, one per host, read here
-// from the embedded packs, as the yard reads them: Gmail, Drive, and
-// Docs with Slides. No test calls Google.
+// The google packs are five declared sources, one per host, read here
+// from the embedded packs, as the yard reads them: Gmail, Drive,
+// Calendar, and Docs with Slides. No test calls Google.
 func TestGooglePacksDeclareTheirSources(t *testing.T) {
 	for _, tc := range []struct {
 		pack string
@@ -30,6 +30,7 @@ func TestGooglePacksDeclareTheirSources(t *testing.T) {
 		{"google-mail", []string{"google-mail"}},
 		{"google-drive", []string{"google-drive"}},
 		{"google-docs", []string{"google-docs", "google-slides"}},
+		{"google-calendar", []string{"google-calendar"}},
 	} {
 		t.Run(tc.pack, func(t *testing.T) {
 			sub, err := fs.Sub(packs.FS, tc.pack)
@@ -76,13 +77,15 @@ func googleDeclaration(t *testing.T, file, base, standin string) *source.Declara
 }
 
 // googlePackOf is the embedded pack a Google declaration file ships
-// in: mail and drive each alone, docs with slides.
+// in: mail, drive and calendar each alone, docs with slides.
 func googlePackOf(file string) string {
 	switch file {
 	case "google-mail.yaml":
 		return "google-mail"
 	case "google-drive.yaml":
 		return "google-drive"
+	case "google-calendar.yaml":
+		return "google-calendar"
 	default:
 		return "google-docs"
 	}
@@ -90,14 +93,15 @@ func googlePackOf(file string) string {
 
 // Each declaration mints from GOOGLE_ACCOUNT, names no idempotency key
 // (no Google API below takes one), and has its calls with their kinds,
-// as yardr source show lists them. Only drive names a check call: every
-// other read needs a parameter.
+// as yardr source show lists them. Drive and calendar name a check
+// call each: every other read needs a parameter.
 func TestGoogleDeclarations(t *testing.T) {
 	bases := map[string]string{
-		"google-mail.yaml":   "https://gmail.googleapis.com",
-		"google-drive.yaml":  "https://www.googleapis.com",
-		"google-docs.yaml":   "https://docs.googleapis.com",
-		"google-slides.yaml": "https://slides.googleapis.com",
+		"google-mail.yaml":     "https://gmail.googleapis.com",
+		"google-drive.yaml":    "https://www.googleapis.com",
+		"google-docs.yaml":     "https://docs.googleapis.com",
+		"google-slides.yaml":   "https://slides.googleapis.com",
+		"google-calendar.yaml": "https://www.googleapis.com",
 	}
 	calls := map[string][]source.Call{
 		"google-mail.yaml": {
@@ -115,6 +119,10 @@ func TestGoogleDeclarations(t *testing.T) {
 		},
 		"google-slides.yaml": {
 			{Name: "deck", Kind: source.Read}, {Name: "slide", Kind: source.Update},
+		},
+		"google-calendar.yaml": {
+			{Name: "events", Kind: source.Read}, {Name: "event", Kind: source.Read},
+			{Name: "calendars", Kind: source.Read}, {Name: "create", Kind: source.Update},
 		},
 	}
 	for file, base := range bases {
@@ -147,6 +155,8 @@ func TestGoogleDeclarations(t *testing.T) {
 		check := ""
 		if file == "google-drive.yaml" {
 			check = "files"
+		} else if file == "google-calendar.yaml" {
+			check = "calendars"
 		}
 		if d.Check != check {
 			t.Errorf("%s: check %q, want %q", file, d.Check, check)
@@ -204,7 +214,7 @@ func (s *googleStandin) request() googleRequest {
 	return s.last
 }
 
-// Every call of the four declarations, against the stand-in: the request
+// Every call of the five declarations, against the stand-in: the request
 // it sends (method, path, query, body) and its select on a recorded
 // answer. Keys the select drops are in the recordings, so the test
 // would fail were they kept.
@@ -216,22 +226,41 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	madeReplyID := "rEpLy0123456789abcdef01"
 	docID := "1DoCxYz0123456789abcdefghijklmnop"
 	deckID := "1DeCk0123456789abcdefghijklmnopqr"
+	eventID := "6coj8gpl6oo30e9i8gr3cba18"
+	otherEventID := "7d1k9hqm7pp41f9j9hs4dcb29"
+	madeEventID := "8e2l0irn0pq52g0k0it5edb30"
 	searchPage1 := `{"messages":[{"id":"18c4a1b2c3d4e5f6","threadId":"18c4a1b2c3d4e5f6"},{"id":"18c4a1b2c3d4e5f7","threadId":"18c4a1b2c3d4e5f6"}],"nextPageToken":"CAEQDBgBEg9OZXh0IFBhZ2U","resultSizeEstimate":2}`
 	searchPage2 := `{"messages":[{"id":"18c4a1b2c3d4e5f8","threadId":"18c4a1b2c3d4e5f8"}],"resultSizeEstimate":3}`
 	// Drive lists resolved and open comments alike, each marked by its
 	// own resolved flag: one of each, the open one with a reply.
 	openComment := `{"kind":"drive#comment","id":"` + commentID + `","createdTime":"2026-10-17T10:00:00.000Z","modifiedTime":"2026-10-17T11:00:00.000Z","author":{"kind":"drive#user","displayName":"Ada","me":false},"htmlContent":"What about <b>lunch</b>?","content":"What about lunch?","deleted":false,"resolved":false,"quotedFileContent":{"mimeType":"text/plain","value":"Lunch places"},"replies":[{"kind":"drive#reply","id":"rEpLy0123456789abcdef00","content":"Friday works.","author":{"displayName":"Bob"},"createdTime":"2026-10-17T10:30:00.000Z","deleted":false}]}`
 	shutComment := `{"kind":"drive#comment","id":"` + shutID + `","createdTime":"2026-10-16T09:00:00.000Z","modifiedTime":"2026-10-16T09:30:00.000Z","author":{"kind":"drive#user","displayName":"Bob","me":false},"htmlContent":"Fixed.","content":"Fixed.","deleted":false,"resolved":true,"quotedFileContent":{"mimeType":"text/plain","value":"Lunch places"},"replies":[]}`
+	// A lunch with two attendees, one confirmed and one still asked, and
+	// a dentist without any: whole events, as an events listing keeps
+	// them, with the keys a single event read drops.
+	lunchEvent := `{"kind":"calendar#event","etag":"\"3412\"","id":"` + eventID + `","status":"confirmed","htmlLink":"https://www.google.com/calendar/event?eid=` + eventID + `","created":"2026-10-17T09:00:00.000Z","updated":"2026-10-17T09:30:00.000Z","summary":"Lunch with Ada","description":"Try the new place.","location":"Cafe Roma","creator":{"email":"mckean@example.com"},"organizer":{"email":"mckean@example.com","displayName":"Christopher"},"start":{"dateTime":"2026-10-24T12:00:00+02:00","timeZone":"Europe/Berlin"},"end":{"dateTime":"2026-10-24T13:00:00+02:00","timeZone":"Europe/Berlin"},"attendees":[{"email":"ada@example.com","responseStatus":"accepted"},{"email":"bob@example.com","responseStatus":"needsAction"}],"iCalUID":"` + eventID + `@google.com","sequence":0,"reminders":{"useDefault":true},"eventType":"default"}`
+	dentistEvent := `{"kind":"calendar#event","etag":"\"3413\"","id":"` + otherEventID + `","status":"confirmed","htmlLink":"https://www.google.com/calendar/event?eid=` + otherEventID + `","created":"2026-10-17T08:00:00.000Z","updated":"2026-10-17T08:00:00.000Z","summary":"Dentist","creator":{"email":"mckean@example.com"},"organizer":{"email":"mckean@example.com","displayName":"Christopher"},"start":{"dateTime":"2026-10-26T09:00:00+02:00"},"end":{"dateTime":"2026-10-26T09:30:00+02:00"},"iCalUID":"` + otherEventID + `@google.com","sequence":0,"reminders":{"useDefault":true},"eventType":"default"}`
+	// The account's own calendar and a holidays calendar it only reads:
+	// whole entries, as a calendars listing keeps them.
+	ownCalendar := `{"kind":"calendar#calendarListEntry","etag":"\"140\"","id":"mckean@example.com","summary":"Christopher","timeZone":"Europe/Berlin","colorId":"1","backgroundColor":"#ac725e","foregroundColor":"#000000","selected":true,"accessRole":"owner","defaultReminders":[{"method":"popup","minutes":10}],"primary":true}`
+	holidayCalendar := `{"kind":"calendar#calendarListEntry","etag":"\"141\"","id":"en.usa#holiday@group.v.calendar.google.com","summary":"Holidays in United States","timeZone":"Europe/Berlin","colorId":"8","backgroundColor":"#16a765","foregroundColor":"#000000","selected":true,"accessRole":"reader","defaultReminders":[]}`
+	eventsPage := `{"kind":"calendar#events","etag":"\"p33\"","summary":"mckean@example.com","updated":"2026-10-17T12:00:00.000Z","timeZone":"Europe/Berlin","accessRole":"owner","nextPageToken":"CigKGDN1cGVyIExvbmdQYWdl","items":[` + lunchEvent + `,` + dentistEvent + `]}`
+	otherCalendarPage := `{"kind":"calendar#events","etag":"\"p34\"","summary":"ada@example.com","updated":"2026-10-17T12:00:00.000Z","timeZone":"Europe/Berlin","accessRole":"reader","items":[` + dentistEvent + `]}`
+	calendarListPage := `{"kind":"calendar#calendarList","etag":"\"p35\"","nextPageToken":"CgljYWxlbmRhckxpc3Q","items":[` + ownCalendar + `,` + holidayCalendar + `]}`
 	standin := &googleStandin{t: t, answered: map[string]string{
-		"GET /gmail/v1/users/me/messages/" + msgID:          `{"id":"` + msgID + `","threadId":"` + msgID + `","labelIds":["INBOX","UNREAD"],"snippet":"Lunch on Friday?","historyId":"987654","internalDate":"1760620800000","sizeEstimate":1234,"payload":{"mimeType":"multipart/alternative","headers":[{"name":"From","value":"ada@example.com"},{"name":"Subject","value":"Lunch"}]}}`,
-		"GET /gmail/v1/users/me/threads/" + msgID:           `{"id":"` + msgID + `","historyId":"987655","snippet":"Lunch on Friday?","messages":[{"id":"` + msgID + `","threadId":"` + msgID + `","snippet":"Lunch on Friday?"}]}`,
-		"POST /gmail/v1/users/me/drafts":                    `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`,
-		"GET /drive/v3/files/" + driveID:                    `{"kind":"drive#file","id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["1PaReNt0123456789abcdefghijklm"],"owners":[{"displayName":"Ada"}],"modifiedTime":"2026-10-16T15:00:00.000Z","size":"1024","trashed":false,"webViewLink":"https://docs.google.com/document/d/` + driveID + `","version":"9"}`,
-		"GET /drive/v3/files/" + driveID + "/comments":      `{"kind":"drive#commentList","nextPageToken":"next","comments":[` + openComment + `,` + shutComment + `]}`,
-		"GET /v1/documents/" + docID:                        `{"documentId":"` + docID + `","title":"lunch","revisionId":"9","documentStyle":{"pageSize":{"width":{"magnitude":612}}},"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]}}`,
-		"POST /v1/documents/" + docID + ":batchUpdate":      `{"documentId":"` + docID + `","replies":[{},{"updateParagraphStyle":{"objectId":"kix.1"}}],"writeControl":{"requiredRevisionId":"9"}}`,
-		"GET /v1/presentations/" + deckID:                   `{"presentationId":"` + deckID + `","title":"friday","pageSize":{"width":{"magnitude":9144000}},"slides":[{"objectId":"friday_1"}]}`,
-		"POST /v1/presentations/" + deckID + ":batchUpdate": `{"presentationId":"` + deckID + `","replies":[{"createSlide":{"objectId":"friday_1"}},{},{}],"writeControl":{"requiredRevisionId":"9"}}`,
+		"GET /gmail/v1/users/me/messages/" + msgID:             `{"id":"` + msgID + `","threadId":"` + msgID + `","labelIds":["INBOX","UNREAD"],"snippet":"Lunch on Friday?","historyId":"987654","internalDate":"1760620800000","sizeEstimate":1234,"payload":{"mimeType":"multipart/alternative","headers":[{"name":"From","value":"ada@example.com"},{"name":"Subject","value":"Lunch"}]}}`,
+		"GET /gmail/v1/users/me/threads/" + msgID:              `{"id":"` + msgID + `","historyId":"987655","snippet":"Lunch on Friday?","messages":[{"id":"` + msgID + `","threadId":"` + msgID + `","snippet":"Lunch on Friday?"}]}`,
+		"POST /gmail/v1/users/me/drafts":                       `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`,
+		"GET /drive/v3/files/" + driveID:                       `{"kind":"drive#file","id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["1PaReNt0123456789abcdefghijklm"],"owners":[{"displayName":"Ada"}],"modifiedTime":"2026-10-16T15:00:00.000Z","size":"1024","trashed":false,"webViewLink":"https://docs.google.com/document/d/` + driveID + `","version":"9"}`,
+		"GET /drive/v3/files/" + driveID + "/comments":         `{"kind":"drive#commentList","nextPageToken":"next","comments":[` + openComment + `,` + shutComment + `]}`,
+		"GET /v1/documents/" + docID:                           `{"documentId":"` + docID + `","title":"lunch","revisionId":"9","documentStyle":{"pageSize":{"width":{"magnitude":612}}},"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]}}`,
+		"POST /v1/documents/" + docID + ":batchUpdate":         `{"documentId":"` + docID + `","replies":[{},{"updateParagraphStyle":{"objectId":"kix.1"}}],"writeControl":{"requiredRevisionId":"9"}}`,
+		"GET /v1/presentations/" + deckID:                      `{"presentationId":"` + deckID + `","title":"friday","pageSize":{"width":{"magnitude":9144000}},"slides":[{"objectId":"friday_1"}]}`,
+		"POST /v1/presentations/" + deckID + ":batchUpdate":    `{"presentationId":"` + deckID + `","replies":[{"createSlide":{"objectId":"friday_1"}},{},{}],"writeControl":{"requiredRevisionId":"9"}}`,
+		"GET /calendar/v3/calendars/primary/events":            eventsPage,
+		"GET /calendar/v3/calendars/ada@example.com/events":    otherCalendarPage,
+		"GET /calendar/v3/calendars/primary/events/" + eventID: lunchEvent,
+		"GET /calendar/v3/users/me/calendarList":               calendarListPage,
 	}, vary: map[string]func(url.Values, []byte) string{
 		"GET /gmail/v1/users/me/messages": func(q url.Values, _ []byte) string {
 			if q.Get("q") == "last" {
@@ -283,6 +312,31 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			out, _ := json.Marshal(m)
 			return string(out)
 		},
+		"POST /calendar/v3/calendars/primary/events": func(_ url.Values, body []byte) string {
+			var made struct {
+				Summary     string
+				Start       map[string]string
+				End         map[string]string
+				Description *string
+				Location    *string
+			}
+			if err := json.Unmarshal(body, &made); err != nil {
+				t.Fatalf("the stand-in was sent %s: %v", body, err)
+			}
+			m := map[string]any{"kind": "calendar#event", "etag": `"3414"`, "id": madeEventID,
+				"status": "confirmed", "summary": made.Summary,
+				"start": made.Start, "end": made.End,
+				"htmlLink": "https://www.google.com/calendar/event?eid=" + madeEventID,
+				"created":  "2026-10-17T12:00:00.000Z", "iCalUID": madeEventID + "@google.com"}
+			if made.Description != nil {
+				m["description"] = *made.Description
+			}
+			if made.Location != nil {
+				m["location"] = *made.Location
+			}
+			out, _ := json.Marshal(m)
+			return string(out)
+		},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(standin.handler))
 	defer srv.Close()
@@ -290,6 +344,7 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	drive := googleDeclaration(t, "google-drive.yaml", "https://www.googleapis.com", srv.URL)
 	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
 	slides := googleDeclaration(t, "google-slides.yaml", "https://slides.googleapis.com", srv.URL)
+	cal := googleDeclaration(t, "google-calendar.yaml", "https://www.googleapis.com", srv.URL)
 	parent := "1PaReNt0123456789abcdefghijklm"
 	for _, tc := range []struct {
 		name       string
@@ -372,6 +427,32 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			method: "POST", path: "/v1/presentations/" + deckID + ":batchUpdate",
 			body:       `{"requests":[{"createSlide":{"objectId":"friday_1","slideLayoutReference":{"predefinedLayout":"TITLE_AND_BODY"},"placeholderIdMappings":[{"layoutPlaceholder":{"type":"TITLE","index":0},"objectId":"friday_1_title"},{"layoutPlaceholder":{"type":"BODY","index":0},"objectId":"friday_1_body"}]}},{"insertText":{"objectId":"friday_1_title","text":"Friday"}},{"insertText":{"objectId":"friday_1_body","text":"We shipped."}}]}`,
 			wantAnswer: `{"presentationId":"` + deckID + `","replies":[{"createSlide":{"objectId":"friday_1"}},{},{}]}`},
+		{name: "events", d: cal, call: "events", params: map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10"},
+			method: "GET", path: "/calendar/v3/calendars/primary/events",
+			query:      map[string]string{"timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10", "singleEvents": "true", "orderBy": "startTime"},
+			wantAnswer: `{"nextPageToken":"CigKGDN1cGVyIExvbmdQYWdl","items":[` + lunchEvent + `,` + dentistEvent + `]}`},
+		{name: "events with q", d: cal, call: "events", params: map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "q": "lunch", "maxResults": "10"},
+			method: "GET", path: "/calendar/v3/calendars/primary/events",
+			query:      map[string]string{"timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "q": "lunch", "maxResults": "10", "singleEvents": "true", "orderBy": "startTime"},
+			wantAnswer: `{"nextPageToken":"CigKGDN1cGVyIExvbmdQYWdl","items":[` + lunchEvent + `,` + dentistEvent + `]}`},
+		{name: "events on another calendar", d: cal, call: "events", params: map[string]string{"calendarId": "ada@example.com", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "50"},
+			method: "GET", path: "/calendar/v3/calendars/ada@example.com/events",
+			query:      map[string]string{"timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "50", "singleEvents": "true", "orderBy": "startTime"},
+			wantAnswer: `{"items":[` + dentistEvent + `]}`},
+		{name: "event", d: cal, call: "event", params: map[string]string{"calendarId": "primary", "eventId": eventID},
+			method: "GET", path: "/calendar/v3/calendars/primary/events/" + eventID,
+			wantAnswer: `{"id":"` + eventID + `","status":"confirmed","summary":"Lunch with Ada","description":"Try the new place.","location":"Cafe Roma","start":{"dateTime":"2026-10-24T12:00:00+02:00","timeZone":"Europe/Berlin"},"end":{"dateTime":"2026-10-24T13:00:00+02:00","timeZone":"Europe/Berlin"},"attendees":[{"email":"ada@example.com","responseStatus":"accepted"},{"email":"bob@example.com","responseStatus":"needsAction"}],"htmlLink":"https://www.google.com/calendar/event?eid=` + eventID + `"}`},
+		{name: "calendars", d: cal, call: "calendars", params: nil,
+			method: "GET", path: "/calendar/v3/users/me/calendarList",
+			wantAnswer: `{"nextPageToken":"CgljYWxlbmRhckxpc3Q","items":[` + ownCalendar + `,` + holidayCalendar + `]}`},
+		{name: "create", d: cal, call: "create", params: map[string]string{"calendarId": "primary", "summary": "Lunch with Ada", "start": "2026-10-24T12:00:00+02:00", "end": "2026-10-24T13:00:00+02:00", "description": "Try the new place.", "location": "Cafe Roma"},
+			method: "POST", path: "/calendar/v3/calendars/primary/events", query: map[string]string{"sendUpdates": "none"},
+			body:       `{"summary":"Lunch with Ada","start":{"dateTime":"2026-10-24T12:00:00+02:00"},"end":{"dateTime":"2026-10-24T13:00:00+02:00"},"description":"Try the new place.","location":"Cafe Roma"}`,
+			wantAnswer: `{"id":"` + madeEventID + `","summary":"Lunch with Ada","start":{"dateTime":"2026-10-24T12:00:00+02:00"},"end":{"dateTime":"2026-10-24T13:00:00+02:00"},"htmlLink":"https://www.google.com/calendar/event?eid=` + madeEventID + `"}`},
+		{name: "create bare", d: cal, call: "create", params: map[string]string{"calendarId": "primary", "summary": "Focus", "start": "2026-10-25T09:00:00Z", "end": "2026-10-25T10:00:00Z"},
+			method: "POST", path: "/calendar/v3/calendars/primary/events", query: map[string]string{"sendUpdates": "none"},
+			body:       `{"summary":"Focus","start":{"dateTime":"2026-10-25T09:00:00Z"},"end":{"dateTime":"2026-10-25T10:00:00Z"}}`,
+			wantAnswer: `{"id":"` + madeEventID + `","summary":"Focus","start":{"dateTime":"2026-10-25T09:00:00Z"},"end":{"dateTime":"2026-10-25T10:00:00Z"},"htmlLink":"https://www.google.com/calendar/event?eid=` + madeEventID + `"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok")
@@ -431,6 +512,7 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 	drive := googleDeclaration(t, "google-drive.yaml", "https://www.googleapis.com", srv.URL)
 	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
 	slides := googleDeclaration(t, "google-slides.yaml", "https://slides.googleapis.com", srv.URL)
+	cal := googleDeclaration(t, "google-calendar.yaml", "https://www.googleapis.com", srv.URL)
 	for _, tc := range []struct {
 		name   string
 		d      *source.Declaration
@@ -472,6 +554,21 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"slide short id", slides, "slide", map[string]string{"id": "abc", "slide": "ab", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide dashed id", slides, "slide", map[string]string{"id": "abc", "slide": "-abcde", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide long id", slides, "slide", map[string]string{"id": "abc", "slide": strings.Repeat("a", 45), "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
+		{"events without maxResults", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z"}, "parameter maxResults is missing"},
+		{"events 51", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "51"}, "parameter maxResults does not match its pattern"},
+		{"events bare calendarId", cal, "events", map[string]string{"calendarId": "not an id", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10"}, "parameter calendarId does not match its pattern"},
+		{"events empty calendarId", cal, "events", map[string]string{"calendarId": "", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10"}, "parameter calendarId does not match its pattern"},
+		{"events date timeMin", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10"}, "parameter timeMin does not match its pattern"},
+		{"events zoneless timeMax", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00", "maxResults": "10"}, "parameter timeMax does not match its pattern"},
+		{"events long q", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "q": strings.Repeat("x", 1001), "maxResults": "10"}, "parameter q is 1001 characters, and at most 1000"},
+		{"events unknown", cal, "events", map[string]string{"calendarId": "primary", "timeMin": "2026-10-20T00:00:00Z", "timeMax": "2026-10-27T00:00:00Z", "maxResults": "10", "pageToken": "abc"}, `"pageToken" is no parameter`},
+		{"event slashed eventId", cal, "event", map[string]string{"calendarId": "primary", "eventId": "a/b"}, "parameter eventId does not match its pattern"},
+		{"event without calendarId", cal, "event", map[string]string{"eventId": "abc"}, "parameter calendarId is missing"},
+		{"calendars with a param", cal, "calendars", map[string]string{"maxResults": "5"}, `"maxResults" is no parameter`},
+		{"create without summary", cal, "create", map[string]string{"calendarId": "primary", "start": "2026-10-24T12:00:00Z", "end": "2026-10-24T13:00:00Z"}, "parameter summary is missing"},
+		{"create date start", cal, "create", map[string]string{"calendarId": "primary", "summary": "Lunch", "start": "2026-10-24", "end": "2026-10-24T13:00:00Z"}, "parameter start does not match its pattern"},
+		{"create long summary", cal, "create", map[string]string{"calendarId": "primary", "summary": strings.Repeat("x", 501), "start": "2026-10-24T12:00:00Z", "end": "2026-10-24T13:00:00Z"}, "parameter summary is 501 characters, and at most 500"},
+		{"create long description", cal, "create", map[string]string{"calendarId": "primary", "summary": "Lunch", "start": "2026-10-24T12:00:00Z", "end": "2026-10-24T13:00:00Z", "description": strings.Repeat("x", 10001)}, "parameter description is 10001 characters, and at most 10000"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var failed *source.CallError

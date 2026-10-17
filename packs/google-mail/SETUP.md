@@ -5,7 +5,7 @@ The pack wires Gmail into the yard as the declared source
 nothing sent. Each call goes out with a short-lived token minted from
 a gws login on this machine, so no new copy of a secret is stored
 anywhere. The login, the account, the mint and calling as a user are
-the three google packs' shared setup, said once in `docs/google.md`.
+the four google packs' shared setup, said once in `docs/google.md`.
 
 1. **The gws login.** It needs the Gmail scope,
    `https://www.googleapis.com/auth/gmail.modify`, else the calls

@@ -113,7 +113,7 @@ else
   esac
   [ -n "${HOME:-}" ] || fail "HOME is not set: cannot find the login for GOOGLE_ACCOUNT=$account"
   acct_dir=$HOME/.config/gws-accounts/$account
-  login_cmd="GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$(shell_quote "$acct_dir") gws auth login -s gmail,drive,docs,slides"
+  login_cmd="GOOGLE_WORKSPACE_CLI_CONFIG_DIR=$(shell_quote "$acct_dir") gws auth login -s gmail,drive,docs,slides,calendar"
   # gws just answered above, so what fails here is the login in that
   # directory, not gws: the refusal names the login that makes it, and
   # not what gws said.

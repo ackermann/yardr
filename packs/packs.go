@@ -19,12 +19,12 @@ import (
 // drafted document to a decision. Of kind
 // source, for the yard itself: linear, github and Google, each service's
 // declaration (linear's and github's with the commands they name;
-// Google's as three packs, google-mail, google-drive and google-docs,
-// one per thing a person turns on), and one pack per service that
-// tells a user outside the yard, a declaration with the notify key
-// that sends and no commands.
+// Google's as four packs, google-mail, google-drive, google-docs and
+// google-calendar, one per thing a person turns on), and one pack per
+// service that tells a user outside the yard, a declaration with the
+// notify key that sends and no commands.
 //
-//go:embed starter dir contributors design linear github google-mail google-drive google-docs pushover telegram
+//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is

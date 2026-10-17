@@ -1,0 +1,84 @@
+# Calendar as a declared source: a week's events listed and one read,
+# the calendars listed, and an event created without inviting anyone,
+# through calendar.events and calendarList. What it never does is send
+# an invitation: no attendees on the event it creates, and sendUpdates
+# is none. Nor does it move, update or delete an event, share a
+# calendar, or page past the first page (pageToken is not declared, so
+# one page is all a call reads). An event it creates is timed, never
+# all-day: a date without a time is another shape of start and end than
+# this file can say beside dateTime.
+#
+# Checked against the discovery document
+# (https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest) on 17
+# October 2026: events.list takes timeMin, timeMax, q and maxResults
+# (default 250) with singleEvents and orderBy, and answers one page
+# with items and nextPageToken; events.get takes the calendar and the
+# event and answers the event; calendarList.list answers one page with
+# items and nextPageToken; events.insert takes the calendar with
+# sendUpdates (all, externalOnly, none) and the event, and answers the
+# event it made.
+#
+# A credential that expires is minted, not kept: GOOGLE_ACCOUNT names
+# the account (an address, no secret) and the operator sets the command
+# that turns it into a token (yardr source set google-calendar
+# mint_command=<path to contrib/google-mint>), run with {inputs, scope}
+# on stdin for a {token, expires_at}. The token is handed to each call
+# under GOOGLE_TOKEN, and kept in memory alone. No pack brings the
+# command. Calendar takes no idempotency key, so the file names none: an
+# event tried again after a lost answer is made twice.
+name: google-calendar
+about: Calendar events listed and read, calendars listed, events created without inviting anyone.
+base: https://www.googleapis.com
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GOOGLE_ACCOUNT]
+check: calendars
+calls:
+  events:
+    kind: read
+    about: List a calendar's events in a window, one page of at most 50
+    params:
+      calendarId: { type: string, pattern: "^(primary|[^@ ]+@[^@ ]+)$", max: 254, log: true }   # primary, or the calendar's address; given always: a path has no place for a default
+      timeMin: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64 }   # RFC 3339 with its zone, 2011-06-03T10:00:00-07:00
+      timeMax: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64 }
+      q: { type: string, max: 1000, optional: true }   # free text over summary, description, location and attendees; left out, every event in the window
+      maxResults: { type: string, pattern: "^([1-9]|[1-4][0-9]|50)$" }   # 1 to 50, always given: Calendar's own default is 250
+    request:
+      method: GET
+      path: /calendar/v3/calendars/{calendarId}/events
+      query: { timeMin: "{timeMin}", timeMax: "{timeMax}", q: "{q}", maxResults: "{maxResults}", singleEvents: "true", orderBy: "startTime" }
+    answer: { select: [items, nextPageToken], max: 262144 }   # whole events, recurring ones as their instances; nextPageToken says there is more, which no call reads
+  event:
+    kind: read
+    about: Read one event
+    params:
+      calendarId: { type: string, pattern: "^(primary|[^@ ]+@[^@ ]+)$", max: 254, log: true }
+      eventId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 1024, log: true }   # as an events listing showed it; a chosen id runs to 1024 characters
+    request:
+      method: GET
+      path: /calendar/v3/calendars/{calendarId}/events/{eventId}
+    answer: { select: [id, status, summary, description, location, start, end, attendees, htmlLink] }
+  calendars:
+    kind: read
+    about: List the calendars, one page
+    request:
+      method: GET
+      path: /calendar/v3/users/me/calendarList
+    answer: { select: [items, nextPageToken] }   # each with its id, summary, primary and accessRole; nextPageToken says there is more, which no call reads
+  create:
+    kind: update
+    about: Create a timed event, inviting no one
+    params:
+      calendarId: { type: string, pattern: "^(primary|[^@ ]+@[^@ ]+)$", max: 254, log: true }
+      summary: { type: string, max: 500 }   # free text: its value is in no event
+      start: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64 }   # RFC 3339 with its zone, the event's beginning
+      end: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64 }   # past start, else Calendar refuses the event
+      description: { type: string, max: 10000, optional: true }   # free text, left out, no description
+      location: { type: string, max: 500, optional: true }   # free text, left out, nowhere
+    request:
+      method: POST
+      path: /calendar/v3/calendars/{calendarId}/events
+      query: { sendUpdates: "none" }   # no mail about the event: with no attendees there is no one to tell
+      body: { summary: "{summary}", start: { dateTime: "{start}" }, end: { dateTime: "{end}" }, description: "{description}", location: "{location}" }   # a description or location left out leaves the key, so the event has none
+    answer: { select: [id, summary, start, end, htmlLink] }

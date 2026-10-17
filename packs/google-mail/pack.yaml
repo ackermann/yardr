@@ -7,7 +7,7 @@
 # every account, choosing the login by the account it is given: the
 # yard's login for the yard's calls, that account's own login beside
 # it for a call --as a user. The login, the account, the mint and
-# calling as a user are the three google packs' shared setup, said
+# calling as a user are the four google packs' shared setup, said
 # once in docs/google.md.
 #
 #   yardr pack apply google-mail

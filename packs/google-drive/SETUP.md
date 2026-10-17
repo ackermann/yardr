@@ -7,7 +7,7 @@ sources to fill, and a file's comments listed and replied to.
 Each call goes out with a short-lived token minted
 from a gws login on this machine, so no new copy of a secret is
 stored anywhere. The login, the
-account, the mint and calling as a user are the three google packs'
+account, the mint and calling as a user are the four google packs'
 shared setup, said once in `docs/google.md`.
 
 1. **The gws login.** It needs the Drive scope,

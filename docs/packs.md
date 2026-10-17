@@ -80,6 +80,7 @@ telegram=<file> --notify <user>=telegram,<file>`.)
 | `google-mail` | Gmail itself, in the yard: mail read, drafts written, nothing sent | none: `kind: source` | of none: `yardr pack apply google-mail` |
 | `google-drive` | Drive itself, in the yard: files listed and read, folders and empty Docs and Slides made | none: `kind: source` | of none: `yardr pack apply google-drive` |
 | `google-docs` | Docs and Slides in the yard: documents and decks read and appended to | none: `kind: source` | of none: `yardr pack apply google-docs` |
+| `google-calendar` | Calendar itself, in the yard: events listed and read, events created without invitations | none: `kind: source` | of none: `yardr pack apply google-calendar` |
 | `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 
@@ -258,7 +259,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `telegram`, `pushover`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it

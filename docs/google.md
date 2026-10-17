@@ -1,6 +1,6 @@
 # Google in the yard
 
-Three packs wire Google in, grouped by what a person turns on: each
+Four packs wire Google in, grouped by what a person turns on: each
 is applied alone, and a yard takes only the Google access it needs.
 
 | pack | wires in | the login's services |
@@ -8,13 +8,15 @@ is applied alone, and a yard takes only the Google access it needs.
 | `google-mail` | Gmail read and drafts, never sent (`google-mail`) | `gmail` |
 | `google-drive` | Drive files and folders, shared with one address, the empty Docs and Slides the docs pack fills, and comments read and replied to (`google-drive`) | `drive` |
 | `google-docs` | Docs and Slides read and appended to (`google-docs`, `google-slides`) | `docs,slides` |
+| `google-calendar` | Events listed and read, calendars listed, events created without invitations (`google-calendar`) | `calendar` |
 
 Each pack's own steps are its setup notes (`yardr pack show
-google-mail`, `yardr pack show google-drive` and `yardr pack show
-google-docs`): the pack itself (step 2), its grants (step 5), and the
-operator trying what they set up (steps 6 and 7). This page has what
-the three share: the gws login every call mints from (step 1), the
-account (step 3), the mint (step 4), and calling as a user. The steps
+google-mail`, `yardr pack show google-drive`, `yardr pack show
+google-docs` and `yardr pack show google-calendar`): the pack itself
+(step 2), its grants (step 5), and the operator trying what they set
+up (steps 6 and 7). This page has what the four share: the gws login
+every call mints from (step 1), the account (step 3), the mint (step
+4), and calling as a user. The steps
 use `ada` for a second person, `mckean` for the operator's user name
 and `yardmaster` for the crew member; replace each with this yard's
 where they differ.
@@ -71,12 +73,13 @@ Its `user` is the account's address, which the setup sets as
 with — `https://www.googleapis.com/auth/gmail.modify` for mail,
 `https://www.googleapis.com/auth/drive` for drive,
 `https://www.googleapis.com/auth/documents` and
-`https://www.googleapis.com/auth/presentations` for docs — else the
+`https://www.googleapis.com/auth/presentations` for docs, and
+`https://www.googleapis.com/auth/calendar` for calendar — else the
 calls come back 403. When a pack is added, log in again with every
 service the yard wants, so nothing set up is lost:
 
 ```sh
-gws auth login -s gmail,drive,docs,slides
+gws auth login -s gmail,drive,docs,slides,calendar
 ```
 
 A yard with one pack logs in with that pack's services alone (the
@@ -89,7 +92,7 @@ directory, `~/.config/gws-accounts/<account>`, made with the same
 login for that directory alone:
 
 ```sh
-GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$HOME/.config/gws-accounts/ada@example.com" gws auth login -s gmail,drive,docs,slides
+GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$HOME/.config/gws-accounts/ada@example.com" gws auth login -s gmail,drive,docs,slides,calendar
 ```
 
 Replace `ada@example.com` with ada's Google account address, then
@@ -114,13 +117,14 @@ yardr bead ask <bead> "The yard's Google account for Gmail" --secret google-mail
 yardr bead ask <bead> "The yard's Google account for Drive" --secret google-drive --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
 yardr bead ask <bead> "The yard's Google account for Docs" --secret google-docs --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
 yardr bead ask <bead> "The yard's Google account for Slides" --secret google-slides --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Calendar" --secret google-calendar --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
 ```
 
 Each card is narrowed to the account: without `--env` it would ask
 for `GOOGLE_TOKEN` too, and the token is minted per call, never
 given.
 
-By hand the four share one file instead. The address is no secret,
+By hand the five share one file instead. The address is no secret,
 so it is typed as usual; the file still goes 0600, as every env
 file. A new file takes its mode from the shell's umask, so narrow
 it first. Each command below is one thing to type, in a block of
@@ -139,7 +143,7 @@ chmod 600 ~/.yardr/sources/google.env
 ```
 
 ```sh
-for s in google-mail google-drive google-docs google-slides; do yardr source set $s env_file=~/.yardr/sources/google.env; done
+for s in google-mail google-drive google-docs google-slides google-calendar; do yardr source set $s env_file=~/.yardr/sources/google.env; done
 ```
 
 Run only the sources of the packs the yard uses. Either way the
@@ -199,6 +203,7 @@ yardr source set google-mail mint_command=$HOME/bin/google-mint
 yardr source set google-drive mint_command=$HOME/bin/google-mint
 yardr source set google-docs mint_command=$HOME/bin/google-mint
 yardr source set google-slides mint_command=$HOME/bin/google-mint
+yardr source set google-calendar mint_command=$HOME/bin/google-mint
 ```
 
 It needs `gws` and `curl` on PATH (`GWS_BIN` names another gws).

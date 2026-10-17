@@ -370,7 +370,7 @@ func TestGoogleMintNoLogin(t *testing.T) {
 		"no gws login for GOOGLE_ACCOUNT=" + adaAccount,
 		filepath.Join(".config", "gws-accounts", adaAccount),
 		"GOOGLE_WORKSPACE_CLI_CONFIG_DIR=",
-		"gws auth login -s gmail,drive,docs,slides",
+		"gws auth login -s gmail,drive,docs,slides,calendar",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, stderr)
@@ -403,7 +403,7 @@ func TestGoogleMintWrongAccount(t *testing.T) {
 	}
 	for _, want := range []string{
 		"the gws login in " + adaDir + " is for mallory@example.com, not GOOGLE_ACCOUNT=" + adaAccount,
-		"gws auth login -s gmail,drive,docs,slides",
+		"gws auth login -s gmail,drive,docs,slides,calendar",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, stderr)
@@ -490,7 +490,7 @@ func TestGoogleMintLoginCommandQuoted(t *testing.T) {
 		home := t.TempDir()
 		dir := filepath.Join(home, ".config", "gws-accounts", account)
 		quoted := "'" + strings.ReplaceAll(dir, "'", "'\\''") + "'"
-		want := "GOOGLE_WORKSPACE_CLI_CONFIG_DIR=" + quoted + " gws auth login -s gmail,drive,docs,slides"
+		want := "GOOGLE_WORKSPACE_CLI_CONFIG_DIR=" + quoted + " gws auth login -s gmail,drive,docs,slides,calendar"
 		stdout, stderr, err := mintHome(t, home, stdinFor(account, ""), srv.URL)
 		if err == nil {
 			t.Errorf("mint %s: minted with no login:\n%s", account, stdout)

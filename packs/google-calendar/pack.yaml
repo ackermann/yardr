@@ -1,0 +1,26 @@
+# Calendar as a pack of kind source: the integration, imported into
+# the yard and into no depot. What Calendar is here: the declared
+# source google-calendar, which lists and reads events, lists the
+# calendars, and creates timed events without inviting anyone. Its
+# credential mints from a gws login on this machine, with
+# contrib/google-mint as its mint_command, which the operator sets by
+# hand: no pack brings the command. One command mints every account,
+# choosing the login by the account it is given: the yard's login for
+# the yard's calls, that account's own login beside it for a call --as
+# a user. The login, the account, the mint and calling as a user are
+# the four google packs' shared setup, said once in docs/google.md.
+#
+#   yardr pack apply google-calendar
+#
+# A person applies the packs they want, each by one card or typed. A
+# pack of kind source asks no grants at import, so what a crew member
+# may call is granted afterwards, by the setup notes: read for the
+# reads, each update by its name, plain by the operator and as a user
+# by that user alone.
+name: google-calendar
+kind: source
+setup: SETUP.md
+
+sources:
+  google-calendar:
+    declaration: google-calendar.yaml

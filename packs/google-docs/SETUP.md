@@ -5,7 +5,7 @@ sources `google-docs` (documents read and appended to) and
 `google-slides` (decks read, slides with title and body appended).
 Each call goes out with a short-lived token minted from a gws login
 on this machine, so no new copy of a secret is stored anywhere.
-The login, the account, the mint and calling as a user are the three
+The login, the account, the mint and calling as a user are the four
 google packs' shared setup, said once in `docs/google.md`.
 
 1. **The gws login.** It needs the Docs and Slides scopes,
@@ -91,7 +91,8 @@ with their own credential — is the shared setup too:
 `docs/google.md` has it.
 
 What is not there, on purpose: Sheets, which joins this pack when a
-sheets source exists; Calendar and Tasks, which are no source yet,
-so no pack wires them in; paging past the first page; and no call
-the pack does not list. The yard's source format cannot express what
-is not listed, and the pack does not change yardr.
+sheets source exists; Tasks, which is no source yet, so no pack
+wires it in (Calendar is the google-calendar pack); paging past the
+first page; and no call the pack does not list. The yard's source
+format cannot express what is not listed, and the pack does not
+change yardr.
