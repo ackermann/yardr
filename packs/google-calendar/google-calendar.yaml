@@ -1,12 +1,13 @@
 # Calendar as a declared source: a week's events listed and one read,
-# the calendars listed, and an event created without inviting anyone,
-# through calendar.events and calendarList. What it never does is send
-# an invitation: no attendees on the event it creates, and sendUpdates
-# is none. Nor does it move, update or delete an event, share a
-# calendar, or page past the first page (pageToken is not declared, so
-# one page is all a call reads). An event it creates is timed, never
-# all-day: a date without a time is another shape of start and end than
-# this file can say beside dateTime.
+# the calendars listed, and an event created and edited without
+# inviting anyone, through calendar.events and calendarList. What it
+# never does is send an invitation: no attendees on the event it
+# creates or edits, and sendUpdates is none. Nor does it move or
+# delete an event, share a calendar, or page past the first page
+# (pageToken is not declared, so one page is all a call reads). An
+# event it creates is timed, never all-day: a date without a time is
+# another shape of start and end than this file can say beside
+# dateTime.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest) on 17
@@ -16,7 +17,8 @@
 # event and answers the event; calendarList.list answers one page with
 # items and nextPageToken; events.insert takes the calendar with
 # sendUpdates (all, externalOnly, none) and the event, and answers the
-# event it made.
+# event it made; events.patch takes the calendar and the event with
+# sendUpdates and the fields, and answers the event.
 #
 # A credential that expires is minted, not kept: GOOGLE_ACCOUNT names
 # the account (an address, no secret) and the operator sets the command
@@ -27,7 +29,7 @@
 # command. Calendar takes no idempotency key, so the file names none: an
 # event tried again after a lost answer is made twice.
 name: google-calendar
-about: Calendar events listed and read, calendars listed, events created without inviting anyone.
+about: Calendar events listed, read, created and edited without inviting anyone; calendars listed.
 base: https://www.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -81,4 +83,21 @@ calls:
       path: /calendar/v3/calendars/{calendarId}/events
       query: { sendUpdates: "none" }   # no mail about the event: with no attendees there is no one to tell
       body: { summary: "{summary}", start: { dateTime: "{start}" }, end: { dateTime: "{end}" }, description: "{description}", location: "{location}" }   # a description or location left out leaves the key, so the event has none
+    answer: { select: [id, summary, start, end, htmlLink] }
+  edit:
+    kind: update
+    about: Change an event, only what is given
+    params:
+      calendarId: { type: string, pattern: "^(primary|[^@ ]+@[^@ ]+)$", max: 254, log: true }
+      eventId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 1024, log: true }
+      summary: { type: string, max: 500, optional: true }   # free text; left out, the summary stays
+      start: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64, optional: true }   # RFC 3339 with its zone; left out, the beginning stays
+      end: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", max: 64, optional: true }
+      description: { type: string, max: 10000, optional: true }
+      location: { type: string, max: 500, optional: true }
+    request:
+      method: PATCH
+      path: /calendar/v3/calendars/{calendarId}/events/{eventId}
+      query: { sendUpdates: "none" }   # no mail about the change
+      body: { summary: "{summary}", start: { dateTime: "{start}" }, end: { dateTime: "{end}" }, description: "{description}", location: "{location}" }   # a field left out leaves its key, so only what is given changes; a start or end left out leaves an empty start or end, which the patch reads as no change there
     answer: { select: [id, summary, start, end, htmlLink] }

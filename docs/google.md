@@ -8,7 +8,7 @@ is applied alone, and a yard takes only the Google access it needs.
 | `google-mail` | Gmail read and drafts, never sent (`google-mail`) | `gmail` |
 | `google-drive` | Drive files and folders, shared with one address, the empty Docs and Slides the docs pack fills, and comments read and replied to (`google-drive`) | `drive` |
 | `google-docs` | Docs and Slides read and appended to (`google-docs`, `google-slides`) | `docs,slides` |
-| `google-calendar` | Events listed and read, calendars listed, events created without invitations (`google-calendar`) | `calendar` |
+| `google-calendar` | Events listed, read, created and edited without invitations, calendars listed (`google-calendar`) | `calendar` |
 
 Each pack's own steps are its setup notes (`yardr pack show
 google-mail`, `yardr pack show google-drive`, `yardr pack show

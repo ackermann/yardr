@@ -123,6 +123,7 @@ func TestGoogleDeclarations(t *testing.T) {
 		"google-calendar.yaml": {
 			{Name: "events", Kind: source.Read}, {Name: "event", Kind: source.Read},
 			{Name: "calendars", Kind: source.Read}, {Name: "create", Kind: source.Update},
+			{Name: "edit", Kind: source.Update},
 		},
 	}
 	for file, base := range bases {
@@ -337,6 +338,46 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			out, _ := json.Marshal(m)
 			return string(out)
 		},
+		"PATCH /calendar/v3/calendars/primary/events/" + eventID: func(_ url.Values, body []byte) string {
+			// What the patch did not give stays as the lunch is: an
+			// omitted start or end arrives as {}, which the patch
+			// reads as no change there.
+			var made struct {
+				Summary     *string
+				Start       map[string]string
+				End         map[string]string
+				Description *string
+				Location    *string
+			}
+			if err := json.Unmarshal(body, &made); err != nil {
+				t.Fatalf("the stand-in was sent %s: %v", body, err)
+			}
+			summary := "Lunch with Ada"
+			if made.Summary != nil {
+				summary = *made.Summary
+			}
+			start := map[string]string{"dateTime": "2026-10-24T12:00:00+02:00", "timeZone": "Europe/Berlin"}
+			if len(made.Start) > 0 {
+				start = made.Start
+			}
+			end := map[string]string{"dateTime": "2026-10-24T13:00:00+02:00", "timeZone": "Europe/Berlin"}
+			if len(made.End) > 0 {
+				end = made.End
+			}
+			m := map[string]any{"kind": "calendar#event", "etag": `"3415"`, "id": eventID,
+				"status": "confirmed", "summary": summary,
+				"start": start, "end": end,
+				"htmlLink": "https://www.google.com/calendar/event?eid=" + eventID,
+				"updated":  "2026-10-17T13:00:00.000Z", "iCalUID": eventID + "@google.com"}
+			if made.Description != nil {
+				m["description"] = *made.Description
+			}
+			if made.Location != nil {
+				m["location"] = *made.Location
+			}
+			out, _ := json.Marshal(m)
+			return string(out)
+		},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(standin.handler))
 	defer srv.Close()
@@ -453,6 +494,14 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			method: "POST", path: "/calendar/v3/calendars/primary/events", query: map[string]string{"sendUpdates": "none"},
 			body:       `{"summary":"Focus","start":{"dateTime":"2026-10-25T09:00:00Z"},"end":{"dateTime":"2026-10-25T10:00:00Z"}}`,
 			wantAnswer: `{"id":"` + madeEventID + `","summary":"Focus","start":{"dateTime":"2026-10-25T09:00:00Z"},"end":{"dateTime":"2026-10-25T10:00:00Z"},"htmlLink":"https://www.google.com/calendar/event?eid=` + madeEventID + `"}`},
+		{name: "edit one field", d: cal, call: "edit", params: map[string]string{"calendarId": "primary", "eventId": eventID, "location": "Cafe Novo"},
+			method: "PATCH", path: "/calendar/v3/calendars/primary/events/" + eventID, query: map[string]string{"sendUpdates": "none"},
+			body:       `{"start":{},"end":{},"location":"Cafe Novo"}`,
+			wantAnswer: `{"id":"` + eventID + `","summary":"Lunch with Ada","start":{"dateTime":"2026-10-24T12:00:00+02:00","timeZone":"Europe/Berlin"},"end":{"dateTime":"2026-10-24T13:00:00+02:00","timeZone":"Europe/Berlin"},"htmlLink":"https://www.google.com/calendar/event?eid=` + eventID + `"}`},
+		{name: "edit timed", d: cal, call: "edit", params: map[string]string{"calendarId": "primary", "eventId": eventID, "summary": "Lunch with Bob", "start": "2026-10-25T12:00:00+02:00", "end": "2026-10-25T13:00:00+02:00"},
+			method: "PATCH", path: "/calendar/v3/calendars/primary/events/" + eventID, query: map[string]string{"sendUpdates": "none"},
+			body:       `{"summary":"Lunch with Bob","start":{"dateTime":"2026-10-25T12:00:00+02:00"},"end":{"dateTime":"2026-10-25T13:00:00+02:00"}}`,
+			wantAnswer: `{"id":"` + eventID + `","summary":"Lunch with Bob","start":{"dateTime":"2026-10-25T12:00:00+02:00"},"end":{"dateTime":"2026-10-25T13:00:00+02:00"},"htmlLink":"https://www.google.com/calendar/event?eid=` + eventID + `"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok")
@@ -569,6 +618,9 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"create date start", cal, "create", map[string]string{"calendarId": "primary", "summary": "Lunch", "start": "2026-10-24", "end": "2026-10-24T13:00:00Z"}, "parameter start does not match its pattern"},
 		{"create long summary", cal, "create", map[string]string{"calendarId": "primary", "summary": strings.Repeat("x", 501), "start": "2026-10-24T12:00:00Z", "end": "2026-10-24T13:00:00Z"}, "parameter summary is 501 characters, and at most 500"},
 		{"create long description", cal, "create", map[string]string{"calendarId": "primary", "summary": "Lunch", "start": "2026-10-24T12:00:00Z", "end": "2026-10-24T13:00:00Z", "description": strings.Repeat("x", 10001)}, "parameter description is 10001 characters, and at most 10000"},
+		{"edit without eventId", cal, "edit", map[string]string{"calendarId": "primary", "summary": "Lunch"}, "parameter eventId is missing"},
+		{"edit date start", cal, "edit", map[string]string{"calendarId": "primary", "eventId": "abc", "start": "2026-10-24"}, "parameter start does not match its pattern"},
+		{"edit long location", cal, "edit", map[string]string{"calendarId": "primary", "eventId": "abc", "location": strings.Repeat("x", 501)}, "parameter location is 501 characters, and at most 500"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var failed *source.CallError

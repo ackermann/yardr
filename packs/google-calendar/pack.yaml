@@ -1,7 +1,8 @@
 # Calendar as a pack of kind source: the integration, imported into
 # the yard and into no depot. What Calendar is here: the declared
 # source google-calendar, which lists and reads events, lists the
-# calendars, and creates timed events without inviting anyone. Its
+# calendars, and creates and edits timed events without inviting
+# anyone. Its
 # credential mints from a gws login on this machine, with
 # contrib/google-mint as its mint_command, which the operator sets by
 # hand: no pack brings the command. One command mints every account,
