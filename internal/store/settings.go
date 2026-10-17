@@ -397,19 +397,23 @@ func SettingOf(key string) (Setting, bool) {
 // are who the operator is, what the yard installs itself from, who the
 // web view acts as and what it trusts, where backups go, the addresses
 // the servers bind, and the herdr session, whose check turns on which
-// panes run now: the operator types those. A new setting defaults to
-// Alone until it is marked Askable here.
+// panes run now: the operator types those. hook_public_url is Askable:
+// it binds nothing and serves nothing, only says where the yard is
+// reached from outside, and its card shows the whole URL each hook is
+// registered at. A new setting defaults to Alone until it is marked
+// Askable here.
 func settingAsk(key string) AskClass {
 	switch key {
 	case OperatorSetting, DefaultPackSetting,
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, HookPublicURLSetting, RouterAddrSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, RouterAddrSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone
 	case YardmasterSetting, StyleSetting, NoteSetting, DefaultKindSetting,
+		HookPublicURLSetting,
 		TimerLimitSetting, TimerMinEverySetting, BlobMaxSetting,
 		PeerFileMaxSetting, BackupEverySetting, BackupKeepSetting,
 		MaxSessionsSetting, NameSetting:

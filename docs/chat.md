@@ -334,6 +334,9 @@ by `source add`, a hook's replacement and its `--map` and `--as`, a source's `en
 or ping, a user's `notify` and `env_file`, `group add` with `--runner exec`
 or `cmd=`, `group set` with `cmd=`, the `operator` setting and the settings
 of where the yard reads and serves from, and every other command.
+`hook_public_url` is the exception among the addresses: it binds nothing,
+only says where the yard is reached from outside, so a crew member may
+propose it and its card shows the whole URL each hook is registered at.
 A command that mixes a flag of the list with one that is not is refused
 whole, and the limit and the kinds of `peer allow` are two asks: one
 command carries one or the other. The subscription and the `tell` rows

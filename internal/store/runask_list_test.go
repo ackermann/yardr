@@ -1113,7 +1113,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		DefaultKindSetting:    Askable,
 		DefaultPackSetting:    Alone,
 		HookAddrSetting:       Alone,
-		HookPublicURLSetting:  Alone,
+		HookPublicURLSetting:  Askable,
 		RouterAddrSetting:     Alone,
 		WebAddrSetting:        Alone,
 		WebPagesAddrSetting:   Alone,
@@ -1156,6 +1156,64 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 	}
 	if got := settingAsk("new_setting"); got != Alone {
 		t.Errorf("unmarked setting has class %d, want Alone", got)
+	}
+}
+
+// hook_public_url binds nothing and serves nothing — it only says where
+// the yard is reached from outside — so a crew member may propose it as
+// a run ask: the card shows the whole URL each hook is registered at,
+// approving sets it, and the bind addresses stay the operator's alone.
+func TestRunAskHookPublicURL(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "settings set hook_public_url https://yard.example/hooks"), "yardmaster")
+	run := y.asked(t, seq).Ask.Run
+	if want := []string{
+		"setting hook_public_url becomes https://yard.example/hooks (now: unset).",
+		"a hook whose source names a register call is registered at this address when its card is approved: the URL of hook <name> is https://yard.example/hooks/<name>.",
+	}; !slices.Equal(run.Does, want) {
+		t.Fatalf("the card says %q, want %q", run.Does, want)
+	}
+	if run.Back != `yardr settings set hook_public_url ""` || run.BackBy != "only the operator" {
+		t.Fatalf("the take-back is %q by %q", run.Back, run.BackBy)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "hook_public_url = https://yard.example/hooks" {
+		t.Fatalf("the approval ran %q", done.Result)
+	}
+	settings, err := y.Settings(y.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings[HookPublicURLSetting] != "https://yard.example/hooks" {
+		t.Fatalf("hook_public_url = %q", settings[HookPublicURLSetting])
+	}
+	evs, err := y.EventsOfKind(y.ctx, "setting_changed", 10)
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("setting_changed events = %d, %v", len(evs), err)
+	}
+	y.approved(t, evs[len(evs)-1], seq)
+	// A trailing slash registers without it (hookPublicURL), and the
+	// card shows the URL as it is registered.
+	seq = y.ask(t, listAsk("mckean", "settings set hook_public_url https://yard.example/hooks/"), "yardmaster")
+	if got := y.asked(t, seq).Ask.Run.Does; !slices.Contains(got, "a hook whose source names a register call is registered at this address when its card is approved: the URL of hook <name> is https://yard.example/hooks/<name>.") {
+		t.Fatalf("the card says %q", got)
+	}
+	// The addresses the servers bind stay the operator's alone.
+	for _, c := range []string{
+		"settings set hook_addr 127.0.0.1:9999",
+		"settings set router_addr 172.18.0.2",
+		"settings set web_addr 127.0.0.1:9998",
+		"settings set web_pages_addr 127.0.0.1:9997",
+		"settings set web_pages_host example.com",
+		"settings set bdp_addr 127.0.0.1:9996",
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c), "yardmaster"); err == nil || !strings.Contains(err.Error(), "it is the operator's alone") {
+			t.Errorf("--run %q = %v, want the operator's alone", c, err)
+		}
 	}
 }
 

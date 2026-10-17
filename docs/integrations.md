@@ -1355,6 +1355,9 @@ Where the declaration names a register call with scheme `secret`
 `<method path>` at the source's base to register the `hook_public_url`
 URL for the hook, and approving makes the secret and the hook and
 makes that call. No card is written while `hook_public_url` is unset.
+Giving the yard that address is a card of its own: a crew member proposes
+`settings set hook_public_url <url>` as a run ask, and its card shows the
+whole URL each hook is registered at.
 
 *(in Linear)* Settings → API → Webhooks: the URL
 `https://<public host>/hooks/linear`, the events Issues and Comments. Its

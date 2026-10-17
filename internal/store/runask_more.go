@@ -630,9 +630,17 @@ func (w *wtx) settingSetCard(argv []string, asking bool) (AskRun, error) {
 	if !has {
 		back = runCommandLine([]string{"settings", "set", key, `""`})
 	}
+	does := []string{fmt.Sprintf("setting %s becomes %s (now: %s).", key, value, now)}
+	if key == HookPublicURLSetting {
+		// The address's one effect is the URL a register call sends
+		// to a service, so the card names it whole: what the operator
+		// approves is where hooks are registered. Trimmed as the
+		// hook's URL is (hookPublicURL), so the card shows it.
+		does = append(does, fmt.Sprintf("a hook whose source names a register call is registered at this address when its card is approved: the URL of hook <name> is %s/<name>.", strings.TrimRight(value, "/")))
+	}
 	return AskRun{
 		Argv:   argv,
-		Does:   []string{fmt.Sprintf("setting %s becomes %s (now: %s).", key, value, now)},
+		Does:   does,
 		Back:   back,
 		BackBy: "only the operator",
 		Seen:   map[string]string{"setting " + key: seen(has, string(stored))},

@@ -192,7 +192,8 @@ is one of the list the yard runs from a card:
       the id or key there are then addressed to it
   settings set <key> <value>
       the yard's own setting changes; who the operator is and the settings
-      of where the yard reads and serves from are the operator's alone
+      of where the yard reads and serves from are the operator's alone,
+      while hook_public_url binds nothing and is a run ask's
   peer rename <old> <new>
       the link is called by its new name; its key and what it carries stay
   bead update <bead> --originator <user>
