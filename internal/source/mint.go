@@ -185,14 +185,19 @@ func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 	return t.token, t.expires, nil
 }
 
-// mint runs argv and reads its {token, expires_at}. Its environment is PATH
-// and HOME as the process that asks has them, and YARDR_SOURCE_BASE, the
-// declaration's base, so the command speaks to the same service the call
-// goes to; the inputs reach it on stdin alone.
+// mint runs argv and reads its {token, expires_at}. Its environment is an
+// allow-list: PATH, HOME, USER and LOGNAME as the process that asks has
+// them, and YARDR_SOURCE_BASE, the declaration's base, so the command
+// speaks to the same service the call goes to; the inputs reach it on
+// stdin alone. USER and LOGNAME are there because a helper that reads the
+// asking user's keyring looks it up by user name, and answers with no
+// user without one. TMPDIR and the rest of the caller's environment stay
+// out: a short-lived mint wants no private temp dir of its own, and
+// locale, terminal and session variables carry nothing a mint needs.
 func mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string) (mintedToken, error) {
 	var none mintedToken
 	in := map[string]any{"inputs": inputs, "scope": scope}
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + os.Getenv("USER"), "LOGNAME=" + os.Getenv("LOGNAME")}
 	env = append(env, config.Env("SOURCE_BASE", d.Base)...)
 	what := "mint_command " + strings.Join(argv, " ")
 	var t mintedToken

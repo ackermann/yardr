@@ -218,6 +218,29 @@ func TestMintRunsAndCaches(t *testing.T) {
 	}
 }
 
+// A mint command sees the asking user's name: USER and LOGNAME as the
+// process that asks has them, since a helper that reads the user's
+// keyring looks it up by user name.
+func TestMintSeesUser(t *testing.T) {
+	t.Setenv("USER", "mint-user")
+	t.Setenv("LOGNAME", "mint-user")
+	t.Cleanup(SetMintClock(time.Now))
+	p := filepath.Join(t.TempDir(), "mint")
+	body := `#!/bin/sh
+[ "$USER" = "mint-user" ] || { echo "USER is ${USER-unset}" >&2; exit 1; }
+[ "$LOGNAME" = "mint-user" ] || { echo "LOGNAME is ${LOGNAME-unset}" >&2; exit 1; }
+printf '{"token":"tok-1","expires_at":"2027-01-01T00:00:00Z"}'
+`
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inputs := map[string]string{"CRM_APP_ID": "app-1", "CRM_APP_KEY": "app.pem"}
+	token, _, err := Mint(context.Background(), mintDecl(t), []string{p}, inputs, "s")
+	if err != nil || token != "tok-1" {
+		t.Fatalf("mint = %q, %v", token, err)
+	}
+}
+
 // Five minutes before a token expires it is no longer used.
 func TestMintExpiryMargin(t *testing.T) {
 	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)

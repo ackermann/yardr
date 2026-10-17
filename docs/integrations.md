@@ -705,9 +705,13 @@ yardr source rm pushover
   `credential.mint` the variables that together select it, names only, and
   the operator sets the command that turns their values into a token
   (`yardr source set <name> mint_command=<program> [args...]`), run with
-  `{inputs, scope}` on stdin for a `{token, expires_at}`. The token is
-  handed to each call under `credential.env`, and kept in memory alone,
-  keyed by the credential and the scope. Where the env sets the mint's
+  `{inputs, scope}` on stdin for a `{token, expires_at}`. Its environment
+  is `PATH`, `HOME`, `USER` and `LOGNAME` as the asking process has them,
+  and `YARDR_SOURCE_BASE`, the declaration's `base`: a helper that reads
+  the user's keyring looks it up by user name, and nothing else of the
+  yard's environment reaches it. The token is handed to each call under
+  `credential.env`, and kept in memory alone, keyed by the credential and
+  the scope. Where the env sets the mint's
   names the token is minted; one of them alone is refused; otherwise the
   variable is used as it is set. No pack brings the command
   ([packs.md](packs.md#how-a-pack-maps-to-the-yard)); for a GitHub App's it
