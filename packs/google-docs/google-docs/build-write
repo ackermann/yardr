@@ -12,8 +12,10 @@
 # counts codepoints, and the script adds one per codepoint past U+FFFF.
 # The first appended character sits at E-1, before the body's last
 # newline, and each paragraph starts past the newline before it; the
-# first pair continues the doc's last paragraph. Anything the body cannot
-# be built from is a refusal: words on stderr, exit 1, nothing sent.
+# first pair continues the doc's last paragraph. The write is pinned to
+# the revision read, so a collaborator's intervening edit cannot shift the
+# ranges. Anything the body cannot be built from is a refusal: words on
+# stderr, exit 1, nothing sent.
 set -euo pipefail
 in=$(cat)
 docId=$(jq -r '.params.docId // ""' <<<"$in")
@@ -23,7 +25,8 @@ paras=$(jq -c '.params.paragraphs | fromjson? // null' <<<"$in")
 : "${GOOGLE_TOKEN:?GOOGLE_TOKEN is not set}"
 : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
 # The pairs are checked before the document is read, so a refusal for
-# bad paragraphs sends nothing.
+# bad paragraphs sends nothing. Docs drops some control and private-use
+# characters on insertion; refusing them keeps later style ranges aligned.
 checked=$(jq -c -n --argjson paras "$paras" '
   def styles: ["NORMAL_TEXT", "TITLE", "HEADING_1", "HEADING_2"];
   def check($i; $p):
@@ -32,6 +35,8 @@ checked=$(jq -c -n --argjson paras "$paras" '
     elif ($p.style | type) != "string" or ((styles | index($p.style)) | not) then
       "paragraph \($i + 1) styles with \($p.style), which is no style: one of \(styles | join(", "))"
     elif $p.text | contains("\n") then "paragraph \($i + 1) holds a line break: one pair is one paragraph"
+    elif $p.text | any(explode[]; . <= 8 or (. >= 12 and . <= 31) or (. >= 57344 and . <= 63743)) then
+      "paragraph \($i + 1) holds a control or private-use character Google Docs strips"
     else null end;
   if ($paras | type) != "array" then {"refusal": "paragraphs is no JSON array of text/style pairs"}
   elif ($paras | length) == 0 then {"refusal": "paragraphs holds no paragraph to append"}
@@ -42,14 +47,16 @@ checked=$(jq -c -n --argjson paras "$paras" '
 ')
 refusal=$(jq -r '.refusal // empty' <<<"$checked")
 [ -z "$refusal" ] || { echo "$refusal" >&2; exit 1; }
-doc=$(curl -sS --fail-with-body --get --data-urlencode "fields=body(content(endIndex))" \
+doc=$(curl -sS --fail-with-body --get --data-urlencode "fields=revisionId,body(content(endIndex))" \
   -H "Authorization: Bearer $GOOGLE_TOKEN" \
   "$YARDR_SOURCE_BASE/v1/documents/$docId") || {
   echo "document $docId could not be read (curl exit $?)" >&2; exit 1
 }
 e=$(jq -r '.body.content[-1].endIndex | select(type == "number") // empty' <<<"$doc")
 [[ "$e" =~ ^[0-9]+$ ]] && [ "$e" -ge 2 ] || { echo "document $docId answered no end index" >&2; exit 1; }
-jq -c -n --argjson paras "$paras" --argjson e "$e" '
+revision=$(jq -r '.revisionId // empty' <<<"$doc")
+[ -n "$revision" ] || { echo "document $docId answered no revision id" >&2; exit 1; }
+jq -c -n --argjson paras "$paras" --argjson e "$e" --arg revision "$revision" '
   def utf16: length + ([explode[] | select(. > 65535)] | length);
   (reduce range(0; $paras | length) as $i ({start: ($e - 1), reqs: []};
     ($paras[$i]) as $p
@@ -58,5 +65,6 @@ jq -c -n --argjson paras "$paras" --argjson e "$e" '
         range: {startIndex: .start, endIndex: (.start + (if $len == 0 then 1 else $len end))},
         paragraphStyle: {namedStyleType: $p.style}, fields: "namedStyleType"}}]
     | .start += $len + 1)) as $r
-  | {requests: ([{insertText: {endOfSegmentLocation: {}, text: ([$paras[].text] | join("\n"))}}] + $r.reqs)}
+  | {requests: ([{insertText: {endOfSegmentLocation: {}, text: ([$paras[].text] | join("\n"))}}] + $r.reqs),
+     writeControl: {requiredRevisionId: $revision}}
 '

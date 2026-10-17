@@ -884,8 +884,9 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 // document for its body's end index, works out each paragraph's range
 // itself, and prints the body the yard posts. The first appended character
 // sits at E-1, before the body's last newline, and each paragraph starts
-// past the newline before it. Indices are UTF-16 code units, so an astral
-// character counts double. No test calls Google.
+// past the newline before it. The write is pinned to the revision read.
+// Indices are UTF-16 code units, so an astral character counts double. No
+// test calls Google.
 func TestGoogleDocsWriteBuilds(t *testing.T) {
 	paras := `[{"text":"Lunch places","style":"TITLE"},{"text":"Friday","style":"HEADING_1"},` +
 		`{"text":"We shipped the condiments.","style":"NORMAL_TEXT"},{"text":"Ada picks the place.","style":"NORMAL_TEXT"}]`
@@ -927,7 +928,8 @@ func TestGoogleDocsWriteBuilds(t *testing.T) {
 			for _, s := range tc.styles {
 				golden += `,{"updateParagraphStyle":` + s + `}`
 			}
-			golden += `]}`
+			revision := map[string]string{"empty": "rev-empty", "full": "rev-full"}[tc.doc]
+			golden += `],"writeControl":{"requiredRevisionId":"` + revision + `"}}`
 			if err := json.Unmarshal([]byte(golden), &want); err != nil {
 				t.Fatal(err)
 			}
@@ -935,7 +937,7 @@ func TestGoogleDocsWriteBuilds(t *testing.T) {
 				t.Fatalf("built body = %s, want %s", body, golden)
 			}
 			// The pre-read the ranges came from: the doc, read with the
-			// call's credential, asking for its end indices alone.
+			// call's credential, asking only for its revision and end indices.
 			gotReqs := standin.requests()
 			if len(gotReqs) != 1 {
 				t.Fatalf("the stand-in heard %d requests, want the one pre-read", len(gotReqs))
@@ -947,7 +949,7 @@ func TestGoogleDocsWriteBuilds(t *testing.T) {
 			if pre.auth != "Bearer tok" {
 				t.Fatalf("pre-read Authorization = %q, want the call's credential", pre.auth)
 			}
-			if pre.query.Get("fields") != "body(content(endIndex))" {
+			if pre.query.Get("fields") != "revisionId,body(content(endIndex))" {
 				t.Fatalf("pre-read fields = %q", pre.query.Get("fields"))
 			}
 		})
@@ -976,9 +978,12 @@ func TestGoogleDocsWriteRefusals(t *testing.T) {
 		{"no text", "full", `[{"style":"TITLE"}]`, "paragraph 1 names no text", false},
 		{"no style", "full", `[{"text":"x","style":"SNACK"}]`, "paragraph 1 styles with SNACK, which is no style: one of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2", false},
 		{"a line break", "full", `[{"text":"Lunch places","style":"TITLE"},{"text":"on\nFriday","style":"NORMAL_TEXT"}]`, "paragraph 2 holds a line break: one pair is one paragraph", false},
+		{"a stripped control", "full", `[{"text":"a\u0001b","style":"TITLE"}]`, "paragraph 1 holds a control or private-use character Google Docs strips", false},
+		{"a stripped private-use character", "full", `[{"text":"a\ue000b","style":"TITLE"}]`, "paragraph 1 holds a control or private-use character Google Docs strips", false},
 		{"no text at all", "full", `[{"text":"","style":"TITLE"}]`, "paragraphs holds no text to append", false},
 		{"no such doc", "missing", `[{"text":"x","style":"TITLE"}]`, "could not be read", true},
 		{"no end index", "empty-answered", `[{"text":"x","style":"TITLE"}]`, "answered no end index", true},
+		{"no revision id", "no-revision", `[{"text":"x","style":"TITLE"}]`, "answered no revision id", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := len(standin.requests())
@@ -1069,8 +1074,9 @@ func writeHome(t *testing.T) string {
 // writeDoc is one doc the write stand-in serves: its id, and the end indices
 // its body answers with.
 type writeDoc struct {
-	id   string
-	ends []int
+	id       string
+	ends     []int
+	revision string
 }
 
 // docsStandin answers documents.get for an empty doc and a doc with text,
@@ -1085,9 +1091,10 @@ type docsStandin struct {
 func writeStandin(t *testing.T) (*docsStandin, *httptest.Server) {
 	t.Helper()
 	s := &docsStandin{t: t, docs: map[string]writeDoc{
-		"empty":          {id: "1Empty0123456789abcdefghijklmnop", ends: []int{2}},
-		"full":           {id: "1FullDoc0123456789abcdefghijklm", ends: []int{7, 13}},
-		"empty-answered": {id: "1NoEnds0123456789abcdefghijklmno", ends: nil},
+		"empty":          {id: "1Empty0123456789abcdefghijklmnop", ends: []int{2}, revision: "rev-empty"},
+		"full":           {id: "1FullDoc0123456789abcdefghijklm", ends: []int{7, 13}, revision: "rev-full"},
+		"empty-answered": {id: "1NoEnds0123456789abcdefghijklmno", ends: nil, revision: "rev-no-ends"},
+		"no-revision":    {id: "1NoRevision0123456789abcdefghij", ends: []int{5}},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -1099,14 +1106,14 @@ func writeStandin(t *testing.T) (*docsStandin, *httptest.Server) {
 			switch {
 			case r.Method == "GET" && r.URL.Path == "/v1/documents/"+d.id:
 				if d.ends == nil {
-					io.WriteString(w, `{}`)
+					io.WriteString(w, `{"revisionId":"`+d.revision+`"}`)
 					return
 				}
 				var ends []string
 				for _, e := range d.ends {
 					ends = append(ends, `{"endIndex":`+strconv.Itoa(e)+`}`)
 				}
-				io.WriteString(w, `{"body":{"content":[`+strings.Join(ends, ",")+`]}}`)
+				io.WriteString(w, `{"revisionId":"`+d.revision+`","body":{"content":[`+strings.Join(ends, ",")+`]}}`)
 				return
 			case r.Method == "POST" && r.URL.Path == "/v1/documents/"+d.id+":batchUpdate":
 				io.WriteString(w, `{"documentId":"`+d.id+`","replies":[{},{},{},{}],"writeControl":{"requiredRevisionId":"9"}}`)
