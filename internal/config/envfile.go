@@ -184,10 +184,20 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 	if err != nil {
 		return path, false, fmt.Errorf("env_file %s: %w", path, err)
 	}
+	struck := make(map[string]bool, len(remove))
+	for _, name := range remove {
+		if !envKey.MatchString(name) {
+			return p, false, fmt.Errorf("env_file %s: %q is no name of a variable", p, name)
+		}
+		struck[name] = true
+	}
 	names := make([]string, 0, len(values))
 	for name, value := range values {
 		if !envKey.MatchString(name) {
 			return p, false, fmt.Errorf("env_file %s: %q is no name of a variable", p, name)
+		}
+		if struck[name] {
+			continue
 		}
 		// What the reader would not give back as it was given: it reads a
 		// line, and trims it.
@@ -204,13 +214,6 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 	// In one order whatever the map's, so the same values write the same
 	// file.
 	sort.Strings(names)
-	struck := make(map[string]bool, len(remove))
-	for _, name := range remove {
-		if !envKey.MatchString(name) {
-			return p, false, fmt.Errorf("env_file %s: %q is no name of a variable", p, name)
-		}
-		struck[name] = true
-	}
 
 	var old []byte
 	switch st, err := os.Lstat(p); {
@@ -313,6 +316,9 @@ func setEnv(old []byte, names []string, values map[string]string, struck map[str
 		out.WriteString(line + "\n")
 	}
 	for _, name := range names {
+		if struck[name] {
+			continue
+		}
 		if !done[name] {
 			out.WriteString(name + "=" + values[name] + "\n")
 		}

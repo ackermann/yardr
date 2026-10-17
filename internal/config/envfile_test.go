@@ -133,6 +133,15 @@ func TestWriteEnvFile(t *testing.T) {
 	if b, _ := os.ReadFile(struck); string(b) != "# mine\nOTHER=kept\n" {
 		t.Fatalf("struck file =\n%s", b)
 	}
+	// A name asked to be removed stays removed even if the same write
+	// also supplies a value for it and the old file had no such line.
+	overlap := filepath.Join(t.TempDir(), "overlap.env")
+	if _, _, err := WriteEnvFile(overlap, map[string]string{"TOKEN": ""}, "TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(overlap); len(b) != 0 {
+		t.Fatalf("a struck value was added to an empty file: %q", b)
+	}
 	missing := filepath.Join(t.TempDir(), "none.env")
 	if _, renamed, err := RemoveEnvNames(missing, []string{"TOKEN"}); err != nil || renamed {
 		t.Fatalf("a missing file: renamed %v, %v", renamed, err)
