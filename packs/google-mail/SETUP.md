@@ -64,9 +64,16 @@ the four google packs' shared setup, said once in `docs/google.md`.
    yardr call google-mail search q="from:me" maxResults=5
    yardr call google-mail message id=<an id the search showed> format=metadata
    ```
-   A draft takes the whole RFC 2822 message, base64url-encoded, with or
-   without padding: headers, a blank line, the body. The yard writes the draft;
-   the person presses send in Gmail:
+   A draft takes who it is to, its subject and its text, and builds the
+   message itself; cc goes beside to, and thread answers the thread whose
+   id it names. The yard writes the draft; the person presses send in Gmail:
+   ```sh
+   yardr call google-mail draft to=someone@example.com subject=hello body="The body."
+   yardr call google-mail draft to=someone@example.com subject="Re: hello" body="On it." thread=<a thread id the search showed>
+   ```
+   And raw still takes the whole RFC 2822 message, base64url-encoded, with
+   or without padding — headers, a blank line, the body — for what the
+   composed shape cannot say, alone, never beside it:
    ```sh
    raw=$(printf 'From: me\nTo: someone@example.com\nSubject: hello\n\nThe body.\n' | base64 | tr -d '=\n' | tr '+/' '-_')
    yardr call google-mail draft raw="$raw"

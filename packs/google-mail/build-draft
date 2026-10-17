@@ -1,0 +1,130 @@
+#!/bin/bash
+# build-draft: the draft call's request body, built from to, cc, subject,
+# body and an optional thread, or passed through from raw. One JSON object
+# on stdin, {"params": {...}}, one on stdout, {message: {raw[, threadId]}}.
+# Where a thread is given the script reads its last message first, with the
+# yard's credential: GOOGLE_TOKEN and YARDR_SOURCE_BASE, the declaration's
+# base, are in the environment. Needs curl and jq; base64 and tr from
+# the system's core tools.
+#
+# Two shapes, never mixed: the composed shape (to, subject and body, with
+# cc and a thread to answer beside them) or raw alone, the whole RFC 2822
+# message base64url-encoded, wrapped untouched. Anything else is refused in
+# words, and nothing is sent.
+#
+# The yard writes the draft; sending stays the person's. No From is set:
+# the account the credential names is the sender, and Gmail fills it in.
+set -euo pipefail
+in=$(cat)
+refuse() { echo "$1" >&2; exit 1; }
+param() { jq -r --arg k "$1" '.params[$k] // ""' <<<"$in"; }
+given() { jq -e --arg k "$1" '(.params // {}) | has($k)' <<<"$in" >/dev/null; }
+gmail_get() { # $1 path and query, $2 what the words name: one GET with the credential
+  # The token goes to curl as a config line on its stdin, as telegram's
+  # thread script hands it: an argument can be read by every process on the
+  # machine while curl runs.
+  local out code detail
+  # Silent, not show-errors: the refusal below carries the words, and
+  # curl's own line would stand in front of them.
+  out=$(printf 'url = "%s%s"\nheader = "Authorization: Bearer %s"\n' "$YARDR_SOURCE_BASE" "$1" "$GOOGLE_TOKEN" \
+    | curl -s --fail-with-body -K -) || {
+    code=$?
+    detail=$(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || true)
+    [ -n "$detail" ] || detail="curl exit $code"
+    refuse "$2 could not be read: $detail"
+  }
+  printf '%s' "$out"
+}
+
+raw_given=""
+if given raw; then raw_given=1; fi
+composed=""
+for p in to cc subject body thread; do
+  if given "$p"; then composed="$composed$p, "; fi
+done
+if [ -n "$raw_given" ] && [ -n "$composed" ]; then
+  refuse "raw was given with ${composed%, }: pass raw alone, or to, subject and body"
+fi
+if [ -n "$raw_given" ]; then
+  # The escape hatch: raw is the whole message already, base64url-encoded
+  # by the caller, and goes to Gmail untouched, with no thread of its own.
+  jq -c -n --arg raw "$(param raw)" '{message: {raw: $raw}}'
+  exit 0
+fi
+missing=""
+for p in to subject body; do
+  if ! given "$p"; then missing="$missing$p, "; fi
+done
+if [ -n "$missing" ]; then
+  refuse "a draft is to, subject and body, or raw alone; missing: ${missing%, }"
+fi
+to=$(param to)
+cc=$(param cc)
+subject=$(param subject)
+body=$(param body)
+thread=$(param thread)
+
+# A header is one line: a line break in to, cc or subject would smuggle a
+# header of the caller's choosing (a Bcc) into the message. An address is
+# ASCII: an addr-spec holds no encoded word, so one outside it is refused
+# rather than encoded.
+linebreak() { # $1 field, $2 value
+  case "$2" in *$'\n'*|*$'\r'*) refuse "$1 holds a line break: a header is one line";; esac
+}
+linebreak to "$to"
+[ -z "$cc" ] || linebreak cc "$cc"
+linebreak subject "$subject"
+ascii() { # $1 field, $2 value
+  if [[ "$2" == *[^[:ascii:]]* ]]; then refuse "$1 holds a character outside ASCII: addresses are ASCII"; fi
+}
+ascii to "$to"
+[ -z "$cc" ] || ascii cc "$cc"
+
+msgid=""
+if [ -n "$thread" ]; then
+  : "${GOOGLE_TOKEN:?GOOGLE_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  # The reply answers the thread's last message: its id from the thread in
+  # minimal form (ids alone, however long the thread), then its headers for
+  # the Message-ID the reply points at.
+  list=$(gmail_get "/gmail/v1/users/me/threads/$thread?format=minimal" "thread $thread")
+  last=$(jq -r '(.messages // []) | if length == 0 then "" else (.[-1].id // "") end' <<<"$list")
+  [ -n "$last" ] || refuse "thread $thread holds no message to answer"
+  msg=$(gmail_get "/gmail/v1/users/me/messages/$last?format=metadata" "message $last")
+  msgid=$(jq -r '(.payload.headers // []) | map(select((.name | ascii_downcase) == "message-id") | .value) | first // ""' <<<"$msg")
+  [ -n "$msgid" ] || refuse "message $last has no Message-ID header to answer"
+fi
+
+# The subject goes out plain where it is ASCII, and as RFC 2047 encoded
+# words where it is not: =?UTF-8?B?<base64>?= in pieces of at most 45
+# UTF-8 bytes, each whole characters (a character split across two words
+# reads as two replacements in a decoder that decodes each word alone),
+# folded one word per line.
+subject_header="Subject: $subject"
+if [[ "$subject" == *[^[:ascii:]]* ]]; then
+  words=$(jq -n -r --arg s "$subject" '
+    def bytelen: if . < 128 then 1 elif . < 2048 then 2 elif . < 65536 then 3 else 4 end;
+    ($s | explode) as $cps
+    | (reduce range(0; $cps | length) as $i ([[], [], 0];
+        ($cps[$i] | bytelen) as $b
+        | .[2] as $n
+        | if $n + $b > 45 then [.[0] + [.[1]], [$cps[$i]], $b]
+          else [.[0], .[1] + [$cps[$i]], $n + $b] end)) as $acc
+    | (($acc[0] + [$acc[1]]) | map(select(length > 0) | implode)) as $words
+    | $words | map("=?UTF-8?B?\(. | @base64)?=") | join("\n ")')
+  subject_header="Subject: $words"
+fi
+mime="To: $to"
+[ -z "$cc" ] || mime+=$'\n'"Cc: $cc"
+mime+=$'\n'"$subject_header"
+[ -z "$msgid" ] || mime+=$'\n'"In-Reply-To: $msgid"$'\n'"References: $msgid"
+mime+=$'\n'"MIME-Version: 1.0"$'\n'"Content-Type: text/plain; charset=UTF-8"$'\n\n'"$body"$'\n'
+
+# base64url, Gmail's raw: standard base64 without padding or newlines, +/
+# as -_. The recipe is the pack's SETUP.md's.
+raw=$(printf '%s' "$mime" | base64 | tr -d '=\n' | tr '+/' '-_')
+if [ -n "$thread" ]; then
+  jq -c -n --arg raw "$raw" --arg thread "$thread" '{message: {raw: $raw, threadId: $thread}}'
+else
+  jq -c -n --arg raw "$raw" '{message: {raw: $raw}}'
+fi

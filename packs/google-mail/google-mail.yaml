@@ -65,13 +65,24 @@ calls:
     kind: update
     about: Write a draft, never send one
     params:
-      # The whole RFC 2822 message (From, To and Subject headers, a blank
-      # line, the body), base64url-encoded with or without padding. How to
-      # make one is in the pack's SETUP.md. At most a million characters,
-      # about 750 KB of message, under Gmail's 35 MB.
-      raw: { type: string, pattern: "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}(?:==)?|[A-Za-z0-9_-]{3}=?|[A-Za-z0-9_-]{4})$", max: 1000000 }
+      # Two shapes, never mixed: to, subject and body, with cc and a
+      # thread to answer beside them, or raw alone. Every field is
+      # optional here so raw alone reaches the build script, which
+      # refuses a shape that is neither and builds the raw message
+      # itself; "never sends" stands.
+      to: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, optional: true, log: true }   # one address, as drive's share takes one
+      cc: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, optional: true, log: true }   # one address beside to, or none
+      subject: { type: string, max: 500, optional: true }   # free text, as long as calendar's summary; encoded where it is not ASCII
+      body: { type: string, max: 100000, optional: true }   # plain text; 100000 characters encode worst case past 500 KB, under the 1 MiB a build may print
+      thread: { type: string, pattern: "^[0-9a-f]+$", max: 64, optional: true, log: true }   # the thread the draft answers, whose last message the script reads for its reply headers
+      # The escape hatch: the whole RFC 2822 message (headers, a blank
+      # line, the body), base64url-encoded with or without padding,
+      # wrapped untouched. How to make one is in the pack's SETUP.md.
+      # At most a million characters, about 750 KB of message, under
+      # Gmail's 35 MB.
+      raw: { type: string, pattern: "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}(?:==)?|[A-Za-z0-9_-]{3}=?|[A-Za-z0-9_-]{4})$", max: 1000000, optional: true }
     request:
       method: POST
       path: /gmail/v1/users/me/drafts
-      body: { message: { raw: "{raw}" } }
+    build: [build-draft]
     answer: { select: [id, message] }
