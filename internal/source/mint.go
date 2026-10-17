@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/user"
 	"slices"
 	"strings"
 	"sync"
@@ -185,19 +186,50 @@ func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 	return t.token, t.expires, nil
 }
 
+// osUserLookup is user.Current as a variable, so a test can be a machine
+// whose user lookup fails or blocks (yardr-tbm4, yardr-8ms7).
+var osUserLookup = user.Current
+
+// mintUser is the user name the mint command runs under: USER and LOGNAME
+// as the asking process has them, each empty one taken from the OS's own
+// name for the process's uid. The server and the daemon start with
+// neither variable (server.ServerEnv passes none), so without the
+// fallback they mint with an empty user and a helper that reads the
+// keyring by user name answers with none. The OS is asked only when one
+// of them is empty, where its lookup can hang past signals, and a lookup
+// that answers with no user leaves the empty names as they are.
+func mintUser() (name, login string) {
+	name, login = os.Getenv("USER"), os.Getenv("LOGNAME")
+	if name != "" && login != "" {
+		return name, login
+	}
+	if who, err := config.LookupUsername(osUserLookup); err == nil && who != "" {
+		if name == "" {
+			name = who
+		}
+		if login == "" {
+			login = who
+		}
+	}
+	return name, login
+}
+
 // mint runs argv and reads its {token, expires_at}. Its environment is an
-// allow-list: PATH, HOME, USER and LOGNAME as the process that asks has
-// them, and YARDR_SOURCE_BASE, the declaration's base, so the command
-// speaks to the same service the call goes to; the inputs reach it on
-// stdin alone. USER and LOGNAME are there because a helper that reads the
-// asking user's keyring looks it up by user name, and answers with no
-// user without one. TMPDIR and the rest of the caller's environment stay
-// out: a short-lived mint wants no private temp dir of its own, and
-// locale, terminal and session variables carry nothing a mint needs.
+// allow-list: PATH, HOME, USER and LOGNAME, and YARDR_SOURCE_BASE, the
+// declaration's base, so the command speaks to the same service the call
+// goes to; the inputs reach it on stdin alone. USER and LOGNAME are the
+// asking user's name, from the asking process or, where it has none,
+// from the OS's own user for the process's uid, because a helper that
+// reads the asking user's keyring looks it up by user name, and answers
+// with no user without one. TMPDIR and the rest of the caller's
+// environment stay out: a short-lived mint wants no private temp dir of
+// its own, and locale, terminal and session variables carry nothing a
+// mint needs.
 func mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string) (mintedToken, error) {
 	var none mintedToken
 	in := map[string]any{"inputs": inputs, "scope": scope}
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + os.Getenv("USER"), "LOGNAME=" + os.Getenv("LOGNAME")}
+	name, login := mintUser()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
 	env = append(env, config.Env("SOURCE_BASE", d.Base)...)
 	what := "mint_command " + strings.Join(argv, " ")
 	var t mintedToken

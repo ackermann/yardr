@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -230,6 +231,40 @@ func TestMintSeesUser(t *testing.T) {
 	body := `#!/bin/sh
 [ "$USER" = "mint-user" ] || { echo "USER is ${USER-unset}" >&2; exit 1; }
 [ "$LOGNAME" = "mint-login" ] || { echo "LOGNAME is ${LOGNAME-unset}" >&2; exit 1; }
+printf '{"token":"tok-1","expires_at":"` + now.Add(time.Hour).Format(time.RFC3339) + `"}'
+`
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inputs := map[string]string{"CRM_APP_ID": "app-1", "CRM_APP_KEY": "app.pem"}
+	token, _, err := Mint(context.Background(), mintDecl(t), []string{p}, inputs, "s")
+	if err != nil || token != "tok-1" {
+		t.Fatalf("mint = %q, %v", token, err)
+	}
+}
+
+// Without USER or LOGNAME in the asking process (the server and the daemon
+// start with neither: server.ServerEnv passes none), the mint still runs
+// under the process's own user: each empty name falls back to the OS
+// user's, so a helper that reads the keyring by user name answers with one.
+func TestMintWithoutUserEnv(t *testing.T) {
+	me, err := user.Current()
+	if err != nil || me.Username == "" {
+		t.Skipf("the OS names no user for this process: %v", err)
+	}
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	t.Cleanup(SetMintClock(func() time.Time { return now }))
+	t.Setenv("USER", "")
+	t.Setenv("LOGNAME", "")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "want"), []byte(me.Username), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "mint")
+	body := `#!/bin/sh
+want=$(cat ` + dir + `/want)
+[ "$USER" = "$want" ] || { echo "USER is ${USER-unset}" >&2; exit 1; }
+[ "$LOGNAME" = "$want" ] || { echo "LOGNAME is ${LOGNAME-unset}" >&2; exit 1; }
 printf '{"token":"tok-1","expires_at":"` + now.Add(time.Hour).Format(time.RFC3339) + `"}'
 `
 	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
