@@ -27,7 +27,7 @@ import (
 //	                             for a device of the operator, one of
 //	                             OperatorCalls too (operatorCall), and for
 //	                             a device of a user the one that gives
-//	                             their own address (ownAddress)
+//	                             their own address or credential (ownSecret)
 //	GET  /user/events?after=N    the stream, as on the socket
 //	GET  /user/blobs/<hash>      a blob, as on the socket
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
@@ -42,7 +42,7 @@ import (
 //     calls more are the two of OperatorCalls, GiveSecret and ApproveAsk,
 //     for a device of the operator, and not there for anyone else
 //     (operatorCall), but GiveSecret for a device of a user whose own
-//     address in a source is asked for (ownAddress);
+//     address or credential in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
@@ -565,15 +565,16 @@ func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) b
 	return err == nil && all[store.OperatorSetting] != "" && all[store.OperatorSetting] == c.User
 }
 
-// ownAddress reports whether body, the arguments of GiveSecret from the
+// ownSecret reports whether body, the arguments of GiveSecret from the
 // device c of a user who is not the operator, names a secret ask for that
-// user's own address in a source (store.AskSecret.User). That one giving is
-// the user's own to make, on the socket (the store's mayTell) and so here:
-// it writes a file of theirs and no credential of the yard. For every other
-// ask, and for arguments that name none, the call stays what it is to
-// anyone but the operator: not there. Who may give is still the store's to
-// decide, with the user of the device's token as the actor (asUser).
-func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) bool {
+// user's own address in a source (store.AskSecret.User) or for their own
+// credential in one (store.AskSecret.As). Those givings are the user's own
+// to make, on the socket (the store's mayTell) and so here: each writes a
+// file of theirs and no credential of the yard. For every other ask, and
+// for arguments that name none, the call stays what it is to anyone but
+// the operator: not there. Who may give is still the store's to decide,
+// with the user of the device's token as the actor (asUser).
+func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool {
 	var named struct {
 		Bead string `json:"bead"`
 		Ask  uint64 `json:"ask"`
@@ -590,7 +591,7 @@ func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) boo
 			continue
 		}
 		ask, err := store.ParseAsk(n)
-		return err == nil && ask.Secret != nil && ask.Secret.User == c.User
+		return err == nil && ask.Secret != nil && (ask.Secret.User == c.User || ask.Secret.As == c.User)
 	}
 	return false
 }
@@ -688,7 +689,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	_, listed := Calls[name]
 	operators := !listed && u.operatorCall(r.Context(), c, name)
 	// GiveSecret from a device of anyone else may still be that user's own
-	// to make (ownAddress), which what it names says. ApproveAsk is not:
+	// to make (ownSecret), which what it names says. ApproveAsk is not:
 	// to anyone but the operator's device it is not there, body unread.
 	own := !listed && !operators && name == "GiveSecret" && c.device
 	if !listed && !operators && !own {
@@ -716,7 +717,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if own {
-		if !u.ownAddress(r.Context(), c, body) {
+		if !u.ownSecret(r.Context(), c, body) {
 			writeJSON(w, noSuchMethod(name))
 			return
 		}

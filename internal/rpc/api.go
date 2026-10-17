@@ -61,8 +61,8 @@ var Calls = map[string][]string{
 // network only from the operator's own device, under the TLS in front of
 // the listener and no other protection, and never a link to another yard.
 // One giving is not the operator's alone: a secret ask for a user's own
-// address in a source is that user's to answer too, and the listener
-// serves it to a device of theirs (UserServer.ownAddress).
+// address or credential in a source is that user's to answer too, and the
+// listener serves it to a device of theirs (UserServer.ownSecret).
 //
 // ApproveAsk approves a run ask, and the yard then runs the one command the
 // ask holds, as the operator (design yardr-x3g8, section 3.6). It is the

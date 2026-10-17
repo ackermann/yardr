@@ -124,7 +124,7 @@ func TestSourceKeyTyped(t *testing.T) {
 			return a, nil
 		}
 	}
-	got, err := readKeys(d, nil, nil, typing("", " s3cret-write\t"))
+	got, err := readKeys(d, nil, nil, typing("", " s3cret-write\t"), "")
 	if err != nil || len(got) != 1 || got["CRM_UPDATE_TOKEN"] != "s3cret-write" {
 		t.Fatalf("readKeys = %d names, %v", len(got), err)
 	}
@@ -134,20 +134,41 @@ func TestSourceKeyTyped(t *testing.T) {
 	}; !slices.Equal(prompts, want) {
 		t.Fatalf("prompts = %q", prompts)
 	}
-	got, err = readKeys(d, []string{"CRM_TOKEN"}, nil, typing("s3cret-read"))
+	got, err = readKeys(d, []string{"CRM_TOKEN"}, nil, typing("s3cret-read"), "")
 	if err != nil || len(got) != 1 || got["CRM_TOKEN"] != "s3cret-read" ||
 		!slices.Equal(prompts, []string{"CRM_TOKEN for the source crm (nothing is shown as you type): "}) {
 		t.Fatalf("readKeys of one name = %d names, %v, prompts %q", len(got), err, prompts)
 	}
-	if _, err := readKeys(d, []string{"CRM_TOKEN"}, nil, typing("")); err == nil || !strings.Contains(err.Error(), "nothing was typed for CRM_TOKEN, and nothing is written") {
+	if _, err := readKeys(d, []string{"CRM_TOKEN"}, nil, typing(""), ""); err == nil || !strings.Contains(err.Error(), "nothing was typed for CRM_TOKEN, and nothing is written") {
 		t.Fatalf("enter alone for a name that was asked for: %v", err)
 	}
-	if _, err := readKeys(d, nil, nil, typing("", "")); err == nil || !strings.Contains(err.Error(), "nothing was typed, and nothing is written") {
+	if _, err := readKeys(d, nil, nil, typing("", ""), ""); err == nil || !strings.Contains(err.Error(), "nothing was typed, and nothing is written") {
 		t.Fatalf("enter alone for every name: %v", err)
 	}
 	gone := errors.New("the terminal went away")
-	if _, err := readKeys(d, nil, nil, func(string) (string, error) { return "s3cr", gone }); !errors.Is(err, gone) || strings.Contains(err.Error(), "s3cr") {
+	if _, err := readKeys(d, nil, nil, func(string) (string, error) { return "s3cr", gone }, ""); !errors.Is(err, gone) || strings.Contains(err.Error(), "s3cr") {
 		t.Fatalf("a read that failed: %v", err)
+	}
+	// For a user's own credential the prompt says whose. With no names
+	// a minted credential asks for its mint's inputs alone.
+	got, err = readKeys(d, nil, nil, typing("ada-s3cret", ""), "ada")
+	if err != nil || len(got) != 1 || got["CRM_TOKEN"] != "ada-s3cret" {
+		t.Fatalf("readKeys as ada = %d names, %v", len(got), err)
+	}
+	if want := []string{
+		"CRM_TOKEN for ada's credential for the source crm (nothing is shown as you type; enter alone leaves it as it is): ",
+		"CRM_UPDATE_TOKEN for ada's credential for the source crm (nothing is shown as you type; enter alone leaves it as it is): ",
+	}; !slices.Equal(prompts, want) {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	m, err := source.Parse("gog.yaml", []byte("name: gog\nbase: https://gog.example.com\ncredential: { env: GOG_TOKEN, mint: [GOG_ACCOUNT] }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = readKeys(m, nil, nil, typing("ada@example.com"), "ada")
+	if err != nil || len(got) != 1 || got["GOG_ACCOUNT"] != "ada@example.com" ||
+		!slices.Equal(prompts, []string{"GOG_ACCOUNT for ada's credential for the source gog (nothing is shown as you type): "}) {
+		t.Fatalf("readKeys of a mint as ada = %d names, %v, prompts %q", len(got), err, prompts)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +117,66 @@ func TestCredentialStateMint(t *testing.T) {
 	}
 	if _, err := two.CredentialState(one, ""); err == nil || !strings.Contains(err.Error(), "does not set CRM_WRITE_TOKEN") {
 		t.Fatalf("without the update's: %v", err)
+	}
+}
+
+// UserCredentialState says in words where the names a call as the user
+// reads are set in the user's file, without the mint command, which is
+// the source's; what is not set names the card that gives it.
+func TestUserCredentialState(t *testing.T) {
+	d := mintDecl(t)
+	mintOnly := credFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n")
+
+	state, err := d.UserCredentialState("ada", mintOnly)
+	if err != nil || state != "CRM_APP_ID and CRM_APP_KEY are set in "+mintOnly {
+		t.Fatalf("minted: %q %v", state, err)
+	}
+	// Static alone, and static with a second credential for updates.
+	one := credFile(t, "CRM_TOKEN=tok-static\n")
+	if state, err := d.UserCredentialState("ada", one); err != nil || state != "CRM_TOKEN is set in "+one {
+		t.Fatalf("static: %q %v", state, err)
+	}
+	two, err := Parse("crm.yaml", []byte(keyed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := credFile(t, "CRM_TOKEN=tok-read\nCRM_WRITE_TOKEN=tok-write\n")
+	if state, err := two.UserCredentialState("ada", file); err != nil || state != "CRM_TOKEN is set in "+file+"; for an update, CRM_WRITE_TOKEN is set in "+file {
+		t.Fatalf("two: %q %v", state, err)
+	}
+	if _, err := two.UserCredentialState("ada", one); err == nil ||
+		!strings.Contains(err.Error(), "does not set CRM_WRITE_TOKEN") ||
+		!strings.Contains(err.Error(), `yardr bead ask <bead> "<question>" --secret crm --as ada --context "<where to get it>" asks ada for it`) {
+		t.Fatalf("without the update's: %v", err)
+	}
+	// A file without the names, and no file at all: the card that gives
+	// them. The mint's inputs are what the card asks for unprompted.
+	empty := credFile(t, "OTHER=x\n")
+	if _, err := d.UserCredentialState("ada", empty); err == nil ||
+		!strings.Contains(err.Error(), "env_file "+empty+" does not set CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") ||
+		!strings.Contains(err.Error(), "--secret crm --as ada") {
+		t.Fatalf("nothing set: %v", err)
+	}
+	if _, err := d.UserCredentialState("ada", ""); err == nil ||
+		!strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY is not set for ada: ") ||
+		!strings.Contains(err.Error(), `yardr bead ask <bead> "<question>" --secret crm --as ada --context "<where to get it>" asks ada for it`) {
+		t.Fatalf("no file: %v", err)
+	}
+	// A file that names no credential reads nothing.
+	bare, err := Parse("q.yaml", []byte("name: q\nbase: https://q.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := bare.UserCredentialState("ada", ""); err != nil || state != "none: the file names no credential" {
+		t.Fatalf("no credential: %q %v", state, err)
+	}
+	// The names a user's credential goes by unprompted: the mint's
+	// inputs where the credential is minted, else the static ones.
+	if got := d.Credential.MintOrStatic(); !slices.Equal(got, []string{"CRM_APP_ID", "CRM_APP_KEY"}) {
+		t.Fatalf("minted MintOrStatic = %q", got)
+	}
+	if got := two.Credential.MintOrStatic(); !slices.Equal(got, []string{"CRM_TOKEN", "CRM_WRITE_TOKEN"}) {
+		t.Fatalf("static MintOrStatic = %q", got)
 	}
 }
 

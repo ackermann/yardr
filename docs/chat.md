@@ -288,7 +288,13 @@ line reads `a secret: <names>, for crew member <name> in the source
 when <name> next starts (rotation or yardr crew restart <name>)`, it is
 the operator's to answer, the value goes to the crew member's env_file,
 and nothing restarts it: its next session starts with the new value. One
-more kind is for a waiting login: `--secret-login <login>` asks for the
+more kind is for a user: `--secret <source> --as <user>` asks for that
+user's own credential in the source, which a call made as them reads. Its
+line reads `a secret: <names>, <name>'s own credential for the source
+<source> (…), read as <name> when a call is made --as <name>`, it is that
+user's to answer or the operator's, the same way, and the value goes to a
+file of the user's. One more kind is for a waiting login:
+`--secret-login <login>` asks for the
 input of the harness login
 that waits under that reference, the one its leader's input need names. Its
 line reads `a secret: INPUT, for the waiting login <login>`, the value is

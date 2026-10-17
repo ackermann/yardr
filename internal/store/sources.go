@@ -365,10 +365,11 @@ func (s Source) LimitsLine() string {
 	return fmt.Sprintf("%d calls an hour for each caller, %d of them updates at most", s.CallLimit(), s.UpdateLimit())
 }
 
-// SourceKeyed is what KeySource, KeyUser or GiveSecret did: the names it
-// wrote, the file they are in, and the credential's state in the words yardr
-// source show has for it. None of it holds a value. A giving to a waiting
-// login holds the login's reference instead of a file.
+// SourceKeyed is what KeySource, KeyUser, KeyUserCredential or GiveSecret
+// did: the names it wrote, the file they are in, and the credential's
+// state in the words yardr source show has for it. None of it holds a
+// value. A giving to a waiting login holds the login's reference instead
+// of a file.
 type SourceKeyed struct {
 	Source *Source  `json:"source"`
 	Given  []string `json:"given"`
@@ -380,15 +381,21 @@ type SourceKeyed struct {
 	// file, and "" for a source's credential or a user's address.
 	Login string `json:"login,omitempty"`
 	// User is whose own address in the source was given, and whose file
-	// File is; "" for a source's credential. Next is then the command that
-	// comes after it, in a line: the one that tells the user through the
-	// source, or once that is said the one that tries it.
+	// File is; "" for a source's credential and for a user's own
+	// credential (As). Next is then the command that comes after it, in
+	// a line: the one that tells the user through the source, or once
+	// that is said the one that tries it.
 	User string `json:"user,omitempty"`
 	// Crew is whose own credential in the source was given, and whose
 	// file File is; "" for a source's credential and for a user's
 	// address. Next is then when the value takes effect, in a line: the
 	// running session does not see it, so when its next one starts.
 	Crew string `json:"crew,omitempty"`
+	// As is whose own credential in the source was given, and whose file
+	// File is; "" for a source's credential and for a user's address.
+	// Next is then the command that tries it, in a line: the source's
+	// check, made as that user.
+	As   string `json:"as,omitempty"`
 	Next string `json:"next,omitempty"`
 	// State is where every variable of the credential is set now
 	// (CredentialState); Missing is what it still wants, in the words of
@@ -431,6 +438,12 @@ func (k *sourceKey) keyed() *SourceKeyed {
 		return out
 	}
 	if u := k.user; u != nil {
+		if k.as {
+			out.As = u.Name
+			out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
+			out.Next = fmt.Sprintf("yardr source check %s --as %s", k.src.Name, u.Name)
+			return out
+		}
 		out.User = u.Name
 		out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
 		out.Next = fmt.Sprintf("yardr source check %s --user %s sends one test message", k.src.Name, u.Name)
@@ -456,12 +469,18 @@ func (k *sourceKey) keyed() *SourceKeyed {
 
 // sourceKey is one giving of a source's credential, as keySource left it,
 // of a user's own address in the source, as keyUser did (user is then
-// set), or of a crew member's own credential in it, as giveCrewSecret did
-// (crew is then set). It outlives the transaction: a batch may run any of
-// them twice, and renamed stays true once any run renamed the file.
+// set), of a user's own credential in it, as keyUser did for one (user
+// and as are then set), or of a crew member's own credential in it, as
+// giveCrewSecret did (crew is then set). It outlives the transaction: a
+// batch may run any of them twice, and renamed stays true once any run
+// renamed the file.
 type sourceKey struct {
 	src  *Source
 	user *User
+	// as is set for a user's own credential in the source rather than
+	// their address: keyed then says whose credential and the command
+	// that tries it.
+	as   bool
 	crew *CrewMember
 	// hook is the hook whose signing secret was given, "" for a
 	// credential: File is then the hook's secret file.

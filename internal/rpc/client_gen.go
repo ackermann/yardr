@@ -610,6 +610,9 @@ func (c *Client) KeySource(ctx context.Context, name string, values map[string]s
 func (c *Client) KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*store.SourceKeyed, error) {
 	return callV[*store.SourceKeyed](c, ctx, "KeyUser", name, src, values, actor)
 }
+func (c *Client) KeyUserCredential(ctx context.Context, name, src string, values map[string]string, actor string) (*store.SourceKeyed, error) {
+	return callV[*store.SourceKeyed](c, ctx, "KeyUserCredential", name, src, values, actor)
+}
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }

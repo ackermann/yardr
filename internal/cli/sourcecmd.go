@@ -30,7 +30,12 @@ import (
 // variable of the credential and enter alone passes one over, and a pipe
 // gives the ones its lines name. Which names the declaration has is the
 // store's to check. No error holds a value.
-func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
+//
+// as is the user whose own credential in the source is given, "" for the
+// source's: the prompt then says whose, and with no names a terminal is
+// asked for the mint's inputs where the declaration names a mint, else the
+// static ones, rather than every variable of the credential.
+func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(prompt string) (string, error), as string) (map[string]string, error) {
 	values := map[string]string{}
 	if typed == nil {
 		env, err := config.ParseEnv(in, "standard input")
@@ -60,9 +65,16 @@ func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(pr
 	ask, wanted := names, true
 	if len(ask) == 0 {
 		ask, wanted = d.Credential.Variables(), false
+		if as != "" {
+			ask = d.Credential.MintOrStatic()
+		}
+	}
+	holder := "the source " + d.Name
+	if as != "" {
+		holder = as + "'s credential for the source " + d.Name
 	}
 	for _, n := range ask {
-		prompt := fmt.Sprintf("%s for the source %s (nothing is shown as you type", n, d.Name)
+		prompt := fmt.Sprintf("%s for %s (nothing is shown as you type", n, holder)
 		if !wanted && len(ask) > 1 {
 			prompt += "; enter alone leaves it as it is"
 		}
@@ -579,7 +591,8 @@ env_file; what the new file changes of its calls is printed.`,
 	show := &cobra.Command{
 		Use: "show <name>", Short: "Print a source: its calls, and whether its credential is set up", Args: cobra.ExactArgs(1),
 		Long: `Prints what the source's file declares, and for its credential the name of
-the variable and whether the env_file sets it. The value is never printed.
+the variable and whether the env_file sets it, and for each user's own
+credential in it whether their file sets that. The value is never printed.
 --json has the file as it was added, under source.declaration.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -635,12 +648,34 @@ the variable and whether the env_file sets it. The value is never printed.
 			for _, f := range d.CommandFiles(home) {
 				files[f.Key] = f
 			}
-			return a.out(map[string]any{"source": src, "declaration": d, "credential": state, "grants": grants}, func() {
+			out := map[string]any{"source": src, "declaration": d, "credential": state, "grants": grants}
+			var as map[string]string
+			if d.Credential != nil {
+				// Each user's own credential in the source, read for
+				// whether the names are set, as the source's is, and
+				// never a value; a user with no file, or a file without
+				// the names, is said so with the card that gives one.
+				as = make(map[string]string, len(users))
+				for _, u := range users {
+					astate, err := d.UserCredentialState(u.Name, u.EnvFile)
+					if err != nil {
+						astate = err.Error()
+					}
+					as[u.Name] = astate
+				}
+				out["as"] = as
+			}
+			return a.out(out, func() {
 				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
 					fmt.Printf("  %s\n", d.About)
 				}
 				fmt.Printf("  credential: %s\n", state)
+				for _, u := range users {
+					if astate, ok := as[u.Name]; ok {
+						fmt.Printf("  credential as %s: %s\n", u.Name, astate)
+					}
+				}
 				switch {
 				case d.Check != "":
 					fmt.Printf("  check: the call %s (yardr source check %s)\n", d.Check, d.Name)
@@ -929,6 +964,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 		},
 	}
 
+	var keyAs string
 	key := &cobra.Command{
 		Use:   "key <name> [NAME...]",
 		Short: "Give a source's credential: typed without echo, or NAME=value lines on standard input",
@@ -957,11 +993,23 @@ declaration does not have, an empty value, one with a line break in it or
 white space at either end. It is the operator's, and is refused from the
 pane of an agent, as yardr source set is.
 
+With --as <user> it is that user's own credential in the source that is
+given, which a call made as them reads: the value goes into the user's
+env_file, or with none set into ~/.yardr/users/<user>.env, which is then
+set as yardr user set sets it, and every other line is kept. Without a
+NAME every name under credential.mint is asked for where the declaration
+names a mint, else the static ones, and enter alone leaves one as it is;
+with NAMEs those are asked for, and each wants a value. The user gives
+their own, or the operator does it for them; it is refused from the pane
+of an agent, and for a user the yard does not have. The source needs no
+notify key. What is printed names the check that tries it as them.
+
 The file and the store are two writes. When the yard wrote the file and
 could not record it, it says so, with the names and the file: give it
 again, and it ends as one giving that worked.`,
 		Example: `  yardr source key crm                      # asks for each variable of its credential
   yardr source key crm CRM_UPDATE_TOKEN     # one of them
+  yardr source key crm --as ada             # ada's own credential in it
   op read op://yard/crm/token | sed 's/^/CRM_TOKEN=/' | yardr source key crm`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -981,14 +1029,28 @@ again, and it ends as one giving that worked.`,
 				return fmt.Errorf("source %s: its declaration names no credential, so there is nothing to give it", d.Name)
 			}
 			// Refused before anything is typed.
+			if keyAs != "" {
+				if _, err := st.GetUser(c.Context(), keyAs); err != nil {
+					return err
+				}
+			}
 			for _, n := range args[1:] {
 				if !slices.Contains(d.Credential.Variables(), n) {
 					return fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
 				}
 			}
-			values, err := readKeys(d, args[1:], c.InOrStdin(), typedUnseen(c.InOrStdin()))
+			values, err := readKeys(d, args[1:], c.InOrStdin(), typedUnseen(c.InOrStdin()), keyAs)
 			if err != nil {
 				return err
+			}
+			if keyAs != "" {
+				keyed, err := st.KeyUserCredential(c.Context(), keyAs, d.Name, values, a.who())
+				if err != nil {
+					return secretErr(err)
+				}
+				return a.out(keyed, func() {
+					fmt.Printf("%s gave %s · it is set in %s · %s\n", keyed.As, strings.Join(keyed.Given, " and "), keyed.File, keyed.Next)
+				})
 			}
 			keyed, err := st.KeySource(c.Context(), d.Name, values, a.who())
 			if err != nil {
@@ -1007,6 +1069,7 @@ again, and it ends as one giving that worked.`,
 			})
 		},
 	}
+	key.Flags().StringVar(&keyAs, "as", "", "give this user's own credential in the source instead of the source's, kept in the user's env_file and read by a call made --as <user>")
 
 	var groups, crew []string
 	// grantees are the groups and crew members the flags name.

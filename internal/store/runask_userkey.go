@@ -172,7 +172,7 @@ func runUserKey(ctx context.Context, w *wtx, run AskRun, actor string, by *appro
 	}
 	env := d.Notify.AddressEnv
 	var k sourceKey
-	if err := w.keyUser(ctx, w.home, user, srcName, map[string]string{env: run.Value}, actor, &k); err != nil {
+	if err := w.keyUser(ctx, w.home, user, srcName, map[string]string{env: run.Value}, actor, false, &k); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("user %s: %s is set", user, env), nil

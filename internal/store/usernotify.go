@@ -285,7 +285,27 @@ func userEnvFile(home, name string) (string, error) {
 // is, and what it answers names the command that sets it.
 func (s *Store) KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error) {
 	var k sourceKey
-	err := s.write(func(w *wtx) error { return w.keyUser(ctx, s.home, name, src, values, actor, &k) })
+	err := s.write(func(w *wtx) error { return w.keyUser(ctx, s.home, name, src, values, actor, false, &k) })
+	if err != nil {
+		return nil, k.failed(err)
+	}
+	return k.keyed(), nil
+}
+
+// KeyUserCredential writes the user name's own credential in the source
+// src into the file a call made as them reads: values is variables of the
+// source's credential to the values they take. The file is the user's
+// env_file, or with none set <home>/users/<name>.env, which is then set
+// as SetUser sets it. It is KeyUser for a credential instead of an
+// address, by the same writer and in the same order (keyUser), and a value
+// is kept nowhere else. The source needs no notify key: a source that is
+// called as a user need tell nobody.
+//
+// It is the user's own to give, or the operator's for them (mayTell), and
+// what it answers names the command that tries it as them.
+func (s *Store) KeyUserCredential(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error) {
+	var k sourceKey
+	err := s.write(func(w *wtx) error { return w.keyUser(ctx, s.home, name, src, values, actor, true, &k) })
 	if err != nil {
 		return nil, k.failed(err)
 	}
@@ -300,10 +320,13 @@ func (s *Store) KeyUser(ctx context.Context, name, src string, values map[string
 // (KeyNotRecorded): the value in the file, and for a user who had no
 // env_file none set still.
 //
-// It refuses a source with no notify key, since such a source reads
-// nothing of a user's file, and any name but the one that key names,
-// without saying back what was sent.
-func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values map[string]string, actor string, k *sourceKey) error {
+// With credential it is KeyUserCredential instead: values are variables of
+// the source's credential, held to the declaration as KeySource holds
+// them, and no notify key is needed, since a source that is called as a
+// user need tell nobody. Without it, it refuses a source with no notify
+// key, since such a source reads nothing of a user's file, and any name
+// but the one that key names, without saying back what was sent.
+func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values map[string]string, actor string, credential bool, k *sourceKey) error {
 	u, err := getUser(w.Tx, name)
 	if err != nil {
 		return err
@@ -321,12 +344,32 @@ func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values ma
 	if err != nil {
 		return err
 	}
-	if d.Notify == nil {
-		return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", srcName, name)
-	}
-	env := d.Notify.AddressEnv
-	if _, ok := values[env]; !ok || len(values) != 1 {
-		return fmt.Errorf("user %s: the source %s reads %s of a user's file: that name is given, and no other", name, srcName, env)
+	var names []string
+	if credential {
+		if d.Credential == nil {
+			return fmt.Errorf("source %s: its declaration names no credential, so there is no credential of %s's to give", srcName, name)
+		}
+		if len(values) == 0 {
+			return fmt.Errorf("source %s: no value was given (its declaration names %s)", srcName, d.Credential.Names())
+		}
+		has := d.Credential.Variables()
+		names = make([]string, 0, len(values))
+		for n := range values {
+			if !slices.Contains(has, n) {
+				return fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", srcName, n, d.Credential.Names())
+			}
+			names = append(names, n)
+		}
+		sort.Strings(names)
+	} else {
+		if d.Notify == nil {
+			return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", srcName, name)
+		}
+		env := d.Notify.AddressEnv
+		if _, ok := values[env]; !ok || len(values) != 1 {
+			return fmt.Errorf("user %s: the source %s reads %s of a user's file: that name is given, and no other", name, srcName, env)
+		}
+		names = []string{env}
 	}
 	file := u.EnvFile
 	if file == "" {
@@ -342,7 +385,7 @@ func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values ma
 			return err
 		}
 	}
-	k.src, k.user, k.names = src, u, []string{env}
+	k.src, k.user, k.as, k.names = src, u, credential, names
 	resolved, renamed, err := config.WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed

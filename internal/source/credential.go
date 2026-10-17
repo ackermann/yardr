@@ -67,6 +67,37 @@ func (d *Declaration) CredentialState(envFile, mintCommand string) (state string
 	return state + "; for an update, " + d.Credential.UpdateEnv + " is set in " + update.File, nil
 }
 
+// UserCredentialState says in words where every variable d names is set
+// in the user's file, as CredentialState says it of the source's file: for
+// a minted credential the input names, without the mint command, which is
+// the source's and is said on its line. err is the first that is not, with
+// the card that gives it.
+func (d *Declaration) UserCredentialState(user, file string) (string, error) {
+	if d.Credential == nil {
+		return "none: the file names no credential", nil
+	}
+	card := fmt.Sprintf("yardr bead ask <bead> \"<question>\" --secret %s --as %s --context \"<where to get it>\" asks %s for it", d.Name, user, user)
+	if file == "" {
+		return "", fmt.Errorf("%s is not set for %s: %s", strings.Join(d.Credential.MintOrStatic(), " and "), user, card)
+	}
+	sel, err := d.SelectCredential(file, Read)
+	if err != nil {
+		return "", fmt.Errorf("%s: %s", err, card)
+	}
+	if sel.Inputs != nil {
+		return mintState(d.Credential.Mint, sel.File), nil
+	}
+	state := d.Credential.Env + " is set in " + sel.File
+	if d.Credential.UpdateEnv == "" {
+		return state, nil
+	}
+	update, err := d.SelectCredential(file, Update)
+	if err != nil {
+		return "", fmt.Errorf("%s: %s", err, card)
+	}
+	return state + "; for an update, " + d.Credential.UpdateEnv + " is set in " + update.File, nil
+}
+
 // mintState says in words where the mint's inputs are set.
 func mintState(names []string, file string) string {
 	verb := "are"

@@ -177,6 +177,20 @@ func (c *Credential) Variables() []string {
 	return append(append([]string{}, c.Mint...), c.Envs()...)
 }
 
+// MintOrStatic are the names a user's own credential in the source goes by
+// unprompted: the mint's inputs where the credential is minted, else the
+// static ones. A call mints from the former and falls back to the latter;
+// an ask for a user's credential asks for these unless --env names others.
+func (c *Credential) MintOrStatic() []string {
+	if c == nil {
+		return nil
+	}
+	if c.Minted() {
+		return append([]string{}, c.Mint...)
+	}
+	return c.Envs()
+}
+
 // Call is one request the yard may make of the source.
 type Call struct {
 	Name    string  `json:"name"`

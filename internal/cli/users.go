@@ -121,6 +121,9 @@ everything either way.`,
 			}
 			v.Notifications = notes.Unread
 			v.Told = told(c.Context(), st, &v.User)
+			if v.Credentials, err = userCredentials(c.Context(), st, &v.User); err != nil {
+				return err
+			}
 			if v.Devices, err = st.Devices(c.Context(), v.Name); err != nil {
 				return err
 			}
@@ -145,6 +148,9 @@ everything either way.`,
 					id := v.Identities[src]
 					fmt.Printf("  %s identity: %s\n", src, strings.Join(slices.DeleteFunc([]string{id.ID, id.Key},
 						func(s string) bool { return s == "" }), ", "))
+				}
+				if len(v.Credentials) > 0 {
+					fmt.Printf("  credentials: %s\n", strings.Join(v.Credentials, ", "))
 				}
 				if v.Told != "" {
 					fmt.Printf("  told outside the yard: %s\n", v.Told)
@@ -322,7 +328,7 @@ again, and it ends as one giving that worked.`,
 			if d.Notify == nil {
 				return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", d.Name, args[0])
 			}
-			values, err := readKeys(d, []string{d.Notify.AddressEnv}, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+			values, err := readKeys(d, []string{d.Notify.AddressEnv}, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
 			if err != nil {
 				return err
 			}
@@ -354,6 +360,28 @@ func told(ctx context.Context, st store.API, u *store.User) string {
 		return said + ", which is not set up: " + err.Error()
 	}
 	return said + " (" + state + ")"
+}
+
+// userCredentials are the sources that hold a credential of the user, by
+// name: each source with a credential whose names the user's file sets, as
+// yardr source show reads them, and never a value. A source whose file
+// reads as no declaration holds none.
+func userCredentials(ctx context.Context, st store.API, u *store.User) ([]string, error) {
+	srcs, err := st.Sources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, src := range srcs {
+		d, err := src.Declaration()
+		if err != nil || d.Credential == nil {
+			continue
+		}
+		if _, err := d.UserCredentialState(u.Name, u.EnvFile); err == nil {
+			out = append(out, d.Name)
+		}
+	}
+	return out, nil
 }
 
 // lastPush says in a line how the last message to a user outside the yard
@@ -395,6 +423,9 @@ type userView struct {
 	// Told is where the user is told outside the yard and whether that is
 	// set up, in words; "" for a user told nowhere.
 	Told string `json:"told,omitempty"`
+	// Credentials are the sources that hold a credential of the user's,
+	// by name and never a value; only yardr user show reads them.
+	Credentials []string `json:"credentials,omitempty"`
 	// Devices are the user's devices; only yardr user show reads them.
 	Devices []store.Device `json:"devices,omitempty"`
 }
