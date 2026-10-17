@@ -26,6 +26,7 @@
 package source
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -34,6 +35,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -201,7 +203,8 @@ type Call struct {
 	Answer  Answer  `json:"answer"`
 }
 
-// Param is one parameter of a call. All are required unless Optional.
+// Param is one parameter of a call. All are required unless Optional or
+// Default is set.
 type Param struct {
 	Name string `json:"name"`
 	// Type is string, int, bool or enum.
@@ -210,6 +213,9 @@ type Param struct {
 	Max      int      `json:"max,omitempty"`     // of a string: its length at most, in characters
 	Values   []string `json:"values,omitempty"`  // of an enum: what it may be
 	Optional bool     `json:"optional,omitempty"`
+	// Default is the typed JSON value sent when the caller leaves the
+	// parameter out. Its raw form preserves false and zero in JSON.
+	Default json.RawMessage `json:"default,omitempty"`
 	// Log keeps the parameter's value in the record of each call (the
 	// source_call event), which otherwise has its name alone: for what an
 	// audit asks by (a customer's id), and never for free text.
@@ -931,8 +937,8 @@ func (r *reader) call(e entry, credential, inPath bool) Call {
 func (r *reader) param(e entry) Param {
 	p := Param{Name: e.key}
 	typed := false
-	var pattern, most, values *entry
-	for _, f := range r.entries(e.v, e.path, "type", "pattern", "max", "values", "optional", "log") {
+	var pattern, most, values, defaultValue *entry
+	for _, f := range r.entries(e.v, e.path, "type", "pattern", "max", "values", "optional", "default", "log") {
 		switch f.key {
 		case "type":
 			typed = true
@@ -949,6 +955,8 @@ func (r *reader) param(e entry) Param {
 			values = &f
 		case "optional":
 			p.Optional, _ = r.boolean(f.v, f.path)
+		case "default":
+			defaultValue = &f
 		case "log":
 			p.Log, _ = r.boolean(f.v, f.path)
 		}
@@ -991,7 +999,66 @@ func (r *reader) param(e entry) Param {
 	} else if p.Type == "enum" && len(p.Values) == 0 && values.v.Kind == yaml.SequenceNode && len(values.v.Content) == 0 {
 		r.errf(values.v, values.path, "an enum that may be nothing")
 	}
+	if defaultValue != nil {
+		if raw, ok := r.paramDefault(p, *defaultValue); ok {
+			p.Default = raw
+			p.Optional = true
+		}
+	}
 	return p
+}
+
+// paramDefault reads a default as the parameter's own type, then checks the
+// same string bounds that a caller's value will have. A default makes the
+// parameter optional because callers need not repeat the value it supplies.
+func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
+	var value any
+	switch p.Type {
+	case "string", "enum":
+		if e.v.Kind != yaml.ScalarNode || e.v.Tag != "!!str" {
+			r.errf(e.v, e.path, "want a %s default, got %s", p.Type, describe(e.v))
+			return nil, false
+		}
+		s := e.v.Value
+		if p.Type == "enum" && !slices.Contains(p.Values, s) {
+			r.errf(e.v, e.path, "default is one of %s", strings.Join(p.Values, ", "))
+			return nil, false
+		}
+		if p.Max > 0 && utf8.RuneCountInString(s) > p.Max {
+			r.errf(e.v, e.path, "default is %d characters, and at most %d", utf8.RuneCountInString(s), p.Max)
+			return nil, false
+		}
+		if p.re != nil && !p.re.MatchString(s) {
+			r.errf(e.v, e.path, "default does not match its pattern %s", p.Pattern)
+			return nil, false
+		}
+		value = s
+	case "int":
+		if e.v.Kind != yaml.ScalarNode || e.v.Tag != "!!int" {
+			r.errf(e.v, e.path, "want an int default, got %s", describe(e.v))
+			return nil, false
+		}
+		n, err := strconv.ParseInt(e.v.Value, 0, 64)
+		if err != nil {
+			r.errf(e.v, e.path, "want a whole number, got %s", describe(e.v))
+			return nil, false
+		}
+		value = n
+	case "bool":
+		b, ok := r.boolean(e.v, e.path)
+		if !ok {
+			return nil, false
+		}
+		value = b
+	default:
+		return nil, false
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		r.errf(e.v, e.path, "cannot encode default: %v", err)
+		return nil, false
+	}
+	return raw, true
 }
 
 func (r *reader) request(c *Call, e entry, credential, inPath bool) {

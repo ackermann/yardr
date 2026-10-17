@@ -728,6 +728,10 @@ yardr source rm pushover
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
+- **Call parameters** are required unless `optional: true`. A parameter
+  with `default: false` is also optional: when a call leaves it out, yardr
+  sends the default value. The YAML value has the parameter's type and is
+  checked against its pattern, length or enum values when the file is read.
 - **Who calls one**: `yardr source check`, `yardr doctor --try` (the same
   check call, of every source), the daemon for a source a user
   names as their notify, and the server for `yardr call`, a call by a

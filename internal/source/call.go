@@ -279,6 +279,33 @@ type value struct {
 	typed any
 }
 
+// defaultText turns a declaration's typed default back into the text a call
+// parameter takes. Parse checked the type when it read the declaration.
+func defaultText(p Param) (string, error) {
+	switch p.Type {
+	case "string", "enum":
+		var s string
+		if err := json.Unmarshal(p.Default, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	case "int":
+		var n int64
+		if err := json.Unmarshal(p.Default, &n); err != nil {
+			return "", err
+		}
+		return strconv.FormatInt(n, 10), nil
+	case "bool":
+		var b bool
+		if err := json.Unmarshal(p.Default, &b); err != nil {
+			return "", err
+		}
+		return strconv.FormatBool(b), nil
+	default:
+		return "", fmt.Errorf("parameter has no type")
+	}
+}
+
 // values reads params against the call's declaration. Its errors name the
 // parameter and what is wrong, never the value.
 func (c *Call) values(params map[string]string) (map[string]value, error) {
@@ -290,6 +317,14 @@ func (c *Call) values(params map[string]string) (map[string]value, error) {
 	out := map[string]value{}
 	for _, p := range c.Params {
 		s, given := params[p.Name]
+		if !given && len(p.Default) > 0 {
+			var err error
+			s, err = defaultText(p)
+			if err != nil {
+				return nil, fmt.Errorf("parameter %s has an invalid default", p.Name)
+			}
+			given = true
+		}
 		if !given {
 			if !p.Optional {
 				return nil, fmt.Errorf("parameter %s is missing", p.Name)

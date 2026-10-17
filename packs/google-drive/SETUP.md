@@ -57,7 +57,8 @@ shared setup, said once in `docs/google.md`.
    shares nothing. The grant alone allows any address. The
    yardmaster's habit, not a mechanism, is to ask on a card before
    each share to a new address, naming the file and the address, and
-   to pass `notify=false` unless the person expects mail.
+   to leave `notify` out for quiet sharing, or pass `notify=true` when
+   the person expects mail.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with
@@ -79,10 +80,10 @@ shared setup, said once in `docs/google.md`.
    yardr call google-drive folder name="notes" parent=<a folder id>
    yardr call google-drive doc name="lunch" parent=<the folder's id>
    ```
-   And a share, which is for real: the address sees the file, quiet
-   unless `notify=true`:
+   And a share, which is for real: the address sees the file, quiet by
+   default unless `notify=true`:
    ```sh
-   yardr call google-drive share fileId=<the file's id> email=<an address> role=reader notify=false
+   yardr call google-drive share fileId=<the file's id> email=<an address> role=reader
    ```
 
 Calling as a user — the yard reading another person's drive with

@@ -15,9 +15,17 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/scripttest"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
+
+func TestSourceParamLineDefault(t *testing.T) {
+	got := paramLine(source.Param{Name: "notify", Type: "bool", Optional: true, Default: json.RawMessage("false")})
+	if got != "notify  bool  default false" {
+		t.Fatalf("paramLine = %q, want the typed default", got)
+	}
+}
 
 // testdata/pushover.yaml is the file of the design (yardr-1481), whole. It
 // is added, shown, listed and removed, and nothing is sent: it names no

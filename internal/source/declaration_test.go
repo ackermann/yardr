@@ -3,6 +3,7 @@ package source
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -95,6 +96,71 @@ func TestParseCRM(t *testing.T) {
 	}
 	if d.Calls[0].Name != "ping" || d.Calls[2].Name != "note" {
 		t.Fatalf("calls are not in file order: %+v", d.Calls)
+	}
+}
+
+// A default is a typed value sent when its parameter is left out, and makes
+// the parameter optional to callers.
+func TestParseParameterDefaults(t *testing.T) {
+	const text = `name: defaults
+base: https://example.com
+calls:
+  set:
+    kind: update
+    params:
+      phrase: { type: string, default: "hello", max: 10 }
+      count: { type: int, default: 0 }
+      notify: { type: bool, default: false }
+      role: { type: enum, values: [reader, commenter], default: reader }
+    request:
+      method: POST
+      path: /set
+      body: { phrase: "{phrase}", count: "{count}", notify: "{notify}", role: "{role}" }
+`
+	d, err := Parse("defaults.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := d.Call("set")
+	for i, want := range []string{`"hello"`, "0", "false", `"reader"`} {
+		p := c.Params[i]
+		if !p.Optional || string(p.Default) != want {
+			t.Errorf("parameter %s = %+v, want optional default %s", p.Name, p, want)
+		}
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundTrip Declaration
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := roundTrip.Call("set")
+	if string(got.Params[2].Default) != "false" || !got.Params[2].Optional {
+		t.Fatalf("false default did not survive storage JSON: %+v", got.Params[2])
+	}
+}
+
+func TestParseRefusesInvalidParameterDefaults(t *testing.T) {
+	const file = `name: defaults
+base: https://example.com
+calls:
+  set:
+    kind: update
+    params:
+      value: { type: %s, %s }
+    request: { method: POST, path: /set, body: { value: "{value}" } }
+`
+	for _, tc := range []struct{ typ, setting, want string }{
+		{"bool", `default: "false"`, "want true or false"},
+		{"enum", "values: [reader, commenter], default: writer", "default is one of reader, commenter"},
+		{"string", `default: too-long, max: 3`, "default is 8 characters, and at most 3"},
+	} {
+		_, err := Parse("defaults.yaml", []byte(fmt.Sprintf(file, tc.typ, tc.setting)))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %s: err = %v, want %q", tc.typ, tc.setting, err, tc.want)
+		}
 	}
 }
 

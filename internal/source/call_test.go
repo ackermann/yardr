@@ -214,12 +214,13 @@ calls:
       id:    { type: string }
       limit: { type: int }
       open:  { type: bool, optional: true }
+      enabled: { type: bool, default: false }
       plan:  { type: enum, values: [free, paid], optional: true }
     request:
       method: POST
       path: "/customers/{id}/notes"
       query: { "filter[plan]": "{plan}", per: "{limit}", fixed: v1 }
-      body: { limit: "{limit}", open: "{open}", say: "for {id}", list: [ "{id}", 3 ] }
+      body: { limit: "{limit}", open: "{open}", enabled: "{enabled}", say: "for {id}", list: [ "{id}", 3 ] }
     answer: { select: [id, name] }
 `
 	s := newStandin(t, jsonAnswer(`[ {"id": 1, "name": "A", "secret": "s"}, {"id": 2, "name": "B", "plan": "paid"} ]`))
@@ -238,11 +239,17 @@ calls:
 	if got.Auth != "Bearer "+token {
 		t.Fatalf("Authorization = %q", got.Auth)
 	}
-	if string(got.Body) != `{"limit":20,"list":["a/b c?",3],"say":"for a/b c?"}` {
+	if string(got.Body) != `{"enabled":false,"limit":20,"list":["a/b c?",3],"say":"for a/b c?"}` {
 		t.Fatalf("body = %s", got.Body)
 	}
 	if strings.Contains(string(got.Body), token) || strings.Contains(got.URI, token) {
 		t.Fatal("the credential is outside its header")
+	}
+	if _, err := Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "enabled": "true"}, token); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got()[1]; string(got.Body) != `{"enabled":true,"limit":20,"list":["a",3],"say":"for a"}` {
+		t.Fatalf("explicit value overrides the default: body = %s", got.Body)
 	}
 }
 

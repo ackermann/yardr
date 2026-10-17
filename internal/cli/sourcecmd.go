@@ -1475,7 +1475,9 @@ func paramLine(p source.Param) string {
 	if len(p.Values) > 0 {
 		parts = append(parts, "one of "+strings.Join(p.Values, ", "))
 	}
-	if p.Optional {
+	if len(p.Default) > 0 {
+		parts = append(parts, "default "+string(p.Default))
+	} else if p.Optional {
 		parts = append(parts, "optional")
 	}
 	if p.Log {

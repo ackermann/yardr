@@ -89,7 +89,7 @@ calls:
       fileId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
       email: { type: string, pattern: "^[^@ ]+@[^@ ]+$", max: 254, log: true }   # one address; the grant allows any
       role: { type: enum, values: [reader, commenter] }   # no writer or owner
-      notify: { type: bool }   # always given: Drive's own default notifies, so quiet is said out loud
+      notify: { type: bool, default: false }   # Drive defaults to notifying; the yard defaults to quiet
     request:
       method: POST
       path: /drive/v3/files/{fileId}/permissions
