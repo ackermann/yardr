@@ -126,5 +126,6 @@ worked); user docs live in `docs/` and are not repeated here.
   flows or `internal/flowdraw`.
 - Git-ignored build outputs (`/yard`, `*.test`, `/dist`,
   `conformance/bdp/node_modules/`); there is no `vendor/` directory.
-- `.yardr/depot.md` holds the yard's rules for builders; a change that
-  moves or adds a package updates this file in the same commit.
+- `.yardr/depot.md` holds the yard's rules for builders. One of them: a
+  change that moves or adds a package updates this map (AGENTS.md) in the
+  same commit.
