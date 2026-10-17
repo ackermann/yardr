@@ -597,6 +597,81 @@ func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	}
 }
 
+// Changing an existing depot's kind, with path, test command and base
+// unchanged, is the operator's alone, as changing any of those is: a depot
+// that worked as a directory must not start working as a repository from a
+// non-operator's re-put, or a repository with an empty base as a directory.
+func TestPutDepotKindChangeIsTheOperators(t *testing.T) {
+	t.Parallel()
+	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
+		t.Helper()
+		api, own := operatorYard(t)
+		ctx := context.Background()
+		if err := api.PutDepot(ctx, store.Depot{Name: "docs", Path: "/srv/docs", Kind: store.DepotDir}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.PutDepot(ctx, store.Depot{Name: "notes", Path: "/srv/notes"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return api, own, ctx
+	}
+	const does = "change a depot's kind"
+	flips := map[string]store.Depot{
+		"docs":  {Name: "docs", Path: "/srv/docs", Kind: store.DepotGit},
+		"notes": {Name: "notes", Path: "/srv/notes", Kind: store.DepotDir},
+	}
+	api, own, ctx := depotYard(t)
+	head, err := api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, r := range flips {
+		if err := api.PutDepot(ctx, r, "yardmaster"); err == nil ||
+			err.Error() != "only the operator (jo) may "+does+"; this is yardmaster" {
+			t.Errorf("%s to %s as yardmaster = %v", name, r.Kind, err)
+		}
+		if err := own.PutDepot(ctx, r, "yardmaster"); err == nil {
+			t.Errorf("%s to %s as yardmaster through own = nil", name, r.Kind)
+		} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+			t.Errorf("%s to %s as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", name, r.Kind, err, ask, ok)
+		}
+	}
+	if now, _ := api.Head(ctx); now != head {
+		t.Fatalf("the refusals logged %d events", now-head)
+	}
+	if d, _ := api.GetDepot(ctx, "docs"); d.Kind != store.DepotDir {
+		t.Fatalf("a refused change changed: %+v", d)
+	}
+	if d, _ := api.GetDepot(ctx, "notes"); d.Kind != store.DepotGit {
+		t.Fatalf("a refused change changed: %+v", d)
+	}
+	// The operator's own flips pass.
+	for name, r := range flips {
+		if err := api.PutDepot(ctx, r, "jo"); err != nil {
+			t.Fatalf("%s to %s as the operator: %v", name, r.Kind, err)
+		}
+	}
+	// From a crew member's pane the flip is refused even as the
+	// operator. A fresh yard again: the pane goes on record after the
+	// setup, since over the socket every call carries this process as
+	// its caller.
+	api, _, ctx = depotYard(t)
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := api.CrewStarted(ctx, "clerk", handle); err != nil {
+		t.Fatal(err)
+	}
+	for name, r := range flips {
+		if err := api.PutDepot(store.WithCaller(ctx, me), r, "jo"); err == nil ||
+			err.Error() != "only the operator (jo) may "+does+"; this is clerk" {
+			t.Fatalf("%s to %s from clerk's pane as the operator = %v", name, r.Kind, err)
+		}
+	}
+}
+
 // A yard that names no operator has nobody to hold the rule to: it takes
 // the change from anyone who is no agent of its own, as a declared source
 // is taken (maySource).
