@@ -409,7 +409,8 @@ func callSays(c source.Call) string {
 // approval is held to the declaration the card was written from, and to
 // each group and crew member as it was (Seen): GrantSource checks a grant
 // against the declaration as it is when it runs. Asking refuses a grantee
-// that holds the grant already.
+// that holds the grant already, and an approval runs past what one was
+// granted since unless it holds the grant already (grantStale).
 func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	name, what, to, as := grantOf(argv)
 	src, d, err := sourceIn(w.Tx, name)
@@ -504,12 +505,51 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	return card, nil
 }
 
-// grantStale says why the ask seq for source grant is approved no more: the
-// source, a group or a crew member is another under its name, the user
-// called as is another, or a grantee holds another grant than the card
-// says.
+// grantAction is what a grant card's Does line says the approval would
+// do, without what the grantee holds now: the line up to the "It is
+// granted ... now." sentence grantCard ends it with.
+func grantAction(line string) string {
+	action, _, _ := strings.Cut(line, " It is granted ")
+	return action
+}
+
+// sameGrantAction reports whether the grant cards was and now say the
+// approval would do the same: the member, the call, and the source's
+// call as declared. What a grantee holds now is no part of it.
+func sameGrantAction(was, now []string) bool {
+	if len(was) != len(now) {
+		return false
+	}
+	for i := range was {
+		if grantAction(was[i]) != grantAction(now[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// grantedMatch matches the event of the grant of what of the source name
+// to the grantee t as the user as.
+func grantedMatch(name string, t Grantee, as, what string) func(Event) bool {
+	return func(e Event) bool {
+		if e.Data["source"] != name || e.Data["what"] != what || e.Data["as"] != as {
+			return false
+		}
+		if t.Crew != "" {
+			return e.Data["crew"] == t.Crew
+		}
+		return e.Data["group"] == t.Group
+	}
+}
+
+// grantStale says why the ask seq for source grant is approved no more:
+// the source, a group or a crew member is another under its name, the
+// user called as is another, what the approval would do reads otherwise
+// than the card says, or a grantee holds the grant already. What a
+// grantee holds beside the grant is no part of it: a grant landed since
+// is no reason to ask again, and nil carries the approval on.
 func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
-	name, _, to, as := grantOf(was.Argv)
+	name, what, to, as := grantOf(was.Argv)
 	if err := w.staleSource(seq, name, was, now); err != nil {
 		return err
 	}
@@ -528,7 +568,30 @@ func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
 		e := lastEvent(w.Tx, "group_set", naming("name", t.Group))
 		return fmt.Errorf("ask %d was written when the group %s was another: its config was changed since%s. %s", seq, t.Group, since(e), nothingRan)
 	}
-	return staleCard(seq, was, now)
+	if !sameGrantAction(was.Does, now.Does) {
+		return staleCard(seq, was, now)
+	}
+	d, err := declared(w.Tx, name)
+	if err != nil {
+		return err
+	}
+	for _, t := range to {
+		var g SourceGrant
+		if _, err := get(w.Tx, bSourceGrants, grantKey(name, t, as), &g); err != nil {
+			return err
+		}
+		holder := (&SourceGrant{Grantee: t, As: as}).Holder()
+		c, isCall := d.Call(what)
+		switch {
+		case slices.Contains(g.Calls, what):
+			e := lastEvent(w.Tx, "source_granted", grantedMatch(name, t, as, what))
+			return fmt.Errorf("ask %d would grant %s of the source %s to %s, and %s is granted it already: it was granted since%s. %s", seq, what, name, holder, holder, since(e), nothingRan)
+		case isCall && g.Covers(c, as):
+			e := lastEvent(w.Tx, "source_granted", grantedMatch(name, t, as, GrantRead))
+			return fmt.Errorf("ask %d would grant %s of the source %s to %s, and %s may make it already through its grant of read: read was granted since%s. %s", seq, what, name, holder, holder, since(e), nothingRan)
+		}
+	}
+	return nil
 }
 
 // runGrant gives the grant of a parsed source grant to each of its

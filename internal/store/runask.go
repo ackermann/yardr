@@ -336,7 +336,9 @@ type runCommand struct {
 	// what changed (stale).
 	card func(w *wtx, argv []string, asking bool) (AskRun, error)
 	// stale says why an approval of the ask seq is refused, when the card it
-	// was written with (was) is not the one the yard would write now.
+	// was written with (was) is not the one the yard would write now. Nil
+	// carries the approval on: the row held it to the card as it stands,
+	// and the answer carries that card, drawn at approve time.
 	stale func(w *wtx, seq uint64, was, now AskRun) error
 	// run makes the change as actor through the command's own store
 	// function, and answers what the command prints at a terminal.
@@ -1191,7 +1193,12 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back || card.BackBy != was.BackBy {
-		return nil, c.stale(w, seq, was, card)
+		if err := c.stale(w, seq, was, card); err != nil {
+			return nil, err
+		}
+		// The row held the approval to the card as it stands now: the
+		// answer carries that card, drawn at approve time.
+		was.Does = card.Does
 	}
 	var result string
 	if c.runRun != nil {

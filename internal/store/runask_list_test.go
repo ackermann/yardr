@@ -480,13 +480,77 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 	y.sameCard(t, seq, "crew yardmaster")
 	y.refusedStale(t, seq, "was written when the crew member yardmaster was another")
 
-	// And a grant the grantee was given in between is on the card.
+	// A grant the grantee was given in between is no reason to ask
+	// again where it covers the grant none: read is no update call, so
+	// the approval of note runs, carrying the card as it stands.
 	y = listYard(t)
 	seq = y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	y.refusedStale(t, seq, "It is granted read (every read call) of crm now.\" now: the card is from before that changed. ")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
+		t.Fatalf("approving after read landed = %+v, %v", done, err)
+	}
+	if len(done.Does) != 1 || !strings.Contains(done.Does[0], "It is granted read (every read call) of crm now.") {
+		t.Fatalf("the approval carries %q, want the card as it stands", done.Does)
+	}
+}
+
+// Two grant cards for one member and source, read and then an update
+// call: approving the first leaves the second approvable, and it runs,
+// carrying the card as it stands. A card whose call's declaration
+// changed meanwhile is still stale, and a card for a call granted since
+// says so.
+func TestRunAskGrantAfterAnotherGrantLands(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	read := y.ask(t, listAsk("mckean", "source grant crm read --crew yardmaster"), "yardmaster")
+	note := y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
+	if done, err := y.ApproveAsk(y.ctx, y.bead, read, "mckean"); err != nil || done.Result != "crew member yardmaster may call crm: read" {
+		t.Fatalf("approving read = %+v, %v", done, err)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, note, "mckean")
+	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
+		t.Fatalf("approving note after read landed = %+v, %v", done, err)
+	}
+	if len(done.Does) != 1 || !strings.Contains(done.Does[0], "It is granted read (every read call) of crm now.") {
+		t.Fatalf("the approval carries %q, want the card as it stands", done.Does)
+	}
+	if got, want := y.grants(t), []string{"crew member yardmaster: note,read"}; !slices.Equal(got, want) {
+		t.Fatalf("the grants after the approvals = %v, want %v", got, want)
+	}
+
+	// The call's declaration changed meanwhile: still stale.
+	y = listYard(t)
+	seq := y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
+	other := strings.Replace(runCRM, `path: "/contacts/{id}/notes"`, `path: "/contacts/{id}/annotations"`, 1)
+	if other == runCRM {
+		t.Fatal("the test replaces nothing")
+	}
+	if _, err := y.PutSource(y.ctx, "crm.yaml", other, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written from another declaration of the source crm")
+
+	// The call granted since: the approval says so, and grants nothing.
+	y = listYard(t)
+	seq = y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
+	if _, err := y.GrantSource(y.ctx, "crm", "note", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "is granted it already")
+	if got := y.grants(t); !slices.Equal(got, []string{"crew member yardmaster: note"}) {
+		t.Fatalf("the refused approval granted %v", got)
+	}
+
+	// A read call covered by read granted since: it says so too.
+	y = listYard(t)
+	seq = y.ask(t, listAsk("mckean", "source grant crm get --crew yardmaster"), "yardmaster")
+	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "may make it already through its grant of read")
 }
 
 // What the new rows refuse when they are asked, each with nothing stored: a
