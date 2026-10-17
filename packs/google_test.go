@@ -1190,13 +1190,14 @@ func (s *docsStandin) requests() []googleRequest {
 // The replace call builds its batchUpdate per call: its build script reads
 // the document for its text, counts the occurrences of find itself, and
 // prints the replaceAllText its guard allows. The match is literal and
-// case-sensitive, as matchCase asks; a match in a table, a header or a
-// footnote counts like one in the body. Zero matches still sends, and the
-// answer's occurrencesChanged of 0 says so. No test calls Google.
+// case-sensitive, as matchCase asks; a match in a table, header, footnote
+// or another tab counts like one in the body. Zero matches still sends, and
+// the answer's occurrencesChanged of 0 says so. No test calls Google.
 func TestGoogleDocsReplaceBuilds(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		doc  string // the stand-in's doc: one match, none, many, a table's, a header's, a footnote's
+		doc  string // the stand-in's doc: one, none, many, a table, a header, a
+		// footnote, or several tabs.
 		find string
 		with string
 		all  string // "" leaves all out
@@ -1204,6 +1205,8 @@ func TestGoogleDocsReplaceBuilds(t *testing.T) {
 		{name: "one match", doc: "one", find: "Lunch", with: "Dinner"},
 		{name: "no match still builds", doc: "none", find: "Lunch", with: "Dinner"},
 		{name: "many with all", doc: "many", find: "Lunch", with: "Dinner", all: "true"},
+		{name: "many across tabs with all", doc: "multitab", find: "Lunch", with: "Dinner", all: "true"},
+		{name: "trailing newlines survive", doc: "tail", find: "Lunch\n", with: "Dinner\n"},
 		{name: "a match in a table counts", doc: "cells", find: "rota", with: "menu"},
 		{name: "a match in a header counts", doc: "headed", find: "Lunch", with: "Dinner"},
 		{name: "a match in a footnote counts", doc: "noted", find: "Lunch", with: "Dinner"},
@@ -1227,6 +1230,7 @@ func TestGoogleDocsReplaceBuilds(t *testing.T) {
 			}
 			revision := map[string]string{
 				"one": "rev-one", "none": "rev-none", "many": "rev-many",
+				"multitab": "rev-multitab", "tail": "rev-tail",
 				"cells": "rev-cells", "headed": "rev-headed", "noted": "rev-noted",
 			}[tc.doc]
 			golden := `{"requests":[{"replaceAllText":{"containsText":{"text":` + strconv.Quote(tc.find) +
@@ -1251,7 +1255,7 @@ func TestGoogleDocsReplaceBuilds(t *testing.T) {
 			if pre.auth != "Bearer tok" {
 				t.Fatalf("pre-read Authorization = %q, want the call's credential", pre.auth)
 			}
-			if pre.query.Get("fields") != "revisionId,body,headers,footers,footnotes" {
+			if pre.query.Get("fields") != "revisionId,tabs" || pre.query.Get("includeTabsContent") != "true" {
 				t.Fatalf("pre-read fields = %q", pre.query.Get("fields"))
 			}
 		})
@@ -1278,9 +1282,13 @@ func TestGoogleDocsReplaceRefusals(t *testing.T) {
 	}{
 		{"many refused", "many", "Lunch", "Dinner", "", "3 matches; pass all=true to replace them all", true},
 		{"many refused with all false", "many", "Lunch", "Dinner", "false", "3 matches; pass all=true to replace them all", true},
+		{"many across tabs refused", "multitab", "Lunch", "Dinner", "", "2 matches; pass all=true to replace them all", true},
+		{"find with NUL", "one", "Lu\x00nch", "Dinner", "", "contains a NUL character", false},
+		{"replacement with NUL", "one", "Lunch", "Di\x00nner", "", "contains a NUL character", false},
 		{"no find", "many", "", "Dinner", "", "find names no text to replace", false},
 		{"no such doc", "missing", "Lunch", "Dinner", "", "could not be read", true},
 		{"no revision id", "no-revision", "Lunch", "Dinner", "", "answered no revision id", true},
+		{"no tabs", "no-tabs", "Lunch", "Dinner", "", "answered no tabs", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := len(standin.requests())
@@ -1448,26 +1456,37 @@ func replaceStandin(t *testing.T) (*replaceDocs, *httptest.Server) {
 		}
 		return `{"paragraph":{"elements":[` + strings.Join(els, ",") + `]}}`
 	}
-	one := `{"revisionId":"rev-one","body":{"content":[` +
-		para("Lunch", " places\n") + `,` + para("Friday we ship.\n") + `]}}`
-	none := `{"revisionId":"rev-none","body":{"content":[` + para("Dinner spots\n") + `]}}`
-	many := `{"revisionId":"rev-many","body":{"content":[` +
-		para("Lunch places\n") + `,` + para("Lunch menus\n") + `,` + para("Lunch specials\n") + `]}}`
-	cells := `{"revisionId":"rev-cells","body":{"content":[` + para("Notes\n") +
-		`,{"table":{"tableRows":[{"tableCells":[{"content":[` + para("rota for Friday\n") + `]}]}]}}]}}`
-	headed := `{"revisionId":"rev-headed","body":{"content":[` + para("Notes\n") +
-		`]},"headers":{"h1":{"content":[` + para("Lunch header\n") + `]}}}`
-	noted := `{"revisionId":"rev-noted","body":{"content":[` + para("Notes\n") +
-		`]},"footnotes":{"f1":{"content":[` + para("Lunch footnote\n") + `]}}}`
-	norev := `{"body":{"content":[` + para("Lunch\n") + `]}}`
+	tab := func(id, content string) string {
+		return `{"tabProperties":{"tabId":` + strconv.Quote(id) + `},"documentTab":` + content + `}`
+	}
+	one := `{"revisionId":"rev-one","tabs":[` + tab("tab-one", `{"body":{"content":[`+
+		para("Lunch", " places\n")+`,`+para("Friday we ship.\n")+`]}}`) + `]}`
+	none := `{"revisionId":"rev-none","tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Dinner spots\n")+`]}}`) + `]}`
+	many := `{"revisionId":"rev-many","tabs":[` + tab("tab-one", `{"body":{"content":[`+
+		para("Lunch places\n")+`,`+para("Lunch menus\n")+`,`+para("Lunch specials\n")+`]}}`) + `]}`
+	multitab := `{"revisionId":"rev-multitab","tabs":[` +
+		tab("tab-one", `{"body":{"content":[`+para("Lunch in the first tab\n")+`]}}`) + `,` +
+		tab("tab-two", `{"body":{"content":[`+para("Lunch in the second tab\n")+`]}}`) + `]}`
+	tail := `{"revisionId":"rev-tail","tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Lunch\n")+`]}}`) + `]}`
+	cells := `{"revisionId":"rev-cells","tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Notes\n")+
+		`,{"table":{"tableRows":[{"tableCells":[{"content":[`+para("rota for Friday\n")+`]}]}]}}]}}`) + `]}`
+	headed := `{"revisionId":"rev-headed","tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Notes\n")+
+		`]},"headers":{"h1":{"content":[`+para("Lunch header\n")+`]}}}`) + `]}`
+	noted := `{"revisionId":"rev-noted","tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Notes\n")+
+		`]},"footnotes":{"f1":{"content":[`+para("Lunch footnote\n")+`]}}}`) + `]}`
+	norev := `{"tabs":[` + tab("tab-one", `{"body":{"content":[`+para("Lunch\n")+`]}}`) + `]}`
+	notabs := `{"revisionId":"rev-no-tabs"}`
 	s := &replaceDocs{t: t, docs: map[string]replaceDoc{
 		"one":         {id: "1One0123456789abcdefghijklmnopq", get: one, changed: 1},
 		"none":        {id: "1None0123456789abcdefghijklmnop", get: none, changed: 0},
 		"many":        {id: "1Many0123456789abcdefghijklmnop", get: many, changed: 3},
+		"multitab":    {id: "1MultiTab0123456789abcdefghijklmn", get: multitab, changed: 2},
+		"tail":        {id: "1Tail0123456789abcdefghijklmnopqr", get: tail, changed: 1},
 		"cells":       {id: "1Cells0123456789abcdefghijklmno", get: cells, changed: 1},
 		"headed":      {id: "1Headed0123456789abcdefghijklm", get: headed, changed: 1},
 		"noted":       {id: "1Noted0123456789abcdefghijklmn", get: noted, changed: 1},
 		"no-revision": {id: "1NoRev0123456789abcdefghijklmno", get: norev, changed: 0},
+		"no-tabs":     {id: "1NoTabs0123456789abcdefghijklmn", get: notabs, changed: 0},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

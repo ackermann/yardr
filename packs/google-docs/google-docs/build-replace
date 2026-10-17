@@ -7,19 +7,25 @@
 # The script reads the document for its text, counts the occurrences of
 # find, and refuses more than one unless all is true: Docs replaces every
 # match or none (replaceAllText), so an unguarded call rewrites the whole
-# doc. The count runs over every text run of the body, the headers, the
-# footers and the footnotes; a further tab stands outside it, as the yard's
-# docs hold one. The match is literal and case-sensitive, as the
-# replaceAllText the script prints asks with matchCase. Zero matches still
-# sends: the answer's occurrencesChanged of 0 says so. The write is pinned
+# doc. The count runs over every text run of every tab, including body,
+# headers, footers and footnotes. Matches are literal and case-sensitive,
+# as the replaceAllText the script prints asks with matchCase. Zero matches
+# still sends: the answer's occurrencesChanged of 0 says so. The write is
+# pinned
 # to the revision read, so a collaborator's intervening edit cannot shift
 # the count. Anything the body cannot be built from is a refusal: words on
 # stderr, exit 1, nothing sent.
 set -euo pipefail
 in=$(cat)
+# Bash cannot hold NUL, so refuse it before extracting either string.
+if jq -e '[.params.find, .params.with] | any(.[]; contains("\u0000"))' <<<"$in" >/dev/null; then
+  echo "find or with contains a NUL character" >&2; exit 1
+fi
 docId=$(jq -r '.params.docId // ""' <<<"$in")
-find=$(jq -r '.params.find // ""' <<<"$in")
-with=$(jq -r '.params.with // ""' <<<"$in")
+find=$(jq -j '(.params.find // "") + "x"' <<<"$in")
+find=${find%x}
+with=$(jq -j '(.params.with // "") + "x"' <<<"$in")
+with=${with%x}
 all=$(jq -r '.params.all // false' <<<"$in")
 [ -n "$docId" ] || { echo "replace was handed no docId" >&2; exit 1; }
 [ -n "$find" ] || { echo "find names no text to replace" >&2; exit 1; }
@@ -30,13 +36,17 @@ all=$(jq -r '.params.all // false' <<<"$in")
 # shell itself, as the other packs' scripts hand theirs over.
 doc=$(printf 'header = "Authorization: Bearer %s"\n' "$GOOGLE_TOKEN" \
   | curl -sS --fail-with-body --get -K - \
-  --data-urlencode "fields=revisionId,body,headers,footers,footnotes" \
+  --data-urlencode "includeTabsContent=true" \
+  --data-urlencode "fields=revisionId,tabs" \
   "$YARDR_SOURCE_BASE/v1/documents/$docId") || {
   echo "document $docId could not be read (curl exit $?)" >&2; exit 1
 }
 revision=$(jq -r '.revisionId // empty' <<<"$doc")
 [ -n "$revision" ] || { echo "document $docId answered no revision id" >&2; exit 1; }
-text=$(jq -j '[.. | .textRun? // empty | .content // empty] | join("")' <<<"$doc")
+tabs=$(jq -r '.tabs | if type == "array" then length else 0 end' <<<"$doc")
+[ "$tabs" -gt 0 ] || { echo "document $docId answered no tabs" >&2; exit 1; }
+text=$(jq -j '([.. | .textRun? // empty | .content // empty] | join("")) + "x"' <<<"$doc")
+text=${text%x}
 # The count is the shell's own substitution with the find quoted, which
 # matches it literally, over line breaks too, as grep -o would not.
 stripped=${text//"$find"/}
