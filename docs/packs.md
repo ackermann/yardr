@@ -79,7 +79,7 @@ telegram=<file> --notify <user>=telegram,<file>`.)
 | `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
 | `google-mail` | Gmail itself, in the yard: mail read, drafts written, nothing sent | none: `kind: source` | of none: `yardr pack apply google-mail` |
 | `google-drive` | Drive itself, in the yard: files listed and read, folders and empty Docs and Slides made | none: `kind: source` | of none: `yardr pack apply google-drive` |
-| `google-docs` | Docs and Slides in the yard: documents and decks read and appended to | none: `kind: source` | of none: `yardr pack apply google-docs` |
+| `google-docs` | Docs and Slides in the yard: documents and decks read and appended to, documents replaced in place | none: `kind: source` | of none: `yardr pack apply google-docs` |
 | `google-calendar` | Calendar itself, in the yard: events listed, read, created and edited without invitations | none: `kind: source` | of none: `yardr pack apply google-calendar` |
 | `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |

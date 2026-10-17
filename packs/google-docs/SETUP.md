@@ -1,8 +1,9 @@
 # Setting up Docs and Slides
 
 The pack wires Google Docs and Slides into the yard as the declared
-sources `google-docs` (documents read and appended to) and
-`google-slides` (decks read, slides with title and body appended).
+sources `google-docs` (documents read, appended to and replaced in
+place) and `google-slides` (decks read, slides with title and body
+appended).
 Each call goes out with a short-lived token minted from a gws login
 on this machine, so no new copy of a secret is stored anywhere.
 The login, the account, the mint and calling as a user are the four
@@ -25,7 +26,7 @@ google packs' shared setup, said once in `docs/google.md`.
    ```sh
    yardr pack apply google-docs
    # applied pack google-docs to the yard: 2 created, 0 changed, 0 unchanged
-   # source google-docs is declared: 2 calls under https://docs.googleapis.com (yardr source show google-docs)
+   # source google-docs is declared: 3 calls under https://docs.googleapis.com (yardr source show google-docs)
    # source google-slides is declared: 2 calls under https://slides.googleapis.com (yardr source show google-slides)
    ```
 3. **The account.** Give the yard's Google account for `google-docs`
@@ -43,18 +44,20 @@ google packs' shared setup, said once in `docs/google.md`.
    yardr bead ask <bead> "Let the yardmaster read Docs" --run "source grant google-docs read --crew yardmaster" --context "The yardmaster reads docs to work beads; the card names each call it covers."
    yardr bead ask <bead> "Let the yardmaster read Slides" --run "source grant google-slides read --crew yardmaster" --context "The yardmaster reads decks to work beads; the card names each call it covers."
    yardr bead ask <bead> "Let the yardmaster append to Docs" --run "source grant google-docs write --crew yardmaster" --context "Paragraphs appended at the end of a doc, each with its style."
+   yardr bead ask <bead> "Let the yardmaster replace text in Docs" --run "source grant google-docs replace --crew yardmaster" --context "Text replaced in place; more than one match is refused unless the call passes all=true."
    yardr bead ask <bead> "Let the yardmaster append slides" --run "source grant google-slides slide --crew yardmaster" --context "Slides appended to a deck, with title and body."
    ```
    By hand they are the operator's to type:
    ```sh
    for s in google-docs google-slides; do yardr source grant $s read --crew yardmaster; done
    yardr source grant google-docs write --crew yardmaster
+   yardr source grant google-docs replace --crew yardmaster
    yardr source grant google-slides slide --crew yardmaster
    ```
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with
-   `read`, `write` and `slide` from above. There is no typed way
+   `read`, `write`, `replace` and `slide` from above. There is no typed way
    beside these: a grant `as` ada is ada's to give.
    `yardr source show google-docs` lists each call with its kind and
    who may make it, plain and `as` each user.
@@ -76,6 +79,12 @@ google packs' shared setup, said once in `docs/google.md`.
    yardr call google-drive folder name="notes" parent=<a folder id>
    yardr call google-drive doc name="lunch" parent=<the folder's id>
    yardr call google-docs write docId=<the doc's id> paragraphs='[{"text":"Lunch places","style":"HEADING_1"},{"text":"Friday we ship.","style":"NORMAL_TEXT"}]'
+   ```
+   Text is changed in place with replace, which counts its matches
+   first: more than one is refused unless the call passes all=true, and
+   the answer says how many changed.
+   ```sh
+   yardr call google-docs replace docId=<the doc's id> find="Friday" with="Saturday"
    ```
    A slide is the same shape: an empty deck the drive source makes,
    then a slide with the caller's own id for it, unique in the deck:

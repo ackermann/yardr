@@ -169,7 +169,7 @@ func TestPackApplyGoogleCardsFit(t *testing.T) {
 	}{
 		{"google-mail", []string{"google-mail"}, 21},
 		{"google-drive", []string{"google-drive"}, 29},
-		{"google-docs", []string{"google-docs", "google-slides"}, 33},
+		{"google-docs", []string{"google-docs", "google-slides"}, 36},
 	} {
 		t.Run(tc.pack, func(t *testing.T) {
 			seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Add the " + tc.pack + " sources?", To: "mckean",

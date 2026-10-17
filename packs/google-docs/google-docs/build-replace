@@ -1,0 +1,51 @@
+#!/bin/bash
+# build-replace: the body of the google-docs replace call, built per call. One
+# JSON object on stdin ({"params": {"docId", "find", "with", "all"}}), the
+# batchUpdate body on stdout. GOOGLE_TOKEN and YARDR_SOURCE_BASE, the
+# declaration's base, are in the environment. Needs curl and jq.
+#
+# The script reads the document for its text, counts the occurrences of
+# find, and refuses more than one unless all is true: Docs replaces every
+# match or none (replaceAllText), so an unguarded call rewrites the whole
+# doc. The count runs over every text run of the body, the headers, the
+# footers and the footnotes; a further tab stands outside it, as the yard's
+# docs hold one. The match is literal and case-sensitive, as the
+# replaceAllText the script prints asks with matchCase. Zero matches still
+# sends: the answer's occurrencesChanged of 0 says so. The write is pinned
+# to the revision read, so a collaborator's intervening edit cannot shift
+# the count. Anything the body cannot be built from is a refusal: words on
+# stderr, exit 1, nothing sent.
+set -euo pipefail
+in=$(cat)
+docId=$(jq -r '.params.docId // ""' <<<"$in")
+find=$(jq -r '.params.find // ""' <<<"$in")
+with=$(jq -r '.params.with // ""' <<<"$in")
+all=$(jq -r '.params.all // false' <<<"$in")
+[ -n "$docId" ] || { echo "replace was handed no docId" >&2; exit 1; }
+[ -n "$find" ] || { echo "find names no text to replace" >&2; exit 1; }
+: "${GOOGLE_TOKEN:?GOOGLE_TOKEN is not set}"
+: "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+# An argument can be read by every process on the machine while curl runs,
+# so the token goes to curl as a config line on its stdin, written by the
+# shell itself, as the other packs' scripts hand theirs over.
+doc=$(printf 'header = "Authorization: Bearer %s"\n' "$GOOGLE_TOKEN" \
+  | curl -sS --fail-with-body --get -K - \
+  --data-urlencode "fields=revisionId,body,headers,footers,footnotes" \
+  "$YARDR_SOURCE_BASE/v1/documents/$docId") || {
+  echo "document $docId could not be read (curl exit $?)" >&2; exit 1
+}
+revision=$(jq -r '.revisionId // empty' <<<"$doc")
+[ -n "$revision" ] || { echo "document $docId answered no revision id" >&2; exit 1; }
+text=$(jq -j '[.. | .textRun? // empty | .content // empty] | join("")' <<<"$doc")
+# The count is the shell's own substitution with the find quoted, which
+# matches it literally, over line breaks too, as grep -o would not.
+stripped=${text//"$find"/}
+n=$(( (${#text} - ${#stripped}) / ${#find} ))
+if [ "$n" -gt 1 ] && [ "$all" != "true" ]; then
+  echo "$n matches; pass all=true to replace them all" >&2; exit 1
+fi
+jq -c -n --arg find "$find" --arg with "$with" --arg revision "$revision" '
+  {requests: [{replaceAllText: {
+    containsText: {text: $find, matchCase: true}, replaceText: $with}}],
+   writeControl: {requiredRevisionId: $revision}}
+'

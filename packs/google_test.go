@@ -122,6 +122,7 @@ func TestGoogleDeclarations(t *testing.T) {
 		},
 		"google-docs.yaml": {
 			{Name: "doc", Kind: source.Read}, {Name: "write", Kind: source.Update},
+			{Name: "replace", Kind: source.Update},
 		},
 		"google-slides.yaml": {
 			{Name: "deck", Kind: source.Read}, {Name: "slide", Kind: source.Update},
@@ -470,6 +471,8 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			wantAnswer: `{"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]},"title":"lunch"}`},
 		// The write call builds its body per call; its goldens and round
 		// trip are TestGoogleDocsWriteBuilds and TestGoogleDocsWriteRoundTrip.
+		// So does the replace call; its are TestGoogleDocsReplaceBuilds and
+		// TestGoogleDocsReplaceRoundTrip.
 		{name: "deck", d: slides, call: "deck", params: map[string]string{"id": deckID},
 			method: "GET", path: "/v1/presentations/" + deckID,
 			wantAnswer: `{"slides":[{"objectId":"friday_1"}],"title":"friday"}`},
@@ -618,6 +621,13 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"write without paragraphs", docs, "write", map[string]string{"docId": "abc"}, "parameter paragraphs is missing"},
 		{"write long paragraphs", docs, "write", map[string]string{"docId": "abc", "paragraphs": strings.Repeat("x", 60001)}, "parameter paragraphs is 60001 characters, and at most 60000"},
 		{"write text", docs, "write", map[string]string{"docId": "abc", "paragraphs": "[]", "text": "x"}, `"text" is no parameter`},
+		{"replace without find", docs, "replace", map[string]string{"docId": "abc", "with": "x"}, "parameter find is missing"},
+		{"replace without with", docs, "replace", map[string]string{"docId": "abc", "find": "x"}, "parameter with is missing"},
+		{"replace long find", docs, "replace", map[string]string{"docId": "abc", "find": strings.Repeat("x", 1001), "with": "x"}, "parameter find is 1001 characters, and at most 1000"},
+		{"replace long with", docs, "replace", map[string]string{"docId": "abc", "find": "x", "with": strings.Repeat("x", 60001)}, "parameter with is 60001 characters, and at most 60000"},
+		{"replace all maybe", docs, "replace", map[string]string{"docId": "abc", "find": "x", "with": "x", "all": "maybe"}, "parameter all is true or false"},
+		{"replace dots", docs, "replace", map[string]string{"docId": "..", "find": "x", "with": "x"}, "parameter docId does not match its pattern"},
+		{"replace text", docs, "replace", map[string]string{"docId": "abc", "find": "x", "with": "x", "text": "y"}, `"text" is no parameter`},
 		{"slide short id", slides, "slide", map[string]string{"id": "abc", "slide": "ab", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide dashed id", slides, "slide", map[string]string{"id": "abc", "slide": "-abcde", "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
 		{"slide long id", slides, "slide", map[string]string{"id": "abc", "slide": strings.Repeat("a", 45), "title": "t", "body": "b"}, "parameter slide does not match its pattern"},
@@ -1172,6 +1182,325 @@ func (s *docsStandin) doc(name string) string {
 }
 
 func (s *docsStandin) requests() []googleRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]googleRequest(nil), s.got...)
+}
+
+// The replace call builds its batchUpdate per call: its build script reads
+// the document for its text, counts the occurrences of find itself, and
+// prints the replaceAllText its guard allows. The match is literal and
+// case-sensitive, as matchCase asks; a match in a table, a header or a
+// footnote counts like one in the body. Zero matches still sends, and the
+// answer's occurrencesChanged of 0 says so. No test calls Google.
+func TestGoogleDocsReplaceBuilds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  string // the stand-in's doc: one match, none, many, a table's, a header's, a footnote's
+		find string
+		with string
+		all  string // "" leaves all out
+	}{
+		{name: "one match", doc: "one", find: "Lunch", with: "Dinner"},
+		{name: "no match still builds", doc: "none", find: "Lunch", with: "Dinner"},
+		{name: "many with all", doc: "many", find: "Lunch", with: "Dinner", all: "true"},
+		{name: "a match in a table counts", doc: "cells", find: "rota", with: "menu"},
+		{name: "a match in a header counts", doc: "headed", find: "Lunch", with: "Dinner"},
+		{name: "a match in a footnote counts", doc: "noted", find: "Lunch", with: "Dinner"},
+		{name: "quotes survive", doc: "one", find: "Lunch", with: `Dinner "chez Ada"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			standin, srv := replaceStandin(t)
+			defer srv.Close()
+			docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+			params := map[string]string{"docId": standin.doc(tc.doc), "find": tc.find, "with": tc.with}
+			if tc.all != "" {
+				params["all"] = tc.all
+			}
+			body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", replaceHome(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got, want any
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatalf("built body = %s: %v", body, err)
+			}
+			revision := map[string]string{
+				"one": "rev-one", "none": "rev-none", "many": "rev-many",
+				"cells": "rev-cells", "headed": "rev-headed", "noted": "rev-noted",
+			}[tc.doc]
+			golden := `{"requests":[{"replaceAllText":{"containsText":{"text":` + strconv.Quote(tc.find) +
+				`,"matchCase":true},"replaceText":` + strconv.Quote(tc.with) + `}}],` +
+				`"writeControl":{"requiredRevisionId":"` + revision + `"}}`
+			if err := json.Unmarshal([]byte(golden), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("built body = %s, want %s", body, golden)
+			}
+			// The pre-read the count came from: the doc, read with the
+			// call's credential, asking for its revision and its text.
+			gotReqs := standin.requests()
+			if len(gotReqs) != 1 {
+				t.Fatalf("the stand-in heard %d requests, want the one pre-read", len(gotReqs))
+			}
+			pre := gotReqs[0]
+			if pre.method != "GET" || pre.path != "/v1/documents/"+standin.doc(tc.doc) {
+				t.Fatalf("pre-read = %s %s", pre.method, pre.path)
+			}
+			if pre.auth != "Bearer tok" {
+				t.Fatalf("pre-read Authorization = %q, want the call's credential", pre.auth)
+			}
+			if pre.query.Get("fields") != "revisionId,body,headers,footers,footnotes" {
+				t.Fatalf("pre-read fields = %q", pre.query.Get("fields"))
+			}
+		})
+	}
+}
+
+// What the replace call refuses to build: nothing is posted, and the caller
+// reads the script's own words. The stand-in hears the pre-read the count
+// needed, and no batchUpdate; where the find never parsed, it hears nothing
+// at all.
+func TestGoogleDocsReplaceRefusals(t *testing.T) {
+	standin, srv := replaceStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	home := replaceHome(t)
+	for _, tc := range []struct {
+		name  string
+		doc   string
+		find  string
+		with  string
+		all   string
+		words string
+		pre   bool // the refusal came after the pre-read
+	}{
+		{"many refused", "many", "Lunch", "Dinner", "", "3 matches; pass all=true to replace them all", true},
+		{"many refused with all false", "many", "Lunch", "Dinner", "false", "3 matches; pass all=true to replace them all", true},
+		{"no find", "many", "", "Dinner", "", "find names no text to replace", false},
+		{"no such doc", "missing", "Lunch", "Dinner", "", "could not be read", true},
+		{"no revision id", "no-revision", "Lunch", "Dinner", "", "answered no revision id", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(standin.requests())
+			params := map[string]string{"docId": standin.doc(tc.doc), "find": tc.find, "with": tc.with}
+			if tc.all != "" {
+				params["all"] = tc.all
+			}
+			_, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home)
+			var refused *source.CallError
+			if !errors.As(err, &refused) || refused.Reason != source.BuildRefused || !strings.Contains(err.Error(), tc.words) {
+				t.Fatalf("err = %v, want %s containing %q", err, source.BuildRefused, tc.words)
+			}
+			want := 0
+			if tc.pre {
+				want = 1
+			}
+			past := standin.requests()[before:]
+			if len(past) != want {
+				t.Fatalf("the stand-in heard %d requests past the %d before, want %d", len(past), before, want)
+			}
+			for _, r := range past {
+				if r.method == "POST" {
+					t.Fatalf("the stand-in was sent %s %s: a refusal sends nothing", r.method, r.path)
+				}
+			}
+		})
+	}
+}
+
+// The built body posted: a replace sends its replaceAllText in one
+// batchUpdate, and the answer's occurrencesChanged says how many changed,
+// none where the find matched nothing.
+func TestGoogleDocsReplaceRoundTrip(t *testing.T) {
+	standin, srv := replaceStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	home := replaceHome(t)
+	for _, tc := range []struct {
+		doc     string
+		changed string
+	}{
+		{"one", "1"},
+		{"none", "0"},
+	} {
+		before := len(standin.requests())
+		params := map[string]string{"docId": standin.doc(tc.doc), "find": "Lunch", "with": "Dinner"}
+		body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := source.DoKeyedBody(context.Background(), docs, "replace", params, "tok", "", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotReqs := standin.requests()[before:]
+		if len(gotReqs) != 2 {
+			t.Fatalf("the stand-in heard %d requests, want the pre-read and the batchUpdate", len(gotReqs))
+		}
+		post := gotReqs[1]
+		if post.method != "POST" || post.path != "/v1/documents/"+standin.doc(tc.doc)+":batchUpdate" {
+			t.Fatalf("post = %s %s", post.method, post.path)
+		}
+		if post.auth != "Bearer tok" {
+			t.Fatalf("post Authorization = %q", post.auth)
+		}
+		var got, want any
+		if err := json.Unmarshal(post.body, &got); err != nil {
+			t.Fatalf("posted body = %s: %v", post.body, err)
+		}
+		if err := json.Unmarshal(body, &want); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("posted body = %s, want the built %s", post.body, body)
+		}
+		if want := `{"documentId":"` + standin.doc(tc.doc) + `","replies":[{"replaceAllText":{"occurrencesChanged":` + tc.changed + `}}]}`; string(res.Answer) != want {
+			t.Fatalf("answer = %s, want %s", res.Answer, want)
+		}
+	}
+}
+
+// The pre-read's credential is no argument of curl's: an argument is
+// readable by every process on the machine while curl runs, so the script
+// hands the header to curl as a config line on its stdin, as the other
+// packs' scripts hand theirs over. A stand-in curl first on PATH records
+// its arguments and delegates to the real one.
+func TestGoogleDocsReplaceHandsCurlNoToken(t *testing.T) {
+	real, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl is not installed, and the replace build script reads the doc with it")
+	}
+	bin := t.TempDir()
+	argv := filepath.Join(bin, "argv")
+	scripttest.Write(t, filepath.Join(bin, "curl"),
+		"printf '%s\n' \"$@\" > \""+argv+"\"\nexec \""+real+"\" \"$@\"\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	standin, srv := replaceStandin(t)
+	defer srv.Close()
+	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
+	if _, err := source.BuildBody(context.Background(), docs, "replace",
+		map[string]string{"docId": standin.doc("one"), "find": "Lunch", "with": "Dinner"},
+		"the-secret-token", replaceHome(t)); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := os.ReadFile(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(recorded), "the-secret-token") {
+		t.Fatalf("curl was called with the credential in an argument: %s", recorded)
+	}
+	if got := standin.requests()[0].auth; got != "Bearer the-secret-token" {
+		t.Fatalf("pre-read Authorization = %q, want the credential, handed over out of the arguments", got)
+	}
+}
+
+// replaceHome installs the replace call's build script from the embedded pack,
+// as a source add copies it, and returns the home it stands under. The
+// script reads docs with curl and lifts their text with jq.
+func replaceHome(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the replace build script reads the doc with it")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the replace build script counts with it")
+	}
+	script, err := fs.ReadFile(packs.FS, "google-docs/google-docs/build-replace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := source.WriteCopies(home, "google-docs", []source.FileCopy{{Program: "google-docs/build-replace", Data: script}}); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", "google-docs"))
+	return home
+}
+
+// replaceDoc is one doc the replace stand-in serves: its id, the
+// documents.get answer it is read with, and what its batchUpdate says
+// changed.
+type replaceDoc struct {
+	id      string
+	get     string
+	changed int
+}
+
+// replaceDocs answers documents.get for text-bearing docs, and batchUpdate
+// with the occurrences its recorded shape changed, keeping every request
+// it was sent.
+type replaceDocs struct {
+	t    *testing.T
+	mu   sync.Mutex
+	got  []googleRequest
+	docs map[string]replaceDoc
+}
+
+func replaceStandin(t *testing.T) (*replaceDocs, *httptest.Server) {
+	t.Helper()
+	para := func(runs ...string) string {
+		var els []string
+		for _, r := range runs {
+			els = append(els, `{"textRun":{"content":`+strconv.Quote(r)+`}}`)
+		}
+		return `{"paragraph":{"elements":[` + strings.Join(els, ",") + `]}}`
+	}
+	one := `{"revisionId":"rev-one","body":{"content":[` +
+		para("Lunch", " places\n") + `,` + para("Friday we ship.\n") + `]}}`
+	none := `{"revisionId":"rev-none","body":{"content":[` + para("Dinner spots\n") + `]}}`
+	many := `{"revisionId":"rev-many","body":{"content":[` +
+		para("Lunch places\n") + `,` + para("Lunch menus\n") + `,` + para("Lunch specials\n") + `]}}`
+	cells := `{"revisionId":"rev-cells","body":{"content":[` + para("Notes\n") +
+		`,{"table":{"tableRows":[{"tableCells":[{"content":[` + para("rota for Friday\n") + `]}]}]}}]}}`
+	headed := `{"revisionId":"rev-headed","body":{"content":[` + para("Notes\n") +
+		`]},"headers":{"h1":{"content":[` + para("Lunch header\n") + `]}}}`
+	noted := `{"revisionId":"rev-noted","body":{"content":[` + para("Notes\n") +
+		`]},"footnotes":{"f1":{"content":[` + para("Lunch footnote\n") + `]}}}`
+	norev := `{"body":{"content":[` + para("Lunch\n") + `]}}`
+	s := &replaceDocs{t: t, docs: map[string]replaceDoc{
+		"one":         {id: "1One0123456789abcdefghijklmnopq", get: one, changed: 1},
+		"none":        {id: "1None0123456789abcdefghijklmnop", get: none, changed: 0},
+		"many":        {id: "1Many0123456789abcdefghijklmnop", get: many, changed: 3},
+		"cells":       {id: "1Cells0123456789abcdefghijklmno", get: cells, changed: 1},
+		"headed":      {id: "1Headed0123456789abcdefghijklm", get: headed, changed: 1},
+		"noted":       {id: "1Noted0123456789abcdefghijklmn", get: noted, changed: 1},
+		"no-revision": {id: "1NoRev0123456789abcdefghijklmno", get: norev, changed: 0},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s.mu.Lock()
+		s.got = append(s.got, googleRequest{method: r.Method, path: r.URL.Path, query: r.URL.Query(), auth: r.Header.Get("Authorization"), body: body})
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		for _, d := range s.docs {
+			switch {
+			case r.Method == "GET" && r.URL.Path == "/v1/documents/"+d.id:
+				io.WriteString(w, d.get)
+				return
+			case r.Method == "POST" && r.URL.Path == "/v1/documents/"+d.id+":batchUpdate":
+				io.WriteString(w, `{"documentId":"`+d.id+`","replies":[{"replaceAllText":{"occurrencesChanged":`+strconv.Itoa(d.changed)+`}}],"writeControl":{"requiredRevisionId":"9"}}`)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"code":404,"message":"no such doc"}}`)
+	}))
+	return s, srv
+}
+
+// doc is the id of the replace stand-in's named doc; "missing" is one it has
+// no answer for.
+func (s *replaceDocs) doc(name string) string {
+	if d, ok := s.docs[name]; ok {
+		return d.id
+	}
+	return "1Missing0123456789abcdefghijklmno"
+}
+
+func (s *replaceDocs) requests() []googleRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]googleRequest(nil), s.got...)

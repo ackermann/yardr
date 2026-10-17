@@ -1,7 +1,8 @@
 # Docs and Slides as a pack of kind source: the integration, imported
 # into the yard and into no depot. What they are here: the declared
 # sources google-docs and google-slides, which read documents and
-# decks and append text and slides to them. Each source's credential
+# decks, append text and slides to them, and replace document text in
+# place. Each source's credential
 # mints from a gws login on this machine, with contrib/google-mint as
 # its mint_command, which the operator sets by hand: no pack brings
 # the command. One command mints every account, choosing the login by

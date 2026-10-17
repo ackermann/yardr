@@ -1,7 +1,8 @@
-# Google Docs as a declared source: a document read, and appended to at
-# the end with several styled paragraphs in one call. One source per
-# host, so Docs is its own; the empty file it fills is made by the drive
-# source's doc call. No other batchUpdate request is declared.
+# Google Docs as a declared source: a document read, appended to at the
+# end with several styled paragraphs in one call, and replaced in place
+# with a guarded find. One source per host, so Docs is its own; the empty
+# file it fills is made by the drive source's doc call. No other
+# batchUpdate request is declared.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/docs/v1/rest) on 16
@@ -14,15 +15,20 @@
 # overlaps. Indices are UTF-16 code units, so an astral character counts
 # double; the write call's build script reads the document for its body's
 # end index, works out each paragraph's range itself, and prints the
-# batchUpdate that appends them.
+# batchUpdate that appends them. ReplaceAllText, checked on 17 October
+# 2026, takes containsText with text and matchCase, and replaceText, and
+# answers occurrencesChanged in its reply; the replace call's build
+# script reads the document for its text, counts the matches itself, and
+# refuses more than one unless all is true.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
 # account (an address, no secret) and the operator sets mint_command to
 # contrib/google-mint, which no pack brings. Docs takes no idempotency
 # key, so the file names none: a write tried again after a lost answer
-# is appended twice.
+# is appended twice. A replace tried again counts again first, so it sends
+# a second change only where the first left matches.
 name: google-docs
-about: Google Docs read and appended to, several styled paragraphs in one call.
+about: Google Docs read and appended to, several styled paragraphs in one call, and replaced in place.
 base: https://docs.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -57,3 +63,26 @@ calls:
       path: /v1/documents/{docId}:batchUpdate
     build: [google-docs/build-write]
     answer: { select: [documentId, replies] }
+  replace:
+    kind: update
+    about: Replace text in place, refusing more than one match unless told all
+    params:
+      docId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      # The text to find, literal and case-sensitive; empty is refused by
+      # the build script before the document is read. Free text: its value
+      # is in no event.
+      find: { type: string, max: 1000 }
+      # The text that takes its place; empty deletes. Free text: its value
+      # is in no event.
+      with: { type: string, max: 60000 }
+      # Left out, more than one match is refused in words that say the
+      # count; true replaces them all. The build script reads the
+      # document for its text, counts itself, and prints the batchUpdate,
+      # pinned to the revision read; zero matches sends, and the answer's
+      # occurrencesChanged of 0 says so.
+      all: { type: bool, optional: true }
+    request:
+      method: POST
+      path: /v1/documents/{docId}:batchUpdate
+    build: [google-docs/build-replace]
+    answer: { select: [documentId, replies] }   # replies carry replaceAllText.occurrencesChanged
