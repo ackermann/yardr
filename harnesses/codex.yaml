@@ -43,7 +43,7 @@ fetch:
 # adds a line to ~/.codex/config.toml.
 trust:
   dialog: "Trust this folder?"
-  answer: "1. Trust and continue"
+  answers: ["1. Trust and continue"]
   cursor: "›"
 
 # Codex begins a message it took with the mark of its input. Before a

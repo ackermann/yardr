@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 // started in it. Nobody watches an agent yardr starts, and the operator
 // already said the folder is theirs by making it a depot or a crew
 // member's directory, so yardr answers the dialog of a kind whose harness
-// file names it (`trust`: the text that marks it, the answer that accepts
+// file names it (`trust`: the text that marks it, the answers that accept
 // it, the cursor that selects it), and no other question. Answering the
 // dialog leaves the harness's own trust record for the harness to write.
 //
@@ -50,7 +51,7 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 }
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
-// which takes its mark and its accepting answer on separate lines,
+// which takes its mark and one accepting answer on separate lines,
 // selected when the dialog's cursor is on the exact answer line. A mark is
 // the start of its dialog's question: what follows it wraps wherever the
 // pane wraps, so match it at either edge; the answer line stays exact,
@@ -61,7 +62,7 @@ func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
 		l = strings.TrimSpace(l)
 		dialog = dialog || strings.HasPrefix(l, t.Dialog) || strings.HasSuffix(l, t.Dialog)
 		answerText := strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
-		if !answer && answerText == t.Answer {
+		if !answer && slices.Contains(t.Answers, answerText) {
 			answer, selected = true, t.Cursor != "" && strings.HasPrefix(l, t.Cursor)
 		}
 	}

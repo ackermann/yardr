@@ -46,7 +46,7 @@ fetch:
 # only its start marks the dialog at every width (yardr-q7rd).
 trust:
   dialog: "Quick safety check:"
-  answer: "Yes, I trust this folder"
+  answers: ["Yes, I trust this folder"]
   cursor: "❯"
 
 # Claude Code begins a message it took with the mark of its input. Before a

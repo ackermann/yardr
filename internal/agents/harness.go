@@ -78,15 +78,17 @@ type Harness struct {
 }
 
 // Trust is one folder-trust dialog yardr answers itself: the text that
-// marks it on the pane's screen, the answer that accepts it, and the mark
+// marks it on the pane's screen, the answers that accept it, and the mark
 // of the dialog's selected answer, as the harness prints them. The dialog
-// is answered only when the mark shows, the answer shows exactly, and the
-// cursor is seen on the answer (internal/runner/trust.go). The cursor is
-// the dialog's own mark: Kimi's is ❯ though its input mark is ">".
+// is answered only when the mark shows, one answer shows exactly, and the
+// cursor is seen on that answer (internal/runner/trust.go). There is one
+// answer per harness version that renamed it: Kimi 2.2.0 renamed 'Trust
+// this folder' to 'Trust and continue', so its file names both. The cursor
+// is the dialog's own mark: Kimi's is ❯ though its input mark is ">".
 type Trust struct {
-	Dialog string `yaml:"dialog" json:"dialog"`
-	Answer string `yaml:"answer" json:"answer"`
-	Cursor string `yaml:"cursor" json:"cursor"`
+	Dialog  string   `yaml:"dialog" json:"dialog"`
+	Answers []string `yaml:"answers" json:"answers"`
+	Cursor  string   `yaml:"cursor" json:"cursor"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -402,8 +404,8 @@ func (h *Harness) check() error {
 			return fmt.Errorf("flags.permissions: one without label or args")
 		}
 	}
-	if t := h.Trust; t != nil && (t.Dialog == "" || t.Answer == "" || t.Cursor == "") {
-		return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answer and its cursor")
+	if t := h.Trust; t != nil && (t.Dialog == "" || len(t.Answers) == 0 || slices.Contains(t.Answers, "") || t.Cursor == "") {
+		return fmt.Errorf("trust: a dialog yardr answers names its text, its accepting answers and its cursor")
 	}
 	if h.Fetch != nil {
 		if err := h.Fetch.Check(Executable(h.Kind)); err != nil {

@@ -17,7 +17,7 @@ provider: Meta
 # (below) is ❯.
 trust:
   dialog: "Do you trust this workspace?"
-  answer: "1  Trust and continue"
+  answers: ["1  Trust and continue"]
   cursor: "⟩"
 
 # Muse's input is one line at the bottom of its pane (read live, Muse Code

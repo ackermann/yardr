@@ -10,11 +10,13 @@ provider: Moonshot
 # /Users/mckean trusted, new worktrees still asked), and
 # KIMI_CODE_TRUST_WORKSPACE=1 does not skip the interactive dialog of 2.1.1
 # (read live under a pty, 15 Oct 2026). Answering the dialog leaves Kimi's
-# own trust record for Kimi to write. The dialog's cursor is ❯, as its
-# other menus', though its input mark (below) is ">".
+# own trust record for Kimi to write. 2.2.0 renamed the accepting answer to
+# 'Trust and continue' and 'Don't trust' to 'Exit' (a pane's tail, 17 Oct
+# 2026, yardr-k9ew), so both versions' answers are named. The dialog's
+# cursor is ❯, as its other menus', though its input mark (below) is ">".
 trust:
   dialog: "Trust this folder?"
-  answer: "Trust this folder"
+  answers: ["Trust this folder", "Trust and continue"]
   cursor: "❯"
 
 # Kimi's input is a box (read live, Kimi Code 2.1.1),

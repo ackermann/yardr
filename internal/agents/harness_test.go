@@ -133,9 +133,10 @@ func TestLoadOrderAndAliases(t *testing.T) {
 
 // The trust dialogs yardr answers itself: Claude Code's folder-trust
 // question, Kimi's, Codex's and Muse's, each the text that marks it, the
-// answer that accepts it and the mark of its selected answer, as the
-// harness prints them (yardr-bgnn, yardr-mdz4, yardr-q7rd). No other kind
-// names one.
+// answers that accept it and the mark of its selected answer, as the
+// harness prints them (yardr-bgnn, yardr-mdz4, yardr-q7rd). Kimi names two
+// answers: 2.2.0 renamed 'Trust this folder' to 'Trust and continue'
+// (yardr-k9ew). No other kind names one.
 func TestTrust(t *testing.T) {
 	for _, h := range Harnesses {
 		if (h.Trust != nil) != (h.Kind == "claude" || h.Kind == "kimi" || h.Kind == "codex" || h.Kind == "muse") {
@@ -143,19 +144,19 @@ func TestTrust(t *testing.T) {
 		}
 	}
 	claude, _ := Lookup("claude")
-	if claude.Trust == nil || claude.Trust.Dialog != "Quick safety check:" || claude.Trust.Answer != "Yes, I trust this folder" || claude.Trust.Cursor != "❯" {
+	if claude.Trust == nil || claude.Trust.Dialog != "Quick safety check:" || !slices.Equal(claude.Trust.Answers, []string{"Yes, I trust this folder"}) || claude.Trust.Cursor != "❯" {
 		t.Errorf("claude: trust %+v", claude.Trust)
 	}
 	kimi, _ := Lookup("kimi")
-	if kimi.Trust == nil || kimi.Trust.Dialog != "Trust this folder?" || kimi.Trust.Answer != "Trust this folder" || kimi.Trust.Cursor != "❯" {
+	if kimi.Trust == nil || kimi.Trust.Dialog != "Trust this folder?" || !slices.Equal(kimi.Trust.Answers, []string{"Trust this folder", "Trust and continue"}) || kimi.Trust.Cursor != "❯" {
 		t.Errorf("kimi: trust %+v", kimi.Trust)
 	}
 	codex, _ := Lookup("codex")
-	if codex.Trust == nil || codex.Trust.Dialog != "Trust this folder?" || codex.Trust.Answer != "1. Trust and continue" || codex.Trust.Cursor != "›" {
+	if codex.Trust == nil || codex.Trust.Dialog != "Trust this folder?" || !slices.Equal(codex.Trust.Answers, []string{"1. Trust and continue"}) || codex.Trust.Cursor != "›" {
 		t.Errorf("codex: trust %+v", codex.Trust)
 	}
 	muse, _ := Lookup("muse")
-	if muse.Trust == nil || muse.Trust.Dialog != "Do you trust this workspace?" || muse.Trust.Answer != "1  Trust and continue" || muse.Trust.Cursor != "⟩" {
+	if muse.Trust == nil || muse.Trust.Dialog != "Do you trust this workspace?" || !slices.Equal(muse.Trust.Answers, []string{"1  Trust and continue"}) || muse.Trust.Cursor != "⟩" {
 		t.Errorf("muse: trust %+v", muse.Trust)
 	}
 }
@@ -460,9 +461,10 @@ func TestLoadRefuses(t *testing.T) {
 		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
-		"trust, no answer":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answer and its cursor"},
-		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answer: 'Yes'}\n", "names its text, its accepting answer and its cursor"},
-		"trust, no cursor":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answer: 'Yes'}\n", "names its text, its accepting answer and its cursor"},
+		"trust, no answers":        {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answers and its cursor"},
+		"trust, answers empty":     {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: [], cursor: '>'}\n", "names its text, its accepting answers and its cursor"},
+		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"trust, no cursor":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},

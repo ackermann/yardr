@@ -38,7 +38,7 @@ func trustDialog(on string) string {
 
  Security guide
 
-` + mark("No, exit") + "\n" + mark(claude.Trust.Answer) + `
+` + mark("No, exit") + "\n" + mark(claude.Trust.Answers[0]) + `
 
  Enter to confirm · Esc to cancel
 `
@@ -54,7 +54,7 @@ func narrowTrustDialog(on string) string {
 		}
 		return "   " + answer
 	}
-	return "Quick safety check: Is this a project you created or one you trust?\n" + mark("No, exit") + "\n" + mark(claude.Trust.Answer) + "\n"
+	return "Quick safety check: Is this a project you created or one you trust?\n" + mark("No, exit") + "\n" + mark(claude.Trust.Answers[0]) + "\n"
 }
 
 // kimiTrustDialog is Kimi Code 2.1.1's folder-trust dialog as a pty read it,
@@ -76,11 +76,38 @@ func kimiTrustDialog(on string) string {
   Project-level MCP servers are disabled until you explicitly choose Trust.
   Trust starts the listed project MCP targets and remembers this folder.
 
-` + mark(kimi.Trust.Answer) + `
+` + mark(kimi.Trust.Answers[0]) + `
      Enable project MCP servers. Remembered for this folder.
 
 ` + mark("Don't trust") + `
      Exit Kimi Code. Asked again next launch.
+`
+}
+
+// kimiTrustDialog22 is Kimi Code 2.2.0's folder-trust dialog as a pane
+// tail showed it (yardr-k9ew), the cursor on the answer `on`: the answer
+// renamed to 'Trust and continue' and 'Don't trust' dropped for 'Exit'.
+func kimiTrustDialog22(on string) string {
+	kimi, _ := agents.Lookup("kimi")
+	mark := func(answer string) string {
+		if answer == on {
+			return "   ❯ " + answer
+		}
+		return "     " + answer
+	}
+	return ` ────────────────────────────────────────────
+  Trust this folder?
+  ↑↓ navigate · Enter select · Esc exit
+
+  /private/tmp/y1z/wt/r1/b1
+
+  No project integrations or instructions to activate.
+  Trust is remembered for this folder, including future
+  project config changes.
+  Tool approvals follow your permission settings.
+
+` + mark(kimi.Trust.Answers[1]) + `
+` + mark("Exit") + `
 `
 }
 
@@ -97,7 +124,7 @@ func codexTrustDialog(on string) string {
 	}
 	return `  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings can run code automatically, even without a model request. Continue only if you trust
   these files. Your trust decision will be saved.
-` + mark(codex.Trust.Answer) + `
+` + mark(codex.Trust.Answers[0]) + `
 ` + mark("2. Quit") + `
 `
 }
@@ -118,7 +145,7 @@ Workspace: /private/tmp/y1z/wt/r1/b1
 
 Trusting allows project-local skills, rules, hooks, and plugin config to load before the model runs.
 Only trust this workspace when you trust its contents.
-` + mark(muse.Trust.Answer) + `
+` + mark(muse.Trust.Answers[0]) + `
 ` + mark("2  Quit") + `
 
 Use Up/Down or 1/2, then Enter. Esc quits.
@@ -193,21 +220,24 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	codex, _ := agents.Lookup("codex")
 	muse, _ := agents.Lookup("muse")
 	for _, c := range []struct {
-		name       string
-		entry      agents.Trust
-		dialog     func(on string) string
-		off, start string
-		moves      bool // the cursor starts off the answer, so down is sent
+		name     string
+		entry    agents.Trust
+		dialog   func(on string) string
+		off, yes string
+		start    string
+		moves    bool // the cursor starts off the answer, so down is sent
 	}{
-		{"claude", *claude.Trust, trustDialog, "No, exit", "No, exit", true},
-		{"kimi, cursor on the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", kimi.Trust.Answer, false},
-		{"kimi, cursor off the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", "Don't trust", true},
-		{"codex, cursor on the answer", *codex.Trust, codexTrustDialog, "2. Quit", codex.Trust.Answer, false},
-		{"codex, cursor off the answer", *codex.Trust, codexTrustDialog, "2. Quit", "2. Quit", true},
-		{"muse, cursor on the answer", *muse.Trust, museTrustDialog, "2  Quit", muse.Trust.Answer, false},
+		{"claude", *claude.Trust, trustDialog, "No, exit", claude.Trust.Answers[0], "No, exit", true},
+		{"kimi, cursor on the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", kimi.Trust.Answers[0], kimi.Trust.Answers[0], false},
+		{"kimi, cursor off the answer", *kimi.Trust, kimiTrustDialog, "Don't trust", kimi.Trust.Answers[0], "Don't trust", true},
+		{"kimi 2.2.0, cursor on the answer", *kimi.Trust, kimiTrustDialog22, "Exit", kimi.Trust.Answers[1], kimi.Trust.Answers[1], false},
+		{"kimi 2.2.0, cursor off the answer", *kimi.Trust, kimiTrustDialog22, "Exit", kimi.Trust.Answers[1], "Exit", true},
+		{"codex, cursor on the answer", *codex.Trust, codexTrustDialog, "2. Quit", codex.Trust.Answers[0], codex.Trust.Answers[0], false},
+		{"codex, cursor off the answer", *codex.Trust, codexTrustDialog, "2. Quit", codex.Trust.Answers[0], "2. Quit", true},
+		{"muse, cursor on the answer", *muse.Trust, museTrustDialog, "2  Quit", muse.Trust.Answers[0], muse.Trust.Answers[0], false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.entry.Answer), c.dialog(c.start), "idle")
+			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.yes), c.dialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry)
 			if err != nil {
@@ -237,7 +267,7 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 	trustWait, trustRedrawWait = 5*time.Second, time.Minute
 	t.Cleanup(func() { trustWait, trustRedrawWait = old, oldRedraw })
 	claude, _ := agents.Lookup("claude")
-	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), trustDialog("No, exit"), "idle", "0.3")
+	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "idle", "0.3")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
 	if err != nil {
@@ -254,7 +284,7 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 func TestStartAgentTrustThenNotReady(t *testing.T) {
 	shortTrustWait(t)
 	claude, _ := agents.Lookup("claude")
-	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), trustDialog("No, exit"), "blocked")
+	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "blocked")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
 	if err != nil {
@@ -288,9 +318,10 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		{"the question's lead inside a longer word", "Quick safety checklist:\n❯ Yes, I trust this folder\n", claude.Trust, ""},
 		{"trust=false", trustDialog("No, exit"), nil, ""},
 		{"the answer's words inside other text", "I typed: Yes, I trust this folder, honest\n", claude.Trust, ""},
-		{"the answer at the end of a decorated line", "Quick safety check: " + claude.Trust.Dialog + "\n❯ Please choose " + claude.Trust.Answer + "\n", claude.Trust, ""},
+		{"the answer at the end of a decorated line", "Quick safety check: " + claude.Trust.Dialog + "\n❯ Please choose " + claude.Trust.Answers[0] + "\n", claude.Trust, ""},
 		{"the answer without the question", "❯ Yes, I trust this folder\n", claude.Trust, ""},
 		{"kimi's answer without its title", "I typed: Trust this folder\n", kimi.Trust, ""},
+		{"kimi 2.2.0's answer without its title", "I typed: Trust and continue\n", kimi.Trust, ""},
 		{"kimi's title without its answer", "Trust this folder?\n", kimi.Trust, ""},
 		{"codex, another question", " Do you want to allow this?\n › Yes\n   No\n", codex.Trust, ""},
 		{"codex's title only inside another question", "A different dialog says Trust this folder? in its explanation\n› 1. Trust and continue\n", codex.Trust, ""},
@@ -302,7 +333,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 		{"cursor never reaches the answer", stuck, claude.Trust, "down"},
 	}
 	for _, c := range cases {
-		h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answer), c.screen, "idle")
+		h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), c.screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust)
 		if err != nil {
@@ -325,10 +356,10 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	codex, _ := agents.Lookup("codex")
 	muse, _ := agents.Lookup("muse")
-	yes := trustDialog(claude.Trust.Answer)
-	narrowYes := narrowTrustDialog(claude.Trust.Answer)
-	codexYes := codexTrustDialog(codex.Trust.Answer)
-	museYes := museTrustDialog(muse.Trust.Answer)
+	yes := trustDialog(claude.Trust.Answers[0])
+	narrowYes := narrowTrustDialog(claude.Trust.Answers[0])
+	codexYes := codexTrustDialog(codex.Trust.Answers[0])
+	museYes := museTrustDialog(muse.Trust.Answers[0])
 	cases := []struct {
 		name   string
 		screen string
@@ -396,7 +427,7 @@ func TestTrustEntry(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := trustEntry(c.cfg)
-		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+		if got != c.want {
 			t.Errorf("trustEntry(%v) = %+v, want %+v", c.cfg, got, c.want)
 		}
 	}
