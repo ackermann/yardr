@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mints a Google access token from a gws login: the mint_command of the
-# google pack's sources, whose credential names GOOGLE_ACCOUNT under
+# google packs' sources, whose credential names GOOGLE_ACCOUNT under
 # credential.mint. The core runs it with {inputs, scope} on stdin and
 # reads {token, expires_at} on stdout:
 #

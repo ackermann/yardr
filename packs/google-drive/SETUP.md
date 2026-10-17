@@ -10,13 +10,9 @@ in `docs/google.md`.
 
 1. **The gws login.** It needs the Drive scope,
    `https://www.googleapis.com/auth/drive`, else the calls come back
-   403:
-   ```sh
-   gws auth login -s drive
-   ```
-   Where the login already holds another google pack's scopes, log in
-   again with both services, so nothing set up is lost. How the login
-   is held and checked is in `docs/google.md`.
+   403. The shared login instructions in `docs/google.md` show how to
+   check and add the `drive` service while keeping the other applied
+   packs' scopes.
 2. **The pack.** It declares the source and nothing else:
    ```sh
    yardr pack apply google-drive
@@ -28,33 +24,11 @@ in `docs/google.md`.
    ```sh
    yardr bead ask <bead> "Add the Drive source?" --run "pack apply google-drive"
    ```
-3. **The account.** One env file holds it for the google packs'
-   sources. The address is no secret, so it is typed as usual; the
-   file still goes 0600, as every env file. A new file takes its mode
-   from the shell's umask, so narrow it first:
-   ```sh
-   umask 077
-   ```
-   ```sh
-   printf 'GOOGLE_ACCOUNT=%s\n' '<the address the login showed>' > ~/.yardr/sources/google.env
-   ```
-   ```sh
-   chmod 600 ~/.yardr/sources/google.env
-   ```
-   ```sh
-   yardr source set google-drive env_file=~/.yardr/sources/google.env
-   ```
-   Which address that is, and the file the packs share, are in
-   `docs/google.md`.
-4. **The mint.** The script turns the login into a token per call. Put
-   it where the yard runs, from `main`, not a checkout, so a branch
-   cannot change how the token is minted, and set it on the source:
-   ```sh
-   install contrib/google-mint/google-mint ~/bin/    # from main
-   yardr source set google-drive mint_command=$HOME/bin/google-mint
-   # source google-drive: mint command /Users/me/bin/google-mint
-   ```
-   What it needs and refuses is in `docs/google.md`.
+3. **The account.** Create the shared Google account file and point
+   `google-drive` at it, as described in `docs/google.md`.
+4. **The mint.** Install the shared `google-mint` and set it on
+   `google-drive` as described in `docs/google.md`. What it needs and
+   refuses is there too.
 5. **The grants.** A pack of kind source asks none at import, so the
    operator grants what a crew member may call: `read` for every read
    call, each update by its name. For a crew member called

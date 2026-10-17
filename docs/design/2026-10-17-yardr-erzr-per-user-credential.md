@@ -186,7 +186,7 @@ Each of SETUP.md's seven steps (2.5), with the card that carries it or the termi
 | 6. Check it | **Terminal.** `yardr source check google-drive`, and `yardr source check google-mail --as ada` for her credential (3.7). `check` is the operator trying a source, as today, and no card is proposed for it. |
 | 7. Try it | **Terminal.** As the operator, `yardr call google-mail search q="from:me" maxResults=5` for the yard's account, and the same with `--as ada` for hers. |
 
-No step is left that only the proposed-but-unbuilt steps carry silently: steps 1 and 4 are terminals by their nature (a browser, and installing a program from `main`), and step 6 and 7 are an operator trying what they set up. Everything a crew member asks for — the pack, an account's name, a grant plain or `as` — is a card, which is the shape the Telegram trial set (2.5). the google packs' `SETUP.md` files are rewritten in that shape, keeping the typed way beside each card as the telegram setup keeps its manual way beside its card.
+No step is left that only the proposed-but-unbuilt steps carry silently: steps 1 and 4 are terminals by their nature (a browser, and installing a program from `main`), and step 6 and 7 are an operator trying what they set up. Everything a crew member asks for — the pack, an account's name, a grant plain or `as` — is a card, which is the shape the Telegram trial set (2.5). The google packs' `SETUP.md` files are rewritten in that shape, keeping the typed way beside each card as the telegram setup keeps its manual way beside its card.
 
 ## 4. Left out
 

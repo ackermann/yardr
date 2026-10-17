@@ -10,9 +10,9 @@ is applied alone, and a yard takes only the Google access it needs.
 | `google-docs` | Docs and Slides read and appended to (`google-docs`, `google-slides`) | `docs,slides` |
 
 Each pack's own steps are its setup notes (`yardr pack show
-google-mail`, and the drive and docs packs'); this page has what the
-three share: the gws login every call mints from, the mint, the env
-file, and calling as a user.
+google-mail`, `yardr pack show google-drive` and `yardr pack show
+google-docs`). This page has what the three share: the gws login every
+call mints from, the mint, the env file, and calling as a user.
 
 ## The gws login
 
@@ -30,7 +30,7 @@ with — `https://www.googleapis.com/auth/gmail.modify` for mail,
 `https://www.googleapis.com/auth/drive` for drive,
 `https://www.googleapis.com/auth/documents` and
 `https://www.googleapis.com/auth/presentations` for docs — else the
-calls come back 403. A login without one is made again with every
+calls come back 403. When a pack is added, log in again with every
 service the yard wants, so nothing set up is lost:
 
 ```sh
@@ -42,16 +42,50 @@ table above); adding a pack later means logging in again with the
 services added. Google's token narrows by this grant, not by call,
 so the login's scopes are the yard's whole Google access.
 
+## The account file
+
+After applying the packs, make one env file for the account shown by
+`gws auth status`:
+
+```sh
+umask 077
+printf 'GOOGLE_ACCOUNT=%s\n' '<the address gws auth status showed>' > ~/.yardr/sources/google.env
+chmod 600 ~/.yardr/sources/google.env
+```
+
+Point each applied source at that file. Run only the lines for packs
+the yard uses:
+
+```sh
+yardr source set google-mail env_file=~/.yardr/sources/google.env
+yardr source set google-drive env_file=~/.yardr/sources/google.env
+yardr source set google-docs env_file=~/.yardr/sources/google.env
+yardr source set google-slides env_file=~/.yardr/sources/google.env
+```
+
+`GOOGLE_ACCOUNT` is an address, not a secret. The file still has mode
+0600, as every env file. A source can keep its own file instead:
+`yardr source key <source>` writes the names into its `env_file`, or
+with none set into `~/.yardr/sources/<name>.env`.
+
 ## The mint
 
-`contrib/google-mint` turns the login into a token per call. Put it
+`contrib/google-mint` turns the login into a token per call. Install it
 where the yard runs, from `main`, not a checkout, so a branch cannot
-change how the token is minted, and set it on each source the yard
-applies:
+change how the token is minted:
 
 ```sh
 install contrib/google-mint/google-mint ~/bin/    # from main
+```
+
+Set it on each source the yard applies. Run only the lines for packs
+the yard uses:
+
+```sh
 yardr source set google-mail mint_command=$HOME/bin/google-mint
+yardr source set google-drive mint_command=$HOME/bin/google-mint
+yardr source set google-docs mint_command=$HOME/bin/google-mint
+yardr source set google-slides mint_command=$HOME/bin/google-mint
 ```
 
 It needs `gws` and `curl` on PATH (`GWS_BIN` names another gws). It
@@ -61,18 +95,6 @@ secret, nor writes them anywhere. No new copy of a secret is stored:
 the token is handed to each call under `GOOGLE_TOKEN` and kept in
 memory alone. The longer telling is
 [`contrib/google-mint/README.md`](../contrib/google-mint/README.md).
-
-## The env file
-
-One file holds the account for the google packs' sources:
-`~/.yardr/sources/google.env`, with `GOOGLE_ACCOUNT` set to the
-address the login showed. The address is no secret, so it is typed
-as usual; the file still goes 0600, as every env file. Each source
-is pointed at it (`yardr source set <source>
-env_file=~/.yardr/sources/google.env`), as the pack's own steps say.
-A source can keep its own file instead: `yardr source key <source>`
-writes the names into the source's `env_file`, or with none set
-into `~/.yardr/sources/<name>.env`.
 
 ## Calling as a user
 
