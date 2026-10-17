@@ -1,11 +1,15 @@
 # Drive as a declared source: files listed, read and shared with one
 # address, folders and empty Google Docs and Slides created for the
-# docs and slides sources to fill. What it never does: no delete, no
-# update, no trash, no upload of content (multipart, which a declared
-# source cannot say), no export (a media download, not JSON), and no
-# paging (pageToken is not declared, so one page is all a call reads).
-# A share is reader or commenter to one address: no writer or owner,
-# no domain or anyone-with-link share, no unsharing.
+# docs and slides sources to fill, and a file's comments listed and
+# replied to, resolving with the reply when asked. What it never does:
+# no delete, no update, no trash, no upload of content (multipart,
+# which a declared source cannot say), no export (a media download, not
+# JSON), and no paging (pageToken is not declared, so one page is all
+# a call reads). A share is reader or commenter to one address: no
+# writer or owner, no domain or anyone-with-link share, no unsharing.
+# A reply answers a comment that is there: no new top-level anchored
+# comment (anchors are fragile), no deleting, no reopen, and no
+# hearing comments as events.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/drive/v3/rest) on 16
@@ -14,7 +18,13 @@
 # answers the file's metadata; files.create takes {name, mimeType,
 # parents} and answers the file. permissions.create checked 17 October
 # 2026: it takes {type, role, emailAddress} with sendNotificationEmail
-# (Drive's own default true) and answers the permission.
+# (Drive's own default true) and answers the permission. comments.list
+# and replies.create checked 17 October 2026: comments.list takes the
+# fileId with the REQUIRED fields parameter and answers one page with
+# comments and nextPageToken, resolved and open alike, each marked by
+# its own resolved flag (Drive has no resolved filter, so the call
+# takes none); replies.create takes {content, action} and answers the
+# reply, resolving the thread when the action is resolve.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
 # account (an address, no secret) and the operator sets mint_command to
@@ -22,7 +32,7 @@
 # key, so the file names none: a folder tried again after a lost answer
 # is made twice.
 name: google-drive
-about: Drive files listed, read and shared; folders and empty Docs and Slides created.
+about: Drive files listed, read and shared; folders and empty Docs and Slides created; comments listed and replied to.
 base: https://www.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -96,3 +106,26 @@ calls:
       query: { sendNotificationEmail: "{notify}" }
       body: { type: "user", role: "{role}", emailAddress: "{email}" }
     answer: { select: [id, type, role] }   # the permission it made; kind is left out
+  comments:
+    kind: read
+    about: List a file's comments, resolved and open alike, each told by its resolved flag
+    params:
+      fileId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: GET
+      path: /drive/v3/files/{fileId}/comments
+      query: { fields: "comments(id,author,content,quotedFileContent,resolved,replies),nextPageToken" }   # Drive refuses the call without fields
+    answer: { select: [comments, nextPageToken] }   # nextPageToken says there is more; paging is left out
+  reply:
+    kind: update
+    about: Reply to a comment, resolving it with the reply when asked
+    params:
+      fileId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      commentId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      content: { type: string, max: 10000 }   # free text: its value is in no event
+      action: { type: enum, values: [resolve], optional: true }   # left out, a plain reply; resolve closes the thread with it
+    request:
+      method: POST
+      path: /drive/v3/files/{fileId}/comments/{commentId}/replies
+      body: { content: "{content}", action: "{action}" }   # an action left out leaves the key, so the reply only answers
+    answer: { select: [id, content, action] }   # the reply it made; action only when it resolved

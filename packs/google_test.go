@@ -108,6 +108,7 @@ func TestGoogleDeclarations(t *testing.T) {
 			{Name: "files", Kind: source.Read}, {Name: "file", Kind: source.Read},
 			{Name: "folder", Kind: source.Update}, {Name: "doc", Kind: source.Update},
 			{Name: "slides", Kind: source.Update}, {Name: "share", Kind: source.Update},
+			{Name: "comments", Kind: source.Read}, {Name: "reply", Kind: source.Update},
 		},
 		"google-docs.yaml": {
 			{Name: "doc", Kind: source.Read}, {Name: "write", Kind: source.Update},
@@ -210,15 +211,23 @@ func (s *googleStandin) request() googleRequest {
 func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	msgID := "18c4a1b2c3d4e5f6"
 	driveID := "1AbC2dE3fH4jK5lM6nO7pQ8rStUv"
+	commentID := "cOmMeNt0123456789abcdef"
+	shutID := "cOmMeNt0123456789abcdeg"
+	madeReplyID := "rEpLy0123456789abcdef01"
 	docID := "1DoCxYz0123456789abcdefghijklmnop"
 	deckID := "1DeCk0123456789abcdefghijklmnopqr"
 	searchPage1 := `{"messages":[{"id":"18c4a1b2c3d4e5f6","threadId":"18c4a1b2c3d4e5f6"},{"id":"18c4a1b2c3d4e5f7","threadId":"18c4a1b2c3d4e5f6"}],"nextPageToken":"CAEQDBgBEg9OZXh0IFBhZ2U","resultSizeEstimate":2}`
 	searchPage2 := `{"messages":[{"id":"18c4a1b2c3d4e5f8","threadId":"18c4a1b2c3d4e5f8"}],"resultSizeEstimate":3}`
+	// Drive lists resolved and open comments alike, each marked by its
+	// own resolved flag: one of each, the open one with a reply.
+	openComment := `{"kind":"drive#comment","id":"` + commentID + `","createdTime":"2026-10-17T10:00:00.000Z","modifiedTime":"2026-10-17T11:00:00.000Z","author":{"kind":"drive#user","displayName":"Ada","me":false},"htmlContent":"What about <b>lunch</b>?","content":"What about lunch?","deleted":false,"resolved":false,"quotedFileContent":{"mimeType":"text/plain","value":"Lunch places"},"replies":[{"kind":"drive#reply","id":"rEpLy0123456789abcdef00","content":"Friday works.","author":{"displayName":"Bob"},"createdTime":"2026-10-17T10:30:00.000Z","deleted":false}]}`
+	shutComment := `{"kind":"drive#comment","id":"` + shutID + `","createdTime":"2026-10-16T09:00:00.000Z","modifiedTime":"2026-10-16T09:30:00.000Z","author":{"kind":"drive#user","displayName":"Bob","me":false},"htmlContent":"Fixed.","content":"Fixed.","deleted":false,"resolved":true,"quotedFileContent":{"mimeType":"text/plain","value":"Lunch places"},"replies":[]}`
 	standin := &googleStandin{t: t, answered: map[string]string{
 		"GET /gmail/v1/users/me/messages/" + msgID:          `{"id":"` + msgID + `","threadId":"` + msgID + `","labelIds":["INBOX","UNREAD"],"snippet":"Lunch on Friday?","historyId":"987654","internalDate":"1760620800000","sizeEstimate":1234,"payload":{"mimeType":"multipart/alternative","headers":[{"name":"From","value":"ada@example.com"},{"name":"Subject","value":"Lunch"}]}}`,
 		"GET /gmail/v1/users/me/threads/" + msgID:           `{"id":"` + msgID + `","historyId":"987655","snippet":"Lunch on Friday?","messages":[{"id":"` + msgID + `","threadId":"` + msgID + `","snippet":"Lunch on Friday?"}]}`,
 		"POST /gmail/v1/users/me/drafts":                    `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`,
 		"GET /drive/v3/files/" + driveID:                    `{"kind":"drive#file","id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["1PaReNt0123456789abcdefghijklm"],"owners":[{"displayName":"Ada"}],"modifiedTime":"2026-10-16T15:00:00.000Z","size":"1024","trashed":false,"webViewLink":"https://docs.google.com/document/d/` + driveID + `","version":"9"}`,
+		"GET /drive/v3/files/" + driveID + "/comments":      `{"kind":"drive#commentList","nextPageToken":"next","comments":[` + openComment + `,` + shutComment + `]}`,
 		"GET /v1/documents/" + docID:                        `{"documentId":"` + docID + `","title":"lunch","revisionId":"9","documentStyle":{"pageSize":{"width":{"magnitude":612}}},"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]}}`,
 		"POST /v1/documents/" + docID + ":batchUpdate":      `{"documentId":"` + docID + `","replies":[{},{"updateParagraphStyle":{"objectId":"kix.1"}}],"writeControl":{"requiredRevisionId":"9"}}`,
 		"GET /v1/presentations/" + deckID:                   `{"presentationId":"` + deckID + `","title":"friday","pageSize":{"width":{"magnitude":9144000}},"slides":[{"objectId":"friday_1"}]}`,
@@ -255,6 +264,23 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 				t.Fatalf("the stand-in was sent %s: %v", body, err)
 			}
 			out, _ := json.Marshal(map[string]any{"kind": "drive#permission", "id": "00362519876543210987", "type": made.Type, "role": made.Role, "emailAddress": made.EmailAddress})
+			return string(out)
+		},
+		"POST /drive/v3/files/" + driveID + "/comments/" + commentID + "/replies": func(_ url.Values, body []byte) string {
+			var made struct {
+				Content string
+				Action  string
+			}
+			if err := json.Unmarshal(body, &made); err != nil {
+				t.Fatalf("the stand-in was sent %s: %v", body, err)
+			}
+			m := map[string]any{"kind": "drive#reply", "id": madeReplyID, "content": made.Content,
+				"author": map[string]any{"displayName": "Ada"}, "createdTime": "2026-10-17T12:00:00.000Z",
+				"htmlContent": made.Content, "deleted": false}
+			if made.Action != "" {
+				m["action"] = made.Action
+			}
+			out, _ := json.Marshal(m)
 			return string(out)
 		},
 	}}
@@ -320,6 +346,18 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			method: "POST", path: "/drive/v3/files/" + driveID + "/permissions", query: map[string]string{"sendNotificationEmail": "true"},
 			body:       `{"type":"user","role":"commenter","emailAddress":"ada@example.com"}`,
 			wantAnswer: `{"id":"00362519876543210987","type":"user","role":"commenter"}`},
+		{name: "comments", d: drive, call: "comments", params: map[string]string{"fileId": driveID},
+			method: "GET", path: "/drive/v3/files/" + driveID + "/comments",
+			query:      map[string]string{"fields": "comments(id,author,content,quotedFileContent,resolved,replies),nextPageToken"},
+			wantAnswer: `{"nextPageToken":"next","comments":[` + openComment + `,` + shutComment + `]}`},
+		{name: "reply", d: drive, call: "reply", params: map[string]string{"fileId": driveID, "commentId": commentID, "content": "Friday works."},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/comments/" + commentID + "/replies",
+			body:       `{"content":"Friday works."}`,
+			wantAnswer: `{"id":"` + madeReplyID + `","content":"Friday works."}`},
+		{name: "reply resolving", d: drive, call: "reply", params: map[string]string{"fileId": driveID, "commentId": commentID, "content": "Fixed.", "action": "resolve"},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/comments/" + commentID + "/replies",
+			body:       `{"content":"Fixed.","action":"resolve"}`,
+			wantAnswer: `{"id":"` + madeReplyID + `","content":"Fixed.","action":"resolve"}`},
 		{name: "docs doc", d: docs, call: "doc", params: map[string]string{"docId": docID},
 			method: "GET", path: "/v1/documents/" + docID,
 			wantAnswer: `{"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]},"title":"lunch"}`},
@@ -421,6 +459,12 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"share spaced email", drive, "share", map[string]string{"fileId": "abc", "email": "bob @example.com", "role": "reader", "notify": "false"}, "parameter email does not match its pattern"},
 		{"share writer", drive, "share", map[string]string{"fileId": "abc", "email": "bob@example.com", "role": "writer", "notify": "false"}, "parameter role is one of reader, commenter"},
 		{"share notify yes", drive, "share", map[string]string{"fileId": "abc", "email": "bob@example.com", "role": "reader", "notify": "yes"}, "parameter notify is true or false"},
+		{"comments slashed fileId", drive, "comments", map[string]string{"fileId": "a/b"}, "parameter fileId does not match its pattern"},
+		{"reply slashed fileId", drive, "reply", map[string]string{"fileId": "a/b", "commentId": "abc", "content": "x"}, "parameter fileId does not match its pattern"},
+		{"reply slashed commentId", drive, "reply", map[string]string{"fileId": "abc", "commentId": "a/b", "content": "x"}, "parameter commentId does not match its pattern"},
+		{"reply without content", drive, "reply", map[string]string{"fileId": "abc", "commentId": "abc"}, "parameter content is missing"},
+		{"reply long content", drive, "reply", map[string]string{"fileId": "abc", "commentId": "abc", "content": strings.Repeat("x", 10001)}, "parameter content is 10001 characters, and at most 10000"},
+		{"reply reopen", drive, "reply", map[string]string{"fileId": "abc", "commentId": "abc", "content": "x", "action": "reopen"}, "parameter action is one of resolve"},
 		{"doc dots", docs, "doc", map[string]string{"docId": ".."}, "parameter docId does not match its pattern"},
 		{"write heading 3", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "HEADING_3", "start": "1", "end": "2"}, "parameter style is one of NORMAL_TEXT, TITLE, HEADING_1, HEADING_2"},
 		{"write fractional start", docs, "write", map[string]string{"docId": "abc", "text": "x", "style": "TITLE", "start": "1.5", "end": "2"}, "parameter start is no whole number"},

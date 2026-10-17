@@ -1,8 +1,9 @@
 # Drive as a pack of kind source: the integration, imported into the
 # yard and into no depot. What Drive is here: the declared source
 # google-drive, which lists and reads files, shares one file with one
-# address, and makes folders and empty Docs and Slides for the
-# google-docs pack's sources to fill.
+# address, makes folders and empty Docs and Slides for the
+# google-docs pack's sources to fill, and lists a file's comments and
+# replies in them.
 # Its credential mints from a gws login on this machine, with
 # contrib/google-mint as its mint_command, which the operator sets by
 # hand: no pack brings the command. One command mints every account,

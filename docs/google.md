@@ -6,7 +6,7 @@ is applied alone, and a yard takes only the Google access it needs.
 | pack | wires in | the login's services |
 |---|---|---|
 | `google-mail` | Gmail read and drafts, never sent (`google-mail`) | `gmail` |
-| `google-drive` | Drive files and folders, shared with one address, and the empty Docs and Slides the docs pack fills (`google-drive`) | `drive` |
+| `google-drive` | Drive files and folders, shared with one address, the empty Docs and Slides the docs pack fills, and comments read and replied to (`google-drive`) | `drive` |
 | `google-docs` | Docs and Slides read and appended to (`google-docs`, `google-slides`) | `docs,slides` |
 
 Each pack's own steps are its setup notes (`yardr pack show

@@ -3,7 +3,8 @@
 The pack wires Drive into the yard as the declared source
 `google-drive`: files listed, read and shared with one address,
 folders made, empty Docs and Slides made for the google-docs pack's
-sources to fill. Each call goes out with a short-lived token minted
+sources to fill, and a file's comments listed and replied to.
+Each call goes out with a short-lived token minted
 from a gws login on this machine, so no new copy of a secret is
 stored anywhere. The login, the
 account, the mint and calling as a user are the three google packs'
@@ -25,7 +26,7 @@ shared setup, said once in `docs/google.md`.
    ```sh
    yardr pack apply google-drive
    # applied pack google-drive to the yard: 1 created, 0 changed, 0 unchanged
-   # source google-drive is declared: 6 calls under https://www.googleapis.com (yardr source show google-drive)
+   # source google-drive is declared: 8 calls under https://www.googleapis.com (yardr source show google-drive)
    ```
 3. **The account.** Give the yard's Google account for `google-drive`,
    one card, as described in `docs/google.md` (step 3).
@@ -43,6 +44,7 @@ shared setup, said once in `docs/google.md`.
    yardr bead ask <bead> "Let the yardmaster make empty Drive docs" --run "source grant google-drive doc --crew yardmaster" --context "Empty docs for the google-docs pack's sources to fill."
    yardr bead ask <bead> "Let the yardmaster make empty decks" --run "source grant google-drive slides --crew yardmaster" --context "Empty decks for the google-docs pack's sources to fill."
    yardr bead ask <bead> "Let the yardmaster share Drive files" --run "source grant google-drive share --crew yardmaster" --context "Shares one file with one address as reader or commenter; each share to a new address is asked on its own card first."
+   yardr bead ask <bead> "Let the yardmaster reply in Drive comments" --run "source grant google-drive reply --crew yardmaster" --context "Replies in a file's comments; with action=resolve the reply closes the thread."
    ```
    By hand they are the operator's to type:
    ```sh
@@ -51,6 +53,7 @@ shared setup, said once in `docs/google.md`.
    yardr source grant google-drive doc --crew yardmaster
    yardr source grant google-drive slides --crew yardmaster
    yardr source grant google-drive share --crew yardmaster
+   yardr source grant google-drive reply --crew yardmaster
    ```
    Sharing sends yard content to a person outside it, so `share` is a
    grant the operator may give or withhold: without it a crew member
@@ -62,7 +65,7 @@ shared setup, said once in `docs/google.md`.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with
-   `read`, `folder`, `doc`, `slides` and `share` from above. There is no
+   `read`, `folder`, `doc`, `slides`, `share` and `reply` from above. There is no
    typed way beside these: a grant `as` ada is ada's to give.
    `yardr source show google-drive` lists each call with its kind
    and who may make it, plain and `as` each user.
@@ -85,6 +88,16 @@ shared setup, said once in `docs/google.md`.
    ```sh
    yardr call google-drive share fileId=<the file's id> email=<an address> role=reader
    ```
+   And a file's comments, listed with their replies: resolved and
+   open alike, each told by its own `resolved` flag, since Drive
+   has no resolved filter:
+   ```sh
+   yardr call google-drive comments fileId=<the file's id>
+   yardr call google-drive reply fileId=<the file's id> commentId=<a comment's id> content="Done."
+   yardr call google-drive reply fileId=<the file's id> commentId=<a comment's id> content="Fixed." action=resolve
+   ```
+   The last reply closes the thread with it; without `action`
+   the reply only answers.
 
 Calling as a user — the yard reading another person's drive with
 their own credential — is the shared setup too: `docs/google.md`
@@ -94,6 +107,8 @@ What is not there, on purpose: deleting, updating, trash; uploading
 file content and attachments (multipart, which a declared source
 cannot say); exporting file content (a media download, not JSON);
 paging past the first page; writer or owner shares, domain or
-anyone-with-link shares, and unsharing; and no call the pack does
-not list. The yard's source format cannot express what is not
+anyone-with-link shares, and unsharing; new top-level anchored
+comments (anchors are fragile), deleting comments or replies,
+reopening, and hearing comments as events; and no call the pack
+does not list. The yard's source format cannot express what is not
 listed, and the pack does not change yardr.
