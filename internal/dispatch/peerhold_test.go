@@ -279,7 +279,8 @@ func TestPeersDaemonGetsWhatQueuedWhileAway(t *testing.T) {
 	a.down.Store(false)
 	until(t, "the ping queued while a did not answer", func() bool { return a.pong(t, second) != nil })
 	until(t, "b's question is held again", func() bool { return a.rc.Held() == 1 })
-	if w := a.waiting(t, "b"); len(w) != 0 {
-		t.Fatalf("still waiting at a for b: %+v", w)
-	}
+	// The hold registers before the handover write lands, so what waits is
+	// read only once nothing does: under load the write lands after a poll
+	// that already sees the hold.
+	until(t, "nothing waits at a for b", func() bool { return len(a.waiting(t, "b")) == 0 })
 }
