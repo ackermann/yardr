@@ -88,17 +88,42 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 	}{
 		{"codex", map[string]any{"kind": "codex"}, "", "--no-daemon " + noUpdate},
 		{"codex with args and a model", map[string]any{"kind": "codex", "args": []any{"--approve-for-me"}, "model": "gpt-6-luna"}, "",
-			"--approve-for-me --no-daemon " + noUpdate + " --model gpt-6-luna"},
+			"--no-daemon " + noUpdate + " --approve-for-me --model gpt-6-luna"},
 		{"codex with a bead's model", map[string]any{"kind": "codex", "model": "gpt-6-luna"}, "gpt-6-astra",
 			"--no-daemon " + noUpdate + " --model gpt-6-astra"},
 		{"codex already told", map[string]any{"kind": "codex", "args": []any{"--no-daemon", "--approve-for-me"}}, "",
-			"--no-daemon --approve-for-me " + noUpdate},
+			noUpdate + " --no-daemon --approve-for-me"},
 		// yardr-bcx5: a group's own -c (the reviewers' reasoning effort) is
 		// another setting's, and does not pass for the update check's.
 		{"codex with a -c of its own", map[string]any{"kind": "codex", "args": []any{"-c", "model_reasoning_effort=high"}}, "",
-			"-c model_reasoning_effort=high --no-daemon " + noUpdate},
+			"--no-daemon " + noUpdate + " -c model_reasoning_effort=high"},
 		{"claude", map[string]any{"kind": "claude", "args": []any{"--permission-mode", "auto"}}, "", "--permission-mode auto"},
 		{"no kind is claude", map[string]any{}, "", ""},
+	}
+	for _, c := range cases {
+		if got := strings.Join(agentArgs(c.cfg, c.bead, "", ""), " "); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// yardr-7wq2: herdr starts the bare kiro-cli, whose flags are chat's, so
+// every Kiro agent runs with the chat subcommand first, before the group's
+// flags and the model.
+func TestAgentArgsKiroChatsFirst(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		bead string
+		want string
+	}{
+		{"kiro", map[string]any{"kind": "kiro"}, "", "chat"},
+		{"kiro with trust and a model", map[string]any{"kind": "kiro", "args": []any{"--trust-tools=*"}, "model": "auto"}, "",
+			"chat --trust-tools=* --model auto"},
+		{"kiro with a bead's model", map[string]any{"kind": "kiro", "model": "auto"}, "claude-opus-5.5",
+			"chat --model claude-opus-5.5"},
+		{"kiro already chatting", map[string]any{"kind": "kiro", "args": []any{"chat", "--trust-tools=*"}}, "",
+			"chat --trust-tools=*"},
 	}
 	for _, c := range cases {
 		if got := strings.Join(agentArgs(c.cfg, c.bead, "", ""), " "); got != c.want {
@@ -193,7 +218,7 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 			}
 		case "codex":
 			if want := `permissions.yardr_read_only.network.unix_sockets={"` + socket + `"="allow"}`; !strings.Contains(joined, "-c "+want) ||
-				!strings.HasPrefix(joined, "--enable network_proxy ") {
+				!strings.Contains(joined, "--enable network_proxy -c ") {
 				t.Errorf("codex: %q, want %s behind the network proxy", joined, want)
 			}
 		}

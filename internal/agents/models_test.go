@@ -81,6 +81,23 @@ anthropic       claude-haiku-4-5            200K     64K      yes       yes
 	}
 }
 
+func TestParseKiroModels(t *testing.T) {
+	out := `{"default_model":"auto","models":[
+{"model_id":"auto","model_name":"auto","description":"Models chosen by task","context_window_tokens":1000000},
+{"model_id":"claude-opus-5.5","model_name":"Claude Opus 5.5"},
+{"model_id":"claude-opus-5.5","model_name":"Claude Opus 5.5"},
+{"model_id":"","model_name":"no id"}]}`
+	if got := ParseKiroModels([]byte(out)); !slices.Equal(got, []string{"auto", "claude-opus-5.5"}) {
+		t.Fatalf("got %v", got)
+	}
+	if got := ParseKiroModels([]byte("not json")); got != nil {
+		t.Fatalf("of no list: %v", got)
+	}
+	if got := ParseKiroModels([]byte(`{"models":[]}`)); got != nil {
+		t.Fatalf("of no models: %v", got)
+	}
+}
+
 func TestParseMuseCatalog(t *testing.T) {
 	out := `{"schema_version":2,"provider_id":"meta","profile_id":"tbh","source":"provider_catalog","rows":[
 {"model_id":"muse-wonder-1.0","visibility":"visible","is_default":true},
@@ -109,6 +126,7 @@ func TestUnattendedArgs(t *testing.T) {
 		"claude": {"--permission-mode", "auto"},
 		"codex":  {"--dangerously-bypass-approvals-and-sandbox"},
 		"kimi":   {"--yolo"},
+		"kiro":   {"--trust-tools=*"},
 		"muse":   {"--yolo"},
 		"pi":     nil,
 	} {

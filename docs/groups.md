@@ -1106,14 +1106,14 @@ built into the binary and read once when yardr starts:
 |---|---|---|
 | `version` | the shape of the file, 1 today; a file of another shape is refused | the loader, `yardr doctor` |
 | `label` | the harness's name as people write it | the forms, `yardr harness show`, `yardr doctor --json` |
-| `provider` | who makes the harness, as people write it. Claude Code, Codex, Kimi and Grok name one each; a kind whose README names no maker names none | `yardr harness show`, `yardr doctor --json`, for a program that shows them |
+| `provider` | who makes the harness, as people write it. Claude Code, Codex, Kimi, Grok, Muse and Kiro name one each; a kind whose README names no maker names none | `yardr harness show`, `yardr doctor --json`, for a program that shows them |
 | `aliases` | other names the kind is asked for by; no file has one today | the loader |
 | `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
 | `fetch` | how the harness gets onto a Mac that has no package manager and nobody at a terminal: one file of one version at its maker's address, with its sha256 ([doctor.md](doctor.md#a-program-fetched-on-a-mac)). Printed, never fetched by yardr. Claude Code and Codex have one; a kind with none is installed by hand | `yardr doctor --json`, `yardr harness show --json`, for a program that fetches |
 | `trust` | the folder-trust dialog yardr answers: `dialog` (the text that marks it), `answers` (those that accept it, one string or a list, one entry per harness version that renamed it; the old `answer` reads as one), `cursor` (the mark of its selected answer), and optional `env` (`KEY=VALUE` entries that let the harness skip the dialog). The runner sets the values only when trust is automatic; with `trust=false` it clears them, and a group's `env_file` cannot override them. A kind with no `trust` is left for a person | the herdr runner, at start |
-| `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
-| `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
-| `offers` | the models to pick from: each a `model` id the kind's `--model` flag takes, a `label` a person reads, and what it is `recommended` for (`yardmaster` on the one frontier model a yardmaster should run on). A suggestion, not a check: `init --model` takes any id, whether the file names it or not. Claude Code, Codex and Kimi name one each; a kind with none suggests no model | `yardr harness show`, `yardr doctor --json`, for a program that offers them |
+| `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `placeholder`: the input's hint when it holds nothing, which reads empty, for a harness that draws one in no faint style ([Kiro](#kiro)'s is gray); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
+| `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added first to every agent of the kind, before the group's own: [Codex](#codex)'s `--no-daemon` and its update check off, [Kiro](#kiro)'s `chat` subcommand), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
+| `offers` | the models to pick from: each a `model` id the kind's `--model` flag takes, a `label` a person reads, and what it is `recommended` for (`yardmaster` on the one frontier model a yardmaster should run on). A suggestion, not a check: `init --model` takes any id, whether the file names it or not. Claude Code, Codex, Kimi, Muse and Kiro name one each; a kind with none suggests no model | `yardr harness show`, `yardr doctor --json`, for a program that offers them |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it; `type_field` names the key that holds the type when it is not `type`) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 | `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
@@ -1290,6 +1290,46 @@ what the `hint` of that prompt's `session_harness_error` says for a Kimi
 agent, in the words of `hints.reset` in the same file. For a kind whose file
 has no such hint the event names no harness.
 
+### Kiro
+
+Kiro CLI (seen with 2.24 and 2.25) draws its input under its status line,
+begun with `›`, an empty one showing its placeholder in gray:
+
+```text
+────────────────────────────────────────
+developer · auto · ◔ 3%              ~/project · (main)
+
+›  ask a question or describe a task ↵
+```
+
+The gray is no faint style, so the placeholder would read as text someone
+left: it is `placeholder` in `harnesses/kiro.yaml`, and an input that shows
+it reads empty. Earlier versions drew no `›`; this file reads 2.24 and
+later. A message Kiro took is echoed above as a plain indented paragraph,
+with no mark, and the footer names the agent, the model and the context
+used. Kiro asks no folder-trust question, and every agent runs with the
+`chat` subcommand first, since its flags are chat's.
+
+Unattended, Kiro runs with `--trust-tools=*`, which allows every built-in
+tool without asking and asks nothing at startup. `--trust-all-tools` asks
+"Kiro is running in trust all tools mode" at every start, with "No, exit"
+selected, while herdr reports the screen idle; the first prompt then waits
+for the screen (`no screen, not typed`), and the startup question is yours
+to answer in the pane.
+
+Between tool calls herdr may report a Kiro agent idle while it still works:
+Kiro keeps its input and placeholder drawn while a turn runs, and the
+placeholder is what herdr's idle rule matches. A Kiro session that reads
+without writing is then reported `session_stalled`, and a long turn
+`session_idle`, though nothing stuck. herdr's rules are herdr's, not a file
+of yardr's, so for a Kiro group set `--set stall=off`, or a longer `stall`,
+until herdr tells the two apart.
+
+A `--model` id Kiro does not know runs the default silently: the footer's
+model is then missing, and no event says so. Kiro's sessions live in a
+database yardr does not read, so no `model_reported` is recorded for it;
+check the footer's model instead.
+
 ### herdr setup
 
 - **Folder trust.** Claude Code, Codex and Kimi ask whether they may trust
@@ -1385,6 +1425,7 @@ has no such hint the event names no harness.
   | `claude` | `❯` | `❯` |
   | `codex` | `›` | `›` |
   | `kimi` | `>` after `│`, the edge of the box its input is drawn in; the edges are no part of the text | `✨` |
+  | `kiro` | `›` | no mark: the prompt anywhere above the input |
   | `muse` | `❯` | `❯` |
   | any other, or none | `❯` or `›` | no mark known: the prompt anywhere above the input, and anywhere at all in a pane with neither mark, as before |
   <!-- /harness marks -->
@@ -1392,12 +1433,14 @@ has no such hint the event names no harness.
   The input is what the pane holds from its last line that begins with the
   input mark. A harness that is still starting has drawn no input yet, and
   the pane's terminal echoes keys that come then. So in the pane of a
-  `claude`, `codex` or `kimi` session only that kind's marks tell: without
-  its input mark the text proves nothing, and the look ends as `no input`,
-  the prompt pending; and above the input
-  the prompt shows only where it begins a line with the message mark, as a
-  message the agent took does, never as the echo the terminal left there.
-  The marks are `marks` in the kind's file, `harnesses/<kind>.yaml`.
+  `claude`, `codex`, `kimi`, `muse` or `kiro` session only that kind's marks
+  tell: without its input mark the text proves nothing, and the look ends
+  as `no input`, the prompt pending; and above the input the prompt shows
+  only where it begins a line with the message mark, as a message the agent
+  took does, never as the echo the terminal left there. The marks are
+  `marks` in the kind's file, `harnesses/<kind>.yaml`. Kiro names no
+  message mark: its echo is a plain paragraph, so above a Kiro input any
+  line that begins with the prompt counts.
   With the agent idle the daemon sends Enter alone, never the text a second
   time (`session_prompt_typed`, its `submit` the count), three times in
   all, ten seconds apart; after the third, `session_prompt_gave_up` has
@@ -1427,16 +1470,16 @@ has no such hint the event names no harness.
   catches a look that was wrong (`shown` on a prompt that was only
   typed) and a nudge whose Enter was lost. A nudge herdr saw stall does not
   wait for that pass: it gets its Enter on the one that typed it (see
-  "Text in the input" in [crew.md](crew.md)). Only a `claude`, `codex` or
-  `kimi` pane is read for it: in any other, and in the pane of a session whose handle
+  "Text in the input" in [crew.md](crew.md)). Only a `claude`, `codex`,
+  `kimi`, `muse` or `kiro` pane is read for it: in any other, and in the pane of a session whose handle
   has no `kind`, yardr cannot tell the input and sends no key. A crew
   member's first prompt is known from `first_prompt` on its handle, so one
   started before yardr wrote that is covered from its next start.
 - **A harness that has not drawn its screen.** herdr can report an agent
   idle while its pane still shows something else: a Codex that upgrades
   itself before it starts (`brew upgrade --cask codex`), a slow start. Keys
-  typed then go to whatever runs there. So for a `claude`, `codex` or `kimi`
-  session, a pane that shows no line beginning with the kind's input mark is
+  typed then go to whatever runs there. So for a `claude`, `codex`, `kimi`,
+  `muse` or `kiro` session, a pane that shows no line beginning with the kind's input mark is
   typed no first prompt, by `yardr` at the start (`prompt_look` is `no
   screen, not typed`) or by the daemon later: the prompt stays pending, no
   delivery is counted and none is lost, and one `session_harness_starting`

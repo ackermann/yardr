@@ -101,6 +101,38 @@ func kimiModels(ctx context.Context) ([]string, error) {
 	return tomlValues(filepath.Join(home, ".kimi-code", "config.toml"), regexp.MustCompile(`^\[models\."([^"]+)"\]`))
 }
 
+// kiro serves its models as JSON: `chat --list-models --format json` (the
+// CLI commands reference, https://kiro.dev/docs/reference/cli-commands/).
+func kiroModels(ctx context.Context) ([]string, error) {
+	out, err := run(ctx, "kiro-cli", "chat", "--list-models", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	return ParseKiroModels([]byte(out)), nil
+}
+
+// ParseKiroModels reads the model_ids of `kiro-cli chat --list-models
+// --format json`: an object with a models array, each with a model_id, and
+// a default_model, as 2.15.2 printed it (kirodotdev/kirocrew#1355; the
+// same shape in two more tools that read it). Anything else names none.
+func ParseKiroModels(body []byte) []string {
+	var list struct {
+		Models []struct {
+			Model string `json:"model_id"`
+		} `json:"models"`
+	}
+	if json.Unmarshal(body, &list) != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range list.Models {
+		if m.Model != "" {
+			out = append(out, m.Model)
+		}
+	}
+	return uniq(out)
+}
+
 // museModels reads the installed agent's model catalog: one JSON file per
 // provider and profile under .local/share/muse/model-catalog, each with
 // rows of models. Only rows the catalog marks visible are listed: the
@@ -302,7 +334,7 @@ func IsKind(kind string) bool {
 }
 
 // executables are the kinds whose command is not named after the kind.
-var executables = map[string]string{"cursor": "cursor-agent"}
+var executables = map[string]string{"cursor": "cursor-agent", "kiro": "kiro-cli"}
 
 // Executable is the command herdr runs for kind.
 func Executable(kind string) string {

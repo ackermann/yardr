@@ -30,10 +30,10 @@ func TestHarnessFiles(t *testing.T) {
 			t.Errorf("%s model flag %q, want --model", h.Kind, h.Flags.Model)
 		}
 	}
-	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi", "muse"}; !slices.Equal(kinds, want) {
+	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi", "kiro", "muse"}; !slices.Equal(kinds, want) {
 		t.Errorf("kinds with a file: %v, want %v", kinds, want)
 	}
-	wantProvider := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "grok": "xAI", "kimi": "Moonshot", "muse": "Meta"}
+	wantProvider := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "grok": "xAI", "kimi": "Moonshot", "kiro": "AWS", "muse": "Meta"}
 	for _, h := range Harnesses {
 		if h.Provider != wantProvider[h.Kind] {
 			t.Errorf("%s: provider %q, want %q", h.Kind, h.Provider, wantProvider[h.Kind])
@@ -87,13 +87,17 @@ func TestKindConfigDefault(t *testing.T) {
 	}
 }
 
-// What only one file says: the flags every agent gets are Codex's: no
-// shared daemon (yardr-8bhk), and no upgrade of itself at start (yardr-bcx5).
-func TestWhatOneKindSays(t *testing.T) {
+// What only some files say every agent runs with: Codex's are no shared
+// daemon (yardr-8bhk) and no upgrade of itself at start (yardr-bcx5), and
+// Kiro's is the chat subcommand, so its flags are chat's (yardr-7wq2).
+func TestAlwaysFlags(t *testing.T) {
 	for _, h := range Harnesses {
 		want := []string(nil)
-		if h.Kind == "codex" {
+		switch h.Kind {
+		case "codex":
 			want = []string{"--no-daemon", "--config=check_for_update_on_startup=false"}
+		case "kiro":
+			want = []string{"chat"}
 		}
 		if !slices.Equal(h.Flags.Always, want) {
 			t.Errorf("%s: always %v, want %v", h.Kind, h.Flags.Always, want)
@@ -356,6 +360,11 @@ func TestOffers(t *testing.T) {
 			{Model: "muse-spark-1.3-contributor", Label: "Spark 1.3 Contributor", Recommended: "yardmaster"},
 			{Model: "muse-wonder-1.0", Label: "Wonder 1.0"},
 		},
+		"kiro": {
+			{Model: "claude-opus-5.5", Label: "Opus 5.5", Recommended: "yardmaster"},
+			{Model: "auto", Label: "Auto"},
+			{Model: "claude-sonnet-4.5", Label: "Sonnet 4.5"},
+		},
 	} {
 		h, _ := Lookup(kind)
 		if !slices.Equal(h.Offers, want) {
@@ -372,7 +381,7 @@ func TestOffers(t *testing.T) {
 		want := 0
 		if len(h.Offers) > 0 {
 			want = 1
-		} else if h.Kind == "claude" || h.Kind == "codex" || h.Kind == "kimi" || h.Kind == "muse" {
+		} else if h.Kind == "claude" || h.Kind == "codex" || h.Kind == "kimi" || h.Kind == "muse" || h.Kind == "kiro" {
 			t.Errorf("%s names no model to pick from", h.Kind)
 		}
 		if marked != want {
@@ -463,44 +472,45 @@ func TestLoginRecipe(t *testing.T) {
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
-		"another shape":            {"claude.yaml", "version: 2\nlabel: x\n", "version 2: this yardr reads version 1"},
-		"no version":               {"claude.yaml", "label: x\n", "version 0"},
-		"a field not known":        {"claude.yaml", "version: 1\nlabel: x\nscreens: []\n", "field screens not found"},
-		"no herdr kind":            {"nope.yaml", "version: 1\nlabel: x\n", "nope is no kind herdr starts"},
-		"no label":                 {"claude.yaml", "version: 1\n", "no label"},
-		"a reason unknown":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: broken, pattern: '^x'}]\n", `reason "broken"`},
-		"a pattern unread":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other, pattern: '^(x'}]\n", "missing closing )"},
-		"an empty pattern":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other}]\n", `pattern ""`},
-		"a dialog with no word":    {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{pattern: '^x'}]\n", "no word to call the dialog by"},
-		"a dialog's pattern":       {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu, pattern: '^(x'}]\n", "dialogs: pattern"},
-		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
-		"a login's pattern":        {"claude.yaml", "version: 1\nlabel: x\nlogin: [{pattern: '^(x'}]\n", "login: pattern"},
-		"a login with no pattern":  {"claude.yaml", "version: 1\nlabel: x\nlogin: [{}]\n", `login: pattern ""`},
-		"a recipe with no command": {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, open_url: '(https://x)'}\n", "login_recipe: no argv"},
-		"a recipe not verified":    {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {argv: [login], open_url: '(https://x)'}\n", "login_recipe: verified.from"},
-		"a recipe with no address": {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: 'visit'}\n", "open_url: pattern \"visit\" needs one group"},
-		"a recipe's input":         {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', input: '^(x'}\n", "input: pattern"},
-		"a method with no flag":    {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', methods: [{label: a}]}\n", "methods: one without label or args"},
-		"a background's pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{pattern: '^(x'}]\n", "background: pattern"},
-		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
-		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
-		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
-		"trust, no answers":        {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answers and its cursor"},
-		"trust, answers empty":     {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: [], cursor: '>'}\n", "names its text, its accepting answers and its cursor"},
-		"trust, no dialog":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
-		"trust, no cursor":         {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
-		"trust env, no KEY=VALUE":  {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Trust?', answers: ['Yes'], cursor: '>', env: ['JUSTAKEY']}\n", "trust.env: entry 1: want KEY=VALUE"},
-		"trust env, bad key":       {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Trust?', answers: ['Yes'], cursor: '>', env: ['1BAD=x']}\n", "trust.env: entry 1: want KEY=VALUE"},
-		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
-		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
-		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
-		"model flag is not a flag": {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
-		"two recommended":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
-		"none recommended":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A}, {model: b, label: B}]\n", "offers: 0 recommended, want exactly one"},
-		"an offer without a model": {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: A, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a model id"},
-		"an offer without a label": {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a label"},
-		"too few offers":           {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}]\n", "offers: 1 entries, want 2 to 4"},
-		"too many offers":          {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B}, {model: c, label: C}, {model: d, label: D}, {model: e, label: E}]\n", "offers: 5 entries, want 2 to 4"},
+		"another shape":                    {"claude.yaml", "version: 2\nlabel: x\n", "version 2: this yardr reads version 1"},
+		"no version":                       {"claude.yaml", "label: x\n", "version 0"},
+		"a field not known":                {"claude.yaml", "version: 1\nlabel: x\nscreens: []\n", "field screens not found"},
+		"no herdr kind":                    {"nope.yaml", "version: 1\nlabel: x\n", "nope is no kind herdr starts"},
+		"no label":                         {"claude.yaml", "version: 1\n", "no label"},
+		"a reason unknown":                 {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: broken, pattern: '^x'}]\n", `reason "broken"`},
+		"a pattern unread":                 {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other, pattern: '^(x'}]\n", "missing closing )"},
+		"an empty pattern":                 {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other}]\n", `pattern ""`},
+		"a dialog with no word":            {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{pattern: '^x'}]\n", "no word to call the dialog by"},
+		"a dialog's pattern":               {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu, pattern: '^(x'}]\n", "dialogs: pattern"},
+		"a dialog with no pattern":         {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
+		"a login's pattern":                {"claude.yaml", "version: 1\nlabel: x\nlogin: [{pattern: '^(x'}]\n", "login: pattern"},
+		"a login with no pattern":          {"claude.yaml", "version: 1\nlabel: x\nlogin: [{}]\n", `login: pattern ""`},
+		"a recipe with no command":         {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, open_url: '(https://x)'}\n", "login_recipe: no argv"},
+		"a recipe not verified":            {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {argv: [login], open_url: '(https://x)'}\n", "login_recipe: verified.from"},
+		"a recipe with no address":         {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: 'visit'}\n", "open_url: pattern \"visit\" needs one group"},
+		"a recipe's input":                 {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', input: '^(x'}\n", "input: pattern"},
+		"a method with no flag":            {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', methods: [{label: a}]}\n", "methods: one without label or args"},
+		"a background's pattern":           {"claude.yaml", "version: 1\nlabel: x\nbackground: [{pattern: '^(x'}]\n", "background: pattern"},
+		"background, no pattern":           {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
+		"a hint not known":                 {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
+		"marks, no input":                  {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
+		"marks, placeholder without input": {"claude.yaml", "version: 1\nlabel: x\nmarks: {placeholder: 'ask'}\n", "without input"},
+		"trust, no answers":                {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answers and its cursor"},
+		"trust, answers empty":             {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: [], cursor: '>'}\n", "names its text, its accepting answers and its cursor"},
+		"trust, no dialog":                 {"claude.yaml", "version: 1\nlabel: x\ntrust: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"trust, no cursor":                 {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"trust env, no KEY=VALUE":          {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Trust?', answers: ['Yes'], cursor: '>', env: ['JUSTAKEY']}\n", "trust.env: entry 1: want KEY=VALUE"},
+		"trust env, bad key":               {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Trust?', answers: ['Yes'], cursor: '>', env: ['1BAD=x']}\n", "trust.env: entry 1: want KEY=VALUE"},
+		"any session's":                    {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
+		"model, no field":                  {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
+		"a nameless preset":                {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
+		"model flag is not a flag":         {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
+		"two recommended":                  {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
+		"none recommended":                 {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A}, {model: b, label: B}]\n", "offers: 0 recommended, want exactly one"},
+		"an offer without a model":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: A, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a model id"},
+		"an offer without a label":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a label"},
+		"too few offers":                   {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}]\n", "offers: 1 entries, want 2 to 4"},
+		"too many offers":                  {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B}, {model: c, label: C}, {model: d, label: D}, {model: e, label: E}]\n", "offers: 5 entries, want 2 to 4"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)

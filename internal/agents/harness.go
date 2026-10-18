@@ -193,14 +193,17 @@ func (t Trust) ShowsAnswer(line string) (answer string, selected bool) {
 // first line of its input, and Message a message it took, which it echoes
 // above the input. Edge, for a kind that draws its input in a box, is the
 // side of the box: it comes before the input mark, and before and after
-// each line of the input's text, of which it is no part. Error is every
-// mark the harness's TUI may draw before a message of its own, taken off a
-// line before it is read for an error.
+// each line of the input's text, of which it is no part. Placeholder is
+// the input's hint when it holds nothing, for a harness that draws one in
+// no faint style: while the input's first line begins with it, the input
+// reads empty. Error is every mark the harness's TUI may draw before a
+// message of its own, taken off a line before it is read for an error.
 type Marks struct {
-	Input   string `yaml:"input" json:"input,omitempty"`
-	Message string `yaml:"message" json:"message,omitempty"`
-	Edge    string `yaml:"edge" json:"edge,omitempty"`
-	Error   string `yaml:"error" json:"error,omitempty"`
+	Input       string `yaml:"input" json:"input,omitempty"`
+	Message     string `yaml:"message" json:"message,omitempty"`
+	Edge        string `yaml:"edge" json:"edge,omitempty"`
+	Placeholder string `yaml:"placeholder" json:"placeholder,omitempty"`
+	Error       string `yaml:"error" json:"error,omitempty"`
 }
 
 // Flags are the harness's own arguments yardr knows a use for. Each was
@@ -220,8 +223,9 @@ type Flags struct {
 	// OneShot comes before a prompt the harness answers and exits on,
 	// without a terminal.
 	OneShot []string `yaml:"one_shot" json:"one_shot,omitempty"`
-	// Always is added to the arguments of every agent of the kind yardr
-	// starts, whatever its group says; the kind's file says why.
+	// Always is added first to the arguments of every agent of the kind
+	// yardr starts, before the group's own, whatever the group says; the
+	// kind's file says why.
 	Always []string `yaml:"always" json:"always,omitempty"`
 	// Permissions are the named flag sets offered where a person chooses
 	// how much an agent may do without asking.
@@ -386,6 +390,7 @@ var modelLists = map[string]func(ctx context.Context) ([]string, error){
 	"codex":    codexModels,
 	"grok":     grokModels,
 	"kimi":     kimiModels,
+	"kiro":     kiroModels,
 	"muse":     museModels,
 	"opencode": opencodeModels,
 	"pi":       piModels,
@@ -498,8 +503,8 @@ func (h *Harness) check() error {
 		return fmt.Errorf("%s is no kind herdr starts", h.Kind)
 	case h.Label == "":
 		return fmt.Errorf("no label")
-	case h.Marks.Input == "" && (h.Marks.Message != "" || h.Marks.Edge != ""):
-		return fmt.Errorf("marks: message or edge without input, which is what a pane is read from")
+	case h.Marks.Input == "" && (h.Marks.Message != "" || h.Marks.Edge != "" || h.Marks.Placeholder != ""):
+		return fmt.Errorf("marks: message, edge or placeholder without input, which is what a pane is read from")
 	}
 	for _, p := range h.Flags.Permissions {
 		if p.Label == "" || len(p.Args) == 0 {

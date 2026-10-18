@@ -30,6 +30,12 @@ import (
 // line under a voice-input divider and above a rule and the footer, the
 // mark coloured and no placeholder drawn, a message it took above with
 // the same mark, and the line it works behind begun with ◆.
+//
+// Kiro CLI 2.25's is the idle pane of awslabs/cli-agent-orchestrator's TUI
+// fixtures, narrowed: the input under the status line, begun with ›, an
+// empty one showing the placeholder in gray (not faint) with ↵ after it
+// and the copy hint under it, a message it took above as a plain indented
+// paragraph, and the line it works behind begun with › too.
 const (
 	rule         = "\x1b[0m\x1b[38;5;7m────────────────\x1b[0m\r\n"
 	claudeFooter = "  \x1b[0m\x1b[38;5;11m⏵⏵ auto mode on\x1b[0m\x1b[38;5;7m (shift+tab to cycle)\x1b[0m\r\n"
@@ -68,6 +74,15 @@ const (
 	museTaken   = "❯ hi\r\n\r\n◆ echo: hi\r\n\r\n"
 	museWorking = museHead + "❯ hi\r\n\r\n◆ Thinking (3s · esc to interrupt)\r\n\r\n" +
 		museVoice + musePrompt + museRule + museFooter
+
+	kiroSep     = "\x1b[0m\x1b[38;2;38;38;38m────────────────────────────────────────\x1b[0m\r\n"
+	kiroStatus  = "developer · auto · ◔ 3%              ~/project · (main)\r\n"
+	kiroIdle    = "›  \x1b[0m\x1b[38;2;158;158;158mask a question or describe a task ↵\x1b[0m\r\n"
+	kiroCopy    = "  /copy to clipboard\r\n"
+	kiroEmpty   = kiroSep + kiroStatus + "\r\n" + kiroIdle + kiroCopy
+	kiroDraft   = kiroSep + kiroStatus + "\r\n" + "›  half a thought\r\n"
+	kiroTaken   = "  earlier message, sent\r\n\r\n• An answer.\r\n\r\n▸ Credits: 0.24 • Time: 3s\r\n\r\n"
+	kiroWorking = "›  Kiro is working · 10s · Type to steer · Ctrl+S to queue\r\n"
 )
 
 // inputScreen is the input of a harness of kind as its pane shows it, with
@@ -137,6 +152,20 @@ func TestInputText(t *testing.T) {
 		"muse, sent message above an empty input": {"muse", museTaken + museEmpty, "", true},
 		"muse, sent message above a draft":        {"muse", museTaken + museDraft, "half a thought", true},
 		"muse, mid-turn":                          {"muse", museWorking, "", true},
+		// Kiro's input is under its status line, begun with ›; an empty
+		// one shows its gray placeholder (not faint) with ↵ and the copy
+		// hint, and a message it took above is a plain indented
+		// paragraph.
+		"kiro empty": {"kiro", kiroEmpty, "", true},
+		"kiro draft": {"kiro", kiroDraft, "half a thought", true},
+		"kiro, sent message above an empty input": {"kiro", kiroTaken + kiroEmpty, "", true},
+		"kiro, sent message above a draft":        {"kiro", kiroTaken + kiroDraft, "half a thought", true},
+		// Versions capitalize and punctuate the placeholder variously;
+		// the words are what tell it.
+		"kiro, placeholder capitalized with a comma": {"kiro", kiroSep + kiroStatus + "\r\n" + "›  Ask a question, or describe a task ↵\r\n" + kiroCopy, "", true},
+		// Words that begin like the placeholder but are not all of it
+		// are text.
+		"kiro, words that begin like the placeholder": {"kiro", kiroSep + kiroStatus + "\r\n" + "›  ask a question or two\r\n", "ask a question or two", true},
 		// Without its own mark a pane is read by the others': enough to
 		// type nothing after it.
 		"kimi, a line with Claude Code's mark": {"kimi", claudeDraft, "some creative..", true},
@@ -717,7 +746,7 @@ func TestNudgeAtKimisCacheMenuIsToldOfOnce(t *testing.T) {
 // A handle from before the kind was written is of no kind yardr knows.
 func TestInputMarked(t *testing.T) {
 	h := &Herdr{}
-	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": true, "acme": false, "": false} {
+	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": true, "kiro": true, "acme": false, "": false} {
 		handle := map[string]any{}
 		if kind != "" {
 			handle[harnessKind] = kind

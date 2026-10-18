@@ -50,16 +50,19 @@ var inputMarks = []string{"❯", "›"}
 // it echoes above the input. edge, for a kind that draws its input in a
 // box, is the side of the box: it comes before the input mark, and before
 // and after each line of the input's text, of which it is no part.
-type paneMarks struct{ input, message, edge string }
+// placeholder is the input's hint when it holds nothing, for a harness
+// that draws one in no faint style.
+type paneMarks struct{ input, message, edge, placeholder string }
 
 // marksOf is the marks of a harness kind, and whether yardr knows them:
 // its file (harnesses/<kind>.yaml, `marks`) names the mark of its input.
 // Claude Code and Codex begin a message they took with the mark of their
-// input; Kimi Code, whose input is a box, does not.
+// input; Kimi Code, whose input is a box, does not, and Kiro names no mark
+// for one, whose echo is a plain paragraph.
 func marksOf(kind string) (paneMarks, bool) {
 	h, _ := agents.Lookup(kind)
 	m := h.Marks
-	return paneMarks{input: m.Input, message: m.Message, edge: m.Edge}, m.Input != ""
+	return paneMarks{input: m.Input, message: m.Message, edge: m.Edge, placeholder: m.Placeholder}, m.Input != ""
 }
 
 // begins reports whether line is the first of the input.
@@ -316,6 +319,11 @@ func inputText(styled, kind string) (text string, ok bool) {
 	if input < 0 {
 		return "", false
 	}
+	if m.placeholder != "" && isPlaceholder(m.unboxed(typed[input]), m.input, m.placeholder) {
+		// The input holds only the harness's gray hint (Kiro's): it
+		// reads empty, the hints under it with it.
+		return "", true
+	}
 	var lines []string
 	for i := input; i < len(plain); i++ {
 		if i > input && (strings.TrimSpace(plain[i]) == "" || isRule(plain[i])) {
@@ -330,6 +338,24 @@ func inputText(styled, kind string) (text string, ok bool) {
 		}
 	}
 	return strings.Join(lines, "\n"), true
+}
+
+// isPlaceholder reports whether line, the first line of an input without
+// its box's edges, shows the harness's placeholder and nothing typed: the
+// mark taken off, the rest begins with the placeholder's words. Kiro draws
+// its empty input's gray hint ("ask a question or describe a task", a ↵
+// after it, hints under it) in no faint style, so reads that drop faint
+// text keep it, and without this an empty input reads as one that holds
+// text. The match is on the words, lowercased without commas: versions
+// capitalize and punctuate them variously ("Ask a question, or describe a
+// task"). A message that begins with the placeholder's whole words reads
+// empty too; nothing shorter does.
+func isPlaceholder(line, mark, placeholder string) bool {
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), mark))
+	norm := func(s string) string {
+		return strings.ToLower(strings.ReplaceAll(s, ",", ""))
+	}
+	return strings.HasPrefix(norm(line), norm(placeholder))
 }
 
 // inputLine finds, in the lines of a pane of a harness of kind, the first

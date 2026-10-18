@@ -931,6 +931,23 @@ func TestPromptPlace(t *testing.T) {
 		{"Muse, mid-turn", "muse", "  Muse Code 1.4.9\n\n❯ " + prompt + "\n\n◆ Thinking (3s · esc to interrupt)\n\n── Voice input (alt(option)+v to start) ──\n❯ \n" + rule, true, false, false},
 		{"Muse, empty", "muse", rule + "\n❯ \n" + rule, false, false, false},
 		{"Muse, still coming up", "muse", "$ muse\n" + prompt + "\n", false, false, true},
+		// Kiro's input is under its status line, begun with ›, an empty
+		// one showing its placeholder; a message it took is echoed above
+		// as a plain indented paragraph, with no mark, so above the input
+		// any line that begins with the prompt counts (Kiro CLI 2.25, as
+		// the TUI fixtures of awslabs/cli-agent-orchestrator read it).
+		{"Kiro, in the input", "kiro", "────────\ndeveloper · auto · ◔ 3%              ~/project · (main)\n\n›  " + prompt + "\n", false, true, false},
+		{"Kiro, echoed", "kiro", "  " + prompt + "\n\n• Reading the brief.\n\n▸ Credits: 0.24 • Time: 3s\n\n────────\ndeveloper · auto · ◔ 4%              ~/project · (main)\n\n›  ask a question or describe a task ↵\n", true, false, false},
+		{"Kiro, echoed and typed again", "kiro", "  " + prompt + "\n────────\n›  " + prompt + "\n", true, false, false},
+		{"Kiro, empty", "kiro", "────────\ndeveloper · auto · ◔ 3%              ~/project · (main)\n\n›  ask a question or describe a task ↵\n", false, false, false},
+		{"Kiro, still coming up", "kiro", "$ kiro-cli chat\n" + prompt + "\n", false, false, true},
+		// With no message mark, the terminal's echo of keys typed before
+		// the screen drew reads as taken once the input is there: the
+		// first prompt waits for the screen, so yardr never types before
+		// it.
+		{"Kiro, come up with the keys in its input", "kiro", "$ kiro-cli chat\n" + prompt + "\n────────\n›  " + prompt + "\n", true, false, false},
+		{"Kiro, come up with the keys dropped", "kiro", "$ kiro-cli chat\n" + prompt + "\n────────\n›  ask a question or describe a task ↵\n", true, false, false},
+		{"Kiro, a message that only holds the prompt", "kiro", "  what does \"" + prompt + "\" mean?\n────────\n›  ask a question or describe a task ↵\n", false, false, false},
 	} {
 		if taken, typed, bare := promptPlace(c.text, prompt, c.kind); taken != c.taken || typed != c.typed || bare != c.bare {
 			t.Errorf("%s: taken %v, typed %v, bare %v; want %v, %v, %v", c.name, taken, typed, bare, c.taken, c.typed, c.bare)

@@ -164,6 +164,9 @@ func printHarness(h agents.Harness, has bool) {
 			fmt.Printf("  after the box's edge: %s\n", m.Edge)
 		}
 		fmt.Printf("  a message it took:    %s\n", or(m.Message, "no mark known"))
+		if m.Placeholder != "" {
+			fmt.Printf("  an empty input shows: %s\n", m.Placeholder)
+		}
 	}
 	if h.Marks.Error != "" {
 		fmt.Printf("  before an error line: any of %s\n", h.Marks.Error)

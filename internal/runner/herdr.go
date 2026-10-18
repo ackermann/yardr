@@ -814,13 +814,13 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 	return filepath.Clean(r.Workspace.Worktree.CheckoutPath) == filepath.Clean(path)
 }
 
-// AgentArgs are the agent's own arguments: the group's args, then the kind's
-// model flag
-// from the bead's metadata.model, else the group's config.model. A model
-// already in args is replaced, so a bead can override a group default. An
-// agent also gets what its kind's file says it always runs with (Codex's
-// --no-daemon). SocketArg in an argument is the socket of the yard at home,
-// WorkdirArg the directory the session works in.
+// AgentArgs are the agent's own arguments: what its kind's file says every
+// agent runs with (Codex's --no-daemon, Kiro's chat subcommand), the
+// group's args, then the kind's model flag from the bead's
+// metadata.model, else the group's config.model. A model already in args is
+// replaced, so a bead can override a group default. SocketArg in an
+// argument is the socket of the yard at home, WorkdirArg the directory the
+// session works in.
 func AgentArgs(job dispatch.Job, home, workdir string) []string {
 	model, _ := job.Bead.Metadata["model"].(string)
 	return agentArgs(job.Group.Config, model, home, workdir)
@@ -846,13 +846,16 @@ const WorkdirArg = "{workdir}"
 func agentArgs(cfg map[string]any, override, home, workdir string) []string {
 	args := strs(cfg, "args")
 	// What the kind's harness file says every agent of it runs with
-	// (flags.always), and why.
+	// (flags.always), and why: first, so a subcommand (Kiro's chat) comes
+	// before the group's flags.
 	kind, _ := agents.Lookup(agents.Kind(cfg))
+	var first []string
 	for _, a := range kind.Flags.Always {
 		if !slices.Contains(args, a) {
-			args = append(args, a)
+			first = append(first, a)
 		}
 	}
+	args = append(first, args...)
 	// Each path with its symlinks resolved, which is the one a sandbox is
 	// asked about whatever path the session goes by (macOS's /tmp is
 	// /private/tmp). A runner with no home (a test's) has no socket to

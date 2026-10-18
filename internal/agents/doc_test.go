@@ -41,7 +41,11 @@ func marksTable() []string {
 		if m.Edge != "" {
 			input += " after " + code(m.Edge) + ", the edge of the box its input is drawn in; the edges are no part of the text"
 		}
-		rows = append(rows, fmt.Sprintf("| %s | %s | %s |", code(h.Kind), input, code(m.Message)))
+		message := code(m.Message)
+		if m.Message == "" {
+			message = "no mark: the prompt anywhere above the input"
+		}
+		rows = append(rows, fmt.Sprintf("| %s | %s | %s |", code(h.Kind), input, message))
 	}
 	return append(rows, "| any other, or none | `❯` or `›` | no mark known: the prompt anywhere above the input, "+
 		"and anywhere at all in a pane with neither mark, as before |")

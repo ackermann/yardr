@@ -1,0 +1,78 @@
+# Kiro CLI. Every flag is from `kiro-cli chat --help` of 2.13.0 (kept as a
+# fixture in awslabs/cli-agent-orchestrator) and the CLI commands reference
+# (https://kiro.dev/docs/reference/cli-commands/, read 2026-10-18), except
+# --trust-tools, which neither names: 2.13.0's help predates it. It is in
+# the permissions reference (https://kiro.dev/docs/permissions/, read
+# 2026-10-18) and measured on 2.24.1 (routr, 2026-09-28).
+version: 1
+label: Kiro
+provider: AWS
+install: curl -fsSL https://cli.kiro.dev/install | bash (https://kiro.dev/cli)
+
+# Kiro's input is one line under its status line (herdr panes of Kiro CLI
+# 2.24.1, and the TUI fixtures of awslabs/cli-agent-orchestrator, verified
+# there against real output of 2.25):
+#
+#   ────────
+#   developer · auto · ◔ 3%              ~/project · (main)
+#   ›  ask a question or describe a task ↵
+#
+# The mark is ›, as Codex's. Earlier versions drew no mark (a bare " ask a
+# question..."), so this file reads 2.24 and later. An empty input shows
+# the placeholder in gray, not faint, so reads that drop faint text keep
+# it: the placeholder is named below, and an input that shows it reads
+# empty, the ↵ and the hint lines under it with it. A message that begins
+# with the placeholder's whole words reads empty too; nothing shorter
+# does. The footer names the agent, the model and the context used; the
+# line Kiro works behind ("Kiro is working · ...", "Thinking... (esc to
+# cancel)") begins with › too.
+#
+# A message Kiro took is echoed above the input as a plain indented
+# paragraph, with no mark (a background colour in 2.25, no glyph), so no
+# message mark is named: above the input any line that begins with the
+# prompt counts. Keys typed before the screen draws read as taken too, so
+# the first prompt waits for the screen, as ever. Before its own messages
+# Kiro draws •, ▸, ✓, ✗, ⏸ and ╰; the rest taken off an error line is
+# what any TUI may draw.
+marks:
+  input: "›"
+  placeholder: "ask a question or describe a task"
+  error: "•▸✓✗⏸╰⏺⎿●■▌│┃✘⚠!"
+
+flags:
+  model: --model
+  # --trust-tools=* allows every built-in tool without asking and, unlike
+  # --trust-all-tools, asks nothing at startup (measured, Kiro CLI 2.24.1,
+  # 2026-09-28; MCP tools were not measured). Without --trust-all-tools a
+  # Hook confirmation is denied (docs/cli/headless).
+  unattended: [--trust-tools=*]
+  version: [--version]
+  one_shot: [chat, --no-interactive]
+  # herdr starts the bare executable, which defaults to chat, but its flags
+  # are chat's (--model is one, as is --trust-tools): every agent runs
+  # with the subcommand first, as routr starts it through herdr agent
+  # start.
+  always: [chat]
+  permissions:
+    - label: allow all tools
+      args: [--trust-tools=*]
+      description: every built-in tool without asking; a Hook confirmation is denied
+    - label: trust all tools
+      args: [--trust-all-tools]
+      description: everything without asking, after one warning acknowledged at every start
+
+# The models to pick from: auto is Kiro's own router (its docs recommend
+# it; `chat --list-models --format json` serves it as a genuine model with
+# id "auto"), claude-opus-5.5 is what this yard ran Kiro with (yardr-d860,
+# airy) and a list-models id elsewhere, and claude-sonnet-4.5 is a
+# footer-read id (routr, Kiro CLI 2.24.1). An unknown --model id runs the
+# default silently (the footer then shows no model), so these are ids
+# seen, not display names.
+offers:
+  - model: claude-opus-5.5
+    label: Opus 5.5
+    recommended: yardmaster
+  - model: auto
+    label: Auto
+  - model: claude-sonnet-4.5
+    label: Sonnet 4.5
