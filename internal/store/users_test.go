@@ -229,7 +229,7 @@ func TestConversationPages(t *testing.T) {
 // acknowledge it, and never in a crew member's.
 func TestUserInbox(t *testing.T) {
 	t.Parallel()
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
 	party(t, s, "clerk")
@@ -243,7 +243,9 @@ func TestUserInbox(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Mail(ctx, "jo", strings.Repeat("x", store.MaxMailBytes+1), "yardmaster"); err == nil {
+	// On the store itself, not through the API: Mail keeps its size check
+	// while the socket's Mail sends a long text as numbered mails.
+	if err := own.Mail(ctx, "jo", strings.Repeat("x", store.MaxMailBytes+1), "yardmaster"); err == nil {
 		t.Fatal("mail over the limit to a user accepted")
 	}
 	if err := s.Mail(ctx, "nobody", "hi", "yardmaster"); !errors.Is(err, store.ErrNotFound) {
