@@ -99,6 +99,27 @@ func TestPackApplyNotifySetsSourceAndUser(t *testing.T) {
 	}
 }
 
+// A source the pack brings may bring its own mint: after --source-env
+// sets the mint's inputs, the apply result says the copied command that
+// will mint with them, even though SetSource's write response has no
+// computed command of its own.
+func TestPackApplySourceEnvReportsPackMint(t *testing.T) {
+	a := openApp(t)
+	env := envFile(t, "GOOGLE_ACCOUNT=op@example.com\n", 0o600)
+
+	out, err := run(t, a.packCmd(), "apply", "google-mail", "--yes", "--source-env", "google-mail="+env)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	want := "source google-mail: GOOGLE_ACCOUNT is set in " + env + ", minted with " + filepath.Join(a.cfg.Home, "sources", "google-mail", "google-mint")
+	if !strings.Contains(out, want) {
+		t.Fatalf("pack apply does not say the declaration's mint runs:\nwant %q\n%s", want, out)
+	}
+	if strings.Contains(out, "no mint_command is set") {
+		t.Fatalf("pack apply says a mint command is missing:\n%s", out)
+	}
+}
+
 // The telegram pack applies the same way: the source with the token in
 // its path, and the user told through it.
 func TestPackApplyNotifyTelegram(t *testing.T) {

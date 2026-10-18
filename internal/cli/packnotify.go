@@ -161,7 +161,7 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 			return sets, fmt.Errorf("source %s: %w", e.source, err)
 		}
 		if src.EnvFile == e.file {
-			state, err := sourceSetState(src)
+			state, err := sourceSetState(src, plan.Home)
 			if err != nil {
 				return sets, err
 			}
@@ -172,7 +172,7 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 		if err != nil {
 			return sets, fmt.Errorf("source %s: %w", e.source, err)
 		}
-		state, err := sourceSetState(saved)
+		state, err := sourceSetState(saved, plan.Home)
 		if err != nil {
 			return sets, err
 		}
@@ -218,12 +218,12 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 // sourceSetState is the source's credential state as yardr source set
 // prints it: where the names are set, and the mint command where one is
 // still owed.
-func sourceSetState(src *store.Source) (string, error) {
+func sourceSetState(src *store.Source, home string) (string, error) {
 	d, err := src.Declaration()
 	if err != nil {
 		return "", err
 	}
-	state, err := d.CredentialState(src.EnvFile, src.Mint)
+	state, err := d.CredentialState(src.EnvFile, d.MintArgv(home, src.MintCommand))
 	if err != nil {
 		var noCommand *source.NoMintCommand
 		if !errors.As(err, &noCommand) {
