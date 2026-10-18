@@ -1226,7 +1226,9 @@ func TestParseEventsRefusals(t *testing.T) {
 // A hear key: the envelope field that must hold a user's address, the
 // variable it is under in a user's env file, and from, which narrows whom
 // the source hears to the operator. Without from every user whose env
-// file sets the address is heard.
+// file sets the address is heard. Subscribe is the filter a claim
+// approval subscribes the yard's hearer with beside the claimed address,
+// left out where the address alone is the filter.
 func TestParseHear(t *testing.T) {
 	base := pushover + "hook:\n" +
 		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
@@ -1246,12 +1248,20 @@ func TestParseHear(t *testing.T) {
 	if h := d.Hear; h == nil || h.Field != "chat" || h.Address.Env != "PUSHOVER_USER" || h.From != "" {
 		t.Fatalf("hear = %+v", d.Hear)
 	}
+	d, err = Parse("p.yaml", []byte(with("  field: chat\n  address: { env: PUSHOVER_USER }\n  subscribe: { type: message }\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := d.Hear; h == nil || len(h.Subscribe) != 1 || h.Subscribe["type"] != "message" {
+		t.Fatalf("hear = %+v", d.Hear)
+	}
 }
 
 // What is refused of the hear key is what would fail at every delivery,
 // or hear nothing: no field, no address, a field the envelope carries
 // under no key the file names, an address that is not the one telling
-// reads, a from that is no role, and a hear without the hook that
+// reads, a from that is no role, a subscribe that is no filter or names
+// the field the claim sets itself, and a hear without the hook that
 // receives or the notify that names the address.
 func TestParseHearRefusals(t *testing.T) {
 	hooked := "hook:\n" +
@@ -1266,7 +1276,7 @@ func TestParseHearRefusals(t *testing.T) {
 		"no field":                        {with("  address: { env: PUSHOVER_USER }\n"), "hear.field: missing: the envelope field that must hold a user's address (chat)"},
 		"no address":                      {with("  field: chat\n"), "hear.address: missing: { env: <the name the address is under in a user's env file> }"},
 		"an address with no env":          {with("  field: chat\n  address: {}\n"), "hear.address.env: missing: the name of the variable the address is in, in a user's env file"},
-		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, address, from)"},
+		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, address, from, subscribe)"},
 		"an address key it does not have": {with("  field: chat\n  address: { env: PUSHOVER_USER, file: u.env }\n"), "hear.address.file: unknown key (known here: env)"},
 		"a field that is none":            {with("  field: Chat\n  address: { env: PUSHOVER_USER }\n"), `hear.field: "Chat": a field is lowercase letters, digits and _`},
 		"a field under no key":            {with("  field: room\n  address: { env: PUSHOVER_USER }\n"), "hear.field: room is no key the envelope carries: hook.keys names chat"},
@@ -1274,6 +1284,14 @@ func TestParseHearRefusals(t *testing.T) {
 		"an address telling does not read": {with("  field: chat\n  address: { env: PUSHOVER_ALIAS }\n"),
 			"hear.address.env: PUSHOVER_ALIAS is not the address telling reads: notify.address.env names PUSHOVER_USER, and hear reads the same file"},
 		"a from that is none": {with(good + "  from: crew\n"), `hear.from: "crew": want operator`},
+		"a subscribe that is no mapping": {with(good + "  subscribe: type=message\n"),
+			"hear.subscribe: want a mapping (key: value), got \"type=message\""},
+		"a subscribe key that is none": {with(good + "  subscribe: { Type: message }\n"),
+			`hear.subscribe.Type: "Type": a filter key is lowercase letters, digits and _`},
+		"a subscribe with no value": {with(good + "  subscribe: { type: \"\" }\n"),
+			`hear.subscribe.type: want a string, got ""`},
+		"a subscribe naming the field": {with(good + "  subscribe: { chat: \"123\" }\n"),
+			"hear.subscribe.chat: chat is the field the claim sets to the claimed address: subscribe names only the filter beside it"},
 		"hear without hook": {pushover + "hear:\n" + good,
 			"hear: needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any"},
 		"hear without notify": {unnotified,

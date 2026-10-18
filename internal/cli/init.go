@@ -79,9 +79,10 @@ func (a *app) storeIfAny(ctx context.Context, cfg *config.Config) (store.API, er
 
 // partYard is what a home that init never marked set up (no default_kind)
 // holds of a yard all the same: what an init cut short left there. Init
-// writes the yardmaster's role, then the operator and yardmaster settings, then
-// the yardmaster crew member, and default_kind last, so a run that failed in
-// between leaves the ones before it. The next run finishes from them and says so.
+// writes the yardmaster's role, then the operator, yardmaster and hearer
+// settings, then the yardmaster crew member, and default_kind last, so a run
+// that failed in between leaves the ones before it. The next run finishes
+// from them and says so.
 type partYard struct {
 	// roles are the role prompts in the home, by their path under it: the
 	// yardmaster's under packs/<pack>/roles, and under roles what an init
@@ -530,10 +531,10 @@ type initResult struct {
 // flags say.
 //
 // A run that fails leaves what it wrote before (the order is the yardmaster's
-// role, operator and yardmaster, the yardmaster crew member, default_kind), and the next run
-// finishes from it: the same steps skip or keep what is there, the stored
-// settings and the yardmaster's kind stand in for flags not given, and the
-// result says what was found and what was added (partYard).
+// role, operator, yardmaster and hearer, the yardmaster crew member, default_kind),
+// and the next run finishes from it: the same steps skip or keep what is
+// there, the stored settings and the yardmaster's kind stand in for flags
+// not given, and the result says what was found and what was added (partYard).
 func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (*initResult, error) {
 	part, err := a.partYard(ctx, cfg)
 	if err != nil {
@@ -626,6 +627,16 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	// the crew member a session is told to mail.
 	for _, kv := range [][2]string{{"operator", res.Operator}, {"yardmaster", o.Yardmaster}} {
 		if err := set(kv[0], kv[1]); err != nil {
+			return nil, err
+		}
+	}
+	// The hearer is the crew member an approved claim subscribes beside
+	// writing the address: the yardmaster, while the yard is set up,
+	// unless one is stored already. Past setup it is left as it is: an
+	// unset hearer there is the operator's choice, and writing one would
+	// take the operator where init again runs from any terminal.
+	if stored["default_kind"] == "" && stored[store.HearerSetting] == "" {
+		if err := set(store.HearerSetting, o.Yardmaster); err != nil {
 			return nil, err
 		}
 	}

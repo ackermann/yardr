@@ -32,6 +32,11 @@ func init() { allBuckets = append(allBuckets, bSettings) }
 // operator.
 const YardmasterSetting = "yardmaster"
 
+// HearerSetting names the crew member an approved claim subscribes to the
+// claimed address beside writing it, who then hears that chat; unset, an
+// approval writes the address alone.
+const HearerSetting = "hearer"
+
 // The settings whose readers live in packages that import this one: named
 // here so that the table can list them, and there under their own names.
 const (
@@ -160,6 +165,13 @@ var KnownSettings = []Setting{
 		Check: func(v string) error {
 			if !partyName.MatchString(v) {
 				return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)
+			}
+			return nil
+		}},
+	{Key: HearerSetting, Help: "the crew member an approved claim subscribes to the claimed address beside writing it, who then hears that chat; unset, an approval writes the address alone",
+		Check: func(v string) error {
+			if !partyName.MatchString(v) {
+				return fmt.Errorf("hearer name %q: letters, digits, '.', '_', '-', '/'", v)
 			}
 			return nil
 		}},
@@ -412,7 +424,7 @@ func settingAsk(key string) AskClass {
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone
-	case YardmasterSetting, StyleSetting, NoteSetting, DefaultKindSetting,
+	case YardmasterSetting, HearerSetting, StyleSetting, NoteSetting, DefaultKindSetting,
 		HookPublicURLSetting,
 		TimerLimitSetting, TimerMinEverySetting, BlobMaxSetting,
 		PeerFileMaxSetting, BackupEverySetting, BackupKeepSetting,

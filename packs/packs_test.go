@@ -994,7 +994,8 @@ func TestTelegramPack(t *testing.T) {
 		len(h.Keys) != 1 || h.Keys[0] != "chat" {
 		t.Fatalf("hook = %+v", d.Hook)
 	}
-	if hr := d.Hear; hr == nil || hr.Field != "chat" || hr.Address.Env != "TELEGRAM_CHAT_ID" || hr.From != source.HearFromOperator {
+	if hr := d.Hear; hr == nil || hr.Field != "chat" || hr.Address.Env != "TELEGRAM_CHAT_ID" || hr.From != source.HearFromOperator ||
+		len(hr.Subscribe) != 1 || hr.Subscribe["type"] != "message" {
 		t.Fatalf("hear = %+v", d.Hear)
 	}
 	if c := d.Credential; c == nil || c.Env != "TELEGRAM_BOT_TOKEN" || !c.InPath {

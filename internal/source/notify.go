@@ -39,6 +39,12 @@ type Hear struct {
 	// From narrows whom the source hears: HearFromOperator, or "" for
 	// every user whose env file sets the address.
 	From string `json:"from,omitempty"`
+	// Subscribe is the filter a claim approval subscribes the yard's
+	// hearer with beside the claimed address: key -> value, as a
+	// subscription's --where (telegram: type message, so the other
+	// Updates a chat brings are not heard). The claim sets Field to the
+	// address itself, so this names only the filter beside it.
+	Subscribe map[string]string `json:"subscribe,omitempty"`
 }
 
 // HearAddress is where the address is read from: the variable of the
@@ -185,16 +191,17 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 
 // hear reads the key that makes a source one that hears only the
 // addresses its users' env files set. What it refuses is what would fail
-// at every delivery, or hear nothing: a key beside field, address and
-// from, a field the envelope carries under no key the file names, an
-// address that is not the one telling reads, and a from that is no role
-// the yard has. Without a hook key there is no delivery to hear, and
-// without a notify key no address is named to match, so with neither is
-// hear refused too.
+// at every delivery, or hear nothing: a key beside field, address, from
+// and subscribe, a field the envelope carries under no key the file
+// names, an address that is not the one telling reads, a from that is no
+// role the yard has, and a subscribe that is no filter or names the
+// field the claim sets itself. Without a hook key there is no delivery
+// to hear, and without a notify key no address is named to match, so
+// with neither is hear refused too.
 func (r *reader) hear(d *Declaration, e entry) *Hear {
 	h := &Hear{}
-	var field, address, env *entry
-	for _, f := range r.entries(e.v, e.path, "field", "address", "from") {
+	var field, address, env, subscribe *entry
+	for _, f := range r.entries(e.v, e.path, "field", "address", "from", "subscribe") {
 		switch f.key {
 		case "field":
 			field = &f
@@ -219,6 +226,22 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 			} else if ok {
 				h.From = s
 			}
+		case "subscribe":
+			subscribe = &f
+			for _, g := range r.entries(f.v, f.path) {
+				v, ok := r.str(g.v, g.path)
+				if !ok {
+					continue
+				}
+				if !hookKey.MatchString(g.key) {
+					r.errf(g.k, g.path, "%q: a filter key is lowercase letters, digits and _, starting with a letter or digit (type)", g.key)
+					continue
+				}
+				if h.Subscribe == nil {
+					h.Subscribe = map[string]string{}
+				}
+				h.Subscribe[g.key] = v
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -241,6 +264,11 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 		r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
 	} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
 		r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
+	}
+	if subscribe != nil && h.Field != "" {
+		if _, ok := h.Subscribe[h.Field]; ok {
+			r.errf(subscribe.v, join(subscribe.path, h.Field), "%s is the field the claim sets to the claimed address: subscribe names only the filter beside it", h.Field)
+		}
 	}
 	return h
 }

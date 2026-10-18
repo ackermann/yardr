@@ -193,7 +193,11 @@ notify:
 # delivery is kept only when its field holds an address a user's env file
 # sets, whatever the user is told through; from narrows whom it hears to
 # the operator, and is left out for every user whose env file sets the
-# address.
+# address. subscribe names the filter a claim approval subscribes the
+# yard's hearer with beside the claimed address, as a subscription's
+# --where (subscribe: { type: message }); the claim sets field to the
+# address itself, so it is left out where the address alone is the
+# filter.
 
 hear:
   field: channel

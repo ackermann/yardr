@@ -101,3 +101,7 @@ hear:
   field: chat
   address: { env: TELEGRAM_CHAT_ID }
   from: operator                        # his chat alone; another user's is dropped like a stranger's
+  # A claim approved subscribes the yard's hearer to this chat with
+  # type=message beside it: the chat's other Updates (edits, member
+  # changes) are noise nobody asked to hear.
+  subscribe: { type: message }

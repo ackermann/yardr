@@ -117,7 +117,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	if !slices.Contains(store.AttentionKinds, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
 		t.Fatalf("stranded is not heard: on = %v", r.On)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" {
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" || got["hearer"] != "yardmaster" {
 		t.Fatalf("settings = %v", got)
 	}
 	// The yardmaster takes it from here; the commands are in init --help.
@@ -182,7 +182,7 @@ func TestInitHarnessClaude(t *testing.T) {
 
 // Init again on a set-up yard keeps default_kind, operator and yardmaster
 // unless the flags say otherwise, and says so; --harness is required only to
-// create a yard.
+// create a yard. The hearer, which no flag names, is kept as stored.
 func TestInitAgainKeepsSettings(t *testing.T) {
 	newHome(t)
 	st := storetest.New(t)
@@ -195,7 +195,7 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss"); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"default_kind": "codex", "operator": "Jo", "yardmaster": "boss"}
+	want := map[string]string{"default_kind": "codex", "operator": "Jo", "yardmaster": "boss", "hearer": "boss"}
 	settings := func(step string) {
 		t.Helper()
 		got, _ := st.Settings(ctx)
@@ -255,6 +255,13 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if !strings.Contains(out, "  kept       operator Kim, yardmaster boss, as set before") {
 		t.Errorf("--harness:\n%s", out)
 	}
+	// The hearer has no flag: init again keeps it as stored, even beside a
+	// new yardmaster.
+	if _, err = run(t, a.rootCmd(), "init", "--yardmaster", "alice", "--actor", "Kim"); err != nil {
+		t.Fatal(err)
+	}
+	want["yardmaster"] = "alice"
+	settings("--yardmaster")
 	// A bad harness is refused on a set-up yard as on a fresh one.
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "nope"); err == nil {
 		t.Error("init --harness nope accepted")

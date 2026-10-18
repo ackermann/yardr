@@ -287,6 +287,49 @@ func TestDeclaredSourceWithLimits(t *testing.T) {
 	}
 }
 
+// A declaration whose hear.subscribe names a key no subscription to the
+// source takes is not kept: a claim approval would fail every claim
+// subscribing the hearer with it.
+func TestDeclaredSourceWithBadClaimFilterIsNotKept(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	file := `name: chime
+base: https://chime.example.com
+credential: { env: CHIME_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { chat: { type: string }, text: { type: string } }
+    request: { method: POST, path: /send, body: { chat: "{chat}", text: "{text}" } }
+notify:
+  call: message
+  address: { param: chat, env: CHIME_CHAT }
+  text: text
+hook:
+  verify: { scheme: secret, signature: { header: Chime-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [chat]
+hear:
+  field: chat
+  address: { env: CHIME_CHAT }
+  from: operator
+  subscribe: { colour: red }
+`
+	_, err := st.PutSource(ctx, "chime.yaml", file, "jo")
+	if err == nil || !strings.Contains(err.Error(), `hear.subscribe names "colour", and a subscription to chime filters on`) {
+		t.Fatalf("err = %v", err)
+	}
+	if all, _ := st.Sources(ctx); len(all) != 0 {
+		t.Fatalf("a refused file was kept: %+v", all)
+	}
+	// The filter beside a valid key is kept.
+	if _, err := st.PutSource(ctx, "chime.yaml", strings.Replace(file, "colour: red", "type: message", 1), "jo"); err != nil {
+		t.Fatalf("a valid filter: %v", err)
+	}
+}
+
 // crmKeyFile names a credential of two variables, one for the updates.
 const crmKeyFile = `name: crm
 base: https://crm.example.com/api

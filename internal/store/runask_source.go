@@ -780,6 +780,9 @@ func (w *wtx) putCarriedSource(ctx context.Context, d *source.Declaration, text,
 	if w.Bucket(bSources).Get([]byte(d.Name)) != nil {
 		return fmt.Errorf("source %s is in the yard already", d.Name)
 	}
+	if err := hearSubscribeKeys(d); err != nil {
+		return err
+	}
 	if d.Limits != nil {
 		if err := limitsKindsFree(w.Tx, d); err != nil {
 			return err

@@ -678,7 +678,8 @@ yardr:
    member called `yardmaster` gets the yard none: init says so, and step 3
    adds nothing;
 2. sets `operator` to the operator's name and `yardmaster` to the
-   yardmaster's, and `operator_style` and `operator_note` when they were said
+   yardmaster's, `hearer` to the yardmaster's too unless one is stored
+   already, and `operator_style` and `operator_note` when they were said
    (the form's answers, `--style`, `--about`);
 3. adds the yardmaster crew member: `kind=<harness>`,
    `prompt=<home>/packs/<pack>/roles/yardmaster.md`, the model if given, the harness's
@@ -691,7 +692,7 @@ Init again on a yard that is set up changes only what its flags say: the
 `--operator` and `--yardmaster` when those are not given, rather than being
 reset to the flags' defaults (the login name, `yardmaster`); `operator_style`
 and `operator_note` are kept the same way, changed only by `--style` and
-`--about`. The summary lists what was kept
+`--about`, and `hearer` is kept as stored, which no flag names. The summary lists what was kept
 (`kept default_kind claude, operator Jo, yardmaster yardmaster, as set before`).
 A flag that changes a setting there is taken from the operator alone, as
 `yardr settings set` is ([Settings](#settings)).
@@ -1167,7 +1168,7 @@ has asked for the folder. What an upgrade does to that grant is
 #### A run that did not finish
 
 The onboarding and `yardr init` do their steps in one order: the yardmaster's
-role, the `operator` and `yardmaster` settings, the yardmaster crew member, `default_kind`,
+role, the `operator`, `yardmaster` and `hearer` settings, the yardmaster crew member, `default_kind`,
 and then, when asked to, the daemon and the wait for the yardmaster. A run
 that fails leaves what the steps before the failure made. The next run
 finishes from that: it does not start again from nothing, and it says what it
@@ -1422,6 +1423,7 @@ value; `--json` has where it is from.
 |---|---|
 | `default_kind` | the agent kind a herdr group or crew member gets when `group add` or `crew add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
 | `default_pack` | the pack `yardr depot init` sets a depot up from when it is given no `--pack`, and the pack `yardr init` takes the yardmaster's role from: a pack's name (one the yard has imported, or one in the binary) or its directory as an absolute path ([packs.md](packs.md#naming-a-pack)). Unset, `starter`, and `dir` for a dir depot. A relative directory is refused, since the setting is read wherever `depot init` is run, and so is a directory with no `pack.yaml`. Changing it moves nothing: it is read when a depot is set up. |
+| `hearer` | the crew member an approved claim subscribes to the claimed address beside writing it, who then hears that chat ([integrations.md](integrations.md)); `yardr init` stores the yardmaster's name unless one is stored already. Unset, or naming no crew member, an approval writes the address alone. A crew member may propose it as a run ask. |
 | `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and an import fills a pack's roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a crew member's name is refused, and only the operator adds and removes other users. |
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |

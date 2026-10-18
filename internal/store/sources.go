@@ -159,11 +159,14 @@ func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) e
 
 // PutSource adds the source text declares, under the name the text gives
 // it, or replaces the one of that name, which keeps its settings. file is
-// how an error names the text. A declaration that source.Parse refuses is
-// not kept.
+// how an error names the text. A declaration that source.Parse refuses,
+// or whose hear.subscribe names a key no subscription takes, is not kept.
 func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Source, error) {
 	d, err := source.Parse(file, []byte(text))
 	if err != nil {
+		return nil, err
+	}
+	if err := hearSubscribeKeys(d); err != nil {
 		return nil, err
 	}
 	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}

@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
@@ -73,14 +75,17 @@ func (w *wtx) userKeyAddress(u *User, env string) (string, error) {
 
 // userKeyCard is the card of user key <user> <source> with the address
 // the ask carries: it writes the one variable the source's notify key
-// names, with that value, into the user's env file, and nothing else.
-// Asking refuses a source that tells nobody, a user the yard has not,
-// no carried address (a command typed in a terminal gives its value
-// unseen, so it is typed there, not proposed), an address with white
-// space in it, and a user who has an address in the source already: a
-// claim is offered only while they have none. The approval is held to
-// the source as declared, to the user, and to the address their file
-// sets now (Seen), so a giving in between is stale, not overwritten.
+// names, with that value, into the user's env file, and subscribes the
+// yard's hearer to that address beside it, so no terminal step is left
+// after the claim. Asking refuses a source that tells nobody, a user
+// the yard has not, no carried address (a command typed in a terminal
+// gives its value unseen, so it is typed there, not proposed), an
+// address with white space in it, and a user who has an address in the
+// source already: a claim is offered only while they have none. The
+// approval is held to the source as declared, to the user, and to the
+// address their file sets now (Seen), so a giving in between is stale,
+// not overwritten; the subscription's sentence names the member, so a
+// hearer set in between reads otherwise and is stale the same way.
 func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 	user, srcName := userKeyOf(run.Argv)
 	u, err := getUser(w.Tx, user)
@@ -115,6 +120,10 @@ func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 	if asking && current != "" {
 		return AskRun{}, fmt.Errorf("user %s has %s set in %s already: a claim is offered only while they have no address in %s", user, env, u.EnvFile, srcName)
 	}
+	member, sub, err := w.claimSubscriber(srcName, d, value)
+	if err != nil {
+		return AskRun{}, err
+	}
 	file := u.EnvFile
 	if file == "" && w.home != "" && !strings.ContainsAny(user, `/\`) {
 		file = filepath.Join(w.home, "users", user+".env")
@@ -124,6 +133,9 @@ func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 		now = "one is set now"
 	}
 	does := []string{fmt.Sprintf("writes %s=%s into %s's env file (%s), exactly where yardr user key %s %s writes it: the file is mode 0600, its other lines are kept, and %s.", env, value, user, or(file, "the file the yard chooses for them"), user, srcName, now)}
+	if member != "" {
+		does = append(does, claimSubscribeLine(member, sub))
+	}
 	return AskRun{
 		Argv:   run.Argv,
 		Does:   does,
@@ -138,9 +150,56 @@ func (w *wtx) userKeyCard(run AskRun, asking bool) (AskRun, error) {
 	}, nil
 }
 
+// claimSubscriber is the crew member an approval of the claim for srcName
+// subscribes beside writing the address, with the subscription: the
+// yard's hearer, where one is set and names a crew member of the yard.
+// The subscription hears every delivery (scope all) whose hear field
+// holds the claimed address, with the filter the declaration's hear key
+// names beside it. member is "" where the card offers no subscription:
+// no hearer set, no such crew member, or a source that hears nothing
+// back.
+func (w *wtx) claimSubscriber(srcName string, d *source.Declaration, address string) (member string, sub Subscription, err error) {
+	if d.Hear == nil || d.Hear.Field == "" {
+		return "", Subscription{}, nil
+	}
+	var hearer string
+	if _, err := get(w.Tx, bSettings, HearerSetting, &hearer); err != nil || hearer == "" {
+		return "", Subscription{}, err
+	}
+	if w.Bucket(bCrew).Get([]byte(hearer)) == nil {
+		return "", Subscription{}, nil
+	}
+	where := map[string]string{d.Hear.Field: address}
+	for k, v := range d.Hear.Subscribe {
+		where[k] = v
+	}
+	sub = Subscription{Source: srcName, Scope: ScopeAll, Where: where}
+	if err := w.bindSubscription(hearer, "", &sub); err != nil {
+		return "", Subscription{}, err
+	}
+	return hearer, sub, nil
+}
+
+// claimSubscribeLine is the card's sentence for the subscription an
+// approval of the claim makes beside writing the address: who hears the
+// chat, and the command that takes it back. It reads the same whether
+// the member has the subscription already, so a giving in between is
+// kept once, not stale.
+func claimSubscribeLine(member string, sub Subscription) string {
+	back := []string{"unsubscribe", member, sub.Source, "--scope", sub.Scope}
+	for _, k := range slices.Sorted(maps.Keys(sub.Where)) {
+		for _, v := range WhereValues(sub.Where[k]) {
+			back = append(back, "--where", k+"="+v)
+		}
+	}
+	return fmt.Sprintf("subscribes %s to %s (kept once if %s has it already), so %s hears this chat; taken back with %s.", member, sub, member, member, runCommandLine(back))
+}
+
 // userKeyStale says why the ask seq for user key is approved no more:
 // the source was replaced, the user was set under their name, or the
-// address their file sets is not the one the card was written from.
+// address their file sets is not the one the card was written from. A
+// hearer set in between reads otherwise on the card, and is stale by
+// that sentence.
 func (w *wtx) userKeyStale(seq uint64, was, now AskRun) error {
 	user, srcName := userKeyOf(was.Argv)
 	if err := w.staleSource(seq, srcName, was, now); err != nil {
@@ -161,7 +220,8 @@ func (w *wtx) userKeyStale(seq uint64, was, now AskRun) error {
 }
 
 // runUserKey writes the carried address into the user's env file as
-// actor, through keyUser, and answers what yardr user key prints,
+// actor, through keyUser, and subscribes the yard's hearer to it beside
+// the write, as the card says. It answers what yardr user key prints,
 // without the file's path: the approval's line is read beside the
 // command's, and each yard's home is its own.
 func runUserKey(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error) {
@@ -175,5 +235,26 @@ func runUserKey(ctx context.Context, w *wtx, run AskRun, actor string, by *appro
 	if err := w.keyUser(ctx, w.home, user, srcName, map[string]string{env: run.Value}, actor, false, &k); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("user %s: %s is set", user, env), nil
+	out := fmt.Sprintf("user %s: %s is set", user, env)
+	member, sub, err := w.claimSubscriber(srcName, d, run.Value)
+	if err != nil {
+		return "", err
+	}
+	if member == "" {
+		return out, nil
+	}
+	var r CrewMember
+	if ok, err := get(w.Tx, bCrew, member, &r); err != nil {
+		return "", err
+	} else if !ok {
+		return out, nil
+	}
+	has := slices.ContainsFunc(r.Subscriptions, sub.same)
+	if err := w.addSubscription(ctx, member, sub, actor, by); err != nil {
+		return "", err
+	}
+	if has {
+		return out + fmt.Sprintf("; %s already subscribed: %s", member, sub), nil
+	}
+	return out + fmt.Sprintf("; %s subscribed: %s", member, sub), nil
 }

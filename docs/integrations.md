@@ -986,15 +986,22 @@ hear:
   field: chat
   address: { env: TELEGRAM_CHAT_ID }
   from: operator
+  subscribe: { type: message }
 ```
 
 `fields[field]` must hold the address a user's env file sets under
 `address.env`, read as telling reads it; setting the address is the
 consent to be heard, and telling is a separate choice. `from` narrows
 whom the source hears to the operator, and is left out for every user
-whose env file sets the address. A drop is answered 200, recorded
-nowhere and counted beside refusals, so a stranger's burst is one
-bounded entry; a delivery that matches is recorded and routed as today.
+whose env file sets the address. `subscribe` is the filter a claim
+approval subscribes the yard's hearer with beside the claimed address,
+as a subscription's `--where`
+([subscriptions.md](subscriptions.md)); the claim sets `field` to the
+address itself, so this names only the filter beside it, and is left
+out where the address alone is the filter. A drop is answered 200,
+recorded nowhere and counted beside refusals, so a stranger's burst is
+one bounded entry; a delivery that matches is recorded and routed as
+today.
 
 A drop is also how the yard learns an address it has none of. While
 the operator has no address in the source, the first dropped delivery
@@ -1005,17 +1012,25 @@ the envelope's `field` and shown on the card, and at most the first
 80 characters of the message beside it; the message is kept nowhere
 else. Approving writes the address under `address.env` into the
 operator's env file (mode 0600) exactly where `yardr user key`
-writes it, and the next delivery from that address is heard;
-declining drops it and writes nothing. One claim per source and the
-operator waits at a time, and none is offered once the operator has
-an address in the source. In this first form the claim is the
-operator's alone, for their own address.
+writes it, and subscribes the yard's `hearer` -- the crew member that
+setting names -- to that address beside the write, scope `all`, so the
+next delivery from that address is heard without a terminal step;
+declining drops it and writes nothing. The card says by name who will
+hear the chat. One claim per source and the operator waits at a time,
+and none is offered once the operator has an address in the source. In
+this first form the claim is the operator's alone, for their own
+address. With no `hearer` set, or one naming no crew member, an
+approval writes the address alone, as before.
 The telegram pack says `from: operator`: only the operator's chat is
 heard, and telling another through telegram tells them but hears
-nothing back, as does setting another user's address. Refused: a `hear`
+nothing back, as does setting another user's address; its `subscribe`
+says `type: message`, so the hearer hears messages and not the chat's
+other Updates. Refused: a `hear`
 without a `hook` key or a `notify` key; a field that is no key of
 `hook.keys`; an address that is not the one `notify` reads; a `from`
-that is not `operator`. A pack of kind `source` may bring the key; a
+that is not `operator`; a `subscribe` that is no mapping, names the
+field the claim sets itself, or names a key no subscription to the
+source takes. A pack of kind `source` may bring the key; a
 pack for a depot brings no `hear` key, as it brings no `hook` key.
 
 #### Pull requests and CI

@@ -1172,6 +1172,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 	want := map[string]AskClass{
 		OperatorSetting:       Alone,
 		YardmasterSetting:     Askable,
+		HearerSetting:         Askable,
 		StyleSetting:          Askable,
 		NoteSetting:           Askable,
 		DefaultKindSetting:    Askable,

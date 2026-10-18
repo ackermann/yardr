@@ -32,6 +32,10 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 27 has a hearer: the crew member an approved claim
+// subscribes to the claimed address (migrateHearer). A build before it
+// writes the address alone, and an approval between its card and this
+// build's reads otherwise on the card, so it is stale, not misheard.
 // schemaVersion 26 has a peer link hold an intake per depot: the one intake
 // of a peer's record is a list of one, marked as the default
 // (migratePeerIntakes). A build before it would drop the list from a record
@@ -174,7 +178,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 26
+const schemaVersion = 27
 
 var kSchema = []byte("schema")
 
@@ -324,6 +328,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 24, run: atVersion(migrateOriginatorRoutes)},
 		{version: 25, run: atVersion(migrateUpgradeFromDangling)},
 		{version: 26, run: atVersion(migratePeerIntakes)},
+		{version: 27, run: atVersion(migrateHearer)},
 	}
 }
 

@@ -114,6 +114,32 @@ func whereKeys(source string) []string {
 	return WhereKeys
 }
 
+// hearSubscribeKeys holds a declaration's hear.subscribe to the filters a
+// subscription to the source may take: a claim approval subscribes the
+// yard's hearer with them beside the claimed address, and a key no
+// subscription takes would fail every claim. The keys are whereKeysTx's
+// without the store: the source's own hook keys beside the hook
+// sources' and its adapter's.
+func hearSubscribeKeys(d *source.Declaration) error {
+	if d.Hear == nil || len(d.Hear.Subscribe) == 0 {
+		return nil
+	}
+	keys := whereKeys(d.Name)
+	if d.Hook != nil {
+		for _, k := range d.Hook.Keys {
+			if !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(d.Hear.Subscribe)) {
+		if !slices.Contains(keys, k) {
+			return fmt.Errorf("hear.subscribe names %q, and a subscription to %s filters on %s", k, d.Name, strings.Join(keys, ", "))
+		}
+	}
+	return nil
+}
+
 // whereKeysTx are the keys a subscription to source may filter on: whereKeys,
 // with the keys of a declared source's hook beside them, those it names
 // twice said once.
