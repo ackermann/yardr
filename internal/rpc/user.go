@@ -39,9 +39,9 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the two of OperatorCalls, GiveSecret and ApproveAsk,
-//     for a device of the operator, and not there for anyone else
-//     (operatorCall), but GiveSecret for a device of a user whose own
+//     calls more are the three of OperatorCalls, GiveSecret, ApproveAsk and
+//     ApproveSetup, for a device of the operator, and not there for anyone
+//     else (operatorCall), but GiveSecret for a device of a user whose own
 //     address or credential in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - without a credential that resolves every path is 401, answered before
@@ -473,6 +473,7 @@ var selfArg = map[string]string{
 	"AddNote":              "actor",
 	"GiveSecret":           "actor",
 	"ApproveAsk":           "actor",
+	"ApproveSetup":         "actor",
 }
 
 // asUser is the arguments body of the call method as user makes it: the
@@ -612,8 +613,8 @@ func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool
 //
 // A hosted yard's router is the one peer besides this machine a secret is
 // taken from: the address the setting names, saying the request came to it
-// over https (fromRouter). An approval is not: ApproveAsk stays
-// loopback-only, whatever the setting names.
+// over https (fromRouter). An approval is not: ApproveAsk and ApproveSetup
+// stay loopback-only, whatever the setting names.
 //
 // An approval holds no secret of its own. It is held to the same rule for
 // what it does: a token read off a network in the clear would otherwise
@@ -623,8 +624,11 @@ func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool
 func inTheClear(r *http.Request, name, router string) string {
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
-	if name == "ApproveAsk" {
+	if name == "ApproveAsk" || name == "ApproveSetup" {
 		what, flag = "an approval", "--approve"
+		if name == "ApproveSetup" {
+			flag = "<n> --secret"
+		}
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
@@ -689,7 +693,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	_, listed := Calls[name]
 	operators := !listed && u.operatorCall(r.Context(), c, name)
 	// GiveSecret from a device of anyone else may still be that user's own
-	// to make (ownSecret), which what it names says. ApproveAsk is not:
+	// to make (ownSecret), which what it names says. An approval is not:
 	// to anyone but the operator's device it is not there, body unread.
 	own := !listed && !operators && name == "GiveSecret" && c.device
 	if !listed && !operators && !own {

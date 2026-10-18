@@ -63,6 +63,13 @@ func readEmbeddedPack(ctx context.Context, name string, yard store.API, home str
 		}
 		reading.Sources = append(reading.Sources, src)
 	}
+	for _, pr := range p.Presets {
+		var grants []store.AskPresetGrant
+		for _, g := range pr.Grants {
+			grants = append(grants, store.AskPresetGrant{Source: g.Source, Calls: append([]string{}, g.Calls...)})
+		}
+		reading.Presets = append(reading.Presets, store.AskPreset{Name: pr.Name, Grants: grants})
+	}
 	if p.Kind == pack.KindSource {
 		return reading, nil
 	}

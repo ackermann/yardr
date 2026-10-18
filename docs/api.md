@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 93,
+  "seq": 96,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 94,
+  "seq": 97,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 95,
+  "seq": 98,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -511,18 +511,19 @@ nothing else. What is not the same:
 - **Only the calls of this page.** Any other method is answered as one the
   yard does not have (`no such method`), whoever calls: nothing that adds a
   user or a device, moves a bead or changes a setting is on the listener.
-  `/ping`, `/wake` and every other path are not there. Two calls more are
+  `/ping`, `/wake` and every other path are not there. Three calls more are
   there for a device of the yard's operator and for nobody else,
-  [`GiveSecret` and `ApproveAsk`](#for-the-operator-alone); the first is
-  there too for a device of a user who is asked for their own address in
-  a source. `ApproveAsk` is the one call on the listener that has a
-  command of the operator's run: the command of a run ask, which is one
-  of a fixed list ([users.md](users.md#devices) has them, row by row).
+  [`GiveSecret`, `ApproveAsk` and `ApproveSetup`](#for-the-operator-alone);
+  the first is there too for a device of a user who is asked for their
+  own address in a source. `ApproveAsk` and `ApproveSetup` are the calls
+  on the listener that have the operator's commands run: the command of
+  a run ask, which is one of a fixed list ([users.md](users.md#devices)
+  has them, row by row), and the apply, account and grants of a setup.
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
   `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `TakeBackAsk`, `AddNote`,
-  `GiveSecret` and `ApproveAsk`, may be left out: the yard fills in the user. One that names anyone else is refused with the
+  `GiveSecret`, `ApproveAsk` and `ApproveSetup`, may be left out: the yard fills in the user. One that names anyone else is refused with the
   code `error` (`this device calls as jo: "actor" is jo or left out, not
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
@@ -624,8 +625,8 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 reads (mode 0600) or in the system's key store, never in a settings file.
 
 A secret and an approval are the two things the yard holds to this itself,
-as far as it can see. [`GiveSecret` and
-`ApproveAsk`](#for-the-operator-alone) are taken only from a request
+as far as it can see. [`GiveSecret`, `ApproveAsk` and
+`ApproveSetup`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine), and never from
 one whose proxy says it came in plain (`X-Forwarded-Proto: http`; the
@@ -634,10 +635,10 @@ the code `error`, in words that name the reason and say what may have
 crossed a network in the clear: the value, or for an approval the token
 that was sent with it. A proxy on another machine that passes requests on
 to the yard in plain HTTP is refused so: from there to the yard the value
-and the token would be readable. An approval holds no secret; it is held
-to the rule so that a token read off a network cannot have a command of
-the operator's run from wherever it was read. Every other call is served
-wherever it comes from, as before.
+and the token would be readable. An approval holds no secret of its own;
+it is held to the rule so that a token read off a network cannot have a
+command of the operator's run from wherever it was read. Every other call
+is served wherever it comes from, as before.
 
 A hosted yard takes `GiveSecret` from one peer besides its own machine:
 its router, the address the `router_addr` setting names, when the request
@@ -645,8 +646,8 @@ says it came to the router over https (`X-Forwarded-Proto: https`). On
 that network the router is the only such peer. The header is read for a
 yes here, as it is read for a no from the yard's own machine: without it,
 or saying anything but https, the giving is refused with the same
-sentence. `ApproveAsk` stays loopback-only: from the router's peer it is
-refused as from anywhere else.
+sentence. `ApproveAsk` and `ApproveSetup` stay loopback-only: from the
+router's peer they are refused as from anywhere else.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
@@ -666,7 +667,7 @@ POST /call/Head
 {}
 
 {
-  "result": 90
+  "result": 93
 }
 ```
 
@@ -1072,7 +1073,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 91,
+      "seq": 94,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1080,7 +1081,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 92,
+      "seq": 95,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1106,7 +1107,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 91,
+      "seq": 94,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1114,7 +1115,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 92,
+      "seq": 95,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1141,7 +1142,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 93,
+      "seq": 96,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1455,9 +1456,103 @@ POST /call/UserAsks
           "as": "jo",
           "line": "a secret: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
         }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 41,
+        "question": "Set up the courier source?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 42,
+        "question": "Set up the courier source for the elders too?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -1669,6 +1764,22 @@ POST /call/UserAsks
 | `open[].run.does` | array of string | what the command changes, in the yard's words |
 | `open[].run.back` | string | the command that takes the change back |
 | `open[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
+| `open[].setup` | object, may be absent | the setup a setup ask proposes, as `Bead` says it; absent on any other ask |
+| `open[].setup.pack` | string | the embedded pack to set up, of kind source |
+| `open[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
+| `open[].setup.account` | array of string | the names to type unseen beside the preset pick |
+| `open[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `open[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
+| `open[].setup.back` | string | the commands that take the setup back |
+| `open[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
+| `open[].setup.presets` | array | the pack's presets with their grants, in the order the ask's options count them |
+| `open[].setup.presets[].name` | string | the preset's name, as the option's label shows it |
+| `open[].setup.presets[].grants` | array | what of each source the preset grants |
+| `open[].setup.presets[].grants[].source` | string | the source the pack declares |
+| `open[].setup.presets[].grants[].calls` | array of string | `read` for every read call, calls by name |
+| `open[].setup.to` | array | who the grants are for |
+| `open[].setup.to[].group` | string, may be absent | the group, and so each session it starts |
+| `open[].setup.to[].crew` | string, may be absent | the crew member |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
@@ -1690,10 +1801,26 @@ POST /call/UserAsks
 | `decided[].run.does` | array of string | what the command changes, in the yard's words |
 | `decided[].run.back` | string | the command that takes the change back |
 | `decided[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
-| `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
-| `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; absent on any other ask and on a run ask that was declined or put aside |
-| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
-| `decided[].ran.result` | string | what the command printed |
+| `decided[].setup` | object, may be absent | the setup a setup ask proposes, as `Bead` says it; absent on any other ask |
+| `decided[].setup.pack` | string | the embedded pack to set up, of kind source |
+| `decided[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
+| `decided[].setup.account` | array of string | the names to type unseen beside the preset pick |
+| `decided[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `decided[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
+| `decided[].setup.back` | string | the commands that take the setup back |
+| `decided[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
+| `decided[].setup.presets` | array | the pack's presets with their grants, in the order the ask's options count them |
+| `decided[].setup.presets[].name` | string | the preset's name, as the option's label shows it |
+| `decided[].setup.presets[].grants` | array | what of each source the preset grants |
+| `decided[].setup.presets[].grants[].source` | string | the source the pack declares |
+| `decided[].setup.presets[].grants[].calls` | array of string | `read` for every read call, calls by name |
+| `decided[].setup.to` | array | who the grants are for |
+| `decided[].setup.to[].group` | string, may be absent | the group, and so each session it starts |
+| `decided[].setup.to[].crew` | string, may be absent | the crew member |
+| `decided[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask |
+| `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside |
+| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
+| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -2193,6 +2320,141 @@ POST /call/Bead
           "as": "jo",
           "line": "a secret: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
         }
+      },
+      {
+        "ask": 41,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Set up the courier source?",
+        "context": ["The nightly run pages through it."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source. may make the call put (POST /it) of the source courier (https://courier.example.com), which changes something there."
+          },
+          {
+            "label": "You decide",
+            "consequence": "the recommended preset, read, is granted"
+          }
+        ],
+        "recommend": 1,
+        "why": "reading is the job",
+        "state": "open",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "courier",
+              "text": "name: courier\nbase: https://courier.example.com/api\ncredential: { env: COURIER_TOKEN, update_env: COURIER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 42,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Set up the courier source for the elders too?",
+        "context": ["They read the same pages."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source. may make the call put (POST /it) of the source courier (https://courier.example.com), which changes something there."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "courier",
+              "text": "name: courier\nbase: https://courier.example.com/api\ncredential: { env: COURIER_TOKEN, update_env: COURIER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
       }
     ]
   }
@@ -2247,16 +2509,33 @@ POST /call/Bead
 | `asks[].secret.as` | string, may be absent | the user whose own credential in the source is asked for (`yardr bead ask --secret <source> --as <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.login` | string, may be absent | the waiting login the value goes to (`yardr bead ask --secret-login <login>`): the reference the login's leader printed in its input need, handed the value and kept nowhere. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to. Show it as it is |
-| `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
+| `asks[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask and until it is given |
 | `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
 | `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead |
 | `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
 | `asks[].run.back` | string | the command that takes the change back |
 | `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads "anyone can take it back" |
-| `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
-| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
-| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them |
+| `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
+| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
+| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed |
+| `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick, and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
+| `asks[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
+| `asks[].setup.account` | array of string | the names to type unseen beside the preset pick: the mint's inputs where the pack's credential is minted, else every credential name |
+| `asks[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `asks[].setup.does` | array of string | what approving changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
+| `asks[].setup.back` | string | the commands that take the setup back |
+| `asks[].setup.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back". Absent where that is anyone, which reads "anyone can take it back" |
+| `asks[].setup.carried` | array | what the pack brings, behind the card's sentences for checking the reading: each source's whole declaration with its command files' bytes, the inventory of the copies it would replace, and the replacement diffs |
+| `asks[].setup.presets` | array | the pack's presets with their grants, in the order the ask's options count them |
+| `asks[].setup.presets[].name` | string | the preset's name, as the option's label shows it |
+| `asks[].setup.presets[].grants` | array | what of each source the preset grants |
+| `asks[].setup.presets[].grants[].source` | string | the source the pack declares |
+| `asks[].setup.presets[].grants[].calls` | array of string | `read` for every read call, calls by name |
+| `asks[].setup.to` | array | who the grants are for |
+| `asks[].setup.to[].group` | string, may be absent | the group, and so each session it starts |
+| `asks[].setup.to[].crew` | string, may be absent | the crew member |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
 
@@ -2577,9 +2856,11 @@ POST /call/AddNote
 
 The calls of this list are as stable as the calls above, and are the
 operator's alone to make. In yardr's code the list is `OperatorCalls`, and
-it has two calls: `GiveSecret`, which gives the credential a secret ask
-asks for, and `ApproveAsk`, which approves a run ask so that the yard runs
-the command it holds. Where they are served, and to whom:
+it has three calls: `GiveSecret`, which gives the credential a secret ask
+asks for, `ApproveAsk`, which approves a run ask so that the yard runs
+the command it holds, and `ApproveSetup`, which approves a setup ask with
+the preset pick and the account together. Where they are served, and to
+whom:
 
 - **On the socket**, to the operator: `actor` is the operator's name, and
   the call does not come from the pane of an agent.
@@ -2787,6 +3068,47 @@ POST /call/ApproveAsk
 | `result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them |
 
 The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the card again", never "approved", and read `Bead` again, where `asks[].ran` is there once the command ran.
+
+### `ApproveSetup`
+
+Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` does. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given and `ran`; the server carries it out after the call, and the values live in its memory alone until the account's write. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values that are not exactly the account asked for; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `option` | number | the preset pick, counting `asks[].options` as shown, `you decide` last |
+| `values` | object | each name of `setup.account` to the value the person typed |
+| `actor` | string | who approves: the operator's name |
+
+```
+POST /call/ApproveSetup
+{"bead":"yd-crm","ask":41,"option":1,"values":{"COURIER_TOKEN":"what-the-person-typed","COURIER_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-crm",
+    "ask": 41,
+    "asker": "yardmaster",
+    "pack": "courier",
+    "preset": "read",
+    "given": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+    "result": "approved, to be carried out"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask that was approved |
+| `asker` | string | who proposed the setup |
+| `pack` | string | the pack set up |
+| `preset` | string | the preset picked |
+| `given` | array of string | the account names that were given |
+| `result` | string | `approved, to be carried out`: the server carries the setup out after the call |
+
+The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say "the yard did not answer; read the card again", never "approved", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.
 
 <!-- /local -->
 

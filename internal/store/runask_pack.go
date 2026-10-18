@@ -30,14 +30,16 @@ import (
 // PackReading is what the server's reading of one embedded pack hands
 // the store: the pack's name and kind, the build label it is embedded
 // in, each declared source's whole text with its command files' bytes,
-// and, for a depot kind, the depot it would be re-applied to and the
-// plan built against the yard. Nothing of it is the asker's.
+// the pack's presets with their grants, and, for a depot kind, the depot
+// it would be re-applied to and the plan built against the yard. Nothing
+// of it is the asker's.
 type PackReading struct {
 	Name    string
 	Kind    string // pack.KindSource ("source") for a yard pack, else a depot kind
 	Depot   string
 	Label   string // "embedded in yardr <build>"
 	Sources []AskSource
+	Presets []AskPreset
 	Plan    *AskPlan
 }
 
@@ -502,10 +504,9 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 	return payload, nil
 }
 
-// packSourceDoes is the card of a kind-source pack: the pack line, then
-// each source as sourceDoes renders it, with what a replacement changes.
-func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration) ([]string, error) {
-	adds, replaces, files, commands := 0, 0, 0, 0
+// packSourceCounts counts what a kind-source pack's card says of its
+// sources: added and replaced sources, copied command files, commands.
+func (w *wtx) packSourceCounts(carried []AskSource, decls map[string]*source.Declaration) (adds, replaces, files, commands int, err error) {
 	fileSet := map[string]bool{}
 	for i := range carried {
 		if _, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
@@ -513,7 +514,7 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 		} else if errors.Is(err, ErrNotFound) {
 			adds++
 		} else {
-			return nil, err
+			return 0, 0, 0, 0, err
 		}
 		commands += len(decls[carried[i].Name].Commands())
 		for _, f := range carried[i].Files {
@@ -522,6 +523,16 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 				files++
 			}
 		}
+	}
+	return adds, replaces, files, commands, nil
+}
+
+// packSourceDoes is the card of a kind-source pack: the pack line, then
+// each source as sourceDoes renders it, with what a replacement changes.
+func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration) ([]string, error) {
+	adds, replaces, files, commands, err := w.packSourceCounts(carried, decls)
+	if err != nil {
+		return nil, err
 	}
 	var clauses []string
 	if adds > 0 {
@@ -538,7 +549,7 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 	does := []string{fmt.Sprintf("pack %s (%s), of kind source, into the yard: it %s, and changes nothing else. It grants no call, makes no hook, and sets no credential's file.",
 		name, reading.Label, strings.Join(clauses, " and "))}
 	for i := range carried {
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name])
+		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false)
 		if err != nil {
 			return nil, err
 		}
@@ -551,8 +562,10 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 // without its adding line (the pack line says it), with a replacement's
 // changes after its credential line. A file the declaration still names
 // carries its change on its own command line; only a file the pack drops
-// keeps a line of its own, having no command line to carry it.
-func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]string, error) {
+// keeps a line of its own, having no command line to carry it. Where
+// settleAccount the credential is no part of what stays owed after: the
+// card settles the account itself, as a setup card does.
+func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settleAccount bool) ([]string, error) {
 	progs := map[string]bool{}
 	for _, c := range d.Commands() {
 		if c.Relative() {
@@ -565,7 +578,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 			diffs[df.Program] = df
 		}
 	}
-	full := sourceDoesChanged(d, carried, diffs)
+	full := sourceDoesChanged(d, carried, diffs, settleAccount)
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
 	if errors.Is(err, ErrNotFound) {
@@ -763,7 +776,7 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 		}
 	}
 	for i := range carried {
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name])
+		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false)
 		if err != nil {
 			return nil, err
 		}

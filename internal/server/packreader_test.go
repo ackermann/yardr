@@ -55,6 +55,28 @@ func TestReadEmbeddedSourcePack(t *testing.T) {
 	}
 }
 
+// The server's reading carries the pack's presets with their grants, in
+// file order, for the setup card to count as pack show prints them.
+func TestReadEmbeddedPackCarriesPresets(t *testing.T) {
+	st := packReaderYard(t)
+	r, err := readEmbeddedPack(context.Background(), "google-mail", st, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Presets) != 3 || r.Presets[0].Name != "read" || r.Presets[1].Name != "drafts" || r.Presets[2].Name != "everything" {
+		t.Fatalf("the google-mail presets = %+v", r.Presets)
+	}
+	want := [][]string{{"read"}, {"read", "draft"}, {"read", "draft", "draft_edit"}}
+	for i, p := range r.Presets {
+		if len(p.Grants) != 1 || p.Grants[0].Source != "google-mail" {
+			t.Fatalf("preset %s grants %+v", p.Name, p.Grants)
+		}
+		if strings.Join(p.Grants[0].Calls, ",") != strings.Join(want[i], ",") {
+			t.Errorf("preset %s grants %v, want %v", p.Name, p.Grants[0].Calls, want[i])
+		}
+	}
+}
+
 // A depot pack with no standing import, and then with one, is read
 // against the record's depot with a plan.
 func TestReadEmbeddedDepotPack(t *testing.T) {

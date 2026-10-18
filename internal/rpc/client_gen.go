@@ -193,6 +193,9 @@ func (c *Client) LoginWaitReady(ctx context.Context, id string) error {
 func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*store.AskApproved, error) {
 	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor)
 }
+func (c *Client) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, actor string) (*store.AskSetupApproved, error) {
+	return callV[*store.AskSetupApproved](c, ctx, "ApproveSetup", id, ask, option, values, actor)
+}
 
 func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {
 	return c.call(ctx, "PutDepot", nil, r, actor)

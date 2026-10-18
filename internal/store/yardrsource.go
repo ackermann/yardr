@@ -362,7 +362,8 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 // whose own address in it, for which crew member in it, or as which user,
 // and never holds a value: the note it is made from has none. An approved
 // command reads as who approved which ask, and the command the yard ran,
-// whole.
+// whole. An approved setup reads as who approved which ask, the pack with
+// the preset and who it is granted to, and the names given, never a value.
 func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answer, n Note, prev int) string {
 	question := fmt.Sprintf("%q", oneLine(ask.Question))
 	label := func(n int) string {
@@ -376,6 +377,9 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		words = ": " + w
 	}
 	switch {
+	case ans.Ran != nil && ask.Setup != nil:
+		return oneLine(fmt.Sprintf("%s approved ask %d on %s: setup of pack %s, preset %s to %s; gave %s", actor, askSeq, bead,
+			ask.Setup.Pack, label(ans.Option), ask.Setup.Grantees(), strings.Join(ans.Given, " and ")))
 	case ans.Ran != nil:
 		return oneLine(fmt.Sprintf("%s approved ask %d on %s, and the yard ran: %s", actor, askSeq, bead, ans.Ran.Command()))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.User != "":

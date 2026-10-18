@@ -134,8 +134,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 24 {
 		t.Errorf("%d calls are served and Calls has %d, want 24 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "GiveSecret"}) || len(OperatorCalls) != 2 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, GiveSecret and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret"}) || len(OperatorCalls) != 3 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret and no other", operators, OperatorCalls)
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))

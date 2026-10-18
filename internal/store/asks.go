@@ -107,12 +107,21 @@ type Ask struct {
 	// for the operator (or, for a command that is a user's own, for that
 	// user), and is approved by ApproveAsk.
 	Run *AskRun `json:"run,omitempty"`
+	// Setup makes the ask a setup ask: the whole setup of a pack's
+	// sources as one decision, the apply, the account and the grants.
+	// Its options are the pack's presets, stored with the yard's
+	// rendering of each, with YouDecide last; the writer sends the pack
+	// and the grantees alone. It is for the operator, and is approved
+	// by ApproveSetup with the preset pick and the account together.
+	Setup *AskSetup `json:"setup,omitempty"`
 }
 
 // Answer is the JSON of a note of kind answer: what one person did with
 // one ask. Exactly one of a pick (Option), words alone (Words with no
 // Option, Later, Decline or TakeBack), Later, Decline, Given, Ran and
-// TakeBack is set.
+// TakeBack is set, except a setup approval, which holds the picked preset
+// (Option), the names given (Given) and what the yard runs (Ran) together,
+// written by ApproveSetup alone.
 type Answer struct {
 	// Ask is the ask note's seq.
 	Ask uint64 `json:"ask"`
@@ -180,6 +189,17 @@ func ParseAnswer(n Note) (Answer, error) {
 // user, never by a bead's agent. Like a secret ask it stays in the yard: a
 // To of <person>@<peer> is refused, and no copy is sent to a name with
 // reach.
+//
+// An ask with Setup proposes the whole setup of a pack's sources as one
+// decision, for the operator to approve with the preset pick and the
+// account together (ApproveSetup). It is checked against the yard and the
+// server's reading of the pack in the write that stores it (askedSetup),
+// and stored with the yard's own sentences and its options, one per preset
+// with YouDecide last. It takes a recommendation counting the presets, no
+// options and no about-beads, at most MaxRunContext lines of context, and
+// is written by a crew member or a user, never by a bead's agent. Like a
+// run ask it stays in the yard: a To of <person>@<peer> is refused, and no
+// copy is sent to a name with reach.
 //
 // A To of <person>@<peer> asks a person of a linked yard: in the same
 // write that stores the ask, the yard queues one message of kind ask for
@@ -281,15 +301,19 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return nil, fmt.Errorf("option %d: yardr adds %q itself, to every ask with options: leave it out", i+1, YouDecide)
 		}
 	}
-	switch {
-	case ask.Recommend != 0 && len(ask.Options) == 0:
-		return nil, fmt.Errorf("--recommend %d: the ask has no options to recommend", ask.Recommend)
-	case ask.Recommend < 0 || ask.Recommend > len(ask.Options):
-		return nil, fmt.Errorf("--recommend %d: the ask has options 1..%d", ask.Recommend, len(ask.Options))
-	case ask.Recommend != 0 && strings.TrimSpace(ask.Why) == "":
-		return nil, fmt.Errorf("--recommend %d needs --why: why this option, in a line", ask.Recommend)
-	case ask.Recommend == 0 && strings.TrimSpace(ask.Why) != "":
-		return nil, fmt.Errorf("--why needs --recommend: which option it is for")
+	// A setup ask's recommendation counts the pack's presets, which only
+	// the write reads; askedSetup checks it there.
+	if ask.Setup == nil {
+		switch {
+		case ask.Recommend != 0 && len(ask.Options) == 0:
+			return nil, fmt.Errorf("--recommend %d: the ask has no options to recommend", ask.Recommend)
+		case ask.Recommend < 0 || ask.Recommend > len(ask.Options):
+			return nil, fmt.Errorf("--recommend %d: the ask has options 1..%d", ask.Recommend, len(ask.Options))
+		case ask.Recommend != 0 && strings.TrimSpace(ask.Why) == "":
+			return nil, fmt.Errorf("--recommend %d needs --why: why this option, in a line", ask.Recommend)
+		case ask.Recommend == 0 && strings.TrimSpace(ask.Why) != "":
+			return nil, fmt.Errorf("--why needs --recommend: which option it is for")
+		}
 	}
 	ask.Why = strings.TrimSpace(ask.Why)
 	// yardr adds YouDecide itself, in the write below, naming the actor
@@ -330,6 +354,20 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		// operator's alone, or none the yard runs from a card.
 		if _, _, err := parseRow(ask.Run.Argv); err != nil && err != errNotRow {
 			return nil, err
+		}
+	}
+	if ask.Setup != nil {
+		switch {
+		case ask.Secret != nil || ask.Run != nil:
+			return nil, fmt.Errorf("an ask asks for a secret, proposes a command, or sets up a pack: --secret, --run or --setup, one of the three")
+		case len(ask.Options) > 0:
+			return nil, fmt.Errorf("a setup ask takes no --option: its options are the pack's presets, picked with the account")
+		case len(about) > 0:
+			return nil, fmt.Errorf("a setup ask takes no --about: it is about the pack it names")
+		case runContextLines(ask.Context) > MaxRunContext:
+			return nil, fmt.Errorf("a setup ask takes at most %d lines of --context, and this has %d: the pack and what the yard says of it must stay in sight", MaxRunContext, runContextLines(ask.Context))
+		case outside:
+			return nil, fmt.Errorf("a setup is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
 		}
 	}
 	if outside {
@@ -409,6 +447,14 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 				return 0, err
 			}
 		}
+		if ask.Setup != nil {
+			var setup *AskSetup
+			var options []AskOption
+			if setup, options, err = w.askedSetup(ctx, ask, ask.To, actor); err != nil {
+				return 0, err
+			}
+			ask.Setup, ask.Options = setup, options
+		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
 		if err != nil {
@@ -453,9 +499,10 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			}
 			return w.queuePeer(p, m, actor)
 		}
-		if ask.Secret != nil || ask.Run != nil {
+		if ask.Secret != nil || ask.Run != nil || ask.Setup != nil {
 			// Nothing of a secret ask crosses a link, and a run ask is
-			// approved in this yard alone: no copy is queued.
+			// approved in this yard alone, as a setup is: no copy is
+			// queued.
 			return seq, nil
 		}
 		if !outside {
@@ -584,6 +631,11 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // A run ask takes Later and Decline with its words, and nothing else here:
 // a pick and words are refused, so that no path but ApproveAsk runs its
 // command, from this yard or over a link.
+//
+// A setup ask takes Later and Decline with its words, and nothing else
+// here: a pick and words are refused, so that no path but ApproveSetup
+// settles its preset and its account together, from this yard or over a
+// link.
 //
 // An answer on a stage ask is its members' to give: a pick, words, Later
 // or Decline from anyone else is refused whole, with the membership
@@ -752,6 +804,10 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	// wants words, and a link carries a pick or words home: neither approves.
 	case ask.Run != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
 		return "", fmt.Errorf("ask %d takes an approval, not words: yardr bead answer %s %d --approve", ans.Ask, id, ans.Ask)
+	// A setup ask has options, but a pick alone settles nothing: the
+	// preset pick goes with the account, in one approval.
+	case ask.Setup != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
+		return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n> --secret", ans.Ask, id, ans.Ask)
 	case ask.Secret == nil && ans.Decline && ans.Words == "":
 		return RefusedNotAsk, fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
 	}
@@ -773,6 +829,9 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	case AskAnswered:
 		if ask.Run != nil {
 			return RefusedAskAnswered, fmt.Errorf("ask %d was approved already, and the yard ran its command", ans.Ask)
+		}
+		if ask.Setup != nil {
+			return RefusedAskAnswered, fmt.Errorf("ask %d was approved already: a setup runs once for one ask", ans.Ask)
 		}
 		if len(ask.Options) == 0 {
 			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already", ans.Ask)
@@ -1097,6 +1156,41 @@ func beadNotes(tx *bolt.Tx, uuid string) ([]Note, error) {
 	return out, err
 }
 
+// carriedLines renders what an adding ask carries, whole in a terminal
+// under the yard's sentences, deeper than any of them, for checking the
+// reading against the file; on a phone it is one tap behind.
+func carriedLines(carried []AskSource) []string {
+	var out []string
+	for _, c := range carried {
+		out = append(out, "  the declaration of source "+OneLine(c.Name)+", whole as carried:")
+		for _, line := range strings.Split(strings.TrimRight(c.Text, "\n"), "\n") {
+			out = append(out, "      "+NoteLetters(line))
+		}
+		for _, f := range c.Files {
+			out = append(out, "  the command file "+OneLine(f.Program)+" (sha256 "+OneLine(f.SHA256)+"), whole as carried:")
+			for _, line := range strings.Split(strings.TrimRight(f.Text, "\n"), "\n") {
+				out = append(out, "      "+NoteLetters(line))
+			}
+		}
+		for _, df := range c.Old {
+			out = append(out, "  the change to command file "+OneLine(df.Program)+" (sha256 "+OneLine(or(df.OldSHA256, "(none)"))+" -> "+OneLine(or(df.NewSHA256, "(none)"))+"), whole as carried:")
+			for _, line := range strings.Split(strings.TrimRight(df.Diff, "\n"), "\n") {
+				out = append(out, "      "+NoteLetters(line))
+			}
+		}
+		for _, rem := range c.Removed {
+			if rem.Text == "" {
+				continue
+			}
+			out = append(out, "  the entry "+OneLine(rem.Path)+" the copy would remove (sha256 "+OneLine(rem.SHA256)+"), whole as carried:")
+			for _, line := range strings.Split(strings.TrimRight(rem.Text, "\n"), "\n") {
+				out = append(out, "      "+NoteLetters(line))
+			}
+		}
+	}
+	return out
+}
+
 // Lines renders the ask as numbered text: the question, its context, its
 // numbered options with the recommendation marked, and its state. Nobody
 // reads the raw form.
@@ -1130,6 +1224,9 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	if r.Ask.Run != nil && r.State == AskAnswered {
 		state = "approved"
 	}
+	if r.Ask.Setup != nil && r.State == AskAnswered {
+		state = "approved"
+	}
 	head := fmt.Sprintf("ask %d · %s · to %s · asked by %s · %s ago",
 		r.Note.Seq, state, OneLine(r.Ask.To), OneLine(r.Note.Author), askAge(r.Note.At, r.now))
 	if r.State == AskAside {
@@ -1146,7 +1243,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		// A context line is one line, refused with a break at the
 		// write; one stored before that folds to the line it is.
 		line = OneLine(line)
-		if r.Ask.Run != nil {
+		if r.Ask.Run != nil || r.Ask.Setup != nil {
 			line = OneLine(r.Note.Author) + " says: " + line
 		}
 		out = append(out, "  "+line)
@@ -1162,36 +1259,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		for _, does := range r.Ask.Run.Does {
 			out = append(out, "  the yard says: "+safeSourceCardLine(does))
 		}
-		// What an adding ask carries stands whole in a terminal under
-		// the yard's sentences, deeper than any of them, for checking
-		// the reading against the file; on a phone it is one tap behind.
-		for _, carried := range r.Ask.Run.Carried {
-			out = append(out, "  the declaration of source "+OneLine(carried.Name)+", whole as carried:")
-			for _, line := range strings.Split(strings.TrimRight(carried.Text, "\n"), "\n") {
-				out = append(out, "      "+NoteLetters(line))
-			}
-			for _, f := range carried.Files {
-				out = append(out, "  the command file "+OneLine(f.Program)+" (sha256 "+OneLine(f.SHA256)+"), whole as carried:")
-				for _, line := range strings.Split(strings.TrimRight(f.Text, "\n"), "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
-			for _, df := range carried.Old {
-				out = append(out, "  the change to command file "+OneLine(df.Program)+" (sha256 "+OneLine(or(df.OldSHA256, "(none)"))+" -> "+OneLine(or(df.NewSHA256, "(none)"))+"), whole as carried:")
-				for _, line := range strings.Split(strings.TrimRight(df.Diff, "\n"), "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
-			for _, rem := range carried.Removed {
-				if rem.Text == "" {
-					continue
-				}
-				out = append(out, "  the entry "+OneLine(rem.Path)+" the copy would remove (sha256 "+OneLine(rem.SHA256)+"), whole as carried:")
-				for _, line := range strings.Split(strings.TrimRight(rem.Text, "\n"), "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
-		}
+		out = append(out, carriedLines(r.Ask.Run.Carried)...)
 		if r.Ask.Run.Pack != nil && r.Ask.Run.Pack.Plan != nil {
 			for _, o := range r.Ask.Run.Pack.Plan.Objects {
 				if o.Diff != "" {
@@ -1209,6 +1277,22 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 		}
 		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
+	case r.Ask.Setup != nil && r.State == AskAnswered:
+	case r.Ask.Setup != nil:
+		out = append(out, "  when you approve, the yard applies the pack, takes the account, and grants the preset you pick, and nothing else:",
+			"      "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.Summary()), "\n", "\n      "))
+		for _, does := range r.Ask.Setup.Does {
+			out = append(out, "  the yard says: "+safeSourceCardLine(does))
+		}
+		for i, o := range r.Ask.Options {
+			line := fmt.Sprintf("    %d. %s: %s", i+1, OneLine(o.Label), OneLine(o.Consequence))
+			if i+1 == r.Ask.Recommend {
+				line += fmt.Sprintf(" (recommended: %s)", OneLine(r.Ask.Why))
+			}
+			out = append(out, line)
+		}
+		out = append(out, carriedLines(r.Ask.Setup.Carried)...)
+		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.TakenBack()), "\n", "\n  "))
 	case r.Ask.Secret != nil:
 		out = append(out, "  "+r.Ask.Secret.Line())
 		if r.Ask.Secret.Login != "" {
@@ -1260,6 +1344,33 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 				}
 			}
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
+		case r.Ask.Setup != nil && c.Answer.Ran != nil:
+			// An approved setup the server has not carried out yet reads
+			// as being carried out, and one whose carrying out failed as
+			// failed: the three readings of a run ask.
+			preset := ""
+			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
+				preset = OneLine(r.Ask.Options[c.Answer.Option-1].Label)
+			}
+			what := fmt.Sprintf("setup of pack %s, preset %s to %s",
+				OneLine(r.Ask.Setup.Pack), preset, OneLine(r.Ask.Setup.Grantees()))
+			if len(c.Answer.Given) > 0 {
+				what += "; gave " + OneLine(strings.Join(c.Answer.Given, " and "))
+			}
+			switch {
+			case c.Answer.Ran.Failed:
+				out = append(out, fmt.Sprintf("  %s approved, failed: %s", by, what))
+			case c.Answer.Ran.Result == CarryPending:
+				out = append(out, fmt.Sprintf("  %s approved, being carried out: %s", by, what))
+			default:
+				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, what))
+			}
+			if c.Answer.Ran.Result != CarryPending {
+				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
+					out = append(out, "      "+NoteLetters(line))
+				}
+			}
+			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.TakenBack()), "\n", "\n  "))
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", by, OneLine(strings.Join(c.Answer.Given, " and "))))
 		case len(r.Ask.Options) == 0:
@@ -1303,6 +1414,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch {
 	case r.State == AskDeclined, r.State == AskTakenBack:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
+	case r.Ask.Setup != nil:
+		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Run != nil:
 		out = append(out, fmt.Sprintf("  approve with: yardr bead answer %s %d --approve", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Secret != nil:

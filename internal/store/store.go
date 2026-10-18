@@ -147,6 +147,9 @@ type Store struct {
 	// logins are the harness logins that wait for an input (loginwait.go),
 	// in memory only as those are.
 	logins loginWaits
+	// setupSecrets are the setup account values approvals handed to the
+	// server's memory (runask_setup.go), in memory only as those are.
+	setupSecrets setupSecretStash
 	// yardKeyFile is the file of this yard's own key and build the yardr
 	// it runs, both said by the process that opened the store (SetYard):
 	// what a bead that crosses a link says of the yard it passes.

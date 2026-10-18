@@ -430,6 +430,63 @@ the approval good: the source's other limit, another grantee's grant, a
 group's limit, whether a crew member runs. A pick and words are refused on a run ask and approve nothing;
 `--later` puts it aside and `--decline "<words>"` ends it, as for any ask.
 
+#### Setting up a pack's sources
+
+Setting up a pack's sources is apply, account and grants, and one card
+carries the three as one decision: `yardr bead ask <id> "<question>"
+--setup <pack> --crew <name>` (or `--group <group>`, repeatable, at
+least one). `--recommend` counts the card's preset options as `yardr
+pack show` prints them, with `--why` saying why, as on any option ask.
+The card shows the pack's declaration whole with its mint, the account
+to type unseen, and one option per preset, each rendered by the yard
+from the declarations with the grantee, and You decide last, which
+grants the recommended preset. An operator who wants no grants declines
+the card and applies by terminal.
+
+```
+ask 3101 · open · to mckean · asked by yardmaster · 1m ago
+  Set up Gmail for the yardmaster?
+  yardmaster says: The yardmaster reads mail to work beads; drafts only, the person sends.
+  when you approve, the yard applies the pack, takes the account, and grants the preset you pick, and nothing else:
+      yardr pack apply google-mail, the account GOOGLE_ACCOUNT, and the preset's grants to crew yardmaster
+  the yard says: pack google-mail (embedded in yardr 06740fc8c90b), of kind source, into the yard: it adds one source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.
+  the yard says: source google-mail: [... the declaration as the apply card renders it, with the mint and its digest ...]
+  [... each call as the apply card renders it ...]
+  the yard says: the account GOOGLE_ACCOUNT: type it unseen. It is written to /home/mckean/.yardr/sources/google-mail.env, named in the answer, never the value.
+  the yard says: grants to crew yardmaster — pick one:
+    1. read: may make every read call of the source google-mail (https://gmail.googleapis.com): today that is search, message and thread, and it covers any read call the operator later gives the source. (recommended: reading is the job)
+    2. drafts: may make every read call of the source google-mail (https://gmail.googleapis.com): today that is search, message and thread, and it covers any read call the operator later gives the source. may make the call draft (POST /gmail/v1/users/me/drafts) of the source google-mail (https://gmail.googleapis.com), which changes something there.
+    3. You decide: the recommended preset, read, is granted
+  the operator can take it back: yardr source rm google-mail; yardr source revoke google-mail <what> --crew yardmaster
+  answer with: yardr bead answer yardr-k3vd 3101 <n> --secret
+```
+
+The answer picks a preset and settles the account together: `yardr bead
+answer <id> <ask> <n> --secret`, the account typed unseen as any
+secret. The yard then applies the pack, takes the account, and grants
+the preset picked, as the operator. Until the server finishes it the ask
+reads as being carried out, then as ran or failed:
+
+```
+$ yardr bead answer yardr-k3vd 3101 1 --secret
+ask 3101, asked by yardmaster: setup of pack google-mail, preset read to crew yardmaster
+mckean gave GOOGLE_ACCOUNT
+mckean approved it: approved, to be carried out
+```
+
+Approving is the operator's as a run approval is: in a terminal on the
+yard's machine, or from a device of yours, never from an agent's pane
+and never over a link. A setup runs once for one ask. When the yard
+changed between the asking and the approval — the build, the pack's
+bytes or presets, a source, the account's owed-ness or a grantee —
+nothing runs and the yard says what changed; the ask is declined and
+asked again. A pack past 40 lines, one carrying sources under different
+credentials, and one with no presets stay on the existing per-step flow:
+a pack apply card, an account card per source, and a grant card per
+source and kind. A pick with `--secret` is allowed on a setup ask only;
+a pick or words alone approve nothing, and `--later` puts it aside as
+for any ask.
+
 #### Typing a secret
 
 `ctrl+o` in a conversation that shows a secret ask puts a field in the

@@ -222,15 +222,17 @@ func pluralCalls(n int) string {
 // without opening the text approves nothing these sentences have not
 // named. The text itself stands behind them in a terminal.
 func sourceDoes(d *source.Declaration, carried AskSource) []string {
-	return sourceDoesChanged(d, carried, nil)
+	return sourceDoesChanged(d, carried, nil, false)
 }
 
 // sourceDoesChanged renders as sourceDoes does, and where diffs names a
 // command file's change the command line carries the change itself: its
 // old and new hashes with its insertions and deletions counted, beside
 // the uses the file already names. A replacement's card reads that way,
-// so the change is said once and not again on its own line.
-func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) []string {
+// so the change is said once and not again on its own line. Where
+// settleAccount the credential is no part of what stays owed after: the
+// card settles the account itself, as a setup card does.
+func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff, settleAccount bool) []string {
 	files, commands := len(carried.Files), len(d.Commands())
 	copies := "copies no command files"
 	if files > 0 {
@@ -306,7 +308,7 @@ func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[strin
 	}
 	does = append(does, commandSaysChanged(d, carried, diffs)...)
 	var owed []string
-	if d.Credential != nil {
+	if d.Credential != nil && !settleAccount {
 		owed = append(owed, fmt.Sprintf("the credential, by a secret ask for %s", d.Name))
 	}
 	if d.Notify != nil {

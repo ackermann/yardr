@@ -140,6 +140,28 @@ func runAsked(prefix string) []field {
 	}
 }
 
+// setupAsked is the setup a setup ask proposes, on a row of the queue.
+func setupAsked(prefix string) []field {
+	return []field{
+		{prefix + "setup", "object?", "the setup a setup ask proposes, as `Bead` says it; absent on any other ask"},
+		{prefix + "setup.pack", "string", "the embedded pack to set up, of kind source"},
+		{prefix + "setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
+		{prefix + "setup.account", "array of string", "the names to type unseen beside the preset pick"},
+		{prefix + "setup.account_file", "string", "the file the value goes to, on the yard's machine"},
+		{prefix + "setup.does", "array of string", "what approving changes and what is there now, in the yard's words"},
+		{prefix + "setup.back", "string", "the commands that take the setup back"},
+		{prefix + "setup.back_by", "string?", "who may run them, as `Bead` says it; absent where that is anyone"},
+		{prefix + "setup.presets", "array", "the pack's presets with their grants, in the order the ask's options count them"},
+		{prefix + "setup.presets[].name", "string", "the preset's name, as the option's label shows it"},
+		{prefix + "setup.presets[].grants", "array", "what of each source the preset grants"},
+		{prefix + "setup.presets[].grants[].source", "string", "the source the pack declares"},
+		{prefix + "setup.presets[].grants[].calls", "array of string", "`read` for every read call, calls by name"},
+		{prefix + "setup.to", "array", "who the grants are for"},
+		{prefix + "setup.to[].group", "string?", "the group, and so each session it starts"},
+		{prefix + "setup.to[].crew", "string?", "the crew member"},
+	}
+}
+
 // A flow bead is the same on a stage, off the line and travelling with no
 // line: the bead with its Arrivals row.
 func flowBead(prefix string) []field {
@@ -351,12 +373,12 @@ var apiCalls = []apiCall{
 		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
-		fields: append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...),
-			append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...),
-				field{"decided[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask"},
-				field{"decided[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\"; absent on any other ask and on a run ask that was declined or put aside"},
-				field{"decided[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed"},
-				field{"decided[].ran.result", "string", "what the command printed"},
+		fields: append(append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...), setupAsked("open[].")...),
+			append(append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...), setupAsked("decided[].")...),
+				field{"decided[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask"},
+				field{"decided[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\"; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside"},
+				field{"decided[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name"},
+				field{"decided[].ran.result", "string", "what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed"},
 				field{"decided[].state", "string", "`answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word"},
 				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back"},
 				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
@@ -419,16 +441,33 @@ var apiCalls = []apiCall{
 			{"asks[].secret.as", "string?", "the user whose own credential in the source is asked for (`yardr bead ask --secret <source> --as <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.login", "string?", "the waiting login the value goes to (`yardr bead ask --secret-login <login>`): the reference the login's leader printed in its input need, handed the value and kept nowhere. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to. Show it as it is"},
-			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
+			{"asks[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
 			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead"},
 			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
 			{"asks[].run.back", "string", "the command that takes the change back"},
 			{"asks[].run.back_by", "string?", "who may run `back`, in words that stand before \"can take it back\": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads \"anyone can take it back\""},
-			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
-			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed"},
-			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them"},
+			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
+			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name"},
+			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed"},
+			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick, and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].setup.pack", "string", "the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered"},
+			{"asks[].setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
+			{"asks[].setup.account", "array of string", "the names to type unseen beside the preset pick: the mint's inputs where the pack's credential is minted, else every credential name"},
+			{"asks[].setup.account_file", "string", "the file the value goes to, on the yard's machine"},
+			{"asks[].setup.does", "array of string", "what approving changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
+			{"asks[].setup.back", "string", "the commands that take the setup back"},
+			{"asks[].setup.back_by", "string?", "who may run `back`, in words that stand before \"can take it back\". Absent where that is anyone, which reads \"anyone can take it back\""},
+			{"asks[].setup.carried", "array", "what the pack brings, behind the card's sentences for checking the reading: each source's whole declaration with its command files' bytes, the inventory of the copies it would replace, and the replacement diffs"},
+			{"asks[].setup.presets", "array", "the pack's presets with their grants, in the order the ask's options count them"},
+			{"asks[].setup.presets[].name", "string", "the preset's name, as the option's label shows it"},
+			{"asks[].setup.presets[].grants", "array", "what of each source the preset grants"},
+			{"asks[].setup.presets[].grants[].source", "string", "the source the pack declares"},
+			{"asks[].setup.presets[].grants[].calls", "array of string", "`read` for every read call, calls by name"},
+			{"asks[].setup.to", "array", "who the grants are for"},
+			{"asks[].setup.to[].group", "string?", "the group, and so each session it starts"},
+			{"asks[].setup.to[].crew", "string?", "the crew member"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
 	},
@@ -586,6 +625,28 @@ var apiOperatorCalls = []apiCall{
 			{"result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them"},
 		},
 		after: "The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again, where `asks[].ran` is there once the command ran.",
+	},
+	{
+		method: "ApproveSetup",
+		says:   "Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` does. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given and `ran`; the server carries it out after the call, and the values live in its memory alone until the account's write. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values that are not exactly the account asked for; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"option", "number", "the preset pick, counting `asks[].options` as shown, `you decide` last"},
+			{"values", "object", "each name of `setup.account` to the value the person typed"},
+			{"actor", "string", "who approves: the operator's name"},
+		},
+		requests: []string{`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_TOKEN":"what-the-person-typed","COURIER_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`},
+		fields: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask that was approved"},
+			{"asker", "string", "who proposed the setup"},
+			{"pack", "string", "the pack set up"},
+			{"preset", "string", "the preset picked"},
+			{"given", "array of string", "the account names that were given"},
+			{"result", "string", "`approved, to be carried out`: the server carries the setup out after the call"},
+		},
+		after: "The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.",
 	},
 }
 
@@ -1063,6 +1124,30 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.CloseBead(ctx, swept.ID, "done", store.Expect{}, "jo")
 	must(err)
+	// The pack a setup ask of the doc sets up: one static source the
+	// yard does not hold, with two presets over its calls.
+	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		if name != "courier" {
+			return nil, fmt.Errorf("pack %s: yardr embeds no pack of that name", name)
+		}
+		return &store.PackReading{Name: "courier", Kind: "source", Label: "embedded in yardr doctest",
+			Sources: []store.AskSource{{Name: "courier", Text: apiSource("courier", "COURIER_TOKEN", "COURIER_UPDATE_TOKEN")}},
+			Presets: []store.AskPreset{
+				{Name: "read", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read"}}}},
+				{Name: "all", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read", "put"}}}},
+			}}, nil
+	})
+	setupTo := []store.Grantee{{Group: "builders"}, {Crew: "yardmaster"}}
+	apiSetupAsk, err = st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source?", To: "jo",
+		Context: []string{"The nightly run pages through it."}, Recommend: 1, Why: "reading is the job",
+		Setup: &store.AskSetup{Pack: "courier", To: setupTo}}, "yardmaster")
+	must(err)
+	// A second setup, declined: the queue's decided rows hold a setup too.
+	declinedSetup, err := st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source for the elders too?", To: "jo",
+		Context: []string{"They read the same pages."},
+		Setup:   &store.AskSetup{Pack: "courier", To: []store.Grantee{{Group: "elders"}, {Crew: "yardmaster"}}}}, "yardmaster")
+	must(err)
+	must(st.AddAnswer(ctx, crm.ID, store.Answer{Ask: declinedSetup, Decline: true, Words: "the builders' card covers it"}, "jo"))
 	return st, d.Token
 }
 
@@ -1073,6 +1158,10 @@ var apiTakeBack uint64
 // apiRunAsk is the run ask ApproveAsk approves in the doc, by seq, as the
 // fixture last made it.
 var apiRunAsk uint64
+
+// apiSetupAsk is the setup ask ApproveSetup approves in the doc, by seq,
+// as the fixture last made it.
+var apiSetupAsk uint64
 
 // apiSecretAsks are the six secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them: two for a source's credential, one
@@ -1193,6 +1282,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 				body = fmt.Sprintf(body, apiSecretAsks[i])
 			} else if c.method == "ApproveAsk" {
 				body = fmt.Sprintf(body, apiRunAsk)
+			} else if c.method == "ApproveSetup" {
+				body = fmt.Sprintf(body, apiSetupAsk)
 			} else if c.method == "TakeBackAsk" {
 				body = fmt.Sprintf(body, apiTakeBack)
 			} else if strings.Contains(body, "%d") {
@@ -1271,10 +1362,11 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the two calls of
-	// OperatorCalls besides: a call is added to either on purpose, here too.
-	if len(Calls) != 24 || len(OperatorCalls) != 2 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 24 and 2", len(Calls), len(OperatorCalls))
+	// there was a second list, and a device of the operator the three calls
+	// of OperatorCalls besides: a call is added to either on purpose, here
+	// too.
+	if len(Calls) != 24 || len(OperatorCalls) != 3 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 24 and 3", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {

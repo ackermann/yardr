@@ -29,6 +29,8 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askNew bool
 	var askBead store.NewBead
 	var askSecret, askForUser, askForCrew, askAs, askRun, askSecretLogin, askSecretHook, askHookSource string
+	var askSetup string
+	var askCrew, askGroup []string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -274,6 +276,30 @@ tell, that user or the operator) and for --to <person>@<peer>; no copy goes to a
 linked yard. A crew member or a user writes one. An agent
 working a bead does not: it says what it needs in a note on the bead.
 
+--setup <pack> sets up an embedded pack of kind source as one decision:
+the apply, the account and the grants. It takes --crew <name> and --group
+<group>, repeatable, at least one: who the grants are for. --recommend
+counts the card's preset options as yardr pack show prints them, with
+--why saying why, as on any option ask. The card shows the pack's
+declaration whole with its mint, the account to type unseen, and one
+option per preset, each rendered by the yard from the declarations with
+the grantee, and You decide last, which grants the recommended preset.
+The operator approves with the preset pick and the account together
+(yardr bead answer <id> <ask> <n> --secret); the yard then applies the
+pack, takes the account, and grants the preset picked, as the operator.
+An approval is refused when the yard changed since the ask, which is then
+asked again. A pack past 40 lines, one carrying sources under different
+credentials, and one with no presets stay on the existing per-step flow:
+a pack apply card, an account card per source, and a grant card per
+source and kind. --as is refused: a grant as a user is that user's alone
+to give, and this card is the operator's.
+
+A setup ask takes no --option, --about or --as, and at most five
+--context lines. It is refused, and nothing is stored, for --to anyone
+but the operator and for --to <person>@<peer>; no copy goes to a linked
+yard. A crew member or a user writes one. An agent working a bead does
+not: it says what it needs in a note on the bead.
+
 --new asks a question that is about no bead: it takes the question alone,
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
@@ -328,6 +354,9 @@ what the person asked does, and this is the asker's own.`,
   yardr bead ask yardr-k3vd "Set up the webhook?" \
     --context "The signing secret is asked for on the ask above; give it first." \
     --run "hook add <hook> --source <source>"
+  yardr bead ask yardr-k3vd "Set up Gmail for the yardmaster?" --setup google-mail --crew yardmaster \
+    --context "The yardmaster reads mail to work beads; drafts only, the person sends." \
+    --recommend 1 --why "reading is the job; drafts can follow"
   yardr bead ask yardr-k3vd "Take more mail from airy?" \
     --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
     --run "peer allow airy --mail-limit 300"
@@ -371,6 +400,25 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--env narrows a secret ask: it goes with --secret <source>")
 			}
 			switch {
+			// A setup's own combinations first, so their reasons stand:
+			// --as with --setup is refused as the card's, not as a
+			// secret's missing flag.
+			case c.Flags().Changed("setup") && c.Flags().Changed("run"):
+				return fmt.Errorf("--setup sets up a pack and --run proposes a command: one of the two")
+			case c.Flags().Changed("setup") && c.Flags().Changed("secret"):
+				return fmt.Errorf("--setup sets up a pack and --secret asks for a value: one of the two")
+			case c.Flags().Changed("setup") && c.Flags().Changed("secret-login"):
+				return fmt.Errorf("--setup sets up a pack and --secret-login asks for a value: one of the two")
+			case c.Flags().Changed("setup") && c.Flags().Changed("secret-hook"):
+				return fmt.Errorf("--setup sets up a pack and --secret-hook asks for a value: one of the two")
+			case c.Flags().Changed("setup") && askAs != "":
+				return fmt.Errorf("--setup refuses --as: a grant as a user is that user's alone to give, and this card is the operator's")
+			case c.Flags().Changed("setup") && askForUser != "":
+				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>, not --setup")
+			case c.Flags().Changed("setup") && askForCrew != "":
+				return fmt.Errorf("--for-crew says whose own credential in a source is asked for: it goes with --secret <source>, not --setup")
+			case !c.Flags().Changed("setup") && (c.Flags().Changed("crew") || c.Flags().Changed("group")):
+				return fmt.Errorf("--crew and --group name who a setup's grants are for: they go with --setup <pack>")
 			case askForUser != "" && askSecret == "" && !c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>")
 			case askForUser != "" && len(askEnv) > 0:
@@ -492,6 +540,18 @@ what the person asked does, and this is the asker's own.`,
 			if c.Flags().Changed("secret-hook") {
 				q.Secret = &store.AskSecret{Source: askHookSource, Hook: askSecretHook}
 			}
+			if c.Flags().Changed("setup") {
+				// As named, in the order typed: the yard stores them once
+				// each, the groups before the crew members.
+				var to []store.Grantee
+				for _, g := range askGroup {
+					to = append(to, store.Grantee{Group: g})
+				}
+				for _, cm := range askCrew {
+					to = append(to, store.Grantee{Crew: cm})
+				}
+				q.Setup = &store.AskSetup{Pack: askSetup, To: to}
+			}
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
 				q.Run = &store.AskRun{Argv: []string{askRun}}
@@ -547,7 +607,16 @@ what the person asked does, and this is the asker's own.`,
 				}
 				out["run"] = run
 			}
-			if !strings.Contains(who, "@") && secret == nil && run == nil {
+			// What the yard stored of a setup ask: the pack with the
+			// yard's sentences for it, which is what an approval runs.
+			var setup *store.AskSetup
+			if q.Setup != nil {
+				if setup, err = askedSetup(c.Context(), st, b.ID, seq); err != nil {
+					return err
+				}
+				out["setup"] = setup
+			}
+			if !strings.Contains(who, "@") && secret == nil && run == nil && setup == nil {
 				peers, err := st.Peers(c.Context())
 				if err != nil {
 					return err
@@ -596,6 +665,14 @@ what the person asked does, and this is the asker's own.`,
 					fmt.Printf("%s for %s: a secret, %s of the source %s\n", on, who, secret.Names(), secret.Source)
 					return
 				}
+				if setup != nil {
+					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
+					if askNew {
+						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
+					}
+					fmt.Printf("%s for %s: to approve, yardr bead answer %s %d <preset> --secret\n", on, who, b.ID, seq)
+					return
+				}
 				printAsk(c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
@@ -625,6 +702,9 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askForCrew, "for-crew", "", "with --secret: ask for this crew member's own credential in the source (the variables its credential names), kept in the crew member's env_file")
 	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
+	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
+	ask.Flags().StringArrayVar(&askCrew, "crew", nil, "with --setup: the grants are for this crew member (repeatable; at least one of --crew and --group)")
+	ask.Flags().StringArrayVar(&askGroup, "group", nil, "with --setup: the grants are for this group's sessions (repeatable; at least one of --crew and --group)")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default the mint's inputs where the declaration names a mint, else every one it names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
@@ -653,6 +733,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --later             put it aside for 24 hours
   yardr bead answer <id> <ask> --decline "<words>"   refuse to decide it
   yardr bead answer <id> <ask> --secret            give the secret a secret ask asks for
+  yardr bead answer <id> <ask> <n> --secret        pick a setup ask's preset with the account
   yardr bead answer <id> <ask> --approve           approve the command a run ask proposes
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
@@ -694,6 +775,14 @@ When the yard wrote the file and could not record it, it says so with the
 names and the file: give it again. A secret ask takes no pick and no
 words, which are refused and kept nowhere; --later puts it aside as any
 ask, and it is declined with --decline "", without words.
+
+<n> --secret answers a setup ask (yardr bead ask --setup): the preset
+pick with the account typed unseen beside it, as --secret types it. The
+yard then applies the pack, takes the account, and grants the preset
+picked, as the operator, and records what ran. It is the operator's to
+give, and is refused from the pane of an agent. A pick with --secret is
+allowed on a setup ask only; everywhere else a secret answer still takes
+no pick.
 
 --approve answers a run ask (yardr bead ask --run): the yard runs the
 command the ask holds, exactly as its card shows it, as the operator, and
@@ -743,7 +832,16 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 			declined := c.Flags().Changed("decline")
 			if ansSecret {
 				if len(args) > 2 || ansWords != "" || ansLater || declined {
+					// A pick with --secret settles a setup ask alone.
+					if len(args) == 3 && ansWords == "" && !ansLater && !declined {
+						if n, pickErr := strconv.Atoi(args[2]); pickErr == nil && n >= 1 {
+							return a.approveSetup(c, st, id, askSeq, n)
+						}
+					}
 					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
+				}
+				if setup, err := askedSetup(c.Context(), st, id, askSeq); err == nil && setup != nil {
+					return fmt.Errorf("ask %d sets up a pack: pick its preset with the account: yardr bead answer %s %d <n> --secret", askSeq, id, askSeq)
 				}
 				return a.giveSecret(c, st, id, askSeq)
 			}
@@ -925,6 +1023,28 @@ func readSourceAskFile(file string, limit int, what string) ([]byte, error) {
 	return data, nil
 }
 
+// askedSetup reads the setup the ask seq on the bead id proposes, as the
+// yard stored it.
+func askedSetup(ctx context.Context, st store.API, id string, seq uint64) (*store.AskSetup, error) {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		if r.AskErr != nil {
+			return nil, r.AskErr
+		}
+		if r.Ask.Setup == nil {
+			return nil, fmt.Errorf("ask %d sets up no pack", seq)
+		}
+		return r.Ask.Setup, nil
+	}
+	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
+}
+
 // askedRun reads the command the ask seq on the bead id proposes, as the
 // yard stored it.
 func askedRun(ctx context.Context, st store.API, id string, seq uint64) (*store.AskRun, error) {
@@ -1009,6 +1129,65 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if keyed.Next != "" {
 			fmt.Println("next: " + keyed.Next)
 		}
+	})
+}
+
+// approveSetup is yardr bead answer <id> <ask> <n> --secret on a setup
+// ask: it reads the account values as yardr source key reads them, unseen
+// from a terminal or as NAME=value lines from anything else, and approves
+// the setup with the preset pick. What it prints is the preset picked and
+// who gave which names, never a value.
+func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
+	notes, err := st.Notes(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	var setup *store.AskSetup
+	found := false
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		found = true
+		if r.AskErr != nil {
+			return r.AskErr
+		}
+		setup = r.Ask.Setup
+	}
+	switch {
+	case !found:
+		return fmt.Errorf("bead %s has no ask %d", id, seq)
+	case setup == nil:
+		return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
+	}
+	// The sources the pack brings are not in the yard yet: read what the
+	// account is typed against from the carried texts the yard stored.
+	var d *source.Declaration
+	for _, carried := range setup.Carried {
+		parsed, err := source.Parse("pack source "+carried.Name, []byte(carried.Text))
+		if err != nil {
+			return fmt.Errorf("%s", store.OneLine(err.Error()))
+		}
+		if parsed.Credential != nil {
+			d = parsed
+			break
+		}
+	}
+	if d == nil || d.Credential == nil {
+		return fmt.Errorf("ask %d sets up a pack with no credentialed source: nothing typed settles it", seq)
+	}
+	values, err := readKeys(d, setup.Account, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
+	if err != nil {
+		return err
+	}
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, a.who())
+	if err != nil {
+		return secretErr(err)
+	}
+	return a.out(done, func() {
+		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Printf("%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
+		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
 	})
 }
 
