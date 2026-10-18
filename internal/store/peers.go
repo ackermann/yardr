@@ -261,11 +261,11 @@ type Peer struct {
 	// or refused, in the same hour (PeerBeadLimit).
 	Arrivals       int  `json:"arrivals,omitempty"`
 	ArrivalLimited bool `json:"arrival_limited,omitempty"`
-	// Intake is where the beads it sends go; nil, and each is refused
-	// (peerbeads.go). Build is the yardr its last bead said it runs: its
-	// own word, kept to show the operator.
-	Intake *PeerIntake `json:"intake,omitempty"`
-	Build  string      `json:"build,omitempty"`
+	// Intakes is where the beads it sends go, at most one per depot, sorted
+	// by it; empty, and each is refused (peerbeads.go). Build is the yardr
+	// its last bead said it runs: its own word, kept to show the operator.
+	Intakes []PeerIntake `json:"intakes,omitempty"`
+	Build   string       `json:"build,omitempty"`
 	// Said is what its yard last said its build understands, and when; nil
 	// for one that has not said, which is an older yardr. Its own word,
 	// which may be stale: kept to show the operator, and nothing is
@@ -283,12 +283,13 @@ type Peer struct {
 	// name (GetPeer): a listing, which the daemon asks for on every pass,
 	// does not count them. Read only.
 	Beads int `json:"beads"`
-	// Arrive is who works a bead it sends in the stage it arrives in, by
-	// the routes as they are, on a peer read by its name as Beads is; and
-	// ArriveError why that cannot be said (the intake's depot or flow no
-	// longer reads). Read only.
-	Arrive      []PeerArrive `json:"arrive,omitempty"`
-	ArriveError string       `json:"arrive_error,omitempty"`
+	// OpenByDepot counts those open beads by the depot they arrived in, on
+	// a peer read by its name as Beads is. Read only.
+	OpenByDepot map[string]int `json:"open_by_depot,omitempty"`
+	// ArriveByDepot is who works a bead each intake takes in the stage it
+	// arrives in, by the routes as they are, on a peer read by its name as
+	// Beads is. Read only.
+	ArriveByDepot []PeerIntakeArrive `json:"arrive_by_depot,omitempty"`
 	// Waiting and Failed count the outbox for it, and Error is what the
 	// last try of its oldest waiting message said. Read only.
 	Waiting int    `json:"waiting"`

@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -196,17 +197,20 @@ func TestPeerCodeComesBack(t *testing.T) {
 	}
 }
 
-// A bead whose work b cannot start where a's starts is refused as
-// base_unknown: b's depot is of another repository, or the base commit is on
-// no remote. Nothing of it is kept, and a's stage ends as refused.
+// A bead b cannot take for where its work starts is refused: with
+// no_intake when no intake takes the remote it names, naming those they
+// take, and with base_unknown when the base commit is on no remote.
+// Nothing of it is kept, and a's stage ends as refused.
 func TestPeerBeadBaseUnknown(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
 		otherRemote, unpushed bool
-		detail                string
+		reason, detail, away  string
 	}{
-		"another remote":      {otherRemote: true, detail: "and the bead starts from file://"},
-		"a commit not pushed": {unpushed: true, detail: "could not be fetched from origin"},
+		"another remote": {otherRemote: true, reason: store.RefusedNoIntake,
+			detail: "which no intake takes: the intakes take file://", away: "it has no intake for this yard's beads"},
+		"a commit not pushed": {unpushed: true, reason: store.RefusedBaseUnknown,
+			detail: "could not be fetched from origin", away: "where this yard's bead starts"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -226,14 +230,14 @@ func TestPeerBeadBaseUnknown(t *testing.T) {
 			mine := a.bead(t, "Add the export")
 			a.pass(t)
 			refused := b.events(t, "peer_message_refused")
-			if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedBaseUnknown || !strings.Contains(refused[0].Data["detail"].(string), tc.detail) {
+			if len(refused) != 1 || refused[0].Data["reason"] != tc.reason || !strings.Contains(refused[0].Data["detail"].(string), tc.detail) {
 				t.Fatalf("b's peer_message_refused = %+v", refused)
 			}
 			if bs, _ := b.api.ListBeads(context.Background(), store.BeadFilter{}); len(bs) != 0 {
 				t.Fatalf("b kept %d beads of a refused one", len(bs))
 			}
 			got := a.get(t, mine.ID)
-			if got.Stage != "decide" || got.Away().Outcome != store.OutcomeRefused || !strings.Contains(got.Away().Detail, "where this yard's bead starts") {
+			if got.Stage != "decide" || got.Away().Outcome != store.OutcomeRefused || !strings.Contains(got.Away().Detail, tc.away) {
 				t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 			}
 		})
@@ -620,7 +624,7 @@ func TestPeerCodeOneRemoteTwoSpellings(t *testing.T) {
 }
 
 // Two repositories on one host are two remotes, however alike the yards
-// reach them: on the way out the bead is refused as base_unknown, and a
+// reach them: on the way out the bead is refused as no_intake, and a
 // branch pushed to the other one is not taken on the way back.
 func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	// Serial: it changes process environment, which parallel tests cannot share.
@@ -636,8 +640,8 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
 	refused := b.events(t, "peer_message_refused")
-	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedBaseUnknown ||
-		!strings.Contains(refused[0].Data["detail"].(string), "is git.example.test/acme/api here, and the bead starts from git.example.test/acme/web") {
+	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedNoIntake ||
+		!strings.Contains(refused[0].Data["detail"].(string), "the bead starts from git.example.test/acme/web, which no intake takes: the intakes take git.example.test/acme/api") {
 		t.Fatalf("b's peer_message_refused = %+v", refused)
 	}
 	if got := a.get(t, mine.ID); got.Stage != "decide" || got.Away().Outcome != store.OutcomeRefused {
@@ -659,6 +663,62 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	if got.Stage != "review" || !strings.Contains(got.Away().NotTaken, "it was pushed to git.example.test/acme/api, and the remote origin of depot web is git.example.test/acme/web here") ||
 		branchAt(t, aRepo, store.Branch(mine.ID)) != "" {
 		t.Fatalf("a's bead = %+v, %+v", got, got.Away())
+	}
+}
+
+// One link with intakes for two depots takes a bead for each into its own
+// depot and flow, chosen by the remote each names; a bead for a remote no
+// intake takes is refused, naming the remotes they take.
+func TestPeerBeadIntakePerDepot(t *testing.T) {
+	t.Parallel()
+	clock := newClock()
+	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+	link(t, a, b, true, true)
+	ctx := context.Background()
+	webRepo := b.clones(t, sharedRemote(t))
+	apiRepo := filepath.Join(t.TempDir(), "api")
+	gitIn(t, filepath.Dir(apiRepo), "clone", "-q", sharedRemote(t), apiRepo)
+	must(t, b.api.PutDepot(ctx, store.Depot{Name: "api", Path: apiRepo, Kind: store.DepotGit, Base: "main"}, "jo"))
+	putFlow(t, b, "api-incoming", staged)
+	b.takes(t, "a", "web")
+	_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "api", Flow: "api-incoming"}, "jo")
+	must(t, err)
+	webForm := store.RemoteForm(gitIn(t, webRepo, "remote", "get-url", "origin"))
+	apiForm := store.RemoteForm(gitIn(t, apiRepo, "remote", "get-url", "origin"))
+	send := func(id, theirs, base, commit, remote string) string {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"v": 1, "bead": theirs, "stage": "build", "title": "Add the export",
+			"git": map[string]any{"base": base, "base_commit": commit, "remote": remote}})
+		got, err := b.own.PeerReceive(ctx, "a", a.pub, []store.PeerMessage{{ID: id, Kind: store.PeerBead, Body: body}})
+		must(t, err)
+		return got[0].Refused
+	}
+	webHead, apiHead := gitIn(t, webRepo, "rev-parse", "HEAD"), gitIn(t, apiRepo, "rev-parse", "HEAD")
+	if refused := send("w1", "web-1", "main", webHead, webForm); refused != "" {
+		t.Fatalf("a bead for web = %s", refused)
+	}
+	if refused := send("a1", "api-1", "main", apiHead, apiForm); refused != "" {
+		t.Fatalf("a bead for api = %s", refused)
+	}
+	for _, want := range []struct{ depot, flow, stage, form string }{
+		{"web", "taking", "work", webForm},
+		{"api", "api-incoming", "arrived", apiForm},
+	} {
+		bs, err := b.api.ListBeads(ctx, store.BeadFilter{Depot: want.depot})
+		must(t, err)
+		if len(bs) != 1 || bs[0].Metadata["flow"] != want.flow || bs[0].Stage != want.stage ||
+			bs[0].Peer == nil || bs[0].Peer.Git == nil || bs[0].Peer.Git.Remote != want.form {
+			t.Fatalf("beads in %s = %+v; want one in flow %s, stage %s", want.depot, bs, want.flow, want.stage)
+		}
+	}
+	if refused := send("o1", "odd-1", "main", webHead, "git.example.test/acme/odd"); refused != store.RefusedNoIntake {
+		t.Fatalf("a bead for no intake's remote = %q", refused)
+	}
+	refused := b.events(t, "peer_message_refused")
+	last := refused[len(refused)-1]
+	if detail, _ := last.Data["detail"].(string); !strings.Contains(detail, "which no intake takes") ||
+		!strings.Contains(detail, webForm) || !strings.Contains(detail, apiForm) {
+		t.Fatalf("no_intake names the remotes: %+v", last)
 	}
 }
 

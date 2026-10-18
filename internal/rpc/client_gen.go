@@ -683,6 +683,9 @@ func (c *Client) SetPeerURL(ctx context.Context, name, url, actor string) (*stor
 func (c *Client) SetPeerIntake(ctx context.Context, name string, in *store.PeerIntake, actor string) (*store.Peer, error) {
 	return callV[*store.Peer](c, ctx, "SetPeerIntake", name, in, actor)
 }
+func (c *Client) RemovePeerIntake(ctx context.Context, name, depot, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "RemovePeerIntake", name, depot, actor)
+}
 func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
 }

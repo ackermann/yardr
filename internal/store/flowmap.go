@@ -268,7 +268,7 @@ func stageWho(tx *bolt.Tx, f *Flow, sorted []Route, b Bead, stage string) (who, 
 // StageWork is who works a bead in a stage that is not terminal, with what
 // a sentence about it names: the group the routes lead to, a manual
 // group's members and its wait, the yard a peer group sends to. It is what
-// says who looks first at a bead from another yard (Peer.Arrive,
+// says who looks first at a bead from another yard (Peer.ArriveByDepot,
 // BeadPeer.Arrived): the flow's first stage is the only statement of it.
 type StageWork struct {
 	Stage string `json:"stage"`

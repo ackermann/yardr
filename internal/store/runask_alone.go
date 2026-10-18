@@ -85,19 +85,19 @@ var aloneList = []aloneCommand{{
 	},
 }, {
 	words: []string{"peer", "intake"},
-	parse: aloneArgs("yardr peer intake <name> [--depot <depot> --flow <flow> | --none]", 1, -1),
+	parse: aloneArgs("yardr peer intake <name> [--depot <depot> --flow <flow> [--limit <n>] [--default] | --depot <depot> --none | --none]", 1, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		// Taking none is anyone's to run, as SetPeerIntake checks
-		// nothing for it; saying where beads go is the operator's
-		// alone, as taking a peer's beads starts this yard's agents
-		// on another yard's text.
+		// Taking none, of one depot or of all, is anyone's to run, as
+		// the store checks nothing for it; saying where beads go is
+		// the operator's alone, as taking a peer's beads starts this
+		// yard's agents on another yard's text.
 		none := false
 		for _, word := range argv[3:] {
 			if word == "--none" || strings.HasPrefix(word, "--none=") {
 				none = true
 			}
-			if word == "--depot" || word == "--flow" || word == "--limit" ||
-				strings.HasPrefix(word, "--depot=") || strings.HasPrefix(word, "--flow=") || strings.HasPrefix(word, "--limit=") {
+			if word == "--flow" || word == "--limit" || word == "--default" ||
+				strings.HasPrefix(word, "--flow=") || strings.HasPrefix(word, "--limit=") || strings.HasPrefix(word, "--default=") {
 				none = false
 			}
 		}

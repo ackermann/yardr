@@ -453,8 +453,8 @@ takes from them, and whom of the yard they may see and write to, is not for
 a crew member's session to grant. Stopping a kind (`--no-send`,
 `--no-receive`), exposing someone no longer (`--no-expose`), trusting a name
 no longer (`--no-trust`), sending a user's asks to one no longer
-(`--no-reach`) and `peer intake --none` only narrow, and
-anyone may.
+(`--no-reach`) and `peer intake --none`, for one depot or for all, only
+narrow, and anyone may.
 Like that check it is a line, not a wall.
 
 ### The roster: whom a peer may see and write to
@@ -1646,17 +1646,36 @@ outcome and both stages ([doctor.md](doctor.md#optional)):
 - A flow that governs several depots alike is noted once, with all of them.
 - A stage no route leads anywhere from is not noted: the bead waits there.
 
-### The intake
+### The intakes
 
-`--receive bead` lets the link carry the peer's beads in. The intake says
-where they go: without one every bead is refused (`no_intake`), and `peer
-show` says `intake   none: a bead it sends is refused`.
+`--receive bead` lets the link carry the peer's beads in. The intakes say
+where they go: one per depot, at most. A bead for a depot with no intake is
+refused (`no_intake`), and with none at all `peer show` says `intake
+none: a bead it sends is refused`.
 
+- **The bead says which repository it is for.** A bead sent from a
+  repository carries the remote its work starts from, and it goes to the
+  intake whose depot's origin is that remote. A yard that builds for two
+  repositories holds an intake for each, and each bead goes to its own:
+  ```sh
+  yardr peer intake north --depot web --flow incoming
+  yardr peer intake north --depot api --flow incoming
+  ```
+  A bead for a remote no intake takes is refused (`no_intake`), and the
+  refusal names the remotes the intakes take.
+- **A bead that names no remote goes to the default intake, if any.** The
+  first intake is the default; `--default` marks another, and moves it:
+  ```sh
+  yardr peer intake north --depot api --flow incoming --default
+  ```
+  Without a default such a bead is refused (`no_intake`), as it is with no
+  intake at all.
 - **The depot and the flow are this yard's choice.** The bead is created in
-  `--depot`, pinned to `--flow` (`flow=<name>` in its metadata, which wins over
-  the depot's and the type's flow), in that flow's first stage, labelled
-  `from-<peer>`. The sender picks neither: its bead's type does not choose a
-  flow here. The flow is one of the store (`yardr flow set`) or of the depot's
+  the intake's depot, pinned to its flow (`flow=<name>` in its metadata,
+  which wins over the depot's and the type's flow), in that flow's first
+  stage, labelled `from-<peer>`. The sender picks neither: its bead's type
+  does not choose a flow here, and its remote only chooses among this yard's
+  intakes. The flow is one of the store (`yardr flow set`) or of the depot's
   repository. `peer intake` is refused when the depot is none of the yard's,
   when the flow does not resolve for it, and when its first stage is
   terminal.
@@ -1664,11 +1683,17 @@ show` says `intake   none: a bead it sends is refused`.
   any bead is made: in that stage, not held, and routed as the stage is
   routed. Nothing else holds it, and no setting of the intake says who looks
   first ([below](#who-looks-at-a-bead-first)).
-- **The limit.** A yard keeps 10 open beads from one peer (`--limit`). The
-  next is refused (`busy`) until one ends.
-- **The hour.** A yard takes 30 beads from one peer within an hour, counted
-  from the first, the refused ones too. The 31st is refused
-  (`rate_limited`) until that hour has passed. It is no setting.
+- **The limit is per intake.** A yard keeps 10 open beads from one peer in
+  one depot (`--limit`). The next for that depot is refused (`busy`) until
+  one ends.
+- **The hour is per link.** A yard takes 30 beads from one peer within an
+  hour, counted from the first, the refused ones too, whatever depot they
+  are for. The 31st is refused (`rate_limited`) until that hour has passed.
+  It is no setting.
+
+`--depot` with `--none` removes that depot's intake; `--none` on its own
+removes every intake. Setting an intake is the operator's alone, as
+allowing what the link carries is; removing one or all is anyone's.
 
 A flow and a group for a yard that looks at each bead:
 
@@ -1685,16 +1710,17 @@ returned terminal
 ```
 
 `peer intake` answers with who works the first stage, and `yardr peer show`
-has the same line, with the yardr the peer's last bead said it runs:
+has the same line per intake, with the yardr the peer's last bead said it
+runs:
 
 ```text
   receive  bead, ping
-  intake   depot web, flow incoming: its beads arrive in the stage arrived, which people work: a member of the group arrivals (mckean) moves each on (yardr bead done) or closes it; at most 10 open, 1 now
+  intake   depot web, flow incoming (default): its beads arrive in the stage arrived, which people work: a member of the group arrivals (mckean) moves each on (yardr bead done) or closes it; at most 10 open, 1 now
   build    yardr v0.9.1, as its last bead said
 ```
 
-The line is read from the routes as they are when the command runs, for a
-bead of the intake's depot with the label `from-<peer>`. Nothing of it is
+Each line is read from the routes as they are when the command runs, for a
+bead of that intake's depot with the label `from-<peer>`. Nothing of it is
 stored: a route added later changes the line, and what the beads then do.
 
 ### Who looks at a bead first
@@ -1702,8 +1728,8 @@ stored: a route added later changes the line, and what the beads then do.
 A peer's title and body become the brief of an agent that runs with this
 yard's permissions, and its notes are in the `yardr prime --bead` that the
 brief has the agent run first. Who reads them before that is whoever the
-routes have work the first stage of the intake's flow. `peer intake` and `peer
-show` say which of these holds:
+routes have work the first stage of the flow of the intake the bead arrived
+by. `peer intake` and `peer show` say which of these holds, per intake:
 
 | the first stage is routed to | the line says | what happens to a bead |
 |---|---|---|
@@ -1801,16 +1827,16 @@ A bead is refused, and nothing of it is kept, when:
 | reason | when | the sender is told |
 |---|---|---|
 | `kind_not_allowed` | the link does not take beads | its link does not carry bead in |
-| `no_intake` | no intake, or its depot or flow has gone since (`detail` in the event says which) | it has no intake for this yard's beads |
+| `no_intake` | no intake for the bead: none takes its remote, none is the default for one that names none, or the one that does has a depot or a flow that has gone since (`detail` in the event says which, and names the remotes the intakes take) | it has no intake for this yard's beads |
 | `version` | the body's `v` is not one this build knows | it does not know this version of the message |
 | `too_large` | over a limit: title 512 bytes, body 64 KB, a note 16 KB, the notes together 128 KB | the bead is larger than it takes |
 | `already_here` | this yard has an open bead for that bead of the sender's | it has the bead already, open |
-| `busy` | as many open beads from the peer as the intake keeps | it has as many open beads of this yard as it keeps |
+| `busy` | as many open beads from the peer in the intake's depot as the intake keeps | it has as many open beads of this yard as it keeps |
 | `rate_limited` | it has taken 30 beads from this peer within the hour that began with the first, those it refused counted, apart from its mail and its bead events. Every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them | it has taken as many beads from this yard as it takes in an hour |
 | `not_a_bead` | no title, a handle or a stage that is none, a body that is no object, a path that names what is no key | it does not read the bead |
 | `loop` | this yard's own key is in the bead's `path`: it has been here on its way | the bead has been at that yard on its way here: sent there again it would go round |
 | `too_far` | the path is longer than 8 yards, the sender counted | the bead has passed through more yards than a bead may (8) |
-| `base_unknown` | the bead names where its work starts, the intake's depot is a repository, and the work cannot start there: the depot's remote is not the one the bead names, or the base commit cannot be fetched into the depot (`detail` in the event says which) | it cannot start the work where this yard's bead starts: its depot has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again) |
+| `base_unknown` | the bead names where its work starts, the depot of the intake it chose is a repository, and the work cannot start there: the base commit cannot be fetched into the depot (`detail` in the event says why) | it cannot start the work where this yard's bead starts: the bead's base commit is not on the remote (push the base, then send the bead again) |
 
 Each is answered 403 (or told with the next question, for a pull) and logged
 as `peer_message_refused`. The sender gives the message up, and its bead
@@ -2266,7 +2292,7 @@ and not returned. In one write:
    ```
 
    The line goes when the bead leaves the stage. Who may move it out is the
-   stage's group, by [the check every stage of people has](#the-intake): a
+   stage's group, by [the check every stage of people has](#the-intakes): a
    move by anyone who is no member is refused.
 
 The reason for step 3: the first stage is where this yard looks at another
@@ -2669,7 +2695,7 @@ looks at the bead sees that line. Where agents work it, the bead starts as
 any does, and its agent reads the line in its brief. Nothing is held and
 nothing is refused for it: a flow of the other yard that routes `refused`
 straight back into the peer's stage is stopped by [the
-hour](#the-intake), 30 beads from one peer, and by the intake's `--limit`.
+hour](#the-intakes), 30 beads from one peer, and by the intake's `--limit`.
 
 `--json` has both as `before` under `peer`, oldest first: `bead` (this
 yard's handle), `at`, `outcome` and `returned_at`, and for one closed here
@@ -2691,7 +2717,7 @@ a new link.
 
 ### Trying all of it on one machine
 
-Everything from [the intake](#the-intake) to [a bead sent
+Everything from [the intake](#the-intakes) to [a bead sent
 again](#a-bead-sent-again) was run between throwaway yards before any real
 pair carried it (bead yardr-g4y6 has every command and its output). The
 same run shows a new pair what to expect, and needs no agent:
@@ -2945,13 +2971,13 @@ with is 401, as any request that is no peer's.
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
-| `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, or `none` |
+| `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all) |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out; `approved`, the `bead` and `ask` of the run ask the operator approved, when the change was made that way |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_reach_dropped` | the peer exposes a name as a person no more that the link [sent a user's asks to](#reach-a-users-asks-are-also-sent-to-the-name); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`; for a bead event `not_an_event`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a read `no_such_bead`, `not_a_read`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a note `no_such_bead`, `not_a_note`, `too_large`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` naming the remotes the intakes take, or when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`; for a bead event `not_an_event`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a read `no_such_bead`, `not_a_read`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a note `no_such_bead`, `not_a_note`, `too_large`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out`; `branch`, `commit` and `remote` when the return names where the result is |
 | `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on; `base`, `base_commit` and `remote` when it says where its work starts |
@@ -3050,10 +3076,10 @@ error of each, and `yardr doctor` has a `peers` line
 | `crew member yardmaster may not mail crew members of north` | the operator: `yardr crew set yardmaster peers=north` |
 | `refused by the peer: it exposes nobody of that name to this yard` | the other yard's link does not expose that name to this one: its operator runs `yardr peer allow <name> --expose <crew member or user>` there. `yardr peer show north` lists whom it exposes ([above](#the-roster-whom-a-peer-may-see-and-write-to)) |
 | all mail from a peer stopped after an upgrade, `peer_message_refused` with `reason=not_exposed` | the link is from before the roster and exposes nobody: `yardr peer allow <name> --expose <crew member or user>,…` here, once |
-| `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --depot <depot> --flow <flow>`. With `detail`, the intake names a depot or a flow that is gone |
+| `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --depot <depot> --flow <flow>`. `detail` names the remotes the intakes take, or the depot or flow that is gone |
 | `bead …: only members of group arrivals may move it out of stage arrived: … (this is the pane of the crew member yardmaster, whatever actor the command names: …)` | a member of the group moves it on (`yardr bead done`), from a shell that is no crew member's pane; or someone adds that crew member to the group: `yardr group set arrivals --members <name>,yardmaster` ([above](#who-looks-at-a-bead-first)) |
 | a bead from a peer waits in its first stage and nobody heard of it | the stage's group has no `wait`: `yardr group set <group> wait=1d`, and subscribe someone to `waited`. `yardr peer show <name>` says who works the stage |
-| an agent started on a peer's bead that nobody looked at | the first stage of the intake's flow is routed to agents: `yardr peer show <name>` says `WORK STARTS ON EACH UNSEEN`. Route it to a manual group with members ([above](#the-intake)) |
+| an agent started on a peer's bead that nobody looked at | the first stage of the intake's flow is routed to agents: `yardr peer show <name>` says `WORK STARTS ON EACH UNSEEN`. Route it to a manual group with members ([above](#the-intakes)) |
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-crew-members)) |

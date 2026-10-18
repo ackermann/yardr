@@ -189,7 +189,7 @@ func TestPeerBeadArrives(t *testing.T) {
 	}
 	noBodies(t, y.api)
 	peer, _ := y.api.GetPeer(y.ctx, "north")
-	if peer.Build != "v0.9.1" || peer.Beads != 1 || peer.Intake == nil || peer.Intake.Depot != "web" {
+	if peer.Build != "v0.9.1" || peer.Beads != 1 || len(peer.Intakes) != 1 || peer.Intakes[0].Depot != "web" {
 		t.Fatalf("the peer after its bead = %+v", peer)
 	}
 
@@ -234,9 +234,19 @@ func TestPeerArrive(t *testing.T) {
 		return p
 	}
 	const in = "its beads arrive in the stage arrived, "
-	if p := arrive(); len(p.Arrive) != 1 || p.Arrive[0].Who != store.WhoNobody || !slices.Equal(p.Arrive[0].Types, []string{"task", "bug", "feature"}) ||
-		p.ArriveLine() != in+"which no route leads anywhere from: they wait until one does (yardr route add --stage arrived --group <group> --label from-north)" {
-		t.Fatalf("an intake no route leads from = %+v: %s", p.Arrive, p.ArriveLine())
+	web := func(p *store.Peer) store.PeerIntakeArrive {
+		t.Helper()
+		if st := p.ArriveFor("web"); st != nil {
+			return *st
+		}
+		t.Fatalf("no arrival for depot web: %+v", p.ArriveByDepot)
+		return store.PeerIntakeArrive{}
+	}
+	p := arrive()
+	st := web(p)
+	if len(st.Arrive) != 1 || st.Arrive[0].Who != store.WhoNobody || !slices.Equal(st.Arrive[0].Types, []string{"task", "bug", "feature"}) ||
+		st.ArriveLine("north") != in+"which no route leads anywhere from: they wait until one does (yardr route add --stage arrived --group <group> --label from-north)" {
+		t.Fatalf("an intake no route leads from = %+v: %s", st.Arrive, st.ArriveLine("north"))
 	}
 	y.take(t, beadMsg("b1", "web-1", nil))
 	if b := y.arrived(t); b.Peer.Stands() != "it arrived in this stage, which no route leads anywhere from: it waits until one does (yardr route add --stage arrived --group <group> --label from-north)" {
@@ -285,9 +295,10 @@ func TestPeerArrive(t *testing.T) {
 			t.Fatal(err)
 		}
 		p := arrive()
-		if len(p.Arrive) != 1 || p.Arrive[0].Who != c.who || p.Arrive[0].Group != c.group.Name || p.Arrive[0].Seen() != c.seenFirst ||
-			p.ArriveLine() != in+c.intake || (len(p.Untold()) == 1) != c.untold {
-			t.Errorf("an intake whose first stage %s works = %+v, untold %v:\n got %s\nwant %s", c.group.Name, p.Arrive, p.Untold(), p.ArriveLine(), in+c.intake)
+		st := web(p)
+		if len(st.Arrive) != 1 || st.Arrive[0].Who != c.who || st.Arrive[0].Group != c.group.Name || st.Arrive[0].Seen() != c.seenFirst ||
+			st.ArriveLine("north") != in+c.intake || (len(p.Untold()) == 1) != c.untold {
+			t.Errorf("an intake whose first stage %s works = %+v, untold %v:\n got %s\nwant %s", c.group.Name, st.Arrive, p.Untold(), st.ArriveLine("north"), in+c.intake)
 		}
 		if b := y.arrived(t); b.Peer.Arrived == nil || b.Peer.Stands() != "it arrived in this stage, "+c.bead {
 			t.Errorf("a bead in a stage %s works:\n got %s\nwant %s", c.group.Name, b.Peer.Stands(), "it arrived in this stage, "+c.bead)
@@ -304,14 +315,15 @@ func TestPeerArrive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := arrive()
+	p = arrive()
+	st = web(p)
 	want := "its beads arrive in the stage arrived, by their type: a task or a feature, which agents of the group builders work: WORK STARTS ON EACH UNSEEN, on the other yard's text; " +
 		"a bug, which people work: the group anyone names no members, so anyone of this yard may move one on, a crew member too"
-	if len(p.Arrive) != 2 || p.ArriveLine() != want || !slices.Equal(p.Untold(), []string{"anyone"}) {
-		t.Fatalf("types routed apart = %+v, untold %v:\n got %s\nwant %s", p.Arrive, p.Untold(), p.ArriveLine(), want)
+	if len(st.Arrive) != 2 || st.ArriveLine("north") != want || !slices.Equal(p.Untold(), []string{"anyone"}) {
+		t.Fatalf("types routed apart = %+v, untold %v:\n got %s\nwant %s", st.Arrive, p.Untold(), st.ArriveLine("north"), want)
 	}
 	// A listing, which the daemon reads on every pass, reads none of it.
-	if ps, _ := y.api.Peers(y.ctx); len(ps[0].Arrive)+len(ps[1].Arrive) != 0 {
+	if ps, _ := y.api.Peers(y.ctx); len(ps[0].ArriveByDepot)+len(ps[1].ArriveByDepot) != 0 {
 		t.Fatalf("a listed peer says who works its beads: %+v", ps)
 	}
 	// An intake whose flow has gone says so, where the line was.
@@ -321,8 +333,10 @@ func TestPeerArrive(t *testing.T) {
 	if err := y.api.DeleteFlow(y.ctx, "incoming", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if p := arrive(); len(p.Arrive) != 0 || !strings.Contains(p.ArriveError, "incoming") || p.ArriveLine() != "" {
-		t.Fatalf("an intake whose flow is gone = %+v, %q", p.Arrive, p.ArriveError)
+	p = arrive()
+	st = web(p)
+	if len(st.Arrive) != 0 || !strings.Contains(st.Error, "incoming") || st.ArriveLine("north") != "" {
+		t.Fatalf("an intake whose flow is gone = %+v, %q", st.Arrive, st.Error)
 	}
 }
 
@@ -467,11 +481,11 @@ func TestPeerIntake(t *testing.T) {
 		t.Fatalf("an intake for no peer = %v", err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if p.Intake == nil || p.Intake.Depot != "web" || p.Intake.Flow != "incoming" || p.Intake.Most() != store.PeerIntakeLimit {
-		t.Fatalf("the intake a refused one left = %+v", p.Intake)
+	if len(p.Intakes) != 1 || p.Intakes[0].Depot != "web" || p.Intakes[0].Flow != "incoming" || p.Intakes[0].Most() != store.PeerIntakeLimit {
+		t.Fatalf("the intake a refused one left = %+v", p.Intakes)
 	}
 	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 3}, "jo")
-	if err != nil || p.Intake.Most() != 3 {
+	if err != nil || len(p.Intakes) != 1 || p.Intakes[0].Most() != 3 {
 		t.Fatalf("SetPeerIntake = %+v, %v", p, err)
 	}
 	ev := peerEvents(t, y.api, "peer_intake")
@@ -479,15 +493,102 @@ func TestPeerIntake(t *testing.T) {
 		t.Fatalf("peer_intake = %+v", last)
 	}
 	// What the link carries is changed without losing it.
-	if p := y.allow(t, store.PeerAllow{Send: []string{"ping"}}); p.Intake == nil || p.Intake.Most() != 3 {
-		t.Fatalf("the intake after peer allow = %+v", p.Intake)
+	if p := y.allow(t, store.PeerAllow{Send: []string{"ping"}}); len(p.Intakes) != 1 || p.Intakes[0].Most() != 3 {
+		t.Fatalf("the intake after peer allow = %+v", p.Intakes)
 	}
-	if p, err := y.api.SetPeerIntake(y.ctx, "north", nil, "clerk"); err != nil || p.Intake != nil {
+	if p, err := y.api.SetPeerIntake(y.ctx, "north", nil, "clerk"); err != nil || len(p.Intakes) != 0 {
 		t.Fatalf("removing the intake = %+v, %v", p, err)
 	}
 	ev = peerEvents(t, y.api, "peer_intake")
 	if last := ev[len(ev)-1]; last.Data["none"] != true || last.Actor != "clerk" {
 		t.Fatalf("peer_intake for none = %+v", last)
+	}
+}
+
+// A link holds an intake per depot, each added or replaced on its own. A
+// bead that names no remote goes to the default one: the first, or the one
+// marked since. Each keeps its own count of open beads against its limit,
+// and each is removed on its own.
+func TestPeerIntakesPerDepot(t *testing.T) {
+	t.Parallel()
+	y := newBeadYard(t)
+	inDepot := func(depot string) []store.Bead {
+		t.Helper()
+		bs, err := y.api.ListBeads(y.ctx, store.BeadFilter{All: true, Depot: depot})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bs
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); len(p.Intakes) != 1 || !p.Intakes[0].Default {
+		t.Fatalf("the first intake = %+v; want the default", p.Intakes)
+	}
+	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "api", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "api", Flow: "incoming"}, "jo")
+	if err != nil || len(p.Intakes) != 2 || p.Intakes[0].Depot != "api" || p.Intakes[1].Depot != "web" ||
+		p.Intakes[0].Default || !p.Intakes[1].Default {
+		t.Fatalf("adding a second intake = %+v, %v", p.Intakes, err)
+	}
+	// Words with no remote go to the default one.
+	if got := y.take(t, beadMsg("d1", "web-1", nil)); got[0].Refused != "" {
+		t.Fatalf("a bead with no remote = %+v", got)
+	}
+	if bs := inDepot("web"); len(bs) != 1 || len(inDepot("api")) != 0 {
+		t.Fatalf("the bead went to %d in web, %d in api; want one in web", len(bs), len(inDepot("api")))
+	}
+	// Marking the other moves the default, and the next bead follows it.
+	p, err = y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "api", Flow: "incoming", Default: true}, "jo")
+	if err != nil || !p.Intakes[0].Default || p.Intakes[1].Default {
+		t.Fatalf("marking the other default = %+v, %v", p.Intakes, err)
+	}
+	if ev := peerEvents(t, y.api, "peer_intake"); ev[len(ev)-1].Data["default"] != true {
+		t.Fatalf("peer_intake for a default = %+v", ev[len(ev)-1])
+	}
+	if got := y.take(t, beadMsg("d2", "web-2", nil)); got[0].Refused != "" {
+		t.Fatalf("a bead with no remote after the move = %+v", got)
+	}
+	if bs := inDepot("api"); len(bs) != 1 {
+		t.Fatalf("beads in api = %d; want one", len(bs))
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Beads != 2 || p.OpenByDepot["web"] != 1 || p.OpenByDepot["api"] != 1 {
+		t.Fatalf("the peer's open beads = %d %+v", p.Beads, p.OpenByDepot)
+	}
+	// A replace without the mark keeps what the intake had.
+	p, err = y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 1}, "jo")
+	if err != nil || p.Intakes[1].Most() != 1 || p.Intakes[1].Default || !p.Intakes[0].Default {
+		t.Fatalf("replacing without the mark = %+v, %v", p.Intakes, err)
+	}
+	// Each intake's limit holds against its own depot: web keeps one, with
+	// one open, while api holds another.
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 1, Default: true}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := y.take(t, beadMsg("d3", "web-3", nil)); got[0].Refused != "busy" {
+		t.Fatalf("a bead over the depot's limit = %+v", got)
+	}
+	if ev := peerEvents(t, y.api, "peer_message_refused"); ev[len(ev)-1].Data["open"] != float64(1) || ev[len(ev)-1].Data["limit"] != float64(1) {
+		t.Fatalf("busy says whose count: %+v", ev[len(ev)-1])
+	}
+	// Removing the default leaves no default: a bead with no remote is
+	// refused, and the event says so. Removing what is not there is an
+	// error, not a second event.
+	p, err = y.api.RemovePeerIntake(y.ctx, "north", "web", "clerk")
+	if err != nil || len(p.Intakes) != 1 || p.Intakes[0].Depot != "api" {
+		t.Fatalf("removing one intake = %+v, %v", p.Intakes, err)
+	}
+	if got := y.take(t, beadMsg("d4", "web-4", nil)); got[0].Refused != "no_intake" {
+		t.Fatalf("a bead with no remote and no default = %+v", got)
+	}
+	if ev := peerEvents(t, y.api, "peer_message_refused"); ev[len(ev)-1].Data["detail"] != "the bead names no remote, and no intake is the default one" {
+		t.Fatalf("no_intake with no default = %+v", ev[len(ev)-1])
+	}
+	if _, err := y.api.RemovePeerIntake(y.ctx, "north", "web", "clerk"); err == nil || !strings.Contains(err.Error(), "has no intake for depot web") {
+		t.Fatalf("removing it again = %v", err)
+	}
+	if ev := peerEvents(t, y.api, "peer_intake"); ev[len(ev)-1].Data["depot"] != "web" || ev[len(ev)-1].Data["none"] != true {
+		t.Fatalf("peer_intake for one removed = %+v", ev[len(ev)-1])
 	}
 }
 

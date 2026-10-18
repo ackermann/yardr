@@ -245,6 +245,7 @@ type API interface {
 	RenamePeer(ctx context.Context, name, to, actor string) (*Peer, error)
 	SetPeerURL(ctx context.Context, name, url, actor string) (*Peer, error)
 	SetPeerIntake(ctx context.Context, name string, in *PeerIntake, actor string) (*Peer, error)
+	RemovePeerIntake(ctx context.Context, name, depot, actor string) (*Peer, error)
 	PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error)
 	MailPeer(ctx context.Context, to, peer, text, actor string, files ...BlobFile) (*PeerOut, error)
 	PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error)

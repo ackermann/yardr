@@ -90,7 +90,9 @@ func TestPeerIntakeCommand(t *testing.T) {
 	for want, args := range map[string][]string{
 		"--depot <depot> --flow <flow>":            {},
 		"say where its beads go":                   {"--depot", "web"},
-		"it goes with no other flag":               {"--none", "--limit", "2"},
+		"--none removes intakes":                   {"--none", "--limit", "2"},
+		"with --depot alone":                       {"--none", "--depot", "web", "--flow", "incoming"},
+		"with no other flag":                       {"--none", "--default"},
 		"unknown flag: --auto":                     {"--depot", "web", "--flow", "incoming", "--auto"},
 		"unknown flag: --hold-for":                 {"--depot", "web", "--flow", "incoming", "--hold-for", "7d"},
 		"--limit: a number of open beads":          {"--depot", "web", "--flow", "incoming", "--limit", "0"},
@@ -112,7 +114,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 		t.Fatalf("peer show without an intake:\n%s", out)
 	}
 	out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
-	const nobody = "depot web, flow incoming: its beads arrive in the stage arrived, which no route leads anywhere from: they wait until one does (yardr route add --stage arrived --group <group> --label from-north); at most 10 open, 0 now"
+	const nobody = "depot web, flow incoming (default): its beads arrive in the stage arrived, which no route leads anywhere from: they wait until one does (yardr route add --stage arrived --group <group> --label from-north); at most 10 open, 0 now"
 	if !strings.Contains(out, "peer north: "+nobody+"\n") || strings.Contains(out, "nobody is told") {
 		t.Fatalf("peer intake:\n%s", out)
 	}
@@ -169,7 +171,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 		name := c.group[0]
 		mustAs(t, st, "jo", append([]string{"group", "add"}, c.group...)...)
 		mustAs(t, st, "jo", "route", "add", "--stage", "arrived", "--group", name, "--label", "from-north")
-		want := "depot web, flow incoming: its beads arrive in the stage arrived, " + c.says + "; at most 10 open, 0 now\n"
+		want := "depot web, flow incoming (default): its beads arrive in the stage arrived, " + c.says + "; at most 10 open, 0 now\n"
 		set := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
 		show := mustAs(t, st, "yardmaster", "peer", "show", "north")
 		if !strings.Contains(set, "peer north: "+want) || !strings.Contains(show, "  intake   "+want) {
@@ -211,10 +213,13 @@ func TestPeerIntakeCommand(t *testing.T) {
 	var shown struct {
 		Peer store.Peer `json:"peer"`
 	}
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "peer", "show", "north", "--json")), &shown); err != nil ||
-		shown.Peer.Intake == nil || shown.Peer.Intake.Limit != 3 || shown.Peer.Intake.Depot != "web" || len(shown.Peer.Arrive) != 2 ||
-		shown.Peer.Arrive[0].Who != store.WhoAgents || shown.Peer.Arrive[1].Group != "lookers" {
-		t.Fatalf("peer show --json = %+v, %v", shown.Peer, err)
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "peer", "show", "north", "--json")), &shown); err != nil {
+		t.Fatalf("peer show --json = %v", err)
+	}
+	web := shown.Peer.ArriveFor("web")
+	if len(shown.Peer.Intakes) != 1 || shown.Peer.Intakes[0].Limit != 3 || shown.Peer.Intakes[0].Depot != "web" ||
+		web == nil || len(web.Arrive) != 2 || web.Arrive[0].Who != store.WhoAgents || web.Arrive[1].Group != "lookers" {
+		t.Fatalf("peer show --json = %+v", shown.Peer)
 	}
 	// An intake on a link that takes no beads says what is missing.
 	mustAs(t, st, "yardmaster", "peer", "allow", "north", "--no-receive", "bead")
@@ -225,6 +230,36 @@ func TestPeerIntakeCommand(t *testing.T) {
 	if out := mustAs(t, st, "yardmaster", "peer", "intake", "north", "--none"); out != "peer north: no intake; a bead it sends is refused\n" {
 		t.Fatalf("peer intake --none: %q", out)
 	}
+}
+
+// A link holds one intake per depot: a second is added beside the first,
+// peer show lists each on its line, and --depot --none removes one.
+// Removing one is anyone's, as removing all is.
+func TestPeerIntakeRemoveOne(t *testing.T) {
+	st, _, _ := beadYard(t)
+	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "api", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
+	out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "api", "--flow", "incoming")
+	if !strings.Contains(out, "peer north: depot api, flow incoming: its beads arrive in the stage arrived") ||
+		strings.Contains(out, "depot api, flow incoming (default)") {
+		t.Fatalf("peer intake for a second depot:\n%s", out)
+	}
+	show := mustAs(t, st, "jo", "peer", "show", "north")
+	if !strings.Contains(show, "  intake   depot api, flow incoming: its beads arrive in the stage arrived") ||
+		!strings.Contains(show, "\n           depot web, flow incoming (default): its beads arrive in the stage arrived") {
+		t.Fatalf("peer show with two intakes:\n%s", show)
+	}
+	if out := mustAs(t, st, "yardmaster", "peer", "intake", "north", "--depot", "web", "--none"); out != "peer north: removed the intake for depot web\n" {
+		t.Fatalf("peer intake --depot --none: %q", out)
+	}
+	if show := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(show, "  intake   depot api, flow incoming: ") ||
+		strings.Contains(show, "depot web,") {
+		t.Fatalf("peer show after removing one:\n%s", show)
+	}
+	refusedAs(t, st, "jo", "has no intake for depot web", "peer", "intake", "north", "--depot", "web", "--none")
 }
 
 // yardr bead show and yardr prime say where a bead from a peer came from,

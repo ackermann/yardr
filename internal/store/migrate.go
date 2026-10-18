@@ -32,6 +32,11 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 26 has a peer link hold an intake per depot: the one intake
+// of a peer's record is a list of one, marked as the default
+// (migratePeerIntakes). A build before it would drop the list from a record
+// it rewrites, as it does with every message it takes from the peer, and
+// the beads would then be refused until the operator noticed.
 // schemaVersion 25 has an upgrade_from setting that always names a depot of
 // the yard: setting it to one the yard has not got, and removing the depot
 // it names, are refused, and a store from before either refusal has a
@@ -169,7 +174,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 25
+const schemaVersion = 26
 
 var kSchema = []byte("schema")
 
@@ -318,6 +323,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 23, run: atVersion(migrateOriginator)},
 		{version: 24, run: atVersion(migrateOriginatorRoutes)},
 		{version: 25, run: atVersion(migrateUpgradeFromDangling)},
+		{version: 26, run: atVersion(migratePeerIntakes)},
 	}
 }
 
