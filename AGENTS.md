@@ -28,6 +28,9 @@ worked); user docs live in `docs/` and are not repeated here.
 
 ## Packages (`internal/`)
 
+To find your way inside one, run `go doc -short ./internal/<pkg>` first:
+it lists every exported name with its comment, faster than grepping.
+
 - `agents`: what yardr knows of each harness kind (models, login recipes)
   and the fetch data `yardr doctor` reports; not herdr's agent state.
 - `bdp`: serves the yard over the Bead Protocol Read profile (HTTP).
