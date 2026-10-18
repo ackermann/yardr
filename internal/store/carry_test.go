@@ -94,6 +94,40 @@ func TestCarryResumeAndFail(t *testing.T) {
 	}
 }
 
+// An approved setup leaves a carrying record one boot claims: another
+// boot does not take it, and the handed account values are taken once,
+// for the account's write.
+func TestCarrySetupRecordClaimAndSecretOnce(t *testing.T) {
+	y, _ := runYard(t)
+	y.setSetupPack(setupMailPack())
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Fatalf("an unapproved setup's record = %+v, %v", rec, err)
+	}
+	y.approveSetup(t, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
+	rec, err := y.CarryOf(y.ctx, y.bead, seq)
+	if err != nil || rec == nil || rec.State != CarryApproved || rec.Actor != "mckean" {
+		t.Fatalf("the approved setup's record = %+v, %v", rec, err)
+	}
+	if pending, err := y.PendingCarry(y.ctx); err != nil || !pending {
+		t.Fatalf("a waiting setup pends = %v, %v", pending, err)
+	}
+	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
+	if err != nil || claimed == nil || claimed.Ask != seq || claimed.Boot != "boot-one" {
+		t.Fatalf("the claim = %+v, %v", claimed, err)
+	}
+	if again, err := y.ClaimCarry(y.ctx, "boot-two"); err != nil || again != nil {
+		t.Fatalf("a second boot's claim = %+v, %v: one claiming write wins", again, err)
+	}
+	values, ok := y.TakeSetupSecret(y.bead, seq)
+	if !ok || values["SETUP_ACCOUNT"] != "ops@example.com" {
+		t.Fatalf("the taken values = %+v, %v", values, ok)
+	}
+	if again, ok := y.TakeSetupSecret(y.bead, seq); ok || again != nil {
+		t.Fatalf("a second take = %+v, %v: values are taken once", again, ok)
+	}
+}
+
 // CheckCarrySource holds a declared source as its approval was held
 // to it, finishes a half-written one forward, and refuses a third
 // hand, each by the file that moved.

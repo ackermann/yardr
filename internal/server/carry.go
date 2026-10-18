@@ -23,11 +23,11 @@ import (
 
 // The server's carrying out of an approved apply (design yardr-bht9
 // 3.5): one watcher goroutine takes each approved-and-not-carried-out
-// pack ask and each loose source ask that names commands, and finishes
-// it, once, as the operator. It holds the yard's apply lock from the
-// plan's rebuilding through the completion record, as the terminal
-// pack apply, source add and source rm hold it for their write phase,
-// so the four never interleave on the same files and records.
+// pack ask, each loose source ask that names commands, and each setup
+// ask, and finishes it, once, as the operator. It holds the yard's apply
+// lock from the plan's rebuilding through the completion record, as the
+// terminal pack apply, source add and source rm hold it for their write
+// phase, so the four never interleave on the same files and records.
 
 // newBoot mints the boot of one server start: a claim under it is this
 // server's while it runs, and dead with it (store.ResumeCarry).
@@ -125,10 +125,10 @@ func runCarryWatcher(ctx context.Context, st *store.Store, home, boot string, lo
 	}
 }
 
-// carryNext claims the next waiting apply and carries it out, holding
-// the apply lock from the plan's rebuilding through the completion
-// record. It answers false where nothing waited. A failure of the
-// carrying out itself is recorded on the ask (FailCarry); an error is
+// carryNext claims the next waiting apply or setup and carries it out,
+// holding the apply lock from the plan's rebuilding through the
+// completion record. It answers false where nothing waited. A failure of
+// the carrying out itself is recorded on the ask (FailCarry); an error is
 // the machinery's (the lock, the claim, the completion), which leaves
 // the claim standing for the next drain or the next start.
 func (c *carrier) carryNext(ctx context.Context) (bool, error) {
@@ -136,21 +136,38 @@ func (c *carrier) carryNext(ctx context.Context) (bool, error) {
 	if err != nil || rec == nil {
 		return false, err
 	}
+	if len(rec.Argv) >= 2 && rec.Argv[0] == "setup" {
+		setup, picked, err := c.askSetup(ctx, rec)
+		if err != nil {
+			return true, err
+		}
+		return c.carryClaimed(ctx, rec, "an approved setup", "setup "+setup.Pack, func() (string, string) {
+			return c.carrySetup(ctx, rec, setup, picked)
+		})
+	}
 	run, err := c.askRun(ctx, rec)
 	if err != nil {
 		return true, err
 	}
+	return c.carryClaimed(ctx, rec, "an approved apply", run.Command(), func() (string, string) {
+		if len(run.Argv) >= 2 && run.Argv[0] == "pack" {
+			return c.carryPack(ctx, rec, run)
+		}
+		return c.carryLoose(ctx, rec, run)
+	})
+}
+
+// carryClaimed runs a claimed carrying out under the apply lock, from the
+// plan's rebuilding through the completion record: a setup's apply step is
+// the pack row's, so the two never interleave on the same files and
+// records. what and command word the log line.
+func (c *carrier) carryClaimed(ctx context.Context, rec *store.Carry, what, command string, carry func() (string, string)) (bool, error) {
 	release, err := config.AcquireApplyLock(c.home)
 	if err != nil {
 		return true, fmt.Errorf("carrying out ask %d on %s: the apply lock: %w", rec.Ask, rec.Bead, err)
 	}
 	defer release()
-	var result, failure string
-	if len(run.Argv) >= 2 && run.Argv[0] == "pack" {
-		result, failure = c.carryPack(ctx, rec, run)
-	} else {
-		result, failure = c.carryLoose(ctx, rec, run)
-	}
+	result, failure := carry()
 	if failure != "" {
 		if err := c.st.FailCarry(ctx, rec.Bead, rec.Ask, c.boot, failure); err != nil {
 			return true, err
@@ -161,7 +178,7 @@ func (c *carrier) carryNext(ctx context.Context) (bool, error) {
 	if err := c.st.CompleteCarry(ctx, rec.Bead, rec.Ask, c.boot, result); err != nil {
 		return true, err
 	}
-	c.log.Info("carried out an approved apply", "bead", rec.Bead, "ask", rec.Ask, "command", run.Command())
+	c.log.Info("carried out "+what, "bead", rec.Bead, "ask", rec.Ask, "command", command)
 	return true, nil
 }
 
@@ -250,32 +267,44 @@ func plural(n int, word string) string {
 // operator with no answers, no prune and no overwrite, and verifies
 // what it wrote.
 func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.AskRun) (string, string) {
+	res, plan, failure := c.carryPackApply(ctx, rec, run)
+	if failure != "" {
+		return "", failure
+	}
+	return packResult(res, plan), ""
+}
+
+// carryPackApply is carryPack's holding, applying and verifying, with the
+// import's result and plan for the caller to word: a setup's carrying out
+// applies its pack through it and words the apply beside its account and
+// grants.
+func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *store.AskRun) (*pack.Result, *pack.Plan, string) {
 	name := run.Argv[2]
 	terminal := "yardr pack apply " + name
 	if run.Pack != nil && run.Pack.Depot != "" {
 		terminal += " --depot " + run.Pack.Depot
 	}
 	if run.Pack == nil {
-		return "", failWords("the ask holds no pack reading to carry out", terminal)
+		return nil, nil, failWords("the ask holds no pack reading to carry out", terminal)
 	}
 	reading, err := c.st.ReadPack(ctx, name)
 	if err != nil {
-		return "", failWords(err.Error(), terminal)
+		return nil, nil, failWords(err.Error(), terminal)
 	}
 	// The pack's side, held whole: the build and the bytes as carded.
 	if reading.Name != run.Pack.Name || reading.Kind != run.Pack.Kind || reading.Label != run.Pack.Label || !sameSources(reading.Sources, run.Carried) {
-		return "", staleWords(fmt.Sprintf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs", rec.Ask, name, run.Pack.Label, reading.Label), terminal)
+		return nil, nil, staleWords(fmt.Sprintf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs", rec.Ask, name, run.Pack.Label, reading.Label), terminal)
 	}
 	if reading.Depot != run.Pack.Depot {
-		return "", staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, run.Pack.Depot), terminal)
+		return nil, nil, staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, run.Pack.Depot), terminal)
 	}
 	p, sub, err := c.load(name)
 	if err != nil {
-		return "", failWords(err.Error(), terminal)
+		return nil, nil, failWords(err.Error(), terminal)
 	}
 	plan, err := pack.Build(ctx, c.st, p, pack.Options{Depot: run.Pack.Depot, Home: c.home})
 	if err != nil {
-		return "", failWords(err.Error(), terminal)
+		return nil, nil, failWords(err.Error(), terminal)
 	}
 	// The yard's side, a source at a time, before anything writes.
 	stored := map[string]bool{}
@@ -286,14 +315,14 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 	for _, carried := range run.Carried {
 		state, err := c.st.CheckCarrySource(ctx, carried, run.Seen["source "+carried.Name], snaps[carried.Name])
 		if err != nil {
-			return "", staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
+			return nil, nil, staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
 		}
 		stored[carried.Name] = state == store.CarryStored
 	}
 	// A depot pack's yard side is its objects, one at a time (3.7).
 	if run.Pack.Plan != nil {
 		if err := holdDepotObjects(run.Pack.Plan, askPlanOf(sub, plan)); err != nil {
-			return "", staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
+			return nil, nil, staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
 		}
 	}
 	// A source the yard holds with the pack's text already stored is
@@ -304,10 +333,10 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 			continue
 		}
 		if _, err := c.st.PutSource(ctx, "pack "+name, carried.Text, rec.Actor); err != nil {
-			return "", failWords(fmt.Sprintf("source %s: %v", carried.Name, err), terminal)
+			return nil, nil, failWords(fmt.Sprintf("source %s: %v", carried.Name, err), terminal)
 		}
 		if failure := c.writeAndVerify(carried); failure != "" {
-			return "", failWords(failure, terminal)
+			return nil, nil, failWords(failure, terminal)
 		}
 	}
 	res, err := pack.Apply(ctx, c.st, plan, pack.ApplyOptions{
@@ -315,7 +344,7 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 		ApprovedBead: rec.Bead, ApprovedAsk: rec.Ask,
 	})
 	if err != nil {
-		return "", failWords(err.Error(), terminal)
+		return nil, nil, failWords(err.Error(), terminal)
 	}
 	// What stands is verified, never trusted: each source's stored
 	// text and each copied file, and for a depot pack every carded
@@ -323,22 +352,22 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 	for _, carried := range run.Carried {
 		src, err := c.st.GetSource(ctx, carried.Name)
 		if err != nil {
-			return "", failWords(fmt.Sprintf("source %s does not stand after the import: %v", carried.Name, err), terminal)
+			return nil, nil, failWords(fmt.Sprintf("source %s does not stand after the import: %v", carried.Name, err), terminal)
 		}
 		if src.Text != carried.Text {
-			return "", failWords(fmt.Sprintf("source %s stands with another declaration than the pack's after the import", carried.Name), terminal)
+			return nil, nil, failWords(fmt.Sprintf("source %s stands with another declaration than the pack's after the import", carried.Name), terminal)
 		}
 		if failure := verifyCarried(c.home, carried); failure != "" {
-			return "", failWords(failure, terminal)
+			return nil, nil, failWords(failure, terminal)
 		}
 	}
 	if run.Pack.Plan != nil {
 		after, err := pack.Build(ctx, c.st, p, pack.Options{Depot: run.Pack.Depot, Home: c.home})
 		if err != nil {
-			return "", failWords(err.Error(), terminal)
+			return nil, nil, failWords(err.Error(), terminal)
 		}
 		if err := verifyDepotObjects(run.Pack.Plan, askPlanOf(sub, after)); err != nil {
-			return "", failWords(err.Error(), terminal)
+			return nil, nil, failWords(err.Error(), terminal)
 		}
 		for _, obj := range after.Objects {
 			if obj.Kind != "file" || obj.File == nil {
@@ -346,14 +375,14 @@ func (c *carrier) carryPack(ctx context.Context, rec *store.Carry, run *store.As
 			}
 			data, err := os.ReadFile(obj.File.To)
 			if err != nil {
-				return "", failWords(fmt.Sprintf("file %s does not stand after the import: %v", obj.File.To, err), terminal)
+				return nil, nil, failWords(fmt.Sprintf("file %s does not stand after the import: %v", obj.File.To, err), terminal)
 			}
 			if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != obj.File.SHA256 {
-				return "", failWords(fmt.Sprintf("file %s hashes to %s after the import, not the planned %s", obj.File.To, hex.EncodeToString(sum[:]), obj.File.SHA256), terminal)
+				return nil, nil, failWords(fmt.Sprintf("file %s hashes to %s after the import, not the planned %s", obj.File.To, hex.EncodeToString(sum[:]), obj.File.SHA256), terminal)
 			}
 		}
 	}
-	return packResult(res, plan), ""
+	return res, plan, ""
 }
 
 // writeAndVerify writes a carried source's command files whole and
@@ -539,6 +568,13 @@ func sameStrings(a, b []string) bool {
 // counts, the sources it declared, and what it still leaves owed, as
 // a terminal apply's first lines and owed lines say them.
 func packResult(res *pack.Result, plan *pack.Plan) string {
+	return strings.Join(packResultLines(res, plan, true), "\n")
+}
+
+// packResultLines is packResult's lines: owedCredential says whether the
+// credential's owed lines stand in them. A setup's apply words leave them
+// out, since its account step settles the credential next.
+func packResultLines(res *pack.Result, plan *pack.Plan, owedCredential bool) []string {
 	var lines []string
 	if res.Wrote() {
 		lines = append(lines, fmt.Sprintf("applied pack %s to %s: %d created, %d changed, %d unchanged", res.Pack, inDepot(res.Depot), res.Created, res.Changed, res.Unchanged))
@@ -548,12 +584,12 @@ func packResult(res *pack.Result, plan *pack.Plan) string {
 	for _, d := range plan.Declared {
 		lines = append(lines, fmt.Sprintf("declared source %s: %s", d.Source, d.Action))
 		for _, n := range d.Needs {
-			if n.Status != "ok" {
+			if n.Status != "ok" && (owedCredential || n.What != store.SourceEnvFile) {
 				lines = append(lines, "still owed: "+n.What+" ("+n.Detail+")")
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 // inDepot is where a pack went: its depot, or the yard itself for one

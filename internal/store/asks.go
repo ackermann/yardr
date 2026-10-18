@@ -1345,8 +1345,9 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 		case r.Ask.Setup != nil && c.Answer.Ran != nil:
-			// B2 records an approved setup for a later build to carry out,
-			// so it reads as waiting until that carrying kind is supported.
+			// An approved setup the server has not carried out yet reads
+			// as waiting, and one whose carrying out failed as failed:
+			// the three readings of a setup ask, as a run ask's are.
 			preset := ""
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
 				preset = OneLine(r.Ask.Options[c.Answer.Option-1].Label)

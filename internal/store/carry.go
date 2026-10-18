@@ -1,9 +1,10 @@
 // The carrying out of an approved apply (design yardr-bht9 3.5): an
-// approval of a pack apply, or of a source add that names commands, is
-// recorded first (ApproveAsk, with the answer holding CarryPending) and
-// carried out straight after by the yard's server, because applying a
-// pack writes files and makes many store calls and cannot be one write
-// of the store, and neither can writing a loose file's command files.
+// approval of a pack apply, of a source add that names commands, or of a
+// setup ask is recorded first (ApproveAsk and ApproveSetup, with the
+// answer holding CarryPending) and carried out straight after by the
+// yard's server, because applying a pack writes files and makes many
+// store calls and cannot be one write of the store, and neither can
+// writing a loose file's command files or a setup's account and grants.
 //
 // The store keeps, beside the ask, a carrying record the approval's
 // write makes and only the server's methods move: approved and not yet
@@ -48,7 +49,7 @@ const (
 	CarryStored = "stored"
 )
 
-// Carry is one approved apply's carrying record.
+// Carry is one approved apply's or setup's carrying record.
 type Carry struct {
 	Bead string `json:"bead"`
 	Ask  uint64 `json:"ask"`
@@ -145,6 +146,14 @@ func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
 // how to carry rec. A record for a later carrying kind stays approved until
 // the build that knows it takes it up.
 func carryHandledHere(rec *Carry) bool {
+	if len(rec.Argv) < 2 {
+		return false
+	}
+	// A setup's carrying record names the pack alone: the ask on its
+	// bead holds the carded account and the preset the approval picked.
+	if rec.Argv[0] == "setup" {
+		return len(rec.Argv) == 2
+	}
 	if len(rec.Argv) < 3 {
 		return false
 	}

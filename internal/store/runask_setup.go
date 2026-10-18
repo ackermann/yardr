@@ -978,3 +978,11 @@ func (s *Store) takeSetupSecret(key string) (map[string]string, bool) {
 	}
 	return values, ok
 }
+
+// TakeSetupSecret takes the account values the approval of the setup ask
+// ask on the bead bead handed to the server's memory, once: a second take
+// finds none, as a server that stopped before the account's write does.
+// The server's carrying out takes them for the account's write.
+func (s *Store) TakeSetupSecret(bead string, ask uint64) (map[string]string, bool) {
+	return s.takeSetupSecret(carryKey(bead, ask))
+}

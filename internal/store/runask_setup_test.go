@@ -551,15 +551,12 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	if !strings.Contains(lines, "mckean approved, to be carried out: setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the approved card reads:\n%s", lines)
 	}
-	if pending, err := y.PendingCarry(y.ctx); err != nil || pending {
-		t.Errorf("the not-yet-supported setup is pending in the pack/source watcher: %v, %v", pending, err)
+	if pending, err := y.PendingCarry(y.ctx); err != nil || !pending {
+		t.Errorf("the supported setup is not pending in the watcher: %v, %v", pending, err)
 	}
 	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
-	if err != nil || claimed != nil {
-		t.Errorf("the pack/source watcher claimed the setup: %+v, %v", claimed, err)
-	}
-	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec == nil || rec.State != CarryApproved {
-		t.Errorf("a setup outside this build's carrying kinds changed state: %+v, %v", rec, err)
+	if err != nil || claimed == nil || claimed.Ask != seq {
+		t.Errorf("the watcher did not claim the setup: %+v, %v", claimed, err)
 	}
 	if ev := lastAnswer(t, y); !strings.Contains(ev.Data["answer"].(string), "approved ask "+strconv.FormatUint(seq, 10)+" on "+y.bead+": setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the answer event reads %q", ev.Data["answer"])
