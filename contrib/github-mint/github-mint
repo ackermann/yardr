@@ -56,8 +56,15 @@ base=${YARDR_SOURCE_BASE:-https://api.github.com}
 # A key path from the home it is under.
 case $key in "~/"*) key=$HOME/${key#"~/"} ;; "~") key=$HOME ;; esac
 [ -f "$key" ] || fail "the key file $key is not there"
-mode=$(stat -f '%Lp' "$key" 2>/dev/null || stat -c '%a' "$key" 2>/dev/null) ||
-  fail "cannot read the key file $key"
+# BSD and GNU stat spell a file's mode differently (-f '%Lp' and -c '%a'),
+# and each takes the other's flags with another meaning (GNU -f prints
+# the filesystem), so the form is chosen by the system: tried in turn, a
+# failed try would still print and pollute the mode.
+case "$(uname)" in
+Darwin | *BSD) mode=$(stat -f '%Lp' "$key" 2>/dev/null || true) ;;
+*) mode=$(stat -c '%a' "$key" 2>/dev/null || true) ;;
+esac
+[ -n "$mode" ] || fail "cannot read the key file $key"
 case $mode in *00) ;; *) fail "$key is open to others (mode $mode): chmod 600 $key" ;; esac
 
 # The App's JWT: RS256, issued a minute back, good for nine minutes, as

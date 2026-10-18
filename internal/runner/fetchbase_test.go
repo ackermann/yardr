@@ -26,7 +26,7 @@ func newFetchYard(t *testing.T) *fetchYard {
 	y := &fetchYard{src: t.TempDir(), origin: filepath.Join(t.TempDir(), "origin.git"), repo: filepath.Join(t.TempDir(), "repo")}
 	gitT(t, y.src, "init", "-q", "-b", "main")
 	gitT(t, y.src, "commit", "-q", "--allow-empty", "-m", "A")
-	gitT(t, y.src, "init", "-q", "--bare", y.origin)
+	gitT(t, y.src, "init", "-q", "--bare", "-b", "main", y.origin)
 	gitT(t, y.src, "push", "-q", y.origin, "main")
 	gitT(t, y.src, "clone", "-q", y.origin, y.repo)
 	y.store = storetest.New(t)

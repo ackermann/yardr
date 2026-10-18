@@ -147,7 +147,7 @@ func TestFirstRunWithStdinClosed(t *testing.T) {
 
 	// The depot: a repository with one commit on main.
 	repo := filepath.Join(d, "h", "web")
-	in(t, d, "git", "init", "-q", repo)
+	in(t, d, "git", "init", "-q", "-b", "main", repo)
 	in(t, d, "git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "first")
 	type depot struct {
 		Name string `json:"name"`

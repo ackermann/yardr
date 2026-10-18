@@ -57,7 +57,7 @@ func TestHerdrPullRequestHeadInTheWorktree(t *testing.T) {
 	gitT(t, src, "checkout", "-q", "-b", "theirs")
 	gitT(t, src, "commit", "-q", "--allow-empty", "-m", "P1")
 	origin := filepath.Join(t.TempDir(), "origin.git")
-	gitT(t, src, "init", "-q", "--bare", origin)
+	gitT(t, src, "init", "-q", "--bare", "-b", "main", origin)
 	gitT(t, src, "push", "-q", origin, "main", "theirs:refs/pull/1/head")
 	repo := filepath.Join(t.TempDir(), "repo")
 	gitT(t, src, "clone", "-q", origin, repo)

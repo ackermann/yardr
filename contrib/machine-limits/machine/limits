@@ -96,13 +96,15 @@ case "$cores" in '' | *[!0-9]* | 0) say "no core count"; exit 1 ;; esac
 isnum "$swap_total" && isnum "$swap_used" || { say "no swap numbers"; exit 1; }
 isnum "$disk" || { say "no used share for this directory's volume"; exit 1; }
 
-awk -v load="$loadavg" -v cores="$cores" \
+# `load` would be the name, but gawk reserves it for its extension loader
+# and refuses it as a variable; loadavg runs under both awks.
+awk -v loadavg="$loadavg" -v cores="$cores" \
   -v stotal="$swap_total" -v sused="$swap_used" -v disk="$disk" \
   -v tload="$load_target" -v tswap="$swap_target" -v tdisk="$disk_target" '
   BEGIN {
     swap = (stotal > 0) ? sused * 100 / stotal : 0
     printf "{\"provider\":\"machine\",\"windows\":["
-    printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%.15g},", load * 100 / cores, tload
+    printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%.15g},", loadavg * 100 / cores, tload
     printf "{\"label\":\"swap\",\"used_percent\":%.1f,\"target_percent\":%.15g},", swap, tswap
     printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%.15g}]}", disk, tdisk
   }'
