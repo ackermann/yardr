@@ -42,7 +42,7 @@ func newIntegrateTrainWatcherRun(t *testing.T, test, limit string, hi int) *watc
 // The pid file lives only long enough for the parent to find the watcher's
 // sleep. It is created with mktemp, so it keeps the yard's private-file mode
 // even when the caller's umask would make a redirection readable by others.
-func assertWatcherNapFileMode(t *testing.T, dir string, pid int) {
+func assertWatcherNapFileMode(t *testing.T, dir string, pid int) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -64,9 +64,10 @@ func assertWatcherNapFileMode(t *testing.T, dir string, pid int) {
 		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
 			t.Errorf("watcher pid file mode is %v, want a regular 0600 file", info.Mode())
 		}
-		return
+		return path
 	}
 	t.Fatalf("no watcher pid file for sleep %d in %s", pid, dir)
+	return ""
 }
 
 // When integrate-train itself is killed with TERM, its watcher and the

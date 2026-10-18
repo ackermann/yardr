@@ -387,3 +387,27 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	awaitNoWatcherSleepers(t, w.record, "1789")
 	assertWatcherSleepFds(t, w.record, "1789")
 }
+
+// A malformed zero PID must not signal merge-local's whole process group.
+func TestMergeLocalIgnoresZeroWatcherPID(t *testing.T) {
+	t.Parallel()
+	w := newWatcherRun(t, "sleep 1", "1789", 0)
+	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1789") })
+	cmd := w.cmd()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	group := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-group, syscall.SIGKILL) })
+
+	nap, _ := awaitWatcherSleep(t, cmd, w.record, "1789")
+	napfile := assertWatcherNapFileMode(t, w.tmp, nap)
+	if err := os.WriteFile(napfile, []byte("0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("merge-local with a zero watcher PID: %v", err)
+	}
+	awaitNoWatcherSleepers(t, w.record, "1789")
+}

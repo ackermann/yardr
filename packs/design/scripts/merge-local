@@ -276,7 +276,7 @@ unwatched() {
   kill "$watch" 2>/dev/null
   if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
     nap=$(cat "$napfile" 2>/dev/null) || nap=
-    case "$nap" in ''|*[!0-9]*) ;; *) kill "$nap" 2>/dev/null ;; esac
+    case "$nap" in ''|*[!0-9]*) ;; *[1-9]*) kill "$nap" 2>/dev/null ;; esac
   fi
   wait "$watch" 2>/dev/null
   watch=
