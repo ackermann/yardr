@@ -48,29 +48,35 @@ func TestSaysOutcomeMovesBeadOutOfPeopleStage(t *testing.T) {
 	}
 	wantRules(t, r.rules(t, "yard-p"), "merged approved -> merged")
 
+	// The member itself, with no session behind it, moves the bead: that
+	// is who the hook's move above was reported as. It comes before this
+	// test process becomes an agent's pane below: over the socket the
+	// server sees the process as the caller of every call, so after that
+	// a member's move would be checked as the pane's.
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"))
+	held, err := r.api.CreateBead(ctx, store.NewBead{Title: "approved", Depot: "yard", Stage: "approved"}, "me")
+	must(t, err)
+	if got, err := r.api.Done(ctx, held.ID, "merged", "", store.Expect{}, "yardmaster"); err != nil || got.Stage != "merged" {
+		t.Fatalf("yardmaster's done = %+v, %v", got, err)
+	}
+
 	// An agent's session naming the hook's crew member moves nothing out
 	// of the stage of people.
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"))
 	work, err := r.api.CreateBead(ctx, store.NewBead{Title: "at work", Depot: "yard", Stage: "review"}, "me")
 	must(t, err)
 	sess, err := r.api.Claim(ctx, work.ID, "builders", "review", "yard")
+	must(t, err)
+	stuck, err := r.api.CreateBead(ctx, store.NewBead{Title: "stuck", Depot: "yard", Stage: "approved"}, "me")
 	must(t, err)
 	handle := map[string]any{"agent": "yardr-bfke-agent", "shell_pid": os.Getpid()}
 	if process, err := peer.Describe(os.Getpid()); err == nil {
 		handle["shell_start"] = process.Start
 	}
 	must(t, r.api.MarkRunning(ctx, sess.ID, handle))
-	held, err := r.api.CreateBead(ctx, store.NewBead{Title: "approved", Depot: "yard", Stage: "approved"}, "me")
-	must(t, err)
 	pane := store.WithCaller(ctx, os.Getpid())
-	if _, err := r.api.Done(pane, held.ID, "merged", "", store.Expect{}, "yardmaster"); err == nil ||
+	if _, err := r.api.Done(pane, stuck.ID, "merged", "", store.Expect{}, "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "only members of group maintainers may move it out of stage approved: mckean, yardmaster") ||
 		!strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent, whatever actor the command names") {
 		t.Fatalf("an agent pane's done as yardmaster = %v", err)
-	}
-	// The member itself, with no session behind it, moves the bead: that
-	// is who the hook's move above was reported as.
-	if got, err := r.api.Done(ctx, held.ID, "merged", "", store.Expect{}, "yardmaster"); err != nil || got.Stage != "merged" {
-		t.Fatalf("yardmaster's done = %+v, %v", got, err)
 	}
 }
