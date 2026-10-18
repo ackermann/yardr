@@ -1769,6 +1769,10 @@ POST /call/UserAsks
 | `open[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
 | `open[].setup.account` | array of string | the names to type unseen beside the preset pick |
 | `open[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
+| `open[].setup.candidates[].source` | string | the source whose account the card offers |
+| `open[].setup.candidates[].file` | string | the file holding the shared account inputs |
+| `open[].setup.candidates[].values` | object | the shared account input names and values the file holds |
 | `open[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
 | `open[].setup.back` | string | the commands that take the setup back |
 | `open[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
@@ -1806,6 +1810,10 @@ POST /call/UserAsks
 | `decided[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
 | `decided[].setup.account` | array of string | the names to type unseen beside the preset pick |
 | `decided[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
+| `decided[].setup.candidates[].source` | string | the source whose account the card offers |
+| `decided[].setup.candidates[].file` | string | the file holding the shared account inputs |
+| `decided[].setup.candidates[].values` | object | the shared account input names and values the file holds |
 | `decided[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
 | `decided[].setup.back` | string | the commands that take the setup back |
 | `decided[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
@@ -2524,6 +2532,10 @@ POST /call/Bead
 | `asks[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
 | `asks[].setup.account` | array of string | the names to type unseen beside the preset pick: the mint's inputs where the pack's credential is minted, else every credential name. Where the card lists candidates, the answer names one of them or types another |
 | `asks[].setup.account_file` | string | the file a typed value goes to, on the yard's machine |
+| `asks[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse; absent where none match |
+| `asks[].setup.candidates[].source` | string | the source whose account the card offers |
+| `asks[].setup.candidates[].file` | string | the file holding the shared account inputs |
+| `asks[].setup.candidates[].values` | object | the shared account input names and values the file holds |
 | `asks[].setup.does` | array of string | what approving changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
 | `asks[].setup.back` | string | the commands that take the setup back |
 | `asks[].setup.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back". Absent where that is anyone, which reads "anyone can take it back" |
