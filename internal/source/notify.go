@@ -41,9 +41,9 @@ type Hear struct {
 	From string `json:"from,omitempty"`
 	// Subscribe is the filter a claim approval subscribes the yard's
 	// hearer with beside the claimed address: key -> value, as a
-	// subscription's --where (telegram: type message, so the other
-	// Updates a chat brings are not heard). The claim sets Field to the
-	// address itself, so this names only the filter beside it.
+	// subscription's --where (type message, so a chat's other Updates
+	// are not heard). The claim sets Field to the address itself, so
+	// this names only the filter beside it.
 	Subscribe map[string]string `json:"subscribe,omitempty"`
 }
 
