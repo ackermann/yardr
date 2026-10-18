@@ -531,6 +531,9 @@ func TestPeerIntakesPerDepot(t *testing.T) {
 		p.Intakes[0].Default || !p.Intakes[1].Default {
 		t.Fatalf("adding a second intake = %+v, %v", p.Intakes, err)
 	}
+	if ev := peerEvents(t, y.api, "peer_intake"); ev[len(ev)-1].Data["default"] != false {
+		t.Fatalf("peer_intake for a nondefault intake = %+v", ev[len(ev)-1])
+	}
 	// Words with no remote go to the default one.
 	if got := y.take(t, beadMsg("d1", "web-1", nil)); got[0].Refused != "" {
 		t.Fatalf("a bead with no remote = %+v", got)
@@ -554,6 +557,15 @@ func TestPeerIntakesPerDepot(t *testing.T) {
 	}
 	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Beads != 2 || p.OpenByDepot["web"] != 1 || p.OpenByDepot["api"] != 1 {
 		t.Fatalf("the peer's open beads = %d %+v", p.Beads, p.OpenByDepot)
+	}
+	// Replacing the default without --default keeps its mark and records
+	// the resulting state in the event.
+	p, err = y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "api", Flow: "incoming", Limit: 2}, "jo")
+	if err != nil || !p.Intakes[0].Default {
+		t.Fatalf("replacing the default intake = %+v, %v", p.Intakes, err)
+	}
+	if ev := peerEvents(t, y.api, "peer_intake"); ev[len(ev)-1].Data["default"] != true {
+		t.Fatalf("peer_intake for a preserved default = %+v", ev[len(ev)-1])
 	}
 	// A replace without the mark keeps what the intake had.
 	p, err = y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 1}, "jo")

@@ -2035,7 +2035,7 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 	err = db.Update(func(tx *bolt.Tx) error {
 		peers := tx.Bucket([]byte("peers"))
 		if err := peers.Put([]byte("north"), []byte(`{"name":"north","key":"test-key-north","receive":["bead"],`+
-			`"intake":{"depot":"web","flow":"incoming","limit":3}}`)); err != nil {
+			`"intake":{"depot":"web","flow":"incoming","limit":3,"future":"kept"}}`)); err != nil {
 			return err
 		}
 		if err := peers.Put([]byte("south"), []byte(`{"name":"south","key":"test-key-south"}`)); err != nil {
@@ -2059,6 +2059,30 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 		t.Fatalf("south's intakes = %+v, %v", south.Intakes, err)
 	}
 	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err = bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.View(func(tx *bolt.Tx) error {
+		var p struct {
+			Intakes []map[string]json.RawMessage `json:"intakes"`
+		}
+		if err := json.Unmarshal(tx.Bucket([]byte("peers")).Get([]byte("north")), &p); err != nil {
+			return err
+		}
+		var got string
+		if len(p.Intakes) != 1 || json.Unmarshal(p.Intakes[0]["future"], &got) != nil || got != "kept" {
+			return fmt.Errorf("migrated intake's unknown field = %q; want kept", got)
+		}
+		return nil
+	})
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if got := schemaOf(t, path); got != 26 {

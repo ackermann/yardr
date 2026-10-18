@@ -933,9 +933,6 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 				return changedMeanwhile(err)
 			}
 			data["depot"], data["flow"], data["limit"] = in.Depot, in.Flow, in.Most()
-			if in.Default {
-				data["default"] = true
-			}
 			at := slices.IndexFunc(p.Intakes, func(have PeerIntake) bool { return have.Depot == in.Depot })
 			switch {
 			case in.Default:
@@ -958,6 +955,7 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 					p.Intakes[i].Default = p.Intakes[i].Depot == in.Depot
 				}
 			}
+			data["default"] = in.Default
 			slices.SortFunc(p.Intakes, func(a, b PeerIntake) int { return strings.Compare(a.Depot, b.Depot) })
 		}
 		if err := put(w.Tx, bPeers, name, p); err != nil {
