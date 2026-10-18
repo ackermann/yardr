@@ -6,11 +6,19 @@ Nothing ends your session but `yardr bead done <id>` (or `--outcome question`,
 closing, or holding).
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
-2. Make the change in the style of the surrounding code: comments explain why,
+   When you have read the bead and the files it names, write a plan note
+   (`yardr bead note <id>`): the decisions the bead asks for and the files
+   you will change. Then start. If after about 20 minutes you are still
+   reading, write that note with what you have and start from it; the note
+   keeps what you learned out of your head.
+2. Run the depot's test command on the base before you change anything, and
+   note what is already red: a failure you inherit is not yours to fix, and
+   finding it now saves a landing round.
+3. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours. Prefer extending what is there over a new
    concept, flag, setting or special case. Where the bead forces one, say
    so in your note, under Choices if the bead asks for that section.
-3. Run the depot's test command before you hand on, after your last commit.
+4. Run the depot's test command before you hand on, after your last commit.
    Your brief prints it as `test:` under the bead's depot (`yardr prime --bead
    <id>`); run it in your worktree. A depot with none has no command for you:
    run the project's tests as its developers do, and say in your note what
@@ -34,7 +42,7 @@ closing, or holding).
    it from the flaky line, say in the finding whether it is the product
    or the test, with evidence, and fix it there, not on the bead it
    blocked.
-4. Test anything that starts agents or servers in an isolated environment,
+5. Test anything that starts agents or servers in an isolated environment,
    never {{operator}}'s own session:
    - Run it under `env -i` with only what it needs: its own home, config and
      state directories in a short temp dir, and a PATH of that dir and the
@@ -50,9 +58,10 @@ closing, or holding).
      127.0.0.1 stands in front of {{operator}}'s own on all addresses.
    - Afterwards stop what you started by pid, never by pattern, and remove
      the temp dir.
-5. Commit on your branch. Do not merge. Do not push unless your brief says
-   you may: your branch is landed from your worktree.
-6. Leave a note on the bead and finish as the stage asks; the flow picks the
+6. Commit on your branch. Do not merge. Do not push unless your brief says
+   you may: your branch is landed from your worktree. Commit as you go, each
+   piece that builds, from the first; not once at the end.
+7. Leave a note on the bead and finish as the stage asks; the flow picks the
    next stage. Your brief lists the outcomes the stage offers, with their
    commands; where the flow has a stage file, its "Stage" section says what
    must be true before the bead leaves the stage and when each outcome
@@ -81,6 +90,10 @@ fails when it is empty: `S=<dir>; rm -rf "${S:?}"/x`.
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
 yardmaster's inbox.
+
+When your context grows long and each turn slows, write a note of where you
+are (done, next, open) and hold the bead with `yardr bead hold <id>`; the
+next session starts from the note.
 
 ## A screenshot, where the bead asks for one
 

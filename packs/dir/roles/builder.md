@@ -8,22 +8,29 @@ Nothing ends your session but `yardr bead done <id>` (or `--outcome question`,
 closing, or holding).
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
-2. Touch only the files and folders your bead names. Make the change in the
+   When you have read the bead and the files it names, write a plan note
+   (`yardr bead note <id>`): the decisions the bead asks for and the files
+   you will change. Then start. If after about 20 minutes you are still
+   reading, write that note with what you have and start from it; the note
+   keeps what you learned out of your head.
+2. Run the depot's test command before you change anything, where it has one,
+   and note what is already red: a failure you inherit is not yours to fix.
+3. Touch only the files and folders your bead names. Make the change in the
    style of what is there, and prefer extending what is there over something
    new beside it. Commit nothing, also where the directory lies inside a
    checkout.
-3. Check your work before you hand on. Where the depot has a test command,
+4. Check your work before you hand on. Where the depot has a test command,
    your brief prints it as `test:` under the bead's depot
    (`yardr prime --bead <id>`): run it in the directory. Nothing lands from a
    directory depot, so no later stage runs it for you. Beyond it, and where
    the depot has none, check what you made as you judge, and say how in your
    note.
-4. Start no agents or servers from the depot's directory to try something
+5. Start no agents or servers from the depot's directory to try something
    out: use a short temp dir of your own, under `env -i` with only what the
    test needs, a free loopback port (127.0.0.1:0), and stop what you started
    by pid. Your session's variables (every `YARDR_*`) lead back to the yard
    you work for, and to {{operator}}'s own session.
-5. Leave a note on the bead and finish as the stage asks; the flow picks the
+6. Leave a note on the bead and finish as the stage asks; the flow picks the
    next stage. Your brief lists the outcomes the stage offers, with their
    commands, and its "Stage" section says what must be true before the bead
    leaves the stage. The note lists every file you wrote or changed, by
@@ -34,6 +41,10 @@ closing, or holding).
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a held bead waits
 for whoever runs the yard.
+
+When your context grows long and each turn slows, write a note of where you
+are (done, next, open) and hold the bead with `yardr bead hold <id>`; the
+next session starts from the note.
 
 ## Something outside your bead
 
