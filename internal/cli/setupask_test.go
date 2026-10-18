@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -156,5 +158,68 @@ func TestBeadAnswerSetupRefusals(t *testing.T) {
 	if out, err := answerFrom(t, y.a, "CRM_TOKEN=s3cret\n", b.ID, "3", "1", "--secret"); err == nil ||
 		!strings.Contains(err.Error(), "takes nothing else") {
 		t.Errorf("a pick with --secret on a secret ask was taken or refused otherwise: %v\n%s", err, out)
+	}
+}
+
+// yardr bead answer <n> --account takes a listed candidate's account
+// instead of typing one: the preset picked and who took which source.
+func TestBeadAnswerSetupAccount(t *testing.T) {
+	y, b := setupYardCLI(t)
+	ctx := context.Background()
+	const other = `name: clipphone2
+base: https://clipphone.example.com
+credential:
+  env: CLIPHONE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [CLIPHONE_ACCOUNT]
+  mint_command: [clip-mint]
+calls:
+  ring: { kind: update, request: { method: POST, path: /ring } }
+  log: { kind: read, request: { method: GET, path: /log } }
+`
+	if _, err := y.st.PutSource(ctx, "clipphone.yaml", cliSetupDecl, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetSource(ctx, "clipphone", store.SourceMintCommand, "/usr/bin/my-mint --fast", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.PutSource(ctx, "clipphone2.yaml", other, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetSource(ctx, "clipphone2", store.SourceMintCommand, "/usr/bin/my-mint --fast", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "clipphone2.env")
+	if err := os.WriteFile(file, []byte("CLIPHONE_ACCOUNT=1555\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetSource(ctx, "clipphone2", store.SourceEnvFile, file, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Set up clipphone?", "--setup", "clipphone",
+		"--crew", "yardmaster", "--context", "The yardmaster rings the person."); err != nil {
+		t.Fatal(err)
+	}
+	out, err := y.as(t, "jo", "answer", b.ID, "1", "1", "--account", "clipphone2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1, asked by yardmaster: setup of pack clipphone, preset read to crew yardmaster\njo took clipphone2\njo approved it: approved, to be carried out\n"; out != want {
+		t.Fatalf("answer printed %q, want %q", out, want)
+	}
+	// --secret and --account together settle nothing, and --account alone
+	// needs its pick.
+	y2, b2 := setupYardCLI(t)
+	if _, err := y2.as(t, "yardmaster", "ask", b2.ID, "Set up clipphone?", "--setup", "clipphone",
+		"--crew", "yardmaster", "--context", "C"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := answerFrom(t, y2.a, "CLIPHONE_ACCOUNT=1555\n", b2.ID, "1", "1", "--secret", "--account", "clipphone2"); err == nil ||
+		!strings.Contains(err.Error(), "one of the two") {
+		t.Errorf("--secret with --account was taken or refused otherwise: %v\n%s", err, out)
+	}
+	if out, err := y2.as(t, "jo", "answer", b2.ID, "1", "--account", "clipphone2"); err == nil ||
+		!strings.Contains(err.Error(), "with its preset pick") {
+		t.Errorf("--account alone was taken or refused otherwise: %v\n%s", err, out)
 	}
 }

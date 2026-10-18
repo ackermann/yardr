@@ -440,10 +440,11 @@ carries the three as one decision: `yardr bead ask <id> "<question>"
 least one). `--recommend` counts the card's preset options as `yardr
 pack show` prints them, with `--why` saying why, as on any option ask.
 The card shows the pack's declaration whole with its mint, the account
-to type unseen, and one option per preset, each rendered by the yard
-from the declarations with the grantee, and You decide last, which
-grants the recommended preset. An operator who wants no grants declines
-the card and applies by terminal.
+to type unseen or the listed candidates to take, and one option per
+preset, each rendered by the yard from the declarations with the
+grantee, and You decide last, which grants the recommended preset. An
+operator who wants no grants declines the card and applies by
+terminal.
 
 ```
 ask 3101 · open · to mckean · asked by yardmaster · 1m ago
@@ -465,9 +466,20 @@ ask 3101 · open · to mckean · asked by yardmaster · 1m ago
 
 The answer picks a preset and settles the account together: `yardr bead
 answer <id> <ask> <n> --secret`, the account typed unseen as any
-secret. The yard then applies the pack, takes the account, and grants
-the preset picked, as the operator. Until the server finishes it the ask
-reads as being carried out, then as ran or failed:
+secret, or `<n> --account <source>` taking a listed candidate's. Where
+the yard already holds a matching account the card lists each candidate
+by source name with the address its file holds, to take it or type
+another:
+
+```
+the account GOOGLE_ACCOUNT: already given for google-drive (GOOGLE_ACCOUNT=ops@example.com, in /home/mckean/.yardr/sources/google-drive.env). Take it with --account google-drive, or type another unseen (written to /home/mckean/.yardr/sources/google-mail.env, named in the answer, never the value).
+```
+
+There is no silent reuse, not even with a single match: the answer
+names a candidate or types another. The yard then applies the pack,
+takes the account, and grants the preset picked, as the operator.
+Until the server finishes it the ask reads as being carried out, then
+as ran or failed:
 
 ```
 $ yardr bead answer yardr-k3vd 3101 1 --secret
@@ -476,18 +488,21 @@ mckean gave GOOGLE_ACCOUNT
 mckean approved it: approved, to be carried out
 ```
 
+Taking reads `mckean took google-drive` where typing reads `mckean
+gave GOOGLE_ACCOUNT`.
+
 Approving is the operator's as a run approval is: in a terminal on the
 yard's machine, or from a device of yours, never from an agent's pane
 and never over a link. A setup runs once for one ask. When the yard
 changed between the asking and the approval — the build, the pack's
-bytes or presets, a source, the account's owed-ness or a grantee —
-nothing runs and the yard says what changed; the ask is declined and
-asked again. A pack past 40 lines, one carrying sources under different
-credentials, and one with no presets stay on the existing per-step flow:
-a pack apply card, an account card per source, and a grant card per
-source and kind. A pick with `--secret` is allowed on a setup ask only;
-a pick or words alone approve nothing, and `--later` puts it aside as
-for any ask.
+bytes or presets, a source, the account's owed-ness, a candidate or a
+grantee — nothing runs and the yard says what changed; the ask is
+declined and asked again. A pack past 40 lines, one carrying sources
+under different credentials, and one with no presets stay on the
+existing per-step flow: a pack apply card, an account card per source,
+and a grant card per source and kind. A pick with `--secret` or
+`--account` is allowed on a setup ask only; a pick or words alone
+approve nothing, and `--later` puts it aside as for any ask.
 
 #### Typing a secret
 

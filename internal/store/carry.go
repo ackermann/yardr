@@ -75,6 +75,10 @@ type Carry struct {
 	// account file, so a resumed setup can distinguish that write from an
 	// older file that already held the same variable names.
 	AccountWritten bool `json:"account_written,omitempty"`
+	// Account is the candidate a setup approval took: the picked source's
+	// name, "" for a typed account. The carrying out points the pack's
+	// sources at its file instead of writing a typed value.
+	Account string `json:"account,omitempty"`
 }
 
 // CarrySource is one source's credential standing at approval, by name.

@@ -76,12 +76,12 @@ var Calls = map[string][]string{
 // together, and the yard then applies the pack, takes the account, and
 // grants the preset picked, as the operator (design yardr-7d4e, section
 // 3.6). Like GiveSecret it carries a secret a person typed, on its way to
-// the file a source's credential is read from; like ApproveAsk it is the
-// operator's device's and no other's.
+// the file a source's credential is read from, or the candidate taken
+// instead; like ApproveAsk it is the operator's device's and no other's.
 var OperatorCalls = map[string][]string{
 	"GiveSecret":   {"bead", "ask", "values", "actor"},
 	"ApproveAsk":   {"bead", "ask", "actor"},
-	"ApproveSetup": {"bead", "ask", "option", "values", "actor"},
+	"ApproveSetup": {"bead", "ask", "option", "values", "account", "actor"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of

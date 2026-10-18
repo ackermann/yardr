@@ -105,31 +105,44 @@ once per person.
 
 ## Step 3. The account
 
-The yard's own first: one card per source, each asking for
-`GOOGLE_ACCOUNT`, the address step 1 showed. A crew member asks, and
-the operator answers where the field shows dots; each card writes
-into that source's own file (`~/.yardr/sources/google-mail.env` and
-its siblings), which the yard chooses and records, so no `env_file`
-is set by anyone. Run only the cards for the packs the yard uses:
+The yard's own first: one card per pack, each naming
+`GOOGLE_ACCOUNT`, the address step 1 showed. A crew member asks,
+and the operator answers where the field shows dots. The first
+pack's card is typed unseen, into that pack's first source's own
+file (`~/.yardr/sources/google-mail.env`), which the yard chooses
+and records, so no `env_file` is set by anyone. Every pack after
+lists the first by name with its address, to take it or type
+another: the address is typed once, then picked. Run only the cards
+for the packs the yard uses:
 
 ```sh
-yardr bead ask <bead> "The yard's Google account for Gmail" --secret google-mail --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Drive" --secret google-drive --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Docs" --secret google-docs --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Slides" --secret google-slides --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Calendar" --secret google-calendar --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Gmail for the crew?" --setup google-mail --crew <name> --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Drive for the crew?" --setup google-drive --crew <name> --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Docs and Slides for the crew?" --setup google-docs --crew <name> --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Calendar for the crew?" --setup google-calendar --crew <name> --context "The address step 1 showed: the address alone, no token."
 ```
 
-No `--env`: a secret ask with none asks for what the source needs
-given, and a credential with a mint needs its mint's inputs alone, so
-each card asks for `GOOGLE_ACCOUNT` and never for `GOOGLE_TOKEN`,
+The second card reads `the account GOOGLE_ACCOUNT: already given
+for google-mail (GOOGLE_ACCOUNT=…, in
+~/.yardr/sources/google-mail.env). Take it with --account
+google-mail, or type another unseen`, answered `yardr bead answer
+<bead> <ask> <n> --account google-mail` or `<n> --secret`. Taking
+it points the new pack's sources at the listed file, which
+`yardr source show` says; typing another writes to the new pack's
+own file. There is no silent reuse, not even with a single match:
+the answer names a candidate or types another. For google-docs,
+whose two sources share the one account, the first card's typed
+value is written once to `~/.yardr/sources/google-docs.env` and
+both sources point at it, the file named on the card.
+
+Each card asks for `GOOGLE_ACCOUNT` and never for `GOOGLE_TOKEN`,
 which is minted per call, never given.
 
-By hand the five share one file instead. The address is no secret,
-so it is typed as usual; the file still goes 0600, as every env
-file. A new file takes its mode from the shell's umask, so narrow
-it first. Each command below is one thing to type, in a block of
-its own.
+By hand the five share one file instead of one per pack. The
+address is no secret, so it is typed as usual; the file still goes
+0600, as every env file. A new file takes its mode from the
+shell's umask, so narrow it first. Each command below is one thing
+to type, in a block of its own.
 
 ```sh
 umask 077

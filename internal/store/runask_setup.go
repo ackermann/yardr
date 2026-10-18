@@ -10,9 +10,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -39,12 +43,23 @@ type AskPreset struct {
 	Grants []AskPresetGrant `json:"grants"`
 }
 
+// AskCandidate is one source already in the yard whose account file the
+// setup card offers to reuse: the source by name, the file, and the shared
+// input values as the file holds them. Only yard-level source files are
+// ever candidates, never a user's own, and only the shared mint inputs are
+// ever shown, never a static variable.
+type AskCandidate struct {
+	Source string            `json:"source"`
+	File   string            `json:"file"`
+	Values map[string]string `json:"values"`
+}
+
 // AskSetup is the setup a setup ask proposes: the pack, who the grants are
 // for, and the yard's card for it. Its writer sends Pack and To alone; the
 // rest is the yard's, written in the write that stores the ask (askedSetup)
-// whatever the writer sent for it: the account names, the server's bytes of
-// the pack with its presets, the sentences, and what the yard held of each
-// thing they name.
+// whatever the writer sent for it: the account names, the candidates to
+// take instead of typing, the server's bytes of the pack with its presets,
+// the sentences, and what the yard held of each thing they name.
 type AskSetup struct {
 	Pack  string `json:"pack"`
 	Kind  string `json:"kind,omitempty"`
@@ -54,9 +69,14 @@ type AskSetup struct {
 	To []Grantee `json:"to"`
 	// Account are the names to type unseen beside the preset pick: the
 	// mint's inputs where the pack's credential is minted, else every
-	// credential name. AccountFile is the file the value goes to.
+	// credential name. AccountFile is the file the value goes to. Where
+	// Candidates stand, the answer names one of them or types another.
 	Account     []string `json:"account,omitempty"`
 	AccountFile string   `json:"account_file,omitempty"`
+	// Candidates are the yard sources whose account the card offers, each
+	// by source name with its file and the shared values it holds, in the
+	// order of their names. Empty where none matches.
+	Candidates []AskCandidate `json:"candidates,omitempty"`
 	// Carried are the pack's sources as the server read them from its own
 	// binary, with what the yard's copies of a source they would replace
 	// hold; Presets are the pack's presets with their grants.
@@ -100,30 +120,39 @@ func (s AskSetup) Summary() string {
 }
 
 // AskSetupApproved is what ApproveSetup did: the ask and who asked it, the
-// pack with the preset picked, the names given, and what the approval
-// recorded (CarryPending until the server carries it out).
+// pack with the preset picked, the names given or the candidate taken, and
+// what the approval recorded (CarryPending until the server carries it
+// out). Exactly one of Given and Account is set: the typed names, or the
+// picked candidate's source.
 type AskSetupApproved struct {
-	Bead   string   `json:"bead"`
-	Ask    uint64   `json:"ask"`
-	Asker  string   `json:"asker"`
-	Pack   string   `json:"pack"`
-	Preset string   `json:"preset"`
-	Given  []string `json:"given"`
-	Result string   `json:"result"`
+	Bead    string   `json:"bead"`
+	Ask     uint64   `json:"ask"`
+	Asker   string   `json:"asker"`
+	Pack    string   `json:"pack"`
+	Preset  string   `json:"preset"`
+	Given   []string `json:"given,omitempty"`
+	Account string   `json:"account,omitempty"`
+	Result  string   `json:"result"`
 }
 
 // SetupAsked is the setup a setup ask proposes, as a client shows it: the
-// pack, the account to type beside the preset pick, the yard's sentences
-// for what approving it does, and the presets to pick from. All of it is
-// the yard's, and none of it the asker's.
+// pack, the account to type beside the preset pick or the candidates to
+// take instead, the yard's sentences for what approving it does, and the
+// presets to pick from. All of it is the yard's, and none of it the
+// asker's.
 type SetupAsked struct {
 	Pack string `json:"pack"`
 	// Label is the build the pack is embedded in, as the card shows it.
 	Label string `json:"label,omitempty"`
 	// Account are the names to type unseen beside the preset pick, and
 	// AccountFile the file the value goes to, on the yard's machine.
+	// Where Candidates stand, the answer names one of them or types
+	// another.
 	Account     []string `json:"account"`
 	AccountFile string   `json:"account_file"`
+	// Candidates are the yard sources whose account the card offers, each
+	// by source name with its file and the shared values it holds.
+	Candidates []AskCandidate `json:"candidates,omitempty"`
 	// Does are the yard's sentences for what approving changes and what
 	// is there now, and Back the commands that take the setup back.
 	Does []string `json:"does"`
@@ -148,7 +177,7 @@ func (a Ask) setup() *SetupAsked {
 		return nil
 	}
 	return &SetupAsked{Pack: a.Setup.Pack, Label: a.Setup.Label, Account: a.Setup.Account,
-		AccountFile: a.Setup.AccountFile, Does: a.Setup.Does, Back: a.Setup.Back,
+		AccountFile: a.Setup.AccountFile, Candidates: a.Setup.Candidates, Does: a.Setup.Does, Back: a.Setup.Back,
 		BackBy: a.Setup.BackBy, Carried: a.Setup.Carried, Presets: a.Setup.Presets, To: a.Setup.To}
 }
 
@@ -318,10 +347,17 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 	if err != nil {
 		return nil, err
 	}
+	candidates, err := w.setupCandidates(carried, decls, account)
+	if err != nil {
+		return nil, err
+	}
 	seenMap := map[string]string{
 		"pack " + pack:              reading.Label,
 		"pack " + pack + " bytes":   packBytesSeen(&PackReading{Sources: carried}),
 		"pack " + pack + " presets": setupPresetsSeen(presets),
+	}
+	for _, c := range candidates {
+		seenMap["candidate "+c.Source] = candidateSeen(c)
 	}
 	for i := range carried {
 		key := "source " + carried[i].Name
@@ -358,12 +394,12 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 			seenMap[t.seenKey()] = fingerprint
 		}
 	}
-	does, err := w.setupDoes(pack, reading, carried, decls, account, file, to)
+	does, err := w.setupDoes(pack, reading, carried, decls, account, file, candidates, to)
 	if err != nil {
 		return nil, err
 	}
 	card := &AskSetup{Pack: pack, Kind: reading.Kind, Label: reading.Label, To: to,
-		Account: account, AccountFile: file, Carried: carried, Presets: presets,
+		Account: account, AccountFile: file, Candidates: candidates, Carried: carried, Presets: presets,
 		Does: does, Seen: seenMap, Back: setupBack(carried, to), BackBy: "the operator"}
 	if len(does)+len(presets) > MaxRunSourceCardLines {
 		return nil, fmt.Errorf("pack %s: its setup card would run to %d lines: a card is read whole, so set it up step by step instead (yardr pack check %s shows its plan there): a pack apply card, an account card per source, and a grant card per source and kind", pack, len(does)+len(presets), pack)
@@ -417,39 +453,34 @@ func setupPresetsSeen(presets []AskPreset) string {
 
 // setupAccount is the setup card's account: the names to type unseen and
 // the file the value goes to. One card carries one account choice: every
-// source that names a credential must name the same one, by its mint's
-// inputs, its mint program's bytes and arguments, and its static names;
-// the file is the first such source's, in the pack's declaration order. A
-// pack whose sources name different credentials is set up step by step, an
-// account card per source.
+// source that names a credential must name the same one, by the shared
+// account rule (source.SharesAccount); the file is the first such source's,
+// in the pack's declaration order. A pack whose sources name different
+// credentials is set up step by step, an account card per source.
 func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*source.Declaration) ([]string, string, error) {
 	var have []string
-	keys := map[string]string{}
+	settings := map[string]string{}
+	byName := map[string]AskSource{}
 	for i := range carried {
 		d := decls[carried[i].Name]
+		byName[carried[i].Name] = carried[i]
 		if d.Credential == nil {
 			continue
 		}
 		have = append(have, carried[i].Name)
-		mintCommand := ""
 		if src, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
-			mintCommand = src.MintCommand
+			settings[carried[i].Name] = src.MintCommand
 		} else if !errors.Is(err, ErrNotFound) {
 			return nil, "", err
 		}
-		keys[carried[i].Name] = setupCredentialKey(d, carried[i], mintCommand)
 	}
 	if len(have) == 0 {
 		return nil, "", fmt.Errorf("pack %s names no credential: no account is owed, so set it up step by step instead: a pack apply card, and a grant card per source and kind", pack)
 	}
 	for _, name := range have[1:] {
-		// A shared variable name does not make two static credentials the
-		// same account, and an operator's per-source mint override is part
-		// of the effective command the inputs belong to.
-		if !decls[have[0]].Credential.Minted() || !decls[name].Credential.Minted() {
-			return nil, "", differentSetupCredentials(pack, have[0], name)
-		}
-		if keys[name] != keys[have[0]] {
+		first, second := byName[have[0]], byName[name]
+		if !source.SharesAccount(decls[have[0]], decls[name], settings[have[0]], settings[name],
+			carriedProgSHA(first), carriedProgSHA(second)) {
 			return nil, "", differentSetupCredentials(pack, have[0], name)
 		}
 	}
@@ -470,28 +501,17 @@ func differentSetupCredentials(pack, first, second string) error {
 	return fmt.Errorf("pack %s carries sources under different credentials (the source %s and the source %s): one card carries one account choice, so set it up step by step instead: a pack apply card, an account card per source, and a grant card per source and kind", pack, first, second)
 }
 
-// setupCredentialKey is what groups a pack's sources under one account
-// choice: the mint's input names, the mint program (by the sha256 of its
-// carried bytes where relative, literally where absolute) with its
-// arguments, and the credential names. An operator's mint_command for a
-// source wins over the pack's command, as it does when a call is made.
-func setupCredentialKey(d *source.Declaration, carried AskSource, setting string) string {
-	c := d.Credential
-	inputs := append([]string{}, c.Mint...)
-	sort.Strings(inputs)
-	var prog string
-	argv := []string{}
-	if command := strings.Fields(setting); len(command) > 0 {
-		prog = "setting:" + command[0]
-		argv = append([]string{}, command[1:]...)
-	} else if len(c.MintCommand) > 0 {
-		prog = c.MintCommand[0]
-		argv = append([]string{}, c.MintCommand[1:]...)
-		if !strings.HasPrefix(prog, "/") {
-			prog = "sha256:" + carriedSHA(carried, prog)
+// carriedProgSHA resolves a pack source's relative mint program to the
+// sha256 of its carried bytes, false where the pack carries no such file.
+func carriedProgSHA(carried AskSource) func(string) (string, bool) {
+	return func(prog string) (string, bool) {
+		for _, f := range carried.Files {
+			if f.Program == prog {
+				return f.SHA256, true
+			}
 		}
+		return "", false
 	}
-	return seen(inputs, prog, argv, c.Env, c.UpdateEnv)
 }
 
 // setupOwed is what a setup card keeps of a source's account: whether it
@@ -519,6 +539,180 @@ func (w *wtx) setupOwed(d *source.Declaration) (string, error) {
 	return "given", nil
 }
 
+// setupCandidates are the yard sources whose account the setup card offers
+// to reuse: every source already in the yard, beside the pack's own, that
+// names the same credential and mint as the pack (source.SharesAccount)
+// and whose yard-level env file holds every shared input name. A
+// credential a user gave for themselves lives in the user's file, never a
+// source's, so it is never listed; a source file that resolves to a user's
+// or crew member's file, or under the users or crew directories, is not
+// listed either, even where a hand-set env_file points the two at one
+// file. In the order of their names. With no home there is no file to
+// hold one.
+func (w *wtx) setupCandidates(carried []AskSource, decls map[string]*source.Declaration, account []string) ([]AskCandidate, error) {
+	if w.store == nil || w.store.home == "" || len(account) == 0 {
+		return nil, nil
+	}
+	var first string
+	byName := map[string]AskSource{}
+	for i := range carried {
+		byName[carried[i].Name] = carried[i]
+		if first == "" && decls[carried[i].Name].Credential != nil {
+			first = carried[i].Name
+		}
+	}
+	if first == "" {
+		return nil, nil
+	}
+	// A static credential never shares: one variable name across two
+	// services is coincidence, not sameness.
+	if !decls[first].Credential.Minted() {
+		return nil, nil
+	}
+	firstSetting := ""
+	if src, _, err := sourceIn(w.Tx, first); err == nil {
+		firstSetting = src.MintCommand
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	firstSHA := carriedProgSHA(byName[first])
+	owned, err := w.userOwnedFiles()
+	if err != nil {
+		return nil, err
+	}
+	var out []AskCandidate
+	err = each(w.Tx, bSources, "", func(_ []byte, src *Source) error {
+		if _, ok := byName[src.Name]; ok {
+			return nil
+		}
+		d, err := src.Declaration()
+		if err != nil {
+			return nil
+		}
+		if !source.SharesAccount(decls[first], d, firstSetting, src.MintCommand,
+			firstSHA, diskProgSHA(w.store.home, src.Name)) {
+			return nil
+		}
+		file := src.EnvFile
+		if file == "" {
+			file = source.EnvFile(w.store.home, src.Name)
+		}
+		f, err := config.ReadEnvFile(file)
+		if err != nil {
+			return nil
+		}
+		values := map[string]string{}
+		for _, n := range account {
+			if v := source.Lookup(f.Env, n); v != "" {
+				values[n] = v
+			} else {
+				return nil
+			}
+		}
+		if userOwnedFile(f.Path, owned, w.store.home) {
+			return nil
+		}
+		out = append(out, AskCandidate{Source: src.Name, File: f.Path, Values: values})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
+	return out, nil
+}
+
+// diskProgSHA resolves a yard source's relative mint program to the sha256
+// of its copy's bytes under <home>/sources/<name>/, false where the copy
+// cannot be read.
+func diskProgSHA(home, name string) func(string) (string, bool) {
+	return func(prog string) (string, bool) {
+		data, err := os.ReadFile(filepath.Join(home, "sources", name, prog))
+		if err != nil {
+			return "", false
+		}
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:]), true
+	}
+}
+
+// userOwnedFiles are the resolved files a user's or crew member's
+// credential is read from: each record's env file, or the yard's default
+// for the name where none is set and the yard chooses one. A path that
+// resolves to one of these is never a setup candidate, even where a
+// hand-set source env_file points the two at one file.
+func (w *wtx) userOwnedFiles() (map[string]bool, error) {
+	owned := map[string]bool{}
+	home := ""
+	if w.store != nil {
+		home = w.store.home
+	}
+	if err := each(w.Tx, bUsers, "", func(_ []byte, u *User) error {
+		file, ok := effectiveEnvFile(home, u)
+		if !ok {
+			return nil
+		}
+		if resolved, err := resolvedEnvFile(file); err == nil {
+			owned[resolved] = true
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := each(w.Tx, bCrew, "", func(_ []byte, r *CrewMember) error {
+		file, _ := r.Config["env_file"].(string)
+		if file == "" {
+			var err error
+			if file, err = crewEnvFile(home, r.Name); err != nil {
+				return nil
+			}
+		}
+		if resolved, err := resolvedEnvFile(file); err == nil {
+			owned[resolved] = true
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return owned, nil
+}
+
+// userOwnedFile reports whether the candidate file path is a user's own:
+// one of their effective files, or under the users or crew directories by
+// default. Paths are compared resolved, so spellings and a link to the
+// file count as the one file.
+func userOwnedFile(path string, owned map[string]bool, home string) bool {
+	resolved, err := resolvedEnvFile(path)
+	if err != nil {
+		return false
+	}
+	if owned[resolved] {
+		return true
+	}
+	for _, dir := range []string{filepath.Join(home, "users"), filepath.Join(home, "crew")} {
+		if d, err := resolvedEnvFile(dir); err == nil && (resolved == d || strings.HasPrefix(resolved, d+string(filepath.Separator))) {
+			return true
+		}
+	}
+	return false
+}
+
+// candidateSeen fingerprints a carded candidate: the file with the shared
+// input values it holds. The approval is held to it, not to the source
+// settings alone, so a candidate env file changed in place refuses it.
+func candidateSeen(c AskCandidate) string {
+	var names []string
+	for n := range c.Values {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var pairs []string
+	for _, n := range names {
+		pairs = append(pairs, n+"="+c.Values[n])
+	}
+	return seen(c.File, pairs)
+}
+
 // setupDoes is the setup card's sentences: the pack line, each source as
 // the apply card renders it, the account line, and the grants to whom.
 // The pack line is the apply row's, without "It grants no call": the card
@@ -526,7 +720,7 @@ func (w *wtx) setupOwed(d *source.Declaration) (string, error) {
 // file, the account step doing that. Each source reads as the apply card
 // renders it but for what stays owed after: the card settles the account
 // itself, so the credential is no part of it.
-func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, to []Grantee) ([]string, error) {
+func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, candidates []AskCandidate, to []Grantee) ([]string, error) {
 	adds, replaces, files, commands, err := w.packSourceCounts(carried, decls)
 	if err != nil {
 		return nil, err
@@ -555,12 +749,40 @@ func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, 
 		}
 		does = append(does, lines...)
 	}
-	does = append(does, fmt.Sprintf("the account %s: type it unseen. It is written to %s, named in the answer, never the value.", strings.Join(account, " and "), file))
+	does = append(does, setupAccountLine(account, file, candidates))
 	does = append(does, fmt.Sprintf("grants to %s — pick one:", granteesWord(to)))
 	for i := range does {
 		does[i] = safeSourceCardLine(does[i])
 	}
 	return does, nil
+}
+
+// setupAccountLine is the setup card's account sentence: the names to type
+// unseen and the file a typed value goes to, with each candidate the card
+// offers by source name and the shared values its file holds. There is no
+// silent reuse, not even with a single match: the answer names a candidate
+// or types another.
+func setupAccountLine(account []string, file string, candidates []AskCandidate) string {
+	names := strings.Join(account, " and ")
+	if len(candidates) == 0 {
+		return fmt.Sprintf("the account %s: type it unseen. It is written to %s, named in the answer, never the value.", names, file)
+	}
+	var each []string
+	for _, c := range candidates {
+		var pairs []string
+		ordered := append([]string{}, account...)
+		sort.Strings(ordered)
+		for _, n := range ordered {
+			pairs = append(pairs, n+"="+c.Values[n])
+		}
+		each = append(each, fmt.Sprintf("for %s (%s, in %s)", c.Source, strings.Join(pairs, ", "), c.File))
+	}
+	given := "already given " + andList(each)
+	take := fmt.Sprintf("Take it with --account %s, or type another unseen", candidates[0].Source)
+	if len(candidates) > 1 {
+		take = "Take one with --account <source>, or type another unseen"
+	}
+	return fmt.Sprintf("the account %s: %s. %s (written to %s, named in the answer, never the value).", names, given, take, file)
 }
 
 // setupBack is the commands that take the setup back: each source removed,
@@ -664,13 +886,14 @@ func setupPresetSourceSays(d *source.Declaration, calls []string) string {
 }
 
 // ApproveSetup approves the setup ask ask on the bead id as actor: the
-// preset pick option with the account values typed unseen. In one write it
-// checks the ask and who approves, holds the approval to the yard the card
-// was written from, and records an answer that holds the preset, the names
-// given and CarryPending, with the carrying record beside it for the server
-// to take up. The values are handed to the server's memory after the write
-// commits, never stored: between the approval and the account's write they
-// live there alone.
+// preset pick option with the account typed unseen (values) or the
+// candidate taken (account). In one write it checks the ask and who
+// approves, holds the approval to the yard the card was written from, and
+// records an answer that holds the preset, the names given or the candidate
+// taken, and CarryPending, with the carrying record beside it for the
+// server to take up. Typed values are handed to the server's memory after
+// the write commits, never stored: between the approval and the account's
+// write they live there alone. A picked candidate hands nothing.
 //
 // It refuses an ask that is not on the bead, sets up no pack, or was
 // declined, taken back or approved already: a setup runs once for one ask.
@@ -678,14 +901,17 @@ func setupPresetSourceSays(d *source.Declaration, calls []string) string {
 // agent whatever actor it names (mayApprove). It refuses when the yard
 // would not write the same card now (setupStale), and when every grantee
 // holds the picked preset already. Picking YouDecide grants the asker's
-// recommended preset, and is refused where none is recommended. A refused
-// approval records nothing and changes nothing, and leaves the ask open.
+// recommended preset, and is refused where none is recommended. Where
+// candidates stand, exactly one of the typed values and the picked
+// candidate settles the account, and where none stand the typed values do.
+// A refused approval records nothing and changes nothing, and leaves the
+// ask open.
 //
 // It is served on the yard's socket, and on the listener to a device of
 // the operator and to no other caller (rpc.OperatorCalls), as run
 // approvals and secret answers travel. No answer that comes over a link
 // approves.
-func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, actor string) (*AskSetupApproved, error) {
+func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string) (*AskSetupApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a setup of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
@@ -697,13 +923,15 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 	defer s.setupSecrets.mu.Unlock()
 	var out *AskSetupApproved
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
-		out, err = w.approveSetup(ctx, id, ask, option, values, actor)
+		out, err = w.approveSetup(ctx, id, ask, option, values, account, actor)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.handSetupSecretLocked(carryKey(out.Bead, ask), values)
+	if account == "" {
+		s.handSetupSecretLocked(carryKey(out.Bead, ask), values)
+	}
 	return out, nil
 }
 
@@ -711,7 +939,7 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 // twice for one call (write): it reads the yard's records anew each time
 // and ends the same. The values are handed to the memory after the write
 // commits, so a rolled-back run hands nothing.
-func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option int, values map[string]string, actor string) (*AskSetupApproved, error) {
+func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option int, values map[string]string, account, actor string) (*AskSetupApproved, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -767,20 +995,46 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	if picked < 1 || picked > len(was.Presets) {
 		return nil, fmt.Errorf("ask %d holds options the yard did not write: nothing ran", seq)
 	}
-	// What was sent is not said back: a client that put a value where a
-	// name goes would read it in the refusal.
-	for n := range values {
-		if !slices.Contains(was.Account, n) {
-			return nil, fmt.Errorf("ask %d asks for the account %s, and was given a name it did not ask for", seq, strings.Join(was.Account, " and "))
-		}
+	account = strings.TrimSpace(account)
+	if account != "" && len(values) > 0 {
+		return nil, fmt.Errorf("ask %d takes the account typed or a candidate taken, not both: --secret or --account <source>", seq)
 	}
-	for _, n := range was.Account {
-		value, ok := values[n]
-		if !ok {
-			return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given", seq, strings.Join(was.Account, " and "), n)
+	if account != "" {
+		found := false
+		for _, c := range was.Candidates {
+			if c.Source == account {
+				found = true
+			}
 		}
-		if err := loginValueError(seq, n, value); err != nil {
-			return nil, err
+		if !found {
+			if len(was.Candidates) == 0 {
+				return nil, fmt.Errorf("ask %d lists no candidate to take: type the account %s", seq, strings.Join(was.Account, " and "))
+			}
+			var names []string
+			for _, c := range was.Candidates {
+				names = append(names, c.Source)
+			}
+			return nil, fmt.Errorf("ask %d lists no candidate %s: it lists %s, or type another %s", seq, account, strings.Join(names, ", "), strings.Join(was.Account, " and "))
+		}
+	} else {
+		// What was sent is not said back: a client that put a value
+		// where a name goes would read it in the refusal.
+		for n := range values {
+			if !slices.Contains(was.Account, n) {
+				return nil, fmt.Errorf("ask %d asks for the account %s, and was given a name it did not ask for", seq, strings.Join(was.Account, " and "))
+			}
+		}
+		for _, n := range was.Account {
+			value, ok := values[n]
+			if !ok {
+				if len(was.Candidates) > 0 {
+					return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given, and no candidate was taken (--account <source>)", seq, strings.Join(was.Account, " and "), n)
+				}
+				return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given", seq, strings.Join(was.Account, " and "), n)
+			}
+			if err := loginValueError(seq, n, value); err != nil {
+				return nil, err
+			}
 		}
 	}
 	card, err := w.setupCard(was.Pack, was.To)
@@ -798,23 +1052,31 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	}
 	// An approval the yard carries out after this write leaves its
 	// carrying record in it, for the server to take up (carry.go).
-	if err := w.recordSetupCarry(row.ID, seq, was, actor); err != nil {
+	if err := w.recordSetupCarry(row.ID, seq, was, account, actor); err != nil {
 		return nil, err
 	}
-	text, err := json.Marshal(Answer{Ask: seq, Option: picked, Given: was.Account, Ran: &AskRan{Argv: []string{"setup", was.Pack}, Result: CarryPending}})
+	ans := Answer{Ask: seq, Option: picked, Ran: &AskRan{Argv: []string{"setup", was.Pack}, Result: CarryPending}}
+	out := &AskSetupApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Pack: was.Pack, Preset: was.Presets[picked-1].Name, Result: CarryPending}
+	if account != "" {
+		ans.Account, out.Account = account, account
+	} else {
+		ans.Given, out.Given = was.Account, was.Account
+	}
+	text, err := json.Marshal(ans)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 		return nil, err
 	}
-	return &AskSetupApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Pack: was.Pack, Preset: was.Presets[picked-1].Name, Given: was.Account, Result: CarryPending}, nil
+	return out, nil
 }
 
 // setupStale says why a setup approval is refused: the build or the pack's
 // bytes moved, its presets moved, a source it would add or replace moved,
-// the account was given or ungiven meanwhile, a grantee moved, or the
-// sentences read otherwise now.
+// the account was given or ungiven meanwhile, a candidate was added,
+// removed or changed, a grantee moved, or the sentences read otherwise
+// now.
 func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 	name := was.Pack
 	labelKey, bytesKey, presetsKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" presets"
@@ -863,6 +1125,9 @@ func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 		}
 		return fmt.Errorf("ask %d was written when the account for the source %s was given: its file no longer holds %s. %s", seq, c.Name, strings.Join(was.Account, " and "), nothingRan)
 	}
+	if err := setupCandidatesStale(seq, was, now); err != nil {
+		return err
+	}
 	for _, t := range was.To {
 		if key := t.seenKey(); was.Seen[key] == now.Seen[key] {
 			continue
@@ -875,6 +1140,36 @@ func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 		return fmt.Errorf("ask %d was written when the group %s was another: its config was changed since%s. %s", seq, t.Group, since(e), nothingRan)
 	}
 	return staleCard(seq, AskRun{Does: was.Does}, AskRun{Does: now.Does})
+}
+
+// setupCandidatesStale says why a setup approval is refused for its
+// candidates: one added, removed or changed since the card was written,
+// including a candidate env file changed in place with the same path and
+// source settings, which the source fingerprints alone would not catch.
+func setupCandidatesStale(seq uint64, was, now AskSetup) error {
+	wasByName := map[string]AskCandidate{}
+	for _, c := range was.Candidates {
+		wasByName[c.Source] = c
+	}
+	nowByName := map[string]AskCandidate{}
+	for _, c := range now.Candidates {
+		nowByName[c.Source] = c
+	}
+	for _, c := range was.Candidates {
+		n, ok := nowByName[c.Source]
+		if !ok {
+			return fmt.Errorf("ask %d was written when the source %s held a matching account: it holds none since. %s", seq, c.Source, nothingRan)
+		}
+		if was.Seen["candidate "+c.Source] != now.Seen["candidate "+n.Source] {
+			return fmt.Errorf("ask %d was written when the candidate %s held %s as carded: its file no longer holds it. %s", seq, c.Source, strings.Join(was.Account, " and "), nothingRan)
+		}
+	}
+	for _, c := range now.Candidates {
+		if _, ok := wasByName[c.Source]; !ok {
+			return fmt.Errorf("ask %d was written when the source %s held no matching account: it holds one since. %s", seq, c.Source, nothingRan)
+		}
+	}
+	return nil
 }
 
 // setupHeldStale refuses a setup approval whose picked preset every
@@ -926,9 +1221,10 @@ outer:
 // the approval's own write: approved and not yet taken, with what each
 // source it names stands with now. Argv names the setup for the server to
 // take up; the typed account values are handed to the server's memory
-// beside it (handSetupSecret), never stored.
-func (w *wtx) recordSetupCarry(bead string, seq uint64, was AskSetup, actor string) error {
-	rec := Carry{Bead: bead, Ask: seq, Argv: []string{"setup", was.Pack}, State: CarryApproved, Actor: actor}
+// beside it (handSetupSecret), never stored, and a picked candidate is
+// named on the record for the carrying out to point at.
+func (w *wtx) recordSetupCarry(bead string, seq uint64, was AskSetup, account, actor string) error {
+	rec := Carry{Bead: bead, Ask: seq, Argv: []string{"setup", was.Pack}, State: CarryApproved, Actor: actor, Account: account}
 	for _, carried := range was.Carried {
 		snap := CarrySource{Name: carried.Name}
 		if src, _, err := sourceIn(w.Tx, carried.Name); err == nil {

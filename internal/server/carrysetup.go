@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -86,33 +87,145 @@ func (c *carrier) carrySetupApply(ctx context.Context, rec *store.Carry, setup *
 	return packResultLines(res, plan, false), ""
 }
 
-// carrySetupAccount is a setup's account step: the secret path's write of
-// the values the approval handed to the server's memory, into the first
-// credentialed source's file, verified back from the file. It answers the
-// file the account stands in.
+// carrySetupAccount is a setup's account step: for a typed approval the
+// secret path's write of the values the approval handed to the server's
+// memory, into the first credentialed source's file; for a picked approval
+// each matching source's env_file pointed at the candidate's file. One
+// typed value serves every matching source the pack carries: it is written
+// once, and each of them points at it. It answers the file the account
+// stands in.
 //
 // Where the memory holds no values the server stopped with the ask in
 // hand: a file that holds every name given is the account standing — the
 // stop came after its write, whose take was once — and the carrying out
 // goes on to the grants. Anything else is the value lost to a stop before
-// the write, recorded failed naming the account asked again.
+// the write, recorded failed naming the account asked again. A picked
+// account hands no values, so a stop loses nothing; its file is rechecked
+// against the card before it is pointed at.
 func (c *carrier) carrySetupAccount(ctx context.Context, rec *store.Carry, setup *store.AskSetup, picked int) (string, string) {
-	names := strings.Join(setup.Account, " and ")
-	src, err := setupAccountSource(setup)
+	srcs, err := setupAccountSources(setup)
 	if err != nil {
 		return "", failWords(fmt.Sprintf("pack %s is applied, but %v", setup.Pack, err),
 			"yardr pack apply "+setup.Pack)
 	}
 	preset := setup.Presets[picked-1]
+	if rec.Account != "" {
+		return c.carrySetupAccountPicked(ctx, rec, setup, preset, srcs)
+	}
+	return c.carrySetupAccountTyped(ctx, rec, setup, preset, srcs)
+}
+
+// setupAccountSources are the sources a setup's account step settles: every
+// source the pack carries, in its declaration order, whose declaration
+// names a credential. One card carries one account choice, so they all
+// share it; the first is the source the card's account file is.
+func setupAccountSources(setup *store.AskSetup) ([]string, error) {
+	var out []string
+	for i := range setup.Carried {
+		d, err := source.Parse("pack source "+setup.Carried[i].Name, []byte(setup.Carried[i].Text))
+		if err != nil {
+			return nil, err
+		}
+		if d.Credential != nil {
+			out = append(out, d.Name)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("pack %s names no credential, so no account is owed", setup.Pack)
+	}
+	return out, nil
+}
+
+// carrySetupAccountPicked is a setup's account step for a picked candidate:
+// each matching source's env_file pointed at the candidate's file. Right
+// before pointing, the carded candidate is rechecked: the file with the
+// shared values it holds. If it changed since the approval, the step fails
+// and records what stands, so a source never uses an address the card did
+// not show.
+func (c *carrier) carrySetupAccountPicked(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string) (string, string) {
+	names := strings.Join(setup.Account, " and ")
+	var carded *store.AskCandidate
+	for i := range setup.Candidates {
+		if setup.Candidates[i].Source == rec.Account {
+			carded = &setup.Candidates[i]
+		}
+	}
+	if carded == nil {
+		return "", fmt.Sprintf("pack %s is applied, but the candidate %s the approval took is none the card listed. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, rec.Account, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	s, err := c.st.GetSource(ctx, rec.Account)
+	if err != nil {
+		return "", fmt.Sprintf("pack %s is applied, but the candidate %s the approval took is not in the yard since. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, rec.Account, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	file := s.EnvFile
+	if file == "" {
+		file = source.EnvFile(c.home, rec.Account)
+	}
+	f, err := config.ReadEnvFile(file)
+	if err != nil {
+		return "", fmt.Sprintf("pack %s is applied, but the candidate %s no longer holds %s as carded: its file is not read. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, rec.Account, names, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	if f.Path != carded.File {
+		return "", fmt.Sprintf("pack %s is applied, but the candidate %s no longer holds %s as carded: its file is %s now, not %s. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, rec.Account, names, f.Path, carded.File, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	for _, n := range setup.Account {
+		if source.Lookup(f.Env, n) != carded.Values[n] {
+			return "", fmt.Sprintf("pack %s is applied, but the candidate %s no longer holds %s as carded: its file no longer holds it. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, rec.Account, names, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+	}
+	for _, src := range srcs {
+		if _, err := c.st.SetSource(ctx, src, store.SourceEnvFile, carded.File, rec.Actor); err != nil {
+			return "", fmt.Sprintf("pack %s is applied, but the source %s was not pointed at %s: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, src, carded.File, err, setupPointCommand(src, carded.File),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+	}
+	// What stands is verified, never trusted: every matching source points
+	// at the file, and the file holds the carded values.
+	for _, src := range srcs {
+		if s, err := c.st.GetSource(ctx, src); err != nil || s.EnvFile != carded.File {
+			return "", fmt.Sprintf("pack %s is applied, but the source %s does not point at %s after the pointing. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, src, carded.File, setupPointCommand(src, carded.File),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+	}
+	return carded.File, ""
+}
+
+// carrySetupAccountTyped is a setup's account step for a typed approval: the
+// value written once to the first matching source's file, and each matching
+// source pointed at it. Where the first source's env_file already points at
+// a shared file, it first leaves it for its own default, so the write lands
+// in the source's own file and the sibling's value stands.
+func (c *carrier) carrySetupAccountTyped(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string) (string, string) {
+	names := strings.Join(setup.Account, " and ")
+	src := srcs[0]
+	if failure := c.carrySetupLeaveShared(ctx, rec, setup, preset, src); failure != "" {
+		return "", failure
+	}
 	values, ok := c.st.TakeSetupSecret(rec.Bead, rec.Ask)
 	if !ok {
 		if rec.AccountWritten {
-			if file, stands := c.setupAccountStands(ctx, src, setup.Account); stands {
-				return file, ""
+			file, stands := c.setupAccountStands(ctx, src, setup.Account)
+			if !stands {
+				return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+					setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
+					strings.Join(setupGrantCommands(setup, preset), "; "))
 			}
-			return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
-				setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
-				strings.Join(setupGrantCommands(setup, preset), "; "))
+			if failure := c.carrySetupPointSiblings(ctx, rec, setup, preset, srcs[1:], file); failure != "" {
+				return "", failure
+			}
+			return file, ""
 		}
 		return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed is lost: the server stopped before a completed account write was recorded, and a typed value is kept in no note. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
 			setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
@@ -145,23 +258,84 @@ func (c *carrier) carrySetupAccount(ctx context.Context, rec *store.Carry, setup
 				strings.Join(setupGrantCommands(setup, preset), "; "))
 		}
 	}
+	if failure := c.carrySetupPointSiblings(ctx, rec, setup, preset, srcs[1:], keyed.File); failure != "" {
+		return "", failure
+	}
 	return keyed.File, ""
 }
 
-// setupAccountSource is the source a setup's account step writes: the first
-// source the pack carries, in its declaration order, whose declaration
-// names a credential — the source the card's account file is.
-func setupAccountSource(setup *store.AskSetup) (string, error) {
-	for i := range setup.Carried {
-		d, err := source.Parse("pack source "+setup.Carried[i].Name, []byte(setup.Carried[i].Text))
-		if err != nil {
-			return "", err
-		}
-		if d.Credential != nil {
-			return d.Name, nil
+// carrySetupLeaveShared leaves a shared file for the source's own default
+// before a typed write: where the source's env_file already points at a
+// file another source points at, it is reset to its per-source default, so
+// the write lands in the source's own file and the sibling's value stands.
+// A source with no env_file, or one no sibling shares, is left as it is.
+func (c *carrier) carrySetupLeaveShared(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, src string) string {
+	s, err := c.st.GetSource(ctx, src)
+	if err != nil || s.EnvFile == "" {
+		return ""
+	}
+	own := source.EnvFile(c.home, src)
+	if setupResolvedFile(s.EnvFile) == setupResolvedFile(own) {
+		return ""
+	}
+	shared := false
+	if srcs, err := c.st.Sources(ctx); err == nil {
+		for _, o := range srcs {
+			if o.Name != src && o.EnvFile != "" && setupResolvedFile(o.EnvFile) == setupResolvedFile(s.EnvFile) {
+				shared = true
+			}
 		}
 	}
-	return "", fmt.Errorf("pack %s names no credential, so no account is owed", setup.Pack)
+	if !shared {
+		return ""
+	}
+	if _, err := c.st.SetSource(ctx, src, store.SourceEnvFile, own, rec.Actor); err != nil {
+		return fmt.Sprintf("pack %s is applied, but the source %s was not left its shared file for %s: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, src, own, err, setupKeyCommand(src, setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	return ""
+}
+
+// carrySetupPointSiblings points each sibling source at the shared account
+// file, verified back. A failure names what stands with the commands that
+// point what is still missing.
+func (c *carrier) carrySetupPointSiblings(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, siblings []string, file string) string {
+	for _, src := range siblings {
+		if _, err := c.st.SetSource(ctx, src, store.SourceEnvFile, file, rec.Actor); err != nil {
+			return fmt.Sprintf("pack %s is applied and the account %s is set in %s, but the source %s was not pointed at it: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, strings.Join(setup.Account, " and "), file, src, err, setupPointCommand(src, file),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+	}
+	for _, src := range siblings {
+		if s, err := c.st.GetSource(ctx, src); err != nil || s.EnvFile != file {
+			return fmt.Sprintf("pack %s is applied and the account %s is set in %s, but the source %s does not point at it after the pointing. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, strings.Join(setup.Account, " and "), file, src, setupPointCommand(src, file),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+	}
+	return ""
+}
+
+// setupResolvedFile is a path as the one file it names for sharing: a
+// leading ~/ expanded, made absolute, with a symbolic link evaluated where
+// the file stands. Two spellings and a link to the file count as the one
+// file; a path that does not resolve counts as itself.
+func setupResolvedFile(path string) string {
+	p, err := config.ExpandPath(path)
+	if err != nil {
+		return path
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+// setupPointCommand is the terminal command pointing the source at the file.
+func setupPointCommand(src, file string) string {
+	return fmt.Sprintf("yardr source set %s env_file=%s", src, file)
 }
 
 // setupAccountStands reports whether the account step already stands for

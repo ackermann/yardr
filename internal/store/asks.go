@@ -120,8 +120,8 @@ type Ask struct {
 // one ask. Exactly one of a pick (Option), words alone (Words with no
 // Option, Later, Decline or TakeBack), Later, Decline, Given, Ran and
 // TakeBack is set, except a setup approval, which holds the picked preset
-// (Option), the names given (Given) and what the yard runs (Ran) together,
-// written by ApproveSetup alone.
+// (Option), the names given (Given) or the candidate taken (Account), and
+// what the yard runs (Ran) together, written by ApproveSetup alone.
 type Answer struct {
 	// Ask is the ask note's seq.
 	Ask uint64 `json:"ask"`
@@ -137,6 +137,10 @@ type Answer struct {
 	// Given are the names a secret ask was given values for: all the
 	// answer says of them. Only GiveSecret writes it.
 	Given []string `json:"given,omitempty"`
+	// Account is the candidate a setup approval took instead of typing:
+	// the picked source's name, "" for a typed account. Only ApproveSetup
+	// writes it, with Ran.
+	Account string `json:"account,omitempty"`
 	// Ran is the command an approved run ask ran, with what it printed. Only
 	// ApproveAsk writes it.
 	Ran *AskRan `json:"ran,omitempty"`
@@ -738,8 +742,8 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 // (answerable). Given is GiveSecret's to write: an answer that came with
 // it would say "gave" of a value no file holds. Ran is ApproveAsk's: an
 // answer that came with it would say the yard ran what it did not.
-// TakeBack is TakeBackAsk's, which asks who takes it back: here it would
-// be anyone's.
+// Account is ApproveSetup's, with Ran. TakeBack is TakeBackAsk's, which
+// asks who takes it back: here it would be anyone's.
 func answerShape(id string, ans *Answer) error {
 	ans.Words = strings.TrimSpace(ans.Words)
 	if ans.TakeBack {
@@ -747,6 +751,9 @@ func answerShape(id string, ans *Answer) error {
 	}
 	if len(ans.Given) > 0 {
 		return fmt.Errorf("answer %d: a secret is given with yardr bead answer %s %d --secret, and recorded by the yard alone", ans.Ask, id, ans.Ask)
+	}
+	if ans.Account != "" {
+		return fmt.Errorf("answer %d: a setup's account is taken with yardr bead answer %s %d <n> --account <source>, and recorded by the yard alone", ans.Ask, id, ans.Ask)
 	}
 	if ans.Ran != nil {
 		return fmt.Errorf("answer %d: a command is approved with yardr bead answer %s %d --approve, and what ran is recorded by the yard alone", ans.Ask, id, ans.Ask)
@@ -807,7 +814,7 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	// A setup ask has options, but a pick alone settles nothing: the
 	// preset pick goes with the account, in one approval.
 	case ask.Setup != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
-		return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n> --secret", ans.Ask, id, ans.Ask)
+		return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n> --secret (or --account <source> where the card lists one)", ans.Ask, id, ans.Ask)
 	case ask.Secret == nil && ans.Decline && ans.Words == "":
 		return RefusedNotAsk, fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
 	}
@@ -1354,7 +1361,9 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 			what := fmt.Sprintf("setup of pack %s, preset %s to %s",
 				OneLine(r.Ask.Setup.Pack), preset, OneLine(r.Ask.Setup.Grantees()))
-			if len(c.Answer.Given) > 0 {
+			if c.Answer.Account != "" {
+				what += "; took " + OneLine(c.Answer.Account)
+			} else if len(c.Answer.Given) > 0 {
 				what += "; gave " + OneLine(strings.Join(c.Answer.Given, " and "))
 			}
 			switch {
@@ -1414,6 +1423,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch {
 	case r.State == AskDeclined, r.State == AskTakenBack:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
+	case r.Ask.Setup != nil && len(r.Ask.Setup.Candidates) > 0:
+		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret, or <n> --account <source>", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Setup != nil:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Run != nil:

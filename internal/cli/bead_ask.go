@@ -283,11 +283,12 @@ the apply, the account and the grants. It takes --crew <name> and --group
 <group>, repeatable, at least one: who the grants are for. --recommend
 counts the card's preset options as yardr pack show prints them, with
 --why saying why, as on any option ask. The card shows the pack's
-declaration whole with its mint, the account to type unseen, and one
-option per preset, each rendered by the yard from the declarations with
-the grantee, and You decide last, which grants the recommended preset.
-The operator approves with the preset pick and the account together
-(yardr bead answer <id> <ask> <n> --secret); the yard then applies the
+declaration whole with its mint, the account to type unseen or the listed
+candidates to take, and one option per preset, each rendered by the yard
+from the declarations with the grantee, and You decide last, which grants
+the recommended preset. The operator approves with the preset pick and
+the account together (yardr bead answer <id> <ask> <n> --secret, or
+--account <source> where the card lists one); the yard then applies the
 pack, takes the account, and grants the preset picked, as the operator.
 An approval is refused when the yard changed since the ask, which is then
 asked again. A pack past 40 lines, one carrying sources under different
@@ -719,7 +720,7 @@ what the person asked does, and this is the asker's own.`,
 }
 
 func (a *app) newBeadAnswerCmd() *cobra.Command {
-	var ansWords, ansDecline string
+	var ansWords, ansDecline, ansAccount string
 
 	var ansLater, ansSecret, ansApprove bool
 	answer := &cobra.Command{
@@ -735,7 +736,8 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --later             put it aside for 24 hours
   yardr bead answer <id> <ask> --decline "<words>"   refuse to decide it
   yardr bead answer <id> <ask> --secret            give the secret a secret ask asks for
-  yardr bead answer <id> <ask> <n> --secret        pick a setup ask's preset with the account
+  yardr bead answer <id> <ask> <n> --secret        pick a setup ask's preset with the account typed
+  yardr bead answer <id> <ask> <n> --account <source>   pick a setup ask's preset, taking a listed account
   yardr bead answer <id> <ask> --approve           approve the command a run ask proposes
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
@@ -779,12 +781,15 @@ words, which are refused and kept nowhere; --later puts it aside as any
 ask, and it is declined with --decline "", without words.
 
 <n> --secret answers a setup ask (yardr bead ask --setup): the preset
-pick with the account typed unseen beside it, as --secret types it. The
-yard then applies the pack, takes the account, and grants the preset
-picked, as the operator, and records what ran. It is the operator's to
-give, and is refused from the pane of an agent. A pick with --secret is
-allowed on a setup ask only; everywhere else a secret answer still takes
-no pick.
+pick with the account typed unseen beside it, as --secret types it.
+<n> --account <source> answers it taking the named candidate's account
+instead, one the card lists with its address; where the card lists any,
+exactly one of the two settles the account, and where it lists none the
+typed value does. The yard then applies the pack, takes the account, and
+grants the preset picked, as the operator, and records what ran. It is
+the operator's to give, and is refused from the pane of an agent. A pick
+with --secret or --account is allowed on a setup ask only; everywhere
+else a secret answer still takes no pick.
 
 --approve answers a run ask (yardr bead ask --run): the yard runs the
 command the ask holds, exactly as its card shows it, as the operator, and
@@ -832,6 +837,19 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				return fmt.Errorf("ask %q: want the ask's seq, as prime, review and chat print it", args[1])
 			}
 			declined := c.Flags().Changed("decline")
+			if ansSecret && ansAccount != "" {
+				return fmt.Errorf("--secret types the account and --account takes a listed one: one of the two")
+			}
+			if ansAccount != "" {
+				if len(args) != 3 || ansWords != "" || ansLater || declined {
+					return fmt.Errorf("--account takes a candidate of a setup ask with its preset pick: yardr bead answer %s %d <n> --account <source>", id, askSeq)
+				}
+				n, pickErr := strconv.Atoi(args[2])
+				if pickErr != nil || n < 1 {
+					return fmt.Errorf("--account takes a candidate of a setup ask with its preset pick: yardr bead answer %s %d <n> --account <source>", id, askSeq)
+				}
+				return a.approveSetupAccount(c, st, id, askSeq, n, ansAccount)
+			}
 			if ansSecret {
 				if len(args) > 2 || ansWords != "" || ansLater || declined {
 					// A pick with --secret settles a setup ask alone.
@@ -843,7 +861,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
 				}
 				if setup, err := askedSetup(c.Context(), st, id, askSeq); err == nil && setup != nil {
-					return fmt.Errorf("ask %d sets up a pack: pick its preset with the account: yardr bead answer %s %d <n> --secret", askSeq, id, askSeq)
+					return fmt.Errorf("ask %d sets up a pack: pick its preset with the account: yardr bead answer %s %d <n> --secret (or --account <source> where the card lists one)", askSeq, id, askSeq)
 				}
 				return a.giveSecret(c, st, id, askSeq)
 			}
@@ -909,6 +927,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
 	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as you, exactly as the card shows it")
 	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen, or NAME=value lines on standard input")
+	answer.Flags().StringVar(&ansAccount, "account", "", "with a preset pick on a setup ask: take this listed candidate's account instead of typing one")
 	return answer
 }
 
@@ -1138,7 +1157,8 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 // ask: it reads the account values as yardr source key reads them, unseen
 // from a terminal or as NAME=value lines from anything else, and approves
 // the setup with the preset pick. What it prints is the preset picked and
-// who gave which names, never a value.
+// who gave which names, never a value. Where the card lists candidates,
+// --account <source> takes one instead (approveSetupAccount).
 func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
 	notes, err := st.Notes(c.Context(), id)
 	if err != nil {
@@ -1182,13 +1202,51 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	if err != nil {
 		return err
 	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, a.who())
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, "", a.who())
 	if err != nil {
 		return secretErr(err)
 	}
 	return a.out(done, func() {
 		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
 		fmt.Printf("%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
+		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
+	})
+}
+
+// approveSetupAccount is yardr bead answer <id> <ask> <n> --account
+// <source> on a setup ask: it approves the setup with the preset pick,
+// taking the named candidate's account file instead of typing a value.
+// What it prints is the preset picked and who took which source.
+func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq uint64, n int, account string) error {
+	notes, err := st.Notes(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	var setup *store.AskSetup
+	found := false
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		found = true
+		if r.AskErr != nil {
+			return r.AskErr
+		}
+		setup = r.Ask.Setup
+	}
+	switch {
+	case !found:
+		return fmt.Errorf("bead %s has no ask %d", id, seq)
+	case setup == nil:
+		return fmt.Errorf("--account takes a candidate of a setup ask: yardr bead answer %s %d <n> --account <source>", id, seq)
+	}
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, account, a.who())
+	if err != nil {
+		return secretErr(err)
+	}
+	return a.out(done, func() {
+		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Printf("%s took %s\n", a.who(), done.Account)
 		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
 	})
 }
