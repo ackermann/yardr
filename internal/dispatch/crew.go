@@ -532,6 +532,12 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		}
 		d.promptEvents(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, p, pass)
 		if pass.arrived {
+			if !idle {
+				// Arrival can end the first-prompt branch before the usual
+				// non-idle path below. Do not keep an unknown-dialog mark
+				// from an idle spell once the agent is seen working.
+				d.crewHarnessDialogOver(ctx, s)
+			}
 			// An agent working on its first prompt does not wait for a human.
 			delete(d.status, key)
 			return nil

@@ -244,6 +244,33 @@ func TestCrewHarnessDialogIsReported(t *testing.T) {
 	}
 }
 
+// Arrival may clear the pending first prompt on the same pass the agent is
+// seen working. That early return still ends the idle spell's dialog mark.
+func TestCrewHarnessDialogMarkClearsWhenPromptArrivesWhileWorking(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // start with the first prompt pending
+	agent := agentOf(t, s)
+	f.noScreen = true
+	f.show(kimiDialogUnknown)
+	must(t, d.Reconcile(ctx)) // mark the unknown dialog while idle
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.HarnessDialogKey] != "kimi" {
+		t.Fatalf("handle = %v; want the dialog marked", r.Handle)
+	}
+	f.set(agent, "working")
+	f.mu.Lock()
+	f.shown = true
+	f.mu.Unlock()
+	must(t, d.Reconcile(ctx)) // prompt arrives on the early-return path
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if r.Handle[store.PendingPrompt] != nil || r.Handle[dispatch.HarnessDialogKey] != nil {
+		t.Fatalf("handle = %v; want the prompt and ended dialog mark cleared", r.Handle)
+	}
+}
+
 // A crew session at a dialog with an answer the file names is not told of
 // an unknown one, and one past its start is not either.
 func TestCrewHarnessDialogOnlyForAnUnknownDialogAtAStart(t *testing.T) {
