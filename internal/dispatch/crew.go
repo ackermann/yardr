@@ -504,7 +504,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	if p, ok := s.st.Handle[store.PendingPrompt].(string); ok {
 		trustAllowed := true
 		trustBypass := false
-		if _, canAnswer := runner.(TrustAcceptor); canAnswer && status != "working" && !idle {
+		// A working agent is past its trust dialog; every other status,
+		// idle included, may still sit at one (see pendingPrompt).
+		if _, canAnswer := runner.(TrustAcceptor); canAnswer && status != "working" {
 			worked, err := d.crewWorked(ctx, *s)
 			if err != nil {
 				trustAllowed = false
@@ -524,6 +526,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 			if err := d.Store.SetCrewHandleFor(ctx, def.Name, s.user, pass.handle); err != nil {
 				return err
 			}
+			// Kept as the session's, as a bead's is: what is marked below
+			// builds on it.
+			s.st.Handle = pass.handle
 		}
 		d.promptEvents(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, p, pass)
 		if pass.arrived {
@@ -543,25 +548,31 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 			}
 			return nil
 		}
-		if !idle {
-			// At its login screen it waits on no human answer but a login:
-			// that is said instead, from the login's own memory.
-			if at, why := d.loginAt(ctx, runner, key, s.st.Handle); at {
-				if line := d.logins[key]; line != "" {
-					d.markCrewLogin(ctx, s, line)
-				}
-				if why.tells() {
-					d.nudgeHeld(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, "the first prompt", why)
-				}
-				return nil
+		if idle {
+			// Idle at its start at a dialog yardr does not know is told
+			// of, the way a bead's session is: a crew session has no idle
+			// limit, so without this nothing is ever told (yardr-5v7m).
+			d.crewHarnessDialog(ctx, runner, s)
+			return nil
+		}
+		d.crewHarnessDialogOver(ctx, s)
+		// At its login screen it waits on no human answer but a login:
+		// that is said instead, from the login's own memory.
+		if at, why := d.loginAt(ctx, runner, key, s.st.Handle); at {
+			if line := d.logins[key]; line != "" {
+				d.markCrewLogin(ctx, s, line)
 			}
-			// Waiting on a human (e.g. a trust prompt): say so once.
-			if d.status[key] != "waiting" {
-				d.status[key] = "waiting"
-				d.Log.Warn("crew session waiting for a human before it can start", "crew", def.Name, "session", s.label())
-				_ = d.Store.LogDispatch(ctx, def.Journal, "crew_blocked", actor, s.who(map[string]any{
-					"reason": "not ready at startup; answer it in its pane"}))
+			if why.tells() {
+				d.nudgeHeld(ctx, def.Journal, s.who(map[string]any{}), s.st.Handle, "the first prompt", why)
 			}
+			return nil
+		}
+		// Waiting on a human (e.g. a trust prompt): say so once.
+		if d.status[key] != "waiting" {
+			d.status[key] = "waiting"
+			d.Log.Warn("crew session waiting for a human before it can start", "crew", def.Name, "session", s.label())
+			_ = d.Store.LogDispatch(ctx, def.Journal, "crew_blocked", actor, s.who(map[string]any{
+				"reason": "not ready at startup; answer it in its pane"}))
 		}
 		return nil
 	}
@@ -591,6 +602,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 			// screen may read as blocked, so that status keeps the mark.
 			d.markCrewLogin(ctx, s, "")
 		}
+		d.crewHarnessDialogOver(ctx, s)
 		d.crewHarnessOver(ctx, s, false)
 		return nil
 	}

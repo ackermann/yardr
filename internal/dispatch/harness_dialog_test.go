@@ -165,6 +165,116 @@ func TestHarnessDialogOnlyForAnUnknownDialogAtAStart(t *testing.T) {
 	}
 }
 
+// A crew session that sits idle at its start at its harness's folder-trust
+// dialog with answers yardr does not know is told of the way a bead's
+// session is (yardr-5v7m): on its journal, once per idle spell. The crew
+// pending branch runs before any harness look and crew sessions have no
+// idle limit, so without this nothing is ever told.
+func TestCrewHarnessDialogIsReported(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // start with the first prompt pending
+	agent := agentOf(t, s)
+	f.noScreen = true // at the dialog: idle, no screen
+	f.show(kimiDialogUnknown)
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	var told []store.Event
+	for _, e := range evs {
+		if e.Kind == "session_harness_dialog" {
+			told = append(told, e)
+		}
+	}
+	if len(told) != 1 {
+		t.Fatalf("session_harness_dialog events = %d, want 1 on the first idle pass", len(told))
+	}
+	data := told[0].Data
+	wantDialog := strings.TrimPrefix(kimiDialogUnknown, " ────────────────────────────────────────────\n")
+	hint, _ := data["hint"].(string)
+	if data["crew"] != "yardmaster" || data["kind"] != "kimi" || data["dialog"] != wantDialog ||
+		data["tail"] != kimiDialogUnknown || !strings.Contains(hint, "harnesses/kimi.yaml") {
+		t.Fatalf("session_harness_dialog data = %v", data)
+	}
+	if len(f.trustKeys) != 0 {
+		t.Fatalf("trust keys = %v, want none typed into a dialog yardr does not know", f.trustKeys)
+	}
+	if r.Handle[dispatch.HarnessDialogKey] != "kimi" {
+		t.Fatalf("handle = %v; want the dialog marked", r.Handle)
+	}
+
+	// Once per spell.
+	must(t, d.Reconcile(ctx))
+	evs, _ = s.Events(ctx, r.Journal, 100)
+	n := 0
+	for _, e := range evs {
+		if e.Kind == "session_harness_dialog" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("session_harness_dialog events = %d, want 1 per idle spell", n)
+	}
+	// The dialog's mark kept what the pass stored: the screen wait is told
+	// once, not on every pass.
+	if n, _ := kindCount(t, s, r.Journal, "session_harness_starting"); n != 1 {
+		t.Fatalf("session_harness_starting events = %d, want 1", n)
+	}
+
+	// Someone answers the dialog and the agent gets going; when it sits at
+	// it again, that is told.
+	f.set(agent, "working")
+	must(t, d.Reconcile(ctx))
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.Handle[dispatch.HarnessDialogKey] != nil {
+		t.Fatalf("handle = %v; the mark outlived the idle spell", r.Handle)
+	}
+	f.set(agent, "idle")
+	must(t, d.Reconcile(ctx))
+	evs, _ = s.Events(ctx, r.Journal, 100)
+	n = 0
+	for _, e := range evs {
+		if e.Kind == "session_harness_dialog" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("session_harness_dialog events = %d, want a second one in the next spell", n)
+	}
+}
+
+// A crew session at a dialog with an answer the file names is not told of
+// an unknown one, and one past its start is not either.
+func TestCrewHarnessDialogOnlyForAnUnknownDialogAtAStart(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		tail    string
+		pending bool
+	}{
+		"an answer the file names": {tail: kimiDialogKnown, pending: true},
+		"past the start":           {tail: kimiDialogUnknown},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
+			ctx := context.Background()
+			f.sent = tc.pending
+			must(t, d.Reconcile(ctx))
+			f.noScreen = true
+			f.show(tc.tail)
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			r, _ := s.GetCrew(ctx, "yardmaster")
+			evs, _ := s.Events(ctx, r.Journal, 100)
+			for _, e := range evs {
+				if e.Kind == "session_harness_dialog" {
+					t.Fatalf("session_harness_dialog = %v, want none", e.Data)
+				}
+			}
+		})
+	}
+}
+
 // noVersionRunner is an agentRunner whose agent is at a dialog and whose
 // harness version is nothing known.
 type noVersionRunner struct{ *agentRunner }

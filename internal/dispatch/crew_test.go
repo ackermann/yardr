@@ -523,6 +523,112 @@ func TestBeadTrustDialogDrawnLateIsAnswered(t *testing.T) {
 	}
 }
 
+// Found live (yardr-vdjt): Kimi sits idle at its folder-trust dialog, so a
+// dialog that drew late was never answered: the idle path waited for the
+// harness screen instead. A known dialog is answered on the idle path too
+// while the first prompt is pending and unsent, and the prompt goes on the
+// usual path once the agent boots.
+func TestBeadIdleTrustDialogIsAnswered(t *testing.T) {
+	t.Parallel()
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.noScreen = "idle", true // at the dialog: idle, no screen
+	r.screen = fakeTrustDialog          // drawn after the start looked
+	must(t, d.Reconcile(ctx))
+	h := handleOf(t, s, b.ID)
+	if h[dispatch.TrustAccepted] != true || h[store.PendingPrompt] != "read your brief" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", h)
+	}
+	if !slices.Equal(r.trustKeys, []string{"enter"}) || r.trustCalls != 1 {
+		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", r.trustKeys, r.trustCalls)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_harness_starting")); n != 0 {
+		t.Fatalf("session_harness_starting logged %d times for a session whose trust dialog was answered", n)
+	}
+	// The agent boots; its first prompt goes on the usual path.
+	r.screen, r.noScreen = "", false
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	h = handleOf(t, s, b.ID)
+	if len(r.nudges) != 1 || r.nudges[0] != "read your brief" || h[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted logged %d times, want 1", n)
+	}
+}
+
+// The same for a crew member: idle at a late trust dialog, answered on the
+// pass, and the first prompt delivered once the agent boots.
+func TestCrewIdleTrustDialogIsAnswered(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // start with the first prompt pending
+	f.noScreen = true         // at the dialog: idle, no screen
+	f.screen = fakeTrustDialog
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+	}
+	if !slices.Equal(f.trustKeys, []string{"enter"}) || f.trustCalls != 1 {
+		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", f.trustKeys, f.trustCalls)
+	}
+	if n, _ := kindCount(t, s, r.Journal, "session_harness_starting"); n != 0 {
+		t.Fatalf("session_harness_starting events = %d, want none for an answered dialog", n)
+	}
+	// The agent boots; the prompt goes on the usual path.
+	f.screen, f.noScreen = "", false
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
+	}
+	if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+		t.Fatalf("crew_blocked events = %d, want none for an answered dialog", n)
+	}
+}
+
+// The counted-but-untaken bypass (yardr-x9kv) holds on the idle path too: a
+// first prompt counted via a delivery the agent dropped, then idle at the
+// late dialog never worked with no echo of the prompt, is answered.
+func TestCrewIdleTrustDialogAnsweredAfterCountedButDroppedSend(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx)) // start with the first prompt pending
+	f.drop = 1
+	must(t, d.Reconcile(ctx)) // delivered, dropped, counted
+	if len(f.nudges) != 1 {
+		t.Fatalf("nudges = %v, want the prompt sent once", f.nudges)
+	}
+	// Idle at the trust dialog, never worked, no echo.
+	f.screen, f.noScreen = fakeTrustDialog, true
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.TrustAccepted] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want trust_accepted and the prompt still pending", r.Handle)
+	}
+	if !slices.Equal(f.trustKeys, []string{"enter"}) {
+		t.Fatalf("trust keys = %v, want one enter", f.trustKeys)
+	}
+	if n, _ := kindCount(t, s, r.Journal, "crew_blocked"); n != 0 {
+		t.Fatalf("crew_blocked events = %d, want none for an answered dialog", n)
+	}
+	// The agent boots; the prompt is redelivered on the usual path.
+	f.screen, f.noScreen = "", false
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if len(f.nudges) != 2 || r.Handle[store.PendingPrompt] != nil {
+		t.Fatalf("nudges = %v, handle = %v, want the prompt redelivered and arrived", f.nudges, r.Handle)
+	}
+}
+
 // A session that was sent its prompt has had the trust dialog behind it,
 // and what it does with the prompt reaches its pane: a file it shows may
 // hold the dialog's text, at a permission question Enter would answer. So

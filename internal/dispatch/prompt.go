@@ -626,7 +626,9 @@ type promptPass struct {
 // after the start looked, and the session sat waiting for a human. While
 // the agent is not ready, the runner answers the trust dialog when that is
 // what the pane shows (TrustAcceptor): the handle says TrustAccepted, and
-// the pass declares no human wait.
+// the pass declares no human wait. An idle agent at a late dialog is
+// answered on the idle path too, while its screen is not up (yardr-vdjt:
+// Kimi sits idle at its dialog).
 //
 // Found live (yardr-9a82): the dialog may draw over the delivery itself,
 // after herdr took the prompt and before the agent started on it. Such a
@@ -687,6 +689,25 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	if handle[promptLost] == true {
 		return pass
 	}
+	// tryTrust answers the session's folder-trust dialog when that is what
+	// its pane shows, while its first prompt is demonstrably untaken:
+	// nothing counted sent, or a counted send the session demonstrably
+	// never took (see the rule below). Answered once: the handle says so
+	// after the first.
+	tryTrust := func() bool {
+		if handle[TrustAccepted] == true {
+			return false
+		}
+		// A look for typed text that failed rules nothing out.
+		bypass := trustBypass && sent && handle[PromptStarted] != true && known && typedKnown && !shown && !typed
+		ta, ok := r.(TrustAcceptor)
+		if !ok || !trustAllowed || (sent && !bypass) || !ta.AcceptTrust(ctx, handle, cfg) {
+			return false
+		}
+		pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
+		pass.trustedBypass = bypass
+		return true
+	}
 	if status != "idle" && status != "done" {
 		// At a question, or not telling: nothing is sent, and nothing is
 		// judged lost while the agent may yet turn to it. What a login
@@ -711,12 +732,7 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			// delivery the agent dropped, or a start that could not look,
 			// on a session whose history says it never worked and whose
 			// live pane has no echo of the prompt.
-			// A look for typed text that failed rules nothing out.
-			bypass := trustBypass && sent && handle[PromptStarted] != true && known && typedKnown && !shown && !typed
-			if ta, ok := r.(TrustAcceptor); ok && trustAllowed && (!sent || bypass) && ta.AcceptTrust(ctx, handle, cfg) {
-				pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
-				pass.trustedBypass = bypass
-			}
+			tryTrust()
 		}
 		return pass
 	}
@@ -738,6 +754,14 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 						pass.handle = withHandle(handle, HarnessLoginKey, line)
 					}
 				}
+				return pass
+			}
+			// A late trust dialog with the agent idle is answered as a
+			// blocked agent's is, by the same rule: Kimi sits idle at its
+			// dialog, so without this the pass waits for the screen
+			// instead, every pass, until a human answers or the idle
+			// limit fires (yardr-vdjt).
+			if tryTrust() {
 				return pass
 			}
 			if handle[promptNoScreen] != true {

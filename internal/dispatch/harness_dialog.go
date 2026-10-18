@@ -128,3 +128,62 @@ func (d *Dispatcher) markHarnessDialog(ctx context.Context, s *store.Session, ki
 	}
 	s.Handle = h
 }
+
+// crewHarnessDialog raises session_harness_dialog on the crew member's
+// journal for the idle crew session s when the end of its pane shows its
+// harness's folder-trust dialog with none of the answers its file names,
+// once per idle spell: the harness renamed its answers and yardr types
+// nothing. Only a session with its first prompt still pending is told of.
+// The handle is updated with the mark it stores.
+func (d *Dispatcher) crewHarnessDialog(ctx context.Context, r Runner, s *memberSession) {
+	if s.st.Handle[HarnessDialogKey] != nil || s.st.Handle[store.PendingPrompt] == nil {
+		return
+	}
+	t, ok := r.(Tailer)
+	if !ok {
+		return
+	}
+	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
+	if err != nil {
+		return // a pane that cannot be read says nothing either way
+	}
+	kind := harnessKind(s.member.Config)
+	dialog, ok := HarnessDialog(kind, tail)
+	if !ok {
+		return
+	}
+	version := ""
+	if v, ok := r.(Versioner); ok {
+		version = v.HarnessVersion(ctx, kind)
+	}
+	d.Log.Warn("crew session's harness drew a dialog yardr does not know", "crew", s.member.Name,
+		"session", s.label(), "kind", kind, "version", version)
+	data := s.who(map[string]any{"kind": kind, "dialog": dialog, "tail": tail, "hint": dialogHint(kind)})
+	if version != "" {
+		data["version"] = version
+	}
+	if look := s.st.Handle[PromptLook]; look != nil {
+		data[PromptLook] = look
+	}
+	if err := d.Store.LogDispatch(ctx, s.member.Journal, "session_harness_dialog", actor, data); err != nil {
+		d.Log.Warn("session_harness_dialog event", "crew", s.member.Name, "session", s.label(), "err", err)
+	}
+	h := maps.Clone(s.st.Handle)
+	if h == nil {
+		h = map[string]any{}
+	}
+	h[HarnessDialogKey] = kind
+	d.setCrewHandle(ctx, s, h)
+}
+
+// crewHarnessDialogOver ends the spell a session_harness_dialog was raised
+// in: the session's agent is doing something again, so its next dialog is
+// told again.
+func (d *Dispatcher) crewHarnessDialogOver(ctx context.Context, s *memberSession) {
+	if s.st.Handle[HarnessDialogKey] == nil {
+		return
+	}
+	h := maps.Clone(s.st.Handle)
+	delete(h, HarnessDialogKey)
+	d.setCrewHandle(ctx, s, h)
+}
