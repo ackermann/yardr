@@ -356,13 +356,17 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	})
 	// A slow test command, so merge-local is mid-run when it is killed;
 	// its own sleep is killed above, whatever outlives the run.
-	cmd := w.cmd()
+	// Use an unrestrictive umask so the private-file check catches a PID
+	// file made by an ordinary redirection instead of mktemp.
+	cmd := exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script)
+	cmd.Dir, cmd.Env, cmd.ExtraFiles = w.tmp, w.env, w.extra
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	// In ps, the sleep has exec'd past the recording stand-in, so the
 	// recording is complete before it is killed below.
-	_, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	nap, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	assertWatcherNapFileMode(t, w.tmp, nap)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
