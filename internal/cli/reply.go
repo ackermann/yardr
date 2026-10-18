@@ -114,8 +114,9 @@ Mail to the crew member is answered by mail to its sender: mail from this
 yard (a user or a crew member) as yardr mail <sender> would send it; mail
 from <name>@<peer> as yardr mail <name>@<peer> would (it is queued for the
 peer, which the crew member must be allowed, and a refusal reads as that
-command's). Each run sends one mail, or several numbered ones for a long
-text, as yardr mail does.
+command's). A reply to local mail sends one mail, or several numbered ones
+for a long text, as yardr mail does; a reply to peer mail keeps its separate
+16 KB per-mail limit.
 
 The call to a source is made from this process with your own credential,
 from your environment: the variable its declaration names (credential.env),

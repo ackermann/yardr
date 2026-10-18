@@ -804,10 +804,11 @@ from there it is a text of its own, numbered from 1.
 A text is sent as at most 16 mails (about 64 KB); the line takes nothing
 past that. More than that is a file, and the mail names it.
 
-Every way of writing mail splits a long text the same way: `yardr mail`
-and `yardr reply`, the talk page's form, and the socket's `Mail`
-([api.md](api.md#mail)). Past 16 mails those refuse, and the text goes as a
-file instead (`--file`).
+Every way of writing local mail splits a long text the same way: `yardr mail`
+and `yardr reply` when they write to this yard, the talk page's form, and
+the socket's `Mail` ([api.md](api.md#mail)). Past 16 mails those refuse, and
+the text goes as a file instead (`--file`). `yardr mail` and `yardr reply`
+to a linked yard (`name@peer`) keep their separate 16 KB per-mail limit.
 
 ## Live
 
