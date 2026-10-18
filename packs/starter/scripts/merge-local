@@ -274,11 +274,20 @@ tree() {
 unwatched() {
   [ -n "${watch:-}" ] || return 0
   kill "$watch" 2>/dev/null
-  if [ -n "${log:-}" ] && [ -f "$log.nap" ]; then kill "$(cat "$log.nap")" 2>/dev/null; fi
+  if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
+    nap=$(cat "$napfile" 2>/dev/null) || nap=
+    case "$nap" in ''|*[!0-9]*) ;; *) kill "$nap" 2>/dev/null ;; esac
+  fi
   wait "$watch" 2>/dev/null
   watch=
 }
-trap 'unwatched' EXIT
+cleanup() {
+  unwatched
+  [ -z "${log:-}" ] || rm -f "$log" "$log.late" "$log.sh"
+  [ -z "${napfile:-}" ] || rm -f "$napfile"
+  return 0
+}
+trap 'cleanup' EXIT
 # A signal that kills the script does not run its EXIT trap, so TERM and
 # INT clean up first and then report as a shell would, 128+n.
 trap 'unwatched; exit 143' TERM
@@ -297,6 +306,7 @@ trap 'unwatched; exit 130' INT
 # none starts another while it looks, and kills them once two looks agree.
 runtest() {
   log=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || hold "cannot make a file for the tests' output"
+  napfile=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || { rm -f "$log"; hold "cannot make a file for the timeout watcher"; }
   copy=
   if [ "$WHAT" = "the base's copy of $TEST" ]; then
     copy=$log.sh
@@ -324,7 +334,7 @@ runtest() {
     done
     sleep "$LIMIT" &
     nap=$!
-    echo "$nap" >"$log.nap"
+    echo "$nap" >"$napfile"
     wait "$nap"
     : >"$log.late"
     seen=
@@ -342,7 +352,7 @@ runtest() {
   # (a bounded wait), so the cleanup never kills a watcher whose sleep is
   # not yet known.
   i=0
-  while [ ! -f "$log.nap" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+  while [ ! -s "$napfile" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
   wait "$pid" && rc=0 || rc=$?
   step "$t0" "$RUN"
   secs=$((secs + took))
@@ -355,7 +365,9 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rm -f "$log" "$log.late" "$log.nap" "$log.sh"
+  rm -f "$log" "$log.late" "$napfile" "$log.sh"
+  log=
+  napfile=
   printf '%s\n' "$out"
 }
 # What a note says of a run's output: all of it, or its end.
