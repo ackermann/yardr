@@ -215,12 +215,18 @@ func TestPeersDaemonHoldsOrPolls(t *testing.T) {
 	b.run(t)
 
 	until(t, "b polls a", func() bool { return a.asked.Load() >= 5 })
-	from := a.asked.Load()
-	// Held, it would be one question in the time; asked at once
-	// after each answer, hundreds.
-	time.Sleep(500 * time.Millisecond)
-	if n := a.asked.Load() - from; n < 3 || n > 15 {
-		t.Fatalf("against a yard that holds nothing b asked %d times in 500ms, want about 10 (every 50ms)", n)
+	from, start := a.asked.Load(), time.Now()
+	// Six more questions, in whatever time the machine takes over
+	// them: a daemon that polls asks them, one pause apart, and one
+	// that held would ask none. Counting them in a fixed window
+	// flaked under race load, when fewer than three polls fit in
+	// 500ms.
+	until(t, "b polls on", func() bool { return a.asked.Load() >= from+6 })
+	// The six span five pauses of 50ms; asked at once after each
+	// answer, they would all land in a moment. Load only stretches
+	// the time, never shortens it.
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Fatalf("against a yard that holds nothing b asked six times in %s, want about 250ms (every 50ms)", elapsed)
 	}
 	if a.rc.Held() != 0 {
 		t.Fatal("a held a question")
