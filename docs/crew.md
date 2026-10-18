@@ -239,7 +239,7 @@ names its person and its slice.
 - **Subscriptions:** `--on` kinds (default: `attention`, the class of kinds
   that went wrong or need a decision: `gave_up`, `session_blocked`,
   `session_stalled`, `session_harness_error`, `session_model_mismatch`,
-  `session_prompt_gave_up`, `move_refused`, `unrouted`, `stranded`, `held`, …;
+  `session_prompt_gave_up`, `move_refused`, `make_refused`, `unrouted`, `stranded`, `held`, …;
   [subscriptions.md](subscriptions.md#the-class-attention) lists them), webhook deliveries
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).

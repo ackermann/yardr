@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -315,6 +316,69 @@ func TestMakeFindsTheDepot(t *testing.T) {
 	}
 	if got := r.beadless(t); len(got) != 3 || !strings.HasPrefix(got[2], "refused: stage nowhere is not in flow yard") {
 		t.Fatalf("hook_rule events on no bead: %q", got)
+	}
+}
+
+// A makes line whose bead the store refuses (a stage the type's flow has
+// not in the depot) is heard, not only logged: beside the hook_rule event
+// the yard logs make_refused, of the class attention, with why and the
+// thread. A daemon that starts again reads both and makes nothing of
+// either (yardr-pdpk).
+func TestAMakesLineTheStoreRefusesIsHeard(t *testing.T) {
+	t.Parallel()
+	r := newMakingDepot(t, "event=pull_request action=opened -> task:nowhere@yard")
+	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", nil)
+	r.pass(t)
+	if tracks, _ := r.tracking(t, pull17); len(tracks) != 0 {
+		t.Fatalf("%v made in a stage the flow has not", tracks)
+	}
+	wantRules(t, r.beadless(t), "refused: stage nowhere is not in flow yard")
+	evs, err := r.api.Events(context.Background(), "", 500)
+	must(t, err)
+	var found []store.Event
+	for _, e := range evs {
+		if e.Kind == "make_refused" {
+			found = append(found, e)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("make_refused events: %d, want one", len(found))
+	}
+	got := found[0]
+	if got.Bead != nil {
+		t.Fatalf("make_refused on bead %v, want none", *got.Bead)
+	}
+	if refused, _ := got.Data["refused"].(string); !strings.HasPrefix(refused, "stage nowhere is not in flow yard") {
+		t.Fatalf("make_refused refused %q", got.Data["refused"])
+	}
+	for _, k := range []string{"hook", "event", "makes", "depot", "thread"} {
+		if got.Data[k] == nil {
+			t.Fatalf("make_refused without %s: %v", k, got.Data)
+		}
+	}
+	if got.Data["thread"] != pull17 {
+		t.Fatalf("make_refused thread %v, want %s", got.Data["thread"], pull17)
+	}
+	if !slices.Contains(store.AttentionKinds, "make_refused") {
+		t.Fatalf("make_refused is not of the class attention: %v", store.AttentionKinds)
+	}
+
+	// A daemon that starts again reads the log from the start and makes
+	// nothing of what it reads there: the second event leaves off where
+	// the first did.
+	fresh := &dispatch.Dispatcher{Store: r.api, Runners: r.d.Runners, PRHead: r.d.PRHead, CI: r.d.CI, DepotRepo: r.d.DepotRepo}
+	must(t, fresh.Reconcile(context.Background()))
+	wantRules(t, r.beadless(t), "refused: stage nowhere is not in flow yard")
+	evs, err = r.api.Events(context.Background(), "", 500)
+	must(t, err)
+	again := 0
+	for _, e := range evs {
+		if e.Kind == "make_refused" {
+			again++
+		}
+	}
+	if again != 1 {
+		t.Fatalf("make_refused events after a restart: %d, want the one", again)
 	}
 }
 

@@ -228,9 +228,14 @@ func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, dec
 		return true
 	case err != nil:
 		// What the store refuses (a stage the type's flow has not there, a
-		// depot that is none) is the result, as a refused outcome is.
+		// depot that is none) is the result, as a refused outcome is. It
+		// is heard too: make_refused is of the class attention, so the
+		// yardmaster hears of the bead that was never made.
 		data["refused"] = err.Error()
 		d.Log.Info("hook event refused", "hook", h.Name, "event", ev.typ, "thread", ev.threadURL, "makes", line.String(), "why", err)
+		if err := d.Store.LogDispatch(ctx, "", "make_refused", actor, data); err != nil {
+			d.Log.Warn("make_refused event", "err", err)
+		}
 	default:
 		id = bead.ID
 		data["bead"], data["stage"], data["action"] = bead.ID, bead.Stage, "made "+bead.ID

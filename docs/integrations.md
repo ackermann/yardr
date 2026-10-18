@@ -1673,7 +1673,9 @@ The same steps as Linear, with these differences:
   closed bead that tracks the thread does not stand in the way: the next
   event after the close makes a new bead, which takes the link, and the
   closed one keeps a `relates` link. A line is refused when the type's
-  flow in the depot has no such stage a bead can be made in. What the yard
+  flow in the depot has no such stage a bead can be made in: the refusal is
+  logged as `make_refused`, of the class `attention`, beside the
+  `hook_rule` event. What the yard
   did itself, and what happened before the hook was last saved, makes
   nothing.
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github

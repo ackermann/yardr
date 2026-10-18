@@ -117,7 +117,7 @@ func TestDoctorNotesACopiedDefaultOn(t *testing.T) {
 	}
 	early, today := state.CopiedOn[0], state.CopiedOn[1]
 	for _, want := range []string{"crew member early has a copy of an earlier default --on",
-		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_harness_dialog, session_model_mismatch, session_prompt_gave_up, move_refused, held, waited, nudge_held, backup_failed, note_untold, install_failed, rolled_back, hook_quiet, quiet_failed, base_diverged. ",
+		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_harness_dialog, session_model_mismatch, session_prompt_gave_up, move_refused, make_refused, held, waited, nudge_held, backup_failed, note_untold, install_failed, rolled_back, hook_quiet, quiet_failed, base_diverged. ",
 		" crew set early --on attention,peer_bead_arrived"} {
 		if !strings.Contains(early, want) {
 			t.Errorf("the note for early lacks %q:\n%s", want, early)

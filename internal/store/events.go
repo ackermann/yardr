@@ -171,7 +171,7 @@ var DispatchKinds = []string{
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "capped", "quota_wait", "unrouted", "no_runner", "bad_depot", "bad_flow", "stranded",
 	"crew_blocked", "nudge_held", "human_notified", "waited",
-	"train_branched", "bad_train", "wagon_without_train", "hook_rule",
+	"train_branched", "bad_train", "wagon_without_train", "hook_rule", "make_refused",
 	HookQuiet, QuietStarted, QuietPassed, QuietFailed,
 }
 
