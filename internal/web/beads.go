@@ -794,10 +794,7 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 			}
 		}
 		for _, o := range next.Outcomes {
-			cmd := "yardr bead done " + b.ID
-			if o.Name != store.DefaultOutcome {
-				cmd += " --outcome " + o.Name
-			}
+			cmd := store.DoneCommand(b.ID, o.Name)
 			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.To, Command: cmd})
 		}
 	}

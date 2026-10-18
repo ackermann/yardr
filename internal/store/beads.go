@@ -1409,10 +1409,7 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // given (paneAuthor).
 func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
-	command := "yardr bead done " + id
-	if outcome != DefaultOutcome {
-		command += " --outcome " + outcome
-	}
+	command := DoneCommand(id, outcome)
 	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome))
 	return b, s.refused(ctx, id, command, exp, actor, err)
 }

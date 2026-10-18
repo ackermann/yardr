@@ -1046,10 +1046,7 @@ func (a *app) primeCmd() *cobra.Command {
 
 // doneCommand is the command that reports outcome for bead id.
 func doneCommand(id, outcome string) string {
-	if outcome == store.DefaultOutcome {
-		return "yardr bead done " + id
-	}
-	return "yardr bead done " + id + " --outcome " + outcome
+	return store.DoneCommand(id, outcome)
 }
 
 func readAllStdin() (string, error) {

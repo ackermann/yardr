@@ -42,6 +42,15 @@ type Outcome struct {
 // what a stage with a single way out offers without naming it.
 const DefaultOutcome = "done"
 
+// DoneCommand is the command that reports outcome for bead id, as the brief
+// lists it: without --outcome for done, with it for any other.
+func DoneCommand(id, outcome string) string {
+	if outcome == DefaultOutcome {
+		return "yardr bead done " + id
+	}
+	return "yardr bead done " + id + " --outcome " + outcome
+}
+
 // validFlowName keeps names usable as file names (.yardr/flows/<name>.flow)
 // and in the migrated <depot>.<type> form.
 var validFlowName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

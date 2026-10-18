@@ -162,6 +162,13 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				// while the session can still act on it itself.
 				d.idleNudge(ctx, r, s)
 			}
+			if tell && s.Handle[HarnessErrorKey] == nil && d.outcomeIdle(ctx, r, s) {
+				// Its last note is its own done note: the pane has the
+				// outcomes now, and session_idle waits for a later pass.
+				// A grace does not end it meanwhile: the line is its last
+				// chance before the yardmaster hears.
+				tell, idleFor = false, 0
+			}
 			if tell {
 				d.idleTold[s.ID] = true
 				d.Log.Warn("session idle", "session", s.ID, "bead", s.Bead, "idle", round(idleFor))
@@ -280,11 +287,10 @@ func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, 
 // pane shows a prompt, through herdr where it shows none); the
 // session_idle_nudge event says which way.
 //
-// A session whose own note already carries its test line wrote everything
-// but the outcome (yardr-k5g8: three builders wrote the finish note with
-// its test line and sat at their prompt), so its nudge names the command.
-// One with no note of its own is asked for the note and the handover, and
-// one whose own note carries no test line is still at work, and gets none.
+// One with no note of its own is asked for the note and the handover. One
+// with a note of its own gets none here: without a test line it is still
+// at work, and with one its outcome line goes at the idle limit, as a last
+// chance before session_idle (see outcomeIdle).
 //
 // A session still in its stall window, one judged stalled, one with a
 // first prompt still unsubmitted, and one that waits for a usage limit's
@@ -330,7 +336,6 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 	if err != nil {
 		return
 	}
-	wrote, finished := false, false
 	for _, n := range notes {
 		if n.Notify == s.ID && !n.Told && !n.Acked && n.Untold == "" {
 			return
@@ -339,24 +344,10 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		// the same author as its predecessor. Only notes written after this
 		// session started are this session's own.
 		if n.Author == agent && n.At.After(s.StartedAt) {
-			wrote = true
-			if hasTestLine(n.Text) {
-				finished = true
-			}
+			return
 		}
 	}
-	// The bead is still in the session's stage (checked above), so no
-	// outcome was reported yet: a finished note with no outcome is the
-	// builder sitting at its prompt after handing nothing on.
-	var text string
-	switch {
-	case finished:
-		text = fmt.Sprintf("yardr: your note is on the bead; report the outcome: yardr bead done %s.", s.Bead)
-	case wrote:
-		return
-	default:
-		text = fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
-	}
+	text := fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
 	told, delivery, err := d.nudgeSession(ctx, r, s, text)
 	if err != nil {
 		// For good, as a note's telling that fails: give up for this
@@ -375,6 +366,96 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		data["pane"] = pane
 	}
 	_ = d.Store.LogDispatch(ctx, s.Bead, "session_idle_nudge", actor, data)
+}
+
+// outcomeIdle sends the idle session s one line with the outcomes its stage
+// offers and their commands, when its bead's last note is its own done note:
+// it wrote everything but the outcome and stopped. The line goes at the idle
+// limit instead of session_idle, once per idle spell; only if the session
+// stays idle after it does session_idle reach the inbox on a later pass. It
+// reports whether the line was sent, and session_idle is suppressed for it.
+//
+// The commands are the brief's: the outcomes come from the same NextStages
+// the brief's list is drawn from, and each command is store.DoneCommand, so
+// the pane names what the brief named. A session whose last note is someone
+// else's, whose own last note carries no test line, or that cannot act gets
+// none, and session_idle goes as today.
+func (d *Dispatcher) outcomeIdle(ctx context.Context, r Runner, s *store.Session) bool {
+	if d.idleNudged[s.ID] {
+		return false
+	}
+	if _, fresh := d.fresh[s.ID]; fresh {
+		return false
+	}
+	if s.Handle[StalledAt] != nil {
+		return false
+	}
+	if _, ok := r.(Nudger); !ok {
+		return false
+	}
+	agent, _ := s.Handle["agent"].(string)
+	if agent == "" {
+		return false
+	}
+	if s.Handle[store.PendingPrompt] != nil {
+		return false
+	}
+	if s.Handle[harnessPrompted] != nil {
+		return false
+	}
+	if _, waits := handleTime(s.Handle, harnessResetAt); waits {
+		return false
+	}
+	b, err := d.Store.GetBead(ctx, s.Bead)
+	if err != nil || b.Stage != s.Stage {
+		return false
+	}
+	notes, err := d.Store.Notes(ctx, s.Bead)
+	if err != nil || len(notes) == 0 {
+		return false
+	}
+	for _, n := range notes {
+		if n.Notify == s.ID && !n.Told && !n.Acked && n.Untold == "" {
+			return false
+		}
+	}
+	last := notes[len(notes)-1]
+	if last.Author != agent || !last.At.After(s.StartedAt) || !hasTestLine(last.Text) {
+		return false
+	}
+	text := d.outcomeLine(ctx, s.Bead)
+	told, delivery, err := d.nudgeSession(ctx, r, s, text)
+	if err != nil {
+		d.Log.Warn("idle outcome line could not be sent", "session", s.ID, "bead", s.Bead, "err", err)
+		d.idleNudged[s.ID] = true
+		return false
+	}
+	if !told {
+		return false
+	}
+	d.idleNudged[s.ID] = true
+	d.Log.Info("idle session sent its outcomes before session_idle", "session", s.ID, "bead", s.Bead, "delivery", delivery)
+	data := map[string]any{"session": s.ID, "stage": s.Stage, "delivery": delivery}
+	if pane, _ := s.Handle["pane"].(string); pane != "" {
+		data["pane"] = pane
+	}
+	_ = d.Store.LogDispatch(ctx, s.Bead, "session_idle_nudge", actor, data)
+	return true
+}
+
+// outcomeLine is the one line an idle session whose last note is its own
+// done note is sent: the outcomes its stage offers, each with the command
+// that reports it, as the brief lists them. Without a flow, or a stage
+// with no outcomes, it names done alone.
+func (d *Dispatcher) outcomeLine(ctx context.Context, bead string) string {
+	if ns, err := d.Store.NextStages(ctx, bead); err == nil && len(ns.Outcomes) > 0 {
+		parts := make([]string, 0, len(ns.Outcomes))
+		for _, o := range ns.Outcomes {
+			parts = append(parts, fmt.Sprintf("`%s` with `%s`", o.Name, store.DoneCommand(bead, o.Name)))
+		}
+		return fmt.Sprintf("yardr: your note is on the bead; report the outcome: %s.", strings.Join(parts, ", "))
+	}
+	return fmt.Sprintf("yardr: your note is on the bead; report the outcome: `%s`.", store.DoneCommand(bead, store.DefaultOutcome))
 }
 
 // hasTestLine reports whether the note carries a test line: a line of its

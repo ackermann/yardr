@@ -641,10 +641,7 @@ func writeOutcomes(b *strings.Builder, id, stage string, outcomes []dispatch.Nex
 	fmt.Fprintf(b, "\n## Outcomes\n\n")
 	fmt.Fprintf(b, "Report how your work in `%s` ended; the flow moves the bead on. Add `--note \"...\"` to attach a note with the move.\n\n", stage)
 	for _, o := range outcomes {
-		cmd := "yardr bead done " + id
-		if o.Outcome != store.DefaultOutcome {
-			cmd += " --outcome " + o.Outcome
-		}
+		cmd := store.DoneCommand(id, o.Outcome)
 		fmt.Fprintf(b, "- `%s` (to `%s`): %s\n  `%s`\n", o.Outcome, o.Stage, nextWhen(o.NextStage), cmd)
 	}
 }
