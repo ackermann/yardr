@@ -55,6 +55,12 @@ members.** Nobody of the yard works a bead there: it waits for the pull
 request to change, and the next commits on it say `pushed`. In `yardr
 review` it shows where the pull request waits.
 
+**A merge moves the bead itself.** When the pull request is merged on
+GitHub, the `merged` outcome moves its bead out of `approved`, a stage of
+people, as the hook's `as` crew member (`yardmaster`): the pack's own
+mapping, not a stranger's word. An agent that read the pull request still
+cannot move a bead out of a stage of people by naming them.
+
 ## What the import asks
 
 Beside the starter's questions (the agents of `builders` and `reviewers`,

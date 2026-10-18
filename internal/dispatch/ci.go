@@ -354,7 +354,7 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Ho
 	if line = h.Said(env, train.Stage, train.Type); line == nil {
 		return env, nil, ignored("%s, and hook %s has no line for that for a train in %s", v.state, h.Name, train.Stage), true
 	}
-	res = d.report(ctx, train, line, env)
+	res = d.report(ctx, train, h, line, env)
 	if res.action != "" {
 		res.action = v.state + ": " + res.action
 	}

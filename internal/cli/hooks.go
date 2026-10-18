@@ -51,7 +51,7 @@ A hook can also move the issues beads track (yardr link). --map
 <type>:<stage>=<state> says that when a bead of that type enters that stage,
 the issue of this hook's source it tracks goes to started, review or done, as
 yardr thread state names them (on GitHub also label:<name>, which adds the
-label to the issue or pull request and is never removed); --as names the crew member it is done as. No
+label to the issue or pull request and is never removed); --as names the crew member it is done as, and a says outcome is reported as that crew member too, so the table's mapping crosses a stage of people they belong to. No
 agent takes part: the daemon makes the call with that crew member's credential,
 from its env_file, and only where the crew member's definition allows it
 (yardr crew set <crew member> set_state=<source>, which only the operator
@@ -169,7 +169,7 @@ of its inbox.`,
 	}
 	add.Flags().StringVar(&h.Source, "source", "", "source adapter: "+strings.Join(hooks.Sources(), ", "))
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
-	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map)")
+	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map) and reports says outcomes as")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", ")+", or on GitHub adds label:<name> to it")
 	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the bead it is about: the one that tracks its thread, else the train of its branch`)
 	add.Flags().StringArrayVar(&makes, "makes", nil, `"<key>=<value> ... -> <type>:<stage>[@<depot>]" (repeatable, in order): an event of the source that matches, about a thread no open bead tracks, makes a bead of the type in the stage that tracks it, in the depot or the one whose origin is the event's repository`)

@@ -335,20 +335,33 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 	}
 }
 
-// The yard must be allowed out of in-pr: with members that leave it out,
-// the refusal is logged and the train stays for a human.
+// The hook's crew member must be allowed out of in-pr: with members that
+// leave it out, the refusal is logged and the train stays for a human. A
+// member moves it: CI's outcome, like any says outcome, is reported as the
+// hook's crew member.
 func TestGitHubRuleRefusedByMembers(t *testing.T) {
 	t.Parallel()
-	r := newGHDepot(t, "mckean", "yardmaster")
-	r.train(t, "yard-a", "in-pr")
-	r.reviewed(t, "yard-a", fixtureSHA)
-	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
-	r.pass(t)
-	r.pass(t)
+	green := func(t *testing.T, members ...string) *ghDepot {
+		t.Helper()
+		r := newGHDepot(t, members...)
+		r.train(t, "yard-a", "in-pr")
+		r.reviewed(t, "yard-a", fixtureSHA)
+		r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
+		r.pass(t)
+		r.pass(t)
+		return r
+	}
+	r := green(t, "mckean")
 	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
 		t.Fatalf("yard-a in %s", st)
 	}
 	wantRules(t, r.ciRules(t, "yard-a"), "ci refused: bead yard-a: only members of group decisions")
+
+	moved := green(t, "mckean", "yardmaster")
+	if st := moved.stageOf(t, "yard-a"); st != "land" {
+		t.Fatalf("yard-a in %s, want land", st)
+	}
+	wantRules(t, moved.ciRules(t, "yard-a"), "ci green: in-pr -> land")
 }
 
 // A failed run on the head of a train in review is the outcome changes: the

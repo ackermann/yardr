@@ -399,15 +399,24 @@ func (d *Dispatcher) said(ctx context.Context, ev ruleEvent, bead *store.Bead, p
 			return r
 		}
 	}
-	return d.report(ctx, bead, line, ev.data)
+	return d.report(ctx, bead, h, line, ev.data)
 }
 
 // report is the move itself: the outcome goes through the bead's flow as a
 // session's would (yardr bead done --outcome), from the stage the line was
-// matched in. What the store refuses (a stage with no edge for the outcome,
-// a group whose members leave the yard out) is the result, not a failure.
-func (d *Dispatcher) report(ctx context.Context, bead *store.Bead, line *store.Say, env map[string]any) *ruleResult {
-	moved, err := d.Store.Done(ctx, bead.ID, line.Outcome, sayNote(line, env), store.Expect{Stage: bead.Stage}, actor)
+// matched in, reported as the hook's crew member (Hook's As) when it has
+// one, else as the yard. The table is the operator's own mapping, so what
+// it says crosses a stage of people the member belongs to, as their own
+// done would; a hook without one reports as the yard, which such a stage
+// refuses. The store tells this path from any other call that names the
+// member by nothing new: Done follows the stage's outcomes edges only,
+// never a manual move, and from a pane the move is its session's or its
+// crew member's whatever actor it names (paneAuthor), so an agent talked
+// into naming the member moves nothing. What the store refuses (a stage
+// with no edge for the outcome, a group whose members leave the hook's
+// member out) is the result, not a failure.
+func (d *Dispatcher) report(ctx context.Context, bead *store.Bead, h *store.Hook, line *store.Say, env map[string]any) *ruleResult {
+	moved, err := d.Store.Done(ctx, bead.ID, line.Outcome, sayNote(line, env), store.Expect{Stage: bead.Stage}, cmp.Or(h.As, actor))
 	if err != nil {
 		return &ruleResult{refused: err.Error()}
 	}

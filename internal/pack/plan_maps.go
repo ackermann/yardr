@@ -17,9 +17,10 @@ import (
 // shows both. Nothing is planned for a source the yard has no hook of, or
 // whose crew member has no identity in it (the store refuses such a hook, and
 // says why): the import sets nothing for it then, and the next one does.
-// The tables of what a source's events say and make go on the same hook,
-// and need the hook alone: no crew member acts when an event moves a bead
-// or makes one.
+// The tables of what a source's events say and make go on the same hook.
+// A says outcome is reported as the hook's as when it has one, so a table
+// whose outcomes cross a stage of people wants the pack's as; a make needs
+// the hook alone, as no crew member acts when an event makes a bead.
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
 	if len(b.p.Sources) == 0 {

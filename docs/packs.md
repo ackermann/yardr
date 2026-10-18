@@ -976,8 +976,9 @@ gets the pack's.
 
 **What a source's events say.** A source's `says` goes on the same hook, as
 `yardr hook add --says` would put it ([links.md](links.md#the-sources-events-move-the-bead)),
-in the pack's order. It needs the hook alone: no crew member acts when an
-event moves a bead, so a source with `says` and no `as` asks for no
+in the pack's order. The outcome is reported as the hook's `as` crew
+member when it has one, so a table whose outcomes cross a stage of people
+wants the pack's `as`; a source with `says` and no `as` asks for no
 identity and no `set_state`, and anyone who may apply the pack sets it. A
 hook that has another table gets the pack's, and the plan shows both; what
 the hook has besides (the crew member it acts as, its map) stays unless the

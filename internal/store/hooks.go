@@ -125,7 +125,10 @@ type Hook struct {
 	// tracking it enters a stage: "<bead type>:<stage>" -> started, review
 	// or done (see IssueMove). As is the crew member the change is made as:
 	// with its credential, under its identity in the source, and only where
-	// its definition allows it (SetState).
+	// its definition allows it (SetState). As is also who the hook's says
+	// outcomes are reported as (Store.Done by the dispatcher), so the
+	// operator's own mapping crosses a stage of people the member belongs
+	// to; without one the move is the yard's, which such a stage refuses.
 	As  string            `json:"as,omitempty"`
 	Map map[string]string `json:"map,omitempty"`
 	// Says is the other direction: what the source's events say of the bead

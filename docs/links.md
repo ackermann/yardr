@@ -232,6 +232,15 @@ member is in the source (`yardr crew identity`; for a GitHub App its
 action`. A label a stage set, or a comment a crew member wrote, comes back
 as an event like any other and never moves the yard.
 
+**Who reports it.** The outcome is reported as the hook's `as` crew
+member when the hook has one (`yardr hook add --as`, or a pack's
+`sources.<source>.as`), else as the yard. The table is the operator's own
+mapping, so what it says crosses a stage of people the member belongs to,
+as their own `bead done` would; a hook without one is refused out of such
+a stage, with who may move the bead. An agent's pane still cannot: from a
+pane the move is its session's or its crew member's whatever name it
+gives, so naming the member moves nothing.
+
 **What is refused.** `hook add` and a pack's check refuse a line whose
 filter parses wrong or names a key the source has not, and one whose
 outcome no stage of any flow has an edge for (the stage the line names,
@@ -250,10 +259,11 @@ trains in the stages those lines name.
 
 A pack carries the table beside the map (`sources.<source>.says` in
 `pack.yaml`), and `yardr pack apply` sets it on the yard's hook of the
-source; a table without `event=ci` lines needs the hook and nothing else,
-since no crew member acts, while one with them needs the hook's `as` crew
-member and its identity too: the reads run with that member's credential
-([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+source; the outcome is reported as the hook's `as` crew member when it has
+one, so a table whose outcomes cross a stage of people needs that member
+to belong to it, while a table with `event=ci` lines needs the `as`
+member and its identity in any case: the reads run with that member's
+credential ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
 
 ## One form per issue
 
