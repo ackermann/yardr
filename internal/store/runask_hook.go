@@ -320,7 +320,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 		return nil, err
 	}
 	reg := job.d.Hook.Register
-	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.src.MintCommand, source.Update)
+	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update)
 	if err != nil {
 		return nil, fmt.Errorf("hook %s is in place, but registering it failed: the register call %s was not made: %v. Approve again to retry", job.name, reg.Call, err)
 	}

@@ -289,7 +289,7 @@ func (s *Store) KeyUser(ctx context.Context, name, src string, values map[string
 	if err != nil {
 		return nil, k.failed(err)
 	}
-	return k.keyed(), nil
+	return k.keyed(s.home), nil
 }
 
 // KeyUserCredential writes the user name's own credential in the source
@@ -309,7 +309,7 @@ func (s *Store) KeyUserCredential(ctx context.Context, name, src string, values 
 	if err != nil {
 		return nil, k.failed(err)
 	}
-	return k.keyed(), nil
+	return k.keyed(s.home), nil
 }
 
 // keyUser is KeyUser inside the transaction, in keySource's order and for

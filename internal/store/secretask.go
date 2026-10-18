@@ -499,7 +499,7 @@ func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values ma
 	if lg.sent {
 		return &SourceKeyed{Given: lg.given, Login: lg.id}, nil
 	}
-	return k.keyed(), nil
+	return k.keyed(s.home), nil
 }
 
 // giveSecret is GiveSecret inside the transaction: the checks, the answer

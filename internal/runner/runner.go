@@ -371,7 +371,7 @@ func declaredChecks(home string, decl *source.Declaration, src *store.Source, re
 		cred = selected.Value
 		if selected.Inputs != nil {
 			var err error
-			cred, _, err = source.Mint(ctx, decl, strings.Fields(src.MintCommand), selected.Inputs, repo+"#"+number)
+			cred, _, err = source.Mint(ctx, decl, src.Mint, selected.Inputs, repo+"#"+number)
 			if err != nil {
 				return unavailable(err)
 			}

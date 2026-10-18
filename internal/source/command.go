@@ -110,11 +110,21 @@ type Command struct {
 	Argv []string `json:"argv"`
 }
 
-// Commands are the commands the declaration names: the limits command,
-// thread's reply, posted, read, open, opened and state, hook.normalize,
-// events' pr and ci, and each call's build, in that order.
+// MintCommandKey is the key that names the command a declaration brings
+// to mint its credential with (credential.mint_command).
+const MintCommandKey = "credential.mint_command"
+
+// Commands are the commands the declaration names: the mint command it
+// brings, the limits command, thread's reply, posted, read, open, opened
+// and state, hook.normalize, events' pr and ci, and each call's build, in
+// that order. The mint command is one of them so that it is carried as
+// every command file is: copied under <home>/sources/<name>/, hashed on
+// the plan and the card, and shown again when a later pack changes it.
 func (d *Declaration) Commands() []Command {
 	var out []Command
+	if d.Credential != nil && len(d.Credential.MintCommand) > 0 {
+		out = append(out, Command{Key: MintCommandKey, Argv: d.Credential.MintCommand})
+	}
 	if d.Limits != nil && len(d.Limits.Command) > 0 {
 		out = append(out, Command{Key: "limits.command", Argv: d.Limits.Command})
 	}
@@ -165,6 +175,23 @@ func (c Command) Program(home, source string) string {
 		return c.Argv[0]
 	}
 	return filepath.Join(home, "sources", source, c.Argv[0])
+}
+
+// MintArgv is the command a mint of the source runs, one rule for every
+// caller: setting, the source's mint_command as the operator set it, split
+// on spaces, wherever it is set, since the operator's own wins; else the
+// command the declaration brings (credential.mint_command), its program
+// the copy under <home>/sources/<name>/; nil where neither is.
+func (d *Declaration) MintArgv(home, setting string) []string {
+	if argv := strings.Fields(setting); len(argv) > 0 {
+		return argv
+	}
+	if d.Credential == nil || len(d.Credential.MintCommand) == 0 {
+		return nil
+	}
+	c := Command{Key: MintCommandKey, Argv: d.Credential.MintCommand}
+	argv := append([]string{c.Program(home, d.Name)}, c.Argv[1:]...)
+	return argv
 }
 
 // programs are the relative programs of the declaration's commands, each

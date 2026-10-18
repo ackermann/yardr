@@ -1,16 +1,17 @@
 # Drive as a pack of kind source: the integration, imported into the
 # yard and into no depot. What Drive is here: the declared source
 # google-drive, which lists and reads files, shares one file with one
-# address, makes folders and empty Docs and Slides for the
-# google-docs pack's sources to fill, and lists a file's comments and
-# replies in them.
-# Its credential mints from a gws login on this machine, with
-# contrib/google-mint as its mint_command, which the operator sets by
-# hand: no pack brings the command. One command mints every account,
-# choosing the login by the account it is given: the yard's login for
-# the yard's calls, that account's own login beside it for a call --as
-# a user. The login, the account, the mint and calling as a user are
-# the four google packs' shared setup, said once in docs/google.md.
+# address, makes folders and empty Docs and Slides for the google-docs
+# pack's sources to fill, and lists a file's comments and replies in
+# them. Its credential mints from a gws login on this machine, by
+# google-mint, the mint command the pack brings beside its declaration:
+# applying the pack sets it, with no command typed, and a mint_command
+# the operator sets on a source wins over it. One command mints every
+# account, choosing the login by the account it is given: the yard's
+# login for the yard's calls, that account's own login beside it for a
+# call --as a user. The login, the account, the mint and calling as a
+# user are the four google packs' shared setup, said once in
+# docs/google.md.
 #
 #   yardr pack apply google-drive
 #

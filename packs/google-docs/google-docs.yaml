@@ -22,11 +22,12 @@
 # refuses more than one unless all is true.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
-# account (an address, no secret) and the operator sets mint_command to
-# contrib/google-mint, which no pack brings. Docs takes no idempotency
-# key, so the file names none: a write tried again after a lost answer
-# is appended twice. A replace tried again counts again first, so it sends
-# a second change only where the first left matches.
+# account (an address, no secret) and google-mint, beside this file,
+# mints from it, which the operator's own mint_command wins over. Docs
+# takes no idempotency key, so the file names none: a write tried again
+# after a lost answer is appended twice. A replace tried again counts
+# again first, so it sends a second change only where the first left
+# matches.
 name: google-docs
 about: Google Docs read and appended to, several styled paragraphs in one call, and replaced in place.
 base: https://docs.googleapis.com
@@ -34,6 +35,7 @@ credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
   mint: [GOOGLE_ACCOUNT]
+  mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 calls:
   doc:
     kind: read

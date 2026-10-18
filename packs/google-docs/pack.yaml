@@ -1,15 +1,16 @@
 # Docs and Slides as a pack of kind source: the integration, imported
 # into the yard and into no depot. What they are here: the declared
-# sources google-docs and google-slides, which read documents and
-# decks, append text and slides to them, and replace document text in
-# place. Each source's credential
-# mints from a gws login on this machine, with contrib/google-mint as
-# its mint_command, which the operator sets by hand: no pack brings
-# the command. One command mints every account, choosing the login by
-# the account it is given: the yard's login for the yard's calls, that
-# account's own login beside it for a call --as a user. The login, the
-# account, the mint and calling as a user are the four google packs'
-# shared setup, said once in docs/google.md.
+# sources google-docs and google-slides, which read documents and decks,
+# append text and slides to them, and replace document text in place.
+# Each source's credential mints from a gws login on this machine, by
+# google-mint, the mint command the pack brings beside its declaration:
+# applying the pack sets it, with no command typed, and a mint_command
+# the operator sets on a source wins over it. One command mints every
+# account, choosing the login by the account it is given: the yard's
+# login for the yard's calls, that account's own login beside it for a
+# call --as a user. The login, the account, the mint and calling as a
+# user are the four google packs' shared setup, said once in
+# docs/google.md.
 #
 #   yardr pack apply google-docs
 #

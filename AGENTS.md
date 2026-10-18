@@ -19,8 +19,9 @@ worked); user docs live in `docs/` and are not repeated here.
 - `harnesses/`: one `<kind>.yaml` per agent harness kind, embedded and read
   by `internal/agents`.
 - `contrib/`: operator and developer tools, each with its own README
-  (assembly, bench, deploy, *-mint, isolated-yard, machine-limits, peer,
-  release, server-yard, shot).
+  (assembly, bench, deploy, github-mint, isolated-yard, machine-limits,
+  peer, release, server-yard, shot). google-mint is no longer here: each
+  google pack under `packs/` carries it as its declarations' mint command.
 - `conformance/bdp`: the BDP conformance suite (`run.sh`, vitest).
 - `.yardr/`: the yard's own rules for this depot: `depot.md`, the `test`
   gate, `flows/`, `roles/`.

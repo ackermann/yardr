@@ -21,12 +21,14 @@
 # sendUpdates and the fields, and answers the event.
 #
 # A credential that expires is minted, not kept: GOOGLE_ACCOUNT names
-# the account (an address, no secret) and the operator sets the command
-# that turns it into a token (yardr source set google-calendar
-# mint_command=<path to contrib/google-mint>), run with {inputs, scope}
-# on stdin for a {token, expires_at}. The token is handed to each call
-# under GOOGLE_TOKEN, and kept in memory alone. No pack brings the
-# command. Calendar takes no idempotency key, so the file names none: an
+# the account (an address, no secret), and google-mint, the file beside
+# this one, turns it into a token from the gws login on this machine:
+# run with {inputs, scope} on stdin for a {token, expires_at}. The
+# pack brings it (credential.mint_command), so applying the pack sets
+# the mint with no command typed; the card shows its sha256, and a
+# mint_command the operator sets on google-calendar wins over it. The token
+# is handed to each call under GOOGLE_TOKEN, and kept in memory alone.
+# Calendar takes no idempotency key, so the file names none: an
 # event tried again after a lost answer is made twice.
 name: google-calendar
 about: Calendar events listed, read, created and edited without inviting anyone; calendars listed.
@@ -35,6 +37,7 @@ credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
   mint: [GOOGLE_ACCOUNT]
+  mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 check: calendars
 calls:
   events:

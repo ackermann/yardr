@@ -33,9 +33,9 @@ even where it is the same address.
 Everything a crew member asks for — a user added, the pack, an
 account's name, a grant plain or `as` — is a card, answered in
 footplate or in `yardr chat` (`ctrl+o`). What stays in the terminal
-is what cannot be a card: a login in a browser (step 1), installing
-the mint from `main` (step 4), and the operator trying what they set
-up (steps 6 and 7).
+is what cannot be a card: a login in a browser (step 1), and the
+operator trying what they set up (steps 6 and 7). The mint (step 4)
+comes with the pack.
 
 ## Step 0. The person is a user
 
@@ -187,37 +187,48 @@ names the sources holding a credential of hers — never a value.
 
 ## Step 4. The mint
 
-`contrib/google-mint` turns a login into a token per call. Install
-it where the yard runs, from `main`, not a checkout, so a branch
-cannot change how the token is minted:
+Nothing to install or set: each google pack brings `google-mint`,
+the command that turns a login into a token per call, beside its
+declarations (`credential.mint_command: [google-mint]`). Applying
+the pack copies it to `~/.yardr/sources/<source>/google-mint`, mode
+0700, for each of its sources, and the apply card names it with its
+sha256 on the source's credential and command lines: approving the
+card approves those bytes. `yardr source show google-mail` says
+which mint runs (`mint: google-mint, the declaration's own …`) and
+the copy's sha256.
 
-```sh
-install contrib/google-mint/google-mint ~/bin/    # from main
-```
-
-Set it on each source the yard applies. Run only the lines for packs
-the yard uses:
-
-```sh
-yardr source set google-mail mint_command=$HOME/bin/google-mint
-yardr source set google-drive mint_command=$HOME/bin/google-mint
-yardr source set google-docs mint_command=$HOME/bin/google-mint
-yardr source set google-slides mint_command=$HOME/bin/google-mint
-yardr source set google-calendar mint_command=$HOME/bin/google-mint
-```
+Each pack carries its own copy, the same bytes in all four: a pack
+is applied alone, and a command's program is a file inside its own
+pack, so no pack depends on another being applied. A test holds the
+four copies to one text.
 
 It needs `gws` and `curl` on PATH (`GWS_BIN` names another gws).
-There is no per-user mint to install or set: one command mints
-every account, choosing the login by the account it is given —
-the default login where it is for that account, else that
-account's own login in `~/.config/gws-accounts/<account>`. It
-refuses an account with no login of its own, naming the login
-command that makes it, and a login for another account; it never
-prints the refresh token or client secret, nor writes them
-anywhere. No new copy of a secret is stored: the token is handed to
-each call under `GOOGLE_TOKEN` and kept in memory alone. Naming the
-program is operator-alone and stays typed. The longer telling is
-[`contrib/google-mint/README.md`](../contrib/google-mint/README.md).
+There is no per-user mint: one command mints every account,
+choosing the login by the account it is given — the default login
+where it is for that account, else that account's own login in
+`~/.config/gws-accounts/<account>`. It refuses an account with no
+login of its own, naming the login command that makes it, and a
+login for another account; it never prints the refresh token or
+client secret, nor writes them anywhere. No new copy of a secret is
+stored: the token is handed to each call under `GOOGLE_TOKEN` and
+kept in memory alone.
+
+Which program runs with a person's login stays the operator's:
+
+- A pack that later brings another `google-mint` is a change like
+  any other of a pack: its plan and its card show the copy's old and
+  new sha256 with the diff, and nothing is copied until the operator
+  approves it (or types `yardr pack apply` and says yes).
+- A mint the operator sets by hand wins over the pack's, and
+  applying the pack again keeps it:
+
+  ```sh
+  yardr source set google-mail mint_command=/Users/me/bin/my-mint
+  ```
+
+  `mint_command=` with nothing after it takes it away, and the
+  pack's mints again. Setting one is the operator's alone, typed:
+  no card and no agent sets it.
 
 ## Calling as a user
 

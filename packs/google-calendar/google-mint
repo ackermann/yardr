@@ -1,10 +1,9 @@
 #!/bin/sh
-# Mints a Google access token from a gws login: the mint_command of the
-# google packs' sources, whose credential names GOOGLE_ACCOUNT under
-# credential.mint. The core runs it with {inputs, scope} on stdin and
-# reads {token, expires_at} on stdout:
-#
-#   yardr source set google-mail mint_command=/Users/me/bin/google-mint
+# Mints a Google access token from a gws login: the mint command the
+# google packs' declarations bring (credential.mint_command), whose
+# credential names GOOGLE_ACCOUNT under credential.mint. Applying a
+# pack copies it under <home>/sources/<source>/; the core runs it with
+# {inputs, scope} on stdin and reads {token, expires_at} on stdout.
 #
 # GOOGLE_ACCOUNT is the account's address, no secret. The refresh
 # credentials come from the local gws login for that account (gws

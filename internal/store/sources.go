@@ -63,9 +63,17 @@ type Source struct {
 	// into a short-lived token, one line split on spaces without a shell,
 	// the program absolute or on PATH. It is stored to be shown, as a crew
 	// member's env_command is, so it holds no secret. Empty until the
-	// operator sets it; PutSource keeps what the source has, and no pack
-	// brings one.
+	// operator sets it; PutSource keeps what the source has, and a pack
+	// never sets it: a pack brings its own command in the declaration
+	// (credential.mint_command), which this setting wins over.
 	MintCommand string `json:"mint_command,omitempty"`
+	// Mint is the command a mint of the source runs, as
+	// Declaration.MintArgv has it: MintCommand where it is set, else the
+	// copy under <home>/sources/<name>/ of the one the declaration
+	// brings. GetSource and Sources say it, from the home the store
+	// stands in; it is never stored, so a client reads the server's
+	// answer and needs no home of its own.
+	Mint []string `json:"mint,omitempty"`
 	// CallsPerHour is how many calls of the source one session or crew
 	// member makes within SourceCallWindow; 0 for SourceCallLimit.
 	CallsPerHour int `json:"calls_per_hour,omitempty"`
@@ -225,11 +233,22 @@ func (s *Store) Sources(ctx context.Context) ([]Source, error) {
 	out := []Source{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bSources, "", func(_ []byte, src *Source) error {
+			src.Mint = src.mintIn(s.home)
 			out = append(out, *src)
 			return nil
 		})
 	})
 	return out, err
+}
+
+// mintIn is the command a mint of the source runs for a yard whose home is
+// home (Source.Mint): nil for a declaration this build does not read.
+func (s *Source) mintIn(home string) []string {
+	d, err := s.Declaration()
+	if err != nil {
+		return nil
+	}
+	return d.MintArgv(home, s.MintCommand)
 }
 
 func (s *Store) GetSource(ctx context.Context, name string) (*Source, error) {
@@ -249,6 +268,7 @@ func (s *Store) GetSource(ctx context.Context, name string) (*Source, error) {
 			src.EnvFileUnset = f
 		}
 	}
+	src.Mint = src.mintIn(s.home)
 	return src, nil
 }
 
@@ -425,13 +445,13 @@ func (s *Store) KeySource(ctx context.Context, name string, values map[string]st
 	if err != nil {
 		return nil, k.failed(err)
 	}
-	return k.keyed(), nil
+	return k.keyed(s.home), nil
 }
 
 // keyed is what a giving that was committed did, with the credential's
 // state read as a call would read it, after the write: the words never
 // hold a value.
-func (k *sourceKey) keyed() *SourceKeyed {
+func (k *sourceKey) keyed(home string) *SourceKeyed {
 	out := &SourceKeyed{Source: k.src, Given: k.names, File: k.file, Hook: k.hook}
 	if k.hook != "" {
 		out.State = fmt.Sprintf("the signing secret for the hook %s is set in %s", k.hook, k.file)
@@ -459,7 +479,7 @@ func (k *sourceKey) keyed() *SourceKeyed {
 		return out
 	}
 	if d, err := k.src.Declaration(); err == nil {
-		out.State, err = d.CredentialState(k.src.EnvFile, k.src.MintCommand)
+		out.State, err = d.CredentialState(k.src.EnvFile, d.MintArgv(home, k.src.MintCommand))
 		if err != nil {
 			out.Missing = err.Error()
 		}

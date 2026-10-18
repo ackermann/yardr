@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -48,7 +49,12 @@ func OpenHatchCopy(path string) (*HatchStore, error) {
 			}
 		}
 		if tx.Bucket(bSources) != nil {
+			// The copy stands in <home>/backups/, so the yard's home,
+			// where the copies a declaration's mint runs from are, is two
+			// up: a send through a minted source mints as the server would.
+			home := filepath.Dir(filepath.Dir(path))
 			if err := each(tx, bSources, "", func(_ []byte, src *Source) error {
+				src.Mint = src.mintIn(home)
 				h.sources[src.Name] = *src
 				return nil
 			}); err != nil {

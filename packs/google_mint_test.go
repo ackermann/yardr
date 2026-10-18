@@ -1,12 +1,17 @@
-// Package googlemint tests contrib/google-mint/google-mint, the
-// mint_command of the google packs' sources, against a fake gws on PATH
-// and a fake token endpoint. No test reaches Google.
-package googlemint
+package packs_test
+
+// These test google-mint, the mint command each google pack's
+// declarations bring (credential.mint_command), against a fake gws on
+// PATH and a fake token endpoint. No test reaches Google. The script is
+// one copy per pack, since a pack is applied alone and a command's
+// program is a file inside its own pack; TestGoogleMintCopiesAgree holds
+// the copies to one text, and the tests run the google-mail one.
 
 import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +22,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/packs"
 )
 
 // The fake refresh credentials the fake gws exports, and the fake access
@@ -173,7 +181,7 @@ func mintHome(t *testing.T, home, stdin, endpoint string, env ...string) (string
 	if err := os.WriteFile(filepath.Join(bin, "gws"), []byte(fakeGWS), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("./google-mint")
+	cmd := exec.Command("./google-mail/google-mint")
 	cmd.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH"), "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + endpoint}, env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
@@ -521,7 +529,7 @@ func TestGoogleMintGWSBin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "gws"), []byte(fakeGWS), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("./google-mint")
+	cmd := exec.Command("./google-mail/google-mint")
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + srv.URL, "GWS_BIN=~/bin/gws"}
 	cmd.Stdin = strings.NewReader(stdinFor("op@example.com", ""))
 	var stdout, stderr bytes.Buffer
@@ -627,6 +635,39 @@ func TestGoogleMintUnreachable(t *testing.T) {
 	for _, secret := range []string{fakeClientID, fakeClientSecret, fakeRefresh, fakeAccess} {
 		if strings.Contains(stderr, secret) {
 			t.Fatalf("stderr shows %q", secret)
+		}
+	}
+}
+
+// Each google pack carries its own google-mint, since a pack is applied
+// alone and a command's program is a file inside its pack; the four are
+// one script, so a fix to one is a fix to all. Every declaration of the
+// four packs mints with it (yardr-66qd).
+func TestGoogleMintCopiesAgree(t *testing.T) {
+	want, err := fs.ReadFile(packs.FS, "google-mail/google-mint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"google-drive", "google-docs", "google-calendar"} {
+		got, err := fs.ReadFile(packs.FS, p+"/google-mint")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s/google-mint differs from google-mail's: the copies are one script", p)
+		}
+	}
+	for _, file := range []string{"google-mail/google-mail.yaml", "google-drive/google-drive.yaml", "google-docs/google-docs.yaml", "google-docs/google-slides.yaml", "google-calendar/google-calendar.yaml"} {
+		raw, err := fs.ReadFile(packs.FS, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := source.Parse(file, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := d.Credential.MintCommand; len(got) != 1 || got[0] != "google-mint" {
+			t.Errorf("%s: credential.mint_command = %q, want [google-mint]", file, got)
 		}
 	}
 }

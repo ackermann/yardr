@@ -166,7 +166,7 @@ func (b *planner) declared() error {
 			}
 		}
 		dp.Action = action(exists, changes)
-		if n, has := credentialNeed(decl, envFile, mintCommand); has {
+		if n, has := credentialNeed(decl, envFile, decl.MintArgv(b.o.Home, mintCommand)); has {
 			// A file nobody needs is not a need: with no grant or
 			// notification the server makes no call of the source,
 			// and a crew member holds the key its commands run with.
@@ -317,14 +317,15 @@ func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) (str
 }
 
 // credentialNeed is whether the file the credential of decl is read from
-// is set and sets what decl names, and where it names a mint, whether the
-// command that mints it is set; has is false for a declaration that names
-// no credential.
-func credentialNeed(decl *source.Declaration, envFile, mintCommand string) (n Need, has bool) {
+// is set and sets what decl names, and where it names a mint, whether a
+// command mints it: mint is the one that will (Declaration.MintArgv), the
+// operator's setting or the one decl brings. has is false for a
+// declaration that names no credential.
+func credentialNeed(decl *source.Declaration, envFile string, mint []string) (n Need, has bool) {
 	if decl.Credential == nil {
 		return n, false
 	}
-	state, err := decl.CredentialState(envFile, mintCommand)
+	state, err := decl.CredentialState(envFile, mint)
 	switch {
 	case err == nil:
 		return Need{store.SourceEnvFile, "ok", state}, true
@@ -337,7 +338,7 @@ func credentialNeed(decl *source.Declaration, envFile, mintCommand string) (n Ne
 	}
 	var noCommand *source.NoMintCommand
 	if errors.As(err, &noCommand) {
-		return Need{store.SourceMintCommand, "missing", state + ", and a pack cannot bring one: " + err.Error()}, true
+		return Need{store.SourceMintCommand, "missing", state + ", and the pack's declaration brings none (credential.mint_command): " + err.Error()}, true
 	}
 	return Need{store.SourceEnvFile, "missing", err.Error()}, true
 }
@@ -399,7 +400,7 @@ func (b *planner) calls() error {
 					detail = fmt.Sprintf("the yard has no source %s, and the pack declares none: yardr pack apply %s brings it, then apply the pack again", asked.Source, asked.Source)
 				}
 				c.Missing = append(c.Missing, Need{"source", "missing", detail})
-			} else if n, named := credentialNeed(decl, envFile, mintCommand); named && n.Status != "ok" {
+			} else if n, named := credentialNeed(decl, envFile, decl.MintArgv(b.o.Home, mintCommand)); named && n.Status != "ok" {
 				c.Missing = append(c.Missing, Need{n.What, n.Status, n.Detail + ", then apply the pack again"})
 			} else {
 				unready = false

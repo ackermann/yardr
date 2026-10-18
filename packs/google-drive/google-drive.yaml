@@ -27,10 +27,10 @@
 # reply, resolving the thread when the action is resolve.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
-# account (an address, no secret) and the operator sets mint_command to
-# contrib/google-mint, which no pack brings. Drive takes no idempotency
-# key, so the file names none: a folder tried again after a lost answer
-# is made twice.
+# account (an address, no secret) and google-mint, beside this file,
+# mints from it, which the operator's own mint_command wins over. Drive
+# takes no idempotency key, so the file names none: a folder tried again
+# after a lost answer is made twice.
 name: google-drive
 about: Drive files listed, read and shared; folders and empty Docs and Slides created; comments listed and replied to.
 base: https://www.googleapis.com
@@ -38,6 +38,7 @@ credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
   mint: [GOOGLE_ACCOUNT]
+  mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 check: files
 calls:
   files:

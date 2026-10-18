@@ -132,6 +132,13 @@ type Credential struct {
 	// so a pack may bring them as it brings Env. Empty for a source whose
 	// credential is used as it is set.
 	Mint []string `json:"mint,omitempty"`
+	// MintCommand is the command the declaration brings to mint with: a
+	// program that is a file beside the declaration's, which the yard
+	// copies and hashes as it does every command's, and its arguments.
+	// It is used where the source's own mint_command setting is unset:
+	// the operator's setting wins. Empty for a declaration that brings
+	// none, whose mint is the operator's alone to set.
+	MintCommand []string `json:"mint_command,omitempty"`
 	// InPath says the service takes the credential in the request path,
 	// so a call's path may name {credential}. It is said out loud because
 	// a credential there is in the logs of every server on the way;
@@ -802,8 +809,8 @@ func hasDots(path string) bool {
 
 func (r *reader) credential(e entry) *Credential {
 	c, has := &Credential{}, false
-	var update, mint *entry
-	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint", "in_path") {
+	var update, mint, mintCommand *entry
+	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint", "mint_command", "in_path") {
 		switch f.key {
 		case "env":
 			has = true
@@ -822,6 +829,18 @@ func (r *reader) credential(e entry) *Credential {
 		case "mint":
 			mint = &f
 			c.Mint = r.mintNames(f)
+		case "mint_command":
+			mintCommand = &f
+			c.MintCommand = r.command(f, "argument")
+			// Relative alone, as a build's: the program that runs with
+			// a person's login is one the yard copies and hashes, so the
+			// card that adds it shows its digest and a later change is
+			// shown again. An absolute one is the operator's to set on
+			// the source, never a file's to name.
+			if len(c.MintCommand) > 0 && strings.HasPrefix(c.MintCommand[0], "/") {
+				r.errf(f.v, f.path, "the program %q is absolute: a mint_command a declaration brings is a file beside the declaration's file that the yard copies and hashes; the operator's own is set on the source (yardr source set <name> mint_command=<program>)", c.MintCommand[0])
+				c.MintCommand = nil
+			}
 		case "in_path":
 			if v, ok := r.boolean(f.v, f.path); ok {
 				c.InPath = v
@@ -864,6 +883,10 @@ func (r *reader) credential(e entry) *Credential {
 				r.errf(mint.v, mint.path, "%s is update_env already: mint names the variables the token is minted from, beside the variables a call is sent with", m)
 			}
 		}
+	}
+	if mintCommand != nil && len(c.MintCommand) > 0 && len(c.Mint) == 0 {
+		r.errf(mintCommand.v, mintCommand.path, "names a command to mint with, and the credential names no mint: the names it mints from go under credential.mint")
+		c.MintCommand = nil
 	}
 	return c
 }

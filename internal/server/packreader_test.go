@@ -330,8 +330,10 @@ func TestPackApplyGoogleDocsChangeCardFits(t *testing.T) {
 	if len(does) > store.MaxRunSourceCardLines {
 		t.Fatalf("the google-docs change card runs to %d lines, over the %d a card holds", len(does), store.MaxRunSourceCardLines)
 	}
-	if len(does) != 39 {
-		t.Errorf("the google-docs change card runs to %d lines, want the pinned 39", len(does))
+	// 40, the most a card holds: the credential line of the change
+	// says the mint command the pack now brings (yardr-66qd).
+	if len(does) != 40 {
+		t.Errorf("the google-docs change card runs to %d lines, want the pinned 40", len(does))
 	}
 	joined := strings.Join(does, "\n")
 	for _, want := range []string{

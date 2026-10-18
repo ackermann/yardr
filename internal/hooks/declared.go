@@ -379,7 +379,7 @@ func (d Declared) threadCredential(ctx context.Context, in map[string]any, cred 
 	} else if place, _ := in["in"].(string); place != "" {
 		scope = place
 	}
-	token, _, err := source.Mint(ctx, d.D, strings.Fields(d.MintCommand), inputs, scope)
+	token, _, err := source.Mint(ctx, d.D, d.D.MintArgv(d.Home, d.MintCommand), inputs, scope)
 	if err != nil {
 		return "", err
 	}

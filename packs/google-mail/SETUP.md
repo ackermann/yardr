@@ -27,9 +27,11 @@ the four google packs' shared setup, said once in `docs/google.md`.
    ```
 3. **The account.** Give the yard's Google account for `google-mail`,
    one card, as described in `docs/google.md` (step 3).
-4. **The mint.** Install the shared `google-mint` and set it on
-   `google-mail` as described in `docs/google.md`. What it needs and
-   refuses is there too.
+4. **The mint.** Nothing to type: the pack brings `google-mint`
+   beside its declaration, and applying it (step 2) copies it for
+   `google-mail`, its sha256 on the card. What it needs and refuses,
+   and how a mint of the operator's own replaces it, are in
+   `docs/google.md`.
 5. **The grants.** A pack of kind source asks none at import, so what
    a crew member may call is granted now: `read` for every read call,
    each update by its name. Plain, a crew member asks and the operator
@@ -55,7 +57,7 @@ the four google packs' shared setup, said once in `docs/google.md`.
    the credential over and sends nothing:
    ```sh
    yardr source check google-mail
-   # google-mail: credential: GOOGLE_ACCOUNT is set in /Users/me/.yardr/sources/google.env, minted with /Users/me/bin/google-mint
+   # google-mail: credential: GOOGLE_ACCOUNT is set in /Users/me/.yardr/sources/google.env, minted with /Users/me/.yardr/sources/google-mail/google-mint
    # google-mail: its file names no check call (check: <a read call without parameters>), so nothing was sent
    ```
 7. **Try it.** As the operator, who may make any call: a search, a

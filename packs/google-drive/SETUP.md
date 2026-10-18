@@ -30,9 +30,11 @@ shared setup, said once in `docs/google.md`.
    ```
 3. **The account.** Give the yard's Google account for `google-drive`,
    one card, as described in `docs/google.md` (step 3).
-4. **The mint.** Install the shared `google-mint` and set it on
-   `google-drive` as described in `docs/google.md`. What it needs and
-   refuses is there too.
+4. **The mint.** Nothing to type: the pack brings `google-mint`
+   beside its declaration, and applying it (step 2) copies it for
+   `google-drive`, its sha256 on the card. What it needs and refuses,
+   and how a mint of the operator's own replaces it, are in
+   `docs/google.md`.
 5. **The grants.** A pack of kind source asks none at import, so what
    a crew member may call is granted now: `read` for every read call,
    each update by its name. Plain, a crew member asks and the operator

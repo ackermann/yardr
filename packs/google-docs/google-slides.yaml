@@ -17,10 +17,10 @@
 # _title and _body, so the slide's is 5 to 44.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
-# account (an address, no secret) and the operator sets mint_command to
-# contrib/google-mint, which no pack brings. Slides takes no idempotency
-# key, so the file names none: a slide tried again after a lost answer
-# is added twice.
+# account (an address, no secret) and google-mint, beside this file,
+# mints from it, which the operator's own mint_command wins over. Slides
+# takes no idempotency key, so the file names none: a slide tried again
+# after a lost answer is added twice.
 name: google-slides
 about: Google Slides decks read, and slides with title and body appended.
 base: https://slides.googleapis.com
@@ -28,6 +28,7 @@ credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
   mint: [GOOGLE_ACCOUNT]
+  mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 calls:
   deck:
     kind: read

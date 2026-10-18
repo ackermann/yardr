@@ -716,9 +716,16 @@ yardr source rm pushover
   `credential.env`, and kept in memory alone, keyed by the credential and
   the scope. Where the env sets the mint's
   names the token is minted; one of them alone is refused; otherwise the
-  variable is used as it is set. No pack brings the command
-  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)); for a GitHub App's it
-  is [`contrib/github-mint`](../contrib/github-mint/README.md).
+  variable is used as it is set. The file may bring the command itself,
+  `credential.mint_command: [<file>]`, a program beside the file that the
+  yard copies under `<home>/sources/<name>/` and hashes as it does every
+  command's: a card that adds or changes it shows its sha256, and a pack
+  that later changes it is shown and approved again. It mints only where
+  the source's own `mint_command` is unset: the operator's wins, and a
+  pack applied again keeps it. The google packs bring theirs
+  ([google.md](google.md#step-4-the-mint)); for a GitHub App's it is
+  [`contrib/github-mint`](../contrib/github-mint/README.md), set by the
+  operator.
 - **What a file can say**: JSON over HTTPS, and things that are no request:
   the command that says a subscription's limits
   ([above](#say-what-a-subscription-still-carries)), what the service

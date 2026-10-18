@@ -14,10 +14,11 @@ import (
 // value of the variable d names for that kind (Credential.EnvOf), from
 // envFile, the file the operator set for the source, read now; or the token
 // the mint's inputs in that file mint, where the file names a mint, with
-// the source's mint_command and no scope. state says in words where it is,
+// mint, the command a mint of the source runs (MintArgv), and no scope.
+// state says in words where it is,
 // and for a minted token how long it is good, for showing, and never holds
 // the value; err says why there is none, with the command that sets it up.
-func (d *Declaration) ReadCredential(ctx context.Context, envFile, mintCommand, kind string) (value, state string, err error) {
+func (d *Declaration) ReadCredential(ctx context.Context, envFile string, mint []string, kind string) (value, state string, err error) {
 	if d.Credential == nil {
 		return "", "none: the file names no credential", nil
 	}
@@ -25,16 +26,16 @@ func (d *Declaration) ReadCredential(ctx context.Context, envFile, mintCommand, 
 	if err != nil {
 		return "", "", err
 	}
-	return d.resolveSelected(ctx, sel, mintCommand, kind)
+	return d.resolveSelected(ctx, sel, mint, kind)
 }
 
 // ReadUserCredential reads the credential of d for a call made as the user:
 // the value of the variable d names for that kind from envFile, the file
 // their record names, read now, or the token its mint's inputs mint, with
-// the source's mint_command and no scope. The precedence, the mint and what
+// mint, the command a mint of the source runs, and no scope. The precedence, the mint and what
 // state says are ReadCredential's; err says why there is none, with the
 // card that gives it.
-func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile, mintCommand, kind string) (value, state string, err error) {
+func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile string, mint []string, kind string) (value, state string, err error) {
 	if d.Credential == nil {
 		return "", "none: the file names no credential", nil
 	}
@@ -46,17 +47,17 @@ func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile, min
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %s", err, card)
 	}
-	return d.resolveSelected(ctx, sel, mintCommand, kind)
+	return d.resolveSelected(ctx, sel, mint, kind)
 }
 
 // resolveSelected is what a selected credential is for a call of kind: the
 // static value, or the token the mint's inputs mint.
-func (d *Declaration) resolveSelected(ctx context.Context, sel *Selected, mintCommand, kind string) (value, state string, err error) {
+func (d *Declaration) resolveSelected(ctx context.Context, sel *Selected, mint []string, kind string) (value, state string, err error) {
 	if sel.Inputs == nil {
 		name := d.Credential.EnvOf(kind)
 		return sel.Value, name + " is set in " + sel.File, nil
 	}
-	token, expires, err := Mint(ctx, d, strings.Fields(mintCommand), sel.Inputs, "")
+	token, expires, err := Mint(ctx, d, mint, sel.Inputs, "")
 	if err != nil {
 		return "", "", err
 	}
@@ -65,10 +66,10 @@ func (d *Declaration) resolveSelected(ctx context.Context, sel *Selected, mintCo
 
 // CredentialState says in words where every variable d names is set, the
 // one of its updates included, as ReadCredential says it of one; for a
-// minted credential, the input names and the command that mints them, which
-// is not run to tell. err is the first that is not, or a *NoMintCommand
-// where a mint is set up but the command is not.
-func (d *Declaration) CredentialState(envFile, mintCommand string) (state string, err error) {
+// minted credential, the input names and the command that mints them (mint,
+// as MintArgv has it), which is not run to tell. err is the first that is
+// not, or a *NoMintCommand where a mint is set up but no command is.
+func (d *Declaration) CredentialState(envFile string, mint []string) (state string, err error) {
 	if d.Credential == nil {
 		return "none: the file names no credential", nil
 	}
@@ -78,10 +79,10 @@ func (d *Declaration) CredentialState(envFile, mintCommand string) (state string
 	}
 	if sel.Inputs != nil {
 		state = mintState(d.Credential.Mint, sel.File)
-		if mintCommand == "" {
+		if len(mint) == 0 {
 			return state, &NoMintCommand{Source: d.Name}
 		}
-		return state + ", minted with " + mintCommand, nil
+		return state + ", minted with " + strings.Join(mint, " "), nil
 	}
 	state = d.Credential.Env + " is set in " + sel.File
 	if d.Credential.UpdateEnv == "" {

@@ -60,7 +60,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 		// Looked at, not run: a mint is made only for a call below.
 		sel, credErr := d.SelectCredential(src.EnvFile, source.Read)
-		if credErr == nil && sel.Inputs != nil && src.MintCommand == "" {
+		if credErr == nil && sel.Inputs != nil && len(src.Mint) == 0 {
 			credErr = &source.NoMintCommand{Source: d.Name}
 		}
 		// A file nobody needs is not a note: with no grant or
@@ -94,7 +94,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			part.Notes = append(part.Notes, fmt.Sprintf("not tried: the file of source %s names no check call (check: <a read call without parameters>)", d.Name))
 		default:
 			call, _ := d.Call(d.Check)
-			cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
+			cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
 			if err != nil {
 				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was not made: %v", d.Name, d.Check, call.Request.Line(), err))
 				break

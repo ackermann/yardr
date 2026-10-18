@@ -184,8 +184,8 @@ calls:
 	return dir, decl
 }
 
-// A pack that declares a mint asks for the env_file and then the
-// mint_command, which no pack brings; a second apply keeps the operator's.
+// A pack that declares a mint and brings no command for it asks for the
+// env_file and then the mint_command; a second apply keeps the operator's.
 func TestPackApplyKeepsMintCommand(t *testing.T) {
 	a := openApp(t)
 	ctx := context.Background()
@@ -209,7 +209,7 @@ func TestPackApplyKeepsMintCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if want := "  missing  mint command WIDGET_APP_ID and WIDGET_APP_KEY are set in " + env + ", and a pack cannot bring one: no mint_command is set: yardr source set widget mint_command=<program> [args...]\n"; !strings.Contains(out, want) {
+	if want := "  missing  mint command WIDGET_APP_ID and WIDGET_APP_KEY are set in " + env + ", and the pack's declaration brings none (credential.mint_command): no mint_command is set: yardr source set widget mint_command=<program> [args...]\n"; !strings.Contains(out, want) {
 		t.Fatalf("pack check lacks %q:\n%s", want, out)
 	}
 	mint := filepath.Join(dir, "mint")

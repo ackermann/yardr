@@ -86,7 +86,7 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 		}
 		// As yardr source set checks it: the file is refused here, and a
 		// mint without its command is the next step, not a refusal.
-		if _, err := d.CredentialState(file, ""); err != nil {
+		if _, err := d.CredentialState(file, nil); err != nil {
 			var noCommand *source.NoMintCommand
 			if !errors.As(err, &noCommand) {
 				return nil, nil, fmt.Errorf("--source-env %s=%s: %w", name, file, err)
@@ -223,7 +223,7 @@ func sourceSetState(src *store.Source) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	state, err := d.CredentialState(src.EnvFile, src.MintCommand)
+	state, err := d.CredentialState(src.EnvFile, src.Mint)
 	if err != nil {
 		var noCommand *source.NoMintCommand
 		if !errors.As(err, &noCommand) {

@@ -32,7 +32,7 @@ func TestReadCredentialMint(t *testing.T) {
 	goodUntil := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC).Local().Format("15:04")
 
 	mintOnly := credFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n")
-	value, state, err := d.ReadCredential(ctx, mintOnly, script, Read)
+	value, state, err := d.ReadCredential(ctx, mintOnly, []string{script}, Read)
 	if err != nil || value != "tok-for-run-1" {
 		t.Fatalf("minted: %q %v", value, err)
 	}
@@ -40,37 +40,37 @@ func TestReadCredentialMint(t *testing.T) {
 		t.Fatalf("minted state = %q, want %q", state, want)
 	}
 	// A mint covers every kind: an update is minted too.
-	if value, _, err := d.ReadCredential(ctx, mintOnly, script, Update); err != nil || value != "tok-for-run-1" {
+	if value, _, err := d.ReadCredential(ctx, mintOnly, []string{script}, Update); err != nil || value != "tok-for-run-1" {
 		t.Fatalf("an update: %q %v", value, err)
 	}
 	// With both set the mint is what a call uses.
 	both := credFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\nCRM_TOKEN=tok-static\n")
-	if value, _, err := d.ReadCredential(ctx, both, script, Read); err != nil || value != "tok-for-run-1" {
+	if value, _, err := d.ReadCredential(ctx, both, []string{script}, Read); err != nil || value != "tok-for-run-1" {
 		t.Fatalf("both set: %q %v", value, err)
 	}
 	// Else the static variable, used as it is set.
 	one := credFile(t, "CRM_TOKEN=tok-static\n")
-	if value, state, err := d.ReadCredential(ctx, one, script, Read); err != nil || value != "tok-static" || state != "CRM_TOKEN is set in "+one {
+	if value, state, err := d.ReadCredential(ctx, one, []string{script}, Read); err != nil || value != "tok-static" || state != "CRM_TOKEN is set in "+one {
 		t.Fatalf("static: %q %q %v", value, state, err)
 	}
 	// One of the mint's names alone is refused, and not passed over.
 	part := credFile(t, "CRM_APP_ID=app-1\nCRM_TOKEN=tok-static\n")
-	if _, _, err := d.ReadCredential(ctx, part, script, Read); err == nil || !strings.Contains(err.Error(), "CRM_APP_ID is set without CRM_APP_KEY") {
+	if _, _, err := d.ReadCredential(ctx, part, []string{script}, Read); err == nil || !strings.Contains(err.Error(), "CRM_APP_ID is set without CRM_APP_KEY") {
 		t.Fatalf("one name alone: %v", err)
 	}
 	// Nothing set: the file and what would set it.
 	empty := credFile(t, "OTHER=x\n")
-	if _, _, err := d.ReadCredential(ctx, empty, script, Read); err == nil || !strings.Contains(err.Error(), "env_file "+empty+" does not set CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") {
+	if _, _, err := d.ReadCredential(ctx, empty, []string{script}, Read); err == nil || !strings.Contains(err.Error(), "env_file "+empty+" does not set CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") {
 		t.Fatalf("nothing set: %v", err)
 	}
 	// A mint with no command fails naming the setting that fixes it.
 	var noCommand *NoMintCommand
-	if _, _, err := d.ReadCredential(ctx, mintOnly, "", Read); !errors.As(err, &noCommand) || !strings.Contains(err.Error(), "yardr source set crm mint_command=<program> [args...]") {
+	if _, _, err := d.ReadCredential(ctx, mintOnly, nil, Read); !errors.As(err, &noCommand) || !strings.Contains(err.Error(), "yardr source set crm mint_command=<program> [args...]") {
 		t.Fatalf("no mint_command: %v", err)
 	}
 	// No file: the command that writes it first, with every name, and an
 	// agent's way on from a pane.
-	if _, _, err := d.ReadCredential(ctx, "", script, Read); err == nil ||
+	if _, _, err := d.ReadCredential(ctx, "", []string{script}, Read); err == nil ||
 		!strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN is not set up: yardr source key crm gives CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") ||
 		!strings.Contains(err.Error(), "an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret crm --context \"<where to get it>\"") {
 		t.Fatalf("no env_file: %v", err)
@@ -80,7 +80,7 @@ func TestReadCredentialMint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, state, err := bare.ReadCredential(ctx, "", "", Read); err != nil || value != "" || state != "none: the file names no credential" {
+	if value, state, err := bare.ReadCredential(ctx, "", nil, Read); err != nil || value != "" || state != "none: the file names no credential" {
 		t.Fatalf("no credential: %q %q %v", value, state, err)
 	}
 }
@@ -98,7 +98,7 @@ func TestReadUserCredential(t *testing.T) {
 	goodUntil := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC).Local().Format("15:04")
 
 	mintOnly := credFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n")
-	value, state, err := d.ReadUserCredential(ctx, "ada", mintOnly, script, Read)
+	value, state, err := d.ReadUserCredential(ctx, "ada", mintOnly, []string{script}, Read)
 	if err != nil || value != "tok-for-run-1" {
 		t.Fatalf("minted: %q %v", value, err)
 	}
@@ -107,7 +107,7 @@ func TestReadUserCredential(t *testing.T) {
 	}
 	// The static variable, used as it is set; an update reads its own.
 	one := credFile(t, "CRM_TOKEN=tok-static\n")
-	if value, state, err := d.ReadUserCredential(ctx, "ada", one, script, Read); err != nil || value != "tok-static" || state != "CRM_TOKEN is set in "+one {
+	if value, state, err := d.ReadUserCredential(ctx, "ada", one, []string{script}, Read); err != nil || value != "tok-static" || state != "CRM_TOKEN is set in "+one {
 		t.Fatalf("static: %q %q %v", value, state, err)
 	}
 	two, err := Parse("crm.yaml", []byte(keyed))
@@ -115,18 +115,18 @@ func TestReadUserCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := credFile(t, "CRM_TOKEN=tok-read\nCRM_WRITE_TOKEN=tok-write\n")
-	if value, _, err := two.ReadUserCredential(ctx, "ada", file, "", Update); err != nil || value != "tok-write" {
+	if value, _, err := two.ReadUserCredential(ctx, "ada", file, nil, Update); err != nil || value != "tok-write" {
 		t.Fatalf("an update: %q %v", value, err)
 	}
 	// Nothing set: the file, what it does not set, and the card that
 	// gives it. No file at all: the names unprompted, and the card.
 	empty := credFile(t, "OTHER=x\n")
-	if _, _, err := d.ReadUserCredential(ctx, "ada", empty, script, Read); err == nil ||
+	if _, _, err := d.ReadUserCredential(ctx, "ada", empty, []string{script}, Read); err == nil ||
 		!strings.Contains(err.Error(), "env_file "+empty+" does not set CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN") ||
 		!strings.Contains(err.Error(), `yardr bead ask <bead> "<question>" --secret crm --as ada --context "<where to get it>" asks ada for it`) {
 		t.Fatalf("nothing set: %v", err)
 	}
-	if _, _, err := d.ReadUserCredential(ctx, "ada", "", script, Read); err == nil ||
+	if _, _, err := d.ReadUserCredential(ctx, "ada", "", []string{script}, Read); err == nil ||
 		!strings.Contains(err.Error(), "CRM_APP_ID and CRM_APP_KEY is not set for ada: ") ||
 		!strings.Contains(err.Error(), "--secret crm --as ada") {
 		t.Fatalf("no file: %v", err)
@@ -136,7 +136,7 @@ func TestReadUserCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, state, err := bare.ReadUserCredential(ctx, "ada", "", "", Read); err != nil || value != "" || state != "none: the file names no credential" {
+	if value, state, err := bare.ReadUserCredential(ctx, "ada", "", nil, Read); err != nil || value != "" || state != "none: the file names no credential" {
 		t.Fatalf("no credential: %q %q %v", value, state, err)
 	}
 }
@@ -148,19 +148,19 @@ func TestCredentialStateMint(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "mint")
 	mintOnly := credFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n")
 
-	state, err := d.CredentialState(mintOnly, script)
+	state, err := d.CredentialState(mintOnly, []string{script})
 	if err != nil || state != "CRM_APP_ID and CRM_APP_KEY are set in "+mintOnly+", minted with "+script {
 		t.Fatalf("minted: %q %v", state, err)
 	}
 	// Set up but for the command: the names, and what is missing.
-	state, err = d.CredentialState(mintOnly, "")
+	state, err = d.CredentialState(mintOnly, nil)
 	var noCommand *NoMintCommand
 	if !errors.As(err, &noCommand) || state != "CRM_APP_ID and CRM_APP_KEY are set in "+mintOnly {
 		t.Fatalf("no mint_command: %q %v", state, err)
 	}
 	// Static alone, and static with a second credential for updates.
 	one := credFile(t, "CRM_TOKEN=tok-static\n")
-	if state, err := d.CredentialState(one, ""); err != nil || state != "CRM_TOKEN is set in "+one {
+	if state, err := d.CredentialState(one, nil); err != nil || state != "CRM_TOKEN is set in "+one {
 		t.Fatalf("static: %q %v", state, err)
 	}
 	two, err := Parse("crm.yaml", []byte(keyed))
@@ -168,10 +168,10 @@ func TestCredentialStateMint(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := credFile(t, "CRM_TOKEN=tok-read\nCRM_WRITE_TOKEN=tok-write\n")
-	if state, err := two.CredentialState(file, ""); err != nil || state != "CRM_TOKEN is set in "+file+"; for an update, CRM_WRITE_TOKEN is set in "+file {
+	if state, err := two.CredentialState(file, nil); err != nil || state != "CRM_TOKEN is set in "+file+"; for an update, CRM_WRITE_TOKEN is set in "+file {
 		t.Fatalf("two: %q %v", state, err)
 	}
-	if _, err := two.CredentialState(one, ""); err == nil || !strings.Contains(err.Error(), "does not set CRM_WRITE_TOKEN") {
+	if _, err := two.CredentialState(one, nil); err == nil || !strings.Contains(err.Error(), "does not set CRM_WRITE_TOKEN") {
 		t.Fatalf("without the update's: %v", err)
 	}
 }

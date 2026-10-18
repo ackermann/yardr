@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
@@ -111,7 +110,7 @@ func (d *Dispatcher) lookbackCredential(ctx context.Context, h *store.Hook, decl
 	if err != nil {
 		return "", err
 	}
-	token, _, err := source.Mint(ctx, decl, strings.Fields(src.MintCommand), inputs, scope)
+	token, _, err := source.Mint(ctx, decl, src.Mint, inputs, scope)
 	if err != nil {
 		return "", err
 	}

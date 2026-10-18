@@ -237,7 +237,7 @@ func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[strin
 		copies = fmt.Sprintf("copies %s (%s)", countNoun(files, "command file"), countNoun(commands, "command"))
 	}
 	does := []string{fmt.Sprintf("it adds one source and %s, and changes nothing else. It grants no call, makes no hook, and sets no credential's file.", copies)}
-	does = append(does, credentialSays(d))
+	does = append(does, credentialSays(d, carried, diffs))
 	for i := range d.Calls {
 		does = append(does, callSaysWhole(d, &d.Calls[i])...)
 	}
@@ -331,8 +331,11 @@ func safeSourceCardLine(s string) string {
 
 // credentialSays is the source and its credential in one sentence: where
 // its calls go, the variables its credential is read under by name and
-// never a value, and where the value goes.
-func credentialSays(d *source.Declaration) string {
+// never a value, where the value goes, and the mint command the
+// declaration brings with its file's sha256 whole, or its change where
+// diffs names one: that program runs with the operator's logins, so what
+// approving it approves is said where the credential is.
+func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) string {
 	head := fmt.Sprintf("source %s: it has no base and calls nothing.", d.Name)
 	if d.Base != "" {
 		head = fmt.Sprintf("source %s: its calls go to %s.", d.Name, d.Base)
@@ -345,7 +348,22 @@ func credentialSays(d *source.Declaration) string {
 	if c.UpdateEnv != "" {
 		s += fmt.Sprintf(", with %s for updates", c.UpdateEnv)
 	}
-	if len(c.Mint) > 0 {
+	switch {
+	case len(c.Mint) > 0 && len(c.MintCommand) > 0:
+		// The program that runs with a person's login is named here, and
+		// its file's sha256 on its command line below: approving the card
+		// approves those bytes, and a later pack that changes them shows
+		// the change on its own card. The operator's own mint_command,
+		// where one is set, still wins over it.
+		prog := c.MintCommand[0]
+		at := "<home>/sources/" + d.Name + "/" + prog
+		file := fmt.Sprintf("command file %s, copied to %s: sha256 %s, mode 0700", prog, at, carriedSHA(carried, prog))
+		if df, ok := diffs[prog]; ok {
+			ins, del := udiff.Counts(df.Diff)
+			file = fmt.Sprintf("command file %s, copied to %s: sha256 %s -> sha256 %s, mode 0700 (%d insertions, %d deletions)", prog, at, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)
+		}
+		s += fmt.Sprintf(", minted from %s by the declaration's own mint command %s (%s), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it", strings.Join(c.Mint, " and "), showCommand(c.MintCommand), file)
+	case len(c.Mint) > 0:
 		s += fmt.Sprintf(", minted from %s: a mint runs only where the yard's own mint_command is the operator's already, and this adds none", strings.Join(c.Mint, " and "))
 	}
 	var placements []string
@@ -639,6 +657,16 @@ func eventsSays(d *source.Declaration) string {
 	return "what it sends of pull requests and CI: " + strings.Join(parts, "; ") + "."
 }
 
+// carriedSHA is the SHA-256 of the carried file prog, "" for none.
+func carriedSHA(carried AskSource, prog string) string {
+	for _, f := range carried.Files {
+		if f.Program == prog {
+			return f.SHA256
+		}
+	}
+	return ""
+}
+
 // commandSays groups every command by the file the yard would run, with
 // its whole command and its file's SHA-256 whole, or says the source
 // names no command. A command is never named by its key alone.
@@ -662,6 +690,11 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 	var ordered []string
 	byProgram := map[string][]source.Command{}
 	for _, c := range commands {
+		// The mint command is said whole on the credential's line, its
+		// file and sha256 with it (credentialSays).
+		if c.Key == source.MintCommandKey {
+			continue
+		}
 		prog := c.Argv[0]
 		if _, ok := byProgram[prog]; !ok {
 			ordered = append(ordered, prog)
@@ -697,6 +730,10 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 		}
 		out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s, mode 0700", prog, andList(named), hashes[prog]))
 	}
+	if len(out) == 0 {
+		// The mint command alone, said on the credential's line.
+		return []string{"it names no command but its mint command, said with its credential above."}
+	}
 	return out
 }
 
@@ -705,6 +742,11 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 // build do.
 func commandGetsCredential(key string) bool {
 	switch key {
+	case source.MintCommandKey:
+		// The mint is handed the mint's inputs, not the token, but runs
+		// with the operator's local logins it mints from: the card says
+		// it is handed a credential, never that it is handed none.
+		return true
 	case "thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
 		return true
 	default:

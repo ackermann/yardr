@@ -13,12 +13,14 @@
 # takes {message: {raw}} and answers {id, message}.
 #
 # A credential that expires is minted, not kept: GOOGLE_ACCOUNT names
-# the account (an address, no secret) and the operator sets the command
-# that turns it into a token (yardr source set google-mail
-# mint_command=<path to contrib/google-mint>), run with {inputs, scope}
-# on stdin for a {token, expires_at}. The token is handed to each call
-# under GOOGLE_TOKEN, and kept in memory alone. No pack brings the
-# command. Gmail takes no idempotency key, so the file names none: a
+# the account (an address, no secret), and google-mint, the file beside
+# this one, turns it into a token from the gws login on this machine:
+# run with {inputs, scope} on stdin for a {token, expires_at}. The
+# pack brings it (credential.mint_command), so applying the pack sets
+# the mint with no command typed; the card shows its sha256, and a
+# mint_command the operator sets on google-mail wins over it. The token
+# is handed to each call under GOOGLE_TOKEN, and kept in memory alone.
+# Gmail takes no idempotency key, so the file names none: a
 # draft tried again after a lost answer is written twice.
 name: google-mail
 about: Gmail read and drafts. Searches, reads messages and threads, and writes drafts; sends nothing.
@@ -27,6 +29,7 @@ credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
   mint: [GOOGLE_ACCOUNT]
+  mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 calls:
   search:
     kind: read

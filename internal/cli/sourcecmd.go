@@ -172,16 +172,20 @@ calls run on a credential that may only read.
 
 A credential that expires is minted at each call instead of kept: the file
 names under credential.mint the variables that together select it, names
-only, and the command that turns their values into a token is the operator's
-(yardr source set <name> mint_command=<program> [args...]), run with
-{inputs, scope} on stdin for a {token, expires_at}. The token is handed to
-the call under credential.env, and kept in memory alone. An env that sets the
-mint's names is minted from; one of them alone is refused; otherwise the
-variable is used as it is set.
+only, and the command that turns their values into a token is set on the
+source (yardr source set <name> mint_command=<program> [args...]), run with
+{inputs, scope} on stdin for a {token, expires_at}. The file may bring that
+command itself, credential.mint_command, a program beside the file that the
+yard copies and hashes as it does every command's: it mints where the
+source's mint_command is unset, and one the operator sets wins over it. The
+token is handed to the call under credential.env, and kept in memory alone.
+An env that sets the mint's names is minted from; one of them alone is
+refused; otherwise the variable is used as it is set.
 
   credential:
     env: CRM_TOKEN
     mint: [CRM_APP_ID, CRM_APP_KEY]
+    mint_command: [crm-mint]          # optional: a file beside this one
     header: "Authorization: Bearer {credential}"
 
   credential:
@@ -619,7 +623,7 @@ credential in it whether their file sets that. The value is never printed.
 				return err
 			}
 			told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
-			state, credErr := d.CredentialState(src.EnvFile, src.MintCommand)
+			state, credErr := d.CredentialState(src.EnvFile, src.Mint)
 			if d.Credential != nil && src.EnvFileUnset != "" {
 				// A file where yardr source key writes one, which no
 				// setting names: a giving that was written and not
@@ -674,6 +678,9 @@ credential in it whether their file sets that. The value is never printed.
 					fmt.Printf("  %s\n", d.About)
 				}
 				fmt.Printf("  credential: %s\n", state)
+				if d.Credential.Minted() {
+					fmt.Println("  " + mintLine(d, src, files[source.MintCommandKey]))
+				}
 				for _, u := range users {
 					if astate, ok := as[u.Name]; ok {
 						fmt.Printf("  credential as %s: %s\n", u.Name, astate)
@@ -886,7 +893,10 @@ answers {token, expires_at}; its environment is PATH, HOME and
 YARDR_SOURCE_BASE, and nothing else of the yard's. The store keeps the line
 to be shown, as a crew member's env_command is, so it holds no secret. A
 program that is not there is refused here, as is a declaration that names no
-mint. mint_command= with nothing after it takes the setting away.
+mint. A declaration may bring a command of its own (credential.mint_command),
+which mints while this is unset: this setting wins over it, and a pack
+applied again keeps it. mint_command= with nothing after it takes the
+setting away, and the declaration's own mints again.
 
 calls_per_hour is how many calls of the source one session or crew member
 makes with yardr call within an hour (` + fmt.Sprint(store.SourceCallLimit) + ` unless set); the call after is
@@ -929,7 +939,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 				if value, err = config.ExpandPath(value); err != nil {
 					return err
 				}
-				state, err = d.CredentialState(value, src.MintCommand)
+				state, err = d.CredentialState(value, src.Mint)
 				if err != nil {
 					var noCommand *source.NoMintCommand
 					if !errors.As(err, &noCommand) {
@@ -1241,9 +1251,9 @@ process for it. Nothing of the request is written anywhere.`,
 			// With --as the credential looked at and read is the user's,
 			// from the file their record names, and the check call is made
 			// as them.
-			stateOf := func() (string, error) { return d.CredentialState(src.EnvFile, src.MintCommand) }
+			stateOf := func() (string, error) { return d.CredentialState(src.EnvFile, src.Mint) }
 			readOf := func(ctx context.Context) (string, string, error) {
-				return d.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
+				return d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
 			}
 			saidAs := ""
 			if checkAs != "" {
@@ -1253,7 +1263,7 @@ process for it. Nothing of the request is written anywhere.`,
 				}
 				stateOf = func() (string, error) { return d.UserCredentialState(u.Name, u.EnvFile) }
 				readOf = func(ctx context.Context) (string, string, error) {
-					return d.ReadUserCredential(ctx, u.Name, u.EnvFile, src.MintCommand, source.Read)
+					return d.ReadUserCredential(ctx, u.Name, u.EnvFile, src.Mint, source.Read)
 				}
 				saidAs = " as " + u.Name
 			}
@@ -1427,6 +1437,23 @@ func commandFileLine(f source.CommandFile) string {
 		return "file " + f.Path + " is not there"
 	default:
 		return "file " + f.Path + " sha256 " + f.SHA256
+	}
+}
+
+// mintLine says which command mints the source's credential and why: the
+// operator's mint_command where one is set, which wins; else the one the
+// declaration brings, with its copy and the copy's sha256; else none.
+func mintLine(d *source.Declaration, src *store.Source, f source.CommandFile) string {
+	brings := len(d.Credential.MintCommand) > 0
+	switch {
+	case src.MintCommand != "" && brings:
+		return fmt.Sprintf("mint: %s, the source's mint_command, which wins over the declaration's own %s", src.MintCommand, strings.Join(d.Credential.MintCommand, " "))
+	case src.MintCommand != "":
+		return fmt.Sprintf("mint: %s, the source's mint_command", src.MintCommand)
+	case brings:
+		return fmt.Sprintf("mint: %s, the declaration's own (credential.mint_command): %s", strings.Join(d.Credential.MintCommand, " "), commandFileLine(f))
+	default:
+		return fmt.Sprintf("mint: none: yardr source set %s mint_command=<program> [args...]", d.Name)
 	}
 }
 
