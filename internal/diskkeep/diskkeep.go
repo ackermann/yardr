@@ -213,7 +213,21 @@ func removeOld(ctx context.Context, st store.API, rep *Report, live string, at t
 	}
 	var removed []string
 	for _, old := range olds {
-		if old.Dir == "" || old.Dir == "/" || old.Dir == live || at.Sub(old.At) < OldGrace {
+		if old.Dir == live {
+			continue
+		}
+		// The record is writable by any process on the yard's socket, so a
+		// path in it is only a claim: only a rotation's own kind of
+		// directory (a numbered sibling of the live cache) is ever removed,
+		// whatever time it carries. Anything else is dropped unremoved.
+		if !rotatedSibling(old.Dir, live) {
+			rep.Errors = append(rep.Errors, fmt.Sprintf("%s is not a rotated sibling of %s: dropped from the record, not removed", old.Dir, live))
+			if err := st.RemoveGOCACHEOld(ctx, old.Dir); err != nil {
+				rep.Errors = append(rep.Errors, fmt.Sprintf("could not drop %s from the record: %v", old.Dir, err))
+			}
+			continue
+		}
+		if at.Sub(old.At) < OldGrace {
 			continue
 		}
 		if err := os.RemoveAll(old.Dir); err != nil {
@@ -304,4 +318,24 @@ func nextName(dir string) string {
 		}
 	}
 	return dir + "-1"
+}
+
+// rotatedSibling reports whether dir is a directory a rotation of live
+// could have stood aside: in live's parent, named as live is with its
+// numeric suffix left off, bare or numbered.
+func rotatedSibling(dir, live string) bool {
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir || filepath.Dir(dir) != filepath.Dir(live) {
+		return false
+	}
+	stem := func(name string) (string, bool) {
+		if i := strings.LastIndex(name, "-"); i >= 0 {
+			if _, err := strconv.Atoi(name[i+1:]); err == nil {
+				return name[:i], true
+			}
+		}
+		return name, false
+	}
+	want, _ := stem(filepath.Base(live))
+	have, numbered := stem(filepath.Base(dir))
+	return have == want && (numbered || filepath.Base(dir) == want) && want != ""
 }

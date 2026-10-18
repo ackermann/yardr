@@ -460,3 +460,32 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// A path any socket caller recorded is a claim: a directory that is not a
+// rotated sibling of the live cache is never removed, however old.
+func TestKeepNeverRemovesARecordedForeignPath(t *testing.T) {
+	k, settings := newKeeping(t, nil)
+	base := t.TempDir()
+	k.fake.gocache = filepath.Join(base, "go-build-8")
+	mkdir(t, k.fake.gocache)
+	foreign := filepath.Join(t.TempDir(), "precious")
+	mkdir(t, foreign)
+	parent := filepath.Join(base, "work")
+	mkdir(t, parent)
+	ctx := context.Background()
+	for _, d := range []string{foreign, parent, filepath.Join(base, "go-build-7", "..", "work"), base} {
+		must(t, k.st.RecordGOCACHEOld(ctx, d, k.now.Add(-24*time.Hour)))
+	}
+	k.free = []uint64{20 * GB, 40 * GB}
+
+	rep := k.run(settings)
+
+	for _, d := range []string{foreign, parent, base} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("%s was removed: %v", d, err)
+		}
+	}
+	if len(rep.Removed) != 0 {
+		t.Errorf("Removed = %v", rep.Removed)
+	}
+}
