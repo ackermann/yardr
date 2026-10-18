@@ -114,7 +114,8 @@ Mail to the crew member is answered by mail to its sender: mail from this
 yard (a user or a crew member) as yardr mail <sender> would send it; mail
 from <name>@<peer> as yardr mail <name>@<peer> would (it is queued for the
 peer, which the crew member must be allowed, and a refusal reads as that
-command's). Each run sends one mail.
+command's). Each run sends one mail, or several numbered ones for a long
+text, as yardr mail does.
 
 The call to a source is made from this process with your own credential,
 from your environment: the variable its declaration names (credential.env),
@@ -353,11 +354,20 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 	if err := a.mayMailUser(from); err != nil {
 		return err
 	}
-	if err := st.Mail(ctx, from, body, name); err != nil {
+	if err := store.MailText(st, ctx, from, body, name); err != nil {
 		return err
 	}
-	return a.out(map[string]any{"seq": seq, "crew": name, "to": from, "sent": "ok"}, func() {
-		fmt.Println("mail sent to " + from)
+	out := map[string]any{"seq": seq, "crew": name, "to": from, "sent": "ok"}
+	mails := len(store.SplitMail(body))
+	if mails > 1 {
+		out["mails"] = mails
+	}
+	return a.out(out, func() {
+		if mails > 1 {
+			fmt.Printf("%d mails sent to %s\n", mails, from)
+		} else {
+			fmt.Println("mail sent to " + from)
+		}
 	})
 }
 

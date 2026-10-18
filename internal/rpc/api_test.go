@@ -263,12 +263,12 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "Mail",
-		says:   "Sends mail to a crew member or a user of this yard. It answers nothing; the mail is then a `mail` event in the stream.",
+		says:   "Sends mail to a crew member or a user of this yard. It answers nothing; the mail is then a `mail` event in the stream. A text over one mail's size is sent as numbered mails, each led by a line `(1/3)` that says which of how many it is, as [`yardr chat`](chat.md#a-long-text) sends a long text; past 16 mails it is refused.",
 		args: []field{
 			{"to", "string", "the receiver's name"},
-			{"text", "string", "the mail, 1 to 4096 bytes; it may be empty when the mail carries a file"},
+			{"text", "string", "the mail; a text over 4096 bytes is sent as numbered parts, up to 16 (about 64 KB). It may be empty when the mail carries a file"},
 			{"actor", "string", "who sends it: the user's name"},
-			{"files", "array of object", "the files the mail carries, at most 64: each `{hash, name}`, the hash as `PutBlob` answered it with the file's base name. Left out, the mail carries none. One the yard does not hold, or a name no letter may carry, refuses the mail"},
+			{"files", "array of object", "the files the mail carries, at most 64: each `{hash, name}`, the hash as `PutBlob` answered it with the file's base name. Left out, the mail carries none. One the yard does not hold, or a name no letter may carry, refuses the mail. On a text sent as several mails, the files go with the first alone"},
 		},
 		requests: []string{`{"to":"yardmaster","text":"Thanks. Land it.","actor":"jo"}`,
 			`{"to":"yardmaster","text":"Paint the fence like this.","actor":"jo","files":[{"hash":"` + apiPNGHash + `","name":"fence.png"}]}`},

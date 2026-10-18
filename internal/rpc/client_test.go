@@ -219,3 +219,43 @@ func TestClientConversationPages(t *testing.T) {
 		}
 	}
 }
+
+// Mail through the API sends a text over one mail's size as numbered mails,
+// in order, by array as by name; past the most mails one text is sent as it
+// is refused, naming the file it goes as instead.
+func TestClientMailLong(t *testing.T) {
+	c := NewClient(apiYard(t))
+	ctx := t.Context()
+	text := strings.Repeat("x", 10<<10)
+	if err := c.Mail(ctx, "yardmaster", text, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	byName, _ := json.Marshal(map[string]string{"to": "yardmaster", "text": text, "actor": "jo"})
+	resp, err := c.http.Post("http://yard/call/Mail", "application/json", strings.NewReader(string(byName)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(got), "error") {
+		t.Fatalf("Mail by name answers %s", got)
+	}
+	all, _, err := c.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var marks []string
+	bodies := ""
+	for _, l := range all[len(all)-6:] {
+		head, body, _ := strings.Cut(l.Text, "\n")
+		marks = append(marks, head)
+		bodies += body
+	}
+	if strings.Join(marks, " ") != "(1/3) (2/3) (3/3) (1/3) (2/3) (3/3)" || bodies != text+text {
+		t.Fatalf("the mails are %q", marks)
+	}
+	big := strings.Repeat("x", store.MaxMailParts*store.MaxMailBytes+1)
+	if err := c.Mail(ctx, "yardmaster", big, "jo"); err == nil || !strings.Contains(err.Error(), "--file") {
+		t.Fatalf("a text past %d mails = %v", store.MaxMailParts, err)
+	}
+}

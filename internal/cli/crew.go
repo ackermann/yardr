@@ -1211,8 +1211,9 @@ func (a *app) mailCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mail <name>[@<peer>] <text|-> [--file <path>]...",
 		Short: "Send a message to the inbox of a crew member or a user, or read a conversation back (--with)",
-		Long: `Sends a message to the inbox of a crew member or of a user (up to 4 KB; yardr chat
-sends a longer text as several mails).
+		Long: `Sends a message to the inbox of a crew member or of a user. A text over
+one mail's size (4 KB) is sent as several mails, each numbered (1/3); past
+16 it is refused: send it as a file (--file).
 
 A user is a person of the yard (yardr user list), the operator among them.
 A crew member's session and a user mail a user; an agent working a bead does
@@ -1332,15 +1333,23 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				if err != nil {
 					return err
 				}
-				if err := st.Mail(ctx, to, text, a.who(), blobFiles(refs)...); err != nil {
+				if err := store.MailText(st, ctx, to, text, a.who(), blobFiles(refs)...); err != nil {
 					return err
 				}
+				mails := len(store.SplitMail(text))
 				sent := map[string]any{"to": to, "sent": "ok"}
+				if mails > 1 {
+					sent["mails"] = mails
+				}
 				if len(refs) > 0 {
 					sent["files"] = refs
 				}
 				return a.out(sent, func() {
-					fmt.Println("mail sent to " + to)
+					if mails > 1 {
+						fmt.Printf("%d mails sent to %s\n", mails, to)
+					} else {
+						fmt.Println("mail sent to " + to)
+					}
 					if line := store.NoteFilesLine(a.mailHome(), refs); line != "" {
 						fmt.Println(line)
 					}

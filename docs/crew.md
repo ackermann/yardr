@@ -676,7 +676,8 @@ from this yard (a user or a crew member) as `yardr mail <sender>` would
 send it; mail from `<name>@<peer>` as `yardr mail <name>@<peer>` would (it
 is queued for the peer, which the crew member must be allowed, and a
 refusal reads as that command's). Anything else is refused. `--to` is for
-hook deliveries only; each run of a mail reply sends one mail.
+hook deliveries only; each run of a mail reply sends one mail, or several
+numbered ones for a long text, as `yardr mail` does.
 
 yardr only types. The call is made by the CLI in the crew member's pane with
 the credential its `env_file` put there (`LINEAR_API_KEY`; for GitHub

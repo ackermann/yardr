@@ -123,6 +123,14 @@ func newAPI(st *store.Store, writeTimeout time.Duration) *api {
 			methods[name] = method{name, v.MethodByName(name)}
 		}
 	}
+	// Mail through the API sends a text over one mail's size as numbered
+	// mails, as yardr mail does: a client sends the text as it is, and reads
+	// the mails back from the stream. One stored mail stays one part: each
+	// goes through Mail, which keeps its size check.
+	methods["Mail"] = method{"Mail", reflect.ValueOf(
+		func(ctx context.Context, to, text, actor string, files ...store.BlobFile) error {
+			return store.MailText(st, ctx, to, text, actor, files...)
+		})}
 	return &api{st: st, methods: methods, writeTimeout: writeTimeout}
 }
 

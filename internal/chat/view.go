@@ -486,7 +486,7 @@ func rule(w int, text string) string {
 // it will be sent as.
 func (m *Model) count() string {
 	text := strings.TrimSpace(m.input.Value())
-	if n := len(split(text)); n > 1 {
+	if n := len(store.SplitMail(text)); n > 1 {
 		return look.faint.Render(fmt.Sprintf("%d bytes, sent as %d mails", len(text), n))
 	}
 	if len(text) >= warnAt {

@@ -46,7 +46,8 @@ type Talk struct {
 	// Head is the yard's newest seq when the page was read, before its
 	// letters: the stream after it brings what happened since.
 	Head uint64 `json:"head"`
-	// MaxMail is how many bytes a mail may hold, the form's limit.
+	// MaxMail is how many bytes the form takes: a text it sends as one mail,
+	// or as numbered mails when one does not hold it.
 	MaxMail int `json:"max_mail"`
 	// Error is why a POST did not send, "" otherwise; Draft is the text
 	// it did not send, back in the form.
@@ -121,7 +122,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := Talk{As: as, With: with, Crew: []TalkPeer{}, People: []TalkPeer{}, Letters: []TalkLetter{},
-		Before: before, Head: head, MaxMail: store.MaxMailBytes}
+		Before: before, Head: head, MaxMail: store.MaxMailParts * store.MaxMailBytes}
 	if with == "" {
 		// The yard has no crew: the page says whose command that is.
 		s.respond(w, r, Page{Template: "talk", Title: "Talk", Menu: "talk", Data: out, head: head})
@@ -276,11 +277,13 @@ func sender(l store.Letter, me, with string) string {
 }
 
 // handleTalkPost takes the talk page's form: mail to the member or user in
-// conversation, sent as the user the request acts as. It is registered only
-// on a view that acts (ActAs, or UseJWT for JWT mode): without either the
-// mux answers 405 itself, as on every other route. Mail sent, it redirects
-// to the conversation; mail refused re-reads the page with the reason, as
-// 200 so htmx puts it in place (it leaves an error's page out).
+// conversation, sent as the user the request acts as. A text over one
+// mail's size is sent as numbered mails, as yardr mail sends it. It is
+// registered only on a view that acts (ActAs, or UseJWT for JWT mode):
+// without either the mux answers 405 itself, as on every other route. Mail
+// sent, it redirects to the conversation; mail refused re-reads the page
+// with the reason, as 200 so htmx puts it in place (it leaves an error's
+// page out).
 func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); !ownOrigin(origin, r.Host) {
 		http.Error(w, "yardr web takes mail only from its own pages: the request's origin is "+quoted(origin)+", not this view's. A page on another site cannot send mail as this view's user",
@@ -307,7 +310,7 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := r.PostFormValue("text")
-	if err := s.st.Mail(ctx, with, text, s.acting(ctx)); err != nil {
+	if err := store.MailText(s.st, ctx, with, text, s.acting(ctx)); err != nil {
 		s.talkAgain(w, r, with, text, err.Error())
 		return
 	}
@@ -325,7 +328,7 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		return
 	}
 	out := Talk{As: as, With: with, Crew: []TalkPeer{}, People: []TalkPeer{}, Letters: []TalkLetter{},
-		Head: head, MaxMail: store.MaxMailBytes, Error: why, Draft: text}
+		Head: head, MaxMail: store.MaxMailParts * store.MaxMailBytes, Error: why, Draft: text}
 	crew, err := s.st.Crew(ctx)
 	if err != nil {
 		s.fail(w, r, err)

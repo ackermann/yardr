@@ -90,6 +90,43 @@ func TestReplyToLocalMail(t *testing.T) {
 	}
 }
 
+// TestReplyLongMail answers a user's mail with a text over one mail's
+// size: the reply is numbered mails to that user, as yardr mail sends it.
+func TestReplyLongMail(t *testing.T) {
+	a, st := replyMailYard(t)
+	ctx := context.Background()
+	t.Setenv("YARDR_CREW", "yardmaster")
+	if err := st.Mail(ctx, "yardmaster", "when is the freeze over?", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	seq := mailSeq(t, st)
+
+	text := strings.Repeat("x", 10<<10)
+	out, err := run(t, a.replyCmd(), seq, text)
+	if err != nil || out != "3 mails sent to jo\n" {
+		t.Fatalf("reply = %q, %v", out, err)
+	}
+	jo, err := st.UserInbox(ctx, "jo", 10)
+	if err != nil || jo.Unread != 3 {
+		t.Fatalf("jo's inbox = %+v, %v", jo, err)
+	}
+	bodies := ""
+	for i, m := range jo.Mail {
+		head, body, _ := strings.Cut(m.Text, "\n")
+		if head != fmt.Sprintf("(%d/3)", i+1) || m.From != "yardmaster" {
+			t.Fatalf("mail %d from %s begins %q", i+1, m.From, head)
+		}
+		bodies += body
+	}
+	if bodies != text {
+		t.Fatal("the mails do not make the text again")
+	}
+	if _, err := run(t, a.replyCmd(), seq, strings.Repeat("x", store.MaxMailParts*store.MaxMailBytes+1)); err == nil ||
+		!strings.Contains(err.Error(), "--file") {
+		t.Fatalf("a text past %d mails = %v", store.MaxMailParts, err)
+	}
+}
+
 // TestReplyToPeerMail answers mail from another yard with yardr reply: the
 // reply is queued for <from>@<peer>, and no local mail is sent.
 func TestReplyToPeerMail(t *testing.T) {

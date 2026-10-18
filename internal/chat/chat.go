@@ -726,11 +726,11 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	m.input, cmd = m.input.Update(k)
 	if now := m.input.Value(); now == before {
 		return cmd
-	} else if len(split(strings.TrimSpace(now))) > MaxParts {
+	} else if len(store.SplitMail(strings.TrimSpace(now))) > store.MaxMailParts {
 		// Refused whole: half a pasted text is not what was meant.
 		m.input.SetValue(before)
 		m.notice = fmt.Sprintf("a text is sent as at most %d mails (about %d KB): send this one and go on in the next",
-			MaxParts, MaxParts*store.MaxMailBytes>>10)
+			store.MaxMailParts, store.MaxMailParts*store.MaxMailBytes>>10)
 		return cmd
 	}
 	m.notice, m.said = "", gaveMsg{}
@@ -892,8 +892,9 @@ func (m *Model) acked(through uint64) {
 }
 
 // send mails what is typed to the selected crew member: as one mail when one
-// holds it, else as its parts, in order, each numbered (split). A part that
-// is not taken ends the send, so that no later part arrives without it. To
+// holds it, else as its parts, in order, each numbered (store.SplitMail).
+// A part that is not taken ends the send, so that no later part arrives
+// without it. To
 // one of a linked yard it goes as yardr mail <name>@<peer> does (MailPeer),
 // in the same parts. In the row of a user of this yard, which a name trusted
 // as them gave, it goes to whoever wrote last (reaches): to that name at its
@@ -915,7 +916,7 @@ func (m *Model) send() tea.Cmd {
 	m.input.Reset()
 	m.notice = ""
 	st, ctx, me := m.st, m.ctx, m.opt.Me
-	parts := split(text)
+	parts := store.SplitMail(text)
 	mail := func(text string) error { return st.Mail(ctx, to, text, me) }
 	if name, peer, away := strings.Cut(to, "@"); away {
 		mail = func(text string) error {
@@ -925,8 +926,8 @@ func (m *Model) send() tea.Cmd {
 	}
 	return func() tea.Msg {
 		for i, p := range parts {
-			if err := mail(p.mail(i, len(parts))); err != nil {
-				return sentMsg{to: to, sent: i, of: len(parts), rest: text[p.at:], err: err}
+			if err := mail(p.Mail(i, len(parts))); err != nil {
+				return sentMsg{to: to, sent: i, of: len(parts), rest: text[p.At:], err: err}
 			}
 		}
 		return sentMsg{to: to, sent: len(parts), of: len(parts)}

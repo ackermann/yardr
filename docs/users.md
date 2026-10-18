@@ -103,8 +103,10 @@ be the operator under another name, set `YARDR_ACTOR` to it before `yardr`.
 
 ## Mail
 
-`yardr mail <user> <text|->` puts a message of up to 4 KB in the user's
-inbox. A crew member's session sends it, and so does a user. **An agent working
+`yardr mail <user> <text|->` puts a message in the user's inbox: one mail,
+or numbered mails for a text over one mail's size (4 KB), as
+[`yardr chat`](chat.md#a-long-text) sends a long text. A crew member's
+session sends it, and so does a user. **An agent working
 a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.

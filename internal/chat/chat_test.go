@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -737,22 +736,23 @@ func TestSizeLimit(t *testing.T) {
 
 	// The most a text is sent as, and one byte more: refused whole.
 	v.m.input.Reset()
-	full := strings.Repeat("x", MaxParts*room)
+	room := store.MaxMailBytes - len("(16/16)\n") // one part holds a mail less its longest number
+	full := strings.Repeat("x", store.MaxMailParts*room)
 	v.typed(full)
-	v.shows(fmt.Sprintf("%d bytes, sent as %d mails", len(full), MaxParts))
+	v.shows(fmt.Sprintf("%d bytes, sent as %d mails", len(full), store.MaxMailParts))
 	v.typed("more")
 	if v.m.input.Value() != full {
-		t.Fatalf("the line holds %d bytes, %d mails hold %d", len(v.m.input.Value()), MaxParts, len(full))
+		t.Fatalf("the line holds %d bytes, %d mails hold %d", len(v.m.input.Value()), store.MaxMailParts, len(full))
 	}
 	v.shows("a text is sent as at most 16 mails (about 64 KB)")
 	v.fits(80, 24)
 	v.key(tea.KeyEnter)
 	v.hides("not sent", "went to")
 	letters, _, err := st.Conversation(context.Background(), me, "chief", 0, 0, 0)
-	if err != nil || len(letters) != MaxParts {
-		t.Fatalf("%d mails of %d were sent, %v", len(letters), MaxParts, err)
+	if err != nil || len(letters) != store.MaxMailParts {
+		t.Fatalf("%d mails of %d were sent, %v", len(letters), store.MaxMailParts, err)
 	}
-	if last := letters[MaxParts-1].Text; len(last) != store.MaxMailBytes || !strings.HasPrefix(last, "(16/16)\n") {
+	if last := letters[store.MaxMailParts-1].Text; len(last) != store.MaxMailBytes || !strings.HasPrefix(last, "(16/16)\n") {
 		t.Fatalf("the last mail has %d bytes and begins %q", len(last), last[:10])
 	}
 }
@@ -787,59 +787,6 @@ func prose(size int) string {
 		fmt.Fprintf(&b, "word%04d", n)
 	}
 	return b.String()
-}
-
-// A text of two and a half mails is three parts, each within a mail with
-// its number, split at the best break there is: a paragraph's end, else a
-// line's, else a space, else between two characters.
-func TestSplit(t *testing.T) {
-	size := 5 * store.MaxMailBytes / 2
-	lines := strings.ReplaceAll(prose(size), "\n\n", "\n")
-	words := strings.ReplaceAll(lines, "\n", " ")
-	for _, c := range []struct{ name, text, sep string }{
-		{"paragraphs", prose(size), "\n\n"},
-		{"lines", lines, "\n"},
-		{"words", words, " "},
-		{"two bytes a character", strings.Repeat("é", size/2), ""},
-		{"three", "x" + strings.Repeat("€", size/3), ""},
-		{"four", "xy" + strings.Repeat("🚂", size/4), ""},
-	} {
-		parts := split(c.text)
-		if len(parts) != 3 {
-			t.Fatalf("%s: %d parts", c.name, len(parts))
-		}
-		var texts []string
-		for i, p := range parts {
-			mail := p.mail(i, len(parts))
-			if len(mail) > store.MaxMailBytes || !strings.HasPrefix(mail, fmt.Sprintf("(%d/3)\n", i+1)) {
-				t.Fatalf("%s: part %d has %d bytes and begins %q", c.name, i+1, len(mail), mail[:8])
-			}
-			if !utf8.ValidString(p.text) {
-				t.Fatalf("%s: part %d is cut inside a character", c.name, i+1)
-			}
-			if p.text != strings.TrimSpace(p.text) || !strings.HasPrefix(c.text[p.at:], p.text) {
-				t.Fatalf("%s: part %d is not the text from byte %d on: %q…", c.name, i+1, p.at, p.text[:20])
-			}
-			texts = append(texts, p.text)
-		}
-		// Nothing is lost but the breaks themselves, and no part ends at
-		// a lesser break than the text has.
-		if got := strings.Join(texts, c.sep); got != c.text {
-			t.Fatalf("%s: the parts do not make the text again", c.name)
-		}
-	}
-
-	// A paragraph break that would leave a part nearly empty is out of
-	// reach, and a line that is longer than a mail alone is cut at the limit.
-	long := strings.Repeat("x", store.MaxMailBytes+100)
-	parts := split("short\n\n" + long + "\nlast line")
-	if len(parts) != 3 || parts[0].text != "short" || parts[1].text != long[:room] || parts[2].text != long[room:]+"\nlast line" {
-		t.Fatalf("%d parts: %q… %d bytes, %d bytes", len(parts), parts[0].text[:5], len(parts[1].text), len(parts[2].text))
-	}
-	early := "short\n\n" + strings.ReplaceAll(prose(3*store.MaxMailBytes/2), "\n\n", "\n")
-	if parts = split(early); len(parts) != 2 || len(parts[0].text) < room-80 {
-		t.Fatalf("an early paragraph break was taken: %d parts, the first of %d bytes", len(parts), len(parts[0].text))
-	}
 }
 
 // A long text is sent as numbered mails in order, and the conversation
@@ -901,15 +848,15 @@ func TestSendLongFails(t *testing.T) {
 	ctx := context.Background()
 	v := open(t, st, "chief", 80, 24)
 	text := prose(5 * store.MaxMailBytes / 2)
-	parts := split(text)
+	parts := store.SplitMail(text)
 	v.typed(text)
 	v.key(tea.KeyEnter)
 	v.shows("1 of 3 mails went to chief, the rest is in the line: the store is away")
-	if got := v.m.input.Value(); got != text[parts[1].at:] {
-		t.Fatalf("the line holds %d bytes, parts 2 and 3 are %d", len(got), len(text)-parts[1].at)
+	if got := v.m.input.Value(); got != text[parts[1].At:] {
+		t.Fatalf("the line holds %d bytes, parts 2 and 3 are %d", len(got), len(text)-parts[1].At)
 	}
 	letters, _, err := st.Conversation(ctx, me, "chief", 0, 0, 0)
-	if err != nil || len(letters) != 1 || letters[0].Text != "(1/3)\n"+parts[0].text {
+	if err != nil || len(letters) != 1 || letters[0].Text != "(1/3)\n"+parts[0].Text {
 		t.Fatalf("%d mails after the failure, %v", len(letters), err)
 	}
 	if all := ansi.Strip(strings.Join(v.m.lines(80), "\n")); !strings.Contains(all, "  (1/3)\n") {
@@ -921,7 +868,7 @@ func TestSendLongFails(t *testing.T) {
 	v.key(tea.KeyEnter)
 	v.hides("went to")
 	letters, _, err = st.Conversation(ctx, me, "chief", 0, 0, 0)
-	if err != nil || len(letters) != 3 || letters[1].Text != "(1/2)\n"+parts[1].text || letters[2].Text != "(2/2)\n"+parts[2].text {
+	if err != nil || len(letters) != 3 || letters[1].Text != "(1/2)\n"+parts[1].Text || letters[2].Text != "(2/2)\n"+parts[2].Text {
 		t.Fatalf("%d mails after sending the rest, %v", len(letters), err)
 	}
 

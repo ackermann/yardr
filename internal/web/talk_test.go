@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -125,7 +126,7 @@ func TestTalk(t *testing.T) {
 		`<span class="hint" id="send-key" hidden></span>`, // yard.js names the send key here
 		`hx-post="/talk?with=yardmaster"`,
 		`hx-get="/talk?with=yardmaster"`, // the newest page is live
-		`maxlength="4096"`,
+		`maxlength="65536"`,
 		`<a href="/talk?with=scribe">scribe</a>`,
 		`<a href="/talk?with=yardmaster" aria-current="page">`, // the one in conversation
 		`<a href="/talk" aria-current="page">`,                 // the menu's entry
@@ -161,7 +162,7 @@ func TestTalkJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.body), &got); err != nil || r.status != 200 {
 		t.Fatalf("status %d (%v):\n%s", r.status, err, r.body)
 	}
-	if got.As != "jo" || got.With != "yardmaster" || len(got.Crew) != 2 || got.MaxMail != 4096 {
+	if got.As != "jo" || got.With != "yardmaster" || len(got.Crew) != 2 || got.MaxMail != store.MaxMailParts*store.MaxMailBytes {
 		t.Errorf("the page: %+v", got)
 	}
 	if len(got.Letters) != 2 || got.Letters[0].Text != "paint the shed" || !got.Letters[0].Own ||
@@ -670,6 +671,26 @@ func TestTalkPost(t *testing.T) {
 	}
 }
 
+// A text over one mail's size is sent as numbered mails, in order.
+func TestTalkPostLong(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	talkYard(t, f)
+	text := strings.Repeat("x", 10<<10)
+	r := f.postForm("/talk?with=yardmaster", url.Values{"text": {text}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303 to the conversation", r.status)
+	}
+	conv, _, err := f.st.Conversation(context.Background(), "jo", "yardmaster", 0, 0, 0)
+	if err != nil || len(conv) != 5 {
+		t.Fatalf("%d letters, %v", len(conv), err)
+	}
+	for i, l := range conv[2:] {
+		if head := strings.SplitN(l.Text, "\n", 2)[0]; head != fmt.Sprintf("(%d/3)", i+1) {
+			t.Fatalf("mail %d begins %q", i+1, head)
+		}
+	}
+}
+
 // Mail refused stays in the form with the reason, as JSON too.
 func TestTalkPostInvalid(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
@@ -678,9 +699,9 @@ func TestTalkPostInvalid(t *testing.T) {
 	if r.status != 200 || !strings.Contains(r.body, "mail must be") {
 		t.Errorf("empty mail: status %d, want the page with the reason:\n%s", r.status, r.body)
 	}
-	big := strings.Repeat("x", store.MaxMailBytes+1)
+	big := strings.Repeat("x", store.MaxMailParts*store.MaxMailBytes+1)
 	r = f.postForm("/talk?with=yardmaster", url.Values{"text": {big}}, "Origin", f.ts.URL)
-	if r.status != 200 || !strings.Contains(r.body, "mail must be") || !strings.Contains(r.body, big[:100]) {
+	if r.status != 200 || !strings.Contains(r.body, "--file") || !strings.Contains(r.body, big[:100]) {
 		t.Errorf("long mail: status %d, want the page with the reason and the words kept", r.status)
 	}
 	r = f.postForm("/talk?with=yardmaster", url.Values{"text": {""}}, "Origin", f.ts.URL, "Accept", "application/json")

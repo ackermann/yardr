@@ -1478,7 +1478,8 @@ the form below while the letters scroll between them, the newest in view
 on open with the form under it. The form posts to `/talk?with=<member>`
 ([Acting as a user](#acting-as-a-user)): mail sent, the page lands back on
 the conversation with the new letter at the bottom; mail refused stays in
-the form with the reason. The newest 50 letters are live: each event of
+the form with the reason. A text over one mail's size is sent as numbered
+mails, as `yardr mail` sends it. The newest 50 letters are live: each event of
 the yard reads them again, so an answer shows without a reload. Past them
 an "Older mail" link reads the next 50 older, following itself as it
 scrolls into view, a page at a time; without scripts it is a plain link to
@@ -1506,7 +1507,7 @@ As JSON:
      "text": "It is painted.", "read": false, "own": false, "sender": "yardmaster"}
   ],
   "head": 35,
-  "max_mail": 4096
+  "max_mail": 65536
 }
 ```
 
@@ -1514,7 +1515,8 @@ As JSON:
 page, each with `own` (whether the view's user wrote it) and `sender` (who
 the page names for it) beside them, and `more` beside them where older mail
 was left out. `error` and `draft` stand only on a POST that sent nothing:
-why, and the words back in the form.
+why, and the words back in the form. `max_mail` is how many bytes the form
+takes.
 
 ## The stream
 
