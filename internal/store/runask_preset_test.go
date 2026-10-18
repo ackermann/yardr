@@ -160,6 +160,22 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 		t.Fatal(err)
 	}
 	y.refusedStale(t, seq, "would grant the preset one of pack crm-pack of the source crm to crew member yardmaster, and crew member yardmaster holds it already")
+
+	// A preset may name one read call. If a broad read grant lands after
+	// the ask alongside another missing call, the approval runs past that
+	// covered call instead of recording a redundant named grant.
+	y = presetYard(t, &presetFake{pack: "crm-pack", label: "embedded in yardr test1",
+		calls: map[string][]string{"one": {"get", "note"}}})
+	seq = y.ask(t, listAsk("mckean", "source grant crm --preset one --crew yardmaster"), "yardmaster")
+	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatalf("approving after read landed = %v", err)
+	}
+	if got, want := y.grants(t), []string{"crew member yardmaster: note,read"}; !slices.Equal(got, want) {
+		t.Fatalf("the approval duplicated a read call covered since: got %v, want %v", got, want)
+	}
 }
 
 // A preset grant approval is refused stale when the preset's bytes, the

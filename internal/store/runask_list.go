@@ -842,8 +842,20 @@ func runGrant(ctx context.Context, w *wtx, argv []string, actor string, by *appr
 		}
 		var lines []string
 		for _, t := range to {
-			var g *SourceGrant
+			g := &SourceGrant{}
+			if _, err := get(w.Tx, bSourceGrants, grantKey(name, t, as), g); err != nil {
+				return "", err
+			}
 			for _, call := range pr.Calls {
+				// A read call named by the preset may already be covered
+				// by a read grant that landed after the card. Carry out
+				// only what is still missing, as the grant row does.
+				if call == GrantRead && slices.Contains(g.Calls, GrantRead) {
+					continue
+				}
+				if c, ok := d.Call(call); ok && g.Covers(c, as) {
+					continue
+				}
 				g, err = w.grantSource(ctx, name, call, t, as, actor, by)
 				if err != nil {
 					return "", err
