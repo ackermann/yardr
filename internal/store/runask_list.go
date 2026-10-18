@@ -292,24 +292,38 @@ func (w *wtx) sourceLimitStale(seq uint64, was, now AskRun) error {
 
 // parseGrant reads the words of source grant <source> read|<call> with its
 // --group and --crew, each as often as it is given, and its --as <user>
-// where the grant is of a call made as that user. The grantees are stored
-// once each, the groups before the crew members and each in the order of
-// their names, and the user last.
+// where the grant is of a call made as that user. --preset <name> stands
+// in for read or the call: the preset's calls of the source, from the
+// embedded pack that declares it. The grantees are stored once each, the
+// groups before the crew members and each in the order of their names,
+// and the user last.
 func parseGrant(rest []string) ([]string, error) {
-	const use = "yardr source grant <source> read|<call> --group <group> or --crew <crew member> [--as <user>]"
-	args, values, err := runWords(use, "source grant", "the operator's", rest, map[string]bool{"--group": true, "--crew": true, "--as": true})
+	const use = "yardr source grant <source> read|<call>|--preset <preset> --group <group> or --crew <crew member> [--as <user>]"
+	args, values, err := runWords(use, "source grant", "the operator's", rest, map[string]bool{"--group": true, "--crew": true, "--as": true, "--preset": true})
 	if err != nil {
 		return nil, err
 	}
+	presets := values["--preset"]
 	switch {
-	case len(args) != 2:
+	case len(presets) > 1:
+		return nil, fmt.Errorf("--run takes %s: one --preset <name>, not %d", use, len(presets))
+	case len(presets) == 1 && len(args) == 2:
+		return nil, fmt.Errorf("--run takes %s: %s and --preset %s together name two grants: name read, one call or --preset <preset>", use, args[1], presets[0])
+	case len(presets) == 1 && len(args) != 1:
+		return nil, fmt.Errorf("--run takes %s: one source and --preset <preset>, not %d words", use, len(args))
+	case len(presets) == 0 && len(args) != 2:
 		return nil, fmt.Errorf("--run takes %s: one source and read or one call, not %d words", use, len(args))
 	case len(values["--group"])+len(values["--crew"]) == 0:
 		return nil, fmt.Errorf("--run takes %s: it names nobody the grant is for", use)
 	case len(values["--as"]) > 1:
 		return nil, fmt.Errorf("--run takes %s: one --as <user>, not %d", use, len(values["--as"]))
 	}
-	out := []string{args[0], args[1]}
+	var out []string
+	if len(presets) == 1 {
+		out = []string{args[0], "--preset", presets[0]}
+	} else {
+		out = []string{args[0], args[1]}
+	}
 	for _, flag := range []string{"--group", "--crew"} {
 		names := slices.Clone(values[flag])
 		sort.Strings(names)
@@ -324,9 +338,18 @@ func parseGrant(rest []string) ([]string, error) {
 }
 
 // grantOf is the source, the grant, the grantees and the user called as
-// of a parsed source grant, in the order they are written in.
-func grantOf(argv []string) (src, what string, to []Grantee, as string) {
-	for i := 4; i+1 < len(argv); i += 2 {
+// of a parsed source grant, in the order they are written in. A preset
+// grant names its preset instead of the grant: what is then empty and
+// preset holds the name.
+func grantOf(argv []string) (src, what, preset string, to []Grantee, as string) {
+	i := 4
+	if argv[3] == "--preset" {
+		preset = argv[4]
+		i = 5
+	} else {
+		what = argv[3]
+	}
+	for ; i+1 < len(argv); i += 2 {
 		switch argv[i] {
 		case "--group":
 			to = append(to, Grantee{Group: argv[i+1]})
@@ -336,7 +359,7 @@ func grantOf(argv []string) (src, what string, to []Grantee, as string) {
 			as = argv[i+1]
 		}
 	}
-	return argv[2], argv[3], to, as
+	return argv[2], what, preset, to, as
 }
 
 // seenKey is the name a run ask keeps what it saw of the grantee under.
@@ -402,32 +425,87 @@ func callSays(c source.Call) string {
 	return oneLine(fmt.Sprintf("%s (%s %s)", c.Name, c.Request.Method, c.Request.Path))
 }
 
-// grantCard is the card of source grant: a sentence for each grantee, which
-// names the calls the grant is of with their methods and paths, says of
-// read which calls that is today and that it covers what the source is
-// later given, and of an update call that it changes something there. The
-// approval is held to the declaration the card was written from, and to
-// each group and crew member as it was (Seen): GrantSource checks a grant
-// against the declaration as it is when it runs. Asking refuses a grantee
-// that holds the grant already, and an approval runs past what one was
-// granted since unless it holds the grant already (grantStale).
-func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
-	name, what, to, as := grantOf(argv)
-	src, d, err := sourceIn(w.Tx, name)
+// PresetReading is what the server's reading of one preset hands the
+// store: the pack declaring the source, the preset's name, the build
+// label it is embedded in, and the preset's calls of the source, in file
+// order. Nothing of it is the asker's.
+type PresetReading struct {
+	Pack   string
+	Preset string
+	Label  string // "embedded in yardr <build>"
+	Calls  []string
+}
+
+// PresetReader resolves the preset of the source against the packs the
+// owning process embeds, for a preset grant ask: the one pack of kind
+// source declaring the source, and its preset of that name. An error
+// refuses the ask, storing nothing, in the reader's words.
+type PresetReader func(source, preset string) (*PresetReading, error)
+
+// SetPresetReader tells the store how its owning process reads the
+// presets of the packs yardr embeds, as SetPackReader tells it how it
+// reads the packs. A store no server owns has none, and a preset grant
+// ask of it is refused naming the server.
+func (s *Store) SetPresetReader(r PresetReader) { s.presetReader = r }
+
+// presetReaderOf is the reading registered on the store this write
+// belongs to, nil where there is none.
+func (w *wtx) presetReaderOf() PresetReader {
+	if w.store == nil {
+		return nil
+	}
+	return w.store.presetReader
+}
+
+// presetOf resolves the preset of the source through the server's reading
+// of the packs yardr embeds, and holds its calls to the yard's
+// declaration: each must be grantable, since the card renders and the
+// approval grants each by name. A preset whose calls the yard's
+// declaration no longer has is granted by name in a terminal.
+func (w *wtx) presetOf(name, preset string) (*PresetReading, error) {
+	read := w.presetReaderOf()
+	if read == nil {
+		return nil, fmt.Errorf("source %s: no server has registered its reading of the packs yardr embeds on this store, so no preset can be resolved from the binary that runs the yard: a preset grant is proposed from a yard its server runs", name)
+	}
+	pr, err := read(name, preset)
 	if err != nil {
-		return AskRun{}, err
+		return nil, err
 	}
-	if err := grantable(d, what); err != nil {
-		return AskRun{}, err
+	if pr == nil || pr.Pack == "" || len(pr.Calls) == 0 {
+		return nil, fmt.Errorf("source %s: the server's reading of the preset %s holds no pack or calls: nothing was stored", name, preset)
 	}
-	of := fmt.Sprintf("of the source %s (%s)", name, sourceHost(d))
-	switch {
-	case as != "":
-		of += fmt.Sprintf(" as %s, with the credential in %s's env file", as, as)
-	case d.Credential != nil:
-		of += ", with the credential the yard holds for it"
+	d, err := declared(w.Tx, name)
+	if err != nil {
+		return nil, err
 	}
-	may := ""
+	for _, what := range pr.Calls {
+		if err := grantable(d, what); err != nil {
+			return nil, fmt.Errorf("the preset %s of pack %s grants %s of the source %s, and the yard's declaration has no such call (it has: %s): grant by name in a terminal (yardr source grant %s read|<call> --group <group> | --crew <crew member>)", preset, pr.Pack, what, name, or(strings.Join(callNames(d), ", "), "none"), name)
+		}
+	}
+	return pr, nil
+}
+
+// presetHeld reports whether the grant g holds every call of calls of the
+// declaration d as the user as: a call by its name, or a read call
+// through a grant of read, as the grant row holds one.
+func presetHeld(g SourceGrant, d *source.Declaration, calls []string, as string) bool {
+	for _, what := range calls {
+		if slices.Contains(g.Calls, what) {
+			continue
+		}
+		if c, ok := d.Call(what); ok && g.Covers(c, as) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// grantCallMay is what a grant card says of one call: of read which calls
+// that is today with the later-reads line, of an update call that it
+// changes something there, each with method and path.
+func grantCallMay(d *source.Declaration, of, what string) string {
 	if c, ok := d.Call(what); what == GrantRead {
 		var reads []string
 		for _, c := range d.Calls {
@@ -439,17 +517,70 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 		if len(reads) == 0 {
 			today = "today the source has none"
 		}
-		may = fmt.Sprintf("may make every read call %s: %s, and it covers any read call the operator later gives the source.", of, today)
+		return fmt.Sprintf("may make every read call %s: %s, and it covers any read call the operator later gives the source.", of, today)
 	} else if ok && c.Kind == source.Update {
-		may = fmt.Sprintf("may make the call %s %s, which changes something there.", callSays(*c), of)
+		return fmt.Sprintf("may make the call %s %s, which changes something there.", callSays(*c), of)
 	} else if ok {
-		may = fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of)
+		return fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of)
+	}
+	return ""
+}
+
+// grantCard is the card of source grant: a sentence for each grantee, which
+// names the calls the grant is of with their methods and paths, says of
+// read which calls that is today and that it covers what the source is
+// later given, and of an update call that it changes something there. A
+// preset grant names the preset and the pack beside the grantee, and
+// renders each of the preset's calls as a grant of it reads. The
+// approval is held to the declaration the card was written from, to the
+// preset's bytes with the build where one is named, and to each group
+// and crew member as it was (Seen): GrantSource checks a grant
+// against the declaration as it is when it runs. Asking refuses a grantee
+// that holds the grant already, and an approval runs past what one was
+// granted since unless it holds the grant already (grantStale).
+func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
+	name, what, preset, to, as := grantOf(argv)
+	src, d, err := sourceIn(w.Tx, name)
+	if err != nil {
+		return AskRun{}, err
+	}
+	var pack, label string
+	calls := []string{what}
+	if preset != "" {
+		pr, err := w.presetOf(name, preset)
+		if err != nil {
+			return AskRun{}, err
+		}
+		pack, label, calls = pr.Pack, pr.Label, pr.Calls
+	} else if err := grantable(d, what); err != nil {
+		return AskRun{}, err
+	}
+	of := fmt.Sprintf("of the source %s (%s)", name, sourceHost(d))
+	switch {
+	case as != "":
+		of += fmt.Sprintf(" as %s, with the credential in %s's env file", as, as)
+	case d.Credential != nil:
+		of += ", with the credential the yard holds for it"
+	}
+	mays := make([]string, len(calls))
+	for i, call := range calls {
+		mays[i] = grantCallMay(d, of, call)
+	}
+	may, with := strings.Join(mays, " "), ""
+	if preset != "" {
+		// A space and no comma before it: a group's sentence ends in
+		// one already ("and so each session it starts,").
+		with = fmt.Sprintf(" with the preset %s of pack %s,", preset, pack)
 	}
 	fingerprint, err := w.sourceSeen(src)
 	if err != nil {
 		return AskRun{}, err
 	}
 	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: fingerprint}}
+	if preset != "" {
+		card.Seen["pack "+pack] = label
+		card.Seen["preset "+pack+" "+preset] = seen(calls)
+	}
 	if as != "" {
 		u, err := getUser(w.Tx, as)
 		if err != nil {
@@ -457,7 +588,7 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 		}
 		card.Seen["user "+as] = seen(u.Name, u.EnvFile, u.CreatedAt)
 	}
-	back := []string{"source", "revoke", name, what}
+	var flags []string
 	for _, t := range to {
 		who, fingerprint, err := w.granteeSeen(t)
 		if err != nil {
@@ -468,13 +599,19 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 			return AskRun{}, err
 		}
 		holder := (&SourceGrant{Grantee: t, As: as}).Holder()
-		c, isCall := d.Call(what)
-		switch {
-		case !asking:
-		case slices.Contains(g.Calls, what):
-			return AskRun{}, fmt.Errorf("%s is granted %s of the source %s already: leave it out of the command, which would change nothing for it", holder, what, name)
-		case isCall && g.Covers(c, as):
-			return AskRun{}, fmt.Errorf("%s may make %s of the source %s already, through its grant of %s: leave it out of the command, which would change nothing for it", holder, what, name, GrantRead)
+		if preset != "" {
+			if asking && presetHeld(g, d, calls, as) {
+				return AskRun{}, fmt.Errorf("%s holds every call of the preset %s of pack %s already: leave it out of the command, which would change nothing for it", holder, preset, pack)
+			}
+		} else {
+			c, isCall := d.Call(what)
+			switch {
+			case !asking:
+			case slices.Contains(g.Calls, what):
+				return AskRun{}, fmt.Errorf("%s is granted %s of the source %s already: leave it out of the command, which would change nothing for it", holder, what, name)
+			case isCall && g.Covers(c, as):
+				return AskRun{}, fmt.Errorf("%s may make %s of the source %s already, through its grant of %s: leave it out of the command, which would change nothing for it", holder, what, name, GrantRead)
+			}
 		}
 		held := "nothing"
 		if len(g.Calls) > 0 {
@@ -490,18 +627,22 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 		if as != "" {
 			heldOf = name + " as " + as
 		}
-		card.Does = append(card.Does, fmt.Sprintf("%s %s It is granted %s of %s now.", who, may, held, heldOf))
+		card.Does = append(card.Does, fmt.Sprintf("%s%s %s It is granted %s of %s now.", who, with, may, held, heldOf))
 		card.Seen[t.seenKey()] = fingerprint
 		if t.Crew != "" {
-			back = append(back, "--crew", t.Crew)
+			flags = append(flags, "--crew", t.Crew)
 		} else {
-			back = append(back, "--group", t.Group)
+			flags = append(flags, "--group", t.Group)
 		}
 	}
 	if as != "" {
-		back = append(back, "--as", as)
+		flags = append(flags, "--as", as)
 	}
-	card.Back = runCommandLine(back)
+	backs := make([]string, len(calls))
+	for i, call := range calls {
+		backs[i] = runCommandLine(append([]string{"source", "revoke", name, call}, flags...))
+	}
+	card.Back = strings.Join(backs, "; ")
 	return card, nil
 }
 
@@ -542,14 +683,65 @@ func grantedMatch(name string, t Grantee, as, what string) func(Event) bool {
 	}
 }
 
+// grantedPresetMatch matches the event of the grant of one of calls of
+// the source name to the grantee t as the user as.
+func grantedPresetMatch(name string, t Grantee, as string, calls []string) func(Event) bool {
+	return func(e Event) bool {
+		what, _ := e.Data["what"].(string)
+		if e.Data["source"] != name || e.Data["as"] != as || !slices.Contains(calls, what) {
+			return false
+		}
+		if t.Crew != "" {
+			return e.Data["crew"] == t.Crew
+		}
+		return e.Data["group"] == t.Group
+	}
+}
+
+// presetBytesStale says why a preset grant approval is refused for the
+// preset: the source's preset is declared by another pack now, its calls
+// differ from the card's, or the build moved under unchanged calls. Only
+// the preset's calls of this source are held: what it grants of another
+// source reads nowhere on this card.
+func (w *wtx) presetBytesStale(seq uint64, name, preset string, was, now AskRun) error {
+	wasPack, nowPack := presetPackOf(was.Seen), presetPackOf(now.Seen)
+	if wasPack == "" || nowPack == "" {
+		return staleCard(seq, was, now)
+	}
+	if wasPack != nowPack {
+		return fmt.Errorf("ask %d was written from the preset %s of pack %s: the source %s is declared by pack %s now. %s", seq, preset, wasPack, name, nowPack, nothingRan)
+	}
+	wasLabel, nowLabel := was.Seen["pack "+wasPack], now.Seen["pack "+nowPack]
+	key := "preset " + wasPack + " " + preset
+	if was.Seen[key] != now.Seen[key] {
+		return fmt.Errorf("ask %d was written from the preset %s of pack %s as %s embeds it: this yard runs %s, whose preset differs. %s", seq, preset, wasPack, wasLabel, nowLabel, nothingRan)
+	}
+	if wasLabel != nowLabel {
+		return fmt.Errorf("ask %d was written from pack %s as %s embeds it: the preset is unchanged call for call, but the card named the build it was carded from, and this yard runs %s. %s", seq, wasPack, wasLabel, nowLabel, nothingRan)
+	}
+	return nil
+}
+
+// presetPackOf is the pack a preset grant card saw its preset in: the one
+// "pack <pack>" key the card keeps.
+func presetPackOf(seen map[string]string) string {
+	for key := range seen {
+		if pack, ok := strings.CutPrefix(key, "pack "); ok {
+			return pack
+		}
+	}
+	return ""
+}
+
 // grantStale says why the ask seq for source grant is approved no more:
 // the source, a group or a crew member is another under its name, the
-// user called as is another, what the approval would do reads otherwise
-// than the card says, or a grantee holds the grant already. What a
-// grantee holds beside the grant is no part of it: a grant landed since
-// is no reason to ask again, and nil carries the approval on.
+// user called as is another, the preset's bytes or build moved where one
+// is named, what the approval would do reads otherwise than the card
+// says, or a grantee holds the grant already. What a grantee holds
+// beside the grant is no part of it: a grant landed since is no reason
+// to ask again, and nil carries the approval on.
 func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
-	name, what, to, as := grantOf(was.Argv)
+	name, what, preset, to, as := grantOf(was.Argv)
 	if err := w.staleSource(seq, name, was, now); err != nil {
 		return err
 	}
@@ -568,12 +760,37 @@ func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
 		e := lastEvent(w.Tx, "group_set", naming("name", t.Group))
 		return fmt.Errorf("ask %d was written when the group %s was another: its config was changed since%s. %s", seq, t.Group, since(e), nothingRan)
 	}
+	if preset != "" {
+		if err := w.presetBytesStale(seq, name, preset, was, now); err != nil {
+			return err
+		}
+	}
 	if !sameGrantAction(was.Does, now.Does) {
 		return staleCard(seq, was, now)
 	}
 	d, err := declared(w.Tx, name)
 	if err != nil {
 		return err
+	}
+	if preset != "" {
+		pr, err := w.presetOf(name, preset)
+		if err != nil {
+			// The card the approval compares against resolved it in
+			// this same write, so this names what moved instead.
+			return staleCard(seq, was, now)
+		}
+		for _, t := range to {
+			var g SourceGrant
+			if _, err := get(w.Tx, bSourceGrants, grantKey(name, t, as), &g); err != nil {
+				return err
+			}
+			if presetHeld(g, d, pr.Calls, as) {
+				holder := (&SourceGrant{Grantee: t, As: as}).Holder()
+				e := lastEvent(w.Tx, "source_granted", grantedPresetMatch(name, t, as, pr.Calls))
+				return fmt.Errorf("ask %d would grant the preset %s of pack %s of the source %s to %s, and %s holds it already: it was granted since%s. %s", seq, preset, pr.Pack, name, holder, holder, since(e), nothingRan)
+			}
+		}
+		return nil
 	}
 	for _, t := range to {
 		var g SourceGrant
@@ -598,7 +815,13 @@ func (w *wtx) grantStale(seq uint64, was, now AskRun) error {
 // grantees, in this one write, and answers a line for each as yardr source
 // grant prints it.
 func checkGrant(ctx context.Context, w *wtx, argv []string, actor string) error {
-	name, what, to, as := grantOf(argv)
+	name, what, preset, to, as := grantOf(argv)
+	if preset != "" {
+		// The check the grant typed at a terminal has: a grant as a
+		// user is theirs alone to give, and the card it suggests
+		// names the preset, not one of its calls.
+		what = "--preset " + preset
+	}
 	var first Grantee
 	if len(to) > 0 {
 		first = to[0]
@@ -607,7 +830,29 @@ func checkGrant(ctx context.Context, w *wtx, argv []string, actor string) error 
 }
 
 func runGrant(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
-	name, what, to, as := grantOf(argv)
+	name, what, preset, to, as := grantOf(argv)
+	if preset != "" {
+		pr, err := w.presetOf(name, preset)
+		if err != nil {
+			return "", err
+		}
+		d, err := declared(w.Tx, name)
+		if err != nil {
+			return "", err
+		}
+		var lines []string
+		for _, t := range to {
+			var g *SourceGrant
+			for _, call := range pr.Calls {
+				g, err = w.grantSource(ctx, name, call, t, as, actor, by)
+				if err != nil {
+					return "", err
+				}
+			}
+			lines = append(lines, fmt.Sprintf("%s may call %s: %s", g.Holder(), g.Source, g.Words(d)))
+		}
+		return strings.Join(lines, "\n"), nil
+	}
 	d, err := declared(w.Tx, name)
 	if err != nil {
 		return "", err

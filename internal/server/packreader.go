@@ -29,6 +29,21 @@ func packReaderFor(home string) store.PackReader {
 	}
 }
 
+// presetReaderFor is the reading of one preset of one source that the
+// server registers on its store (store.SetPresetReader): a preset grant
+// run ask is carded from the binary this server runs, never from a
+// directory or an earlier import's record. The preset is resolved by
+// source: the one embedded pack of kind source declaring it.
+func presetReaderFor() store.PresetReader {
+	return func(source, preset string) (*store.PresetReading, error) {
+		name, calls, err := pack.PresetOfSource(packs.FS, source, preset)
+		if err != nil {
+			return nil, err
+		}
+		return &store.PresetReading{Pack: name, Preset: preset, Label: packs.Embedded + " in yardr " + version.Describe(), Calls: calls}, nil
+	}
+}
+
 // readEmbeddedPack reads the embedded pack of a name: its kind, each
 // declared source's whole text with each command file's bytes, and for
 // a depot kind the plan built against the yard the reader is given.

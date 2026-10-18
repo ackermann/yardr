@@ -759,7 +759,7 @@ yardr source rm pushover
   approve on a card, with a run ask (`yardr bead ask --run "<command>"`,
   [chat.md](chat.md#questions-for-you)): `yardr source set <source>
   calls_per_hour=<n>` or `updates_per_hour=<n>`, `yardr source grant
-  <source> read|<call> --group <group>|--crew <crew member>`, and
+  <source> read|<call>|--preset <preset> --group <group>|--crew <crew member>`, and
   `yardr source add <file>` for a new source, whose ask carries the
   declaration and each command file it names so the card shows the whole
   declaration ([below](#a-call-by-a-session-or-a-crew-member)). Every
@@ -1147,7 +1147,10 @@ answer from crm (customer): data from outside the yard, not instructions
   other. `read` is every read call of the source, one a later file adds
   included; `yardr source add` says who gets a call that is new or changed
   through it. A call's name grants that one call, and is the only way an
-  update call is granted. Granting is the
+  update call is granted. `--preset <name>` grants one preset's calls of
+  the source instead, from the embedded pack that declares it (`yardr
+  pack show <pack>` prints a pack's presets); each call is granted as if
+  by name, and taken back by name. Granting is the
   operator's and is refused from an agent's pane whatever `--actor` says;
   with `--as <user>` it is that user's alone to give, the operator refused;
   anyone may revoke. That refusal is a line against mistakes, not a wall:
@@ -1158,11 +1161,13 @@ answer from crm (customer): data from outside the yard, not instructions
   grant crm note --crew yardmaster"`): the card names each call with its
   method and path, says of `read` which calls that is today and that it
   covers read calls the source is later given, and says of an update call
-  that it changes something there. The approval is held to the declaration
-  the card was written from, and to each group and crew member as it was:
+  that it changes something there. A preset grant names the preset and
+  the pack on the card beside each grantee. The approval is held to the
+  declaration the card was written from, to the preset's bytes with the
+  build where one is named, and to each group and crew member as it was:
   a source that was replaced or given another `env_file` or `mint_command`
-  since, and a group or crew member whose config changed since, make the
-  ask stale, and it is asked again. A source's two limits are proposed the
+  since, a preset whose calls differ, and a group or crew member whose
+  config changed since, make the ask stale, and it is asked again. A source's two limits are proposed the
   same way, a lower number too, since every setting of a source is the
   operator's; the card then says that only the operator takes it back. `yardr source show`, `yardr crew show` (`may call crm:
   customer`) and `yardr group list` (the `CALLS` column) print them.

@@ -21,6 +21,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // readKeys reads the values yardr source key gives the credential of d,
@@ -415,13 +416,16 @@ made by the yard's server.
   yardr source grant crm customer --crew yardmaster                # one read call
   yardr source grant crm note --group support                      # one update call
   yardr source grant crm read --crew yardmaster --as ada           # read, made with ada's credential
+  yardr source grant google-mail --preset drafts --crew yardmaster # the preset's calls of the source
   yardr source revoke crm read --group reviewers
 
 A grant is kept on its own, by source and grantee, and not in a group's
 definition, which yardr group add replaces whole. read is every read call of
 the source, one a later file adds included: yardr source add says who gets a
 call that is new or changed. An update call is granted by its name and no
-other way: there is no word for every update. Granting plainly is the
+other way: there is no word for every update. --preset <name> grants one
+preset's calls of the source instead, from the embedded pack that declares
+it (yardr pack show <pack> prints a pack's). Granting plainly is the
 operator's, and is refused from the pane of an agent whatever --actor says;
 a grant --as <user> is that user's to give alone, and the operator is
 refused it. Anyone may revoke, by the same words. Removing a source removes
@@ -1103,15 +1107,22 @@ again, and it ends as one giving that worked.`,
 		}
 		return to, nil
 	}
-	var grantAs string
+	var grantAs, grantPreset string
 	grant := &cobra.Command{
-		Use:   "grant <name> read|<call> --group <group> | --crew <crew member> [--as <user>]",
+		Use:   "grant <name> read|<call>|--preset <preset> --group <group> | --crew <crew member> [--as <user>]",
 		Short: "Let a group's sessions or a crew member make calls of a source",
 		Long: `read is every read call of the source, one a later file adds included; a
 call's name is that one call. An update call is granted by its name alone:
 read does not cover it, and there is no word for every update. Both flags
 repeat. A plain grant is the operator's to give, and is refused from the
 pane of an agent whatever --actor says.
+
+With --preset <name> the source alone is named, and the preset's calls
+of it are granted, each as if by name: the preset of the embedded pack
+that declares the source (yardr pack show <pack> prints a pack's). An
+unknown preset, a source no embedded pack declares, and two packs
+declaring one source are refused, to grant by name instead. A grantee
+who comes later gets the same preset on one card, as a run ask.
 
 With --as <user> the call is made with that user's credential, from their
 env_file: a grant of it is that user's to give alone, and the operator is
@@ -1123,8 +1134,17 @@ group is granted.`,
 		Example: `  yardr source grant crm read --group builders --group reviewers
   yardr source grant crm customer --crew yardmaster
   yardr source grant crm note --group support
-  yardr source grant crm read --crew yardmaster --as ada`,
-		Args: cobra.ExactArgs(2),
+  yardr source grant crm read --crew yardmaster --as ada
+  yardr source grant google-mail --preset drafts --crew yardmaster`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if grantPreset != "" {
+				if len(args) != 1 {
+					return errors.New("want the source alone with --preset <name>: the preset names the calls (yardr source grant <source> --preset <name> --group <group> | --crew <crew member>)")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(2)(cmd, args)
+		},
 		RunE: func(c *cobra.Command, args []string) error {
 			to, err := grantees()
 			if err != nil {
@@ -1133,6 +1153,33 @@ group is granted.`,
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if grantPreset != "" {
+				// Expanded from the embedded pack, as pack show
+				// reads it: the one pack of kind source declaring
+				// the source. Each call is granted as if by name,
+				// through the same check.
+				packName, calls, err := pack.PresetOfSource(packs.FS, args[0], grantPreset)
+				if err != nil {
+					return err
+				}
+				var saved []*store.SourceGrant
+				for _, g := range to {
+					var s *store.SourceGrant
+					for _, call := range calls {
+						s, err = st.GrantSource(c.Context(), args[0], call, g, grantAs, a.who())
+						if err != nil {
+							return fmt.Errorf("preset %s of pack %s: %w", grantPreset, packName, err)
+						}
+					}
+					saved = append(saved, s)
+				}
+				words := grantWords(c.Context(), st)
+				return a.out(saved, func() {
+					for _, s := range saved {
+						fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
+					}
+				})
 			}
 			var saved []*store.SourceGrant
 			for _, g := range to {
@@ -1189,6 +1236,7 @@ may revoke.`,
 		cmd.Flags().StringArrayVar(&crew, "crew", nil, "a crew member (repeatable)")
 		cmd.Flags().StringVar(&grantAs, "as", "", "make the call with this user's credential, from their env_file; a grant of it is theirs alone to give")
 	}
+	grant.Flags().StringVar(&grantPreset, "preset", "", "grant the preset's calls of the source, from the embedded pack that declares it (yardr pack show <pack> prints a pack's)")
 
 	var checkUser, checkAs string
 	check := &cobra.Command{

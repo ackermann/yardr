@@ -178,11 +178,13 @@ is one of the list the yard runs from a card:
   source set <source> calls_per_hour=<n>|updates_per_hour=<n>
       one caller makes that many calls of the source in an hour, or that
       many updates among them; a lower number too, which is the operator's
-  source grant <source> read|<call> --group <group>|--crew <crew member> [--as <user>]
+  source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]
       a group's sessions or a crew member may make the source's read
       calls, or one call by its name; both flags repeat, and it is one
-      command and one change; with --as <user> the call is made as that
-      user, and that user alone approves it
+      command and one change; with --preset <name> the preset's calls
+      of the pack that declares the source, named on the card with the
+      pack; with --as <user> the call is made as that user, and that
+      user alone approves it
   source add <file>
       a new source the file declares: the ask carries the declaration
       and each command file it names, the card shows the whole

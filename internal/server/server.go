@@ -129,8 +129,10 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	defer st.Close(context.Background())
 	// What a bead this yard sends to a linked one says of the yard.
 	st.SetYard(c.PeerKey(), yards.Says().Yardr)
-	// How a pack apply ask reads the packs this build embeds.
+	// How a pack apply ask reads the packs this build embeds, and a
+	// preset grant ask their presets by source.
 	st.SetPackReader(packReaderFor(c.Home))
+	st.SetPresetReader(presetReaderFor())
 	// The carrying out of approved applies (carry.go): this start's
 	// boot takes up what an earlier one left, before it serves.
 	boot := newBoot()

@@ -161,6 +161,10 @@ type Store struct {
 	// the binary of the process that owns the store (SetPackReader,
 	// runask_pack.go); nil where no server owns the store.
 	packReader PackReader
+	// presetReader resolves a preset of a source against the packs the
+	// owning process embeds, for a preset grant run ask (SetPresetReader,
+	// runask_list.go); nil where no server owns the store.
+	presetReader PresetReader
 	// blobMu serializes a put with another put or prune. In particular, a
 	// prune must not remove a blob between its grace-period refresh and the
 	// mail that names it.

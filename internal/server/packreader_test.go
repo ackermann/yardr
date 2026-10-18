@@ -77,6 +77,38 @@ func TestReadEmbeddedPackCarriesPresets(t *testing.T) {
 	}
 }
 
+// The server's preset reading resolves by source against the packs the
+// binary embeds: the one pack of kind source declaring the source, with
+// the build it is embedded in and the preset's calls of that source.
+// An unknown preset and a source no pack declares are refused with the
+// terminal named; two packs declaring one source is refused where it is
+// resolved (internal/pack), which no two embedded packs do.
+func TestPresetReaderFor(t *testing.T) {
+	read := presetReaderFor()
+	pr, err := read("google-mail", "drafts")
+	if err != nil || pr.Pack != "google-mail" || pr.Preset != "drafts" ||
+		!strings.HasPrefix(pr.Label, "embedded in yardr ") ||
+		strings.Join(pr.Calls, ",") != "read,draft" {
+		t.Fatalf("google-mail drafts = %+v, %v", pr, err)
+	}
+	// A pack of two sources answers each source's calls alone.
+	pr, err = read("google-slides", "append")
+	if err != nil || pr.Pack != "google-docs" || strings.Join(pr.Calls, ",") != "read,slide" {
+		t.Fatalf("google-slides append = %+v, %v", pr, err)
+	}
+	if _, err := read("google-mail", "nosuch"); err == nil ||
+		!strings.Contains(err.Error(), "pack google-mail has no preset nosuch") ||
+		!strings.Contains(err.Error(), "yardr pack show google-mail") ||
+		!strings.Contains(err.Error(), "in a terminal") {
+		t.Fatalf("an unknown preset = %v", err)
+	}
+	if _, err := read("crm", "read"); err == nil ||
+		!strings.Contains(err.Error(), "source crm: no embedded pack declares it") ||
+		!strings.Contains(err.Error(), "in a terminal") {
+		t.Fatalf("a source no embedded pack declares = %v", err)
+	}
+}
+
 // A depot pack with no standing import, and then with one, is read
 // against the record's depot with a plan.
 func TestReadEmbeddedDepotPack(t *testing.T) {

@@ -402,7 +402,7 @@ var runList = []runCommand{{
 	},
 }, {
 	words:       []string{"source", "grant"},
-	use:         "yardr source grant <source> read|<call> --group <group>|--crew <crew member> [--as <user>]",
+	use:         "yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]",
 	description: "Let a group's sessions or a crew member make calls of a source",
 	parse:       parseGrant,
 	check:       checkGrant,
@@ -410,7 +410,7 @@ var runList = []runCommand{{
 	stale:       (*wtx).grantStale,
 	run:         runGrant,
 	sole: func(argv []string) string {
-		_, _, _, as := grantOf(argv)
+		_, _, _, _, as := grantOf(argv)
 		return as
 	},
 }, {

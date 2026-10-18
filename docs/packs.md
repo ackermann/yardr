@@ -1442,10 +1442,11 @@ presets:
 declaration does not name, an empty preset, and presets on a pack of
 another kind, each with the file and line; `pack show` prints them
 numbered in file order, after the setup notes. A preset suggests and
-grants nothing: the operator grants it, and a terminal `pack apply` asks
-no grants at import, as before. The four google packs each carry three:
-read for the reads, one for the reads and some updates, and everything
-for all the pack lists.
+grants nothing: the operator grants it with `yardr source grant
+<source> --preset <name>`, in a terminal or as a run ask, and a terminal
+`pack apply` asks no grants at import, as before. The four google packs
+each carry three: read for the reads, one for the reads and some
+updates, and everything for all the pack lists.
 
 A new source pack starts from the template, `packs/template`: a skeleton
 pack for a fictional service, with every key a declaration may bring,
