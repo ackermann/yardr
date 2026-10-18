@@ -2051,13 +2051,15 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close(ctx)
 	north, err := s.GetPeer(ctx, "north")
 	if err != nil || len(north.Intakes) != 1 || north.Intakes[0] != (store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 3, Default: true}) {
 		t.Fatalf("north's intakes = %+v, %v", north.Intakes, err)
 	}
 	if south, err := s.GetPeer(ctx, "south"); err != nil || len(south.Intakes) != 0 {
 		t.Fatalf("south's intakes = %+v, %v", south.Intakes, err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if got := schemaOf(t, path); got != 26 {
 		t.Fatalf("schema = %d; want 26", got)
