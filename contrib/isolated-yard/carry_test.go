@@ -62,8 +62,20 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 			t.Errorf("the copy of %s stands at mode %v, not 0700", prog, info.Mode().Perm())
 		}
 	}
-	if got := as("mckean", "prime", "--bead", bead); !strings.Contains(got, "approved, ran: yardr pack apply telegram") {
-		t.Fatalf("the carried-out card reads:\n%s", got)
+	// The card flips to ran after the files stand: the carrying out
+	// copies them before it records the completion, so the source and
+	// its copies can be there while the card still reads as being
+	// carried out. Wait on that last effect too, within the same
+	// deadline.
+	for {
+		got, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "prime", "--bead", bead)
+		if err == nil && strings.Contains(got, "approved, ran: yardr pack apply telegram") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the carried-out card reads:\n%s", got)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	out, err := script(t, "down", d)
 	if err != nil {
