@@ -341,6 +341,16 @@ func (c *Client) SetSetting(ctx context.Context, key, value, actor string) error
 	return c.call(ctx, "SetSetting", nil, key, value, actor)
 }
 
+func (c *Client) RecordGOCACHEOld(ctx context.Context, dir string, at time.Time) error {
+	return c.call(ctx, "RecordGOCACHEOld", nil, dir, at)
+}
+func (c *Client) GOCACHEOldDirs(ctx context.Context) ([]store.GOCACHEDir, error) {
+	return callV[[]store.GOCACHEDir](c, ctx, "GOCACHEOldDirs")
+}
+func (c *Client) RemoveGOCACHEOld(ctx context.Context, dir string) error {
+	return c.call(ctx, "RemoveGOCACHEOld", nil, dir)
+}
+
 func (c *Client) PutCrew(ctx context.Context, def store.CrewMember, actor string) (*store.CrewMember, error) {
 	return callV[*store.CrewMember](c, ctx, "PutCrew", def, actor)
 }

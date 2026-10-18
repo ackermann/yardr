@@ -396,9 +396,13 @@ the session and the daemon stops the script, so it is the script's last step.
    stage where the flow allows it, else `failed` back to `new`, as in
    depot yardr, whose flow has no `merge`. Only what the flow allows is
    tried, so no refused move is raised;
-2. runs the depot's test command on exactly what will land, every time,
+2. keeps the machine's disk (`yardr disk keep`), then runs the depot's
+   test command on exactly what will land, every time,
    including after a merger's rebase, with `YARDR_LANDING=1`, and records
-   the commit it ran on. Where the command is the path of a file the base
+   the commit it ran on. Under `disk_keep_gb` free the keeping rotates
+   GOCACHE and clears stale go-tmp first ([setup.md](setup.md#the-machines-disk));
+   a keeping that fails is in the log and the landing goes on to the tests.
+   Where the command is the path of a file the base
    has (depot yardr's is `.yardr/test`), it runs the base's copy of that
    file, with `sh`, in the worktree; anything else is a command for
    `sh -c`. A depot with no test command lands untested, and the note says

@@ -129,6 +129,10 @@ type API interface {
 	Settings(ctx context.Context) (map[string]string, error)
 	SetSetting(ctx context.Context, key, value, actor string) error
 
+	RecordGOCACHEOld(ctx context.Context, dir string, at time.Time) error
+	GOCACHEOldDirs(ctx context.Context) ([]GOCACHEDir, error)
+	RemoveGOCACHEOld(ctx context.Context, dir string) error
+
 	PutCrew(ctx context.Context, def CrewMember, actor string) (*CrewMember, error)
 	Crew(ctx context.Context) ([]CrewMember, error)
 	GetCrew(ctx context.Context, name string) (*CrewMember, error)

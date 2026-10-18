@@ -20,8 +20,9 @@
 # For each bead it brings the base up to YARDR_PUSH, fast-forward only (a
 # base that diverged from the remote's branch fails the landing, never
 # merged or forced here), rebases the branch onto the base if the base
-# moved, runs the depot's test command on exactly what will land,
-# fast-forwards the base to the commit it tested, installs the landed build
+# moved, keeps the machine's disk (yardr disk keep), runs the depot's test
+# command on exactly what will land, fast-forwards the base to the commit
+# it tested, installs the landed build
 # where the yard's upgrade_from setting names the depot, and advances the
 # bead to merged. A design bead (YARDR_TYPE=design) whose branch changes a
 # path outside docs/design/ is held before the tests run instead, naming
@@ -387,6 +388,24 @@ else
     WHAT="the command $TEST"
   fi
   echo "== $RUN on $BR at $at: $WHAT${LANDING:+, with YARDR_LANDING=1}"
+  # The yard keeps its disk before the tests run: under disk_keep_gb free
+  # it rotates GOCACHE and clears stale go-tmp (yardr disk keep), so the
+  # landing's build has room. Best effort: a keep that fails is in the
+  # log, and the landing goes on to the tests, which fail loudly
+  # themselves when the disk is what ails them. Where the installed yardr
+  # predates the command the step is skipped, as the install below is: it
+  # activates once the new yardr is in. Cobra may return success and print
+  # the root help for an unknown subcommand with --help, so require
+  # keep's own usage.
+  if "$Y" disk keep --help 2>&1 | grep -q '^  yardr disk keep \[flags\]$'; then
+    keepout=$("$Y" disk keep 2>&1) && ok=1 || ok=
+    if [ -n "$keepout" ]; then
+      printf '%s\n' "$keepout"
+    fi
+    if [ -z "$ok" ]; then
+      echo "== $BEAD disk keep failed, landing on to the tests"
+    fi
+  fi
   runtest
   if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
     first="$RUN on $BR at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"

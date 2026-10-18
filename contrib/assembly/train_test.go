@@ -106,6 +106,10 @@ func newTrainYardCLI(t *testing.T, check string) *yard {
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
+	// Disk keeping is off: whether a keeping acts depends on the
+	// machine's free space, and these landings are the same on any
+	// machine.
+	y.yardr("settings", "set", "disk_keep_gb", "0")
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	remote := filepath.Join(t.TempDir(), "origin.git")

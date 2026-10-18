@@ -160,6 +160,28 @@ it at login, yardr's own or a file of yours, and else that `yardr up
 ([install.md](install.md#keep-it-running-after-a-reboot)). It is never a
 `todo`: the setup is complete with or without it.
 
+## The machine's disk
+
+Not a step either: the yard sees to it. Every landing, before its tests
+run, checks the free space on the volume holding GOCACHE. Under
+`disk_keep_gb` (30 GB while unset) it points GOCACHE at a fresh sibling
+directory with `go env -w`, so builders that start afterwards use it, and
+records the old directory with the time; a landing that starts 30 minutes
+or more after a rotation removes the recorded directories, never the live
+one; and it clears go-build directories in GOTMPDIR older than 3 hours.
+What it did is a `disk_kept` event (`yardr events`, `yardr watch`), with
+the free space before and after and what was removed, and a gave-up line
+in the assembly's log when free space is still under 10 GB afterwards.
+
+Two things are the operator's. First, GOCACHE must come from the go env
+file, not the environment: a GOCACHE set in the environment wins over
+`go env -w`, and the rotation does not take (the keeping says so and does
+nothing). Second, GOTMPDIR must be set for the pruning to have a
+directory: `go env -w GOTMPDIR=$HOME/.cache/go-tmp`, or wherever the
+machine keeps it; unset, that step is skipped. `yardr disk keep` runs the
+same keeping by hand, and prints what it did. Docker volumes and cargo
+targets are none of its business: it keeps Go's caches alone.
+
 ## Linking with another yard
 
 Not a step: a yard is complete without it. Where the forms end (every step

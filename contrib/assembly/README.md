@@ -42,6 +42,15 @@ red. A run ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM)
 is neither red nor "could not run": it is run once more on the same commit,
 with a note of the first run's output, and held with both outputs if a
 signal ends it again.
+Before the tests run, the yard keeps its disk (`yardr disk keep`): under
+`disk_keep_gb` free on GOCACHE's volume it rotates GOCACHE at a fresh
+sibling directory, removes a rotated directory once it has stood aside
+for 30 minutes, and clears go-build directories in GOTMPDIR older than 3
+hours, logging a `disk_kept` event with what it did
+(docs/setup.md, "The machine's disk"). Best effort: a keep that fails is
+in the log and the landing goes on to the tests. Where the installed
+yardr predates the command the step is skipped, and activates once the
+new yardr is in.
 Green fast-forwards the base to the commit the tests ran on, by its sha,
 only ever by fast-forward, and never in a dirty checkout (it holds
 instead); a branch that moved while the tests ran reports `failed` with

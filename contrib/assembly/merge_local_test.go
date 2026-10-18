@@ -169,6 +169,9 @@ func newYardCLI(t *testing.T) *yard {
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
+	// Disk keeping is off: whether a keeping acts depends on the
+	// machine's free space, and this landing is the same on any machine.
+	y.yardr("settings", "set", "disk_keep_gb", "0")
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	// The tests are red when the tree has a file RED.
@@ -202,6 +205,12 @@ func (y *yard) initStore() {
 		y.t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, store.DefaultKindSetting, "claude", "test"); err != nil {
+		y.t.Fatal(err)
+	}
+	// Disk keeping is off unless a test turns it on: whether a keeping
+	// acts depends on the machine's free space, and these tests land the
+	// same on any machine.
+	if err := st.SetSetting(ctx, store.DiskKeepGBSetting, "0", "test"); err != nil {
 		y.t.Fatal(err)
 	}
 }

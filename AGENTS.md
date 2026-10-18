@@ -44,6 +44,8 @@ it lists every exported name with its comment, faster than grepping.
 - `depotfile`: reads a depot's standing working-rules file.
 - `dispatch`: the daemon's pass: wakes on a committed write, re-reads
   state, routes beads, runs the crew, keeps backups; never polls.
+- `diskkeep`: keeping the machine's disk free for landings' builds
+  (GOCACHE rotation, stale go-tmp), run by `yardr disk keep`.
 - `eta`: arrival-time estimates and the arrivals board rows.
 - `flowdraw`: flows drawn as SVG signalling diagrams (generated into
   `docs/flows/`); the drawing holds no beads.

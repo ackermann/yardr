@@ -393,6 +393,13 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: DiskKeepGBSetting, Help: "the gigabytes of free space on GOCACHE's volume below which a landing keeps the disk before its tests run: it rotates GOCACHE at a fresh sibling directory, removes a rotated directory once it has stood aside for 30 minutes, and clears go-build directories in GOTMPDIR older than 3 hours; 0 turns the keeping off; the assembly reads it on every landing",
+		Default: strconv.Itoa(DefaultDiskKeepGB), Check: func(v string) error {
+			if n, err := strconv.Atoi(v); err != nil || n < 0 {
+				return fmt.Errorf("%s %q: a whole number of gigabytes, 0 (off) or more", DiskKeepGBSetting, v)
+			}
+			return nil
+		}},
 }
 
 // SettingOf is the setting key names.
