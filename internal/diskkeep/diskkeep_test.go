@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +224,24 @@ func TestKeepRotates(t *testing.T) {
 	lines := rep.Lines()
 	if len(lines) != 2 || !strings.HasPrefix(lines[0], "disk kept: free 20.0 GB -> 40.0 GB") {
 		t.Errorf("Lines = %v", lines)
+	}
+}
+
+func TestKeepLargeThresholdDoesNotWrap(t *testing.T) {
+	k, settings := newKeeping(t, nil)
+	settings[store.DiskKeepGBSetting] = strconv.Itoa(int(^uint(0) >> 1))
+	base := t.TempDir()
+	k.fake.gocache = filepath.Join(base, "go-build-8")
+	mkdir(t, k.fake.gocache)
+	k.free = []uint64{20 * GB, 40 * GB}
+
+	rep := k.run(settings)
+
+	if !rep.Acted {
+		t.Fatalf("Acted = false under the largest accepted threshold")
+	}
+	if len(k.fake.sets) != 1 {
+		t.Errorf("go env -w ran %v, want one rotation", k.fake.sets)
 	}
 }
 

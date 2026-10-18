@@ -135,8 +135,8 @@ func gigabytes(n uint64) string {
 // tests with the disk as it is. Only what fails before anything was done
 // is an error.
 func Keep(ctx context.Context, st store.API, settings map[string]string) (*Report, error) {
-	threshold := uint64(store.DiskKeepGB(settings)) * GB
-	if threshold == 0 || !hasGo() {
+	thresholdGB := uint64(store.DiskKeepGB(settings))
+	if thresholdGB == 0 || !hasGo() {
 		return &Report{}, nil
 	}
 	gocache, err := goEnv("GOCACHE")
@@ -150,7 +150,9 @@ func Keep(ctx context.Context, st store.API, settings map[string]string) (*Repor
 	if err != nil {
 		return nil, fmt.Errorf("free space on %s: %w", gocache, err)
 	}
-	if free >= threshold {
+	// Comparing whole gigabytes avoids overflowing when a valid setting is
+	// larger than the largest byte count uint64 can hold.
+	if free/GB >= thresholdGB {
 		return &Report{FreeBefore: free, FreeAfter: free}, nil
 	}
 	rep := &Report{Acted: true, FreeBefore: free, FreeAfter: free, Removed: []string{}}
