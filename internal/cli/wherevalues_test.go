@@ -90,7 +90,7 @@ func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
 		t.Fatalf("rows of the subscription = %+v, want one that reaches clerk", rows)
 	}
 	text := mustAs(t, st, "jo", "subscribe")
-	if n := strings.Count(text, "depot=web"); n != 1 || !strings.Contains(text, "yardr all depot=web kind=backup_failed kind=crew_gave_up kind=gave_up kind=held ") {
+	if n := strings.Count(text, "depot=web"); n != 1 || !strings.Contains(text, "yardr all depot=web kind=backup_failed kind=base_diverged kind=crew_gave_up kind=gave_up kind=held ") {
 		t.Errorf("depot=web is in %d rows, want one with each kind:\n%s", n, text)
 	}
 

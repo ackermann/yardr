@@ -209,7 +209,12 @@ count. herdr's own answer that its server is not running or not ready
 (`server_not_running`, `server_unavailable`) is an outage too, not a bead
 failure. The fetch of a depot's base before a bead branches from it gives up
 after 60s and never waits on a credential prompt (`GIT_TERMINAL_PROMPT=0`),
-so a dead remote cannot stall the daemon; every other git call a start or a
+so a dead remote cannot stall the daemon. Where the base is a local branch
+with an upstream, the branch itself is fast-forwarded to what was fetched,
+without a checkout; a base checked out in a worktree is left as it is, as
+is one holding commits its upstream lacks, and one that diverged from its
+upstream is left with a `base_diverged` event on the bead, of the class
+`attention`. Every other git call a start or a
 cleanup makes (`worktree add`, `branch`, `worktree remove`) is cut off after
 2 minutes on the same terms.
 
@@ -225,8 +230,10 @@ yardr depot add legacy ~/src/legacy --base origin/master       # base must resol
 yardr depot rm legacy                                          # store only; the clone stays
 ```
 
-Bead branches (`yard/<bead>`) start from the depot's base, fetched before each
-new worktree. The worktree of a bead that tracks a GitHub pull request stands
+Bead branches (`yard/<bead>`) start from the depot's base, brought up to its
+remote before each new worktree: a local base is fast-forwarded to its
+upstream, and one that diverged from it is left, with a `base_diverged`
+event. The worktree of a bead that tracks a GitHub pull request stands
 on the pull request's head instead ([links](links.md)). Give beads a depot with `--depot`; routes can match on it. A
 depot set up by `yardr depot init` gets groups whose roles are its pack's,
 installed in the yard's home; a group set by hand with

@@ -109,8 +109,8 @@ func noPrompt(t *testing.T, envOut string) {
 // off at the deadline, and git is told never to prompt.
 func TestFetchBaseHasADeadline(t *testing.T) {
 	envOut := hangingGit(t)
-	depot := &store.Depot{Path: t.TempDir(), Base: "origin/main"}
-	(&Herdr{}).fetchBase(context.Background(), depot)
+	job := dispatch.Job{Bead: store.Bead{ID: "r-1"}, Depot: &store.Depot{Path: t.TempDir(), Base: "origin/main"}}
+	(&Herdr{}).fetchBase(context.Background(), job)
 	noPrompt(t, envOut)
 
 	// Well short of the 30s sleep. Whether the fake has started by then
@@ -118,7 +118,7 @@ func TestFetchBaseHasADeadline(t *testing.T) {
 	t.Setenv("FAKE_GIT_HANG", "1")
 	h := &Herdr{FetchTimeout: 2 * time.Second}
 	start := time.Now()
-	h.fetchBase(context.Background(), depot)
+	h.fetchBase(context.Background(), job)
 	if took := time.Since(start); took > 10*time.Second {
 		t.Fatalf("fetch returned after %s; the deadline did not hold", took)
 	}

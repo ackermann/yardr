@@ -855,14 +855,16 @@ const KindAttention = "attention"
 // install_failed and rolled_back because a failed install needs someone
 // told whether the yard answers or not, hook_quiet because a webhook
 // that stops arriving is otherwise found only by asking why nothing came,
-// and quiet_failed because a red base has no bead to send back.
+// quiet_failed because a red base has no bead to send back, and
+// base_diverged because a base that moved both here and on its remote
+// needs someone to join the two by hand.
 // A kind added here reaches every crew member and subscription that names
 // the class, whenever it was made: the name is what is stored, and it is
 // resolved when an event is matched.
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
 	"session_harness_error", "session_harness_dialog", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held", "backup_failed",
-	"note_untold", "install_failed", "rolled_back", HookQuiet, QuietFailed}
+	"note_untold", "install_failed", "rolled_back", HookQuiet, QuietFailed, "base_diverged"}
 
 // KindsOf are the kinds word names where a kind is given: those of the
 // class when it is the class's name, else the one kind.

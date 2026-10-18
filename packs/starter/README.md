@@ -33,10 +33,13 @@ repository.
 The pack's opinion on testing is in its roles and its script, not in yardr:
 builders and reviewers run the depot's test command in their worktree before
 they hand on, and end their note with `test: <command> @ <commit>: pass`;
-`scripts/merge-local` runs it once more on the rebased commit, with
-`YARDR_LANDING=1`, before it moves the base. A red run sends the bead back
-with the end of the output, exit 2 ("could not run") holds it, and a depot
-with no test command lands untested, with a note saying so. A command that is
+`scripts/merge-local` brings the base up to the remote it pushes to,
+fast-forward only (a base that diverged from the remote's branch sends the
+bead back with a note saying so), and runs it once more on the rebased
+commit, with `YARDR_LANDING=1`, before it moves the base. A red run sends
+the bead back with the end of the output, exit 2 ("could not run") holds
+it, and a depot with no test command lands untested, with a note saying so.
+A command that is
 the path of a file on the base (`--test .yardr/test`) is run from the base's
 copy, so a bead cannot change the script that judges it.
 

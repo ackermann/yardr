@@ -10,7 +10,10 @@ up from it (`yardr setup`, `yardr depot init`) runs
 (docs/setup.md).
 
 **merge-local** lands a bead's branch on its base (the depot's base, or the
-train's branch for a child of a train). It is routed for `approved`. It
+train's branch for a child of a train). It is routed for `approved`. With
+`YARDR_PUSH` set it first brings the base up to that remote, fast-forward
+only; a base that diverged from the remote's branch reports `failed` with a
+note saying so, never merged or forced. It then
 rebases `yard/<bead>` onto the base if the base moved; a conflict goes to
 the mergers with the conflicting files: it reports `conflict` where the flow
 offers that outcome, else advances to `merge` where the flow allows it, else

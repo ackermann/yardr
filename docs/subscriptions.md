@@ -500,8 +500,11 @@ note neither delivery took: see "Done waits for unread notes" in
 (an install of a new yardr failed), `rolled_back` (a failed install put
 the previous build back) and `hook_quiet` (a hook that used to deliver
 delivered nothing for longer than its usual gap: [below](#a-quiet-hook)),
-and `quiet_failed` (a whole-suite run on a quiet machine found its
-depot's base red: [testing.md](testing.md)).
+`quiet_failed` (a whole-suite run on a quiet machine found its
+depot's base red: [testing.md](testing.md)), and `base_diverged` (a
+depot's local base moved both here and on its upstream, so the bead
+branched from the base as it is:
+[configuration.md](configuration.md#session-limits-and-outages)).
 The list is yardr's, one for the yard and
 every release's own: no command changes it.
 

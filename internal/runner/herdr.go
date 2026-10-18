@@ -186,7 +186,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		return nil, err
 	}
 
-	h.fetchBase(ctx, depot)
+	h.fetchBase(ctx, job)
 	if job.Train != "" {
 		if err := h.trainBranch(ctx, job); err != nil {
 			return nil, err
@@ -502,27 +502,112 @@ func sameDir(a, b string) bool {
 // dead remote would stall every group.
 const FetchTimeout = 60 * time.Second
 
+// BaseDiverged is the event a start logs on its bead when the depot's base,
+// a local branch, has diverged from its upstream: each holds commits the
+// other lacks, so no fast-forward brings them together. The bead still
+// starts, branching from the base as it is; joining the two is a person's,
+// by hand. Of the class attention, so the yardmaster hears of it.
+const BaseDiverged = "base_diverged"
+
 // fetchBase brings the depot's base ref up to date, best effort: a fetch that
 // fails or times out leaves the bead branching from the base as it is. A
 // remote asking for credentials fails at once instead of waiting on a
-// terminal nobody watches.
-func (h *Herdr) fetchBase(ctx context.Context, depot *store.Depot) {
+// terminal nobody watches. When the base is a local branch with an
+// upstream, the branch itself is fast-forwarded to what was fetched (see
+// fetchLocalBase).
+func (h *Herdr) fetchBase(ctx context.Context, job dispatch.Job) {
+	depot := job.Depot
 	remote, _, ok := strings.Cut(depot.Base, "/")
 	if !ok {
+		h.fetchLocalBase(ctx, depot, job.Bead.ID)
 		return
 	}
+	_ = h.fetchRemote(ctx, depot.Path, remote)
+}
+
+// fetchRemote fetches remote into the repository at dir, giving up after
+// the fetch's deadline (see FetchTimeout).
+func (h *Herdr) fetchRemote(ctx context.Context, dir, remote string) error {
 	timeout := h.FetchTimeout
 	if timeout == 0 {
 		timeout = FetchTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", depot.Path, "fetch", "--quiet", remote)
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--quiet", remote)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
 	// git may leave a child (ssh, a credential helper) holding its output
 	// open after it is killed; do not wait on that past the deadline.
 	cmd.WaitDelay = time.Second
-	_ = cmd.Run()
+	return cmd.Run()
+}
+
+// fetchLocalBase brings the depot's base, a local branch, up to the
+// upstream it tracks, best effort like fetchBase: a fetch that fails or
+// times out leaves the bead branching from the base as it is. The branch
+// is moved without a checkout, from the repository into itself, which
+// refuses anything but a fast-forward. A base checked out in any worktree
+// is left as it is: pulling into a working copy a person may use is the
+// operator's. So is one holding commits its upstream lacks — a landing
+// whose push failed, which the next landing's push carries — and one that
+// diverged from its upstream, which is left with a base_diverged event on
+// the bead. The bead starts in every case.
+func (h *Herdr) fetchLocalBase(ctx context.Context, depot *store.Depot, bead string) {
+	// The upstream the branch tracks, by its own configuration: the
+	// remote's name is exact there, where @{upstream}'s "remote/branch"
+	// form cannot be split back.
+	remote, err := gitOut(ctx, depot.Path, "config", "branch."+depot.Base+".remote")
+	if err != nil || remote == "" {
+		return // no upstream: nothing to bring up to
+	}
+	if err := h.fetchRemote(ctx, depot.Path, remote); err != nil {
+		return
+	}
+	local, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", "refs/heads/"+depot.Base)
+	if err != nil || local == "" {
+		return
+	}
+	upstream, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", depot.Base+"@{upstream}")
+	if err != nil || upstream == "" {
+		return
+	}
+	if local == upstream {
+		return
+	}
+	if baseCheckedOut(ctx, depot.Path, depot.Base) {
+		return
+	}
+	if err := git(ctx, depot.Path, "merge-base", "--is-ancestor", local, upstream); err == nil {
+		_ = git(ctx, depot.Path, "fetch", "--quiet", ".", upstream+":refs/heads/"+depot.Base)
+		return
+	}
+	if err := git(ctx, depot.Path, "merge-base", "--is-ancestor", upstream, local); err == nil {
+		return // ahead of its upstream: simply not pushed yet
+	}
+	if h.Store == nil {
+		return
+	}
+	upstreamName, _ := gitOut(ctx, depot.Path, "rev-parse", "--abbrev-ref", depot.Base+"@{upstream}")
+	// Best effort: the branch is left and the bead starts whatever the
+	// log says.
+	_ = h.Store.LogDispatch(ctx, bead, BaseDiverged, "yard", map[string]any{
+		"depot": depot.Name, "base": depot.Base, "upstream": upstreamName,
+		"local": local, "remote": upstream})
+}
+
+// baseCheckedOut reports whether the branch base is checked out in any
+// worktree of the repository at dir.
+func baseCheckedOut(ctx context.Context, dir, base string) bool {
+	out, err := gitOut(ctx, dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "branch refs/heads/"+base {
+			return true
+		}
+	}
+	return false
 }
 
 // pullHead makes the worktree at path stand on the head of the depot

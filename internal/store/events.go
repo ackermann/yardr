@@ -167,7 +167,7 @@ var DispatchKinds = []string{
 	"session_prompted", "session_harness_starting", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_idle_nudge", "session_aged", "session_stalled", "session_harness_error", "session_harness_dialog", "session_harness_retry", "session_model_mismatch",
 	"move_refused",
 	"runtime_down", "runtime_up",
-	"backup_failed", "install_failed", "rolled_back",
+	"backup_failed", "install_failed", "rolled_back", "base_diverged",
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "capped", "quota_wait", "unrouted", "no_runner", "bad_depot", "bad_flow", "stranded",
 	"crew_blocked", "nudge_held", "human_notified", "waited",

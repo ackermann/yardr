@@ -385,7 +385,11 @@ the session and the daemon stops the script, so it is the script's last step.
 
 **merge-local.** For each bead it:
 
-1. rebases `yard/<bead>` onto the base in the bead's worktree, if the base
+1. brings the base up to `YARDR_PUSH` where it names a remote, fast-forward
+   only, so the branch is rebased onto the remote's commits and not a
+   stale base; a base that diverged from the remote's branch reports
+   `failed` with a note saying so, and is never merged or forced. It then
+   rebases `yard/<bead>` onto the base in the bead's worktree, if the base
    moved; on a conflict it aborts the rebase and asks the flow what it
    allows (`prime --bead --json`) before it moves: the `conflict` outcome
    where the flow offers one (to `merge`, section 5), else the `merge`

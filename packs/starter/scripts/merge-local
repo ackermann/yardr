@@ -11,19 +11,21 @@
 # set in the group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
-#   YARDR_PUSH          a remote to push the base to after landing; off when
-#                       empty
+#   YARDR_PUSH          a remote to fetch the base from before landing and to
+#                       push it to after; off when empty
 #   YARDR_NOTIFY        crew member mailed when that push fails (default: the
 #                       yard's yardmaster setting, else yardmaster)
 #   YARDR_TEST_TIMEOUT  seconds the test command may run (default 1800)
 #
-# For each bead it rebases the branch onto the base if the base moved, runs
-# the depot's test command on exactly what will land, fast-forwards the base
-# to the commit it tested, installs the landed build where the yard's
-# upgrade_from setting names the depot, and advances the bead to merged. A
-# design bead (YARDR_TYPE=design) whose branch changes a path outside
-# docs/design/ is held before the tests run instead, naming every such path. A
-# conflict goes to
+# For each bead it brings the base up to YARDR_PUSH, fast-forward only (a
+# base that diverged from the remote's branch fails the landing, never
+# merged or forced here), rebases the branch onto the base if the base
+# moved, runs the depot's test command on exactly what will land,
+# fast-forwards the base to the commit it tested, installs the landed build
+# where the yard's upgrade_from setting names the depot, and advances the
+# bead to merged. A design bead (YARDR_TYPE=design) whose branch changes a
+# path outside docs/design/ is held before the tests run instead, naming
+# every such path. A conflict goes to
 # the mergers (the conflict outcome where the flow names one, else the merge
 # stage), else back to the builders with the conflicting files; a red run
 # back (outcome failed: new, or open for a train) with a
@@ -144,6 +146,47 @@ if [ ! -d "$WT" ]; then
 fi
 [ "$(git -C "$WT" symbolic-ref -q HEAD)" = "refs/heads/$BR" ] || hold "$WT is not on $BR"
 [ -z "$(git -C "$WT" status --porcelain)" ] || hold "worktree $WT has uncommitted changes"
+
+# Bring the base up to what it is pushed to before the branch is rebased
+# onto it, so the bead is tested against and lands on the remote's commits
+# and not a stale base. Only when YARDR_PUSH names the remote to fetch:
+# without one there is nothing to bring up to. A fetch that fails lands on
+# the base as it is, as does a remote with no branch of the base's name,
+# and a base holding commits the remote lacks is simply not pushed yet:
+# the push below carries them. But a base that diverged from the remote's
+# branch fails the landing: joining the two is a person's, never merged or
+# forced here.
+if [ -n "$PUSH" ]; then
+  fetcherr=$(GIT_TERMINAL_PROMPT=0 git -C "$REPO" fetch --quiet "$PUSH" 2>&1) && ok=1 || ok=
+  if [ -z "$ok" ]; then
+    echo "== could not fetch $PUSH, landing on $BASE as it is: $fetcherr"
+  else
+    target=$(git -C "$REPO" rev-parse --verify -q "refs/remotes/$PUSH/$BASE")
+    tip=$(git -C "$REPO" rev-parse "refs/heads/$BASE")
+    if [ -z "$target" ]; then
+      echo "== $PUSH has no branch $BASE: landing on the base as it is"
+    elif [ "$target" = "$tip" ]; then
+      echo "== $BASE is up to date with $PUSH"
+    elif git -C "$REPO" merge-base --is-ancestor "$BASE" "$target"; then
+      echo "== bringing $BASE up to $PUSH/$BASE at $(git -C "$REPO" rev-parse --short "$target")"
+      upco=$(git -C "$REPO" worktree list --porcelain |
+        awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
+      if [ -n "$upco" ]; then
+        [ -z "$(git -C "$upco" status --porcelain)" ] ||
+          hold "$BASE is checked out in $upco with uncommitted changes, so it cannot be brought up to $PUSH/$BASE; not landing. Commit or clean it, then unhold."
+        git -C "$upco" merge --ff-only "$target" ||
+          back "$BASE could not be fast-forwarded to $PUSH/$BASE in $upco"
+      else
+        git -C "$REPO" fetch --quiet . "$target:$BASE" ||
+          back "$BASE could not be fast-forwarded to $PUSH/$BASE (not a fast-forward?)"
+      fi
+    elif git -C "$REPO" merge-base --is-ancestor "$target" "$BASE"; then
+      echo "== $BASE holds commits $PUSH lacks; the push below carries them"
+    else
+      back "base $BASE has diverged from $PUSH/$BASE: each holds commits the other lacks, so nothing was rebased or landed, and the landing cannot join them (never merged or forced here). Join them by hand, then approve the bead again."
+    fi
+  fi
+fi
 
 # Rebase onto the base when it moved since the branch was made.
 if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
