@@ -151,11 +151,12 @@ func sourceHost(d *source.Declaration) string {
 
 // askedSecret checks the secret an ask for the user to asks for, and
 // answers it as the ask stores it: the source by its own name, the names in
-// the declaration's order (every one of its credential when the asker
-// narrowed to none), and the host. It refuses a source the yard does not
-// have, one whose declaration names no credential, a name the declaration
-// does not have, and anyone but the operator as the one asked: giving is
-// setting a source's credential, which is the operator's alone (maySource).
+// the declaration's order (the mint's inputs where the credential is
+// minted, else every one of it, when the asker narrowed to none), and the
+// host. It refuses a source the yard does not have, one whose declaration
+// names no credential, a name the declaration does not have, and anyone but
+// the operator as the one asked: giving is setting a source's credential,
+// which is the operator's alone (maySource).
 //
 // With a User it is that user's own address in the source that is asked
 // for (askedAddress), with a Crew that crew member's own credential in
@@ -214,7 +215,12 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 			return nil, fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", name, n, d.Credential.Names())
 		}
 	}
-	env := has
+	// Without --env the ask is for what the source needs given: the
+	// mint's inputs where the credential is minted, since the token is
+	// minted per call and never given, else every variable of it. The
+	// mint's names and the static ones are alternatives, not all
+	// required, and --env names any of them instead.
+	env := d.Credential.MintOrStatic()
 	if len(sec.Env) > 0 {
 		env = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(sec.Env, n) })
 	}
@@ -355,11 +361,12 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // askedCrewSecret checks an ask for the crew member's own credential in
 // the source d declares, asked of to, and answers it as the ask stores
 // it: the source by its own name, the names in the declaration's order
-// (every one of its credential when the asker narrowed to none), and the
-// host. It refuses a source whose declaration names no credential, a crew
-// member the yard does not have, a name the declaration does not have,
-// and anyone but the operator as the one asked: giving is setting what a
-// session of the yard runs with, which is the operator's alone.
+// (the mint's inputs where the credential is minted, else every one of
+// it, when the asker narrowed to none), and the host. It refuses a source
+// whose declaration names no credential, a crew member the yard does not
+// have, a name the declaration does not have, and anyone but the operator
+// as the one asked: giving is setting what a session of the yard runs
+// with, which is the operator's alone.
 func (w *wtx) askedCrewSecret(d *source.Declaration, crew string, env []string, to string) (*AskSecret, error) {
 	if d.Credential == nil {
 		return nil, fmt.Errorf("source %s: its declaration names no credential, so there is no secret to ask for", d.Name)
@@ -373,7 +380,10 @@ func (w *wtx) askedCrewSecret(d *source.Declaration, crew string, env []string, 
 			return nil, fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
 		}
 	}
-	names := has
+	// Without --env the ask is for what the source needs given, as a
+	// source's own credential is: the mint's inputs where it is minted,
+	// else every variable of it.
+	names := d.Credential.MintOrStatic()
 	if len(env) > 0 {
 		names = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(env, n) })
 	}

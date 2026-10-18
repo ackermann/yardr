@@ -82,9 +82,12 @@ writes it into the file the source's credential is read from, and the
 answer on the bead holds the names that were given and never the value. So
 the value is in no note, event, mail, brief or pane; an agent that needs a
 key asks for it this way and never has the person paste it. The names are
-the variables the source's declaration names for its credential; --env
-narrows the ask to some of them. The asker names no path and invents no
-name. --context says where the person gets the value. The card's line "a
+what the source needs given: the mint's inputs where the declaration names
+a mint (credential.mint), else every variable of its credential; the mint's
+names and the static ones are alternatives, not all required, so a minted
+token is never asked for. --env narrows the ask to any names the
+declaration has. The asker names no path and invents no name. --context
+says where the person gets the value. The card's line "a
 secret: <names>, for the source <source> (<where its calls go>)" is the
 yard's, from the declaration, whatever the question says.
 
@@ -109,9 +112,10 @@ notify=<source>). It takes no --env, and is refused for a source with no
 notify key and for a user the yard does not have.
 
 --secret <source> --for-crew <crew member> asks for that crew member's own
-credential in the source, which a reply answers with: the variables the
-source's declaration names for its credential, as --secret takes, which
---env narrows. The value typed goes into the crew member's env_file, or
+credential in the source, which a reply answers with: what --secret takes
+(the mint's inputs where the declaration names a mint, else every variable
+of its credential), which --env narrows to any names the declaration has.
+The value typed goes into the crew member's env_file, or
 with none set into ~/.yardr/crew/<name>.env, which is then set as yardr
 crew set sets it. The crew member's running session does not see the new
 value: it takes effect when it next starts (rotation or yardr crew restart
@@ -621,7 +625,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askForCrew, "for-crew", "", "with --secret: ask for this crew member's own credential in the source (the variables its credential names), kept in the crew member's env_file")
 	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
-	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
+	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default the mint's inputs where the declaration names a mint, else every one it names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
 	// The bead of --new, by bead create's flags and defaults.

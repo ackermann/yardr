@@ -212,6 +212,47 @@ func TestBeadAskSecretRefusals(t *testing.T) {
 	}
 }
 
+// bead ask --secret on a source whose credential is minted asks for the
+// mint's inputs alone without --env: the token is minted per call, never
+// given. An answer of that name is taken, and the exact-names refusal
+// still holds for what is asked: the token is no name of the ask.
+func TestBeadAskSecretMintedSource(t *testing.T) {
+	st, id, adaFile := userSecretYard(t)
+	yard := &app{st: st, actor: "yardmaster"}
+	me := &app{st: st, actor: "mckean"}
+	file := filepath.Join(filepath.Dir(filepath.Dir(adaFile)), "sources", "google-mail.env")
+
+	out, err := run(t, yard.beadCmd(), "ask", id, "The yard's Google account for Gmail", "--secret", "google-mail",
+		"--context", "The address step 1 showed: the address alone, no token.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + id + " for mckean: a secret, GOOGLE_ACCOUNT of the source google-mail\n"; out != want {
+		t.Fatalf("ask printed %q\nwant        %q", out, want)
+	}
+	out, err = run(t, me.primeCmd(), "--bead", id)
+	if err != nil || !strings.Contains(out, "a secret: GOOGLE_ACCOUNT, for the source google-mail (https://gmail.googleapis.com)") {
+		t.Fatalf("prime lacks the card's line, %v:\n%s", err, out)
+	}
+	if out, err := answerFrom(t, me, "GOOGLE_TOKEN=s3cret-token\n", id, "1", "--secret"); err == nil ||
+		!strings.Contains(err.Error(), "name that was not asked for") || strings.Contains(out+err.Error(), "s3cret") {
+		t.Fatalf("the token as the answer: %q, %v", out, err)
+	}
+	if _, err := os.Lstat(file); !os.IsNotExist(err) {
+		t.Fatalf("a refused answer wrote the file: %v", err)
+	}
+	out, err = answerFrom(t, me, "GOOGLE_ACCOUNT=op@gmail.example.com\n", id, "1", "--secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "mckean gave GOOGLE_ACCOUNT · it is set in " + file + " · no mint_command is set: yardr source set google-mail mint_command=<program> [args...]\n"; out != want {
+		t.Fatalf("answer printed %q\nwant           %q", out, want)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "GOOGLE_ACCOUNT=op@gmail.example.com\n" {
+		t.Fatalf("the file holds %q", b)
+	}
+}
+
 // A server that dies during the giving: bead answer --secret says the
 // words every client says of one, never the transport's error and never
 // the value.

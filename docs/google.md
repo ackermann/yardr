@@ -113,16 +113,17 @@ its siblings), which the yard chooses and records, so no `env_file`
 is set by anyone. Run only the cards for the packs the yard uses:
 
 ```sh
-yardr bead ask <bead> "The yard's Google account for Gmail" --secret google-mail --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Drive" --secret google-drive --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Docs" --secret google-docs --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Slides" --secret google-slides --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "The yard's Google account for Calendar" --secret google-calendar --env GOOGLE_ACCOUNT --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Gmail" --secret google-mail --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Drive" --secret google-drive --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Docs" --secret google-docs --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Slides" --secret google-slides --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "The yard's Google account for Calendar" --secret google-calendar --context "The address step 1 showed: the address alone, no token."
 ```
 
-Each card is narrowed to the account: without `--env` it would ask
-for `GOOGLE_TOKEN` too, and the token is minted per call, never
-given.
+No `--env`: a secret ask with none asks for what the source needs
+given, and a credential with a mint needs its mint's inputs alone, so
+each card asks for `GOOGLE_ACCOUNT` and never for `GOOGLE_TOKEN`,
+which is minted per call, never given.
 
 By hand the five share one file instead. The address is no secret,
 so it is typed as usual; the file still goes 0600, as every env

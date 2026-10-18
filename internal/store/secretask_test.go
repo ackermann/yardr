@@ -113,6 +113,29 @@ func TestSecretAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 	}
 }
 
+// A secret ask for a source whose credential is minted is stored asking
+// for the mint's inputs alone: the token is minted per call, never given.
+// The static names are alternatives the asker reaches with --env alone.
+func TestSecretAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := secretYard(t)
+	if _, err := y.PutSource(y.ctx, "gog.yaml", mintKeyFile, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.ask(t, secretAsk("gog"), "yardmaster")
+	y.ask(t, secretAsk("gog", "GOG_TOKEN"), "yardmaster")
+	rs := y.resolved(t)
+	if got := rs[0].Ask.Secret.Names(); got != "GOG_ACCOUNT" {
+		t.Fatalf("the unnarrowed ask asks for %q", got)
+	}
+	if got := rs[1].Ask.Secret.Names(); got != "GOG_TOKEN" {
+		t.Fatalf("the narrowed ask asks for %q", got)
+	}
+	if got := rs[0].Ask.Secret.Line(); got != "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)" {
+		t.Fatalf("the line = %q", got)
+	}
+}
+
 func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
 
 // A secret ask is refused, and nothing is stored, in each case the design

@@ -100,6 +100,23 @@ func TestCrewAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 	}
 }
 
+// An ask for a crew member's own credential in a source whose credential
+// is minted is stored asking for the mint's inputs alone, as the source's
+// own is: the token is minted per call, never given.
+func TestCrewAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := crewSecretYard(t)
+	if _, err := y.PutSource(y.ctx, "gog.yaml", mintKeyFile, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	ask := crewSecretAsk("yardmaster", "mckean")
+	ask.Secret.Source = "gog"
+	y.ask(t, ask, "yardmaster")
+	if got := y.resolved(t)[0].Ask.Secret.Names(); got != "GOG_ACCOUNT" {
+		t.Fatalf("the unnarrowed ask asks for %q", got)
+	}
+}
+
 // It is refused, and nothing is stored: for a source with no credential,
 // a crew member the yard does not have, a name the declaration does not
 // have, anyone asked but the operator, another yard, and beside a user,
