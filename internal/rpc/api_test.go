@@ -645,7 +645,7 @@ var apiOperatorCalls = []apiCall{
 			{"account", "string", "the candidate taken instead of typing, one the card lists; left out where the values are typed"},
 			{"actor", "string", "who approves: the operator's name"},
 		},
-		requests: []string{`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_TOKEN":"what-the-person-typed","COURIER_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`},
+		requests: []string{`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}`},
 		fields: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask that was approved"},
@@ -817,7 +817,8 @@ const apiDevice = "phone"
 func apiStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "yard.db"))
+	home := t.TempDir()
+	st, err := store.Open(filepath.Join(home, "yard.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1133,14 +1134,36 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.CloseBead(ctx, swept.ID, "done", store.Expect{}, "jo")
 	must(err)
-	// The pack a setup ask of the doc sets up: one static source the
-	// yard does not hold, with two presets over its calls.
+	// The pack a setup ask of the doc sets up: one minted source the yard
+	// does not hold, with two presets over its calls. An existing matching
+	// source gives the card a candidate for the API contract to show.
+	courierMint := []byte("#!/bin/sh\nexit 1\n")
+	courierMintHash := sha256.Sum256(courierMint)
+	if _, err = st.PutSource(ctx, "courier-existing.yaml", apiSetupSource("courier-existing"), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	existingDir := filepath.Join(home, "sources", "courier-existing")
+	if err := os.MkdirAll(existingDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(existingDir, "courier-mint"), courierMint, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	existingAccount := filepath.Join(home, "sources", "courier-existing.env")
+	if _, err = st.SetSource(ctx, "courier-existing", store.SourceEnvFile, existingAccount, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existingAccount, []byte("COURIER_ACCOUNT=jo@example.test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
 		if name != "courier" {
 			return nil, fmt.Errorf("pack %s: yardr embeds no pack of that name", name)
 		}
 		return &store.PackReading{Name: "courier", Kind: "source", Label: "embedded in yardr doctest",
-			Sources: []store.AskSource{{Name: "courier", Text: apiSource("courier", "COURIER_TOKEN", "COURIER_UPDATE_TOKEN")}},
+			Sources: []store.AskSource{{Name: "courier", Text: apiSetupSource("courier"), Files: []store.AskFile{{
+				Program: "courier-mint", Text: string(courierMint), SHA256: hex.EncodeToString(courierMintHash[:]),
+			}}}},
 			Presets: []store.AskPreset{
 				{Name: "read", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read"}}}},
 				{Name: "all", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read", "put"}}}},
@@ -1201,6 +1224,16 @@ func apiSource(name, env, update string) string {
 	return "name: " + name + "\nbase: https://" + name + ".example.com/api\n" +
 		"credential: { " + credential + ", header: \"Authorization: Bearer {credential}\" }\n" +
 		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + put
+}
+
+// apiSetupSource is the minted source of the setup ask example: courier's
+// account is its mint input, shared with the existing courier source.
+func apiSetupSource(name string) string {
+	return "name: " + name + "\nbase: https://" + name + ".example.com/api\n" +
+		"credential:\n  env: COURIER_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n" +
+		"  mint: [COURIER_ACCOUNT]\n  mint_command: [courier-mint]\n" +
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"  put: { kind: update, request: { method: POST, path: /it } }\n"
 }
 
 // overNetwork is an HTTP client for the yard of st as jo's device has one:

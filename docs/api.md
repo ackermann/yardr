@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 96,
+  "seq": 98,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 97,
+  "seq": 99,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 98,
+  "seq": 100,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -667,7 +667,7 @@ POST /call/Head
 {}
 
 {
-  "result": 93
+  "result": 95
 }
 ```
 
@@ -1073,7 +1073,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 94,
+      "seq": 96,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1081,7 +1081,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 95,
+      "seq": 97,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1107,7 +1107,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 94,
+      "seq": 96,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1115,7 +1115,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 95,
+      "seq": 97,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1142,7 +1142,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 96,
+      "seq": 98,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1468,9 +1468,18 @@ POST /call/UserAsks
         "setup": {
           "pack": "courier",
           "label": "embedded in yardr doctest",
-          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account": ["COURIER_ACCOUNT"],
           "account_file": "/home/jo/.yardr/sources/courier.env",
-          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group builders and crew yardmaster — pick one:"],
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
           "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group builders --crew yardmaster",
           "back_by": "the operator",
           "presets": [
@@ -1518,9 +1527,18 @@ POST /call/UserAsks
         "setup": {
           "pack": "courier",
           "label": "embedded in yardr doctest",
-          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account": ["COURIER_ACCOUNT"],
           "account_file": "/home/jo/.yardr/sources/courier.env",
-          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group elders and crew yardmaster — pick one:"],
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
           "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group elders --crew yardmaster",
           "back_by": "the operator",
           "presets": [
@@ -2356,15 +2374,31 @@ POST /call/Bead
         "setup": {
           "pack": "courier",
           "label": "embedded in yardr doctest",
-          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account": ["COURIER_ACCOUNT"],
           "account_file": "/home/jo/.yardr/sources/courier.env",
-          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group builders and crew yardmaster — pick one:"],
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
           "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group builders --crew yardmaster",
           "back_by": "the operator",
           "carried": [
             {
               "name": "courier",
-              "text": "name: courier\nbase: https://courier.example.com/api\ncredential: { env: COURIER_TOKEN, update_env: COURIER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+              "text": "name: courier\nbase: https://courier.example.com/api\ncredential:\n  env: COURIER_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n  mint: [COURIER_ACCOUNT]\n  mint_command: [courier-mint]\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n",
+              "files": [
+                {
+                  "program": "courier-mint",
+                  "text": "#!/bin/sh\nexit 1\n",
+                  "sha256": "275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc"
+                }
+              ]
             }
           ],
           "presets": [
@@ -2423,15 +2457,31 @@ POST /call/Bead
         "setup": {
           "pack": "courier",
           "label": "embedded in yardr doctest",
-          "account": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+          "account": ["COURIER_ACCOUNT"],
           "account_file": "/home/jo/.yardr/sources/courier.env",
-          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), with COURIER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account COURIER_TOKEN and COURIER_UPDATE_TOKEN: type it unseen. It is written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value.", "grants to group elders and crew yardmaster — pick one:"],
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
           "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --group elders --crew yardmaster",
           "back_by": "the operator",
           "carried": [
             {
               "name": "courier",
-              "text": "name: courier\nbase: https://courier.example.com/api\ncredential: { env: COURIER_TOKEN, update_env: COURIER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+              "text": "name: courier\nbase: https://courier.example.com/api\ncredential:\n  env: COURIER_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n  mint: [COURIER_ACCOUNT]\n  mint_command: [courier-mint]\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n",
+              "files": [
+                {
+                  "program": "courier-mint",
+                  "text": "#!/bin/sh\nexit 1\n",
+                  "sha256": "275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc"
+                }
+              ]
             }
           ],
           "presets": [
@@ -3096,7 +3146,7 @@ Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies 
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":41,"option":1,"values":{"COURIER_TOKEN":"what-the-person-typed","COURIER_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":41,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}
 
 {
   "result": {
@@ -3105,7 +3155,7 @@ POST /call/ApproveSetup
     "asker": "yardmaster",
     "pack": "courier",
     "preset": "read",
-    "given": ["COURIER_TOKEN", "COURIER_UPDATE_TOKEN"],
+    "given": ["COURIER_ACCOUNT"],
     "result": "approved, to be carried out"
   }
 }
