@@ -29,6 +29,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/source"
 )
 
 // bCarry holds the carrying records, <bead>\x00<ask seq>: one per
@@ -69,6 +71,10 @@ type Carry struct {
 	// the approval was held to it: where its credential comes from,
 	// which a half-applied source must still stand with (3.4).
 	Sources []CarrySource `json:"sources,omitempty"`
+	// AccountWritten is set in the same store write that writes a setup's
+	// account file, so a resumed setup can distinguish that write from an
+	// older file that already held the same variable names.
+	AccountWritten bool `json:"account_written,omitempty"`
 }
 
 // CarrySource is one source's credential standing at approval, by name.
@@ -159,6 +165,62 @@ func carryHandledHere(rec *Carry) bool {
 	}
 	return rec.Argv[0] == "pack" && rec.Argv[1] == "apply" ||
 		rec.Argv[0] == "source" && rec.Argv[1] == "add"
+}
+
+// KeySourceForSetup writes a setup's account through the secret path and
+// records, in the same store write, that this carry wrote it. The receipt
+// holds no value; it lets a resumed setup tell its account write from an
+// older file that happened to hold the same names.
+func (s *Store) KeySourceForSetup(ctx context.Context, bead string, ask uint64, boot, name string, values map[string]string, actor string) (*SourceKeyed, error) {
+	var k sourceKey
+	err := s.write(func(w *wtx) error {
+		if _, err := w.claimedSetupCarry(bead, ask, boot); err != nil {
+			return err
+		}
+		if err := w.keySource(ctx, s.home, name, values, actor, &k); err != nil {
+			return err
+		}
+		f, err := config.ReadEnvFile(k.file)
+		if err != nil {
+			return fmt.Errorf("source %s: account file after writing: %w", name, err)
+		}
+		for n, want := range values {
+			if got := source.Lookup(f.Env, n); got != want {
+				return fmt.Errorf("source %s: %s does not stand in %s after writing", name, n, k.file)
+			}
+		}
+		return w.markCarryAccountWritten(bead, ask, boot)
+	})
+	if err != nil {
+		return nil, k.failed(err)
+	}
+	return k.keyed(s.home), nil
+}
+
+// markCarryAccountWritten marks the claimed setup whose account was just
+// written in this transaction. A different boot cannot leave a receipt for
+// the claim it no longer owns.
+func (w *wtx) markCarryAccountWritten(bead string, ask uint64, boot string) error {
+	rec, err := w.claimedSetupCarry(bead, ask, boot)
+	if err != nil {
+		return err
+	}
+	rec.AccountWritten = true
+	return put(w.Tx, bCarry, carryKey(bead, ask), rec)
+}
+
+// claimedSetupCarry reads the setup carrying record and holds it to the
+// boot that owns its current claim.
+func (w *wtx) claimedSetupCarry(bead string, ask uint64, boot string) (*Carry, error) {
+	var rec Carry
+	ok, err := get(w.Tx, bCarry, carryKey(bead, ask), &rec)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || rec.State != CarryClaimed || rec.Boot != boot || len(rec.Argv) != 2 || rec.Argv[0] != "setup" {
+		return nil, fmt.Errorf("setup ask %d on %s is not claimed by this server", ask, bead)
+	}
+	return &rec, nil
 }
 
 // ClaimCarry claims the oldest supported carrying record that waits, or

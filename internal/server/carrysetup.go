@@ -106,14 +106,19 @@ func (c *carrier) carrySetupAccount(ctx context.Context, rec *store.Carry, setup
 	preset := setup.Presets[picked-1]
 	values, ok := c.st.TakeSetupSecret(rec.Bead, rec.Ask)
 	if !ok {
-		if file, stands := c.setupAccountStands(ctx, src, setup.Account); stands {
-			return file, ""
+		if rec.AccountWritten {
+			if file, stands := c.setupAccountStands(ctx, src, setup.Account); stands {
+				return file, ""
+			}
+			return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
 		}
-		return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed is lost: the server stopped before writing it, and a typed value is kept in no note and no file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+		return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed is lost: the server stopped before a completed account write was recorded, and a typed value is kept in no note. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
 			setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
 			strings.Join(setupGrantCommands(setup, preset), "; "))
 	}
-	keyed, err := c.st.KeySource(ctx, src, values, rec.Actor)
+	keyed, err := c.st.KeySourceForSetup(ctx, rec.Bead, rec.Ask, rec.Boot, src, values, rec.Actor)
 	if err != nil {
 		var lost *store.KeyNotRecorded
 		if errors.As(err, &lost) {
@@ -134,8 +139,8 @@ func (c *carrier) carrySetupAccount(ctx context.Context, rec *store.Carry, setup
 			strings.Join(setupGrantCommands(setup, preset), "; "))
 	}
 	for _, n := range setup.Account {
-		if source.Lookup(f.Env, n) == "" {
-			return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %s is not set there. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+		if source.Lookup(f.Env, n) != values[n] {
+			return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %s does not hold the approved value. Finish it with %s in a terminal, then grant the preset's calls: %s.",
 				setup.Pack, names, keyed.File, n, setupKeyCommand(src, setup.Account),
 				strings.Join(setupGrantCommands(setup, preset), "; "))
 		}

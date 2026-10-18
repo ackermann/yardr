@@ -308,6 +308,45 @@ func TestCarrySetupLostValuesFailsAskedAgain(t *testing.T) {
 	}
 }
 
+// A file that already held the account before approval is not proof that
+// the approved value was written: after a stop before the account step,
+// the setup asks for the account again and grants nothing.
+func TestCarrySetupLostValuesDoesNotReuseExistingAccount(t *testing.T) {
+	ctx := context.Background()
+	st, home, bead := carryYard(t)
+	reading, err := st.ReadPack(ctx, "google-mail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "google-mail.yaml", reading.Sources[0].Text, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, "sources", "google-mail.env")
+	if _, err := st.SetSource(ctx, "google-mail", store.SourceEnvFile, file, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := config.WriteEnvFile(file, map[string]string{"GOOGLE_ACCOUNT": "old@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), store.Grantee{Crew: "yardmaster"})
+	if _, ok := st.TakeSetupSecret(bead, seq); !ok {
+		t.Fatal("the approval handed no values to lose")
+	}
+	drain(t, st, home, "boot-one")
+
+	rec := carryState(t, st, bead, seq)
+	if rec.State != store.CarryFailed || !strings.Contains(rec.Result, "Ask for it again") || !strings.Contains(rec.Result, "yardr source key google-mail GOOGLE_ACCOUNT") {
+		t.Fatalf("the record reused an older account: %+v", rec)
+	}
+	f, err := config.ReadEnvFile(file)
+	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "old@example.com" {
+		t.Fatalf("the existing account changed: %+v, %v", f, err)
+	}
+	if grants, err := st.SourceGrants(ctx, "google-mail"); err != nil || len(grants) != 0 {
+		t.Fatalf("the lost account granted: %+v, %v", grants, err)
+	}
+}
+
 // A stop after the account's write is taken up past it: the values were
 // taken once, the file holds every name, and the carrying out grants.
 func TestCarrySetupResumedAfterAccountWrite(t *testing.T) {
@@ -326,15 +365,33 @@ func TestCarrySetupResumedAfterAccountWrite(t *testing.T) {
 	}
 	to := store.Grantee{Crew: "yardmaster"}
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), to)
-	// The carrying out's take and the account's write, before the stop.
+	claimed, err := st.ClaimCarry(ctx, "boot-one")
+	if err != nil || claimed == nil || claimed.Ask != seq {
+		t.Fatalf("the claim = %+v, %v", claimed, err)
+	}
+	c := testCarrier(st, home, "boot-one")
+	setup, _, err := c.askSetup(ctx, claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := c.carrySetupApply(ctx, claimed, setup); failure != "" {
+		t.Fatal(failure)
+	}
+	// The carrying out's take and verified account write, before the stop.
 	taken, ok := st.TakeSetupSecret(bead, seq)
 	if !ok {
 		t.Fatal("the approval handed no values to write")
 	}
-	if _, err := st.KeySource(ctx, "google-mail", taken, "mckean"); err != nil {
+	if _, err := st.KeySourceForSetup(ctx, bead, seq, "boot-two", "google-mail", taken, "mckean"); err == nil || !strings.Contains(err.Error(), "not claimed by this server") {
+		t.Fatalf("a different boot wrote the account: %v", err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("a different boot left an account file: %v", err)
+	}
+	if _, err := st.KeySourceForSetup(ctx, bead, seq, claimed.Boot, "google-mail", taken, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	drain(t, st, home, "boot-one")
+	drain(t, st, home, "boot-two")
 
 	if rec := carryState(t, st, bead, seq); rec.State != store.CarryDone {
 		t.Fatalf("the resumed record = %+v", rec)
