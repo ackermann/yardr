@@ -53,7 +53,8 @@ func TestGrantAsAUser(t *testing.T) {
 
 	if _, err := s.GrantSource(ctx, "crm", "read", to, "ada", "jo"); err == nil ||
 		!strings.Contains(err.Error(), "granting a call of a source as ada is ada's to give, and nobody else's") ||
-		!strings.Contains(err.Error(), "this is the operator (jo)") {
+		!strings.Contains(err.Error(), "this is the operator (jo)") ||
+		!strings.Contains(err.Error(), `yardr bead ask <bead> "<question>" --run "source grant crm read --crew yardmaster --as ada" --to ada --context`) {
 		t.Fatalf("the operator granting as ada = %v", err)
 	}
 	if _, err := s.GrantSource(ctx, "crm", "read", to, "ada", "yardmaster"); err == nil ||

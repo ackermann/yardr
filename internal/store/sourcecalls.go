@@ -219,7 +219,7 @@ func (w *wtx) checkGrantSource(ctx context.Context, src, what string, to Grantee
 	if to.Crew != "" {
 		flag = "--crew " + to.Crew
 	}
-	why := fmt.Sprintf("granting a call of a source as %s is %s's to give, and nobody else's: ask %s on a card (yardr bead ask <bead> \"<question>\" --run \"source grant %s %s %s --as %s\")", as, as, as, src, what, flag, as)
+	why := fmt.Sprintf("granting a call of a source as %s is %s's to give, and nobody else's: ask %s on a card (yardr bead ask <bead> \"<question>\" --run \"source grant %s %s %s --as %s\" --to %s --context \"<why it is needed>\")", as, as, as, src, what, flag, as, as)
 	refuse := func(who string) error {
 		return &OperatorOnlyError{msg: why + "; this is " + who, ask: Askable}
 	}
