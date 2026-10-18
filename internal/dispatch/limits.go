@@ -121,6 +121,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
 			delete(d.idleNudged, s.ID)
+			delete(d.idleOutcomeTold, s.ID)
 			if d.now().Before(due) {
 				d.lookAt(due)
 			} else {
@@ -190,6 +191,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
 			delete(d.idleNudged, s.ID)
+			delete(d.idleOutcomeTold, s.ID)
 			d.harnessOver(ctx, s)
 		}
 	}
@@ -381,7 +383,7 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 // else's, whose own last note carries no test line, or that cannot act gets
 // none, and session_idle goes as today.
 func (d *Dispatcher) outcomeIdle(ctx context.Context, r Runner, s *store.Session) bool {
-	if d.idleNudged[s.ID] {
+	if d.idleOutcomeTold[s.ID] {
 		return false
 	}
 	if _, fresh := d.fresh[s.ID]; fresh {
@@ -434,6 +436,7 @@ func (d *Dispatcher) outcomeIdle(ctx context.Context, r Runner, s *store.Session
 		return false
 	}
 	d.idleNudged[s.ID] = true
+	d.idleOutcomeTold[s.ID] = true
 	d.Log.Info("idle session sent its outcomes before session_idle", "session", s.ID, "bead", s.Bead, "delivery", delivery)
 	data := map[string]any{"session": s.ID, "stage": s.Stage, "delivery": delivery}
 	if pane, _ := s.Handle["pane"].(string); pane != "" {

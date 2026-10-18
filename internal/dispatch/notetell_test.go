@@ -648,6 +648,8 @@ func TestIdleDoneNoteGetsOutcomeLineBeforeIdle(t *testing.T) {
 			sess := liveSession(t, s, b.ID)
 			must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
 			f.screen(true, true)
+			now := time.Now()
+			dispatch.SetClock(d, func() time.Time { return now })
 
 			f.set(sess, "working") // a turn first: a session still in its stall window gets none
 			must(t, d.Reconcile(ctx))
@@ -672,7 +674,7 @@ func TestIdleDoneNoteGetsOutcomeLineBeforeIdle(t *testing.T) {
 			if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
 				t.Fatalf("session_idle before the limit: %d", n)
 			}
-			time.Sleep(40 * time.Millisecond)
+			now = now.Add(31 * time.Second)
 			must(t, d.Reconcile(ctx)) // the limit: the line instead of the event
 			got := outcomes()
 			if c.wantLine {
@@ -711,6 +713,77 @@ func TestIdleDoneNoteGetsOutcomeLineBeforeIdle(t *testing.T) {
 	}
 }
 
+// An early handover nudge does not replace the outcome line: a session that
+// writes its done note after the nudge still gets its outcomes before
+// session_idle.
+func TestIdleDoneNoteGetsOutcomeAfterHandoverNudge(t *testing.T) {
+	t.Parallel()
+	s, f, d := noteSetup(t)
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "30s"}}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web"}, "me"))
+	flow, err := store.ParseFlow("new -> review on done | decide on question\nreview terminal\ndecide terminal\n")
+	must(t, err)
+	flow.Name = "web"
+	_, err = s.PutFlow(ctx, *flow, "me")
+	must(t, err)
+	must(t, s.SetFlowPointer(ctx, "web", "", "web", "me"))
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new", Depot: "web"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	sess := liveSession(t, s, b.ID)
+	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+	f.screen(true, true)
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+
+	f.set(sess, "working")
+	must(t, d.Reconcile(ctx))
+	f.set(sess, "idle")
+	must(t, d.Reconcile(ctx)) // starts the idle spell and sends the handover nudge
+	if got := f.told(); len(got) != 1 || !strings.Contains(got[0], "write your note and hand on") {
+		t.Fatalf("early idle nudges = %q, want the handover nudge", got)
+	}
+	if _, err := s.AddNotedAs(ctx, b.ID,
+		"Done: wired the nudge.\ntest: sh .yardr/test @ abc1234: pass, 3 packages ok, 0 failed",
+		"yard-x-new", sess); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(31 * time.Second)
+	must(t, d.Reconcile(ctx)) // the limit: outcomes instead of session_idle
+	outcomeLines := func() []string {
+		var out []string
+		for _, n := range f.told() {
+			if strings.Contains(n, "report the outcome") {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	outcomes := outcomeLines()
+	if len(outcomes) != 1 {
+		t.Fatalf("outcome lines = %q, want one after the handover nudge", f.told())
+	}
+	for _, outcome := range []string{"done", "question"} {
+		if cmd := store.DoneCommand(b.ID, outcome); !strings.Contains(outcomes[0], cmd) {
+			t.Fatalf("outcome line names no %s command: %q", outcome, outcomes[0])
+		}
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 0 {
+		t.Fatalf("session_idle with the outcome line: %d", n)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_idle_nudge")); n != 2 {
+		t.Fatalf("session_idle_nudge events = %d, want handover and outcome lines", n)
+	}
+	must(t, d.Reconcile(ctx))
+	if n := len(eventKinds(t, s, b.ID, "session_idle")); n != 1 {
+		t.Fatalf("session_idle events = %d, want 1 after the line", n)
+	}
+	if got := outcomeLines(); len(got) != 1 {
+		t.Fatalf("outcome lines = %q, want still one", f.told())
+	}
+}
+
 // An idle session whose bead's last note is someone else's raises
 // session_idle as today, with no outcome line: the line goes only when the
 // last note is the session's own done note, not when an earlier one was.
@@ -732,6 +805,8 @@ func TestIdleLastNoteOthersRaisesIdle(t *testing.T) {
 	sess := liveSession(t, s, b.ID)
 	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
 	f.screen(true, true)
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
 
 	f.set(sess, "working") // a turn first: a session still in its stall window gets none
 	must(t, d.Reconcile(ctx))
@@ -748,7 +823,7 @@ func TestIdleLastNoteOthersRaisesIdle(t *testing.T) {
 	f.set(sess, "idle")
 	must(t, d.Reconcile(ctx)) // idle from here
 	must(t, d.Reconcile(ctx))
-	time.Sleep(40 * time.Millisecond)
+	now = now.Add(31 * time.Second)
 	must(t, d.Reconcile(ctx)) // the limit: the event, not the line
 	for _, n := range append(f.told(), f.submitted()...) {
 		if strings.Contains(n, "report the outcome") {

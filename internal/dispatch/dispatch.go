@@ -307,13 +307,14 @@ type Dispatcher struct {
 	reported   map[string]string // bead -> last unroutable reason, to log once
 	stays      map[string]stay   // bead -> its stay in a manual group's stage (waits.go)
 	// quietChecked is when the hooks were last judged quiet (hookquiet.go).
-	quietChecked time.Time
-	status       map[string]string  // session -> last runner status
-	unknown      map[string]string  // session -> last liveness error logged
-	down         map[string]*outage // group -> its runtime's current outage
-	idleSince    map[string]time.Time
-	idleTold     map[string]bool // session -> session_idle raised this idle spell
-	idleNudged   map[string]bool // session -> idle nudge sent this idle spell
+	quietChecked    time.Time
+	status          map[string]string  // session -> last runner status
+	unknown         map[string]string  // session -> last liveness error logged
+	down            map[string]*outage // group -> its runtime's current outage
+	idleSince       map[string]time.Time
+	idleTold        map[string]bool // session -> session_idle raised this idle spell
+	idleNudged      map[string]bool // session -> idle nudge sent this idle spell
+	idleOutcomeTold map[string]bool // session -> outcome line sent this idle spell
 	// still is session -> the end of its working pane as last seen, and
 	// when it was first seen as it is: what stillIdle judges by.
 	still map[string]stillPane
@@ -476,6 +477,7 @@ func (d *Dispatcher) defaults() {
 		d.idleSince = map[string]time.Time{}
 		d.idleTold = map[string]bool{}
 		d.idleNudged = map[string]bool{}
+		d.idleOutcomeTold = map[string]bool{}
 		d.still = map[string]stillPane{}
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
@@ -1110,6 +1112,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)
 	delete(d.idleNudged, id)
+	delete(d.idleOutcomeTold, id)
 	delete(d.still, id)
 	delete(d.fresh, id)
 	delete(d.promptIdle, id)
