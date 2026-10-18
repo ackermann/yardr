@@ -5,7 +5,7 @@ is applied alone, and a yard takes only the Google access it needs.
 
 | pack | wires in | the login's services |
 |---|---|---|
-| `google-mail` | Gmail read and drafts, never sent (`google-mail`) | `gmail` |
+| `google-mail` | Gmail read, drafts listed, written and edited, never sent (`google-mail`) | `gmail` |
 | `google-drive` | Drive files and folders, shared with one address, the empty Docs and Slides the docs pack fills, and comments read and replied to (`google-drive`) | `drive` |
 | `google-docs` | Docs read, appended to and replaced in place, Slides read and appended to (`google-docs`, `google-slides`) | `docs,slides` |
 | `google-calendar` | Events listed, read, created and edited without invitations, calendars listed (`google-calendar`) | `calendar` |
@@ -251,7 +251,8 @@ It takes three things, beside the pack and its grants:
    ```
    `--to ada` is what addresses it to her: without it the card is
    refused. Each update call `as` her is its own card the same way,
-   with the call's name from that pack's step 5. There is no typed
+   with the call's name from that pack's step 5 — for Gmail,
+   `draft_edit` is its own grant apart from `draft`. There is no typed
    way beside these: a grant `as` ada is ada's to give, so the
    operator typing one is refused with the card that asks her. A
    plain grant covers no call as them. Anyone may take a grant

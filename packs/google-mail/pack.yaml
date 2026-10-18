@@ -1,7 +1,8 @@
 # Gmail as a pack of kind source: the integration, imported into the
 # yard and into no depot. What Gmail is here: the declared source
-# google-mail, which reads mail and threads and writes drafts, and sends
-# nothing. Its credential mints from a gws login on this machine, by
+# google-mail, which reads mail and threads, lists drafts, and writes
+# and edits drafts, and sends nothing. Its credential mints from a gws
+# login on this machine, by
 # google-mint, the mint command the pack brings beside its declaration:
 # applying the pack sets it, with no command typed, and a mint_command
 # the operator sets on a source wins over it. One command mints every

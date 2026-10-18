@@ -1,8 +1,9 @@
 # Setting up Gmail
 
 The pack wires Gmail into the yard as the declared source
-`google-mail`: mail searched and read, threads read, drafts written,
-nothing sent. Each call goes out with a short-lived token minted from
+`google-mail`: mail searched and read, threads read, drafts listed,
+written and edited, nothing sent. Each call goes out with a short-lived
+token minted from
 a gws login on this machine, so no new copy of a secret is stored
 anywhere. The login, the account, the mint and calling as a user are
 the four google packs' shared setup, said once in `docs/google.md`.
@@ -23,7 +24,7 @@ the four google packs' shared setup, said once in `docs/google.md`.
    ```sh
    yardr pack apply google-mail
    # applied pack google-mail to the yard: 1 created, 0 changed, 0 unchanged
-   # source google-mail is declared: 4 calls under https://gmail.googleapis.com (yardr source show google-mail)
+   # source google-mail is declared: 6 calls under https://gmail.googleapis.com (yardr source show google-mail)
    ```
 3. **The account.** Give the yard's Google account for `google-mail`,
    one card, as described in `docs/google.md` (step 3).
@@ -40,17 +41,22 @@ the four google packs' shared setup, said once in `docs/google.md`.
    ```sh
    yardr bead ask <bead> "Let the yardmaster read Gmail" --run "source grant google-mail read --crew yardmaster" --context "The yardmaster reads mail to work beads; the card names each call it covers."
    yardr bead ask <bead> "Let the yardmaster draft Gmail" --run "source grant google-mail draft --crew yardmaster" --context "Drafts only; the person presses send in Gmail."
+   yardr bead ask <bead> "Let the yardmaster edit Gmail drafts" --run "source grant google-mail draft_edit --crew yardmaster" --context "Editing drafts only, a separate grant from draft; the person presses send in Gmail."
    ```
    By hand they are the operator's to type:
    ```sh
    yardr source grant google-mail read --crew yardmaster
    yardr source grant google-mail draft --crew yardmaster
+   yardr source grant google-mail draft_edit --crew yardmaster
    ```
+   A grant on `draft_edit` is a separate grant from `draft`: one
+   covers writing a new draft, the other replacing a draft that is
+   there, and neither covers the other.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with
-   `read` and `draft` from above. There is no typed way beside
-   these: a grant `as` ada is ada's to give.
+   `read`, `draft` and `draft_edit` from above. There is no typed way
+   beside these: a grant `as` ada is ada's to give.
    `yardr source show google-mail` lists each call with its kind and
    who may make it, plain and `as` each user.
 6. **Check it.** The source names no check call, so its check looks
@@ -61,10 +67,11 @@ the four google packs' shared setup, said once in `docs/google.md`.
    # google-mail: its file names no check call (check: <a read call without parameters>), so nothing was sent
    ```
 7. **Try it.** As the operator, who may make any call: a search, a
-   message read, a draft:
+   message read, the drafts, a draft:
    ```sh
    yardr call google-mail search q="from:me" maxResults=5
    yardr call google-mail message id=<an id the search showed> format=metadata
+   yardr call google-mail drafts maxResults=5
    ```
    A draft takes who it is to, its subject and its text, and builds the
    message itself; cc goes beside to, and thread answers the thread whose
@@ -72,6 +79,11 @@ the four google packs' shared setup, said once in `docs/google.md`.
    ```sh
    yardr call google-mail draft to=someone@example.com subject=hello body="The body."
    yardr call google-mail draft to=someone@example.com subject="Re: hello" body="On it." thread=<a thread id the search showed>
+   ```
+   An edit takes the id of the draft to replace, as the drafts list
+   shows it, beside either shape, and replaces the draft whole:
+   ```sh
+   yardr call google-mail draft_edit id=<a draft id drafts showed> to=someone@example.com subject=hello body="The new body."
    ```
    And raw still takes the whole RFC 2822 message, base64url-encoded, with
    or without padding — headers, a blank line, the body — for what the

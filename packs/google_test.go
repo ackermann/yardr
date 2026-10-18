@@ -112,7 +112,8 @@ func TestGoogleDeclarations(t *testing.T) {
 	calls := map[string][]source.Call{
 		"google-mail.yaml": {
 			{Name: "search", Kind: source.Read}, {Name: "message", Kind: source.Read},
-			{Name: "thread", Kind: source.Read}, {Name: "draft", Kind: source.Update},
+			{Name: "thread", Kind: source.Read}, {Name: "drafts", Kind: source.Read},
+			{Name: "draft", Kind: source.Update}, {Name: "draft_edit", Kind: source.Update},
 		},
 		"google-drive.yaml": {
 			{Name: "files", Kind: source.Read}, {Name: "file", Kind: source.Read},
@@ -244,6 +245,7 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	writeFields := "id,summary,start,end,htmlLink"
 	searchPage1 := `{"messages":[{"id":"18c4a1b2c3d4e5f6","threadId":"18c4a1b2c3d4e5f6"},{"id":"18c4a1b2c3d4e5f7","threadId":"18c4a1b2c3d4e5f6"}],"nextPageToken":"CAEQDBgBEg9OZXh0IFBhZ2U","resultSizeEstimate":2}`
 	searchPage2 := `{"messages":[{"id":"18c4a1b2c3d4e5f8","threadId":"18c4a1b2c3d4e5f8"}],"resultSizeEstimate":3}`
+	draftsPage := `{"drafts":[{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9"}},{"id":"r123457","message":{"id":"18c4a1b2c3d4e5fa","threadId":"18c4a1b2c3d4e5fa"}}],"nextPageToken":"CAEQDBgBEg9EcmFmdHM","resultSizeEstimate":2}`
 	// Drive lists resolved and open comments alike, each marked by its
 	// own resolved flag: one of each, the open one with a reply.
 	openComment := `{"kind":"drive#comment","id":"` + commentID + `","createdTime":"2026-10-17T10:00:00.000Z","modifiedTime":"2026-10-17T11:00:00.000Z","author":{"kind":"drive#user","displayName":"Ada","me":false},"htmlContent":"What about <b>lunch</b>?","content":"What about lunch?","deleted":false,"resolved":false,"quotedFileContent":{"mimeType":"text/plain","value":"Lunch places"},"replies":[{"kind":"drive#reply","id":"rEpLy0123456789abcdef00","content":"Friday works.","author":{"displayName":"Bob"},"createdTime":"2026-10-17T10:30:00.000Z","deleted":false}]}`
@@ -263,7 +265,9 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	standin := &googleStandin{t: t, answered: map[string]string{
 		"GET /gmail/v1/users/me/messages/" + msgID:             `{"id":"` + msgID + `","threadId":"` + msgID + `","labelIds":["INBOX","UNREAD"],"snippet":"Lunch on Friday?","historyId":"987654","internalDate":"1760620800000","sizeEstimate":1234,"payload":{"mimeType":"multipart/alternative","headers":[{"name":"From","value":"ada@example.com"},{"name":"Subject","value":"Lunch"}]}}`,
 		"GET /gmail/v1/users/me/threads/" + msgID:              `{"id":"` + msgID + `","historyId":"987655","snippet":"Lunch on Friday?","messages":[{"id":"` + msgID + `","threadId":"` + msgID + `","snippet":"Lunch on Friday?"}]}`,
+		"GET /gmail/v1/users/me/drafts":                        draftsPage,
 		"POST /gmail/v1/users/me/drafts":                       `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`,
+		"PUT /gmail/v1/users/me/drafts/r123456":                `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`,
 		"GET /drive/v3/files/" + driveID:                       `{"kind":"drive#file","id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["1PaReNt0123456789abcdefghijklm"],"owners":[{"displayName":"Ada"}],"modifiedTime":"2026-10-16T15:00:00.000Z","size":"1024","trashed":false,"webViewLink":"https://docs.google.com/document/d/` + driveID + `","version":"9"}`,
 		"GET /drive/v3/files/" + driveID + "/comments":         `{"kind":"drive#commentList","nextPageToken":"next","comments":[` + openComment + `,` + shutComment + `]}`,
 		"GET /v1/documents/" + docID:                           `{"documentId":"` + docID + `","title":"lunch","revisionId":"9","documentStyle":{"pageSize":{"width":{"magnitude":612}}},"body":{"content":[{"paragraph":{"elements":[{"textRun":{"content":"Lunch places"}}]},"startIndex":1,"endIndex":13}]}}`,
@@ -422,11 +426,16 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 		{name: "thread", d: mail, call: "thread", params: map[string]string{"id": msgID, "format": "full"},
 			method: "GET", path: "/gmail/v1/users/me/threads/" + msgID, query: map[string]string{"format": "full"},
 			wantAnswer: `{"id":"` + msgID + `","messages":[{"id":"` + msgID + `","threadId":"` + msgID + `","snippet":"Lunch on Friday?"}]}`},
+		{name: "drafts", d: mail, call: "drafts", params: map[string]string{"q": "from:me", "maxResults": "5"},
+			method: "GET", path: "/gmail/v1/users/me/drafts", query: map[string]string{"q": "from:me", "maxResults": "5"}, wantAnswer: draftsPage},
 		// source.Do sends the template and runs no build: the draft's body
 		// comes from its script (TestGoogleMailDraftBuild below), so the
 		// template path sends none.
 		{name: "draft template sends no body", d: mail, call: "draft", params: map[string]string{"to": "someone@example.com", "subject": "hello", "body": "The body."},
 			method: "POST", path: "/gmail/v1/users/me/drafts",
+			wantAnswer: `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`},
+		{name: "draft_edit template sends no body", d: mail, call: "draft_edit", params: map[string]string{"id": "r123456", "to": "someone@example.com", "subject": "hello", "body": "The body."},
+			method: "PUT", path: "/gmail/v1/users/me/drafts/r123456",
 			wantAnswer: `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9","labelIds":["DRAFT"]}}`},
 		{name: "files", d: drive, call: "files", params: nil,
 			method: "GET", path: "/drive/v3/files",
@@ -603,6 +612,7 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"draft long subject", mail, "draft", map[string]string{"subject": strings.Repeat("x", 501)}, "parameter subject is 501 characters, and at most 500"},
 		{"draft long body", mail, "draft", map[string]string{"body": strings.Repeat("x", 100001)}, "parameter body is 100001 characters, and at most 100000"},
 		{"draft uppercase thread", mail, "draft", map[string]string{"thread": "ABCDEF"}, "parameter thread does not match its pattern"},
+		{"draft_edit without id", mail, "draft_edit", map[string]string{"to": "someone@example.com", "subject": "hello", "body": "The body."}, "parameter id is missing"},
 		{"files long q", drive, "files", map[string]string{"q": strings.Repeat("x", 1001)}, "parameter q is 1001 characters, and at most 1000"},
 		{"file slashed id", drive, "file", map[string]string{"id": "a/b"}, "parameter id does not match its pattern"},
 		{"folder long name", drive, "folder", map[string]string{"name": strings.Repeat("x", 201), "parent": "abc"}, "parameter name is 201 characters, and at most 200"},
@@ -666,10 +676,11 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 // The draft call builds its body with the pack's script: the headers of a
 // composed draft, a UTF-8 subject and body, a reply's threadId and reply
 // headers, the raw passthrough, and the refusal of a shape that is neither.
-// The script runs from an installed copy, as the yard runs it; the stand-in
-// answers the thread's messages and receives the built draft. The non-ASCII
-// subject is an escape, not a literal, so the golden holds exactly the bytes
-// the script was given.
+// The draft_edit call builds with the same script, carrying the id of the
+// draft it replaces beside either shape. The script runs from an installed
+// copy, as the yard runs it; the stand-in answers the thread's messages
+// and receives the built draft. The non-ASCII subject is an escape, not a
+// literal, so the golden holds exactly the bytes the script was given.
 func TestGoogleMailDraftBuild(t *testing.T) {
 	for _, tool := range []string{"curl", "jq", "base64"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -677,6 +688,7 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 		}
 	}
 	threadID := "18c4a1b2c3d4e5f6"
+	draftID := "r123456"
 	lastID := "18c4a1b2c3d4e5f7"
 	parent := "<abc123@mail.gmail.com>"
 	emptyThreadID := "18c4a1b2c3d4e000"
@@ -690,13 +702,13 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 	type draftRequest struct{ method, path, query string }
 	var mu sync.Mutex
 	var got []draftRequest
-	var posts []string
+	var writes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth := r.Header.Get("Authorization"); auth != "Bearer tok" && auth != "Bearer "+escapedToken {
 			t.Errorf("%s %s: Authorization %q, want a Bearer tok", r.Method, r.URL.Path, auth)
 		}
 		var requestBody string
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
 			b, err := io.ReadAll(r.Body)
 			if err != nil {
 				t.Errorf("read draft body: %v", err)
@@ -705,8 +717,8 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 		}
 		mu.Lock()
 		got = append(got, draftRequest{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery})
-		if r.Method == http.MethodPost {
-			posts = append(posts, requestBody)
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			writes = append(writes, requestBody)
 		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -740,6 +752,8 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 		case "POST /gmail/v1/users/me/drafts":
 			w.WriteHeader(http.StatusCreated)
 			io.WriteString(w, `{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f6","labelIds":["DRAFT"]}}`)
+		case "PUT /gmail/v1/users/me/drafts/" + draftID:
+			io.WriteString(w, `{"id":"`+draftID+`","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f6","labelIds":["DRAFT"]}}`)
 		default:
 			t.Errorf("the stand-in has no answer for %s %s", r.Method, r.URL.Path)
 			http.Error(w, "no such recorded shape", 404)
@@ -759,11 +773,13 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 	folded := strings.Repeat("\u00e9", 23)
 	for _, tc := range []struct {
 		name         string
+		call         string // "" means the draft call
 		params       map[string]string
 		credential   string
 		wantMIME     string // the decoded raw; "" with wantRaw for the passthrough
 		wantRaw      string
 		wantThread   string // "" means the answer holds no threadId
+		wantID       string // "" means the answer holds no draft id
 		wantRefusal  string // "" means the build succeeds
 		wantRequests []draftRequest
 	}{
@@ -789,6 +805,10 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nQ2Fmw6kg4piV\n"},
 		{name: "raw passthrough", params: map[string]string{"raw": "RnJvbTptZQ"}, wantRaw: "RnJvbTptZQ"},
 		{name: "padded raw passthrough", params: map[string]string{"raw": "RnJvbTptZQ=="}, wantRaw: "RnJvbTptZQ=="},
+		{name: "edit headers", call: "draft_edit", params: map[string]string{"id": draftID, "to": "someone@example.com", "subject": "hello", "body": "The body."},
+			wantMIME: "To: someone@example.com\nSubject: hello\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\nVGhlIGJvZHku\n",
+			wantID:   draftID},
+		{name: "edit raw passthrough", call: "draft_edit", params: map[string]string{"id": draftID, "raw": "RnJvbTptZQ"}, wantRaw: "RnJvbTptZQ", wantID: draftID},
 		{name: "mixed raw and to", params: map[string]string{"raw": "RnJvbTptZQ", "to": "someone@example.com"},
 			wantRefusal: "raw was given with to: pass raw alone, or to, subject and body"},
 		{name: "mixed raw and thread", params: map[string]string{"raw": "RnJvbTptZQ", "thread": threadID},
@@ -826,13 +846,17 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mu.Lock()
 			got = nil
-			posts = nil
+			writes = nil
 			mu.Unlock()
 			credential := tc.credential
 			if credential == "" {
 				credential = "tok"
 			}
-			body, err := source.BuildBody(context.Background(), d, "draft", tc.params, credential, home)
+			call := tc.call
+			if call == "" {
+				call = "draft"
+			}
+			body, err := source.BuildBody(context.Background(), d, call, tc.params, credential, home)
 			if tc.wantRefusal != "" {
 				var failed *source.CallError
 				if !errors.As(err, &failed) || failed.Reason != source.BuildRefused {
@@ -845,6 +869,7 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 					t.Fatalf("BuildBody = %v", err)
 				}
 				var out struct {
+					ID      string `json:"id"`
 					Message struct {
 						Raw      string `json:"raw"`
 						ThreadID string `json:"threadId"`
@@ -852,6 +877,9 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 				}
 				if err := json.Unmarshal(body, &out); err != nil {
 					t.Fatalf("answer = %s: %v", body, err)
+				}
+				if out.ID != tc.wantID {
+					t.Fatalf("id = %q, want %q", out.ID, tc.wantID)
 				}
 				if tc.wantRaw != "" {
 					if out.Message.Raw != tc.wantRaw || out.Message.ThreadID != "" {
@@ -869,23 +897,27 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 						t.Fatalf("threadId = %q, want %q", out.Message.ThreadID, tc.wantThread)
 					}
 				}
-				res, err := source.DoKeyedBody(context.Background(), d, "draft", tc.params, credential, "", body)
-				if err != nil || res.Status != http.StatusCreated {
-					t.Fatalf("DoKeyedBody = %+v, %v; want a created draft", res, err)
+				res, err := source.DoKeyedBody(context.Background(), d, call, tc.params, credential, "", body)
+				wantStatus, wantWrite := http.StatusCreated, draftRequest{"POST", "/gmail/v1/users/me/drafts", ""}
+				if call == "draft_edit" {
+					wantStatus, wantWrite = http.StatusOK, draftRequest{"PUT", "/gmail/v1/users/me/drafts/" + draftID, ""}
 				}
-				tc.wantRequests = append(tc.wantRequests, draftRequest{"POST", "/gmail/v1/users/me/drafts", ""})
+				if err != nil || res.Status != wantStatus {
+					t.Fatalf("DoKeyedBody = %+v, %v; want the draft written", res, err)
+				}
+				tc.wantRequests = append(tc.wantRequests, wantWrite)
 			}
 			mu.Lock()
 			defer mu.Unlock()
 			if !reflect.DeepEqual(got, tc.wantRequests) {
 				t.Fatalf("the stand-in heard %v, want %v", got, tc.wantRequests)
 			}
-			wantPosts := []string(nil)
+			wantWrites := []string(nil)
 			if tc.wantRefusal == "" {
-				wantPosts = []string{string(body)}
+				wantWrites = []string{string(body)}
 			}
-			if !reflect.DeepEqual(posts, wantPosts) {
-				t.Fatalf("draft POST bodies = %q, want %q", posts, wantPosts)
+			if !reflect.DeepEqual(writes, wantWrites) {
+				t.Fatalf("draft write bodies = %q, want %q", writes, wantWrites)
 			}
 		})
 	}

@@ -1,16 +1,18 @@
 #!/bin/bash
-# build-draft: the draft call's request body, built from to, cc, subject,
-# body and an optional thread, or passed through from raw. One JSON object
-# on stdin, {"params": {...}}, one on stdout, {message: {raw[, threadId]}}.
-# Where a thread is given the script reads its last message first, with the
-# yard's credential: GOOGLE_TOKEN and YARDR_SOURCE_BASE, the declaration's
-# base, are in the environment. Needs curl and jq; base64 and tr from
-# the system's core tools.
+# build-draft: the draft and draft_edit calls' request body, built from to,
+# cc, subject, body and an optional thread, or passed through from raw. One
+# JSON object on stdin, {"params": {...}}, one on stdout, {message: {raw[,
+# threadId]}} for a draft, {id, message: {...}} for a draft_edit, where the
+# id names the draft to replace. Where a thread is given the script reads
+# its last message first, with the yard's credential: GOOGLE_TOKEN and
+# YARDR_SOURCE_BASE, the declaration's base, are in the environment. Needs
+# curl and jq; base64 and tr from the system's core tools.
 #
 # Two shapes, never mixed: the composed shape (to, subject and body, with
 # cc and a thread to answer beside them) or raw alone, the whole RFC 2822
-# message base64url-encoded, wrapped untouched. Anything else is refused in
-# words, and nothing is sent.
+# message base64url-encoded, wrapped untouched. A draft_edit gives its id
+# beside either shape. Anything else is refused in words, and nothing is
+# sent.
 #
 # The yard writes the draft; sending stays the person's. No From is set:
 # the account the credential names is the sender, and Gmail fills it in.
@@ -64,11 +66,20 @@ done
 if [ -n "$raw_given" ] && [ -n "$composed" ]; then
   refuse "raw was given with ${composed%, }: pass raw alone, or to, subject and body"
 fi
+# The draft to replace, given by a draft_edit beside either shape and by no
+# draft: where it is there the body carries it, where not the draft's shape
+# goes out unchanged.
+draft_id=""
+if given id; then param_into id draft_id; fi
 if [ -n "$raw_given" ]; then
   # The escape hatch: raw is the whole message already, base64url-encoded
   # by the caller, and goes to Gmail untouched, with no thread of its own.
   param_into raw raw
-  jq -c -n --arg raw "$raw" '{message: {raw: $raw}}'
+  if [ -n "$draft_id" ]; then
+    jq -c -n --arg id "$draft_id" --arg raw "$raw" '{id: $id, message: {raw: $raw}}'
+  else
+    jq -c -n --arg raw "$raw" '{message: {raw: $raw}}'
+  fi
   exit 0
 fi
 missing=""
@@ -153,7 +164,13 @@ mime+=$'\n'"MIME-Version: 1.0"$'\n'"Content-Type: text/plain; charset=UTF-8"$'\n
 # base64url, Gmail's raw: standard base64 without padding or newlines, +/
 # as -_. The recipe is the pack's SETUP.md's.
 raw=$(printf '%s' "$mime" | base64 | tr -d '=\n' | tr '+/' '-_')
-if [ -n "$thread" ]; then
+if [ -n "$draft_id" ]; then
+  if [ -n "$thread" ]; then
+    jq -c -n --arg id "$draft_id" --arg raw "$raw" --arg thread "$thread" '{id: $id, message: {raw: $raw, threadId: $thread}}'
+  else
+    jq -c -n --arg id "$draft_id" --arg raw "$raw" '{id: $id, message: {raw: $raw}}'
+  fi
+elif [ -n "$thread" ]; then
   jq -c -n --arg raw "$raw" --arg thread "$thread" '{message: {raw: $raw, threadId: $thread}}'
 else
   jq -c -n --arg raw "$raw" '{message: {raw: $raw}}'
