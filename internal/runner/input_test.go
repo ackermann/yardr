@@ -163,9 +163,11 @@ func TestInputText(t *testing.T) {
 		// Versions capitalize and punctuate the placeholder variously;
 		// the words are what tell it.
 		"kiro, placeholder capitalized with a comma": {"kiro", kiroSep + kiroStatus + "\r\n" + "›  Ask a question, or describe a task ↵\r\n" + kiroCopy, "", true},
-		// Words that begin like the placeholder but are not all of it
-		// are text.
-		"kiro, words that begin like the placeholder": {"kiro", kiroSep + kiroStatus + "\r\n" + "›  ask a question or two\r\n", "ask a question or two", true},
+		// A draft that continues the whole placeholder is still text.
+		"kiro, draft continues placeholder": {"kiro", kiroSep + kiroStatus + "\r\n" + "›  ask a question or describe a task about this\r\n", "ask a question or describe a task about this", true},
+		// The busy line also begins with ›, but the later input stays the
+		// empty placeholder while Kiro works.
+		"kiro, mid-turn with empty input": {"kiro", kiroWorking + kiroEmpty, "", true},
 		// Without its own mark a pane is read by the others': enough to
 		// type nothing after it.
 		"kimi, a line with Claude Code's mark": {"kimi", claudeDraft, "some creative..", true},

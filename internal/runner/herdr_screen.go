@@ -342,20 +342,28 @@ func inputText(styled, kind string) (text string, ok bool) {
 
 // isPlaceholder reports whether line, the first line of an input without
 // its box's edges, shows the harness's placeholder and nothing typed: the
-// mark taken off, the rest begins with the placeholder's words. Kiro draws
+// mark taken off, the words match the placeholder. Kiro draws
 // its empty input's gray hint ("ask a question or describe a task", a ↵
 // after it, hints under it) in no faint style, so reads that drop faint
 // text keep it, and without this an empty input reads as one that holds
-// text. The match is on the words, lowercased without commas: versions
-// capitalize and punctuate them variously ("Ask a question, or describe a
-// task"). A message that begins with the placeholder's whole words reads
-// empty too; nothing shorter does.
+// text. The match ignores punctuation and case: versions capitalize and
+// punctuate the hint variously ("Ask a question, or describe a task").
+// Comparing the whole hint keeps a draft that continues with those words.
 func isPlaceholder(line, mark, placeholder string) bool {
 	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), mark))
 	norm := func(s string) string {
-		return strings.ToLower(strings.ReplaceAll(s, ",", ""))
+		words := strings.Map(func(r rune) rune {
+			if unicode.IsLetter(r) || unicode.IsNumber(r) {
+				return unicode.ToLower(r)
+			}
+			if unicode.IsSpace(r) {
+				return ' '
+			}
+			return -1
+		}, s)
+		return strings.Join(strings.Fields(words), " ")
 	}
-	return strings.HasPrefix(norm(line), norm(placeholder))
+	return norm(line) == norm(placeholder)
 }
 
 // inputLine finds, in the lines of a pane of a harness of kind, the first
