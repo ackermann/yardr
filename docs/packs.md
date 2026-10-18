@@ -161,6 +161,8 @@ sources:
 | `sources.<source>.says` | what the source's events say of the bead the event is about, for any name: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage` and `type`, the stage the bead is in and its type, for a line that holds in some stages or for some types only (`type=train` holds for a train, `type=pr` for a pr bead); the event's own type is named with `event` there. `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not (for any other name the yard's source is asked when the plan is made), and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): a line with `type` is held to the flows beads of that type follow alone, any other to every flow, since the bead may be of any type, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
 | `sources.<source>.makes` | what the source's events make, for any name: a bead for a thread no open bead tracks. A list of lines, the first an event matches counting. `where` is as in `says`, over the source's keys (for github `association` among them: whom the repository knows) and without `stage` and without `type`, which the line's bead already says; the event's own type is named with `event` there. `bead` is the bead such an event makes, its `type`, its `stage` and, optionally, the `depot` of the yard it is made in. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not, when it names `type` (redundant with the bead the line makes), and when the flow of the pack that beads of the type follow has no such stage a bead can be made in. A source may have `makes` without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events make](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name yardr has not built in: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other; in a pack of kind `source` its declaration may also name the commands the yard runs (`hook`, `thread`, `link`) |
+| `presets.<preset>.about` | optional, in a pack of kind `source`: one line saying what the preset grants, printed by `pack show` beside the preset's name |
+| `presets.<preset>.grants.<source>` | in a pack of kind `source`: the calls of a source the pack declares that the preset grants, in the words `yardr source grant` takes: `read` for every read call, an update call by its name, a single read call by its name where a preset wants one without the rest (`grants: { crm: [read, note] }`). `pack check` refuses a source the pack does not declare, a call the declaration does not name, an empty preset, and presets on a pack of another kind; `pack show` prints the presets numbered in file order. The pack only suggests: nothing is granted until the operator grants it, and a terminal `pack apply` ignores presets ([An integration pack](#an-integration-pack-kind-source)) |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
 first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
@@ -1419,6 +1421,31 @@ key`, `yardr user key`, or a card a crew member asks with) and how to
 test: each is one service with the `notify` key that tells a user, and no
 commands, so one apply with `--notify` and the two keys set it up whole,
 and `yardr user list` shows the user told through it.
+
+An integration pack may also suggest grants. `presets`, beside `sources`,
+names each preset with an optional one line of `about` and the `grants`,
+per source the pack declares, in the words `yardr source grant` takes:
+
+```yaml
+presets:
+  read:
+    about: Read mail, threads and drafts; write nothing
+    grants:
+      google-mail: [read]
+  drafts:
+    about: Read mail, and write drafts the person sends
+    grants:
+      google-mail: [read, draft]
+```
+
+`pack check` refuses a source the pack does not declare, a call the
+declaration does not name, an empty preset, and presets on a pack of
+another kind, each with the file and line; `pack show` prints them
+numbered in file order, after the setup notes. A preset suggests and
+grants nothing: the operator grants it, and a terminal `pack apply` asks
+no grants at import, as before. The four google packs each carry three:
+read for the reads, one for the reads and some updates, and everything
+for all the pack lists.
 
 A new source pack starts from the template, `packs/template`: a skeleton
 pack for a fictional service, with every key a declaration may bring,

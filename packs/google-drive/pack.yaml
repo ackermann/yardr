@@ -29,3 +29,20 @@ setup: SETUP.md
 sources:
   google-drive:
     declaration: google-drive.yaml
+
+# Suggested grants: named sets of the source's calls, printed numbered by
+# pack show. Suggesting grants nothing: the operator grants them, and
+# terminal pack apply ignores them.
+presets:
+  read:
+    about: List and read files and comments; change nothing
+    grants:
+      google-drive: [read]
+  make:
+    about: Read files, make folders and empty Docs and Slides, and reply in comments; share nothing
+    grants:
+      google-drive: [read, folder, doc, slides, reply]
+  everything:
+    about: Read, make and reply, and share files with any address
+    grants:
+      google-drive: [read, folder, doc, slides, share, reply]

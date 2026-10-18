@@ -26,3 +26,20 @@ setup: SETUP.md
 sources:
   google-mail:
     declaration: google-mail.yaml
+
+# Suggested grants: named sets of the source's calls, printed numbered by
+# pack show. Suggesting grants nothing: the operator grants them, and
+# terminal pack apply ignores them.
+presets:
+  read:
+    about: Read mail, threads and drafts; write nothing
+    grants:
+      google-mail: [read]
+  drafts:
+    about: Read mail, and write drafts the person sends
+    grants:
+      google-mail: [read, draft]
+  everything:
+    about: Read mail, and write and edit drafts the person sends
+    grants:
+      google-mail: [read, draft, draft_edit]

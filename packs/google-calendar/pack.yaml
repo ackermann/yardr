@@ -25,3 +25,20 @@ setup: SETUP.md
 sources:
   google-calendar:
     declaration: google-calendar.yaml
+
+# Suggested grants: named sets of the source's calls, printed numbered by
+# pack show. Suggesting grants nothing: the operator grants them, and
+# terminal pack apply ignores them.
+presets:
+  read:
+    about: List and read events and calendars; change nothing
+    grants:
+      google-calendar: [read]
+  create:
+    about: List and read events, and create timed ones; no invitations go out
+    grants:
+      google-calendar: [read, create]
+  everything:
+    about: List, read, create and edit events; no invitations go out
+    grants:
+      google-calendar: [read, create, edit]

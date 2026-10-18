@@ -49,6 +49,10 @@ type Pack struct {
 	// Declared are the sources the pack brings by a declaration file, in
 	// file order: services yardr has no Go for.
 	Declared []Declared `json:"declared,omitempty"`
+	// Presets are the pack author's named grant suggestions, in file
+	// order: a pack of kind source's alone, each naming per source the
+	// pack declares the calls it grants. pack show prints them numbered.
+	Presets []Preset `json:"presets,omitempty"`
 	// Setup is the pack's setup notes, its author's words about what a
 	// setup takes: a slash path relative to the pack's directory, "" for a
 	// pack without any. SetupText is what the file holds.
@@ -147,6 +151,18 @@ type Group struct {
 type CallsAsked struct {
 	Source string   `json:"source"`
 	Calls  []string `json:"calls"`
+}
+
+// Preset is one named grant suggestion of a pack of kind source: what of
+// the pack's declared sources one grant gives. About is the author's one
+// line saying what it grants, printed by pack show; Grants names, per
+// source the pack declares, store.GrantRead for every read call and calls
+// by name, in the words yardr source grant takes. A preset suggests and
+// grants nothing: the operator grants it.
+type Preset struct {
+	Name   string       `json:"name"`
+	About  string       `json:"about,omitempty"`
+	Grants []CallsAsked `json:"grants"`
 }
 
 type CrewMember struct {
@@ -543,9 +559,9 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 }
 
 func (r *reader) pack(p *Pack, root *yaml.Node) {
-	var flows, groups, crew, sources *entry
+	var flows, groups, crew, sources, presets *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "kind", "setup", "flows", "groups", "crew", "sources") {
+	for _, e := range r.entries(root, "", "name", "kind", "setup", "flows", "groups", "crew", "sources", "presets") {
 		switch e.key {
 		case "setup":
 			p.Setup, p.SetupText = r.setupFile(e.v, e.path)
@@ -573,6 +589,8 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			crew = &e
 		case "sources":
 			sources = &e
+		case "presets":
+			presets = &e
 		}
 	}
 	if !named && root.Kind == yaml.MappingNode {
@@ -636,6 +654,23 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			}
 		}
 	}
+	// After the sources: a preset grants a source the pack declares, so
+	// the declarations are read before what names their calls is held to
+	// them.
+	if presets != nil {
+		if p.Kind != KindSource {
+			whose := "of kind " + p.Kind
+			if p.Kind == "" {
+				whose = "without a kind"
+			}
+			r.errf(presets.k, presets.path, "a pack %s carries no presets: a preset suggests grants of the pack's declared sources, and only a pack of kind source is asked for those", whose)
+		}
+		for _, e := range r.entries(presets.v, presets.path) {
+			if pr, ok := r.preset(e, p.Declared); ok {
+				p.Presets = append(p.Presets, pr)
+			}
+		}
+	}
 	// What is asked of a source the pack declares is held to its file. One
 	// the pack does not declare is the yard's, and the plan says whether the
 	// yard has it and the call.
@@ -673,6 +708,91 @@ func (r *reader) calls(e entry) []CallsAsked {
 		}
 		for _, w := range words {
 			r.asked = append(r.asked, askedCall{n: s.v, key: s.path, source: s.key, call: w})
+		}
+		out = append(out, CallsAsked{Source: s.key, Calls: words})
+	}
+	return out
+}
+
+// preset reads one named grant suggestion: an optional one-line about and
+// the grants, a source the pack declares to store.GrantRead and the names
+// of calls. The declarations are already read, so each word is held to its
+// file here, where calls asked by a group or a crew member are held after.
+func (r *reader) preset(e entry, declared []Declared) (Preset, bool) {
+	pr := Preset{Name: e.key}
+	ok := true
+	var grants bool
+	for _, k := range r.entries(e.v, e.path, "about", "grants") {
+		switch k.key {
+		case "about":
+			s, good := r.str(k.v, k.path)
+			if !good {
+				ok = false
+				continue
+			}
+			if strings.Contains(s, "\n") {
+				r.errf(k.v, k.path, "about is one line, printed by pack show beside the preset's name")
+				ok = false
+				continue
+			}
+			pr.About = s
+		case "grants":
+			grants = true
+			pr.Grants = r.presetGrants(k, declared, &ok)
+		}
+	}
+	if e.v.Kind == yaml.MappingNode && !grants {
+		r.errf(e.k, join(e.path, "grants"), "missing: the calls the preset grants of the pack's sources (grants: { <source>: [read] })")
+		ok = false
+	}
+	return pr, ok
+}
+
+// presetGrants reads what one preset grants: a mapping of a declared
+// source to store.GrantRead and the names of calls, in the words yardr
+// source grant takes.
+func (r *reader) presetGrants(k entry, declared []Declared, ok *bool) []CallsAsked {
+	if k.v.Kind == yaml.MappingNode && len(k.v.Content) == 0 {
+		r.errf(k.v, k.path, "empty: name a source the pack declares and its calls ({ <source>: [read] }), or leave the preset out")
+		*ok = false
+	}
+	var out []CallsAsked
+	for _, s := range r.entries(k.v, k.path) {
+		i := slices.IndexFunc(declared, func(d Declared) bool { return d.Name == s.key })
+		if i < 0 {
+			declares := "nothing"
+			if len(declared) > 0 {
+				names := make([]string, len(declared))
+				for j, d := range declared {
+					names[j] = d.Name
+				}
+				declares = strings.Join(names, ", ")
+			}
+			r.errf(s.k, s.path, "the pack declares no source %s (it declares: %s): a preset grants a source the pack's sources declare", s.key, declares)
+			*ok = false
+			continue
+		}
+		words := r.strs(s.v, s.path)
+		if s.v.Kind == yaml.SequenceNode && len(s.v.Content) == 0 {
+			r.errf(s.v, s.path, "empty: name %s or a call ([%s]), or leave the source out", store.GrantRead, store.GrantRead)
+		}
+		if len(words) == 0 {
+			*ok = false
+			continue
+		}
+		d := declared[i].Declaration
+		for _, w := range words {
+			if w == store.GrantRead {
+				continue
+			}
+			if _, found := d.Call(w); !found {
+				names := make([]string, len(d.Calls))
+				for j, c := range d.Calls {
+					names[j] = c.Name
+				}
+				r.errf(s.v, s.path, "%s declares no call %s (it has: %s): grant %s, every read call, or a call by its name", declared[i].File, w, strings.Join(names, ", "), store.GrantRead)
+				*ok = false
+			}
 		}
 		out = append(out, CallsAsked{Source: s.key, Calls: words})
 	}

@@ -28,3 +28,23 @@ sources:
     declaration: google-docs.yaml
   google-slides:
     declaration: google-slides.yaml
+
+# Suggested grants: named sets of the sources' calls, printed numbered by
+# pack show. Suggesting grants nothing: the operator grants them, and
+# terminal pack apply ignores them.
+presets:
+  read:
+    about: Read documents and decks; change nothing
+    grants:
+      google-docs: [read]
+      google-slides: [read]
+  append:
+    about: Read documents and decks, and append text and slides; replace nothing
+    grants:
+      google-docs: [read, write]
+      google-slides: [read, slide]
+  everything:
+    about: Read and append to documents and decks, and replace document text in place
+    grants:
+      google-docs: [read, write, replace]
+      google-slides: [read, slide]

@@ -560,12 +560,14 @@ after pack check. The import is recorded (yardr pack list). See docs/packs.md.
 
 	var sf packFlags
 	show := &cobra.Command{
-		Use: "show <pack>", Short: "Print a pack's setup notes",
+		Use: "show <pack>", Short: "Print a pack's setup notes and presets",
 		Long: `Prints the pack's setup notes (pack.yaml's setup): its author's words
 about what a setup takes — where in the service a webhook is made and which
 events it needs, what an identity wants, how to test. They are the pack's,
 not checked by yardr, and are marked so, as an answer from a source is
-marked as data. A pack without any says so.
+marked as data. A pack without any says so. Then the pack's presets
+(pack.yaml's presets), if it has any: its suggested grants, numbered in
+file order, each with the calls it grants of each source.
 ` + naming,
 		Example: `  yardr pack show linear`,
 		Args:    cobra.ExactArgs(1),
@@ -576,13 +578,28 @@ marked as data. A pack without any says so.
 			if err != nil {
 				return err
 			}
-			if p.Setup == "" {
+			if p.Setup == "" && len(p.Presets) == 0 {
 				return a.out(map[string]any{"pack": p.Name}, func() {
 					fmt.Printf("pack %s carries no setup notes\n", p.Name)
 				})
 			}
-			return a.out(map[string]any{"pack": p.Name, "file": p.Setup, "setup": p.SetupText}, func() {
-				printSetup(p.Name, p.Setup, p.SetupText)
+			v := map[string]any{"pack": p.Name}
+			if p.Setup != "" {
+				v["file"], v["setup"] = p.Setup, p.SetupText
+			}
+			if len(p.Presets) > 0 {
+				v["presets"] = p.Presets
+			}
+			return a.out(v, func() {
+				if p.Setup == "" {
+					fmt.Printf("pack %s carries no setup notes\n", p.Name)
+				} else {
+					printSetup(p.Name, p.Setup, p.SetupText)
+				}
+				if len(p.Presets) > 0 {
+					fmt.Println()
+					printPresets(p)
+				}
 			})
 		},
 	}
@@ -1612,6 +1629,23 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 func printSetup(packName, file, text string) {
 	fmt.Printf("setup notes of pack %s, from %s (from the pack, not checked by yardr):\n", packName, file)
 	fmt.Println(strings.TrimSpace(text))
+}
+
+// printPresets prints a pack's presets numbered in file order, each with
+// the words it grants of each source as the file has them. The numbers
+// are what a setup ask counts when it offers the presets.
+func printPresets(p *pack.Pack) {
+	fmt.Printf("presets of pack %s (the pack's suggested grants, granted by the operator):\n", p.Name)
+	for i, pr := range p.Presets {
+		line := fmt.Sprintf("  %d. %s", i+1, pr.Name)
+		if pr.About != "" {
+			line += ": " + pr.About
+		}
+		fmt.Println(line)
+		for _, g := range pr.Grants {
+			fmt.Printf("     %s: %s\n", g.Source, strings.Join(g.Calls, ", "))
+		}
+	}
 }
 
 // printPlan prints the plan. answers are those already given: an answered
