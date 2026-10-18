@@ -218,6 +218,9 @@ func TestYardTestSelects(t *testing.T) {
 	write("emb/a.txt", "a\n")
 	write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
 	write("alone/p.go", "package p\n")
+	// A package one case's change deletes, while the script still rows
+	// it, as base's copy does at a landing.
+	write("fakepkg/p.go", "package p\n")
 	write("docs/web.md", "web\n")
 	// As packs does: it embeds starter, which the table rows to
 	// internal/pack and internal/cli, and one package imports it.
@@ -524,6 +527,33 @@ func TestYardTestSelects(t *testing.T) {
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
 		out, err := plan(t, stale, "docs/web.md")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || out != want {
+			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		}
+	})
+	// A row for a directory the change deletes is skipped, not stale: the
+	// branch removes the row, but a landing runs this script as it is on
+	// the base, whose row still names the directory. A row for a
+	// directory in neither stays a failure.
+	t.Run("a row for a directory the change deletes", func(t *testing.T) {
+		deleted := strings.Replace(script, "\nreads='\n", "\nreads='\nfakepkg/ fakepkg .\n", 1)
+		out, err := plan(t, deleted, "-fakepkg/p.go")
+		if want := strings.Join([]string{
+			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
+			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
+			tested + " m.test/m",
+		}, "\n"); err != nil || out != want {
+			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		}
+		// The landing that failed for yardr-d860: base's copy, over a
+		// change that deletes a rowed directory, is the whole suite,
+		// not a stale row.
+		first, rest, err := planned(t, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
+		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
+		}
+		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
+		out, err = plan(t, stale, "-fakepkg/p.go")
+		if want := pre + "the row for nowhere/ in " + yardTest + " names nowhere, which is no package here"; err == nil || out != want {
 			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
 		}
 	})
