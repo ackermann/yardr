@@ -1,0 +1,157 @@
+# Setting up a source is one card: apply, account and grants with presets from the pack
+
+Design yardr-7d4e, proposed 2026-10-18. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+A yard is one installation of yardr: its store, its crew and its depots. A source is a service outside the yard, declared by one file. A pack is a way of working as one directory; a pack of kind `source` declares sources and is imported into the yard itself, into no depot. An ask is one question as data on a bead; a run ask (`yardr bead ask --run "<command>"`) proposes one yardr command of a fixed list, and a secret ask (`--secret <source>`) asks for a source's credential, typed unseen and written to a file by the server. A grant is the operator letting a group's sessions or a crew member make a source's calls (`yardr source grant`). The operator is the person who runs the yard. In this document **a preset** is a pack author's named grant suggestion (read only, read plus drafts, everything), **a setup ask** is the new ask this design adds, and **the card** is what it shows the person asked.
+
+## 1. The question
+
+mckean, 18 Oct 2026 (mail 46659), after setting Google up on the Plantime yard: "how can we avoid running in these issues? maybe a single ask per source with the permission options. not having to click like crazy also providing all the options for the permissions? maybe groups and select all etc. with sane presets". What it took that evening (Plantime yard events, beads yd-106m, yd-xwz6, yd-j6cn, yd-9kp2 and others): a pack-apply run ask per pack, an account secret ask per source (twice over, after the both-names bug yardr-er4c), and a grant run ask per source and kind, read then update — about 25 cards for one Google account, each the same address or the same yes.
+
+## 2. What exists today
+
+### 2.1. The pack-apply run ask
+
+`yardr bead ask <id> "<q>" --run "pack apply <name>"` (design yardr-bht9) proposes applying an embedded pack with no flags. The ask carries the declaration texts and command files read by the yard's server from its own binary (`PackReader` in internal/store/runask_pack.go, registered by the server), never sent by the asker. The card renders the declaration whole in the yard's words: base address, credential names and where the credential goes, every call with kind, method, path, parameters, query and body, and every command with its program and sha256. Since yardr-d860 the card also names the pack's mint: its path under `<home>/sources/<source>/`, its full sha256 and mode 0700. Approving is held to the build, the carried bytes and the yard's sources with their whole destination inventory (`packApplyStale`), and a replacement shows old against new with unified diffs. Carrying out is the server's watcher (internal/server/carry.go, internal/store/carry.go and claim.go): claimed once under the server's boot, applied as the operator, recorded done or failed with what stands. A re-apply that changes nothing applies nothing.
+
+### 2.2. The grant run ask
+
+`yardr bead ask <id> "<q>" --run "source grant <source> read|<call> --group <g> | --crew <c>"` proposes one grant. Its card (`grantCard` in internal/store/runask_list.go) names, for each grantee, the calls the grant is of with their methods and paths: of `read` which calls that is today and that it covers any read call the source is later given, of an update call that it changes something there. The approval is held to the declaration and to each grantee as they were, and runs past what was granted since unless it is held already (`grantStale`). It runs through `GrantSource` (internal/store/sourcecalls.go), which checks the grant against the declaration with `grantable`. `read` is every read call, a later file's included; an update call is granted by its name alone, and there is no word for every update. A grant `--as <user>` is that user's alone to give; the operator is refused it.
+
+### 2.3. The secret ask
+
+`yardr bead ask <id> "<q>" --secret <source>` asks for the credential's names, narrowed by `--env`. Since yardr-er4c an ask with no `--env` asks for what the source needs given: the mint's inputs (`Credential.MintOrStatic()` in internal/store/secretask.go) where the source has a mint, else every name. The answer is typed unseen (`yardr bead answer <id> <ask> --secret`), the server writes it into the env file, and the answer on the bead holds the names given, never the value. Each source's secret ask writes into that source's own file, which the yard chooses; sharing one file across sources is only by hand (`yardr source set <s> env_file=<file>`), as docs/google.md step 3 does for the five Google sources. A secret ask takes no option, no recommendation and no words.
+
+### 2.4. The plan of a kind-source pack
+
+`pack.Build` (internal/pack/plan.go) plans a kind-source pack with `buildSource`: its declared sources and nothing else — `declared()` and `dropped()` only. It never asks grants: the `calls` step (`CallsAsked` in internal/pack/pack.go, a mapping of source to wanted calls under a depot pack's group or crew member) runs for depot packs alone, which is why every SETUP.md says a pack of kind source asks no grants at import. The planner compares replacements key by key (`declarationDiff` in internal/pack/plan_sources.go) and hashes each command file (`sourceCommands`). What a pack for a depot may say is bounded by key lists (`DeclarationKeys`, `SourceDeclarationKeys` in internal/pack/pack.go). Terminal `pack check` prints the plan and `pack show` prints the pack's setup notes; neither grants anything.
+
+### 2.5. What exists not at all
+
+No pack declares grant presets: the word appears nowhere in internal/pack, internal/source or internal/store. No ask takes more than one pick: an answer holds one option number (`Answer.Option` in internal/store/asks.go), and yardr adds "You decide" to every ask that has options. No card combines a secret with an approval: a secret ask takes no pick and a run ask takes no secret. And no machinery shares one account answer across sources: each secret ask is per source, and the mint's input typed for google-mail is typed again for google-drive.
+
+## 3. The proposal
+
+### 3.1. In one paragraph
+
+One new ask, the setup ask — `yardr bead ask <bead> "<q>" --setup <pack> --crew <name>` — carries the whole setup of a pack's sources as one decision: the apply, the account and the grants. Its options are the pack's presets, picked once, recommended with `--recommend` as on any option ask. Its account field is answered unseen on the same card, and is already filled where a source naming the same credential and mint holds it. Its carry-out is the pack row's carry-out, then the secret write, then the grants, each step the existing function, recorded done or failed with what stands. A pack update is the same card again, showing the difference. Three cards (at most) become one per pack; for the four google packs, with their shared account, five sources are set up on four cards with the address typed once.
+
+### 3.2. The ask
+
+```text
+$ yardr bead ask yardr-k3vd "Set up Gmail for the yardmaster?" \
+    --setup google-mail --crew yardmaster \
+    --context "The yardmaster reads mail to work beads; drafts only, the person sends." \
+    --context "The card carries the pack's declaration, its mint, the account and the grants." \
+    --recommend 1 --why "reading is the job; drafts can follow"
+ask 3101 on yardr-k3vd for mckean: to approve, yardr bead answer yardr-k3vd 3101 <preset> --secret
+```
+
+`--setup` names an embedded pack of kind source, with no flags of `pack apply`, as the pack row takes it. `--crew` and `--group` name who the grants are for, repeatable, as the grant row takes them; one is required, since a grant names its grantee. `--recommend` counts the card's preset options as `pack show` prints them (3.4), with `--why` saying why, as on any option ask; no new flag and no type change. `--as` is refused: a grant as a user is that user's alone to give (2.2), and this card is the operator's. Who may ask, who it is put to and who may approve are the list's, unchanged: a crew member or a user and not a bead's agent, to the operator alone, approved by the operator and never from an agent's pane and never over a link. The store throws away whatever carried bytes, sentences or fingerprints the writer sends, as the pack row does: the server's reading supplies the pack, and the store parses every carried text itself.
+
+### 3.3. The card
+
+The card shows each part exactly as its own card shows it today; bundling changes the number of approvals, not what is shown for any of them. For google-mail, asked as above, with no Google source set up yet:
+
+```text
+ask 3101 · open · to mckean · asked by yardmaster · 1m ago
+  Set up Gmail for the yardmaster?
+  yardmaster says: The yardmaster reads mail to work beads; drafts only, the person sends.
+  when you approve, the yard applies the pack, takes the account, and grants the preset you pick, and nothing else:
+      yardr pack apply google-mail, the account GOOGLE_ACCOUNT, and the preset's grants to crew yardmaster
+  the yard says: pack google-mail (embedded in yardr 06740fc8c90b), of kind source, into the yard: it adds one source and copies 1 command file, and changes nothing else. It makes no hook and sets no credential's file.
+  the yard says: source google-mail: its calls go to https://gmail.googleapis.com. Its credential is the variable GOOGLE_TOKEN, sent in the header Authorization: Bearer {credential}. The token is minted per call from GOOGLE_ACCOUNT by google-mint.
+  the yard says: call search (read): GET /gmail/v1/users/me/messages. [... each call as the apply card renders it ...]
+  the yard says: its mint google-mint is copied to <home>/sources/google-mail/google-mint, sha256 <whole> mode 0700. It runs with the operator's local logins, and a mint_command the operator sets wins over it.
+  the yard says: the account GOOGLE_ACCOUNT: type it unseen. It is written to the source's env file, named in the answer, never the value.
+  the yard says: grants to crew yardmaster — pick one:
+    1. read: may make every read call of the source google-mail (https://gmail.googleapis.com): today that is search, message and thread, and it covers any read call the operator later gives the source.
+    2. drafts: those, and the call draft POST /gmail/v1/users/me/drafts, which changes something there.
+    3. grant nothing yet: the pack and the account now; the grants follow as their own cards.
+  the operator can take it back: yardr source rm google-mail; yardr source revoke google-mail <what> --crew yardmaster
+  answer with: yardr bead answer yardr-k3vd 3101 <n> --secret
+```
+
+In full: the declaration of every source the pack declares, rendered as the apply card renders it (2.1), with the mint's path, full sha256 and the hand-set-wins line; the account line, naming the mint's input names (the yardr-er4c default) or every credential name for a source with no mint, and where the value goes; one option per preset, each consequence rendered by the yard from the declarations — each call with method and path, `read` expanded to today's reads with the later-reads line, an update marked as changing something there — and to whom; and the take-backs, `source rm` and `source revoke`. A preset's `about` is its author's words and is no part of the card, as a declaration's `about` is no part of the apply card (design yardr-bht9): it is printed by `pack show` for the asker. Beside the presets the yard adds two options of its own, as it adds "You decide" to every option ask: "grant nothing yet", which approves the pack and the account with no grants, for an operator who wants to check the source first; and "You decide" last, which leaves the preset to the asker, who follows up with a grant card. The yard's part is held to 40 lines, counted as the apply card counts them with one line per preset; past it the pack stays three cards, refused with `pack check` named.
+
+### 3.4. Presets in pack.yaml
+
+Presets are pack-level, beside `sources:`, so one card serves a pack whatever its sources: google-docs' two sources take one card, not option groups multiplied. Each preset names, per source, the calls it grants:
+
+```yaml
+presets:
+  read:
+    about: Read mail and threads; write nothing
+    grants:
+      google-mail: [read]
+  drafts:
+    about: Read mail, and write drafts the person sends
+    grants:
+      google-mail: [read, draft]
+```
+
+`about` is optional, one line, printed by `pack show` and never on the card (3.3). `grants` maps a source the pack declares to `read` and call names, in the words `source grant` takes: `read` for every read call, an update call by its name, a single read call by its name where a preset wants one without the rest. Pack load refuses what is not so: a source the pack does not declare, a call the declaration does not name, an empty preset, a pack of another kind carrying presets. `pack check` validates them with the plan, and `pack show` prints them numbered in file order — the numbers `--recommend` counts. Terminal `pack apply` ignores presets: its grants stay what they are, typed or carded separately. The planner's grant asking for depot packs (`calls`, 2.4) is untouched; presets are the kind-source road, where no grantee stands in the pack and the asker names one.
+
+### 3.5. The account, shared
+
+Two sources share one account answer when they name the same credential and the same mint: the same mint input names, and the same mint program — the same bytes where the pack brings it (the four google-mint copies are one text, held so by a test), the same path where the operator set it. Both must be minted: a static credential is never shared, since one variable name across two services is coincidence, not sameness. Where the yard holds a matching source whose env file has the names, the card's account line says so — "already given for google-drive, in `<home>/sources/google-drive.env`" — and the carry-out points the new source's `env_file` at that file instead of asking, naming the file. Typing another value on the card keeps its own file: on a terminal the answer omits `--secret` to reuse and passes it to type another; on a phone the secret field filled is its own, left empty is shared. The value is never shown, only the file. Plain secret asks are unchanged: sharing lives in the setup answer's path, with the matching rule in internal/source for later use. A source removed never takes the file: env files are the yard's and stay, as the hand-shared file of docs/google.md does today.
+
+### 3.6. How an approval runs
+
+The answer picks a preset and, where the card asks for one, types the account: `yardr bead answer <id> <ask> <n> --secret`. A pick with `--secret` beside it is new, and allowed on a setup ask only; everywhere else a secret answer still takes no pick. The approval is recorded first, as an approval; the server carries it out once, as the operator, in this order: the apply (the pack row's plan-again, holding and copy), the account (the secret write into the chosen file), then each grant of the picked preset through `GrantSource`, one call a write. The order is forced: grants and the account write need the source the apply adds, so a failed apply writes nothing further, and a failure anywhere stops the rest and is recorded failed with what stands and the terminal commands that finish it (`pack apply`, `source key`, `source grant`). Stale rules compose the rows': the build and the carried bytes, now including the presets, since the options derive from them; each source with its destination inventory; the sentences, so an account given meanwhile or a user told since refuses the approval; each grantee as they were; and grants held since are run past unless held already, as the grant row runs them. An approval from a device travels as run approvals and secret answers travel today, and nothing runs on the phone.
+
+One window is new and is said plainly: the account's value is never stored — in no note, on no ask — so between the approval and the account's write it lives in the server's memory alone, handed from the approval to the carrying out. A stop inside that window loses it, and the ask is recorded failed naming that the apply stands and the account is asked again, as the secret path already asks again when it wrote the file and could not record it. The window is normally milliseconds, and the failure names exactly what to do.
+
+### 3.7. A pack updated
+
+A setup ask on a pack already applied is the same card again, showing the difference: each source's declaration diff old against new and each command file's old and new sha256 with its unified diff, as the replacement row shows them; the account line reading "given, in `<file>`", with typing another still possible; and each preset rendered against what the grantee holds — calls held marked held, calls the preset would add marked new. A standing `read` grant covers a read call the update adds, and the card says so beside that call; only an update call the update adds waits on a preset that names it. Picking a preset grants what it names past what is held, and revokes nothing: narrowing stays `source revoke`, proposed on its own card (section 5, question 3).
+
+### 3.8. What changes in each mechanism
+
+- **Run asks** gain no new row. The setup ask is a new ask kind beside `--run`, because no run ask takes a secret and no run command is three commands. It reuses the pack row's carrying (`AskSource`, the server's `PackReader`, the destination inventory), its stale holding and its carry-out claim (internal/store/claim.go, internal/server/carry.go), and the grant row's sentences and run-past rule.
+- **Secret asks** keep their asking; their answering gains the setup combination. The typed-unseen prompt, the server-side file write and the names-not-values answer are the secret path's, called from the setup carry-out. New beside it: the sibling matching rule (in internal/source, over declarations and effective mints) and the shared-or-own file choice. `--secret`, `--env` and their refusals are untouched.
+- **Pack apply's plan** gains presets at reading and showing: the `presets` key in internal/pack/pack.go with its validation, `pack check` checking them, `pack show` printing them numbered. The planner builds no grant plan for them — the store renders the options from the server's pack reading, as it renders the apply card — and terminal `pack apply` is unchanged.
+- **The grant command** is unchanged: no flag, no check, no new sentence. The setup carry-out calls `GrantSource` as the operator once per granted call, exactly as the grant row's approval does.
+- **Asks and answers** gain one flag each: `bead ask --setup` with `--crew`/`--group` and `--recommend` counting presets, and `bead answer <n> --secret` together on a setup ask. The single-pick answer shape is untouched: presets are picked one, never several (section 5, question 2).
+
+## 4. Left out
+
+- **The browser login** (`gws auth login`), which cannot be a card, as the bead says.
+- **Grants as a user on this card.** A grant `--as ada` is ada's alone to give; the setup card is the operator's, so per-user setup stays the `--as` secret card and the `--as` grant cards of docs/google.md ("Calling as a user").
+- **One card for a whole family of packs.** Four google packs are four cards, joined by the shared account. One card for all four would carry four declarations past the 40-line bound and apply four packs in one carrying out; section 5 asks whether that is wanted.
+- **Multi-select for grants.** Presets are picked one; "grant nothing yet" plus follow-up grant and revoke rows cover the rest. Section 5 asks whether multi-select is wanted, and where it would live.
+- **A "pick calls" option naming calls in words.** Words are free text; parsing call names from them trades one approval for a refusal loop. The yard-rendered presets plus follow-up rows are the whole choice.
+- **Presets for depot packs and in terminal apply.** Depot packs ask grants through `calls` at import; terminal users grant by name. Presets are card options for kind-source packs only.
+- **A pack-declared default recommendation.** The asker recommends with `--recommend`; a pack default would be one more default to argue about, and the asker knows the grantee.
+- **Static-credential sharing.** One variable name across two services is coincidence; each static source asks its own.
+- **Approving in the web view, and any copy of the ask over a link**, as for every run ask. A second approval step (typing the source's name) is refused for the same reason it was refused for the apply row: a device approves.
+
+## 5. Open questions
+
+These go to mckean as asks when the bead reaches decide. Each keeps its options, costs and recommendation.
+
+**1. One card per pack, or one for the whole Google family?** Option A, per pack, as proposed: four cards for Google, the address typed once, each card within the 40-line bound. Option B, one family card for all four packs: one approval, but a card carrying four declarations and their diffs past any phone-readable bound, and one carrying out applying four packs, whose failure names a quarter-done yard. I would take A: the bound is what keeps an approval informed, and four small cards are the saving already — 25 cards down to four.
+
+**2. Presets picked one, or multi-select?** Option A, as proposed: presets are single-pick options, the asks' only shape, with "grant nothing yet" and follow-up grant cards for the rest. Option B, multi-select on the setup card alone: presets as checkboxes, or presets plus per-call boxes — a second answer shape and a second widget in chat and footplate, used by one card. Option C, multi-select in asks generally: one new answer shape every future card inherits, at the cost of changing what an answer is, every view of one, and the peer send of asks. I would take A now: the grant space per source is `read` plus a few named updates, which presets cover, and the odd case costs one follow-up card, not a second mechanism. If multi-select ever comes, it belongs in asks generally (C), never as one card's special: a mechanism one card needs today, every card needs tomorrow.
+
+**3. On drift, do presets only add, or set exact holdings?** Option A, as proposed: picking a preset grants what it names past what is held and revokes nothing; narrowing is `source revoke` on its own card. Option B: the picked preset sets the grantee's holdings exactly, revoking calls it lacks. B costs an approval silently taking access away — a crew member's grant revoked by a card whose question was about a pack update — and a card that must show removals as loudly as grants. I would take A: grants widen by approval and narrow by their own explicit act, as revocation is explicit everywhere else.
+
+## 6. The beads it would become
+
+In the order they would land. Each passes `sh .yardr/test` and updates the pages named. No bead's own tests start an agent: a store in a temporary home, a caller with `WithCaller` where the call needs one, and the isolated yard (`contrib/isolated-yard`) for the one end-to-end trial, never the operator's yard.
+
+**B1. Presets in pack.yaml: read, checked and shown.** Goal: 3.4 — the `presets` key, its validation and its showing. Where to look: the pack reader in internal/pack/pack.go beside `calls` (the `sources` mapping it hangs beside), `SourceDeclarationKeys` for what a kind-source pack may say, `pack check` and `pack show` in internal/cli/pack.go, the four google packs' pack.yaml gaining their presets. Done when: the reader takes the shape of 3.4 and refuses a source the pack does not declare, a call the declaration does not name, an empty preset and presets on a pack of another kind, each with the file and line; `pack check` reports them and `pack show` prints them numbered in file order; the google packs carry read-only, read-plus-updates and everything presets matching their declarations, and a test holds each preset's calls to the declaration's; docs/packs.md says the key. Depends on nothing.
+
+**B2. The setup ask: asked, carded and approved.** Goal: 3.2, 3.3 and the stale half of 3.6 — everything short of carrying it out. Where to look: `yardr bead ask --setup` in internal/cli/bead_ask.go (the `--crew`/`--group` grantees, `--recommend` counting presets, the refusals of 3.2); the ask's carrying in internal/store beside runask_pack.go (the server's pack reading widened to presets, writer-sent bytes thrown away); the card beside `packApplyCard` and `grantCard` (3.3 whole, the 40-line count with presets, "grant nothing yet" and "You decide"); `bead answer <n> --secret` in the answer command, allowed together on a setup ask only; the stale comparison composing build, sources with inventory, sentences and grantees. Done when: asking sends the pack and grantees alone and stores the server's bytes with forged bytes thrown away by a test; the card shows the declaration, the mint with digest, the account line and each preset's yard-rendered calls with grantee, each read by a test against the declarations that made it; a pack past 40 lines and an unknown preset recommendation are refused with a terminal named; an approval is refused stale when the build, bytes, presets, sources, owed-ness or grantees moved, each by a test; the approval records approved-and-not-carried-out and a second approval is refused; docs/chat.md, docs/glossary.md and the ask and answer help say it. Depends on B1.
+
+**B3. The server carries it out: apply, account, grants.** Goal: the carrying half of 3.6 — once, in order, as the operator. Where to look: the watcher and claim in internal/server/carry.go, internal/store/carry.go and claim.go; the apply step (the pack row's plan-again and holding); the account step (the secret path's write, internal/store/secretask.go, with the value handed in memory from the approval, never stored); the grants step (`GrantSource` per granted call as the operator); the failure record with what stands and the finishing commands. Done when: an approved setup is carried out once with the apply, the file write and the grants each verified back; a failure at each step stops the rest and records what stands with its finishing command, each by a test; a server stopped between approval and carrying out takes the ask up and finishes it, except the value lost to a stop before the account's write, which is recorded failed naming the account asked again, each by a test; two takers cannot both carry out; a trial in an isolated yard sets google-mail up on one card end to end — pack, account, grants — and `source check` passes. Depends on B2.
+
+**B4. One account for sources naming the same credential and mint.** Goal: 3.5 — the shared account. Where to look: the matching rule in internal/source (minted both, same input names, same mint bytes or hand-set path); the setup card's account line (already-given with the file, or type it); the answer's shared-or-own choice (omitted `--secret` reuses, passed types another); the carry-out pointing `env_file` at the sibling's file. Done when: a second google source's card names the first's file and asks for no typing, and its carry-out points at that file, verified by `source show`; typing another keeps its own file; a static source never shares, each by a test; a hand-set mint on either side breaks sharing unless both name the same path; docs/google.md step 3 says one card, typed once. Depends on B3.
+
+**B5. A pack updated is one card again.** Goal: 3.7 — the drift card. Where to look: B2's card on an applied pack (declaration diffs, file old-and-new with unified diffs, the account "given" line, presets against holdings with held and new marked, the covered-new-read line). Done when: a pack update changing a declaration, a command file and the mint cards each diff as the replacement row does; a preset's held calls read held and its new ones read new; a new read call under a standing `read` grant reads covered with no grant needed, and a new update call reads waiting on its preset; picking a preset grants the new and revokes nothing; docs/packs.md says drift is one card. Depends on B2 and B3.
+
+**B6. The yardmaster proposes setup, and the pages say one card.** Goal: the crew asks this way and the docs stop saying 25 cards. Where to look: packs/starter/roles/yardmaster.md where it says what is the operator's to type; docs/google.md steps 2–5, the four SETUP.md files, docs/integrations.md where it lists what a crew member may propose. Done when: the role says a source a pack brings is proposed with `bead ask --setup`, one card, with the grantee and a recommended preset and why; the google pages show one card per pack with the address typed once and the per-user cards unchanged beside them; the drift card is named where updates are. Depends on B3 (and B4 and B5 for the pages that name them).
+
+**F1 (footplate). The setup card on a device.** Goal: 3.3 on a phone — the yard's sentences complete, one line per call, command and preset, the secret field on the card (filled is its own, empty is shared where the card says so), the preset pick and the approval together, and the readings open, being carried out, ran or failed. Where to look: the run-ask and secret-ask cards there today. Done when: the card shows credential placement, each call's method and path, the mint with digest, each preset's calls and grantee, and the take-backs; the texts behind the tap are the ask's own, byte for byte; an approval the yard refuses is shown whole. Depends on B2 and B3.
+
+Not made here: a family card for several packs, multi-select in asks or on the card, presets that narrow holdings, and presets for depot packs. Each is its own step if it is ever wanted.
