@@ -1117,7 +1117,7 @@ contrib/assembly/              contrib/assembly .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .
 contrib/deploy/                contrib/deploy .
-contrib/github-mint/           contrib/github-mint .
+contrib/github-mint/           contrib/github-mint internal/cli internal/dispatch .
 contrib/google-mint/            contrib/google-mint .
 contrib/machine-limits/        contrib/machine-limits .
 contrib/peer/                  contrib/peer .
