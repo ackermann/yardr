@@ -29,8 +29,13 @@ func migratePeerIntakes(tx *bolt.Tx, from uint64) error {
 			return nil
 		}
 		delete(m, "intake")
-		var in PeerIntake
-		if string(old) == "null" || json.Unmarshal(old, &in) != nil || in.Depot == "" || in.Flow == "" {
+		var check struct {
+			Depot string `json:"depot"`
+			Flow  string `json:"flow"`
+		}
+		var in map[string]json.RawMessage
+		if string(old) == "null" || json.Unmarshal(old, &check) != nil || check.Depot == "" || check.Flow == "" ||
+			json.Unmarshal(old, &in) != nil {
 			out, err := json.Marshal(m)
 			if err != nil {
 				return err
@@ -38,12 +43,14 @@ func migratePeerIntakes(tx *bolt.Tx, from uint64) error {
 			changes[string(k)] = out
 			return nil
 		}
-		in.Default = true
-		list, err := json.Marshal([]PeerIntake{in})
+		// By the JSON as stored, not by this build's type: what the
+		// intake holds besides is kept as it is.
+		in["default"] = json.RawMessage("true")
+		one, err := json.Marshal(in)
 		if err != nil {
 			return err
 		}
-		m["intakes"] = list
+		m["intakes"] = json.RawMessage("[" + string(one) + "]")
 		out, err := json.Marshal(m)
 		if err != nil {
 			return err

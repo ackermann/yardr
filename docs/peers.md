@@ -2415,20 +2415,21 @@ The base commit has to be on the remote. A base that this yard landed on
 and did not push (`merge-local` without `YARDR_PUSH`) is a commit the other
 yard cannot fetch, and the bead comes back `refused`.
 
-**What the yard that takes it does.** With `git` in the message and a
-repository as the intake's depot, before the bead is made:
+**What the yard that takes it does.** With `git` in the message, the bead
+goes to the intake whose depot's origin is the remote it names
+([the intakes](#the-intakes)): that remote is [the same
+remote](#the-same-remote), however each yard reaches it, and with no intake
+for it the bead is refused as `no_intake`, naming the remotes the intakes
+take. With a repository as that intake's depot, before the bead is made, the
+base commit must be in the depot, or come with a fetch of the branch the
+bead names, or of the commit by its name. It is then kept by a ref of the
+bead's, `refs/yardr/peer-base/<bead>`, until the bead closes
+([the refs](#the-refs-a-depot-has-for-it)): a commit fetched by its name is
+on no branch, and `git gc` drops what no ref leads to.
 
-- its depot's remote (found the same way) must be the remote the bead names:
-  [the same remote](#the-same-remote), however each yard reaches it;
-- the base commit must be in the depot, or come with a fetch of the branch
-  the bead names, or of the commit by its name. It is then kept by a ref of
-  the bead's, `refs/yardr/peer-base/<bead>`, until the bead closes
-  ([the refs](#the-refs-a-depot-has-for-it)): a commit fetched by its name is
-  on no branch, and `git gc` drops what no ref leads to.
-
-Either failing refuses the bead as `base_unknown`
+That failing refuses the bead as `base_unknown`
 ([what arrives](#what-arrives)); `detail` in the yard's
-`peer_message_refused` says which. Otherwise the bead's work starts from
+`peer_message_refused` says why. Otherwise the bead's work starts from
 `base_commit`, not from wherever this yard's base is: its branch
 `yard/<bead>` is made from that commit, and `yardr bead show` says so:
 
@@ -2439,8 +2440,9 @@ Either failing refuses the bead as `base_unknown`
   base 6edc665da94d3acae796e2b5fb1ed548ee316ead
 ```
 
-A dir depot as the intake's depot takes the bead with its words only, whatever
-it names.
+A dir depot as an intake's depot takes with its words only the beads that
+come to it: those that name no remote, when it is the default intake. A bead
+that names a remote is refused, as no intake takes it.
 
 **Pushing the branch: `return-branch`.** The last working stage of the flow
 the beads are taken into is routed to an exec group that runs
@@ -2690,12 +2692,12 @@ brief, under the marking line:
   this yard refused it before (web-4y35, 10-09, closed by mckean: not ours to build)
 ```
 
-Where people work the first stage of the intake's flow, the member who
-looks at the bead sees that line. Where agents work it, the bead starts as
-any does, and its agent reads the line in its brief. Nothing is held and
-nothing is refused for it: a flow of the other yard that routes `refused`
-straight back into the peer's stage is stopped by [the
-hour](#the-intakes), 30 beads from one peer, and by the intake's `--limit`.
+Where people work the first stage of the flow the bead arrived by, the
+member who looks at the bead sees that line. Where agents work it, the bead
+starts as any does, and its agent reads the line in its brief. Nothing is
+held and nothing is refused for it: a flow of the other yard that routes
+`refused` straight back into the peer's stage is stopped by [the
+hour](#the-intakes), 30 beads from one peer, and by each intake's `--limit`.
 
 `--json` has both as `before` under `peer`, oldest first: `bead` (this
 yard's handle), `at`, `outcome` and `returned_at`, and for one closed here

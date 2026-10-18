@@ -440,24 +440,36 @@ func TestPeerCodeNotTaken(t *testing.T) {
 	}
 }
 
-// A yard whose intake's depot is a directory takes a bead that names its
-// base with its words only, as a bead that names none, and returns words.
+// A yard whose intake's depot is a directory takes a bead that names no
+// remote with its words only, and returns words. A bead that names one is
+// refused: no intake takes its remote, and a directory takes no remote.
 func TestPeerCodeIntoADirDepot(t *testing.T) {
 	t.Parallel()
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
-	remote := sharedRemote(t)
-	must(t, b.api.PutDepot(context.Background(), store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "jo"))
+	ctx := context.Background()
+	must(t, b.api.PutDepot(ctx, store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "jo"))
 	b.takes(t, "a", "docs")
-	a.sendsFrom(t, remote, "b", nil)
+	body, _ := json.Marshal(map[string]any{"v": 1, "bead": "web-1", "stage": "build", "title": "Write it up",
+		"git": map[string]any{"base": "main", "base_commit": strings.Repeat("a", 40), "remote": "git.example.test/acme/web"}})
+	got, err := b.own.PeerReceive(ctx, "a", a.pub, []store.PeerMessage{{ID: "g1", Kind: store.PeerBead, Body: body}})
+	must(t, err)
+	if got[0].Refused != store.RefusedNoIntake {
+		t.Fatalf("a bead that names a remote to a dir depot = %+v", got)
+	}
+	if refused := b.events(t, "peer_message_refused"); len(refused) != 1 || refused[0].Data["detail"] !=
+		"the bead starts from git.example.test/acme/web, which no intake takes: the intakes take no remote" {
+		t.Fatalf("b's peer_message_refused = %+v", refused)
+	}
+	a.sends(t, "b", nil)
 	mine := a.bead(t, "Write it up")
 	a.pass(t)
-	if sent := a.beadEvents(t, mine.ID, "peer_bead_sent"); len(sent) != 1 || sent[0].Data["base_commit"] == nil {
+	if sent := a.beadEvents(t, mine.ID, "peer_bead_sent"); len(sent) != 1 || sent[0].Data["base_commit"] != nil {
 		t.Fatalf("a's peer_bead_sent = %+v", sent)
 	}
 	theirs := b.from(t, "a")
-	fam, err := b.api.Family(context.Background(), theirs.ID)
+	fam, err := b.api.Family(ctx, theirs.ID)
 	must(t, err)
 	if theirs.Peer.Git != nil || fam.Base != "" {
 		t.Fatalf("b's bead in a dir depot has a base: %+v, %+v", theirs.Peer.Git, fam)
