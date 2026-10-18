@@ -105,8 +105,10 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 		return nil, err
 	}
 	rows := make(map[string]eta.ArrivalRow, len(inputs))
+	dependencyBlocked := make(map[string]bool, len(inputs))
 	for _, in := range inputs {
 		rows[in.ID] = eta.ArrivalRowFor(in)
+		dependencyBlocked[in.ID] = in.BlockedBy != ""
 	}
 	live, err := s.Sessions(ctx, false)
 	if err != nil {
@@ -134,7 +136,7 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 		return nil, err
 	}
 	operator := settings[OperatorSetting]
-	lamps, err := s.flowLamps(ctx, beads, live, routes, groups, operator)
+	lamps, err := s.flowLamps(ctx, beads, live, routes, groups, operator, dependencyBlocked)
 	if err != nil {
 		return nil, err
 	}
@@ -271,13 +273,14 @@ func newestFirstBeads(bs []Bead) {
 	})
 }
 
-// flowLamps answers each bead's lamp: fault where held, blocked on a
-// prompt or stranded; turn where only a person's turn waits, a manual
-// group's stage or an open ask to the operator; none where nothing waits.
+// flowLamps answers each bead's lamp: fault where held, blocked by a
+// dependency, blocked on a prompt or stranded; turn where only a person's
+// turn waits, a manual group's stage or an open ask to the operator; none
+// where nothing waits.
 // The panel's fault/turn rule, without the words: a wait that is only an
 // ask, with a manual reason if any, is the person's turn, and a bead
 // whose reasons are all manual is parked, so both light turn.
-func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, routes []Route, groups []Group, operator string) (map[string]string, error) {
+func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, routes []Route, groups []Group, operator string, dependencyBlocked map[string]bool) (map[string]string, error) {
 	manualGroup := map[string]bool{}
 	for _, g := range groups {
 		if g.Runner == "manual" {
@@ -324,7 +327,7 @@ func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, rou
 	}
 	out := make(map[string]string, len(beads))
 	for _, b := range beads {
-		fault := b.Hold || lacking[b.ID]
+		fault := b.Hold || dependencyBlocked[b.ID] || lacking[b.ID]
 		for _, sess := range agents[b.ID] {
 			if blocked, err := s.flowBlocked(ctx, sess); err != nil {
 				return nil, err

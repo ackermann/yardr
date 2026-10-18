@@ -287,6 +287,48 @@ func TestFlowsLamps(t *testing.T) {
 	}
 }
 
+// A dependency-blocked bead lights the same stage fault lamp as a held bead.
+func TestFlowsDependencyBlockLightsFault(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	y.flowDepot(t, "shop", "code", "backlog", "new", "done")
+	blocker := y.travel(t, "blocker", "shop", "backlog")
+	target := y.travel(t, "target", "shop", "new")
+	if err := y.AddDep(ctx, blocker.ID, target.ID, DepBlocks, "", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	board, err := y.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, depot := range board.Depots {
+		if depot.Name != "shop" {
+			continue
+		}
+		for _, flow := range depot.Flows {
+			for _, stage := range flow.Stages {
+				if stage.Stage != "new" {
+					continue
+				}
+				if stage.Lamp != "fault" {
+					t.Fatalf("new lamp = %q, want fault", stage.Lamp)
+				}
+				if len(stage.Beads) != 1 {
+					t.Fatalf("new beads = %+v, want target only", stage.Beads)
+				}
+				got := stage.Beads[0]
+				if got.Bead != target.ID || got.Remark != "blocked by "+blocker.ID || got.Tone != "amber" || got.Expected != "—" {
+					t.Fatalf("blocked flow row = %+v", got)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("shop flow has no new stage")
+}
+
 // TestFlowsWorking pins the working mark: an agent's session at work, not a
 // manual group's claim.
 func TestFlowsWorking(t *testing.T) {
