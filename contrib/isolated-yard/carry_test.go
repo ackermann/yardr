@@ -35,13 +35,16 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 
 	// The carrying out is the server's, after the approval: the
 	// source and its copies stand once it has run, so wait on that
-	// effect — the declaration is stored a moment before its files.
+	// effect — the declaration is stored a moment before its files,
+	// and the files are copied one at a time, so wait for each copy
+	// the test then holds to its mode, not only the first.
 	deadline := time.Now().Add(60 * time.Second)
 	var shown string
 	for {
 		out, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "source", "show", "telegram")
-		_, statErr := os.Stat(filepath.Join(d, "y", "sources", "telegram", "telegram", "thread"))
-		if err == nil && statErr == nil {
+		_, threadErr := os.Stat(filepath.Join(d, "y", "sources", "telegram", "telegram", "thread"))
+		_, normalizeErr := os.Stat(filepath.Join(d, "y", "sources", "telegram", "telegram", "normalize"))
+		if err == nil && threadErr == nil && normalizeErr == nil {
 			shown = out
 			break
 		}
@@ -65,8 +68,10 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 	// The card flips to ran after the files stand: the carrying out
 	// copies them before it records the completion, so the source and
 	// its copies can be there while the card still reads as being
-	// carried out. Wait on that last effect too, within the same
-	// deadline.
+	// carried out. Wait on that last effect too, with a deadline of
+	// its own: under load the copies' wait may take most of its, and
+	// the card must not fail on the intermediate state for that.
+	deadline = time.Now().Add(60 * time.Second)
 	for {
 		got, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "prime", "--bead", bead)
 		if err == nil && strings.Contains(got, "approved, ran: yardr pack apply telegram") {
