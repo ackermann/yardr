@@ -2,9 +2,11 @@ package dispatch_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -53,12 +55,18 @@ func TestSaysOutcomeMovesBeadOutOfPeopleStage(t *testing.T) {
 	must(t, err)
 	sess, err := r.api.Claim(ctx, work.ID, "builders", "review", "yard")
 	must(t, err)
+	handle := map[string]any{"agent": "yardr-bfke-agent", "shell_pid": os.Getpid()}
+	if process, err := peer.Describe(os.Getpid()); err == nil {
+		handle["shell_start"] = process.Start
+	}
+	must(t, r.api.MarkRunning(ctx, sess.ID, handle))
 	held, err := r.api.CreateBead(ctx, store.NewBead{Title: "approved", Depot: "yard", Stage: "approved"}, "me")
 	must(t, err)
-	if _, err := r.api.Done(ctx, held.ID, "merged", "", store.Expect{Session: sess.ID}, "yardmaster"); err == nil ||
+	pane := store.WithCaller(ctx, os.Getpid())
+	if _, err := r.api.Done(pane, held.ID, "merged", "", store.Expect{}, "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "only members of group maintainers may move it out of stage approved: mckean, yardmaster") ||
 		!strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent, whatever actor the command names") {
-		t.Fatalf("an agent's done as yardmaster = %v", err)
+		t.Fatalf("an agent pane's done as yardmaster = %v", err)
 	}
 	// The member itself, with no session behind it, moves the bead: that
 	// is who the hook's move above was reported as.
