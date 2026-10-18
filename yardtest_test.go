@@ -220,7 +220,7 @@ func TestYardTestSelects(t *testing.T) {
 	write("alone/p.go", "package p\n")
 	// A package one case's change deletes, while the script still rows
 	// it, as base's copy does at a landing.
-	write("fakepkg/p.go", "package p\n")
+	write("fakepkg/p.go", "package p\n\nvar Existing int\n")
 	write("docs/web.md", "web\n")
 	// As packs does: it embeds starter, which the table rows to
 	// internal/pack and internal/cli, and one package imports it.
@@ -245,6 +245,9 @@ func TestYardTestSelects(t *testing.T) {
 			text := "changed\n"
 			if strings.HasSuffix(name, ".go") {
 				text = "package p\n\nvar Changed int\n"
+			}
+			if name == "moved/p.go" {
+				text = "package p\n\nvar Existing int\n"
 			}
 			if name == "go.mod" {
 				text = "module m.test/m\n\ngo 1.21\n\n// changed\n"
@@ -550,6 +553,17 @@ func TestYardTestSelects(t *testing.T) {
 		first, rest, err := planned(t, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
 		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
+		}
+		// A directory move is a rename, so a landing reaches pick() instead
+		// of taking the whole-suite path for a deleted file. This reproduces
+		// the case where the base's row still names fakepkg/.
+		first, rest, err = planned(t, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go", "moved/p.go")
+		want := strings.Join([]string{
+			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
+			tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/moved",
+		}, "\n")
+		if wantFirst := landing + "moved/p.go changed" + since + selectionSuffix; err != nil || first != wantFirst || rest != skipSocket+"\n"+want {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s\n%s", err, first, rest, wantFirst, skipSocket, want)
 		}
 		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
 		out, err = plan(t, stale, "-fakepkg/p.go")
