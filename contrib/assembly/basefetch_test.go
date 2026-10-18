@@ -9,6 +9,7 @@ package assembly
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -162,5 +163,34 @@ func TestMergeLocalFailedFetchLandsOnBaseAsIs(t *testing.T) {
 	}
 	if !strings.Contains(y.log, "could not fetch missing-remote, landing on main as it is") {
 		t.Fatalf("the log does not say the fetch failed:\n%s", y.log)
+	}
+}
+
+// A deleted remote branch must not be mistaken for its stale
+// remote-tracking ref: landing starts from the local base as it is.
+func TestMergeLocalDeletedRemoteBranchLandsOnBaseAsIs(t *testing.T) {
+	y, remote := pushYard(t)
+	base := y.git(y.repo, "rev-parse", "main")
+	y.commit(y.wt, "b.txt", "bead\n")
+	pushed := pushRemote(t, y, remote, "m.txt", "laptop\n")
+	y.git(y.repo, "fetch", "origin")
+	y.git(y.repo, "reset", "--hard", base)
+	y.git(remote, "update-ref", "-d", "refs/heads/main")
+
+	y.assembly()
+
+	b := y.bead()
+	if b.Stage != "merged" || b.Status != "closed" {
+		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
+	}
+	main := y.git(y.repo, "rev-parse", "main")
+	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip != main {
+		t.Fatalf("main %s is not the rebased branch %s", main, tip)
+	}
+	if err := exec.Command("git", "-C", y.repo, "merge-base", "--is-ancestor", pushed, "main").Run(); err == nil {
+		t.Fatalf("deleted remote commit %s unexpectedly reached main %s", pushed, main)
+	}
+	if !strings.Contains(y.log, "has no branch main") {
+		t.Fatalf("the log does not say the remote branch is missing:\n%s", y.log)
 	}
 }

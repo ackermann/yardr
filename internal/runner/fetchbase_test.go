@@ -139,6 +139,26 @@ func TestFetchBaseAheadOfUpstreamLeavesBase(t *testing.T) {
 	}
 }
 
+// A deleted upstream branch must not be mistaken for a still-published
+// branch just because its old remote-tracking ref remains in the clone.
+func TestFetchBaseDeletedUpstreamLeavesBase(t *testing.T) {
+	y := newFetchYard(t)
+	before := gitOutT(t, y.repo, "rev-parse", "main")
+	y.moveOrigin(t)
+	gitT(t, y.repo, "fetch", "origin")
+	gitT(t, y.origin, "update-ref", "-d", "refs/heads/main")
+	gitT(t, y.repo, "checkout", "-q", "--detach")
+
+	(&Herdr{Store: y.store}).fetchBase(context.Background(), y.job())
+
+	if got := gitOutT(t, y.repo, "rev-parse", "main"); got != before {
+		t.Fatalf("main moved to %s, want it left at %s", got, before)
+	}
+	if evs := y.diverged(t); len(evs) != 0 {
+		t.Fatalf("base_diverged events = %+v, want none", evs)
+	}
+}
+
 // A base with no upstream, and a fetch that fails, leave the base as it is,
 // with no event: best effort, as for a base that names a remote.
 func TestFetchBaseBestEffort(t *testing.T) {

@@ -157,7 +157,7 @@ fi
 # branch fails the landing: joining the two is a person's, never merged or
 # forced here.
 if [ -n "$PUSH" ]; then
-  fetcherr=$(GIT_TERMINAL_PROMPT=0 git -C "$REPO" fetch --quiet "$PUSH" 2>&1) && ok=1 || ok=
+  fetcherr=$(GIT_TERMINAL_PROMPT=0 git -C "$REPO" fetch --prune --quiet "$PUSH" 2>&1) && ok=1 || ok=
   if [ -z "$ok" ]; then
     echo "== could not fetch $PUSH, landing on $BASE as it is: $fetcherr"
   else

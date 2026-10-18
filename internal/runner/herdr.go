@@ -522,19 +522,25 @@ func (h *Herdr) fetchBase(ctx context.Context, job dispatch.Job) {
 		h.fetchLocalBase(ctx, depot, job.Bead.ID)
 		return
 	}
-	_ = h.fetchRemote(ctx, depot.Path, remote)
+	_ = h.fetchRemote(ctx, depot.Path, remote, false)
 }
 
 // fetchRemote fetches remote into the repository at dir, giving up after
-// the fetch's deadline (see FetchTimeout).
-func (h *Herdr) fetchRemote(ctx context.Context, dir, remote string) error {
+// the fetch's deadline (see FetchTimeout). Local bases prune stale
+// remote-tracking refs so a deleted upstream is not treated as current.
+func (h *Herdr) fetchRemote(ctx context.Context, dir, remote string, prune bool) error {
 	timeout := h.FetchTimeout
 	if timeout == 0 {
 		timeout = FetchTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--quiet", remote)
+	args := []string{"-C", dir, "fetch", "--quiet"}
+	if prune {
+		args = append(args, "--prune")
+	}
+	args = append(args, remote)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
 	// git may leave a child (ssh, a credential helper) holding its output
 	// open after it is killed; do not wait on that past the deadline.
@@ -560,7 +566,7 @@ func (h *Herdr) fetchLocalBase(ctx context.Context, depot *store.Depot, bead str
 	if err != nil || remote == "" {
 		return // no upstream: nothing to bring up to
 	}
-	if err := h.fetchRemote(ctx, depot.Path, remote); err != nil {
+	if err := h.fetchRemote(ctx, depot.Path, remote, true); err != nil {
 		return
 	}
 	local, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", "refs/heads/"+depot.Base)
