@@ -67,7 +67,10 @@ the operator writes to the bot reaches the yardmaster's inbox.
    card (`yardr bead answer <bead> <ask> --approve`, or the card's
    button in footplate) writes `TELEGRAM_CHAT_ID` into the operator's
    env file (`~/.yardr/users/mckean.env`, mode 0600), exactly where
-   this command writes it:
+   this command writes it. If the `hearer` setting names a crew member,
+   the same approval subscribes that member to messages from this chat;
+   the card names who will hear it. `yardr init` sets `hearer` to
+   `yardmaster` unless it was already set:
    ```sh
    yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
    # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
@@ -80,7 +83,8 @@ the operator writes to the bot reaches the yardmaster's inbox.
    ```
    Declining the claim card drops it and writes nothing. Once the
    chat id is written, step 7's test message can be sent, and the
-   next message from that chat is heard (step 13).
+   next message from that chat is heard by the named crew member, when
+   `hearer` names one (step 13).
 7. **One test message.**
    ```sh
    yardr source check telegram --user mckean
@@ -208,14 +212,16 @@ no status and no bead link to a chat.
    yardr crew restart yardmaster
    ```
    Rotation rewrites both files, the source's and the crew member's.
-11. **The subscription.** The yardmaster alone hears the chat, with one
-    subscription. `<his chat id>` is the operator's chat id from step 5:
+11. **The subscription.** When `hearer` names a crew member, approving
+    the claim in step 6 creates this subscription (a fresh setup defaults
+    to `yardmaster`). For a chat id entered by hand, check the member with
+    `yardr settings get hearer` and run:
     ```sh
-    yardr subscribe yardmaster telegram --scope all --where type=message --where chat=<his chat id>
+    yardr subscribe <hearer> telegram --scope all --where type=message --where chat=<his chat id>
     ```
     `all` is needed, not `involved`: the first message mentions nobody
     and is assigned to nobody. The brakeman subscribes to nothing: he
-    reaches the chat through the yardmaster, as today. Set no telegram
+    reaches the chat through the hearer, as today. Set no telegram
     identity on any crew member: the API sends the bot only others'
     messages, so there is no echo of its answers to exclude. And do not
     subscribe the user himself: his own messages would arrive as
