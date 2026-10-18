@@ -82,12 +82,14 @@ func oneObject(what string, out []byte) error {
 	return nil
 }
 
-// CommandEnv is the whole environment a command of d runs with: PATH and
-// HOME as the process that asks has them, the credential's value under the
-// name credential.env gives (read by the caller from the env file of
-// whoever acts, as a call reads it; "" for none) and YARDR_SOURCE_BASE, the
-// declaration's base, so a test can point the command at a stand-in.
-// Nothing else of the yard's environment reaches a command.
+// CommandEnv is the whole environment a command of d runs with: PATH,
+// HOME, USER and LOGNAME as the process that asks has them (each empty
+// user name the OS's own name for the process's uid instead), the
+// credential's value under the name credential.env gives (read by the
+// caller from the env file of whoever acts, as a call reads it; "" for
+// none) and YARDR_SOURCE_BASE, the declaration's base, so a test can
+// point the command at a stand-in. Nothing else of the yard's
+// environment reaches a command.
 func (d *Declaration) CommandEnv(credential string) []string {
 	return d.CommandEnvOf(Read, credential)
 }
@@ -95,7 +97,8 @@ func (d *Declaration) CommandEnv(credential string) []string {
 // CommandEnvOf is CommandEnv for a call of kind: an update's credential is
 // under update_env where the declaration names a second one.
 func (d *Declaration) CommandEnvOf(kind, credential string) []string {
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	name, login := commandUser()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
 	if d.Credential != nil && credential != "" {
 		env = append(env, d.Credential.EnvOf(kind)+"="+credential)
 	}

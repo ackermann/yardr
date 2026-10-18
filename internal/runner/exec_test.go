@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -515,4 +517,56 @@ func TestReplacedDaemonLeavesAnUnrelatedGroupAlone(t *testing.T) {
 	if u, err := st.Unstopped(ctx); err != nil || len(u) != 0 {
 		t.Fatalf("Unstopped = %v, %v; want none", u, err)
 	}
+}
+
+// An exec group's command inherits the daemon's environment, and the
+// daemon may have started with neither USER nor LOGNAME
+// (server.ServerEnv passes none): each one missing or empty is the OS's
+// own name for the process's uid instead, so a script that looks the user
+// up by name answers with one. One the daemon has is kept, once.
+func TestExecEnvCarriesUser(t *testing.T) {
+	me, err := config.LookupUsername(user.Current)
+	if err != nil || me == "" {
+		t.Skipf("the system names no user for this process: %v", err)
+	}
+	named := func(env []string, key string) (string, int) {
+		var got string
+		n := 0
+		for _, kv := range env {
+			if k, v, _ := strings.Cut(kv, "="); k == key {
+				got, n = v, n+1
+			}
+		}
+		return got, n
+	}
+	check := func(t *testing.T, env []string, wantUser, wantLogin string) {
+		t.Helper()
+		if got, n := named(env, "USER"); got != wantUser || n != 1 {
+			t.Fatalf("USER = %q (%d entries), want %q once", got, n, wantUser)
+		}
+		if got, n := named(env, "LOGNAME"); got != wantLogin || n != 1 {
+			t.Fatalf("LOGNAME = %q (%d entries), want %q once", got, n, wantLogin)
+		}
+	}
+	t.Run("kept", func(t *testing.T) {
+		t.Setenv("USER", "exec-user")
+		t.Setenv("LOGNAME", "exec-login")
+		check(t, inherited(dispatch.Job{}), "exec-user", "exec-login")
+	})
+	t.Run("unset", func(t *testing.T) {
+		unset := func(k string) {
+			if v, ok := os.LookupEnv(k); ok {
+				t.Cleanup(func() { os.Setenv(k, v) })
+			}
+			os.Unsetenv(k)
+		}
+		unset("USER")
+		unset("LOGNAME")
+		check(t, inherited(dispatch.Job{}), me, me)
+	})
+	t.Run("empty", func(t *testing.T) {
+		t.Setenv("USER", "")
+		t.Setenv("LOGNAME", "")
+		check(t, inherited(dispatch.Job{}), me, me)
+	})
 }

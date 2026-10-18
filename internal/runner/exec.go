@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -147,10 +148,51 @@ func (e *Exec) logPath(job dispatch.Job) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
+// osUserLookup is user.Current as a variable, so a test can be a machine
+// whose user lookup fails or blocks (yardr-tbm4, yardr-8ms7).
+var osUserLookup = user.Current
+
 // inherited is this process's environment as the command inherits it:
-// without what withheld leaves out.
+// without what withheld leaves out, and with USER and LOGNAME set. The
+// daemon may have started with neither (server.ServerEnv passes none),
+// and each one missing or empty is the OS's own name for the process's
+// uid instead, so a script that looks the user up by name answers with
+// one. The OS is asked only when one of them is missing or empty, where
+// its lookup can hang past signals, and a lookup that answers with no
+// user leaves them as they are.
 func inherited(job dispatch.Job) []string {
-	return withheld(job, os.Environ())
+	return withUser(withheld(job, os.Environ()))
+}
+
+// withUser is env with USER and LOGNAME set: each one missing or empty
+// taken from the OS's own name for the process's uid, an empty entry
+// dropped so the fallback is the only one. One that is set is kept.
+func withUser(env []string) []string {
+	var haveUser, haveLogin bool
+	out := slices.DeleteFunc(env, func(kv string) bool {
+		k, v, _ := strings.Cut(kv, "=")
+		switch k {
+		case "USER":
+			haveUser = v != ""
+			return v == ""
+		case "LOGNAME":
+			haveLogin = v != ""
+			return v == ""
+		}
+		return false
+	})
+	if haveUser && haveLogin {
+		return out
+	}
+	if who, err := config.LookupUsername(osUserLookup); err == nil && who != "" {
+		if !haveUser {
+			out = append(out, "USER="+who)
+		}
+		if !haveLogin {
+			out = append(out, "LOGNAME="+who)
+		}
+	}
+	return out
 }
 
 // withheld is environ, this process's or an env_file's, without what the

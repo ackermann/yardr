@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // standIn is a script in place of a command a declaration names, which does
@@ -119,8 +122,9 @@ func TestRunTimeout(t *testing.T) {
 	}
 }
 
-// A command sees PATH, HOME, the variable credential.env names and
-// YARDR_SOURCE_BASE, and nothing else of the yard's environment.
+// A command sees PATH, HOME, USER, LOGNAME, the variable credential.env
+// names and YARDR_SOURCE_BASE, and nothing else of the yard's
+// environment.
 func TestRunEnv(t *testing.T) {
 	d, err := Parse("lin.yaml", []byte("name: lin\nbase: https://api.linear.app\ncredential: { env: LINEAR_API_KEY }\n"+
 		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
@@ -129,6 +133,8 @@ func TestRunEnv(t *testing.T) {
 	}
 	t.Setenv("YARDR_SESSION", "not-for-a-command")
 	t.Setenv("LINEAR_API_KEY", "not-this-one")
+	t.Setenv("USER", "command-user")
+	t.Setenv("LOGNAME", "command-login")
 	seen := filepath.Join(t.TempDir(), "seen")
 	p := standIn(t, `env >`+seen+`; echo '{}'`)
 	env := d.CommandEnv("the-token")
@@ -143,6 +149,8 @@ func TestRunEnv(t *testing.T) {
 	for _, want := range []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
+		"USER=command-user",
+		"LOGNAME=command-login",
 		"LINEAR_API_KEY=the-token",
 		"YARDR_SOURCE_BASE=https://api.linear.app",
 	} {
@@ -152,12 +160,55 @@ func TestRunEnv(t *testing.T) {
 		delete(have, want)
 	}
 	// What is left is the script's own: the yard's environment reached the
-	// command as these four and nothing else.
+	// command as these six and nothing else.
 	for left := range have {
 		if name, _, _ := strings.Cut(left, "="); name == "_" || name == "PWD" || name == "SHLVL" || name == "OLDPWD" {
 			continue
 		}
 		t.Errorf("the command sees more than its own: %q", left)
+	}
+}
+
+// Without USER or LOGNAME in the asking process (the server and the daemon
+// start with neither: server.ServerEnv passes none), a command still runs
+// under the process's own user: each empty name falls back to the OS
+// user's, as a mint's does.
+func TestCommandEnvWithoutUserEnv(t *testing.T) {
+	me, err := config.LookupUsername(user.Current)
+	if err != nil || me == "" {
+		t.Skipf("the system names no user for this process: %v", err)
+	}
+	d, err := Parse("lin.yaml", []byte("name: lin\nbase: https://api.linear.app\ncredential: { env: LINEAR_API_KEY }\n"+
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, user, login string
+	}{
+		{name: "both empty"},
+		{name: "USER empty", login: "command-login"},
+		{name: "LOGNAME empty", user: "command-user"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("USER", tc.user)
+			t.Setenv("LOGNAME", tc.login)
+			wantUser, wantLogin := tc.user, tc.login
+			if wantUser == "" {
+				wantUser = me
+			}
+			if wantLogin == "" {
+				wantLogin = me
+			}
+			got := map[string]string{}
+			for _, kv := range d.CommandEnv("the-token") {
+				k, v, _ := strings.Cut(kv, "=")
+				got[k] = v
+			}
+			if got["USER"] != wantUser || got["LOGNAME"] != wantLogin {
+				t.Fatalf("USER=%q LOGNAME=%q, want %q %q", got["USER"], got["LOGNAME"], wantUser, wantLogin)
+			}
+		})
 	}
 }
 

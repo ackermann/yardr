@@ -190,15 +190,15 @@ func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 // whose user lookup fails or blocks (yardr-tbm4, yardr-8ms7).
 var osUserLookup = user.Current
 
-// mintUser is the user name the mint command runs under: USER and LOGNAME
-// as the asking process has them, each empty one taken from the OS's own
-// name for the process's uid. The server and the daemon start with
-// neither variable (server.ServerEnv passes none), so without the
-// fallback they mint with an empty user and a helper that reads the
-// keyring by user name answers with none. The OS is asked only when one
-// of them is empty, where its lookup can hang past signals, and a lookup
-// that answers with no user leaves the empty names as they are.
-func mintUser() (name, login string) {
+// commandUser is the user name a command of a source runs under: USER
+// and LOGNAME as the asking process has them, each empty one taken from
+// the OS's own name for the process's uid. The server and the daemon
+// start with neither variable (server.ServerEnv passes none), so without
+// the fallback a command runs with an empty user and a helper that reads
+// the keyring by user name answers with none. The OS is asked only when
+// one of them is empty, where its lookup can hang past signals, and a
+// lookup that answers with no user leaves the empty names as they are.
+func commandUser() (name, login string) {
 	name, login = os.Getenv("USER"), os.Getenv("LOGNAME")
 	if name != "" && login != "" {
 		return name, login
@@ -228,7 +228,7 @@ func mintUser() (name, login string) {
 func mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string) (mintedToken, error) {
 	var none mintedToken
 	in := map[string]any{"inputs": inputs, "scope": scope}
-	name, login := mintUser()
+	name, login := commandUser()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
 	env = append(env, config.Env("SOURCE_BASE", d.Base)...)
 	what := "mint_command " + strings.Join(argv, " ")

@@ -858,10 +858,13 @@ link:                                 # the source's issues as a bead's link
   An absolute program is the operator's own and is not copied. `yardr
   source check` says of each command whether its program is there and can
   be run; it runs none.
-- **What a command is handed** is its environment: `PATH`, `HOME`, the
-  variable `credential.env` names and `YARDR_SOURCE_BASE`, the
-  declaration's `base` — so a test can point the command at a stand-in.
-  Nothing else of the yard's environment reaches a command. The core
+- **What a command is handed** is its environment: `PATH`, `HOME`, `USER`
+  and `LOGNAME`, the variable `credential.env` names and
+  `YARDR_SOURCE_BASE`, the declaration's `base` — so a test can point the
+  command at a stand-in. `USER` and `LOGNAME` are the asking process's
+  own, each empty one taken from the system's user for the process
+  instead, as a mint's are. Nothing else of the yard's environment
+  reaches a command. The core
   decides which credential a command gets and hands the value in: today the
   caller's own — what the calling process's environment holds for `yardr
   reply` and `yardr thread`, what the crew member's `env_file` sets for a
@@ -933,8 +936,9 @@ hook:
   30 seconds. Its stdin is `{"headers": {...}, "body": ...}`: the
   delivery's headers, each with its values, and the body as JSON, or as
   text when it is none. Its stdout is the envelope, as `Envelope`
-  marshals. It is handed no credential: its environment is `PATH`, `HOME`
-  and `YARDR_SOURCE_BASE` alone. The core sets `source` and `delivery`
+  marshals. It is handed no credential: its environment is `PATH`, `HOME`,
+  `USER` and `LOGNAME`, and `YARDR_SOURCE_BASE` alone. The core sets
+  `source` and `delivery`
   itself and refuses an envelope without `type`. It derives the envelope's
   `train` from its `head_branch` when the branch is a yardr train branch
   and the envelope carries no train: a script must not restate it. A
