@@ -317,8 +317,8 @@ func kindsYard(t *testing.T, f *fixture) (held, gave, stall, block, dep, back, h
 		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": b.ID + "-new"}))
 		return sess
 	}
-	// New holds what lights no lamp: back on changes, a running session, a
-	// stalled one, and one waiting on a dependency.
+	// New holds a dependency-blocked bead, which lights a fault lamp. The
+	// running, stalled and returned beads there do not light one.
 	back = bead("back on changes", "review")
 	_, err = f.st.Done(ctx, back.ID, "changes", "", store.Expect{}, "me")
 	must(t, err)
@@ -439,11 +439,11 @@ func TestPanelBlockedKinds(t *testing.T) {
 		t.Errorf("the holding bead's id %s is written on the plan", holderShort)
 	}
 	// Red where a fault waits, blue where a person's turn waits, and none
-	// where back, stalled, waiting and running sit without a wait. Review
-	// can report changes, so its fault lights its signal; backlog and
-	// decide light bare lamps.
-	if strings.Count(svg, `class="lamp fault"`) != 1 {
-		t.Errorf("fault lamps = %d, want 1 (review holds held, gave up, blocked)", strings.Count(svg, `class="lamp fault"`))
+	// where a failed return, stalled session or running session stands
+	// alone. The dependency-blocked bead in new and the faults in review
+	// light their signals; backlog and decide light bare lamps.
+	if strings.Count(svg, `class="lamp fault"`) != 2 {
+		t.Errorf("fault lamps = %d, want 2 (review holds held, gave up, blocked; new holds a dependency-blocked bead)", strings.Count(svg, `class="lamp fault"`))
 	}
 	if strings.Count(svg, `class="lamp turn"`) != 2 {
 		t.Errorf("turn lamps = %d, want 2 (backlog and decide hold parked beads)", strings.Count(svg, `class="lamp turn"`))
@@ -457,12 +457,15 @@ func TestPanelBlockedKinds(t *testing.T) {
 	if part := stagePart(t, svg, "review"); !strings.Contains(part, `<line class="ln"`) {
 		t.Error("review's fault lights no signal post")
 	}
+	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="lamp fault"`) {
+		t.Error("new's dependency-blocked bead lights no fault lamp")
+	}
 	for _, stage := range []string{"backlog", "decide"} {
 		if part := stagePart(t, svg, stage); strings.Contains(part, `<line class="ln"`) {
 			t.Errorf("the bare lamp on %s stands on a post", stage)
 		}
 	}
-	for _, stage := range []string{"new", "approved", "merged"} {
+	for _, stage := range []string{"approved", "merged"} {
 		part := stagePart(t, svg, stage)
 		if strings.Contains(part, `class="lamp fault"`) || strings.Contains(part, `class="lamp turn"`) {
 			t.Errorf("stage %s waits on no one and lights a lamp", stage)

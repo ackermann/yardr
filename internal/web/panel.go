@@ -157,8 +157,30 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	if err != nil {
 		return err
 	}
+	seen := map[string]Card{}
+	for _, depot := range d.Depots {
+		for _, col := range depot.Flows {
+			for _, st := range col.Stages {
+				for _, c := range st.Beads {
+					seen[c.ID] = c
+				}
+			}
+		}
+	}
+	depByBead := make(map[string]string, len(seen))
+	for id := range seen {
+		blockers, err := s.st.OpenBlockers(ctx, id)
+		if err != nil {
+			s.log.Error("web: open blockers", "bead", id, "err", err)
+		} else if len(blockers) > 0 {
+			depByBead[id] = blockers[0]
+		}
+	}
 	faults := map[string]bool{}
 	turns := map[string]bool{}
+	for id := range depByBead {
+		faults[id] = true
+	}
 	for _, w := range waits {
 		// A wait that is only an ask (with a manual reason, if any) is
 		// the person's turn, blue as a manual wait is; a hold, a prompt
@@ -210,16 +232,6 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	}
 	rd := s.newReader(nil)
 	d.marks = map[string]panelMark{}
-	seen := map[string]Card{}
-	for _, depot := range d.Depots {
-		for _, col := range depot.Flows {
-			for _, st := range col.Stages {
-				for _, c := range st.Beads {
-					seen[c.ID] = c
-				}
-			}
-		}
-	}
 	for id, c := range seen {
 		var m panelMark
 		for _, sess := range agents[id] {
@@ -237,11 +249,7 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 		if c.Late != nil {
 			m.late = c.Late.Line
 		}
-		if blockers, err := s.st.OpenBlockers(ctx, id); err != nil {
-			s.log.Error("web: open blockers", "bead", id, "err", err)
-		} else if len(blockers) > 0 {
-			m.dep = blockers[0]
-		}
+		m.dep = depByBead[id]
 		d.marks[id] = m
 	}
 	return nil
