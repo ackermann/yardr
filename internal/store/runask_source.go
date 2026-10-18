@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/udiff"
 )
 
 // parseSourceAdd reads the words of source add <file>: one file, named as
@@ -221,6 +222,15 @@ func pluralCalls(n int) string {
 // without opening the text approves nothing these sentences have not
 // named. The text itself stands behind them in a terminal.
 func sourceDoes(d *source.Declaration, carried AskSource) []string {
+	return sourceDoesChanged(d, carried, nil)
+}
+
+// sourceDoesChanged renders as sourceDoes does, and where diffs names a
+// command file's change the command line carries the change itself: its
+// old and new hashes with its insertions and deletions counted, beside
+// the uses the file already names. A replacement's card reads that way,
+// so the change is said once and not again on its own line.
+func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) []string {
 	files, commands := len(carried.Files), len(d.Commands())
 	copies := "copies no command files"
 	if files > 0 {
@@ -294,7 +304,7 @@ func sourceDoes(d *source.Declaration, carried AskSource) []string {
 	} else {
 		does = append(does, "it sends no pull-request or CI events.")
 	}
-	does = append(does, commandSays(d, carried)...)
+	does = append(does, commandSaysChanged(d, carried, diffs)...)
 	var owed []string
 	if d.Credential != nil {
 		owed = append(owed, fmt.Sprintf("the credential, by a secret ask for %s", d.Name))
@@ -633,6 +643,13 @@ func eventsSays(d *source.Declaration) string {
 // its whole command and its file's SHA-256 whole, or says the source
 // names no command. A command is never named by its key alone.
 func commandSays(d *source.Declaration, carried AskSource) []string {
+	return commandSaysChanged(d, carried, nil)
+}
+
+// commandSaysChanged groups as commandSays does, and where diffs names a
+// file's change the file's line holds the change whole: its old and new
+// hashes with its insertions and deletions counted.
+func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) []string {
 	commands := d.Commands()
 	if len(commands) == 0 {
 		return []string{"it names no command."}
@@ -671,6 +688,12 @@ func commandSays(d *source.Declaration, carried AskSource) []string {
 				handed = "handed the credential"
 			}
 			named = append(named, fmt.Sprintf("%s (%s, %s)", showCommand(c.Argv), c.Key, handed))
+		}
+		if df, ok := diffs[prog]; ok {
+			ins, del := udiff.Counts(df.Diff)
+			out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s -> sha256 %s, mode 0700 (%d insertions, %d deletions).",
+				prog, andList(named), or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del))
+			continue
 		}
 		out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s, mode 0700", prog, andList(named), hashes[prog]))
 	}

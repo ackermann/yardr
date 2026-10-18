@@ -206,3 +206,145 @@ func TestPackApplyGoogleCardsFit(t *testing.T) {
 		})
 	}
 }
+
+// googleDocsPreBuildDecl is the google-docs declaration as ee8a23ae
+// carried it: write with its static body, before the build key, and no
+// replace call. A yard that applied the pack then re-applies today's
+// pack against this declaration.
+const googleDocsPreBuildDecl = `# Google Docs as a declared source: a document read, and appended to at
+# the end with a style for the paragraph. One source per host, so Docs
+# is its own; the empty file it fills is made by the drive source's doc
+# call. No other batchUpdate request is declared.
+#
+# Checked against the discovery document
+# (https://www.googleapis.com/discovery/v1/apis/docs/v1/rest) on 16
+# October 2026: documents.get answers the document with title and body;
+# documents.batchUpdate takes {requests} and answers {documentId,
+# replies}. InsertText takes endOfSegmentLocation, which appends at the
+# end of the body with no index; UpdateParagraphStyle takes a range, a
+# paragraphStyle with namedStyleType (NORMAL_TEXT, TITLE, HEADING_1
+# through HEADING_6) and fields, and styles the paragraphs the range
+# overlaps.
+#
+# The credential mints like google-mail's: GOOGLE_ACCOUNT names the
+# account (an address, no secret) and the operator sets mint_command to
+# contrib/google-mint, which no pack brings. Docs takes no idempotency
+# key, so the file names none: a write tried again after a lost answer
+# is appended twice.
+name: google-docs
+about: Google Docs read and appended to, with a style for the paragraph.
+base: https://docs.googleapis.com
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GOOGLE_ACCOUNT]
+calls:
+  doc:
+    kind: read
+    about: Read one document, title and text
+    params:
+      docId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+    request:
+      method: GET
+      path: /v1/documents/{docId}
+    answer: { select: [title, body], max: 262144 }   # the text is in body's paragraphs
+  write:
+    kind: update
+    about: Append text at the end, styling a paragraph
+    params:
+      docId: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      # Free text: its value is in no event. Appended at the end of the
+      # body; to start a new paragraph, begin it with a blank line.
+      text: { type: string, max: 50000 }
+      style: { type: enum, values: [NORMAL_TEXT, TITLE, HEADING_1, HEADING_2] }   # NORMAL_TEXT writes plain
+      # The range the style applies to, from a doc read: the paragraphs
+      # it overlaps are styled. Text appended to the last paragraph read
+      # at endIndex E styles with start=E-1, end=E; a new paragraph begun
+      # with a blank line starts at E, so start=E, end=E+1.
+      start: { type: int }
+      end: { type: int }
+    request:
+      method: POST
+      path: /v1/documents/{docId}:batchUpdate
+      body:
+        requests:
+          - insertText: { endOfSegmentLocation: {}, text: "{text}" }
+          - updateParagraphStyle: { range: { startIndex: "{start}", endIndex: "{end}" }, paragraphStyle: { namedStyleType: "{style}" }, fields: "namedStyleType" }
+    answer: { select: [documentId, replies] }
+`
+
+// A yard that applied google-docs before the build key re-applies
+// today's pack on one card: the changed declaration cards its calls
+// change and each build file's change beside the unchanged slides,
+// inside the card's line limit. The count is pinned, as the
+// first-install counts are above, so a declaration that grows past the
+// limit fails here and not at a person's card.
+func TestPackApplyGoogleDocsChangeCardFits(t *testing.T) {
+	ctx := context.Background()
+	st := packReaderYard(t)
+	home := t.TempDir()
+	st.SetPackReader(packReaderFor(home))
+	if err := st.SetSetting(ctx, store.OperatorSetting, "mckean", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "google-docs.yaml", googleDocsPreBuildDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	reading, err := readEmbeddedPack(ctx, "google-docs", st, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range reading.Sources {
+		if s.Name == "google-slides" {
+			if _, err := st.PutSource(ctx, "google-slides.yaml", s.Text, "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "the work"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Apply the google-docs update?", To: "mckean",
+		Context: []string{"the yard's google-docs predates the build key"},
+		Run:     &store.AskRun{Argv: []string{"pack apply google-docs"}}}, "yardmaster")
+	if err != nil {
+		t.Fatalf("ask for the google-docs re-apply: %v", err)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var does []string
+	for _, r := range store.ResolveAsks(notes, notes[0].At) {
+		if r.Note.Seq == seq && r.Ask.Run != nil {
+			does = r.Ask.Run.Does
+		}
+	}
+	if len(does) == 0 {
+		t.Fatalf("the google-docs change card holds no lines")
+	}
+	if len(does) > store.MaxRunSourceCardLines {
+		t.Fatalf("the google-docs change card runs to %d lines, over the %d a card holds", len(does), store.MaxRunSourceCardLines)
+	}
+	if len(does) != 39 {
+		t.Errorf("the google-docs change card runs to %d lines, want the pinned 39", len(does))
+	}
+	joined := strings.Join(does, "\n")
+	for _, want := range []string{
+		"replaces 2 sources",
+		"it would replace the source google-docs the yard has under that name.",
+		"source google-docs calls: ",
+		"call replace (update)",
+		"command file google-docs/build-write: [google-docs/build-write] (call.write.build, handed the credential): sha256 (none) -> sha256 ",
+		"command file google-docs/build-replace: [google-docs/build-replace] (call.replace.build, handed the credential): sha256 (none) -> sha256 ",
+		"source google-slides",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the google-docs change card lacks %q:\n%s", want, joined)
+		}
+	}
+}

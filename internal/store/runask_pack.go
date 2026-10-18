@@ -549,9 +549,23 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 
 // packOneSourceDoes is one declared source on a pack card: sourceDoes
 // without its adding line (the pack line says it), with a replacement's
-// changes after its credential line.
+// changes after its credential line. A file the declaration still names
+// carries its change on its own command line; only a file the pack drops
+// keeps a line of its own, having no command line to carry it.
 func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]string, error) {
-	full := sourceDoes(d, carried)
+	progs := map[string]bool{}
+	for _, c := range d.Commands() {
+		if c.Relative() {
+			progs[c.Argv[0]] = true
+		}
+	}
+	diffs := map[string]AskFileDiff{}
+	for _, df := range carried.Old {
+		if progs[df.Program] {
+			diffs[df.Program] = df
+		}
+	}
+	full := sourceDoesChanged(d, carried, diffs)
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
 	if errors.Is(err, ErrNotFound) {
@@ -560,6 +574,9 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 		}
 		extra := []string{fmt.Sprintf("the source %s is not in the yard, but its command copy directory has entries this pack would replace or remove.", carried.Name)}
 		for _, df := range carried.Old {
+			if _, ok := diffs[df.Program]; ok {
+				continue
+			}
 			ins, del := udiff.Counts(df.Diff)
 			extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
 				df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
@@ -598,6 +615,9 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration) ([]str
 		}
 	}
 	for _, df := range carried.Old {
+		if _, ok := diffs[df.Program]; ok {
+			continue
+		}
 		ins, del := udiff.Counts(df.Diff)
 		extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
 			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))

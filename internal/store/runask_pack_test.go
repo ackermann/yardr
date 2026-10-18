@@ -211,9 +211,9 @@ func plantWired(t *testing.T, y *askYard) string {
 	return dir
 }
 
-// A pack that would replace a source cards each command file's change
-// with its hashes whole and its diff, and names each entry neither
-// declaration names as removed.
+// A pack that would replace a source cards each command file's change on
+// the file's own command line, with its hashes whole and its diff, and
+// names each entry neither declaration names as removed.
 func TestPackApplyReplacementCard(t *testing.T) {
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
@@ -240,7 +240,7 @@ func TestPackApplyReplacementCard(t *testing.T) {
 	joined := strings.Join(got.Ask.Run.Does, "\n")
 	for _, want := range []string{
 		"it would replace the source wired the yard has under that name.",
-		"command file wired/thread would change: sha256 " + diff.OldSHA256 + " -> sha256 " + diff.NewSHA256,
+		"command file wired/thread: [wired/thread, reply] (thread.reply, handed the credential): sha256 " + diff.OldSHA256 + " -> sha256 " + diff.NewSHA256 + ", mode 0700 (1 insertions, 1 deletions).",
 		"the copy would remove extra.txt, which neither declaration names: sha256 ",
 	} {
 		if !strings.Contains(joined, want) {
@@ -250,6 +250,37 @@ func TestPackApplyReplacementCard(t *testing.T) {
 	lines := strings.Join(got.Lines(), "\n")
 	if !strings.Contains(lines, "-# thread, as the yard has it") {
 		t.Errorf("the terminal card lacks the diff whole:\n%s", lines)
+	}
+}
+
+// A file the pack's declaration drops has no command line to carry its
+// change, so it keeps a line of its own, with its old hash whole.
+func TestPackApplyDroppedFileKeepsItsLine(t *testing.T) {
+	y, _ := runYard(t)
+	plantWired(t, y)
+	dropped := strings.Replace(wiredDecl, "thread:\n  reply: [wired/thread, reply]\n", "", 1)
+	var files []AskFile
+	for _, f := range askFilesOrdered(wiredFiles) {
+		if f.Program != "wired/thread" {
+			files = append(files, f)
+		}
+	}
+	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+		if name != "wired" {
+			return nil, errFakeNoPack(name)
+		}
+		return &PackReading{Name: "wired", Kind: "source", Label: "embedded in yardr test1",
+			Sources: []AskSource{{Name: "wired", Text: dropped, Files: files}}}, nil
+	})
+	seq := y.ask(t, packAsk(), "yardmaster")
+	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
+	sum := sha256.Sum256([]byte(wiredFiles["wired/thread"]))
+	want := "command file wired/thread would change: sha256 " + hex.EncodeToString(sum[:]) + " -> sha256 (none)"
+	if !strings.Contains(joined, want) {
+		t.Errorf("the card lacks %q:\n%s", want, joined)
+	}
+	if strings.Contains(joined, "command file wired/thread:") {
+		t.Errorf("the dropped file kept its line and grew a command line:\n%s", joined)
 	}
 }
 
@@ -278,7 +309,7 @@ func TestPackApplyCardsOrphanCopyDirectory(t *testing.T) {
 	joined := strings.Join(got.Ask.Run.Does, "\n")
 	for _, want := range []string{
 		"the source wired is not in the yard, but its command copy directory has entries this pack would replace or remove.",
-		"command file wired/thread would change: sha256 ",
+		"command file wired/thread: [wired/thread, reply] (thread.reply, handed the credential): sha256 ",
 		"the copy would remove extra.txt, which neither declaration names: sha256 ",
 	} {
 		if !strings.Contains(joined, want) {
