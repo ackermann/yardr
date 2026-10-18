@@ -2328,12 +2328,12 @@ POST /call/Arrivals
 | `rows[].title` | string | the bead's title |
 | `rows[].platform` | string | the stage the bead stands at |
 | `rows[].line` | string | the depot the bead is worked in, `""` when it has none |
-| `rows[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
-| `rows[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
-| `rows[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `rows[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
+| `rows[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `rows[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `platforms` | array of string | the stages the rows stand on, in the order the beads travel: group the rows by this list |
 
-The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), waits for a person, late, in that order.
+The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order.
 
 Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.
 
@@ -2452,22 +2452,22 @@ POST /call/Flows
 | `depots[].flows[].stages[].lamp` | string | `fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise |
 | `depots[].flows[].stages[].beads[].bead` | string | the bead's handle |
 | `depots[].flows[].stages[].beads[].title` | string | the bead's title |
-| `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
-| `depots[].flows[].stages[].beads[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
-| `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
+| `depots[].flows[].stages[].beads[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
-| `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
-| `depots[].elsewhere[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
-| `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
+| `depots[].elsewhere[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].error` | string, may be absent | why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read |
 | `unassigned[].bead` | string | the bead's handle |
 | `unassigned[].title` | string | the bead's title |
-| `unassigned[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none |
-| `unassigned[].remark` | string | held, stalled, waits for a person, late, in that order; `""` when there is none |
-| `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark |
+| `unassigned[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
+| `unassigned[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 
 Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.

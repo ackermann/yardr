@@ -9,8 +9,8 @@
 // order and the remark are signalbox src/board.ts, ported so the two
 // cannot drift: running sessions first, then by the low end of the
 // expected arrival in minutes, then by stage age and id, capped; the
-// remark held, stalled, waiting for a person, late, in that order. No
-// via and no badge: the row carries neither.
+// remark held, stalled, blocked by an open bead, waiting for a person,
+// late, in that order. No via and no badge: the row carries neither.
 package eta
 
 import (
@@ -47,6 +47,9 @@ type ArrivalBead struct {
 	// Fault says its latest ended session came to no good end, and no
 	// live session holds it now: the board's red block.
 	Fault bool
+	// BlockedBy is the first open bead holding it, "" when none holds
+	// it: the first "blocked by" bead show prints.
+	BlockedBy string
 	// WaitsFor is who it waits for at its people's stage, "" when it
 	// waits for nobody: the members routed there, else the group, else
 	// "a person".
@@ -134,9 +137,10 @@ func ArrivalRowFor(b ArrivalBead) ArrivalRow {
 }
 
 // arrivalTime is the row's time: the yard's range, one span when both
-// ends agree, and no time where the yard serves none.
+// ends agree, and no time where the yard serves none, or where an open
+// bead blocks the bead: no group will claim it, so no ETA stands.
 func arrivalTime(b ArrivalBead) string {
-	if b.Low == "" {
+	if b.BlockedBy != "" || b.Low == "" {
 		return NoArrival
 	}
 	if b.Low == b.High {
@@ -145,16 +149,19 @@ func arrivalTime(b ArrivalBead) string {
 	return b.Low + "–" + b.High
 }
 
-// arrivalRemark is the row's remark: held, stalled, waiting for a
-// person, late, in that order, else blank. A hold and a session that
-// came to no good end are the board's red block; waiting and late are
-// its yellow.
+// arrivalRemark is the row's remark: held, stalled, blocked by an open
+// bead, waiting for a person, late, in that order, else blank. A hold
+// and a session that came to no good end are the board's red block;
+// blocked, waiting and late are its yellow.
 func arrivalRemark(b ArrivalBead) (remark, tone string) {
 	if b.Hold {
 		return "held", "red"
 	}
 	if b.Fault {
 		return "stalled", "red"
+	}
+	if b.BlockedBy != "" {
+		return "blocked by " + b.BlockedBy, "amber"
 	}
 	if b.WaitsFor != "" {
 		return "waits for " + b.WaitsFor, "amber"

@@ -182,6 +182,41 @@ func TestArrivalsRemarkLate(t *testing.T) {
 	}
 }
 
+// A bead an open bead blocks reads "blocked by <id>", in amber, with
+// no expected arrival: no group will claim it, so no ETA stands, even
+// where the yard serves one. After held and stalled, before waiting
+// and late.
+func TestArrivalsRemarkBlocked(t *testing.T) {
+	rows := Arrivals([]ArrivalBead{
+		arrivalBead("wharf-a", func(b *ArrivalBead) {
+			b.BlockedBy = "wharf-x"
+			b.Low, b.High = "27m", "1h 17m"
+		}),
+	})
+	if r := rows[0]; r.Remark != "blocked by wharf-x" || r.Tone != "amber" || r.Expected != NoArrival {
+		t.Fatalf("blocked: %+v", r)
+	}
+	held := arrivalBead("wharf-h", func(b *ArrivalBead) {
+		b.Hold, b.BlockedBy = true, "wharf-x"
+	})
+	stalled := arrivalBead("wharf-s", func(b *ArrivalBead) {
+		b.Fault, b.BlockedBy = true, "wharf-x"
+	})
+	waiting := arrivalBead("wharf-w", func(b *ArrivalBead) {
+		b.BlockedBy, b.WaitsFor, b.Late = "wharf-x", "nell", true
+		b.Stage = "decide"
+	})
+	rows = Arrivals([]ArrivalBead{held, stalled, waiting})
+	byID := map[string]string{}
+	for _, r := range rows {
+		byID[r.Bead] = r.Remark
+	}
+	if byID["wharf-h"] != "held" || byID["wharf-s"] != "stalled" ||
+		byID["wharf-w"] != "blocked by wharf-x" {
+		t.Fatalf("remarks = %v", byID)
+	}
+}
+
 // Mirrors "held before stalled before waiting before late".
 func TestArrivalsRemarkOrder(t *testing.T) {
 	held := arrivalBead("wharf-a", func(b *ArrivalBead) {

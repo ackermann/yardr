@@ -146,9 +146,9 @@ func flowBead(prefix string) []field {
 	return []field{
 		{prefix + "bead", "string", "the bead's handle"},
 		{prefix + "title", "string", "the bead's title"},
-		{prefix + "expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none"},
-		{prefix + "remark", "string", "held, stalled, waits for a person, late, in that order; `\"\"` when there is none"},
-		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark"},
+		{prefix + "expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead"},
+		{prefix + "remark", "string", "held, stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
+		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
 		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
 	}
 }
@@ -441,12 +441,12 @@ var apiCalls = []apiCall{
 			{"rows[].title", "string", "the bead's title"},
 			{"rows[].platform", "string", "the stage the bead stands at"},
 			{"rows[].line", "string", "the depot the bead is worked in, `\"\"` when it has none"},
-			{"rows[].expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none"},
-			{"rows[].remark", "string", "held, stalled, waits for a person, late, in that order; `\"\"` when there is none"},
-			{"rows[].tone", "string", "`red` for a hold and a stall, `amber` for a wait and a late mark, `none` with no remark"},
+			{"rows[].expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead"},
+			{"rows[].remark", "string", "held, stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
+			{"rows[].tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
 			{"platforms", "array of string", "the stages the rows stand on, in the order the beads travel: group the rows by this list"},
 		},
-		after: "The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), waits for a person, late, in that order.\n\n" +
+		after: "The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order.\n\n" +
 			"Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.\n\n" +
 			"Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added`, `route_set` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.",
 	},

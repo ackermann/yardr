@@ -45,9 +45,9 @@ func (s *Store) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 }
 
 // arrivalInputs answers each bead as the arrivals view reads it: with its
-// stay start, running hold, fault, wait and estimate beside it. The board
-// reads the travelling beads; the flows view reads every bead it draws,
-// and both rows come from the same inputs.
+// stay start, running hold, fault, blocker, wait and estimate beside it.
+// The board reads the travelling beads; the flows view reads every bead
+// it draws, and both rows come from the same inputs.
 func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalBead, error) {
 	var ids []string
 	for _, b := range beads {
@@ -111,6 +111,15 @@ func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalB
 				return nil, err
 			}
 			in.Fault = faulted
+		}
+		// The first open blocker is the first "blocked by" bead show
+		// prints: the oldest holding edge's blocker.
+		holding, err := s.HoldingDeps(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(holding) > 0 {
+			in.BlockedBy = holding[0].From
 		}
 		// A claimed bead answers to the group working it, even if a route
 		// changed since the claim. Unclaimed beads answer to the route, as

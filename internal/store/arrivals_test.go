@@ -255,6 +255,50 @@ func TestArrivalsWellEndClearsFault(t *testing.T) {
 	}
 }
 
+func TestArrivalsBlockedByOpenBead(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	y.create(t, "wharf-block", "new")
+	target := y.create(t, "wharf-a", "new")
+	if err := y.AddDep(ctx, "wharf-block", "wharf-a", DepBlocks, "", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	board, err := y.Arrivals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := board.Rows
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	i := 0
+	if rows[i].Bead != target.ID {
+		i = 1
+	}
+	if rows[i].Bead != target.ID {
+		t.Fatalf("no row for %s in %+v", target.ID, rows)
+	}
+	// Blocked by an open bead: the first "blocked by" bead show
+	// prints, in amber, with no expected arrival.
+	if got := rows[i]; got.Remark != "blocked by wharf-block" || got.Tone != "amber" || got.Expected != "—" {
+		t.Fatalf("blocked: %+v", got)
+	}
+	// The blocker closed: the bead is unaffected, back to no remark.
+	if _, err := y.CloseBead(ctx, "wharf-block", "done", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	board, err = y.Arrivals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range board.Rows {
+		if r.Bead == target.ID && (r.Remark != "" || r.Tone != "none") {
+			t.Fatalf("after the close: %+v", r)
+		}
+	}
+}
+
 func TestArrivalsHeldFirst(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
