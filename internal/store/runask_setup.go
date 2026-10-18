@@ -431,14 +431,26 @@ func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*s
 			continue
 		}
 		have = append(have, carried[i].Name)
-		keys[carried[i].Name] = setupCredentialKey(d, carried[i])
+		mintCommand := ""
+		if src, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
+			mintCommand = src.MintCommand
+		} else if !errors.Is(err, ErrNotFound) {
+			return nil, "", err
+		}
+		keys[carried[i].Name] = setupCredentialKey(d, carried[i], mintCommand)
 	}
 	if len(have) == 0 {
 		return nil, "", fmt.Errorf("pack %s names no credential: no account is owed, so set it up step by step instead: a pack apply card, and a grant card per source and kind", pack)
 	}
 	for _, name := range have[1:] {
+		// A shared variable name does not make two static credentials the
+		// same account, and an operator's per-source mint override is part
+		// of the effective command the inputs belong to.
+		if !decls[have[0]].Credential.Minted() || !decls[name].Credential.Minted() {
+			return nil, "", differentSetupCredentials(pack, have[0], name)
+		}
 		if keys[name] != keys[have[0]] {
-			return nil, "", fmt.Errorf("pack %s carries sources under different credentials (the source %s and the source %s): one card carries one account choice, so set it up step by step instead: a pack apply card, an account card per source, and a grant card per source and kind", pack, have[0], name)
+			return nil, "", differentSetupCredentials(pack, have[0], name)
 		}
 	}
 	d := decls[have[0]]
@@ -454,19 +466,25 @@ func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*s
 	return account, file, nil
 }
 
+func differentSetupCredentials(pack, first, second string) error {
+	return fmt.Errorf("pack %s carries sources under different credentials (the source %s and the source %s): one card carries one account choice, so set it up step by step instead: a pack apply card, an account card per source, and a grant card per source and kind", pack, first, second)
+}
+
 // setupCredentialKey is what groups a pack's sources under one account
 // choice: the mint's input names, the mint program (by the sha256 of its
 // carried bytes where relative, literally where absolute) with its
-// arguments, and the static names. The pack's own reading decides: a
-// later bead refines sharing across yard sources with the matching rule
-// in internal/source.
-func setupCredentialKey(d *source.Declaration, carried AskSource) string {
+// arguments, and the credential names. An operator's mint_command for a
+// source wins over the pack's command, as it does when a call is made.
+func setupCredentialKey(d *source.Declaration, carried AskSource, setting string) string {
 	c := d.Credential
 	inputs := append([]string{}, c.Mint...)
 	sort.Strings(inputs)
 	var prog string
 	argv := []string{}
-	if len(c.MintCommand) > 0 {
+	if command := strings.Fields(setting); len(command) > 0 {
+		prog = "setting:" + command[0]
+		argv = append([]string{}, command[1:]...)
+	} else if len(c.MintCommand) > 0 {
 		prog = c.MintCommand[0]
 		argv = append([]string{}, c.MintCommand[1:]...)
 		if !strings.HasPrefix(prog, "/") {
@@ -672,6 +690,11 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a setup of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
 	}
+	// The carry watcher can wake as soon as the write commits. Hold its
+	// one-time take until the values are in memory beside the committed
+	// carrying record.
+	s.setupSecrets.mu.Lock()
+	defer s.setupSecrets.mu.Unlock()
 	var out *AskSetupApproved
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
 		out, err = w.approveSetup(ctx, id, ask, option, values, actor)
@@ -680,7 +703,7 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 	if err != nil {
 		return nil, err
 	}
-	s.handSetupSecret(carryKey(out.Bead, ask), values)
+	s.handSetupSecretLocked(carryKey(out.Bead, ask), values)
 	return out, nil
 }
 
@@ -752,8 +775,12 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 		}
 	}
 	for _, n := range was.Account {
-		if strings.TrimSpace(values[n]) == "" {
+		value, ok := values[n]
+		if !ok {
 			return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given", seq, strings.Join(was.Account, " and "), n)
+		}
+		if err := loginValueError(seq, n, value); err != nil {
+			return nil, err
 		}
 	}
 	card, err := w.setupCard(was.Pack, was.To)
@@ -924,11 +951,11 @@ type setupSecretStash struct {
 	byAsk map[string]map[string]string
 }
 
-// handSetupSecret hands the account values of one approved setup to the
-// memory, copied: the caller keeps its map.
-func (s *Store) handSetupSecret(key string, values map[string]string) {
-	s.setupSecrets.mu.Lock()
-	defer s.setupSecrets.mu.Unlock()
+// handSetupSecretLocked hands the account values of one approved setup to
+// the memory, copied: the caller keeps its map. The approval holds the
+// mutex from before its write through this handoff, so a watcher cannot
+// take a committed record before its values are ready.
+func (s *Store) handSetupSecretLocked(key string, values map[string]string) {
 	if s.setupSecrets.byAsk == nil {
 		s.setupSecrets.byAsk = map[string]map[string]string{}
 	}

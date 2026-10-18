@@ -1345,9 +1345,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			}
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 		case r.Ask.Setup != nil && c.Answer.Ran != nil:
-			// An approved setup the server has not carried out yet reads
-			// as being carried out, and one whose carrying out failed as
-			// failed: the three readings of a run ask.
+			// B2 records an approved setup for a later build to carry out,
+			// so it reads as waiting until that carrying kind is supported.
 			preset := ""
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
 				preset = OneLine(r.Ask.Options[c.Answer.Option-1].Label)
@@ -1361,7 +1360,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			case c.Answer.Ran.Failed:
 				out = append(out, fmt.Sprintf("  %s approved, failed: %s", by, what))
 			case c.Answer.Ran.Result == CarryPending:
-				out = append(out, fmt.Sprintf("  %s approved, being carried out: %s", by, what))
+				out = append(out, fmt.Sprintf("  %s approved, to be carried out: %s", by, what))
 			default:
 				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, what))
 			}

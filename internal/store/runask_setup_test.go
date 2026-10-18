@@ -341,6 +341,48 @@ func TestSetupAskRefusesDifferentCredentials(t *testing.T) {
 	}
 }
 
+// Matching static variable names do not make credentials for two services
+// the same account.
+func TestSetupAskRefusesSharedStaticCredentialName(t *testing.T) {
+	y, _ := runYard(t)
+	f := setupMailPack()
+	second := strings.ReplaceAll(setupStaticDecl, "setupstatic", "setupstatic2")
+	f.sources = []setupSource{
+		{name: "setupstatic", text: setupStaticDecl},
+		{name: "setupstatic2", text: second},
+	}
+	f.presets = []AskPreset{{Name: "read", Grants: []AskPresetGrant{
+		{Source: "setupstatic", Calls: []string{"read"}},
+		{Source: "setupstatic2", Calls: []string{"read"}},
+	}}}
+	y.setSetupPack(f)
+	if _, err := y.AddAsk(y.ctx, y.bead, setupAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "different credentials") {
+		t.Errorf("two static credentials with the same name were shared or refused otherwise: %v", err)
+	}
+}
+
+// A source's configured mint_command wins over the pack's command and can
+// make two otherwise identical declarations different credentials.
+func TestSetupAskRefusesDifferentEffectiveMints(t *testing.T) {
+	y, _ := runYard(t)
+	f := setupMailPack()
+	f.sources = append(f.sources, setupSource{name: "setupcal", text: setupCalDecl, files: map[string]string{"setup-mint": setupMint}})
+	f.presets = []AskPreset{{Name: "read", Grants: []AskPresetGrant{
+		{Source: "setupmail", Calls: []string{"read"}},
+		{Source: "setupcal", Calls: []string{"read"}},
+	}}}
+	y.setSetupPack(f)
+	if _, err := y.PutSource(y.ctx, "setupcal.yaml", setupCalDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.SetSource(y.ctx, "setupcal", SourceMintCommand, "/custom/google-mint", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, setupAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "different credentials") {
+		t.Errorf("a source's different effective mint was treated as the pack's mint: %v", err)
+	}
+}
+
 // Sources naming the same credential and the same mint take one card,
 // and the account is the mint's inputs, never the minted token.
 func TestSetupAskSharesOneCredentialAcrossSources(t *testing.T) {
@@ -478,7 +520,7 @@ func TestSetupAskRefusesWhatCannotBeCarded(t *testing.T) {
 
 // An approval records approved-and-not-carried-out with the carrying
 // record beside it, and hands the account values to the server's memory,
-// never stored: the ask reads as being carried out.
+// never stored: the ask reads as approved and waiting to be carried out.
 func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
@@ -506,11 +548,56 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	}
 	got := y.asked(t, seq)
 	lines := strings.Join(got.Lines(), "\n")
-	if !strings.Contains(lines, "mckean approved, being carried out: setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
+	if !strings.Contains(lines, "mckean approved, to be carried out: setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the approved card reads:\n%s", lines)
+	}
+	if pending, err := y.PendingCarry(y.ctx); err != nil || pending {
+		t.Errorf("the not-yet-supported setup is pending in the pack/source watcher: %v, %v", pending, err)
+	}
+	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
+	if err != nil || claimed != nil {
+		t.Errorf("the pack/source watcher claimed the setup: %+v, %v", claimed, err)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec == nil || rec.State != CarryApproved {
+		t.Errorf("a setup outside this build's carrying kinds changed state: %+v, %v", rec, err)
 	}
 	if ev := lastAnswer(t, y); !strings.Contains(ev.Data["answer"].(string), "approved ask "+strconv.FormatUint(seq, 10)+" on "+y.bead+": setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the answer event reads %q", ev.Data["answer"])
+	}
+}
+
+// An approval refuses values that the account file writer cannot save,
+// before it records the approval or keeps the values in memory.
+func TestSetupApprovalRejectsInvalidAccountValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"empty", "", "the value for SETUP_ACCOUNT is empty"},
+		{"line break", "token\nFORGED=value", "the value for SETUP_ACCOUNT has a line break in it"},
+		{"space at an end", " token ", "the value for SETUP_ACCOUNT begins or ends with white space"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y, _ := runYard(t)
+			y.setSetupPack(setupMailPack())
+			seq := y.ask(t, setupAsk(), "yardmaster")
+			_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1,
+				map[string]string{"SETUP_ACCOUNT": tc.value}, "mckean")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("invalid account value was approved or refused otherwise: %v", err)
+			}
+			if tc.value != "" && strings.Contains(err.Error(), tc.value) {
+				t.Errorf("the refusal repeats the account value: %v", err)
+			}
+			if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+				t.Errorf("an invalid value left a carrying record: %+v, %v", rec, err)
+			}
+			if got := y.asked(t, seq); got.State != AskOpen {
+				t.Errorf("an invalid value left the ask %s, want it open", got.State)
+			}
+			if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
+				t.Error("an invalid value was kept in memory")
+			}
+		})
 	}
 }
 
@@ -601,6 +688,24 @@ func TestSetupStaleSourceAdded(t *testing.T) {
 	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"STATIC_TOKEN": "tok"}, "mckean")
 	if err == nil || !strings.Contains(err.Error(), "was not in the yard: it was added since") {
 		t.Errorf("an approval past an added source was recorded or refused otherwise: %v", err)
+	}
+}
+
+// An approval is refused stale when a source's settings move under its
+// name while the card is open.
+func TestSetupStaleSourceChanged(t *testing.T) {
+	y, _ := runYard(t)
+	y.setSetupPack(setupMailPack())
+	if _, err := y.PutSource(y.ctx, "setupmail.yaml", setupDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	if _, err := y.SetSource(y.ctx, "setupmail", SourceEnvFile, filepath.Join(y.home, "sources", "shared.env"), "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
+	if err == nil || !strings.Contains(err.Error(), "its env_file was set since") {
+		t.Errorf("an approval past a source setting change was recorded or refused otherwise: %v", err)
 	}
 }
 

@@ -123,15 +123,16 @@ func (s *Store) CarryOf(ctx context.Context, bead string, ask uint64) (*Carry, e
 	return out, err
 }
 
-// PendingCarry reports whether an apply waits to be carried out:
+// PendingCarry reports whether a carrying kind this build handles waits:
 // approved and not yet taken, or claimed and not finished, which a
-// starting server takes up. The watcher reads it on every wake so an
-// idle yard costs no write.
+// starting server takes up. Later kinds stay approved for the build that
+// knows them. The watcher reads it on every wake so an idle yard costs no
+// write.
 func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
 	pending := false
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bCarry, "", func(_ []byte, rec *Carry) error {
-			if rec.State == CarryApproved || rec.State == CarryClaimed {
+			if carryHandledHere(rec) && (rec.State == CarryApproved || rec.State == CarryClaimed) {
 				pending = true
 			}
 			return nil
@@ -140,13 +141,24 @@ func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
 	return pending, err
 }
 
-// ClaimCarry claims the oldest approved apply that waits, or one this
-// boot claimed and did not finish (its carrying out stopped on an
+// carryHandledHere says whether this server's carrying-out watcher knows
+// how to carry rec. A record for a later carrying kind stays approved until
+// the build that knows it takes it up.
+func carryHandledHere(rec *Carry) bool {
+	if len(rec.Argv) < 3 {
+		return false
+	}
+	return rec.Argv[0] == "pack" && rec.Argv[1] == "apply" ||
+		rec.Argv[0] == "source" && rec.Argv[1] == "add"
+}
+
+// ClaimCarry claims the oldest supported carrying record that waits, or
+// one this boot claimed and did not finish (its carrying out stopped on an
 // error, and the one watcher of this boot takes it up again), in one
-// write: two claims cannot both win. It answers nil where nothing
-// waits. A record claimed under another boot is never claimed here:
-// that boot is the yard's server, running, until ResumeCarry at a
-// start says it is dead.
+// write: two claims cannot both win. It answers nil where nothing waits. A
+// later carrying kind stays approved for the build that knows it. A record
+// claimed under another boot is never claimed here: that boot is the yard's
+// server, running, until ResumeCarry at a start says it is dead.
 func (s *Store) ClaimCarry(ctx context.Context, boot string) (*Carry, error) {
 	var out *Carry
 	err := s.write(func(w *wtx) error {
@@ -154,7 +166,7 @@ func (s *Store) ClaimCarry(ctx context.Context, boot string) (*Carry, error) {
 			if out != nil {
 				return nil
 			}
-			if rec.State == CarryApproved || (rec.State == CarryClaimed && rec.Boot == boot) {
+			if carryHandledHere(rec) && (rec.State == CarryApproved || rec.State == CarryClaimed && rec.Boot == boot) {
 				rec.State, rec.Boot, rec.ClaimedAt = CarryClaimed, boot, now()
 				if err := put(w.Tx, bCarry, carryKey(rec.Bead, rec.Ask), rec); err != nil {
 					return err
