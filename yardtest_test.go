@@ -1513,11 +1513,14 @@ exec "$@"
 			cmd.Dir = dir
 			// No YARDR_RACE_HELD: the race leg takes the lock itself, as
 			// a top-level run does, and its worker keeps that hold through
-			// the package re-measurement.
+			// the package re-measurement. The load is pinned quiet, so
+			// the over-alone case fails however loaded the test machine
+			// is.
 			cmd.Env = append(scriptEnv(),
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
-				"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake, "FAKE_ALONE="+c.alone)
+				"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake, "FAKE_ALONE="+c.alone,
+				"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10")
 			b, err := cmd.CombinedOutput()
 			out := string(b)
 			if (err == nil) != c.ok {
@@ -2004,10 +2007,11 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	took := cut("\ntook() {", "}\n")
 	runlogfn := cut("\nrunlogged() {", "}\n")
 	over := cut("\nover60='\n", "\n'\n")
+	loadfn := cut("\nloadedmachine() {\n", "\n}\n")
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -2041,7 +2045,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + loadfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -2334,9 +2338,13 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 		// store are re-run, sorted, one package after another, with the
 		// leg's flags and -count=1, inside its hold. The module path is
 		// the root, whose allow-list row yardr-1x36 deleted, as
-		// yardr-3cc4 deleted store's.
+		// yardr-3cc4 deleted store's. The load is pinned quiet, so the
+		// root's over-alone verdict fails however loaded the test
+		// machine is.
 		fake, env := r1go(t)
-		out, code := runEnv(dir, append(env, "FAKE_OVER=yardr.dev/yardr"),
+		out, code := runEnv(dir, append(env,
+			"FAKE_OVER=yardr.dev/yardr",
+			"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10"),
 			"packagebudget", "red.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
@@ -2384,6 +2392,57 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/web held=1"; got != want {
 			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("a package over budget alone on a loaded machine passes", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
+		fake, env := r1go(t)
+		out, code := runEnv(dir, append(env,
+			"FAKE_OVER=yardr.dev/yardr/internal/web",
+			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
+			"packagebudget", "heavy.txt", "go", "test", "-race", "./...")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		want := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+		if strings.Contains(out, "over the 60 s budget") {
+			t.Errorf("output %q, want no budget failure", out)
+		}
+		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/web held=1"; got != want {
+			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("unknown load and a load at the core count fail the run", func(t *testing.T) {
+		for _, c := range []struct {
+			name string
+			avg  string
+		}{
+			{"unreadable", "bogus"},
+			{"at the count", "10"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				dir := t.TempDir()
+				write(dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
+				_, env := r1go(t)
+				out, code := runEnv(dir, append(env,
+					"FAKE_OVER=yardr.dev/yardr/internal/web",
+					"YARDR_TEST_LOADAVG="+c.avg, "YARDR_TEST_CORES=10"),
+					"packagebudget", "stray.txt", "go", "test", "-race", "./...")
+				if code != 1 {
+					t.Fatalf("exit %d, output %q, want exit 1", code, out)
+				}
+				want := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+				if !strings.Contains(out, want+"\n") {
+					t.Errorf("output %q, want it to hold %q", out, want)
+				}
+			})
 		}
 	})
 

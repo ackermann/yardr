@@ -36,8 +36,10 @@
 # under -race, and a test sleeps no more than 500 ms at a site. Each has its
 # allow-list below, naming why each entry is over and which bead brings it
 # under; the fix beads delete the rows. A race leg runs a package it ran
-# over budget and not allow-listed again by itself, and fails when the
-# package is over budget alone too; the run fails when a test file sleeps
+# over budget and not allow-listed again by itself: over budget alone on a
+# quiet machine fails the run, over budget alone on a loaded one passes
+# with an R1 line naming both times and the load, for the quiet run to
+# judge again (docs/testing.md R6); the run fails when a test file sleeps
 # over budget at a site that is not.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
@@ -679,20 +681,51 @@ summary() {
 # section 2.1 measured two; yardr-2ddt brought assembly under budget).
 # A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s is run again alone, and fails the run when
-# over 60 s again. The fix beads delete the rows; a row whose package is
-# gone fails nothing, since no result line maps to it, but delete it
-# anyway.
+# over 60 s again on a quiet machine; over again on a loaded one passes
+# with the load named, for the quiet run. The fix beads delete the rows;
+# a row whose package is gone fails nothing, since no result line maps to
+# it, but delete it anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
 '
+# loadedmachine prints the machine's one-minute load average and core count,
+# as "load <avg> on <cores> cores", when the machine is too loaded for a
+# timing verdict: the average past the core count. The race lock holds off
+# the other gate legs, not every test on the machine, so the budget's alone
+# re-run can be loaded too (yardr-wq5h: release and web over budget alone
+# beside a Go test and a cargo test). It reads /proc/loadavg and nproc
+# where the system keeps them, sysctl's vm.loadavg and hw.ncpu elsewhere,
+# as the machine source's limits command does
+# (contrib/machine-limits/machine/limits). YARDR_TEST_LOADAVG and
+# YARDR_TEST_CORES override the readings, for the gate's own tests. Where
+# nothing answers, or the readings are no numbers, it prints nothing and
+# fails: unknown load never passes a package.
+loadedmachine() {
+  if [ -n "$YARDR_TEST_LOADAVG$YARDR_TEST_CORES" ]; then
+    avg=$YARDR_TEST_LOADAVG
+    cores=$YARDR_TEST_CORES
+  elif [ -r /proc/loadavg ]; then
+    avg=$(awk '{print $1}' /proc/loadavg)
+    cores=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo)
+  else
+    avg=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
+    cores=$(sysctl -n hw.ncpu 2>/dev/null)
+  fi
+  case "$avg" in ''|*[!0-9.]*|.*|*.*.*|*.) return 1;; esac
+  case "$cores" in ''|*[!0-9.]*|.*|*.*.*|*.) return 1;; esac
+  awk -v a="$avg" -v c="$cores" 'BEGIN { exit !(a > c && c > 0) }' || return 1
+  echo "load $avg on $cores cores"
+}
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
 # -race leg's output ($1): only the ok lines carry judged durations, a
 # package whose tests failed being already red without it. Cached packages
 # print no seconds and are not judged. The allow-list goes by file, as the
 # reads table does: awk takes no newline in -v.
 # A package over budget that the allow-list does not name is run again by
-# itself, and judged by the re-run: over 60 s alone fails, naming both
-# times, and under passes with both times and why. The re-run is the leg's
+# itself, and judged by the re-run: over 60 s alone fails on a quiet
+# machine, naming both times, and passes with both times and the load on a
+# loaded one (loadedmachine), for the quiet run to judge again; under
+# alone passes with both times and why. The re-run is the leg's
 # own command ($2 on: the same flags), with -count=1 so it is timed and
 # not cached, and the one package; several are re-run one after another,
 # sorted, not in parallel. It shares the leg's hold on the race lock
@@ -791,8 +824,12 @@ packagebudget() {
     ' "$run")
     if [ "$rrc" = 0 ] && [ -n "$alone" ]; then
       if awk -v s="$alone" 'BEGIN { exit !(s + 0 > 60) }'; then
-        echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1)"
-        st=1
+        if load=$(loadedmachine); then
+          echo "test: R1: $pkg took $secs s in the run, $alone s alone: over budget, loaded machine ($load), not failed"
+        else
+          echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1)"
+          st=1
+        fi
       else
         echo "test: R1: $pkg took $secs s in the run, $alone s alone: under budget, loaded run"
       fi
