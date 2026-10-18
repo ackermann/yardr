@@ -1063,7 +1063,7 @@ func TestTelegramPack(t *testing.T) {
 		"umask 077",
 		"yardr hook add telegram --source telegram --secret-file",
 		"yardr crew show yardmaster",
-		"approving the claim in step 6 creates this subscription",
+		"the claim in step 6 creates this subscription",
 		"yardr subscribe <hearer> telegram --scope all --where type=message",
 		"setWebhook",
 		"getWebhookInfo",
