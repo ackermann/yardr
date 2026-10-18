@@ -148,3 +148,34 @@ func TestSameModelUnderAnotherNameIsNoMismatch(t *testing.T) {
 		})
 	}
 }
+
+// The context window is the asked name's bracketed suffix, or 200k: the
+// suffix modelWords holds no part of the name.
+func TestContextWindow(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		model string
+		want  int
+	}{
+		"no name":        {"", 200000},
+		"no suffix":      {"opus", 200000},
+		"a dated id":     {"claude-opus-5-5-20260801", 200000},
+		"a million":      {"opus[1m]", 1000000},
+		"thousands":      {"sonnet[200k]", 200000},
+		"bare tokens":    {"opus[500000]", 500000},
+		"upper unit":     {"opus[1M]", 1000000},
+		"no unit":        {"opus[]", 200000},
+		"no number":      {"opus[m]", 200000},
+		"no window":      {"opus[none]", 200000},
+		"zero":           {"opus[0]", 200000},
+		"unclosed":       {"opus[1m", 1000000},
+		"reported names": {"Opus 5.5", 200000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := dispatch.ContextWindow(tc.model); got != tc.want {
+				t.Errorf("ContextWindow(%q) = %d, want %d", tc.model, got, tc.want)
+			}
+		})
+	}
+}

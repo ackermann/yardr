@@ -684,3 +684,72 @@ func TestHarnessVersion(t *testing.T) {
 		t.Errorf("a hanging harness: version %q, want none", got)
 	}
 }
+
+// Only claude names where its context use is read: the last assistant
+// line's message.usage, whose input and cache tokens add up to what the
+// session holds. The other kinds have no context-based rotation.
+func TestContextSource(t *testing.T) {
+	for _, h := range Harnesses {
+		if h.Kind == "claude" {
+			if h.Context == nil || h.Context.Type != "assistant" || h.Context.Usage != "message.usage" {
+				t.Fatalf("claude's context source = %+v", h.Context)
+			}
+			continue
+		}
+		if h.Context != nil {
+			t.Errorf("%s names a context source: %+v", h.Kind, h.Context)
+		}
+	}
+	claude, _ := Lookup("claude")
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"hi"}}`,
+		`{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,"cache_read_input_tokens":100,"cache_creation_input_tokens":5,"output_tokens":7}}}`,
+		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error"}]}}`,
+		`not json at all`,
+		`{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_read_input_tokens":200,"output_tokens":3}}}`,
+	}
+	var used int
+	var ok bool
+	for _, line := range lines {
+		if n, has := claude.Context.UsageIn([]byte(line)); has {
+			used, ok = n, true
+		}
+	}
+	if !ok || used != 202 {
+		t.Fatalf("last use = %d, %v; want 202, true", used, ok)
+	}
+	// A usage object with none of the fields is no reading.
+	if n, ok := claude.Context.UsageIn([]byte(`{"type":"assistant","message":{"usage":{"output_tokens":3}}}`)); ok || n != 0 {
+		t.Fatalf("output tokens alone = %d, %v; want 0, false", n, ok)
+	}
+	// A file that names its own token fields and type key is read by those.
+	custom := ContextSource{Type: "turn", TypeField: "kind", Usage: "use", Tokens: []string{"total_tokens"}}
+	if n, ok := custom.UsageIn([]byte(`{"kind":"turn","use":{"total_tokens":9}}`)); !ok || n != 9 {
+		t.Fatalf("custom source = %d, %v; want 9, true", n, ok)
+	}
+	if _, ok := custom.UsageIn([]byte(`{"type":"turn","use":{"total_tokens":9}}`)); ok {
+		t.Fatal("the type is read from type_field, not type")
+	}
+}
+
+// A context source without a usage path, without the model source whose
+// session file it reads, or with an empty token field is refused, not
+// half read.
+func TestContextSourceChecked(t *testing.T) {
+	model := "model:\n  home: .x\n  glob: s/{session}.jsonl\n  field: m.model\n"
+	for name, body := range map[string]string{
+		"no usage": "version: 1\nlabel: Q\n" + model + "context:\n  type: assistant\n",
+		"no model": "version: 1\nlabel: Q\ncontext:\n  type: assistant\n  usage: message.usage\n",
+		"no field": "version: 1\nlabel: Q\n" + model + "context:\n  type: assistant\n  usage: message.usage\n  tokens: [input_tokens, '']\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := load(t, map[string]string{"qwen.yaml": body}); err == nil {
+				t.Fatalf("loaded: %s", body)
+			}
+		})
+	}
+	if _, err := load(t, map[string]string{"qwen.yaml": "version: 1\nlabel: Q\n" + model +
+		"context:\n  type: assistant\n  usage: message.usage\n"}); err != nil {
+		t.Fatalf("a whole source is refused: %v", err)
+	}
+}

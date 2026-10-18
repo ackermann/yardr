@@ -600,6 +600,11 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 			return d.Store.RequestRestartFor(ctx, def.Name, s.user, "rotation (no handoff within grace)", "", "yard")
 		}
 	}
+	if idle {
+		if asked, err := d.crewContext(ctx, runner, s); asked || err != nil {
+			return err
+		}
+	}
 	if !idle {
 		delete(d.drafts, key) // what was in its input was sent
 		delete(d.dialogs, key)

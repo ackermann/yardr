@@ -389,6 +389,12 @@ func (c *Client) RequestRestart(ctx context.Context, name, reason, rev, actor st
 func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
 	return c.call(ctx, "MarkRotationAsked", nil, name)
 }
+func (c *Client) MarkContextAsked(ctx context.Context, name string, pct, window int) error {
+	return c.call(ctx, "MarkContextAsked", nil, name, pct, window)
+}
+func (c *Client) SetContext(ctx context.Context, name string, pct, window int) error {
+	return c.call(ctx, "SetContext", nil, name, pct, window)
+}
 func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) error {
 	return c.call(ctx, "MarkNotified", nil, name, seq)
 }
@@ -424,6 +430,12 @@ func (c *Client) RequestRestartFor(ctx context.Context, name, user, reason, rev,
 }
 func (c *Client) MarkRotationAskedFor(ctx context.Context, name, user string) error {
 	return c.call(ctx, "MarkRotationAskedFor", nil, name, user)
+}
+func (c *Client) MarkContextAskedFor(ctx context.Context, name, user string, pct, window int) error {
+	return c.call(ctx, "MarkContextAskedFor", nil, name, user, pct, window)
+}
+func (c *Client) SetContextFor(ctx context.Context, name, user string, pct, window int) error {
+	return c.call(ctx, "SetContextFor", nil, name, user, pct, window)
 }
 func (c *Client) MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error {
 	return c.call(ctx, "MarkNotifiedFor", nil, name, user, seq)

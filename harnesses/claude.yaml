@@ -109,6 +109,15 @@ model:
   type: assistant
   field: message.model
 
+# Context use is read from the session's own file, the one the model
+# source above names: the last assistant line's message.usage, whose
+# input, cache-read and cache-creation tokens add up to what the session
+# holds. A kind with no context key has no context-based rotation: the 24h
+# failsafe alone.
+context:
+  type: assistant
+  usage: message.usage
+
 # A line that says two things (an API error that ends in "Please run
 # /login") is listed under the one that matters before the general one.
 errors:

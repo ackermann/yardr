@@ -32,6 +32,11 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 28 has the forced rotation at a day: a crew member whose
+// stored max_age is 6h is moved to 24h (migrateCrewRotation), and the
+// rotation itself is by context use past 60% of the window. A build
+// before it rotates at 24h as written and knows no context use; it drops
+// no field that is set.
 // schemaVersion 27 has a hearer: the crew member an approved claim
 // subscribes to the claimed address (migrateHearer). A build before it
 // writes the address alone, and an approval between its card and this
@@ -178,7 +183,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 27
+const schemaVersion = 28
 
 var kSchema = []byte("schema")
 
@@ -329,6 +334,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 25, run: atVersion(migrateUpgradeFromDangling)},
 		{version: 26, run: atVersion(migratePeerIntakes)},
 		{version: 27, run: atVersion(migrateHearer)},
+		{version: 28, run: atVersion(migrateCrewRotation)},
 	}
 }
 

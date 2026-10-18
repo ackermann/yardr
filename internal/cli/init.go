@@ -791,7 +791,7 @@ func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, re
 		conf["args"] = list
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: o.Yardmaster, Runner: "herdr", Config: conf, Dir: res.Dir,
-		On: defaultOn, MaxAge: "6h", HandoffGrace: "15m"}, a.who())
+		On: defaultOn, MaxAge: "24h", HandoffGrace: "15m"}, a.who())
 	return err
 }
 
@@ -874,7 +874,7 @@ func (r *initResult) printYard() {
 		fmt.Printf("  yardmaster none: the yard's default pack, %s, has no crew member called %s. One is added with\n"+
 			"             %s crew add %s\n", r.Pack, packYardmaster, yardr, r.Yardmaster)
 	} else {
-		fmt.Printf("  yardmaster %s, working in %s, rotating every 6h\n", r.Yardmaster, r.Dir)
+		fmt.Printf("  yardmaster %s, working in %s, rotating every 24h\n", r.Yardmaster, r.Dir)
 		if len(r.Args) > 0 {
 			fmt.Printf("             runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
@@ -1085,7 +1085,7 @@ func (a *app) initCmd() *cobra.Command {
 		Long: `Create the yard in --home (else YARDR_HOME, default ~/.yardr) without the onboarding form,
 for scripts and tests. It stores --harness as the yard's default_kind, and
 adds the yardmaster crew member on that harness with its unattended flags,
-rotating every 6h. The daemon starts the yardmaster.
+rotating every 24h. The daemon starts the yardmaster.
 
 The yardmaster's role is a pack's: the one the yard's default pack (the
 default_pack setting, else starter, which yardr carries) gives its crew

@@ -683,7 +683,7 @@ yardr:
    (the form's answers, `--style`, `--about`);
 3. adds the yardmaster crew member: `kind=<harness>`,
    `prompt=<home>/packs/<pack>/roles/yardmaster.md`, the model if given, the harness's
-   unattended flags as `args`, rotating every 6h. A crew member of that name
+   unattended flags as `args`, rotating every 24h. A crew member of that name
    already there is kept as it is, so init runs again on a yard without harm;
 4. sets `default_kind` to the harness, which marks the yard set up.
 

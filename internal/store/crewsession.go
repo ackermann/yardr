@@ -99,6 +99,7 @@ func (s *Store) CrewStartedFor(ctx context.Context, name, user string, handle ma
 		st.PrevStartedAt, st.StartedAt = st.StartedAt, &t
 		st.State, st.Status, st.Handle, st.RetryAfter = "running", "", handle, nil
 		st.RestartRequested, st.RestartRequestedAt, st.RotationAskedAt = "", nil, nil
+		st.ContextAskedAt, st.ContextPct, st.ContextWindow, st.ContextAt = nil, 0, 0, nil
 		// The new session sees its unread slice in its prime; only events
 		// after this point warrant a nudge.
 		if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
@@ -269,6 +270,49 @@ func (s *Store) MarkNotifiedFor(ctx context.Context, name, user string, seq uint
 	}
 	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
 		st.Notified = max(st.Notified, seq)
+		return nil
+	})
+}
+
+// MarkContextAskedFor is MarkContextAsked for one session. The daemon's
+// alone (daemonOnly): only it rotates crew sessions. The nudge is asked
+// once per session and never forced; the reading it was asked at stays
+// the session's last.
+func (s *Store) MarkContextAskedFor(ctx context.Context, name, user string, pct, window int) error {
+	if err := s.daemonOnly(ctx, "MarkContextAskedFor"); err != nil {
+		return err
+	}
+	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
+		t := now()
+		st.ContextAskedAt, st.ContextPct, st.ContextWindow, st.ContextAt = &t, pct, window, &t
+		return w.event(r.Journal, "crew_context_asked", "yard", sessionData(user, map[string]any{
+			"crew": name, "pct": pct, "window": window}))
+	})
+}
+
+// SetContextFor is SetContext for one session. The daemon's alone
+// (daemonOnly): only it reads a crew session's context use. A reading
+// that changes nothing writes nothing, as a repeated status does.
+func (s *Store) SetContextFor(ctx context.Context, name, user string, pct, window int) error {
+	if err := s.daemonOnly(ctx, "SetContextFor"); err != nil {
+		return err
+	}
+	var r CrewMember
+	if err := s.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bCrew, name, &r)
+		return err
+	}); err != nil {
+		return err
+	}
+	if st := r.Session(user); st.ContextPct == pct && st.ContextWindow == window {
+		return nil // no write, and no new revision, for what did not change
+	}
+	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
+		if st.State != "running" || (st.ContextPct == pct && st.ContextWindow == window) {
+			return nil
+		}
+		t := now()
+		st.ContextPct, st.ContextWindow, st.ContextAt = pct, window, &t
 		return nil
 	})
 }

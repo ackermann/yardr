@@ -145,6 +145,8 @@ type API interface {
 	CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
 	RequestRestart(ctx context.Context, name, reason, rev, actor string) error
 	MarkRotationAsked(ctx context.Context, name string) error
+	MarkContextAsked(ctx context.Context, name string, pct, window int) error
+	SetContext(ctx context.Context, name string, pct, window int) error
 	MarkNotified(ctx context.Context, name string, seq uint64) error
 	CrewStartingFor(ctx context.Context, name, user string, handle map[string]any) error
 	CrewStartedFor(ctx context.Context, name, user string, handle map[string]any) error
@@ -157,6 +159,8 @@ type API interface {
 	CrewStartFailedFor(ctx context.Context, name, user, reason string, backoff time.Duration) error
 	RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error
 	MarkRotationAskedFor(ctx context.Context, name, user string) error
+	MarkContextAskedFor(ctx context.Context, name, user string, pct, window int) error
+	SetContextFor(ctx context.Context, name, user string, pct, window int) error
 	MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error
 	Journal(ctx context.Context, name, kind, text, actor string) error
 	Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error

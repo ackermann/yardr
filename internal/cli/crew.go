@@ -91,8 +91,9 @@ func (a *app) crewCmd() *cobra.Command {
 		Short: "Create a crew member, or replace one's whole definition (no name: an interactive form)",
 		Long: `A crew member is an always-on agent session, such as a yardmaster. The daemon keeps
 it running in its directory, nudges it when its inbox has something new and it
-is idle, and rotates it: at --max-age it is asked to write a handoff, and its
-next session starts from that handoff (forced after --handoff-grace).
+is idle, and rotates it: past --context-handoff percent of its context window
+it is asked to write a handoff when idle, and at --max-age it is asked again
+and its next session starts from that handoff (forced after --handoff-grace).
 
 Without --set kind, a herdr crew member gets the yard's default_kind.
 
@@ -135,7 +136,7 @@ for its links (yardr peer list).`,
 		Example: `  yardr crew add                       # interactive
   yardr crew add yardmaster --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/packs/starter/roles/yardmaster.md \
-    --dir ~/projects --max-age 6h`,
+    --dir ~/projects --max-age 24h`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -209,8 +210,9 @@ for its links (yardr peer list).`,
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, for, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the crew member works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is), or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
-	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
+	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 24h (default: never)")
 	f.StringVar(&def.HandoffGrace, "handoff-grace", "15m", "how long a requested handoff may take before a forced restart")
+	f.StringVar(&def.ContextHandoff, "context-handoff", "", "ask for a handoff at this percent of the context window, e.g. 80 (default: 60, 0: never)")
 	f.StringVar(&def.Revision, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 
 	list := &cobra.Command{
@@ -326,6 +328,9 @@ for its links (yardr peer list).`,
 				for _, u := range r.ConversationUsers() {
 					cs := r.Session(u)
 					fmt.Printf("  for %s: %s · %s · inbox %d unread\n", u, or(cs.State, "stopped"), sessionAgent(cs.Handle), unread[u])
+					if cs.ContextAt != nil {
+						fmt.Printf("  for %s: context %d%% of %s at %s\n", u, cs.ContextPct, shortWindow(cs.ContextWindow), cs.ContextAt.Local().Format("15:04"))
+					}
 					if f := sessionFailures(r.Name, r.Enabled, u, cs, time.Now()); f != "" {
 						fmt.Printf("  for %s: %s", u, f)
 						if reason := lastSessionFailure(c.Context(), st, *r, u); reason != "" {
@@ -379,6 +384,12 @@ for its links (yardr peer list).`,
 				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
+				}
+				if r.ContextHandoff != "" {
+					fmt.Printf("  asks for a handoff at %s%% of the context window\n", r.ContextHandoff)
+				}
+				if r.ContextAt != nil {
+					fmt.Printf("  context %d%% of %s at %s\n", r.ContextPct, shortWindow(r.ContextWindow), r.ContextAt.Local().Format("15:04"))
 				}
 				for _, src := range sortedKeys(r.Identities) {
 					id := r.Identities[src]
@@ -471,15 +482,15 @@ for its links (yardr peer list).`,
 // running crew member everything that was not retyped.
 func (a *app) crewSetCmd() *cobra.Command {
 	var unset, on []string
-	var dir, maxAge, grace, rev string
+	var dir, maxAge, grace, contextHandoff, rev string
 	cmd := &cobra.Command{
 		Use:   "set <name> [key=value ...]",
 		Short: "Change some settings of a crew member and keep the rest",
 		Long: `Changes the settings named and keeps the rest of the crew member's definition.
 key=value is a runner config key, as --set on yardr crew add takes it
 (kind, model, args, prompt, env_file, env_command, for, open_threads,
-set_state, peers); --unset <key> removes one. --dir, --on, --max-age and
---handoff-grace change what the same flags of add set.
+set_state, peers); --unset <key> removes one. --dir, --on, --max-age,
+--handoff-grace and --context-handoff change what the same flags of add set.
 
 It prints each setting changed, as it was and as it is. The value of a key
 named like a secret (token, secret, password, key) is not printed.
@@ -490,12 +501,12 @@ may allow a crew member a source or a peer it was not allowed before. Narrowing
 one, or removing it with --unset, is anyone's.
 
 A running crew member keeps its sessions. What it may do (open_threads,
-set_state, peers), whom it serves (for), --on and --max-age hold from the
-next time they are looked at; what a session starts with (kind, model,
+set_state, peers), whom it serves (for), --on, --max-age and --context-handoff
+hold from the next time they are looked at; what a session starts with (kind, model,
 args, prompt, its environment, --dir) is read when the next one starts:
 yardr crew restart <name>, or --for <user> for a conversation session.`,
 		Example: `  yardr crew set yardmaster set_state=linear
-  yardr crew set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
+  yardr crew set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 24h
   yardr crew set yardmaster --unset open_threads`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -516,8 +527,8 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 				return err
 			}
 			fl := c.Flags()
-			if len(sets) == 0 && len(unset) == 0 && !fl.Changed("dir") && !fl.Changed("on") && !fl.Changed("max-age") && !fl.Changed("handoff-grace") {
-				return fmt.Errorf("nothing to set: give key=value, --unset <key>, --dir, --on, --max-age or --handoff-grace")
+			if len(sets) == 0 && len(unset) == 0 && !fl.Changed("dir") && !fl.Changed("on") && !fl.Changed("max-age") && !fl.Changed("handoff-grace") && !fl.Changed("context-handoff") {
+				return fmt.Errorf("nothing to set: give key=value, --unset <key>, --dir, --on, --max-age, --handoff-grace or --context-handoff")
 			}
 			for _, k := range unset {
 				if _, both := sets[k]; both {
@@ -561,6 +572,9 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 				if fl.Changed("handoff-grace") {
 					def.HandoffGrace = grace
 				}
+				if fl.Changed("context-handoff") {
+					def.ContextHandoff = contextHandoff
+				}
 				if changes = defChanges(*have, def); len(changes) == 0 {
 					r = have
 					break
@@ -581,7 +595,7 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 				fmt.Printf("crew member %s saved\n%s\n", name, changeLines(changes))
 				var atStart []string
 				for _, ch := range changes {
-					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
+					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, "--on", "--max-age", "--handoff-grace", "--context-handoff"}, ch.Key) {
 						atStart = append(atStart, ch.Key)
 					}
 				}
@@ -596,8 +610,9 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
 	f.StringVar(&dir, "dir", "", "directory the crew member works in (empty: the yard home)")
 	f.StringSliceVar(&on, "on", nil, "event kinds delivered to its inbox, or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
-	f.StringVar(&maxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (empty: never)")
+	f.StringVar(&maxAge, "max-age", "", "ask for a handoff after this long, e.g. 24h (empty: never)")
 	f.StringVar(&grace, "handoff-grace", "", "how long a requested handoff may take before a forced restart")
+	f.StringVar(&contextHandoff, "context-handoff", "", "ask for a handoff at this percent of the context window (default: 60, 0: never)")
 	f.StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 	return cmd
 }
@@ -626,6 +641,7 @@ func defChanges(old, def store.CrewMember) []defChange {
 	add("--on", kinds(old.On), kinds(def.On))
 	add("--max-age", old.MaxAge, def.MaxAge)
 	add("--handoff-grace", old.HandoffGrace, def.HandoffGrace)
+	add("--context-handoff", old.ContextHandoff, def.ContextHandoff)
 	return append(out, configChanges(old.Config, def.Config)...)
 }
 
@@ -819,6 +835,18 @@ func sessionAgent(handle map[string]any) string {
 		return agent
 	}
 	return "-"
+}
+
+// shortWindow is tokens as people write a context window: 200k, 1m.
+func shortWindow(tokens int) string {
+	switch {
+	case tokens%1000000 == 0:
+		return fmt.Sprintf("%dm", tokens/1000000)
+	case tokens%1000 == 0:
+		return fmt.Sprintf("%dk", tokens/1000)
+	default:
+		return strconv.Itoa(tokens)
+	}
 }
 
 // envSource is one place a crew member's environment comes from, as crew member
@@ -1981,13 +2009,23 @@ func (a *app) crewForm(ctx context.Context, st store.API) error {
 			Validate(func(s string) error { _, err := absDir(s); return err }),
 		huh.NewMultiSelect[string]().Title("Inbox").Description("Events it is nudged about (mail always is).").
 			Options(opts...).Value(&on),
-		huh.NewInput().Title("Rotate after").Description("Ask for a handoff after this long, e.g. 6h; empty: never.").
+		huh.NewInput().Title("Rotate after").Description("Ask for a handoff after this long, e.g. 24h; empty: never.").
 			Value(&def.MaxAge).Validate(func(s string) error {
 			if s == "" {
 				return nil
 			}
 			_, err := time.ParseDuration(s)
 			return err
+		}),
+		huh.NewInput().Title("Context handoff at").Description("Ask for a handoff at this percent of the context window; empty: 60.").
+			Value(&def.ContextHandoff).Validate(func(s string) error {
+			if s == "" {
+				return nil
+			}
+			if n, err := strconv.Atoi(s); err != nil || n < 0 || n > 100 {
+				return fmt.Errorf("want a percentage 0..100")
+			}
+			return nil
 		}),
 	); err != nil {
 		return err
@@ -1997,8 +2035,8 @@ func (a *app) crewForm(ctx context.Context, st store.API) error {
 	}
 	def.On = on
 	save := true
-	summary := fmt.Sprintf("%s: %s in %s\ninbox: %s\nrotate after: %s", def.Name, crewAgent(def), def.Dir,
-		strings.Join(def.On, ", "), or(def.MaxAge, "never"))
+	summary := fmt.Sprintf("%s: %s in %s\ninbox: %s\nrotate after: %s\ncontext handoff at: %s%%", def.Name, crewAgent(def), def.Dir,
+		strings.Join(def.On, ", "), or(def.MaxAge, "never"), or(def.ContextHandoff, "60"))
 	if err := ask(huh.NewConfirm().Title("Save this crew member?").Description(summary).Value(&save)); err != nil {
 		return err
 	}

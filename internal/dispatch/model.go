@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -68,6 +69,37 @@ func (d *Dispatcher) model(ctx context.Context, r Runner, s *store.Session, g st
 		"session": s.ID, "group": s.Group, "stage": s.Stage, "asked": asked, "reported": reported}); err != nil {
 		d.Log.Warn("session_model_mismatch event", "session", s.ID, "err", err)
 	}
+}
+
+// DefaultContextWindow is the context window a model is read as having
+// when its asked name carries no window: 200k tokens.
+const DefaultContextWindow = 200_000
+
+// ContextWindow is the context window model asks for, in tokens: the
+// bracketed suffix of its asked name (opus[1m]: a million), else the
+// default. The suffix is what modelWords holds no part of the name.
+func ContextWindow(model string) int {
+	i := strings.IndexByte(model, '[')
+	if i < 0 {
+		return DefaultContextWindow
+	}
+	s := model[i+1:]
+	if j := strings.IndexByte(s, ']'); j >= 0 {
+		s = s[:j]
+	}
+	mult := 1
+	if s != "" {
+		switch s[len(s)-1] {
+		case 'k', 'K':
+			mult, s = 1000, s[:len(s)-1]
+		case 'm', 'M':
+			mult, s = 1000000, s[:len(s)-1]
+		}
+	}
+	if n, err := strconv.Atoi(s); err == nil && n > 0 {
+		return n * mult
+	}
+	return DefaultContextWindow
 }
 
 // SameModel reports whether two names can mean one model. The asked name

@@ -102,7 +102,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	// greet: its first session writes to the operator by mail (yardr-8j3n).
 	want := map[string]any{"kind": "claude", "prompt": prompt,
 		"args": []any{"--permission-mode", "auto"}, "greet": "Jo"}
-	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
+	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "24h" ||
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
 		t.Fatalf("yardmaster = %+v", r)
 	}

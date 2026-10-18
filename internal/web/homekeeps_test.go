@@ -53,6 +53,7 @@ func TestHomeKeepsKinds(t *testing.T) {
 		{"crew_started", nil, false},
 		{"crew_stopped", nil, false},
 		{"crew_rotation_asked", nil, false},
+		{"crew_context_asked", nil, false},
 		{"crew_status", map[string]any{"status": "blocked", "was": "working"}, false},
 		{"crew_status", map[string]any{"status": "idle", "was": "blocked"}, false},
 		{"resident_status", map[string]any{"status": "blocked", "was": "working"}, false},

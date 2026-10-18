@@ -60,6 +60,10 @@ type crewRunner struct {
 	asks        string              // the harness answers the next text typed with this dialog, and keeps the text behind it
 	login       string              // the line of the login screen it sits at, "" for none
 	noScreen    bool                // the harness has not drawn its screen (no input mark)
+	ctxUsed     int                 // the context the session holds, when ctxOK
+	ctxOK       bool                // ... and whether the session's kind names a source
+	ctxErr      error               // ... or the read fails
+	ctxCalls    int                 // reads of the session's context use
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -272,6 +276,13 @@ func (f *crewRunner) set(agent, status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.status[agent] = status
+}
+
+func (f *crewRunner) Context(context.Context, map[string]any) (int, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ctxCalls++
+	return f.ctxUsed, f.ctxOK, f.ctxErr
 }
 
 func crewSetup(t *testing.T, def store.CrewMember) (store.API, *crewRunner, *dispatch.Dispatcher) {

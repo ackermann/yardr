@@ -560,3 +560,59 @@ func TestStaleConversationWritable(t *testing.T) {
 		t.Errorf("CrewStatusFor never-declared ada = ok, want refusal")
 	}
 }
+
+// A context nudge is recorded with its reading and a crew_context_asked
+// event; a repeated reading writes nothing, and the next session starts
+// unasked and unread.
+func TestContextAskedAndReadings(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	r := yardmaster(t, s)
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetContext(ctx, "yardmaster", 50, 200000); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if r.ContextAskedAt != nil || r.ContextPct != 50 || r.ContextWindow != 200000 || r.ContextAt == nil {
+		t.Fatalf("reading = %+v", r.CrewSession)
+	}
+	rev := r.Revision
+	if err := s.SetContext(ctx, "yardmaster", 50, 200000); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.Revision != rev {
+		t.Fatal("a repeated reading wrote")
+	}
+	if err := s.MarkContextAsked(ctx, "yardmaster", 60, 200000); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if r.ContextAskedAt == nil || r.ContextPct != 60 {
+		t.Fatalf("after the ask: %+v", r.CrewSession)
+	}
+	evs, err := s.Events(ctx, r.Journal, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	for _, e := range evs {
+		if e.Kind == "crew_context_asked" {
+			asked++
+			if e.Data["crew"] != "yardmaster" || e.Data["pct"] != float64(60) || e.Data["window"] != float64(200000) {
+				t.Fatalf("crew_context_asked = %+v", e.Data)
+			}
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("crew_context_asked events = %d, want 1", asked)
+	}
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.ContextAskedAt != nil || r.ContextPct != 0 || r.ContextAt != nil {
+		t.Fatalf("the new session starts asked: %+v", r.CrewSession)
+	}
+}

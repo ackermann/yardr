@@ -8,8 +8,8 @@ idle, and rotates it through handoffs instead of letting its context degrade.
 ```sh
 yardr crew add                     # interactive: agent, model, permissions, dir, inbox, rotation
 yardr crew add yardmaster --set kind=claude --set 'args=["--permission-mode","auto"]' \
-  --set prompt=$HOME/projects/webapp/.yardr/roles/yardmaster.md --dir ~/projects --max-age 6h
-yardr crew set yardmaster model=opus --max-age 4h   # change these, keep the rest
+  --set prompt=$HOME/projects/webapp/.yardr/roles/yardmaster.md --dir ~/projects --max-age 24h
+yardr crew set yardmaster model=opus --max-age 12h   # change these, keep the rest
 yardr mail yardmaster "Deploys are frozen until Friday"
 yardr crew show yardmaster              # state, unread inbox, recent journal
 ```
@@ -17,8 +17,9 @@ yardr crew show yardmaster              # state, unread inbox, recent journal
 **Changing a crew member.** `yardr crew set <name> key=value …` changes the
 settings named and keeps the rest of the definition. `key=value` is a config
 key as `--set` on `crew add` takes it, `--unset <key>` removes one, and
-`--dir`, `--on`, `--max-age` and `--handoff-grace` change what those flags
-of `add` set. It prints each setting it changed, as it was and as it is:
+`--dir`, `--on`, `--max-age`, `--handoff-grace` and `--context-handoff`
+change what those flags of `add` set. It prints each setting it changed, as
+it was and as it is:
 
 ```sh
 yardr crew set yardmaster set_state=linear
@@ -29,10 +30,10 @@ yardr crew set yardmaster --unset set_state
 
 The value of a key named like a secret (`token`, `secret`, `password`,
 `…_key`) is not printed. A running crew member keeps its session: what it may
-do (`open_threads`, `set_state`, `peers`), `--on` and `--max-age` hold from
-then on, and what a session starts with (kind, model, args, prompt, its
-environment, `--dir`) when the next one starts (`yardr crew restart
-<name>`).
+do (`open_threads`, `set_state`, `peers`), `--on`, `--max-age` and
+`--context-handoff` hold from then on, and what a session starts with (kind,
+model, args, prompt, its environment, `--dir`) when the next one starts
+(`yardr crew restart <name>`).
 
 `yardr crew add <name>` writes the whole definition instead: on a crew member
 that exists, every setting left out is dropped. So there it lists what would
@@ -258,8 +259,10 @@ names its person and its slice.
   and in `yardr crew show`. See [timers.md](timers.md).
 - **Journal:** one bead per crew member (`<name>-journal`). `yardr crew journal`
   keeps decisions (≤4 KB): what happened and why, to look up later. `yardr crew
-  handoff` ends the session (≤16 KB) and the next session starts from it. At
-  `--max-age` the crew member is asked for a handoff when idle; after
+  handoff` ends the session (≤16 KB) and the next session starts from it. Past
+  `--context-handoff` percent of its context window (60 unless set) the crew
+  member is asked for a handoff when idle, once per session and never forced;
+  at `--max-age` (24h from `yardr init`) it is asked again, and after
   `--handoff-grace` yardr restarts it regardless. The journal reads back with
   `yardr recall <words>`, which searches entries as well as memories, or whole
   with `yardr prime --bead <name>-journal`; `yardr crew show` prints the last
@@ -286,14 +289,40 @@ names its person and its slice.
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.
 
+## Rotation
+
+A crew session rotates through handoffs, never by being killed: it is asked
+to write one, and its next session starts from it. The asking is by context
+use first, by the clock as a failsafe.
+
+On a pass where the session is idle, yardr reads what its agent holds from
+the agent's own session file (Claude Code's transcript today: the last
+assistant line's usage), as a percent of its model's window: 200k tokens,
+or 1M where the model the crew member asks for carries `[1m]`
+(`--set model=opus[1m]`). At `--context-handoff` percent (60 unless set, 0
+for never) it nudges once: "Your context is N% of the window. Write your
+handoff when this conversation allows …". The nudge is asked once per
+session and never forced: no grace, no restart. `yardr crew show` prints
+the last reading (`context 63% of 200k at 22:41`), and the nudge writes a
+`crew_context_asked` event on the journal. A harness whose file names no
+context source has no context rotation: the failsafe alone.
+
+The failsafe is `--max-age` (24h from `yardr init`): past it, an idle
+session is asked to write its handoff now, and after `--handoff-grace`
+yardr restarts it whether it wrote one or not. A session already asked for
+its age is not asked for its use too.
+
 ## Text in the input
 
 A nudge is typed into the crew member's pane, and so is whatever a person is
 writing there. The daemon reads the pane before it types: while the agent's
 input holds text it types nothing, and the nudge stays due until a pass
 finds the input empty. It is then written anew, so it counts the inbox as it
-is at that moment. The request to hand off before a rotation waits the same
-way, and the grace for the handoff runs from when it was typed.
+is at that moment. The requests to hand off wait the same way, the one for
+context use and the one before a rotation, and the grace for the handoff
+runs from when the rotation's was typed. A context nudge has no grace and
+never restarts: the session hands off when its conversation allows, or not
+at all.
 
 - The input is what follows the pane's last line that begins with `❯`
   (Claude Code) or `›` (Codex), down to the next empty line or rule. Kimi

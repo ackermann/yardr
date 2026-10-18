@@ -58,7 +58,12 @@ type Harness struct {
 	// when the file names none.
 	Offers []Offer      `yaml:"offers" json:"offers,omitempty"`
 	Model  *ModelSource `yaml:"model" json:"model,omitempty"`
-	Errors []ErrorLine  `yaml:"errors" json:"errors,omitempty"`
+	// Context is where the context use of a session's agent is read: the
+	// same session file the model source names, read for its last use.
+	// nil when the file names none, and the kind has no context-based
+	// rotation.
+	Context *ContextSource `yaml:"context" json:"context,omitempty"`
+	Errors  []ErrorLine    `yaml:"errors" json:"errors,omitempty"`
 	// Dialogs are the questions the harness is known to draw in place of
 	// its input, which yardr tells of and never answers.
 	Dialogs []Dialog `yaml:"dialogs" json:"dialogs,omitempty"`
@@ -273,6 +278,66 @@ type ModelSource struct {
 
 // sessionID is where a ModelSource's Glob takes the session id.
 const sessionID = "{session}"
+
+// DefaultContextTokens are the fields of a usage object that add up to
+// what a session holds when its file names none: what the last request
+// sent, from the prompt's own tokens and its cache. Output tokens are
+// what the session said, not what it holds.
+var DefaultContextTokens = []string{"input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"}
+
+// ContextSource is where the context use of a session's agent is read:
+// the agent's own session file, the one the model source names for the
+// session id herdr reports. The use is the numbers at Usage, a path of
+// keys joined by dots to an object, in the last line whose type is Type
+// (any line, for no Type) that has one. Tokens are the fields of that
+// object that add up to what the session holds, DefaultContextTokens
+// when the file names none. The type is read from the key TypeField
+// names, "type" when the file names none.
+type ContextSource struct {
+	Type      string   `yaml:"type" json:"type,omitempty"`
+	TypeField string   `yaml:"type_field" json:"type_field,omitempty"`
+	Usage     string   `yaml:"usage" json:"usage"`
+	Tokens    []string `yaml:"tokens" json:"tokens,omitempty"`
+}
+
+// tokens is the fields of a usage object that add up to what a session
+// holds: the file's own, or the default.
+func (s ContextSource) tokens() []string {
+	if len(s.Tokens) > 0 {
+		return s.Tokens
+	}
+	return DefaultContextTokens
+}
+
+// UsageIn is the context use one line of the session file holds, ok when
+// the line is of Type and has numbers at Usage. ok is false for any
+// other line, so the last ok line is the session's use.
+func (s ContextSource) UsageIn(line []byte) (used int, ok bool) {
+	var v map[string]any
+	if json.Unmarshal(line, &v) != nil {
+		return 0, false
+	}
+	key := s.TypeField
+	if key == "" {
+		key = "type"
+	}
+	if t, _ := v[key].(string); s.Type != "" && t != s.Type {
+		return 0, false
+	}
+	u := v
+	for _, k := range strings.Split(s.Usage, ".") {
+		if u, _ = u[k].(map[string]any); u == nil {
+			return 0, false
+		}
+	}
+	used, ok = 0, false
+	for _, k := range s.tokens() {
+		if n, is := u[k].(float64); is {
+			used, ok = used+int(n), true
+		}
+	}
+	return used, ok
+}
 
 // Pattern is the glob of the session file of the session id, under the
 // harness's own directory dir.
@@ -538,6 +603,16 @@ func (h *Harness) check() error {
 			return fmt.Errorf("model: home and field are needed")
 		case !strings.Contains(m.Glob, sessionID):
 			return fmt.Errorf("model: glob %q has no %s, so it finds any session's file", m.Glob, sessionID)
+		}
+	}
+	if c := h.Context; c != nil {
+		switch {
+		case h.Model == nil:
+			return fmt.Errorf("context: without a model source there is no session file to read it from")
+		case c.Usage == "":
+			return fmt.Errorf("context: usage is needed, the path to the use its lines hold")
+		case slices.Contains(c.Tokens, ""):
+			return fmt.Errorf("context: tokens names an empty field")
 		}
 	}
 	if len(h.Offers) > 0 {

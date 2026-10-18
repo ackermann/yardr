@@ -108,8 +108,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 27 {
-		t.Fatalf("a new store is stamped %d; want 27", got)
+	if got := schemaOf(t, fixture); got != 28 {
+		t.Fatalf("a new store is stamped %d; want 28", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -169,8 +169,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 27 {
-				t.Fatalf("schema after Open = %d; want 27", got)
+			if got := schemaOf(t, path); got != 28 {
+				t.Fatalf("schema after Open = %d; want 28", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -178,7 +178,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 27 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 28 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -299,8 +299,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 27 {
-				t.Fatalf("schema after Open = %d; want 27", got)
+			if got := schemaOf(t, path); got != 28 {
+				t.Fatalf("schema after Open = %d; want 28", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			renamed, heard := 0, 0
@@ -523,8 +523,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 27 {
-		t.Fatalf("schema after Open = %d; want 27", got)
+	if got := schemaOf(t, path); got != 28 {
+		t.Fatalf("schema after Open = %d; want 28", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -733,8 +733,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 27 {
-		t.Fatalf("schema after Open = %d; want 27", got)
+	if got := schemaOf(t, path); got != 28 {
+		t.Fatalf("schema after Open = %d; want 28", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -965,8 +965,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 27 {
-			t.Fatalf("%s: schema = %d; want 27", pass, got)
+		if got := schemaOf(t, path); got != 28 {
+			t.Fatalf("%s: schema = %d; want 28", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1153,8 +1153,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 27 {
-			t.Fatalf("%s: schema = %d; want 27", pass, got)
+		if got := schemaOf(t, path); got != 28 {
+			t.Fatalf("%s: schema = %d; want 28", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1228,7 +1228,7 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 27 {
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 28 {
 		t.Fatalf("a store with no check changed, or is not stamped 26 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
@@ -1416,8 +1416,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 27 {
-			t.Fatalf("%s: schema = %d; want 27", pass, got)
+		if got := schemaOf(t, path); got != 28 {
+			t.Fatalf("%s: schema = %d; want 28", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1853,8 +1853,8 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 27 {
-		t.Fatalf("a new store is stamped %d; want 27", got)
+	if got := schemaOf(t, fixture); got != 28 {
+		t.Fatalf("a new store is stamped %d; want 28", got)
 	}
 	for v := uint64(1); v < 23; v++ {
 		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
@@ -1890,12 +1890,12 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 27 {
-				t.Errorf("schema after Open at %d = %d; want 27", v, got)
+			if got := schemaOf(t, path); got != 28 {
+				t.Errorf("schema after Open at %d = %d; want 28", v, got)
 			}
 		})
 	}
-	if got := schemaOf(t, fixture); got != 27 {
+	if got := schemaOf(t, fixture); got != 28 {
 		t.Fatal("the fixture changed; the migrations ran on the copies")
 	}
 }
@@ -1993,8 +1993,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 27 {
-				t.Fatalf("%s: schema = %d; want 27", pass, got)
+			if got := schemaOf(t, path); got != 28 {
+				t.Fatalf("%s: schema = %d; want 28", pass, got)
 			}
 			if head != before {
 				t.Fatalf("%s logged %d events", pass, head-before)
@@ -2019,8 +2019,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 27 {
-			t.Fatalf("schema = %d; want 27", got)
+		if got := schemaOf(t, path); got != 28 {
+			t.Fatalf("schema = %d; want 28", got)
 		}
 	})
 }
@@ -2096,8 +2096,8 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 27 {
-		t.Fatalf("schema = %d; want 27", got)
+	if got := schemaOf(t, path); got != 28 {
+		t.Fatalf("schema = %d; want 28", got)
 	}
 }
 
@@ -2182,9 +2182,88 @@ func TestSchema26StoreGainsHearer(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 27 {
-				t.Fatalf("schema after Open = %d; want 27", got)
+			if got := schemaOf(t, path); got != 28 {
+				t.Fatalf("schema after Open = %d; want 28", got)
 			}
 		})
+	}
+}
+
+// A store of schema 27, from when the forced rotation was every 6h, comes
+// out of Open with a 6h max_age moved to 24h and anything else kept: a
+// rotation by context use asks past 60% instead, so the clock is a
+// failsafe. The move is logged once, and the next start changes nothing.
+func TestSchema27CrewRotationMoves6hTo24h(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for name, maxAge := range map[string]string{"boss": "6h", "clerk": "12h", "lead": ""} {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr",
+			Config: map[string]any{"kind": "claude"}, MaxAge: maxAge}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	boss, err := s.GetCrew(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Age it: stamped 27, as a build before the move left it.
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 27))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, want := range map[string]string{"boss": "24h", "clerk": "12h", "lead": ""} {
+			r, err := s.GetCrew(ctx, name)
+			if err != nil || r.MaxAge != want {
+				t.Fatalf("%s: %s max_age = %q, %v; want %q", pass, name, r.MaxAge, err, want)
+			}
+		}
+		if r, _ := s.GetCrew(ctx, "boss"); r.Revision != boss.Revision {
+			t.Fatalf("%s: the move re-minted the revision", pass)
+		}
+		evs, err := s.Events(ctx, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		moved := 0
+		for _, e := range evs {
+			if e.Kind == "crew_migrated" {
+				moved++
+				if e.Data["from"] != "6h" || e.Data["to"] != "24h" {
+					t.Fatalf("%s: crew_migrated = %+v", pass, e.Data)
+				}
+			}
+		}
+		if moved != 1 {
+			t.Fatalf("%s: crew_migrated events = %d, want the one's", pass, moved)
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := schemaOf(t, path); got != 28 {
+		t.Fatalf("schema after Open = %d; want 28", got)
 	}
 }

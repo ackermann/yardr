@@ -416,3 +416,29 @@ func TestCrewKeepsAKeyNothingReadsAndNeverPrintsIt(t *testing.T) {
 		t.Fatalf("a secret's removal:\n%s", out)
 	}
 }
+
+// crew set takes --context-handoff, a percentage the member asks at, and
+// refuses what is none; crew show prints the threshold and the last
+// reading.
+func TestCrewSetContextHandoff(t *testing.T) {
+	st := userYard(t)
+	ctx := context.Background()
+	out := mustAs(t, st, "jo", "crew", "set", "yardmaster", "--context-handoff", "80")
+	if !strings.Contains(out, "--context-handoff: (not set) -> 80") {
+		t.Errorf("crew set printed:\n%s", out)
+	}
+	refusedAs(t, st, "jo", `context_handoff "soon": want a percentage 0..100`,
+		"crew", "set", "yardmaster", "--context-handoff", "soon")
+	if err := st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetContext(ctx, "yardmaster", 63, 200000); err != nil {
+		t.Fatal(err)
+	}
+	show := mustAs(t, st, "jo", "crew", "show", "yardmaster")
+	for _, want := range []string{"asks for a handoff at 80% of the context window", "context 63% of 200k at "} {
+		if !strings.Contains(show, want) {
+			t.Errorf("crew show lacks %q:\n%s", want, show)
+		}
+	}
+}

@@ -36,17 +36,32 @@ import (
 // A kind whose file names no source reports nothing, as does one herdr
 // reports no session id for (muse, until herdr learns its sessions).
 func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error) {
+	kind, id, err := h.sessionKind(ctx, handle)
+	if err != nil || id == "" {
+		return "", err
+	}
+	if kind.Model == nil {
+		return "", nil
+	}
+	return firstModel(kind.Model.Pattern(h.agentHome(kind), id), kind.Model.ModelIn)
+}
+
+// sessionKind is the harness kind of the agent handle names and its
+// session id, by which the agent's own session file is found. id is ""
+// when herdr names no agent or no session id for it, or one that is no
+// plain id (it goes into a glob, where one finds nothing).
+func (h *Herdr) sessionKind(ctx context.Context, handle map[string]any) (agents.Harness, string, error) {
 	name, _ := handle["agent"].(string)
 	if name == "" {
-		return "", nil
+		return agents.Harness{}, "", nil
 	}
 	raw, err := h.run(ctx, "agent", "get", name)
 	if err != nil {
 		var herr *herdrError
 		if errors.As(err, &herr) && herr.Code == "agent_not_found" {
-			return "", nil
+			return agents.Harness{}, "", nil
 		}
-		return "", err
+		return agents.Harness{}, "", err
 	}
 	var info struct {
 		Agent struct {
@@ -57,18 +72,14 @@ func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error
 		} `json:"agent"`
 	}
 	if err := json.Unmarshal(raw, &info); err != nil {
-		return "", err
+		return agents.Harness{}, "", err
 	}
 	id := info.Agent.Session.Value
-	// The id goes into a glob: one that is not a plain id finds nothing.
 	if id == "" || strings.ContainsAny(id, `/\*?[`) {
-		return "", nil
+		return agents.Harness{}, "", nil
 	}
 	kind, _ := agents.Lookup(info.Agent.Kind)
-	if kind.Model == nil {
-		return "", nil
-	}
-	return firstModel(kind.Model.Pattern(h.agentHome(kind), id), kind.Model.ModelIn)
+	return kind, id, nil
 }
 
 // agentHome is the own directory of an agent of kind, whose file names a

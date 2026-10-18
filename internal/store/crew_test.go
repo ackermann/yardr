@@ -358,3 +358,22 @@ func TestAnOldEventKindNamesTheNew(t *testing.T) {
 		t.Errorf("the refusal on the link is %q, want no_such_crew", store.RefusedNoCrew)
 	}
 }
+
+// context_handoff is a percentage: unset is the default, 0 never asks,
+// and anything outside 0..100 is refused with the definition.
+func TestContextHandoffIsAPercentage(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	yardmaster(t, s)
+	for _, pct := range []string{"", "0", "60", "100"} {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", ContextHandoff: pct}, "me"); err != nil {
+			t.Errorf("context_handoff %q refused: %v", pct, err)
+		}
+	}
+	for _, pct := range []string{"soon", "-1", "101", "60%"} {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", ContextHandoff: pct}, "me"); err == nil {
+			t.Errorf("context_handoff %q accepted", pct)
+		}
+	}
+}

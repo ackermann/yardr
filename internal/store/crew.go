@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,10 +106,13 @@ type CrewMember struct {
 	Config       map[string]any `json:"config"`
 	Dir          string         `json:"dir"`
 	On           []string       `json:"on"`            // event kinds delivered to the inbox (mail always is), as if subscribed to yardr all kind=<k>
-	MaxAge       string         `json:"max_age"`       // e.g. "6h"; "" never rotates
+	MaxAge       string         `json:"max_age"`       // e.g. "24h"; "" never rotates
 	HandoffGrace string         `json:"handoff_grace"` // how long a requested handoff may take
-	Enabled      bool           `json:"enabled"`
-	Journal      string         `json:"journal"` // journal bead handle
+	// ContextHandoff is the percent of the context window at which an
+	// idle session is asked for a handoff, e.g. "60"; "" is 60, "0" never.
+	ContextHandoff string `json:"context_handoff,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	Journal        string `json:"journal"` // journal bead handle
 	// Revision changes on every write to the crew member. Given to PutCrew
 	// (or as rev to the writes that take one) it is the revision the caller
 	// read, and the write is refused with ErrConflict if it moved since.
@@ -153,9 +157,17 @@ type CrewSession struct {
 	RestartRequested   string         `json:"restart_requested,omitempty"`
 	RestartRequestedAt *time.Time     `json:"restart_requested_at,omitempty"`
 	RotationAskedAt    *time.Time     `json:"rotation_asked_at,omitempty"`
-	LastHandoffAt      *time.Time     `json:"last_handoff_at,omitempty"`
-	Cursor             uint64         `json:"cursor"`   // inbox slice acknowledged through this event seq
-	Notified           uint64         `json:"notified"` // slice nudged about events through this seq
+	// ContextAskedAt is when the session was last asked for a handoff
+	// for its context use, which is asked once per session and never
+	// forced. ContextPct of ContextWindow at ContextAt is the last
+	// reading, taken on an idle pass.
+	ContextAskedAt *time.Time `json:"context_asked_at,omitempty"`
+	ContextPct     int        `json:"context_pct,omitempty"`
+	ContextWindow  int        `json:"context_window,omitempty"`
+	ContextAt      *time.Time `json:"context_at,omitempty"`
+	LastHandoffAt  *time.Time `json:"last_handoff_at,omitempty"`
+	Cursor         uint64     `json:"cursor"`   // inbox slice acknowledged through this event seq
+	Notified       uint64     `json:"notified"` // slice nudged about events through this seq
 
 	// Left are the handles of sessions that were gone when the daemon
 	// looked (CrewGone), oldest first: what they ran in is still open
@@ -416,8 +428,8 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 	if err := checkCrewUsers(w.Tx, &def); err != nil {
 		return nil, err
 	}
-	r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
-		def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
+	r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace, r.ContextHandoff =
+		def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace, def.ContextHandoff
 	r.On = def.On
 	if r.Config == nil {
 		r.Config = map[string]any{}
@@ -427,6 +439,11 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 			if _, err := time.ParseDuration(d); err != nil {
 				return nil, fmt.Errorf("duration %q: %w", d, err)
 			}
+		}
+	}
+	if r.ContextHandoff != "" {
+		if n, err := strconv.Atoi(r.ContextHandoff); err != nil || n < 0 || n > 100 {
+			return nil, fmt.Errorf("context_handoff %q: want a percentage 0..100", r.ContextHandoff)
 		}
 	}
 	r.Revision = newRevision()
@@ -715,6 +732,18 @@ func (s *Store) RequestRestart(ctx context.Context, name, reason, rev, actor str
 // MarkRotationAsked records that the crew member was asked to hand off.
 func (s *Store) MarkRotationAsked(ctx context.Context, name string) error {
 	return s.MarkRotationAskedFor(ctx, name, "")
+}
+
+// MarkContextAsked records that the crew member was asked to hand off for
+// its context use, pct percent of window.
+func (s *Store) MarkContextAsked(ctx context.Context, name string, pct, window int) error {
+	return s.MarkContextAskedFor(ctx, name, "", pct, window)
+}
+
+// SetContext records the crew member's last context reading, pct percent
+// of window.
+func (s *Store) SetContext(ctx context.Context, name string, pct, window int) error {
+	return s.SetContextFor(ctx, name, "", pct, window)
 }
 
 // MarkNotified records that the crew member was nudged about events through seq.
