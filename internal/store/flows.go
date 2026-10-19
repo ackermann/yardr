@@ -460,8 +460,8 @@ func (s *Store) GetFlow(ctx context.Context, name string) (*Flow, error) {
 
 // DeleteFlow removes a named flow. It refuses while a depot or type points at
 // it, or an open bead pins it, and names them: removing the flow would
-// silently change their lifecycle. Removing a flow is the operator's to do
-// (operatorOnly).
+// silently change their lifecycle. Removing a flow is the operator's or
+// the yardmaster's to do (operatorOrYardmaster).
 func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
@@ -469,7 +469,7 @@ func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a flow", Alone); err != nil {
+		if err := w.operatorOrYardmaster(ctx, actor, "remove a flow", Alone); err != nil {
 			return err
 		}
 		k := []byte(name)

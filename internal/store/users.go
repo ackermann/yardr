@@ -223,10 +223,10 @@ func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass
 
 // operatorOrYardmaster passes the operator's call (notOperator) or the
 // crew member's the yardmaster setting names, and refuses anyone else in
-// words naming both. Only DeleteRoute reads it: changing where a route's
-// beads go is route set, which anyone may do, and restating which beads
-// they are is rm plus add, so the yardmaster that may add the new route
-// may remove the old one, instead of leaving duplicates behind.
+// words naming both. It covers undoing what the yardmaster may already
+// add (crew, groups, flows, routes: adding each is anyone's, attributed)
+// and restarting crew: removing a crew member, a group, a flow or a
+// route, enabling a crew member, and asking one's session to restart.
 // ask marks whether a run ask may propose it, as with operatorOnly.
 func operatorOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
 	operator, _, err := notOperator(ctx, tx, actor)
@@ -274,6 +274,20 @@ func (s *Store) daemonOrOperator(ctx context.Context, tx *bolt.Tx, actor, does s
 		return nil
 	}
 	return operatorOnly(ctx, tx, actor, does, ask)
+}
+
+// daemonOrYardmaster passes the daemon's own call (daemonOnly) or the
+// operator's or the yardmaster's (operatorOrYardmaster, does): a rotation
+// restart runs in-process as "yard", and anyone else asking must be the
+// operator or the yardmaster. Over the socket only the daemon-lock holder
+// passes the daemon leg, so actor "yard" from a pane still faces
+// operatorOrYardmaster; the daemon leg's refusal is then swallowed in
+// favour of the operator's words.
+func (s *Store) daemonOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
+	if err := s.daemonOnly(ctx, does); err == nil {
+		return nil
+	}
+	return operatorOrYardmaster(ctx, tx, actor, does, ask)
 }
 
 // daemonOnly refuses a session-lifecycle write from any caller but the

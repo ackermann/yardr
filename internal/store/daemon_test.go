@@ -113,12 +113,13 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 	}
 }
 
-// Pruning the store and asking a crew member's session to restart is the
-// daemon's or the operator's to do: the automatic prune and a rotation
-// restart pass the daemon leg in-process as "yard", while the same calls
-// from a pane or a terminal as anyone else are refused in the operator's
-// words, marked alone — actor "yard" from a pane still faces
-// operatorOnly, resolved to the pane's member.
+// Pruning the store and asking a crew member's session to restart pass
+// the daemon's own call in-process as "yard": the automatic prune and a
+// rotation restart. The same calls from a pane or a terminal as anyone
+// else are refused in the operator's words, marked alone — prune in the
+// operator's alone, a restart in the operator's or the yardmaster's —
+// and actor "yard" from a pane still faces the check, resolved to the
+// pane's member.
 func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -197,7 +198,7 @@ func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
 		alone(err, "prune from a terminal as clerk")
 	}
 	if err := s.RequestRestart(other, "yardmaster", "x", "", "clerk"); err == nil ||
-		err.Error() != "only the operator (jo) may restart a crew member; this is clerk" {
+		err.Error() != "only the operator (jo) or the yardmaster (yardmaster) may restart a crew member" {
 		t.Errorf("restart from a terminal as clerk = %v", err)
 	} else {
 		alone(err, "restart from a terminal as clerk")
@@ -230,7 +231,7 @@ func TestDaemonOrOperatorPruneAndRestart(t *testing.T) {
 		alone(err, "prune from clerk's pane as yard")
 	}
 	if err := s.RequestRestartFor(pane, "clerk", "", "x", "", "yard"); err == nil ||
-		err.Error() != "only the operator (jo) may restart a crew member; this is clerk" {
+		err.Error() != "only the operator (jo) or the yardmaster (yardmaster) may restart a crew member" {
 		t.Errorf("restart from clerk's pane as yard = %v", err)
 	} else {
 		alone(err, "restart from clerk's pane as yard")

@@ -545,7 +545,9 @@ func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
 
 // DeleteCrew removes the crew member; its journal bead is kept as history.
 // A rev other than "" must be the crew member's current revision.
-// Removing a crew member is the operator's to do (operatorOnly).
+// Removing a crew member is the operator's or the yardmaster's to do
+// (operatorOrYardmaster), except that the yardmaster cannot remove
+// itself: only the operator removes the yardmaster.
 func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
@@ -553,8 +555,18 @@ func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a crew member", Alone); err != nil {
+		if err := w.operatorOrYardmaster(ctx, actor, "remove a crew member", Alone); err != nil {
 			return err
+		}
+		var ym string
+		if _, err := get(w.Tx, bSettings, YardmasterSetting, &ym); err != nil {
+			return err
+		}
+		if ym == "" {
+			ym = "yardmaster"
+		}
+		if actor == ym && name == ym {
+			return fmt.Errorf("the yardmaster cannot remove itself; the operator can")
 		}
 		if err := w.Bucket(bCrew).Delete([]byte(name)); err != nil {
 			return err
@@ -618,11 +630,12 @@ func checkCrewRev(name, have, want string) error {
 
 // SetCrewEnabled starts (true) or stops (false) keeping it alive. Enabling
 // also clears every session's failure streak. A rev other than "" must be
-// the crew member's current revision. Enabling one is the operator's to do
-// (operatorOnly): it starts agents. Disabling one is anyone's, as narrowing
-// what is allowed is; from a session's or a crew member's pane the write is
-// recorded as that session's actor or that crew member, whatever actor
-// says, and from anywhere else as given (paneAuthor).
+// the crew member's current revision. Enabling one is the operator's or
+// the yardmaster's to do (operatorOrYardmaster): it starts agents.
+// Disabling one is anyone's, as narrowing what is allowed is; from a
+// session's or a crew member's pane the write is recorded as that
+// session's actor or that crew member, whatever actor says, and from
+// anywhere else as given (paneAuthor).
 func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
 	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
@@ -631,7 +644,7 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 		}
 		actor = resolved
 		if enabled {
-			if err := w.operatorOnly(ctx, actor, "enable a crew member", Alone); err != nil {
+			if err := w.operatorOrYardmaster(ctx, actor, "enable a crew member", Alone); err != nil {
 				return err
 			}
 		}

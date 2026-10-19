@@ -335,7 +335,8 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 // dispatcher's teardown stops the runner resources. It reports how many
 // beads it released. It logs one group_removed, which names the routes that
 // went with the group, as depot_removed does; a group that was not there
-// logs nothing. Removing a group is the operator's to do (operatorOnly).
+// logs nothing. Removing a group is the operator's or the yardmaster's to
+// do (operatorOrYardmaster).
 func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	released := 0
 	err := s.write(func(w *wtx) error {
@@ -344,7 +345,7 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a group", Alone); err != nil {
+		if err := w.operatorOrYardmaster(ctx, actor, "remove a group", Alone); err != nil {
 			return err
 		}
 		// Batch reruns this closure when another call in the batch fails, so

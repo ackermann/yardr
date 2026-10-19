@@ -65,9 +65,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A live process that holds no daemon lock: the daemon-or-operator
-	// writes refuse it as a non-operator, in both modes (over the socket
-	// the test process itself holds the lock, so those two go through
-	// own, where the caller stands as named).
+	// write refuses it as a non-operator, in both modes (over the socket
+	// the test process itself holds the lock, so it goes through own,
+	// where the caller stands as named).
 	other := store.WithCaller(ctx, os.Getppid())
 	writes := map[string]func(actor string) error{
 		"add a user":    func(a string) error { _, err := api.AddUser(ctx, "grace", a); return err },
@@ -96,8 +96,6 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.AllowOpening(ctx, "yardmaster", []string{"github"}, "pack", a)
 			return err
 		},
-		"remove a group": func(a string) error { _, err := api.DeleteGroup(ctx, "builders", a); return err },
-		"remove a flow":  func(a string) error { return api.DeleteFlow(ctx, "no-such", a) },
 		"remove a depot": func(a string) error { _, err := api.DeleteDepot(ctx, "no-such", a); return err },
 		"change a depot's path": func(a string) error {
 			return api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, a)
@@ -117,7 +115,6 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.MoveSourceRecords(ctx, "acme", "acme2", a)
 			return err
 		},
-		"remove a crew member": func(a string) error { return api.DeleteCrew(ctx, "clerk", "", a) },
 		"add a hook": func(a string) error {
 			_, err := api.PutHook(ctx, store.Hook{Name: "h2", Source: "linear", SecretFile: "/tmp/h2.secret"}, a)
 			return err
@@ -125,10 +122,6 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		"change a hook's source or secret file": func(a string) error {
 			_, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/other.secret"}, a)
 			return err
-		},
-		"enable a crew member": func(a string) error { return api.SetCrewEnabled(ctx, "clerk", true, "", a) },
-		"restart a crew member": func(a string) error {
-			return own.RequestRestart(other, "yardmaster", "because", "", a)
 		},
 		"prune the store": func(a string) error { _, err := own.Prune(other, store.Retention{}, a); return err },
 	}
@@ -323,6 +316,342 @@ func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
 	} else if !slices.ContainsFunc(rs, func(x store.Route) bool { return x.ID == r.ID }) {
 		t.Fatalf("the refused removal removed route %s", r.ID)
 	}
+}
+
+// Shaping the yard is the operator's or the yardmaster's: restarting,
+// enabling and removing a crew member, and removing a group or a flow.
+// The crew member the yardmaster setting names does each as the
+// operator does; another crew member, and a user the setting names who
+// is no crew member, is refused in words naming both. The yardmaster
+// cannot remove itself, and the daemon still restarts crew.
+func TestYardShapingIsTheOperatorsAndYardmasters(t *testing.T) {
+	t.Parallel()
+	// A yard whose operator is jo, with the user ada and the crew
+	// members yardmaster, clerk and brakeman.
+	shapeYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
+		t.Helper()
+		api, own := operatorYard(t)
+		ctx := context.Background()
+		if _, err := api.PutCrew(ctx, store.CrewMember{Name: "brakeman", Runner: "herdr"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return api, own, ctx
+	}
+	refuse := func(ym, does string) string {
+		return "only the operator (jo) or the yardmaster (" + ym + ") may " + does
+	}
+	// alone asks the refusal's run-ask mark of the store behind the
+	// API, which the socket does not carry.
+	alone := func(t *testing.T, err error, what string) {
+		t.Helper()
+		if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+			t.Fatalf("%s = %v (mark %v, %v), want an operator-only refusal marked alone", what, err, ask, ok)
+		}
+	}
+
+	t.Run("restart", func(t *testing.T) {
+		t.Parallel()
+		api, own, ctx := shapeYard(t)
+		const does = "restart a crew member"
+		// A live process that holds no daemon lock, so the daemon leg
+		// fails and the operator-or-yardmaster leg is what is tried.
+		other := store.WithCaller(ctx, os.Getppid())
+		requested := func() string {
+			t.Helper()
+			r, err := api.GetCrew(ctx, "clerk")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return r.CrewSession.RestartRequested
+		}
+		if err := own.RequestRestart(other, "clerk", "x", "", "jo"); err != nil {
+			t.Fatalf("restart as the operator: %v", err)
+		}
+		if got := requested(); got != "x" {
+			t.Fatalf("restart requested = %q, want x", got)
+		}
+		if err := own.RequestRestart(other, "clerk", "y", "", "yardmaster"); err != nil {
+			t.Fatalf("restart as yardmaster: %v", err)
+		}
+		if err := own.RequestRestart(other, "clerk", "y", "", "brakeman"); err == nil || err.Error() != refuse("yardmaster", does) {
+			t.Fatalf("restart as brakeman = %v, want %q", err, refuse("yardmaster", does))
+		}
+		alone(t, own.RequestRestart(other, "clerk", "y", "", "brakeman"), "restart as brakeman")
+		if got := requested(); got != "y" {
+			t.Fatalf("restart requested = %q after the refusal, want y", got)
+		}
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := own.RequestRestart(other, "clerk", "z", "", "clerk"); err != nil {
+			t.Fatalf("restart as the named clerk: %v", err)
+		}
+		if err := own.RequestRestart(other, "clerk", "z", "", "yardmaster"); err == nil || err.Error() != refuse("clerk", does) {
+			t.Fatalf("restart as yardmaster while the setting names clerk = %v, want %q", err, refuse("clerk", does))
+		}
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := own.RequestRestart(other, "clerk", "z", "", "ada"); err == nil || err.Error() != refuse("ada", does) {
+			t.Fatalf("restart as a user named by the setting = %v, want %q", err, refuse("ada", does))
+		}
+		if err := own.RequestRestart(ctx, "clerk", "rotation", "", "yard"); err != nil {
+			t.Fatalf("the daemon's restart: %v", err)
+		}
+	})
+
+	t.Run("enable", func(t *testing.T) {
+		t.Parallel()
+		api, own, ctx := shapeYard(t)
+		const does = "enable a crew member"
+		enabled := func() bool {
+			t.Helper()
+			r, err := api.GetCrew(ctx, "clerk")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return r.Enabled
+		}
+		off := func() {
+			t.Helper()
+			if err := api.SetCrewEnabled(ctx, "clerk", false, "", "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		off()
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "jo"); err != nil {
+			t.Fatalf("enable as the operator: %v", err)
+		}
+		if !enabled() {
+			t.Fatal("clerk is not enabled after the operator's enable")
+		}
+		off()
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "yardmaster"); err != nil {
+			t.Fatalf("enable as yardmaster: %v", err)
+		}
+		off()
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "brakeman"); err == nil || err.Error() != refuse("yardmaster", does) {
+			t.Fatalf("enable as brakeman = %v, want %q", err, refuse("yardmaster", does))
+		}
+		alone(t, own.SetCrewEnabled(ctx, "clerk", true, "", "brakeman"), "enable as brakeman")
+		if enabled() {
+			t.Fatal("clerk is enabled after the refused enable")
+		}
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "clerk"); err != nil {
+			t.Fatalf("enable as the named clerk: %v", err)
+		}
+		off()
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "yardmaster"); err == nil || err.Error() != refuse("clerk", does) {
+			t.Fatalf("enable as yardmaster while the setting names clerk = %v, want %q", err, refuse("clerk", does))
+		}
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.SetCrewEnabled(ctx, "clerk", true, "", "ada"); err == nil || err.Error() != refuse("ada", does) {
+			t.Fatalf("enable as a user named by the setting = %v, want %q", err, refuse("ada", does))
+		}
+		if enabled() {
+			t.Fatal("clerk is enabled after the refused enable")
+		}
+	})
+
+	t.Run("remove crew", func(t *testing.T) {
+		t.Parallel()
+		api, own, ctx := shapeYard(t)
+		const does = "remove a crew member"
+		add := func(name string) {
+			t.Helper()
+			if _, err := api.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gone := func(name string) {
+			t.Helper()
+			if _, err := api.GetCrew(ctx, name); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("GetCrew %s after rm = %v, want not found", name, err)
+			}
+		}
+		kept := func(name string) {
+			t.Helper()
+			if _, err := api.GetCrew(ctx, name); err != nil {
+				t.Fatalf("the refused removal removed crew member %s: %v", name, err)
+			}
+		}
+		add("gone-op")
+		if err := api.DeleteCrew(ctx, "gone-op", "", "jo"); err != nil {
+			t.Fatalf("remove as the operator: %v", err)
+		}
+		gone("gone-op")
+		add("gone-ym")
+		if err := api.DeleteCrew(ctx, "gone-ym", "", "yardmaster"); err != nil {
+			t.Fatalf("remove as yardmaster: %v", err)
+		}
+		gone("gone-ym")
+		add("kept")
+		if err := api.DeleteCrew(ctx, "kept", "", "brakeman"); err == nil || err.Error() != refuse("yardmaster", does) {
+			t.Fatalf("remove as brakeman = %v, want %q", err, refuse("yardmaster", does))
+		}
+		alone(t, own.DeleteCrew(ctx, "kept", "", "brakeman"), "remove as brakeman")
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		add("gone-clerk")
+		if err := api.DeleteCrew(ctx, "gone-clerk", "", "clerk"); err != nil {
+			t.Fatalf("remove as the named clerk: %v", err)
+		}
+		if err := api.DeleteCrew(ctx, "kept", "", "yardmaster"); err == nil || err.Error() != refuse("clerk", does) {
+			t.Fatalf("remove as yardmaster while the setting names clerk = %v, want %q", err, refuse("clerk", does))
+		}
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.DeleteCrew(ctx, "kept", "", "ada"); err == nil || err.Error() != refuse("ada", does) {
+			t.Fatalf("remove as a user named by the setting = %v, want %q", err, refuse("ada", does))
+		}
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "yardmaster", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		const self = "the yardmaster cannot remove itself; the operator can"
+		if err := api.DeleteCrew(ctx, "yardmaster", "", "yardmaster"); err == nil || err.Error() != self {
+			t.Fatalf("remove itself as yardmaster = %v, want %q", err, self)
+		}
+		kept("yardmaster")
+		if err := api.DeleteCrew(ctx, "yardmaster", "", "jo"); err != nil {
+			t.Fatalf("remove the yardmaster as the operator: %v", err)
+		}
+		gone("yardmaster")
+	})
+
+	t.Run("remove group", func(t *testing.T) {
+		t.Parallel()
+		api, own, ctx := shapeYard(t)
+		const does = "remove a group"
+		add := func(name string) {
+			t.Helper()
+			if err := api.PutGroup(ctx, store.Group{Name: name, Runner: "herdr"}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gone := func(name string) {
+			t.Helper()
+			if _, err := api.GetGroup(ctx, name); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("GetGroup %s after rm = %v, want not found", name, err)
+			}
+		}
+		kept := func(name string) {
+			t.Helper()
+			if _, err := api.GetGroup(ctx, name); err != nil {
+				t.Fatalf("the refused removal removed group %s: %v", name, err)
+			}
+		}
+		add("gone-op")
+		if _, err := api.DeleteGroup(ctx, "gone-op", "jo"); err != nil {
+			t.Fatalf("remove as the operator: %v", err)
+		}
+		gone("gone-op")
+		add("gone-ym")
+		if _, err := api.DeleteGroup(ctx, "gone-ym", "yardmaster"); err != nil {
+			t.Fatalf("remove as yardmaster: %v", err)
+		}
+		gone("gone-ym")
+		add("kept")
+		if _, err := api.DeleteGroup(ctx, "kept", "brakeman"); err == nil || err.Error() != refuse("yardmaster", does) {
+			t.Fatalf("remove as brakeman = %v, want %q", err, refuse("yardmaster", does))
+		}
+		if _, err := own.DeleteGroup(ctx, "kept", "brakeman"); err == nil {
+			t.Fatalf("remove as brakeman through own = nil")
+		} else {
+			alone(t, err, "remove as brakeman")
+		}
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		add("gone-clerk")
+		if _, err := api.DeleteGroup(ctx, "gone-clerk", "clerk"); err != nil {
+			t.Fatalf("remove as the named clerk: %v", err)
+		}
+		if _, err := api.DeleteGroup(ctx, "kept", "yardmaster"); err == nil || err.Error() != refuse("clerk", does) {
+			t.Fatalf("remove as yardmaster while the setting names clerk = %v, want %q", err, refuse("clerk", does))
+		}
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := api.DeleteGroup(ctx, "kept", "ada"); err == nil || err.Error() != refuse("ada", does) {
+			t.Fatalf("remove as a user named by the setting = %v, want %q", err, refuse("ada", does))
+		}
+		kept("kept")
+	})
+
+	t.Run("remove flow", func(t *testing.T) {
+		t.Parallel()
+		api, own, ctx := shapeYard(t)
+		const does = "remove a flow"
+		add := func(name string) {
+			t.Helper()
+			f, err := store.ParseFlow("new -> review\nreview terminal\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.Name = name
+			if _, err := api.PutFlow(ctx, *f, "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gone := func(name string) {
+			t.Helper()
+			if _, err := api.GetFlow(ctx, name); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("GetFlow %s after rm = %v, want not found", name, err)
+			}
+		}
+		kept := func(name string) {
+			t.Helper()
+			if _, err := api.GetFlow(ctx, name); err != nil {
+				t.Fatalf("the refused removal removed flow %s: %v", name, err)
+			}
+		}
+		add("gone-op")
+		if err := api.DeleteFlow(ctx, "gone-op", "jo"); err != nil {
+			t.Fatalf("remove as the operator: %v", err)
+		}
+		gone("gone-op")
+		add("gone-ym")
+		if err := api.DeleteFlow(ctx, "gone-ym", "yardmaster"); err != nil {
+			t.Fatalf("remove as yardmaster: %v", err)
+		}
+		gone("gone-ym")
+		add("kept")
+		if err := api.DeleteFlow(ctx, "kept", "brakeman"); err == nil || err.Error() != refuse("yardmaster", does) {
+			t.Fatalf("remove as brakeman = %v, want %q", err, refuse("yardmaster", does))
+		}
+		alone(t, own.DeleteFlow(ctx, "kept", "brakeman"), "remove as brakeman")
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "clerk", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		add("gone-clerk")
+		if err := api.DeleteFlow(ctx, "gone-clerk", "clerk"); err != nil {
+			t.Fatalf("remove as the named clerk: %v", err)
+		}
+		if err := api.DeleteFlow(ctx, "kept", "yardmaster"); err == nil || err.Error() != refuse("clerk", does) {
+			t.Fatalf("remove as yardmaster while the setting names clerk = %v, want %q", err, refuse("clerk", does))
+		}
+		kept("kept")
+		if err := api.SetSetting(ctx, store.YardmasterSetting, "ada", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.DeleteFlow(ctx, "kept", "ada"); err == nil || err.Error() != refuse("ada", does) {
+			t.Fatalf("remove as a user named by the setting = %v, want %q", err, refuse("ada", does))
+		}
+		kept("kept")
+	})
 }
 
 // Removing a peer is the operator's alone, as adding one is: a crew
