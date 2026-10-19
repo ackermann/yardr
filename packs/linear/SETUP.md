@@ -26,16 +26,20 @@ means in Linear is a flow pack's to say, not this file's.
    chmod 600 ~/.yardr/linear.secret
    ```
    ```sh
-   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
+   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --unknown allow
    # hook linear saved: POST /hooks/linear (linear)
    ```
-   One hook serves every crew member.
+   One hook serves every crew member. `--unknown allow` hears every
+   workspace member's comment: a delivery from a sender no yard user maps
+   is kept with the speaker `outside`. Give each person their identity
+   (step 6) and their deliveries arrive named as them, which a
+   subscription may filter with `--where speaker=<user>`.
 
    A crew member sets the hook up without handling the secret, by two
    asks on one bead, the secret first: it asks for the signing secret
    (`yardr bead ask <id> "…" --secret-hook linear --source linear
    --context "…"`) and then for the hook itself
-   (`yardr bead ask <id> "…" --run "hook add linear --source linear"
+   (`yardr bead ask <id> "…" --run "hook add linear --source linear --unknown allow"
    --context "…"`). The operator pastes the secret where Linear shows
    it, typed unseen; the yard's server writes it to
    `<home>/hooks/linear.secret` (mode 0600), which the hook then names,
@@ -106,12 +110,16 @@ means in Linear is a flow pack's to say, not this file's.
    yardr user identity <user> --source linear --id <their user id>
    yardr thread open linear --in <team key> --assign <user> "For you"
    ```
+   The same identity names who spoke on their deliveries: a comment or an
+   issue from them arrives with them as its speaker, and a subscription
+   may filter `--where speaker=<user>`. An id names one user: one that
+   another user already holds is refused.
 7. **The stage map.** When a bead enters a stage, the issue it tracks under
    this source moves with it: the hook carries the map, and the crew
    member it acts as. `hook add` replaces the definition, so the whole
-   map is given each time:
+   map is given each time, with `--unknown allow` again:
    ```sh
-   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as <name> \
+   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --unknown allow --as <name> \
        --map task:new=started --map task:review=review --map task:merged=done
    # moves tracked linear issues as <name>: task:new=started …
    ```

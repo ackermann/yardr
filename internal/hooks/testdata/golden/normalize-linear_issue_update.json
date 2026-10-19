@@ -15,5 +15,10 @@
   "assignee": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
   "text": "changed assigneeId, stateId",
   "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
-  "entity": "539068e2-ae88-4d09-bd75-22eb4a59612f"
+  "entity": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+  "fields": {
+    "sender": [
+      "aacdca22-6266-4c0a-ab3c-8fa70a26765c"
+    ]
+  }
 }

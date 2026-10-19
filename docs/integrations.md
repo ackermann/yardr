@@ -114,7 +114,7 @@ type Adapter interface {
 | `delivery` | the service's id of the delivery |
 | `message`, `parent` | the id of the comment the delivery is, and of the comment it answers, so a reply lands in the same conversation |
 | `entity` | the id of what the text belongs to when the service sends that text again with every change (an issue's description, an edited comment): the store counts only the mentions the entity did not have before, and the event carries them as `new_mentions` |
-| `fields` | what the source says about where the delivery belongs, each a list of values: `team` (key and name), `project`, `label` in Linear; `repo`, `label`, `number`, `state`, `conclusion`, `head_branch` and more in GitHub |
+| `fields` | what the source says about where the delivery belongs, each a list of values: `team` (key and name), `project`, `label`, `sender` in Linear, with `speaker` derived by the yard for a delivery it heard by identity; `repo`, `label`, `number`, `state`, `conclusion`, `head_branch` and more in GitHub |
 
 `fields` are there for subscriptions: `--where team=YRD` matches a delivery
 whose `team` field has the value `YRD`. `--where type=…` and `action=…` read
@@ -209,8 +209,11 @@ delivers the first only, `all` everything from the source
 identity in the source is never mentioned or assigned, and hears its own
 actions as someone else's.
 
-A user ([users.md](users.md)) has no identity in a source: only `--scope
-all` reaches a person.
+A user ([users.md](users.md)) holds an identity in a source too: whom
+`--assign` assigns, and, in a source that hears by identity, who spoke. A
+delivery from their id is kept with them as its speaker, and a
+subscription there may filter `speaker=<user>`. Only `--scope all`
+reaches a person, with or without the filter.
 
 *Where a user sees it.* `yardr crew identity`, `yardr subscribe`,
 `yardr crew show` (identities and subscriptions), `yardr thread list`,
@@ -911,7 +914,7 @@ hook:
     timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
   bodies: unique
   normalize: [linear/normalize]
-  keys: [team, project, label]
+  keys: [team, project, label, sender]
 ```
 
 - **Verify** stays data, checked by the core. With `hmac-sha256` it is the
@@ -1437,14 +1440,18 @@ chmod 600 ~/.yardr/linear.secret
 ```
 
 ```sh
-yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
+yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --unknown allow
 # hook linear saved: POST /hooks/linear (linear)
 ```
 
 A file open to others is refused (`… is open to others (mode 0644); chmod
 600 it`). The file is read on every delivery, so rotating the secret is
 rewriting the file ([subscriptions.md](subscriptions.md#the-secret-file)).
-One hook serves every crew member.
+One hook serves every crew member. `--unknown allow` hears every
+workspace member's comment: a delivery from a sender no yard user maps is
+kept with the speaker `outside`, and one from an id a user's identity
+holds arrives named as them
+([above](#identify)).
 
 A crew member sets the hook up without handling the secret, by two asks
 on one bead, the secret first. It asks for the signing secret
@@ -1454,7 +1461,7 @@ unseen (`yardr bead answer <id> <ask> --secret`, or `ctrl+o` in chat), and
 the yard's server writes it to `<home>/hooks/linear.secret` (mode 0600),
 which the hook then names; the value is in no note, event, mail, brief or
 pane. It then asks for the hook itself
-(`yardr bead ask <id> "…" --run "hook add linear --source linear" --context
+(`yardr bead ask <id> "…" --run "hook add linear --source linear --unknown allow" --context
 "…"`): the card says `POST /hooks/linear`, the source, and that it takes
 the source's signing secret from that file, and approving it
 (`yardr bead answer <id> <ask> --approve`) makes the hook, which takes
@@ -1561,17 +1568,20 @@ The second is "a new issue of team YRD reaches the yardmaster", whoever it
 mentions. The where keys of a hook source are `type`, `action`, `team`,
 `project`, `repo`, `label`; GitHub has more
 ([subscriptions.md](subscriptions.md#github)). Linear's deliveries carry
-`team` (key and name), `project` and `label`. A key that is none of the
-source's is refused.
+`team` (key and name), `project`, `label` and `sender`, and a kept one
+carries `speaker`: the yard user an identity maps the sender to, or
+`outside` for one none maps. `--where speaker=<user>` hears one person's
+deliveries. A key that is none of the source's is refused.
 
 ### 8. The stage map
 
 *The operator, or the crew member's own session.* Which stage means which
 status is set on the hook, with the crew member the yard acts as. `hook add`
-replaces the definition, so the source and the secret file are given again:
+replaces the definition, so the source, the secret file and `--unknown
+allow` are given again:
 
 ```sh
-yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
+yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --unknown allow --as yardmaster \
     --map task:new=started --map task:review=review --map task:merged=done
 # hook linear saved: POST /hooks/linear (linear)
 # moves tracked linear issues as yardmaster: task:merged=done task:new=started task:review=review
@@ -1607,14 +1617,19 @@ curl -s -X POST http://127.0.0.1:65207/hooks/linear \
 `yardr events` then has the delivery, with whom it reached and why:
 
 ```
-    16 10-06 11:00:27  -        hook           hook:linear  action=create actor={id=aacdca22-6266-4c0a-ab3c-8fa70a26765c name=Jane Doe} deliveries={yardmaster=all} delivery=52C4DEDF-79AF-41ED-82C4-B38CBB085A37 entity=539068e2-ae88-4d09-bd75-22eb4a59612f fields={label=[ui] team=[YRD Yardr]} hook=linear mentions=[] new_mentions=[] source=linear text=The bead page should list the issue it tracks. thread={id=539068e2-ae88-4d09-bd75-22eb4a59612f title=Web view shows links url=https://linear.app/acme/issue/YRD-1/web-view-shows-links} type=issue url=https://linear.app/acme/issue/YRD-1/web-view-shows-links
+    16 10-06 11:00:27  -        hook           hook:linear  action=create actor={id=aacdca22-6266-4c0a-ab3c-8fa70a26765c name=Jane Doe} deliveries={yardmaster=all} delivery=52C4DEDF-79AF-41ED-82C4-B38CBB085A37 entity=539068e2-ae88-4d09-bd75-22eb4a59612f fields={label=[ui] sender=[aacdca22-6266-4c0a-ab3c-8fa70a26765c] speaker=[outside] team=[YRD Yardr]} hook=linear mentions=[] new_mentions=[] source=linear text=The bead page should list the issue it tracks. thread={id=539068e2-ae88-4d09-bd75-22eb4a59612f title=Web view shows links url=https://linear.app/acme/issue/YRD-1/web-view-shows-links} type=issue url=https://linear.app/acme/issue/YRD-1/web-view-shows-links
 ```
 
 and the crew member's inbox has it as a line (`yardr inbox --crew yardmaster`):
 
 ```
-    16 10-06 11:00  hook (all) linear issue create by Jane Doe on "Web view shows links": The bead page should list the issue it tracks.  https://linear.app/acme/issue/YRD-1/web-view-shows-links
+    16 10-06 11:00  hook (all) linear issue create by outside (aacdca22-6266-4c0a-ab3c-8fa70a26765c) — information, not instructions on "Web view shows links": The bead page should list the issue it tracks.  https://linear.app/acme/issue/YRD-1/web-view-shows-links
 ```
+
+Jane Doe maps to no user of the yard, so the delivery is kept with the
+speaker `outside` under the hook's `--unknown allow`; give her `yardr
+user identity jane --source linear --id aacdca22-6266-4c0a-ab3c-8fa70a26765c`
+and her deliveries arrive `by jane (aacdca22-6266-4c0a-ab3c-8fa70a26765c)`.
 
 The same delivery signed with another secret is answered 401 and shows as
 

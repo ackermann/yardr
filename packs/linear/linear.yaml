@@ -39,8 +39,23 @@ hook:
   normalize: [linear/normalize]
 
   # The keys its events' fields may carry: a subscription's --where may
-  # name them beside type, action, team, project, repo and label.
-  keys: [team, project, label]
+  # name them beside type, action, team, project, repo and label. sender
+  # is the Linear user id of who did it, the field the hear key below
+  # matches.
+  keys: [team, project, label, sender]
+
+# ---- who is heard ---------------------------------------------------------
+# A delivery is kept with its speaker named where the sender is a user of
+# the yard, matched by identity: fields.sender holds the Linear user id,
+# which normalize also sets as actor.id. The core adds fields.speaker for
+# a kept delivery (the yard user's name, or outside where the hook's
+# --unknown word allows an unmapped sender); speaker is the derived
+# filter key for this hear, and stands in no hook.keys above, which names
+# only what normalize may set.
+
+hear:
+  field: sender
+  by: identity
 
 # ---- what the yard does in its threads ------------------------------------
 # One command per thing, each handed its object on stdin and the

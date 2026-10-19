@@ -51,4 +51,8 @@ def changed($u):
       entity: ($d.id // ""), mentions: mentions($d.description; null), fields: fields($d) }
   else . + { thread: { id: ($d.id // ""), title: ($d.title // ""), url: ($p.url // "") }, mentions: [] }
   end
+# sender is who did it, the id the envelope names as actor: the hear key
+# matches it against the user identities the yard holds in linear, and the
+# core stamps speaker from the match.
+| (.actor.id // "") as $sender | if $sender != "" then .fields = ((.fields // {}) + {sender: [$sender]}) else . end
 '

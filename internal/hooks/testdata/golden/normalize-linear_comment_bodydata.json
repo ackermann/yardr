@@ -18,5 +18,10 @@
   "url": "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
   "message": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
   "parent": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
-  "entity": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10"
+  "entity": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
+  "fields": {
+    "sender": [
+      "aacdca22-6266-4c0a-ab3c-8fa70a26765c"
+    ]
+  }
 }

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -505,5 +506,163 @@ func TestLinearPackOpenAssigned(t *testing.T) {
 	}
 	if i := g.s.Issue("linear", "YRD-4"); i == nil || i.Assignee != "" {
 		t.Fatalf("issue = %+v", i)
+	}
+}
+
+// The pack hears by identity: its hear key names the sender field, which
+// its hook.keys carries for normalize to set.
+func TestLinearPackHearsByIdentity(t *testing.T) {
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Hear == nil || d.Hear.Field != "sender" || !d.Hear.ByIdentity() {
+		t.Fatalf("hear = %+v, want field sender by identity", d.Hear)
+	}
+	if !slices.Contains(d.Hook.Keys, "sender") {
+		t.Fatalf("keys = %q, want sender among them", d.Hook.Keys)
+	}
+}
+
+// linearIdentityDepot is a depot whose receiver serves the pack's linear
+// source, with hook linear under the --unknown word ("" for one made
+// without it).
+func linearIdentityDepot(t *testing.T, unknown string) *depot {
+	t.Helper()
+	needPackTools(t)
+	r := newDepot(t)
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(dir, r.home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(r.home, "sources", d.Name))
+	ctx := context.Background()
+	if _, err := r.st.PutSource(ctx, "linear.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(r.home, "linear.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: secretFile, Unknown: unknown}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// linearComment posts the pack's comment fixture from sender, signed as
+// Linear signs with a fresh timestamp: "" sends it as its actor wrote it.
+func (r *depot) linearComment(t *testing.T, sender, delivery string) int {
+	t.Helper()
+	var v map[string]any
+	if err := json.Unmarshal(fixture(t, "linear_comment_create.json"), &v); err != nil {
+		t.Fatal(err)
+	}
+	v["webhookTimestamp"] = r.now.UnixMilli()
+	if sender != "" {
+		if actor, ok := v["actor"].(map[string]any); ok {
+			actor["id"] = sender
+		}
+		if data, ok := v["data"].(map[string]any); ok {
+			data["userId"] = sender
+			if user, ok := data["user"].(map[string]any); ok {
+				user["id"] = sender
+			}
+		}
+	}
+	body, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.post(t, "/hooks/linear", body, map[string]string{
+		"Linear-Signature": sign(secret, body), "Linear-Delivery": delivery,
+		"Content-Type": "application/json"})
+}
+
+func mapLinear(t *testing.T, r *depot, user, id string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := r.st.GetUser(ctx, user); err != nil {
+		if _, err := r.st.AddUser(ctx, user, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.st.SetIdentity(ctx, user, "linear", store.Identity{ID: id}, user); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Linear delivery from a mapped user is kept with their yard name as
+// speaker, through the pack's own declaration and normalize; an unmapped
+// one follows the hook's --unknown word: dropped under unknown, kept as
+// outside under allow, dropped under ignore.
+func TestLinearHearsByIdentity(t *testing.T) {
+	const mapped = "b5ea5f1f-8adc-4f52-b4bd-ab4e84cf51ba" // the fixture comment's actor
+	const unmapped = "00000000-0000-4000-8000-000000000000"
+
+	// Mapped under the default word, and unmapped under it.
+	r := linearIdentityDepot(t, "")
+	mapLinear(t, r, "ada", mapped)
+	r.now = time.Now()
+	if code := r.linearComment(t, "", "d-mapped"); code != http.StatusOK {
+		t.Fatalf("mapped answered %d", code)
+	}
+	if code := r.linearComment(t, unmapped, "d-unmapped"); code != http.StatusOK {
+		t.Fatalf("unmapped answered %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 {
+		t.Fatalf("want 1 hook event, got %d", len(evs))
+	}
+	if got := speakerOf(t, evs[0]); got != "ada" {
+		t.Fatalf("speaker = %q, want ada", got)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("stranger count %d, want 1", got)
+	}
+
+	// Unmapped under allow is kept as outside.
+	r = linearIdentityDepot(t, store.HookUnknownAllow)
+	mapLinear(t, r, "ada", mapped)
+	r.now = time.Now()
+	if code := r.linearComment(t, unmapped, "d-outside"); code != http.StatusOK {
+		t.Fatalf("allow: unmapped answered %d", code)
+	}
+	evs = r.hookEvents(t)
+	if len(evs) != 1 {
+		t.Fatalf("allow: want 1 hook event, got %d", len(evs))
+	}
+	if got := speakerOf(t, evs[0]); got != store.SpeakerOutside {
+		t.Fatalf("allow: speaker = %q, want %q", got, store.SpeakerOutside)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 0 {
+		t.Fatalf("allow: stranger count %d, want 0", got)
+	}
+
+	// Unmapped under ignore is dropped.
+	r = linearIdentityDepot(t, store.HookUnknownIgnore)
+	mapLinear(t, r, "ada", mapped)
+	r.now = time.Now()
+	if code := r.linearComment(t, unmapped, "d-ignored"); code != http.StatusOK {
+		t.Fatalf("ignore: unmapped answered %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("ignore: want 0 hook events, got %d", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("ignore: stranger count %d, want 1", got)
 	}
 }
