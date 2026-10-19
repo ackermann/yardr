@@ -81,9 +81,9 @@ func TestMissingSourceNamesItsPack(t *testing.T) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
 	}
-	// No pack carries slack: the refusal stands alone.
-	if _, err := run(t, a.threadOpenCmd(), "slack", "--in", "ENG", "T"); err == nil || strings.Contains(err.Error(), "pack apply") {
-		t.Errorf("slack: %v", err)
+	// No pack carries signal: the refusal stands alone.
+	if _, err := run(t, a.threadOpenCmd(), "signal", "--in", "ENG", "T"); err == nil || strings.Contains(err.Error(), "pack apply") {
+		t.Errorf("signal: %v", err)
 	}
 	// The yard declares linear: the refusals go quiet.
 	if _, err := st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
