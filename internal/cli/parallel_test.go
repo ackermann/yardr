@@ -388,13 +388,14 @@ var allowSerial = map[string]string{
 // touches, and whether it claims parallelism itself.
 type parFacts struct {
 	calls    map[string]bool // package-level idents called
-	sels     map[string]bool // selector names called (Setenv, Chdir, ...)
+	sels     map[string]bool // selector names called (Setenv, Unsetenv, Chdir, ...)
 	assigns  map[string]bool // package vars assigned with =
 	stubVars map[string]bool // &ident passed to stub(
-	hasPar   bool            // a top-level t.Parallel() statement
+	hasPar   bool            // the function calls t.Parallel()
 }
 
 func (f *parFacts) union(g parFacts) {
+	f.hasPar = f.hasPar || g.hasPar
 	for k := range g.calls {
 		f.calls[k] = true
 	}
@@ -409,29 +410,43 @@ func (f *parFacts) union(g parFacts) {
 	}
 }
 
+// parStateRoot is the package variable an assignment target writes through,
+// including a field, map entry or pointer rooted at that variable. Obj
+// distinguishes a local that shadows a package variable with the same name.
+func parStateRoot(expr ast.Expr, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		if e.Name != "_" && pkgVars[e.Name] && (e.Obj == nil || pkgObjs[e.Obj]) {
+			return e.Name
+		}
+	case *ast.SelectorExpr:
+		return parStateRoot(e.X, pkgVars, pkgObjs)
+	case *ast.IndexExpr:
+		return parStateRoot(e.X, pkgVars, pkgObjs)
+	case *ast.SliceExpr:
+		return parStateRoot(e.X, pkgVars, pkgObjs)
+	case *ast.StarExpr:
+		return parStateRoot(e.X, pkgVars, pkgObjs)
+	case *ast.ParenExpr:
+		return parStateRoot(e.X, pkgVars, pkgObjs)
+	}
+	return ""
+}
+
 // parMarked reports whether f touches process or package state: the
 // environment, the working directory, or a package variable.
 func parMarked(f parFacts) bool {
-	return f.sels["Setenv"] || f.sels["Chdir"] || len(f.assigns) > 0 || len(f.stubVars) > 0
+	return parEnvironmentFact(f) || f.sels["Chdir"] || len(f.assigns) > 0 || len(f.stubVars) > 0
+}
+
+func parEnvironmentFact(f parFacts) bool {
+	return f.sels["Setenv"] || f.sels["Unsetenv"] || f.sels["Clearenv"]
 }
 
 // parCollect reads fn's own facts. A method sharing a helper's name merges
 // with it at the caller's, so the reachability stays conservative.
-func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool) parFacts {
+func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) parFacts {
 	f := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}, stubVars: map[string]bool{}}
-	for _, s := range fn.Body.List {
-		es, ok := s.(*ast.ExprStmt)
-		if !ok {
-			continue
-		}
-		c, ok := es.X.(*ast.CallExpr)
-		if !ok {
-			continue
-		}
-		if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Parallel" {
-			f.hasPar = true
-		}
-	}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.CallExpr:
@@ -440,22 +455,38 @@ func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool) parFacts {
 				f.calls[fun.Name] = true
 				if fun.Name == "stub" && len(n.Args) >= 2 {
 					if u, ok := n.Args[1].(*ast.UnaryExpr); ok && u.Op == token.AND {
-						if id, ok := u.X.(*ast.Ident); ok {
-							f.stubVars[id.Name] = true
+						if name := parStateRoot(u.X, pkgVars, pkgObjs); name != "" {
+							f.stubVars[name] = true
 						}
 					}
 				}
 			case *ast.SelectorExpr:
 				f.sels[fun.Sel.Name] = true
+				if fun.Sel.Name == "Parallel" {
+					f.hasPar = true
+				}
 			}
 		case *ast.AssignStmt:
 			if n.Tok != token.ASSIGN {
 				return true
 			}
 			for _, lhs := range n.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" && pkgVars[id.Name] {
-					f.assigns[id.Name] = true
+				if name := parStateRoot(lhs, pkgVars, pkgObjs); name != "" {
+					f.assigns[name] = true
 				}
+			}
+		case *ast.RangeStmt:
+			if n.Tok != token.ASSIGN {
+				return true
+			}
+			for _, lhs := range []ast.Expr{n.Key, n.Value} {
+				if name := parStateRoot(lhs, pkgVars, pkgObjs); name != "" {
+					f.assigns[name] = true
+				}
+			}
+		case *ast.IncDecStmt:
+			if name := parStateRoot(n.X, pkgVars, pkgObjs); name != "" {
+				f.assigns[name] = true
 			}
 		}
 		return true
@@ -466,30 +497,29 @@ func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool) parFacts {
 // parReach is every function's transitive facts: its own unioned with what
 // the helpers it calls reach.
 func parReach(own map[string]parFacts) map[string]parFacts {
-	memo := map[string]parFacts{}
-	var reach func(string, map[string]bool) parFacts
-	reach = func(name string, stack map[string]bool) parFacts {
-		if m, ok := memo[name]; ok {
-			return m
-		}
-		out := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}, stubVars: map[string]bool{}}
-		f, ok := own[name]
-		if !ok || stack[name] {
-			return out
-		}
-		stack[name] = true
-		defer delete(stack, name)
-		out.union(f)
-		for c := range f.calls {
-			out.union(reach(c, stack))
-		}
-		memo[name] = out
-		return out
-	}
+	reached := map[string]parFacts{}
 	for name := range own {
-		memo[name] = reach(name, map[string]bool{})
+		out := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}, stubVars: map[string]bool{}}
+		seen := map[string]bool{}
+		var visit func(string)
+		visit = func(name string) {
+			if seen[name] {
+				return
+			}
+			seen[name] = true
+			f, ok := own[name]
+			if !ok {
+				return
+			}
+			out.union(f)
+			for c := range f.calls {
+				visit(c)
+			}
+		}
+		visit(name)
+		reached[name] = out
 	}
-	return memo
+	return reached
 }
 
 // parWitness is a shortest call path from test to a function whose own
@@ -497,7 +527,7 @@ func parReach(own map[string]parFacts) map[string]parFacts {
 func parWitness(test, marker string, own map[string]parFacts) string {
 	holds := func(f parFacts) bool {
 		switch {
-		case marker == "Setenv" || marker == "Chdir":
+		case marker == "Chdir" || marker == "Setenv" || marker == "Unsetenv" || marker == "Clearenv":
 			return f.sels[marker]
 		case strings.HasPrefix(marker, "assign:"):
 			return f.assigns[strings.TrimPrefix(marker, "assign:")]
@@ -537,8 +567,10 @@ func parWitness(test, marker string, own map[string]parFacts) string {
 // directory, or the package variable.
 func parMarkers(r parFacts) []string {
 	var out []string
-	if r.sels["Setenv"] {
-		out = append(out, "Setenv")
+	for _, marker := range []string{"Clearenv", "Setenv", "Unsetenv"} {
+		if r.sels[marker] {
+			out = append(out, marker)
+		}
 	}
 	if r.sels["Chdir"] {
 		out = append(out, "Chdir")
@@ -570,9 +602,14 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 	var bad []string
 	for _, name := range tests {
 		r := reached[name]
-		if own[name].hasPar {
+		if r.hasPar {
 			for _, m := range parMarkers(r) {
-				what := map[string]string{"Setenv": "the process environment (t.Setenv)", "Chdir": "the working directory (t.Chdir)"}[m]
+				what := map[string]string{
+					"Setenv":   "the process environment (t.Setenv or os.Setenv)",
+					"Unsetenv": "the process environment (os.Unsetenv)",
+					"Clearenv": "the process environment (os.Clearenv)",
+					"Chdir":    "the working directory (t.Chdir or os.Chdir)",
+				}[m]
 				if what == "" {
 					what = "package state (" + m + ")"
 				}
@@ -583,8 +620,10 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 		seam, ok := allow[name]
 		if !ok {
 			via := []string{}
-			if own[name].sels["Setenv"] {
-				via = append(via, "t.Setenv")
+			for _, marker := range []string{"Setenv", "Unsetenv", "Clearenv"} {
+				if own[name].sels[marker] {
+					via = append(via, marker)
+				}
 			}
 			if own[name].sels["Chdir"] {
 				via = append(via, "t.Chdir")
@@ -608,15 +647,17 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 			bad = append(bad, fmt.Sprintf("%s calls no t.Parallel and is not listed in allowSerial%s: parallelise it, or list it with its seam", name, hint))
 			continue
 		}
-		_ = seam
+		if strings.TrimSpace(seam) == "" {
+			bad = append(bad, fmt.Sprintf("allowSerial lists %s without naming its seam", name))
+		}
 	}
 	for name := range allow {
-		f, ok := own[name]
+		_, ok := own[name]
 		if !ok {
 			bad = append(bad, fmt.Sprintf("allowSerial lists %s, which is no test any more: delete the entry", name))
 			continue
 		}
-		if f.hasPar {
+		if reached[name].hasPar {
 			bad = append(bad, fmt.Sprintf("allowSerial lists %s, which calls t.Parallel now: delete the entry", name))
 		}
 	}
@@ -634,6 +675,8 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for name, src := range sources {
+		// Keep object resolution on so local shadows can be separated from
+		// package variables when the AST checks assignment targets.
 		f, err := parser.ParseFile(fset, name, src, 0)
 		if err != nil {
 			return nil, err
@@ -643,6 +686,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	// Package vars live in test files too (strayKill, yardEnvs), and
 	// assigning one pins the test just the same.
 	pkgVars := map[string]bool{}
+	pkgObjs := map[*ast.Object]bool{}
 	for _, f := range parsed {
 		for _, d := range f.Decls {
 			g, ok := d.(*ast.GenDecl)
@@ -653,6 +697,9 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 				if v, ok := s.(*ast.ValueSpec); ok {
 					for _, n := range v.Names {
 						pkgVars[n.Name] = true
+						if n.Obj != nil {
+							pkgObjs[n.Obj] = true
+						}
 					}
 				}
 			}
@@ -668,7 +715,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			got := parCollect(fd, pkgVars)
+			got := parCollect(fd, pkgVars, pkgObjs)
 			if old, ok := own[fd.Name.Name]; ok {
 				old.union(got)
 				got = old
@@ -710,16 +757,54 @@ func TestOnlyAllowedTestsStaySerial(t *testing.T) {
 func TestParCheckFindsViolations(t *testing.T) {
 	t.Parallel()
 	own, err := parLoad(map[string][]byte{
-		"z.go": []byte("package x\n\nvar seam = 1\n"),
+		"z.go": []byte("package x\n\nvar seam = 1\nvar state = struct{ n int }{}\nvar stateMap = map[string]bool{}\n"),
 		"a_test.go": []byte(`package x
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func stubIt(t *testing.T) { t.Setenv("K", "v") }
+func parallelIt(t *testing.T) { t.Parallel() }
+func first() { second() }
+func second() { first(); state.n++ }
 
 func TestParallelBad(t *testing.T) {
 	t.Parallel()
 	stubIt(t)
+}
+
+func TestParallelUnsetenvBad(t *testing.T) {
+	t.Parallel()
+	os.Unsetenv("K")
+}
+
+func TestParallelBadViaHelper(t *testing.T) {
+	parallelIt(t)
+	state.n++
+}
+
+func TestNestedParallelBad(t *testing.T) {
+	t.Run("child", func(t *testing.T) {
+		t.Parallel()
+		stateMap["x"] = true
+	})
+}
+
+func TestParallelLocalShadow(t *testing.T) {
+	t.Parallel()
+	state := struct{ n int }{}
+	state.n++
+}
+
+func TestParallelNestedShadowDoesNotHidePackageWrite(t *testing.T) {
+	t.Parallel()
+	t.Run("child", func(t *testing.T) {
+		state := struct{ n int }{}
+		state.n++
+	})
+	state.n++
 }
 
 func TestSerialOK(t *testing.T) { stubIt(t) }
@@ -727,15 +812,23 @@ func TestSerialOK(t *testing.T) { stubIt(t) }
 func TestParallelOK(t *testing.T) { t.Parallel() }
 
 func TestSerialUnlisted(t *testing.T) { stubIt(t); seam = 2 }
+
+func TestSerialCycleUnlisted(t *testing.T) { first() }
 `),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := parCheck(own, map[string]string{"TestSerialOK": "stubIt", "TestGone": "stale"})
+	got := parCheck(own, map[string]string{"TestSerialOK": "", "TestGone": "stale"})
 	want := []string{
-		"TestParallelBad calls t.Parallel but reaches the process environment (t.Setenv) via stubIt",
+		"TestNestedParallelBad calls t.Parallel but reaches package state (assign:stateMap) in its own body",
+		"TestParallelBad calls t.Parallel but reaches the process environment (t.Setenv or os.Setenv) via stubIt",
+		"TestParallelBadViaHelper calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelNestedShadowDoesNotHidePackageWrite calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
+		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",
+		"allowSerial lists TestSerialOK without naming its seam",
 		"allowSerial lists TestGone, which is no test any more: delete the entry",
 	}
 	slices.Sort(got)
