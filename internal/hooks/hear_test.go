@@ -757,13 +757,13 @@ func TestHearByIdentityHeldTwiceIsUnmapped(t *testing.T) {
 
 // A delivery whose sender is a crew member's identity in the source is
 // the yard's own post coming back: dropped with no mapping card under
-// unknown, and never delivered under allow either, whether the echo
-// carries the member id or only the bot id the key holds. The yard
+// every Unknown word, whether the echo carries the member id or only
+// the bot id the key holds. The yard
 // holds no ignore entry for either: the drop is the crew match, not
 // the ignore list. A mapped member's delivery beside it is heard.
 func TestHearByIdentityDropsCrewEcho(t *testing.T) {
 	ctx := context.Background()
-	for _, word := range []string{store.HookUnknownUnknown, store.HookUnknownAllow} {
+	for _, word := range []string{store.HookUnknownUnknown, store.HookUnknownAllow, store.HookUnknownIgnore} {
 		r := identityDepot(t, word)
 		if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
 			t.Fatal(err)
