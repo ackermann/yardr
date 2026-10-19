@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -68,6 +69,10 @@ func streamUses(file string, src []byte) ([]streamUse, error) {
 		name := path
 		if spec.Name != nil {
 			name = spec.Name.Name
+		}
+		if name == "." {
+			// Dot imports hide the selector names this syntax gate recognizes.
+			return nil, fmt.Errorf("%s: dot import of %q hides stream uses from the writer gate", file, path)
 		}
 		imported[name] = path
 	}
@@ -192,5 +197,16 @@ func f(w io.Writer) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("uses =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestStreamUsesRejectDotImports(t *testing.T) {
+	for _, src := range []string{
+		`package x; import . "fmt"; func f() { Println("hello") }`,
+		`package x; import . "os"; var _ = Stdout`,
+	} {
+		if _, err := streamUses("x.go", []byte(src)); err == nil {
+			t.Errorf("streamUses accepted a dot import in %q", src)
+		}
 	}
 }
