@@ -854,9 +854,9 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 }
 
 // apply writes a planned import and says what it did. extra is what the
-// command wrote besides, added to --json's output; after prints it, below
-// the import's result.
-func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra map[string]any, after func()) error {
+// command wrote besides, added to --json's output; after prints it to the
+// writer, below the import's result.
+func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra map[string]any, after func(io.Writer)) error {
 	// The apply lock (config.ApplyLock), from the import's final check
 	// through its last write: its questions were asked and its import
 	// confirmed in planImport, before this. The server's carrying out
@@ -875,7 +875,7 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 			if oerr := a.out(w, v, func(w io.Writer) {
 				printResult(w, i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 				if after != nil {
-					after()
+					after(w)
 				}
 			}); oerr != nil {
 				return oerr
@@ -903,7 +903,7 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 				printFold(w, f)
 			}
 			if after != nil {
-				after()
+				after(w)
 			}
 		}); oerr != nil {
 			return oerr

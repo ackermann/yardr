@@ -85,14 +85,14 @@ pack apply sets them again; the output says when that undoes the switch.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				sourceTable(res.Lines)
+				sourceTable(w, res.Lines)
 				if !res.Changed {
-					fmt.Println("unchanged: it already came from there")
+					fmt.Fprintln(w, "unchanged: it already came from there")
 				} else if kind == "flow" {
-					fmt.Println("the flow switched whole: its stage files are the ones above now")
+					fmt.Fprintln(w, "the flow switched whole: its stage files are the ones above now")
 				}
 				for _, n := range res.Notes {
-					fmt.Println("note: " + n)
+					fmt.Fprintln(w, "note: "+n)
 				}
 			})
 		},

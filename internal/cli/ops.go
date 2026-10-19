@@ -520,7 +520,7 @@ yardmaster):
 				if err != nil {
 					return err
 				}
-				if err := a.groupForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
+				if err := a.groupForm(c.OutOrStdout(), c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
 					fmt.Println("cancelled")
 					return nil
 				} else {

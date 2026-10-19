@@ -49,6 +49,21 @@ func TestHookDeliveryLine(t *testing.T) {
 	}
 }
 
+// A reaction to a crew member's own mail lands in its inbox as one line,
+// on the writer the inbox is printed to.
+func TestReactionInboxLine(t *testing.T) {
+	e := store.Event{Seq: 7, Kind: "reaction", Actor: "jo", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+		"emoji": "👍", "preview": "the shed is painted", "seq": float64(5),
+	}}
+	var buf bytes.Buffer
+	printInboxEvent(&buf, e, "yardmaster", "")
+	got := buf.String()
+	want := "     7 10-02 09:14  👍 by jo on your mail 5: the shed is painted\n"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 // A hook event heard by identity renders from its speaker: the yard
 // user with the member id beside it, and outside with that cue for an
 // unmapped sender kept under allow. A delivery with no speaker renders

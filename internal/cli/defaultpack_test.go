@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -42,10 +43,17 @@ func ownPack(t *testing.T, from, name string) string {
 func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
-	errs := captureStderr(t)
+	// The command's error stream, where depot init says the pack is the
+	// setting's; every init run below shares the buffer.
+	var errs bytes.Buffer
+	runInit := func(args ...string) (string, error) {
+		c := a.depotCmd()
+		c.SetErr(&errs)
+		return run(t, c, args...)
+	}
 	ctx := context.Background()
 	before := snapshot(t, repo)
-	out, err := run(t, a.depotCmd(), append([]string{"init", "web", "--yes"}, starterFlags...)...)
+	out, err := runInit(append([]string{"init", "web", "--yes"}, starterFlags...)...)
 	if err != nil || !strings.Contains(out, "\napplied pack starter to depot web: ") {
 		t.Fatalf("depot init web: %v\n%s", err, out)
 	}
@@ -53,7 +61,7 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 		t.Errorf("the checkout changed: %v", slices.Sorted(maps.Keys(after)))
 	}
 	if errs.Len() != 0 {
-		t.Errorf("with no setting, depot init says: %s", errs)
+		t.Errorf("with no setting, depot init says: %s", errs.String())
 	}
 
 	// A directory depot, with the setting unset: the dir pack.
@@ -61,7 +69,7 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: notes, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, a.depotCmd(), append([]string{"init", "notes", "--yes"}, dirFlags...)...)
+	out, err = runInit(append([]string{"init", "notes", "--yes"}, dirFlags...)...)
 	if err != nil || !strings.Contains(out, "\napplied pack dir to depot notes: ") {
 		t.Fatalf("depot init notes: %v\n%s", err, out)
 	}
@@ -83,14 +91,18 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 		if err := a.st.PutDepot(ctx, store.Depot{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		out, err := run(t, a.depotCmd(), append([]string{"init", name, "--yes"}, starterFlags...)...)
+		out, err := runInit(append([]string{"init", name, "--yes"}, starterFlags...)...)
 		if err != nil {
 			t.Fatalf("depot init %s: %v\n%s", name, err, out)
 		}
 		return out
 	}
-	if out := second("api"); !strings.Contains(out, "\napplied pack research to depot api: ") {
+	out = second("api")
+	if !strings.Contains(out, "\napplied pack research to depot api: ") {
 		t.Fatalf("with default_pack set, depot init api did not apply it:\n%s", out)
+	}
+	if strings.Contains(out, "the yard's default_pack setting") {
+		t.Errorf("depot init says the pack is the setting's on stdout:\n%s", out)
 	}
 	if got := errs.String(); got != "pack "+own+": the yard's default_pack setting\n" {
 		t.Errorf("depot init does not say the pack is the setting's: %q", got)
@@ -102,8 +114,8 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	// gives the one yardmaster the starter's role again, which the other
 	// pack had taken: TestSecondPackShowsTheYardmastersPromptChange.)
 	errs.Reset()
-	if out, err := run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes"); err != nil || !strings.Contains(out, "\napplied pack starter to depot web: ") || errs.Len() != 0 {
-		t.Fatalf("--pack beside the setting: %v\n%s%s", err, out, errs)
+	if out, err := runInit("init", "web", "--pack", "starter", "--yes"); err != nil || !strings.Contains(out, "\napplied pack starter to depot web: ") || errs.Len() != 0 {
+		t.Fatalf("--pack beside the setting: %v\n%s%s", err, out, errs.String())
 	}
 
 	// Unset again: starter.
@@ -149,7 +161,9 @@ func TestDefaultPackSetting(t *testing.T) {
 func TestDepotInitDefaultPackThatDoesNotFit(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
-	errs := captureStderr(t)
+	// The command's error stream, where depot init says the pack is the
+	// setting's.
+	var errs bytes.Buffer
 	ctx := context.Background()
 	notes := t.TempDir()
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: notes, Kind: store.DepotDir}, "me"); err != nil {
@@ -166,12 +180,17 @@ func TestDepotInitDefaultPackThatDoesNotFit(t *testing.T) {
 			t.Fatal(err)
 		}
 		errs.Reset()
-		out, err := run(t, a.depotCmd(), "init", tc.depot, "--yes")
+		c := a.depotCmd()
+		c.SetErr(&errs)
+		out, err := run(t, c, "init", tc.depot, "--yes")
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("default_pack %s on %s: err = %v, want %q\n%s", tc.value, tc.depot, err, tc.want, out)
 		}
 		if got := errs.String(); got != "pack "+tc.value+": the yard's default_pack setting\n" {
 			t.Errorf("default_pack %s: stderr = %q", tc.value, got)
+		}
+		if strings.Contains(out, "the yard's default_pack setting") {
+			t.Errorf("default_pack %s: stdout says the pack is the setting's:\n%s", tc.value, out)
 		}
 	}
 	if err := a.st.SetSetting(ctx, defaultPackSetting, "", "me"); err != nil {

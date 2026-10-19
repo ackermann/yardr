@@ -90,7 +90,7 @@ depot. See docs/packs.md and docs/dir-depots.md.`,
 				if set {
 					// So a pack that is not found or does not fit is known
 					// for the setting's, which the command line does not show.
-					fmt.Fprintf(stderr, "pack %s: the yard's %s setting\n", packArg, defaultPackSetting)
+					fmt.Fprintf(c.ErrOrStderr(), "pack %s: the yard's %s setting\n", packArg, defaultPackSetting)
 				}
 			}
 			return a.depotInitPack(c.OutOrStdout(), c.Context(), *depot, packArg, &imp)
@@ -225,18 +225,18 @@ func testCommand(r *testResult, test string) string {
 	return cmd + " --test " + shellQuote(test)
 }
 
-func (r *testResult) print() {
-	fmt.Println()
+func (r *testResult) print(w io.Writer) {
+	fmt.Fprintln(w)
 	switch {
 	case r.Set:
-		fmt.Printf("test: depot %s is tested with %s (a guess from %s: check it with yardr depot show %s)\n", r.Depot, r.Test, r.Path, r.Depot)
-		fmt.Printf("To change it:\n  %s\n", testCommand(r, "<command>"))
+		fmt.Fprintf(w, "test: depot %s is tested with %s (a guess from %s: check it with yardr depot show %s)\n", r.Depot, r.Test, r.Path, r.Depot)
+		fmt.Fprintf(w, "To change it:\n  %s\n", testCommand(r, "<command>"))
 	case r.Test != "":
-		fmt.Printf("test: depot %s already has a test command, kept: %s\n", r.Depot, r.Test)
+		fmt.Fprintf(w, "test: depot %s already has a test command, kept: %s\n", r.Depot, r.Test)
 	case r.Kind == store.DepotDir:
-		fmt.Printf("test: none set. Depot %s is a directory depot, and nothing in a directory says how it is tested. To set one:\n  %s\n", r.Depot, testCommand(r, "<command>"))
+		fmt.Fprintf(w, "test: none set. Depot %s is a directory depot, and nothing in a directory says how it is tested. To set one:\n  %s\n", r.Depot, testCommand(r, "<command>"))
 	default:
-		fmt.Printf("test: none set. Nothing in %s says how depot %s is tested, so no bead's brief names a test command and a script group gets no YARDR_TEST. To set one:\n  %s\n", r.Path, r.Depot, testCommand(r, "<command>"))
+		fmt.Fprintf(w, "test: none set. Nothing in %s says how depot %s is tested, so no bead's brief names a test command and a script group gets no YARDR_TEST. To set one:\n  %s\n", r.Path, r.Depot, testCommand(r, "<command>"))
 	}
 }
 

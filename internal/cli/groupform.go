@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strconv"
@@ -152,7 +153,7 @@ const (
 )
 
 // groupForm walks through creating or editing a group interactively.
-func (a *app) groupForm(ctx context.Context, st store.API) error {
+func (a *app) groupForm(w io.Writer, ctx context.Context, st store.API) error {
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return err
@@ -177,14 +178,14 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 			}
 		}
 	}
-	g, err := a.askGroup(ctx, st, groups, ans, editing, nil)
+	g, err := a.askGroup(w, ctx, st, groups, ans, editing, nil)
 	if err != nil || g == nil {
 		return err
 	}
 	if err := st.PutGroup(ctx, *g, a.who()); err != nil {
 		return err
 	}
-	fmt.Printf("group %s saved (%s)\n", g.Name, describe(*g))
+	fmt.Fprintf(w, "group %s saved (%s)\n", g.Name, describe(*g))
 	return nil
 }
 
@@ -193,7 +194,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 // was answered no. It saves nothing itself. editing is a group that exists,
 // whose name is not asked again. note, when given, adds lines to the last
 // page for the group as answered (the guided setup: its command line).
-func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, ans groupAnswers, editing bool, note func(store.Group) string) (*store.Group, error) {
+func (a *app) askGroup(w io.Writer, ctx context.Context, st store.API, groups []store.Group, ans groupAnswers, editing bool, note func(store.Group) string) (*store.Group, error) {
 	if !editing {
 		if err := ask(huh.NewInput().Title("Name").Placeholder("webapp/builders").Value(&ans.Name).
 			Validate(func(s string) error {
@@ -286,7 +287,7 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 		return nil, err
 	}
 	if !save {
-		fmt.Println("not saved")
+		fmt.Fprintln(w, "not saved")
 		return nil, nil
 	}
 	return &g, nil

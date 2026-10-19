@@ -103,13 +103,13 @@ Rules are not switched: writing the file adopts it, deleting it removes it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), lines, func(w io.Writer) { sourceTable(lines) })
+			return a.out(c.OutOrStdout(), lines, func(w io.Writer) { sourceTable(w, lines) })
 		},
 	}
 }
 
 // sourceTable prints the lines as yardr depot sources lists them.
-func sourceTable(lines []depotSource) {
+func sourceTable(w io.Writer, lines []depotSource) {
 	qualify := false
 	for _, l := range lines {
 		qualify = qualify || (l.Kind == "stage" && l.Type != "")
@@ -127,7 +127,7 @@ func sourceTable(lines []depotSource) {
 		}
 		rows = append(rows, row)
 	}
-	table(os.Stdout, "KIND\tNAME\tSOURCE", rows)
+	table(w, "KIND\tNAME\tSOURCE", rows)
 }
 
 // where says the line's source the way the listing prints it.
