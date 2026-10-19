@@ -2327,20 +2327,21 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 				"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t1m1.5s\n"+
 				"ok  \tyardr.dev/yardr/internal/store\t1m0.1s\n"+
+				"ok  \tyardr.dev/yardr/internal/web\t1m40.0s\n"+
 				"ok  \tyardr.dev/yardr/internal/rpc\t60s\n"+
 				"ok  \tyardr.dev/yardr/internal/bdp\t(cached)\n"+
 				"?   \tyardr.dev/yardr/internal/harnesses\t[no test files]\n"+
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		// cli and web are allow-listed, exactly 60 s complies, and
-		// cached, failed and foreign lines are not judged: only root,
+		// web is allow-listed, exactly 60 s complies, and cached,
+		// failed and foreign lines are not judged: only root, cli,
 		// dispatch, pack and store are re-run, sorted, one package
 		// after another, with the leg's flags and -count=1, inside
 		// its hold. The module path is the root, whose allow-list row
-		// yardr-1x36 deleted, as yardr-3cc4 deleted store's. The load
-		// is pinned quiet, so the root's over-alone verdict fails
-		// however loaded the test machine is.
+		// yardr-1x36 deleted, as yardr-3cc4 deleted store's and
+		// yardr-ab6t cli's. The load is pinned quiet, so the root's
+		// over-alone verdict fails however loaded the test machine is.
 		fake, env := r1go(t)
 		out, code := runEnv(dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr",
@@ -2350,21 +2351,24 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
 		// The root is over alone too: the run fails, naming both times.
-		// Dispatch, pack and store are under alone: each passes with
-		// the R1 line. Store's allow-list row yardr-3cc4 deleted, so
-		// over budget it is re-run with the rest.
+		// Cli, dispatch, pack and store are under alone: each passes
+		// with the R1 line. Store's allow-list row yardr-3cc4 deleted,
+		// and yardr-ab6t cli's, so over budget they are re-run with
+		// the rest; web's row stands, so it is not re-run.
 		root := "test: yardr.dev/yardr took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+		cli := "test: R1: yardr.dev/yardr/internal/cli took 118.3 s in the run, 12.3 s alone: under budget, loaded run"
 		dispatch := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, root+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") {
-			t.Fatalf("output %q, want it to name root, dispatch, pack and store", out)
+		if !strings.Contains(out, root+"\n") || !strings.Contains(out, cli+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") {
+			t.Fatalf("output %q, want it to name root, cli, dispatch, pack and store", out)
 		}
 		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
 			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
 		}
 		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 		want := "test -race -count=1 yardr.dev/yardr held=1\n" +
+			"test -race -count=1 yardr.dev/yardr/internal/cli held=1\n" +
 			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1\n" +
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1\n" +
 			"test -race -count=1 yardr.dev/yardr/internal/store held=1"
@@ -2464,7 +2468,8 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 	t.Run("a leg with nothing over budget runs nothing again", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "green.txt",
-			"ok  \tyardr.dev/yardr/internal/cli\t118.3s\n"+
+			"ok  \tyardr.dev/yardr/internal/cli\t51.2s\n"+
+				"ok  \tyardr.dev/yardr/internal/web\t118.3s\n"+
 				"ok  \tyardr.dev/yardr/internal/store\t55.0s\n"+
 				"ok  \tyardr.dev/yardr\t31.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t21.0s\n")
