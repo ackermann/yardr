@@ -155,7 +155,7 @@ func TestPackCheckDirWithoutAYard(t *testing.T) {
 		t.Helper()
 		errs := captureStderr(t)
 		var code int
-		capture(t, func() { code = execute(&app{}, []string{"pack", "check", pack, "--depot", "web"}) })
+		capture(t, func() { code = execute(&app{stderr: errs}, []string{"pack", "check", pack, "--depot", "web"}) })
 		return code, errs.String()
 	}
 	noYard := "no yard in " + home + " yet"

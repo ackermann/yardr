@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -148,7 +149,7 @@ func (a *app) chats() bool {
 // It reports false, having said why and opened nothing, when who acts is no
 // user of the yard: the operator was given another name than the one this
 // terminal acts under, and the yardmaster's mail goes to the operator.
-func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (bool, error) {
+func (a *app) toChat(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (bool, error) {
 	yardr := yardrAt(cfg.Home)
 	me, err := a.actingUser(ctx, st)
 	if err != nil {
@@ -159,7 +160,7 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yard
 		if err != nil {
 			return false, err
 		}
-		fmt.Printf("\n%s chat is for a user of the yard, and this terminal acts as %s, who is none: the operator is %s,\n"+
+		fmt.Fprintf(w, "\n%s chat is for a user of the yard, and this terminal acts as %s, who is none: the operator is %s,\n"+
 			"and %s writes to them. As the operator: %s --actor %s chat (or YARDR_ACTOR=%s). As yourself, once\n"+
 			"added: %s --actor %s user add %s\n",
 			yardr, a.who(), operator, yardmaster, yardr, operator, operator, yardr, operator, a.who())
@@ -174,7 +175,7 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yard
 	if err := a.chatOn(ctx, st, me.Name, yardmaster, expect); err != nil {
 		return false, err
 	}
-	fmt.Printf("\nYou left the chat; %s keeps running. To come back: %s chat\n", yardmaster, yardr)
+	fmt.Fprintf(w, "\nYou left the chat; %s keeps running. To come back: %s chat\n", yardmaster, yardr)
 	return true, nil
 }
 

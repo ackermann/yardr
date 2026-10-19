@@ -56,9 +56,10 @@ func (o *output) String() string {
 
 // pairBoth runs yardr peer pair on north and, once that has shown its code,
 // on laptop with what call makes of the address and the code, and then
-// after, while north's may still wait. It returns what the two printed and
-// how each ended.
-func pairBoth(t *testing.T, north, laptop *cliYard, host []string, call func(addr, code string) []string, after ...func()) (out string, hostErr, callErr error) {
+// after, while north's may still wait. Each side prints to a writer of
+// its own; what escapes onto the process's stdout fails the test. It
+// returns what the two printed and how each ended.
+func pairBoth(t *testing.T, north, laptop *cliYard, errs *output, host []string, call func(addr, code string) []string, after ...func()) (out string, hostErr, callErr error) {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -66,13 +67,23 @@ func pairBoth(t *testing.T, north, laptop *cliYard, host []string, call func(add
 	}
 	old := os.Stdout
 	os.Stdout = w
+	var escaped output
+	caught := make(chan struct{})
+	go func() { _, _ = io.Copy(&escaped, r); close(caught) }()
+	hr, hw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var printed output
 	read := make(chan struct{})
-	go func() { _, _ = io.Copy(&printed, r); close(read) }()
+	go func() { _, _ = io.Copy(&printed, hr); close(read) }()
+	var called output
 	hosted := make(chan error, 1)
 	go func() {
 		c := north.a.peerCmd()
 		c.SetArgs(append([]string{"pair"}, host...))
+		c.SetOut(hw)
+		c.SetErr(errs)
 		c.SilenceUsage, c.SilenceErrors = true, true
 		hosted <- c.Execute()
 	}()
@@ -90,6 +101,8 @@ func pairBoth(t *testing.T, north, laptop *cliYard, host []string, call func(add
 		north.lastCommand = m[0]
 		c := laptop.a.peerCmd()
 		c.SetArgs(append([]string{"pair"}, call(m[1], m[2])...))
+		c.SetOut(&called)
+		c.SetErr(errs)
 		c.SilenceUsage, c.SilenceErrors = true, true
 		callErr = c.Execute()
 	}
@@ -103,22 +116,23 @@ func pairBoth(t *testing.T, north, laptop *cliYard, host []string, call func(add
 	}
 	os.Stdout = old
 	w.Close()
+	hw.Close()
+	<-caught
 	<-read
+	if got := escaped.String(); got != "" {
+		t.Errorf("pair wrote outside its commands' writers:\n%s", got)
+	}
 	if m == nil && hostErr == nil {
 		t.Fatalf("the host showed no code:\n%s", printed.String())
 	}
-	return printed.String(), hostErr, callErr
+	return printed.String() + called.String(), hostErr, callErr
 }
 
-// bothStderr collects what the two commands, which run at once, write to
-// stderr.
+// bothStderr is what the two commands, which run at once, write to stderr:
+// pairBoth hands it to each as its error stream.
 func bothStderr(t *testing.T) *output {
 	t.Helper()
-	var errs output
-	old := stderr
-	stderr = &errs
-	t.Cleanup(func() { stderr = old })
-	return &errs
+	return &output{}
 }
 
 func withCode(extra ...string) func(addr, code string) []string {
@@ -160,7 +174,7 @@ func TestPeerPair(t *testing.T) {
 	north, laptop := pairYards(t)
 	setInteractive(t, false)
 	errs := bothStderr(t)
-	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms"}, withCode("--yes"))
+	out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms"}, withCode("--yes"))
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 	}
@@ -235,7 +249,7 @@ func TestPeerPairExposesFromFlag(t *testing.T) {
 		t.Fatalf("invalid --expose: %v", err)
 	}
 	setInteractive(t, false)
-	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--expose", "yardmaster"}, withCode("--yes"))
+	out, hostErr, callErr := pairBoth(t, north, laptop, bothStderr(t), []string{"--yes", "--timeout", "50ms", "--expose", "yardmaster"}, withCode("--yes"))
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 	}
@@ -250,7 +264,7 @@ func TestPeerPairExposesFromFlag(t *testing.T) {
 // result. The names given with --name are the ones saved.
 func TestPeerPairJSON(t *testing.T) {
 	north, laptop := pairYards(t)
-	bothStderr(t)
+	errs := bothStderr(t)
 	north.a.json, laptop.a.json = true, true
 	// The code is read from the first document as a script would read it.
 	var out string
@@ -259,7 +273,7 @@ func TestPeerPairJSON(t *testing.T) {
 		old := pairCommand
 		pairCommand = regexp.MustCompile(`"command": "yardr peer pair (http://\S+) ([0-9A-Z]{4}-[0-9A-Z]{4})"`)
 		defer func() { pairCommand = old }()
-		out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--name", "jos-laptop"}, withCode("--yes", "--name", "the-north"))
+		out, hostErr, callErr = pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms", "--name", "jos-laptop"}, withCode("--yes", "--name", "the-north"))
 	}()
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
@@ -335,7 +349,7 @@ func TestPeerPairDeclined(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			north, laptop := pairYards(t)
 			setInteractive(t, true)
-			bothStderr(t)
+			errs := bothStderr(t)
 			var asked []string
 			var mu sync.Mutex
 			old := askCheck
@@ -348,7 +362,7 @@ func TestPeerPairDeclined(t *testing.T) {
 			t.Cleanup(func() { askCheck = old })
 
 			// A flag makes it the command: bare in a terminal it is the form.
-			out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--timeout", "50ms"}, withCode())
+			out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--timeout", "50ms"}, withCode())
 			if hostErr == nil || callErr == nil || !strings.HasSuffix(hostErr.Error(), nothingSaved) || !strings.HasSuffix(callErr.Error(), nothingSaved) {
 				t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 			}
@@ -380,7 +394,7 @@ func TestPeerPairDeclined(t *testing.T) {
 func TestPeerPairAPeerAlready(t *testing.T) {
 	north, laptop := pairYards(t)
 	setInteractive(t, true)
-	bothStderr(t)
+	errs := bothStderr(t)
 	// Both yards ask from their own goroutine (pairBoth), so the count is atomic.
 	var asked atomic.Int32
 	old := askCheck
@@ -401,13 +415,15 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	// asked nothing, its pairing stays open, and the code is still good.
 	var again string
 	var againErr error
-	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--timeout", "50ms"}, withCode(), func() {
+	out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--timeout", "50ms"}, withCode(), func() {
 		if p, err := north.st.GetPairing(ctx, ""); err != nil || p.State != store.PairOpened || p.Tries != 0 {
 			t.Errorf("north's pairing after the refused call = %+v, %v", p, err)
 		}
 		m := pairCommand.FindStringSubmatch(north.lastCommand)
 		c := laptop.a.peerCmd()
 		c.SetArgs([]string{"pair", m[1], m[2], "--name", "the-north"})
+		c.SetOut(io.Discard)
+		c.SetErr(errs)
 		c.SilenceUsage, c.SilenceErrors = true, true
 		againErr = c.Execute()
 		again = "ran"
@@ -432,7 +448,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if _, err := north.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: inv.Key}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--timeout", "50ms"}, withCode())
+	out, hostErr, callErr = pairBoth(t, north, laptop, errs, []string{"--timeout", "50ms"}, withCode())
 	if hostErr == nil || !strings.Contains(hostErr.Error(), "peer laptop is added already; to replace it, remove it first") {
 		t.Fatalf("the host = %v\n%s", hostErr, out)
 	}
@@ -454,7 +470,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 func TestPeerPairCallFails(t *testing.T) {
 	north, laptop := pairYards(t)
 	setInteractive(t, true)
-	bothStderr(t)
+	errs := bothStderr(t)
 
 	if _, err := laptop.peer(t, "pair", north.srv.URL, "K7QM-2XPD"); err == nil || !strings.Contains(err.Error(), "has no pairing open") {
 		t.Errorf("a call with no pairing open = %v", err)
@@ -477,7 +493,7 @@ func TestPeerPairCallFails(t *testing.T) {
 	wantText(t, err.Error(), "connection refused\nIf a yard runs there, its listener may be on that machine only (127.0.0.1)", listenerOnTheOtherYard)
 
 	// A wrong code: the caller is told, and so is the host, which counts.
-	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes"}, func(addr, code string) []string {
+	out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--yes"}, func(addr, code string) []string {
 		wrong := "0000-0000"
 		if code == wrong {
 			wrong = "1111-1111"
@@ -514,7 +530,6 @@ const listenerOnTheOtherYard = "On that yard: `yardr doctor` says what the serve
 func TestPeerPairCallNotAnswered(t *testing.T) {
 	_, laptop := pairYards(t)
 	setInteractive(t, true)
-	bothStderr(t)
 	// A listener that takes the connection and never answers.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -564,7 +579,7 @@ func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 	}
 	const warning = "which only this machine can reach, and the other yard is told to call "
 
-	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 	}
@@ -582,7 +597,7 @@ func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 
 	// The address from the variable: the setting would change nothing.
 	said(t, north.a.cfg, hooks.Listener{Addr: listens, From: hooks.FromVariable})
-	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	out, hostErr, callErr = pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 	}
@@ -598,7 +613,7 @@ func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 		"a listener on another address": {"10.0.0.5:" + port, off},
 	} {
 		said(t, north.a.cfg, hooks.Listener{Addr: tc.listener, From: hooks.FromSetting})
-		out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", tc.url}, real)
+		out, hostErr, callErr = pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms", "--url", tc.url}, real)
 		if hostErr != nil || callErr != nil {
 			t.Fatalf("%s: host: %v\ncaller: %v\n%s", name, hostErr, callErr, out)
 		}
@@ -614,7 +629,7 @@ func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 	old := pairCommand
 	pairCommand = regexp.MustCompile(`"command": "yardr peer pair (http://\S+) ([0-9A-Z]{4}-[0-9A-Z]{4})"`)
 	defer func() { pairCommand = old }()
-	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	out, hostErr, callErr = pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 	}

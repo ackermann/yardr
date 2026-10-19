@@ -76,17 +76,17 @@ var restartServer = func(ctx context.Context, cfg *config.Config) error {
 // pairForm links this yard with another as a form. An operator who leaves
 // it, or says no to the check, has saved nothing, and is told so: that is
 // no failure of the command.
-func (a *app) pairForm(w io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
+func (a *app) pairForm(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
 	// Ctrl+C while the form waits for the other yard ends the pairing, as
 	// it does for the command.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	yardr := yardrAt(cfg.Home)
-	fmt.Print("\nLinking this yard with another\n\n" +
-		"Two linked yards send each other messages: a ping, which shows the other is there, and mail\n" +
-		"between their crew (the agents that live in a yard, such as the yardmaster). They share nothing\n" +
-		"else, and each operator decides what their own yard takes.\n\n" +
-		"You and the other yard's operator each run this form. One of you shows a code and reads it to\n" +
+	fmt.Fprint(w, "\nLinking this yard with another\n\n"+
+		"Two linked yards send each other messages: a ping, which shows the other is there, and mail\n"+
+		"between their crew (the agents that live in a yard, such as the yardmaster). They share nothing\n"+
+		"else, and each operator decides what their own yard takes.\n\n"+
+		"You and the other yard's operator each run this form. One of you shows a code and reads it to\n"+
 		"the other, who enters it.\n\n")
 	way := pairShow
 	err := ask(huh.NewSelect[string]().Key("pair_way").Title("Show a code, or enter one?").
@@ -99,17 +99,17 @@ func (a *app) pairForm(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	for err == nil && way != "" {
 		opt := pairOpts{timeout: pairFormPing, form: &pairChoice{}}
 		if way == pairShow {
-			way, err = a.formShow(w, ctx, cfg, st, opt)
+			way, err = a.formShow(w, warn, ctx, cfg, st, opt)
 		} else {
-			way, err = "", a.formEnter(w, ctx, cfg, st, opt)
+			way, err = "", a.formEnter(w, warn, ctx, cfg, st, opt)
 		}
 	}
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
-		fmt.Printf("\nLeft before the yards were linked: nothing was saved. `%s peer pair` starts again.\n", yardr)
+		fmt.Fprintf(w, "\nLeft before the yards were linked: nothing was saved. `%s peer pair` starts again.\n", yardr)
 		return nil
 	case errors.Is(err, errSaidNo):
-		fmt.Printf("\nYou said no, so nothing was saved, on this yard or on the other. `%s peer pair` starts again.\n", yardr)
+		fmt.Fprintf(w, "\nYou said no, so nothing was saved, on this yard or on the other. `%s peer pair` starts again.\n", yardr)
 		return nil
 	}
 	return err
@@ -118,22 +118,22 @@ func (a *app) pairForm(w io.Writer, ctx context.Context, cfg *config.Config, st 
 // formShow is the way of the yard that shows the code: it is called, so it
 // is first made sure that it can be. It returns the way to go on with when
 // the operator chose the other one.
-func (a *app) formShow(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) (string, error) {
+func (a *app) formShow(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) (string, error) {
 	for {
 		can, why := callable(ctx, cfg, st)
 		if can {
 			break
 		}
-		next, err := a.askListener(ctx, cfg, st, why)
+		next, err := a.askListener(w, ctx, cfg, st, why)
 		if err != nil || next != pairShow {
 			return next, err
 		}
 	}
 	var err error
-	if opt.url, err = formURL(cfg); err != nil {
+	if opt.url, err = formURL(w, cfg); err != nil {
 		return "", err
 	}
-	return "", a.pairHost(w, ctx, cfg, st, opt)
+	return "", a.pairHost(w, warn, ctx, cfg, st, opt)
 }
 
 // callable reports whether another yard can call this one: the server says
@@ -166,9 +166,9 @@ func dialable(addr string) string {
 // askListener says that this yard cannot be called and what that takes, and
 // asks how to go on: set the address and restart the server, go the other
 // way round, or stop. It returns the way to go on with, "" for none.
-func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API, why string) (string, error) {
+func (a *app) askListener(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, why string) (string, error) {
 	yardr := yardrAt(cfg.Home)
-	fmt.Printf("\nThis yard cannot be called yet. To show a code it has to take the other yard's call, on an\n"+
+	fmt.Fprintf(w, "\nThis yard cannot be called yet. To show a code it has to take the other yard's call, on an\n"+
 		"address of this machine that the other yard can reach. As it is now:\n\n  %s\n\n", why)
 	l, known := hooks.ReadListener(cfg)
 	var opts []huh.Option[string]
@@ -191,7 +191,7 @@ func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API,
 	case listenOther:
 		return pairEnter, nil
 	case listenStop:
-		fmt.Printf("\nStopped: nothing was changed. `%s peer pair` starts again.\n", yardr)
+		fmt.Fprintf(w, "\nStopped: nothing was changed. `%s peer pair` starts again.\n", yardr)
 		return "", nil
 	}
 	all, err := st.Settings(ctx)
@@ -217,13 +217,13 @@ func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API,
 		return "", err
 	}
 	if !restart {
-		fmt.Printf("\nNothing was changed. `%s peer pair` starts again.\n", yardr)
+		fmt.Fprintf(w, "\nNothing was changed. `%s peer pair` starts again.\n", yardr)
 		return "", nil
 	}
 	if err := st.SetSetting(ctx, hooks.FromSetting, addr, a.who()); err != nil {
 		return "", err
 	}
-	fmt.Printf("\nThe address is saved (hook_addr = %s). Restarting the server.\n", addr)
+	fmt.Fprintf(w, "\nThe address is saved (hook_addr = %s). Restarting the server.\n", addr)
 	if err := restartServer(ctx, cfg); err != nil {
 		return "", fmt.Errorf("restarting the server: %w", err)
 	}
@@ -231,7 +231,7 @@ func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API,
 	// follows reads that.
 	for deadline := time.Now().Add(listenWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if can, _ := callable(ctx, cfg, st); can {
-			fmt.Println("The server is back, and takes calls there.")
+			fmt.Fprintln(w, "The server is back, and takes calls there.")
 			break
 		}
 	}
@@ -241,11 +241,11 @@ func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API,
 // formURL is where the other yard reaches this one: the listener's own
 // address, or, for a listener on every address of the machine, the one the
 // operator names.
-func formURL(cfg *config.Config) (string, error) {
+func formURL(w io.Writer, cfg *config.Config) (string, error) {
 	l, _ := hooks.ReadListener(cfg)
 	if u, err := listenerURL(cfg); err == nil {
 		if onLoopback(l.Addr) {
-			fmt.Printf("\nThis yard takes calls on %s, which only a yard on this same machine can reach.\n", l.Addr)
+			fmt.Fprintf(w, "\nThis yard takes calls on %s, which only a yard on this same machine can reach.\n", l.Addr)
 		}
 		return u, nil
 	}
@@ -277,8 +277,8 @@ func isLoopback(host string) bool {
 }
 
 // showCode shows the open pairing's code and the address to give with it.
-func showCode(addr, code string, expires time.Time) {
-	fmt.Printf("\n  The code      %s\n  The address   %s\n\n"+
+func showCode(w io.Writer, addr, code string, expires time.Time) {
+	fmt.Fprintf(w, "\n  The code      %s\n  The address   %s\n\n"+
 		"Read both to the other yard's operator. There, `yardr peer pair` asks for them under\n"+
 		"\"Enter a code\". The code is good for %s, until %s, and for one yard.\n\n"+
 		"Waiting for the other yard to call. Ctrl+C ends this, and the code with it.\n",
@@ -288,8 +288,8 @@ func showCode(addr, code string, expires time.Time) {
 // formEnter is the way of the yard that calls: it asks for the address and
 // the code the other screen shows, and asks again after a call that got no
 // pairing (a wrong code, no yard at the address).
-func (a *app) formEnter(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
-	fmt.Print("\nOn the other yard, its operator runs `yardr peer pair` and picks \"Show a code\". Their screen\n" +
+func (a *app) formEnter(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
+	fmt.Fprint(w, "\nOn the other yard, its operator runs `yardr peer pair` and picks \"Show a code\". Their screen\n"+
 		"then shows a code and an address.\n\n")
 	var addr, code string
 	for {
@@ -310,13 +310,13 @@ func (a *app) formEnter(w io.Writer, ctx context.Context, cfg *config.Config, st
 		); err != nil {
 			return err
 		}
-		fmt.Println("\nCalling the other yard.")
-		err := a.pairJoin(w, ctx, cfg, st, strings.TrimSpace(addr), code, opt)
+		fmt.Fprintln(w, "\nCalling the other yard.")
+		err := a.pairJoin(w, warn, ctx, cfg, st, strings.TrimSpace(addr), code, opt)
 		var no notCalled
 		if !errors.As(err, &no) {
 			return err
 		}
-		fmt.Printf("\nThe call did not go through: %v\n\n", err)
+		fmt.Fprintf(w, "\nThe call did not go through: %v\n\n", err)
 		again := true
 		if err := ask(huh.NewConfirm().Key("pair_again").Title("Try again?").
 			Description("With the address and the code as the other screen shows them now.").
@@ -368,8 +368,8 @@ func large(check string) string {
 
 // askSame shows the check large, with what the other yard calls itself,
 // and asks the one question both operators answer. Leaving it is a no.
-func askSame(calls, check string) (bool, error) {
-	fmt.Printf("\nThe two yards have reached each other. The other one calls itself %s.\n"+
+func askSame(w io.Writer, calls, check string) (bool, error) {
+	fmt.Fprintf(w, "\nThe two yards have reached each other. The other one calls itself %s.\n"+
 		"Both screens now show a number. This one's:\n\n%s\n    %s\n\n", calls, large(check), check)
 	same := false
 	err := ask(huh.NewConfirm().Key("pair_same").Title("Does the other screen show the same?").
@@ -428,7 +428,7 @@ func exposables(ctx context.Context, st store.API) (opts []huh.Option[string], t
 // can be a peer's here. ping is ticked and stays: the pong that proves the
 // link is a ping too. file starts unticked, since it lets another yard's
 // bytes land on this one's disk, and goes only with mail, which carries it.
-func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string, free func(name string) error) (string, error) {
+func (f *pairChoice) ask(w io.Writer, calls string, who []huh.Option[string], ticked []string, free func(name string) error) (string, error) {
 	carry, name, expose := []string{store.PeerPing, store.PeerMail}, calls, slices.Clone(ticked)
 	fields := []huh.Field{
 		// The value before the options: they are ticked from it.
@@ -477,7 +477,7 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 	if !f.mail && len(f.expose) > 0 {
 		// The two grants are apart (exposeNote): said before anything is
 		// saved, in the form's words.
-		fmt.Printf("\nMail is not ticked, so %s will be listed to %s as taking no mail: it sees them here, and cannot\n"+
+		fmt.Fprintf(w, "\nMail is not ticked, so %s will be listed to %s as taking no mail: it sees them here, and cannot\n"+
 			"write to them.\n", strings.Join(f.expose, ", "), calls)
 	}
 	return strings.TrimSpace(name), nil
@@ -513,7 +513,7 @@ func trustables(ctx context.Context, st store.API, peer string) (opts []huh.Opti
 // nobody it exposes has the name of a user here, the form does not ask and
 // says what does it later. Leaving the question trusts nobody: the link is
 // saved either way.
-func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, peer string, proved bool) error {
+func (a *app) askTrust(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, peer string, proved bool) error {
 	var who []huh.Option[string]
 	why := fmt.Sprintf("Whom %s exposes is not known yet", peer)
 	if proved {
@@ -527,7 +527,7 @@ func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, pe
 	}
 	later := fmt.Sprintf("`%s peer allow %s --trust <name>@%s=<user>`", yardrAt(cfg.Home), peer, peer)
 	if len(who) == 0 {
-		fmt.Printf("\nMail from a name on %s can count as a person of this yard speaking, for someone who works in both.\n"+
+		fmt.Fprintf(w, "\nMail from a name on %s can count as a person of this yard speaking, for someone who works in both.\n"+
 			"%s, so the form does not ask: %s does it later\n"+
 			"(docs/peers.md, \"Trusting a name as a person of this yard\").\n", peer, why, later)
 		return nil
@@ -546,7 +546,7 @@ func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, pe
 		return err
 	}
 	if len(trust) == 0 {
-		fmt.Printf("\nNo name on %s is trusted as a person of this yard: %s does it later.\n", peer, later)
+		fmt.Fprintf(w, "\nNo name on %s is trusted as a person of this yard: %s does it later.\n", peer, later)
 		return nil
 	}
 	grant := map[string]string{}
@@ -557,11 +557,11 @@ func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, pe
 	if err != nil {
 		return fmt.Errorf("the yards are linked, and the names you ticked could not be trusted on the link: %w", err)
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	for _, t := range now.Trusted() {
-		fmt.Printf("Mail from %s counts as %s of this yard speaking.\n", t.Address(), t.As)
+		fmt.Fprintf(w, "Mail from %s counts as %s of this yard speaking.\n", t.Address(), t.As)
 	}
-	return a.askReach(ctx, cfg, st, peer, trust)
+	return a.askReach(w, ctx, cfg, st, peer, trust)
 }
 
 // askReach asks, of the names just trusted, to which of them the asks for
@@ -569,7 +569,7 @@ func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, pe
 // nothing being ticked before. It is a second grant and its own question:
 // trust is about whose word comes in, and this sends every question put to
 // the person here out to the other yard. Leaving it sends nothing.
-func (a *app) askReach(ctx context.Context, cfg *config.Config, st store.API, peer string, trusted []string) error {
+func (a *app) askReach(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, peer string, trusted []string) error {
 	var who []huh.Option[string]
 	for _, u := range trusted {
 		who = append(who, huh.NewOption(fmt.Sprintf("%s  (asks for %s are also sent to %s@%s)", u, u, u, peer), u))
@@ -590,7 +590,7 @@ func (a *app) askReach(ctx context.Context, cfg *config.Config, st store.API, pe
 		return err
 	}
 	if len(reach) == 0 {
-		fmt.Printf("No ask for a person of this yard is sent to %s: %s does it later.\n", peer, later)
+		fmt.Fprintf(w, "No ask for a person of this yard is sent to %s: %s does it later.\n", peer, later)
 		return nil
 	}
 	grant := map[string]string{}
@@ -602,7 +602,7 @@ func (a *app) askReach(ctx context.Context, cfg *config.Config, st store.API, pe
 		return fmt.Errorf("the yards are linked and the names trusted, and the asks for those you ticked could not be sent on the link: %w", err)
 	}
 	for _, line := range reachLines(*now) {
-		fmt.Println("Reach: " + line)
+		fmt.Fprintln(w, "Reach: "+line)
 	}
 	return nil
 }
@@ -611,12 +611,12 @@ func (a *app) askReach(ctx context.Context, cfg *config.Config, st store.API, pe
 // its operator has said yes to the check, and gives the pairing the name
 // they chose. It reports false when the operator left the questions, which
 // is a no to the pairing.
-func (a *app) hostChoice(ctx context.Context, st store.API, p *store.Pairing, f *pairChoice) (bool, error) {
+func (a *app) hostChoice(w io.Writer, ctx context.Context, st store.API, p *store.Pairing, f *pairChoice) (bool, error) {
 	who, ticked, err := exposables(ctx, st)
 	if err != nil {
 		return false, err
 	}
-	name, err := f.ask(p.Calls, who, ticked, func(name string) error {
+	name, err := f.ask(w, p.Calls, who, ticked, func(name string) error {
 		if name == p.Peer {
 			return nil // the pairing holds it already
 		}
@@ -643,7 +643,7 @@ func (a *app) hostChoice(ctx context.Context, st store.API, p *store.Pairing, f 
 // ping, asks whom of the other yard to trust as a person of this one
 // (askTrust), and says how to use, see and remove it. No pong is said, with what is known of
 // why, and is no failure: the link is saved.
-func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p *store.Peer, opt pairOpts) error {
+func (a *app) formDone(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, p *store.Peer, opt pairOpts) error {
 	yardr, carries := yardrAt(cfg.Home), "ping"
 	ch := store.PeerAllow{Expose: opt.form.expose}
 	if opt.form.mail {
@@ -659,14 +659,14 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 			return fmt.Errorf("the yards are linked, and what you ticked could not be allowed on the link: %w", err)
 		}
 	}
-	fmt.Printf("\nThe two yards are linked. This one knows the other as %s, and the link carries %s, each way.\n", p.Name, carries)
+	fmt.Fprintf(w, "\nThe two yards are linked. This one knows the other as %s, and the link carries %s, each way.\n", p.Name, carries)
 	switch who := strings.Join(opt.form.expose, ", "); {
 	case who == "":
-		fmt.Printf("%s sees nobody of this yard and can write to no one here: `%s peer allow %s --expose <crew member or user>`.\n", p.Name, yardr, p.Name)
+		fmt.Fprintf(w, "%s sees nobody of this yard and can write to no one here: `%s peer allow %s --expose <crew member or user>`.\n", p.Name, yardr, p.Name)
 	case opt.form.mail:
-		fmt.Printf("%s may write to: %s.\n", p.Name, who)
+		fmt.Fprintf(w, "%s may write to: %s.\n", p.Name, who)
 	default:
-		fmt.Printf("%s sees %s, and cannot write to them: the link carries no mail (`%s peer allow %s --send mail --receive mail`).\n", p.Name, who, yardr, p.Name)
+		fmt.Fprintf(w, "%s sees %s, and cannot write to them: the link carries no mail (`%s peer allow %s --send mail --receive mail`).\n", p.Name, who, yardr, p.Name)
 	}
 	var noPong string
 	proved := false
@@ -674,32 +674,32 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 		// Known now: not worth the wait for a pong that cannot come.
 		noPong = fmt.Sprintf("no daemon runs on this yard, and the daemon is what carries messages: `%s init --start` starts it", yardr)
 	} else {
-		fmt.Printf("Asking %s whether it is there (up to %s: its operator may still be answering).\n", p.Name, strings.TrimSuffix(opt.timeout.String(), "0s"))
+		fmt.Fprintf(w, "Asking %s whether it is there (up to %s: its operator may still be answering).\n", p.Name, strings.TrimSuffix(opt.timeout.String(), "0s"))
 		if got, err := a.ping(ctx, cfg, st, p.Name, opt.timeout); err != nil {
 			noPong = err.Error()
 		} else {
-			fmt.Printf("%s answered in %s: the link works.\n", p.Name, got.Took.Round(time.Millisecond))
+			fmt.Fprintf(w, "%s answered in %s: the link works.\n", p.Name, got.Took.Round(time.Millisecond))
 			proved = true
 		}
 	}
 	if noPong != "" {
-		fmt.Printf("The link is saved, and not proved yet: %s\n`%s peer ping %s` asks again.\n", noPong, yardr, p.Name)
+		fmt.Fprintf(w, "The link is saved, and not proved yet: %s\n`%s peer ping %s` asks again.\n", noPong, yardr, p.Name)
 	}
 	if opt.form.mail {
 		// Trust is about mail that comes: a link without mail has none.
-		if err := a.askTrust(ctx, cfg, st, p.Name, proved); err != nil {
+		if err := a.askTrust(w, ctx, cfg, st, p.Name, proved); err != nil {
 			return err
 		}
 	}
 	if opt.form.mail {
-		fmt.Printf("\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+
+		fmt.Fprintf(w, "\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+
 			"It arrives if the other operator ticked mail too, and their yardmaster as one this yard may write\n"+
 			"to. A crew member of this yard may write there once you have allowed it that yard by name:\n"+
 			"docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
 	}
 	if opt.form.file {
-		fmt.Printf("\nAny file goes with the mail (`--file <path>`), once the other operator ticked file too.\n")
+		fmt.Fprintf(w, "\nAny file goes with the mail (`--file <path>`), once the other operator ticked file too.\n")
 	}
-	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
+	fmt.Fprintf(w, "\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil
 }

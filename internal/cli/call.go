@@ -112,11 +112,11 @@ update marked (update).`,
 				return a.out(c.OutOrStdout(), may, func(w io.Writer) {
 					switch {
 					case may.Refused != "":
-						fmt.Printf("%s may make no call: %s\n", may.Caller, may.Refused)
+						fmt.Fprintf(w, "%s may make no call: %s\n", may.Caller, may.Refused)
 					case len(may.Calls) == 0:
-						fmt.Printf("%s is granted no call of a source (the operator grants one: yardr source grant)\n", may.Caller)
+						fmt.Fprintf(w, "%s is granted no call of a source (the operator grants one: yardr source grant)\n", may.Caller)
 					default:
-						fmt.Printf("%s may call:\n", may.Caller)
+						fmt.Fprintf(w, "%s may call:\n", may.Caller)
 						printCallables(w, "  ", may.Calls)
 					}
 				})
@@ -148,25 +148,25 @@ update marked (update).`,
 			}
 			if a.json {
 				if len(res.Answer) > 0 {
-					if _, err := fmt.Println(string(res.Answer)); err != nil {
+					if _, err := fmt.Fprintln(c.OutOrStdout(), string(res.Answer)); err != nil {
 						return err
 					}
 				}
 				return notNoted
 			}
-			fmt.Println(res.Marking)
+			fmt.Fprintln(c.OutOrStdout(), res.Marking)
 			if len(res.Answer) == 0 {
-				fmt.Printf("(%d, and nothing in the answer)\n", res.Status)
+				fmt.Fprintf(c.OutOrStdout(), "(%d, and nothing in the answer)\n", res.Status)
 			} else {
 				var pretty bytes.Buffer
 				if json.Indent(&pretty, res.Answer, "", "  ") != nil {
 					pretty.Reset()
 					pretty.Write(res.Answer)
 				}
-				fmt.Println(pretty.String())
+				fmt.Fprintln(c.OutOrStdout(), pretty.String())
 			}
 			if res.Noted != "" {
-				fmt.Printf("noted on %s\n", res.Noted)
+				fmt.Fprintf(c.OutOrStdout(), "noted on %s\n", res.Noted)
 			}
 			return notNoted
 		},

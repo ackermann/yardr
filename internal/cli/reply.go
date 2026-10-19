@@ -244,7 +244,7 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 					if already {
 						fmt.Fprintf(c.ErrOrStderr(), "already posted as %s; not posted again\n", printable(m.URL))
 					}
-					fmt.Println(printable(m.URL))
+					fmt.Fprintln(w, printable(m.URL))
 				})
 		},
 	}
@@ -305,7 +305,7 @@ func (a *app) replyPeer(c *cobra.Command, st store.API, bead, crew string, text 
 	}
 	queued := map[string]any{"source": store.SourcePeer, "bead": n.Bead, "peer": n.Peer, "theirs": n.Theirs, "by": who, "id": n.ID, "sent": "queued"}
 	return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
-		fmt.Printf("note for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", on, n.Peer)
+		fmt.Fprintf(w, "note for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", on, n.Peer)
 	})
 }
 
@@ -345,7 +345,7 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 		}
 		queued := map[string]any{"seq": seq, "crew": name, "to": from, "peer": peer, "id": m.ID, "sent": "queued"}
 		return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
-			fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
+			fmt.Fprintf(w, "mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
 		})
 	}
 	from := e.Actor
@@ -365,9 +365,9 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 	}
 	return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 		if mails > 1 {
-			fmt.Printf("%d mails sent to %s\n", mails, from)
+			fmt.Fprintf(w, "%d mails sent to %s\n", mails, from)
 		} else {
-			fmt.Println("mail sent to " + from)
+			fmt.Fprintln(w, "mail sent to "+from)
 		}
 	})
 }
@@ -456,29 +456,29 @@ peers setting, a person needs nothing, and a bead's agent is refused.`,
 				ms = []hooks.Message{}
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "source": env.Source, "thread": env.Thread, "message": env.Message, "messages": ms}, func(w io.Writer) {
-				fmt.Printf("%s thread %s", env.Source, printable(env.Thread.ID))
+				fmt.Fprintf(w, "%s thread %s", env.Source, printable(env.Thread.ID))
 				if env.Thread.Title != "" {
-					fmt.Printf(" %q", printable(env.Thread.Title))
+					fmt.Fprintf(w, " %q", printable(env.Thread.Title))
 				}
 				if env.Thread.URL != "" {
-					fmt.Printf("  %s", printable(env.Thread.URL))
+					fmt.Fprintf(w, "  %s", printable(env.Thread.URL))
 				}
-				fmt.Printf("\n%d message(s)\n", len(ms))
+				fmt.Fprintf(w, "\n%d message(s)\n", len(ms))
 				for _, m := range ms {
 					mark := " "
 					if m.ID == env.Message || env.Message == "" && delivered(env, m) {
 						mark = "*"
 					}
-					fmt.Printf("\n%s %s  %s  %s", mark, m.ID, m.At.Local().Format("2006-01-02 15:04"), or(m.Author.Name, "-"))
+					fmt.Fprintf(w, "\n%s %s  %s  %s", mark, m.ID, m.At.Local().Format("2006-01-02 15:04"), or(m.Author.Name, "-"))
 					if m.Author.ID != "" && m.Author.ID != m.Author.Name {
-						fmt.Printf(" (%s)", m.Author.ID)
+						fmt.Fprintf(w, " (%s)", m.Author.ID)
 					}
 					if m.Parent != "" {
-						fmt.Printf("  reply to %s", m.Parent)
+						fmt.Fprintf(w, "  reply to %s", m.Parent)
 					}
-					fmt.Println()
+					fmt.Fprintln(w)
 					for _, line := range strings.Split(strings.TrimRight(m.Body, "\n"), "\n") {
-						fmt.Println("    " + line)
+						fmt.Fprintln(w, "    "+line)
 					}
 				}
 			})
@@ -553,21 +553,21 @@ waiting:
 	return a.out(w, map[string]any{"source": store.SourcePeer, "bead": got.Bead, "title": got.Title, "peer": got.Peer, "id": asked.ID,
 		"answered": fresh, "heard_at": got.HeardAt, "answer": ans}, func(w io.Writer) {
 		if !fresh {
-			fmt.Printf("%s. What it said last, %s:\n", unanswered, ans.At.Local().Format("01-02 15:04"))
+			fmt.Fprintf(w, "%s. What it said last, %s:\n", unanswered, ans.At.Local().Format("01-02 15:04"))
 		}
 		held := ""
 		if ans.Held {
 			held = ", held"
 		}
-		fmt.Printf("peer thread %s %q: at %s as %s, in the stage %s%s. As %s said %s.\n", got.Bead, got.Title, got.Peer, ans.Bead, ans.Stage, held,
+		fmt.Fprintf(w, "peer thread %s %q: at %s as %s, in the stage %s%s. As %s said %s.\n", got.Bead, got.Title, got.Peer, ans.Bead, ans.Stage, held,
 			got.Peer, ans.At.Local().Format("01-02 15:04"))
 		if len(ans.Notes) == 0 && ans.NotesLeftOut == 0 {
-			fmt.Printf("Nothing has been written on it in the yard %s.\n", got.Peer)
+			fmt.Fprintf(w, "Nothing has been written on it in the yard %s.\n", got.Peer)
 			return
 		}
-		fmt.Println(store.PeerWritten(got.Peer))
+		fmt.Fprintln(w, store.PeerWritten(got.Peer))
 		if n := ans.NotesLeftOut; n > 0 {
-			fmt.Printf("\n  (%d older note(s) left out: more was written there than crosses a link at once)\n", n)
+			fmt.Fprintf(w, "\n  (%d older note(s) left out: more was written there than crosses a link at once)\n", n)
 		}
 		for _, n := range ans.Notes {
 			// A note someone here wrote there (yardr reply) is theirs.
@@ -575,12 +575,12 @@ waiting:
 			if n.Here {
 				by = n.Author + ", of this yard"
 			}
-			fmt.Printf("\n  %s  %s\n", n.At.Local().Format("01-02 15:04"), by)
+			fmt.Fprintf(w, "\n  %s  %s\n", n.At.Local().Format("01-02 15:04"), by)
 			// The text is another yard's words, as letters only: its notes
 			// carry no files, so a line starting with the mark is forged,
 			// and an escape would draw the mark on a terminal.
 			for _, line := range strings.Split(strings.TrimRight(store.NoteLetters(n.Text), "\n"), "\n") {
-				fmt.Println("    " + line)
+				fmt.Fprintln(w, "    "+line)
 			}
 		}
 	})

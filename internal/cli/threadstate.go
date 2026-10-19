@@ -164,18 +164,18 @@ as none of what it does there does: that takes its identity in the source
 			}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				if res.Instead != "" {
-					fmt.Printf("%s has no %s status here: %s instead\n", source, state, res.Instead)
+					fmt.Fprintf(w, "%s has no %s status here: %s instead\n", source, state, res.Instead)
 				}
 				if !res.Changed {
-					fmt.Printf("%s thread %s was already %s; nothing set\n", source, printable(thread), res.Status)
+					fmt.Fprintf(w, "%s thread %s was already %s; nothing set\n", source, printable(thread), res.Status)
 					return
 				}
 				// A command that does not say what the thread was in, or
 				// a label, has no "(was …)" rather than "(was -)".
 				if res.Was == "" {
-					fmt.Printf("%s thread %s is now %s\n", source, printable(thread), res.Status)
+					fmt.Fprintf(w, "%s thread %s is now %s\n", source, printable(thread), res.Status)
 				} else {
-					fmt.Printf("%s thread %s is now %s (was %s)\n", source, printable(thread), res.Status, res.Was)
+					fmt.Fprintf(w, "%s thread %s is now %s (was %s)\n", source, printable(thread), res.Status, res.Was)
 				}
 				// Its own action is kept from its inbox by its identity in
 				// the source (hookDeliveries); without one the delivery of

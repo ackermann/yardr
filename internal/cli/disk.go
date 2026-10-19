@@ -45,7 +45,7 @@ exits 1 when anything past the rotation failed.`,
 			}
 			if err := a.out(c.OutOrStdout(), rep, func(w io.Writer) {
 				for _, line := range rep.Lines() {
-					fmt.Println(line)
+					fmt.Fprintln(w, line)
 				}
 			}); err != nil {
 				return err

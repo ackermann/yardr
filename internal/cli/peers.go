@@ -82,7 +82,7 @@ every time.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"key": yardkey.Public(k), "file": cfg.PeerKey(), "made": made}, func(w io.Writer) {
-				fmt.Println(yardkey.Public(k))
+				fmt.Fprintln(w, yardkey.Public(k))
 			})
 		},
 	}
@@ -115,9 +115,9 @@ trust to be yours: whoever swaps the key in it is who they link with.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"invite": inv.String(), "name": inv.Name, "key": inv.Key, "url": inv.URL}, func(w io.Writer) {
-				fmt.Println(inv.String())
+				fmt.Fprintln(w, inv.String())
 				if listening, text := receiver(ctx, cfg, st); inv.URL != "" && !listening {
-					fmt.Fprintln(stderr, "note: nothing reaches this yard at that URL yet: "+text)
+					fmt.Fprintln(c.ErrOrStderr(), "note: nothing reaches this yard at that URL yet: "+text)
 				}
 			})
 		},
@@ -156,12 +156,12 @@ remove the peer first to replace it.`,
 			}
 			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				yardr := yardrAt(cfg.Home)
-				fmt.Printf("peer %s added (it calls itself %s)\n", p.Name, p.Calls)
+				fmt.Fprintf(w, "peer %s added (it calls itself %s)\n", p.Name, p.Calls)
 				if p.URL == "" {
-					fmt.Println("it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
+					fmt.Fprintln(w, "it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
 				}
-				fmt.Printf("the link carries nothing yet: %s peer allow %s --send ping --receive ping\n", yardr, p.Name)
-				fmt.Printf("%s adds this yard with the line of: %s peer invite%s\n", p.Name, yardr, map[bool]string{true: " --url <where it reaches this yard>"}[p.URL == ""])
+				fmt.Fprintf(w, "the link carries nothing yet: %s peer allow %s --send ping --receive ping\n", yardr, p.Name)
+				fmt.Fprintf(w, "%s adds this yard with the line of: %s peer invite%s\n", p.Name, yardr, map[bool]string{true: " --url <where it reaches this yard>"}[p.URL == ""])
 			})
 		},
 	}
@@ -186,7 +186,7 @@ remove the peer first to replace it.`,
 					}
 					rows = append(rows, []string{p.Name, or(p.URL, "- (it calls)"), or(strings.Join(p.Send, ","), "-"), or(strings.Join(p.Receive, ","), "-"), out})
 				}
-				table(os.Stdout, "NAME\tURL\tSEND\tRECEIVE\tWAITING", rows)
+				table(w, "NAME\tURL\tSEND\tRECEIVE\tWAITING", rows)
 			})
 		},
 	}
@@ -235,50 +235,50 @@ remove the peer first to replace it.`,
 				rows = append(rows, r)
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"peer": p, "listening": listening, "incoming": in, "waiting": rows}, func(w io.Writer) {
-				fmt.Printf("%s  (it calls itself %s)\n", p.Name, or(p.Calls, "-"))
-				for _, w := range p.Was {
-					fmt.Printf("  was      %s until %s\n", w.Name, w.At.Local().Format("2006-01-02 15:04"))
+				fmt.Fprintf(w, "%s  (it calls itself %s)\n", p.Name, or(p.Calls, "-"))
+				for _, was := range p.Was {
+					fmt.Fprintf(w, "  was      %s until %s\n", was.Name, was.At.Local().Format("2006-01-02 15:04"))
 				}
-				fmt.Printf("  key      %s\n", p.Key)
+				fmt.Fprintf(w, "  key      %s\n", p.Key)
 				if p.URL != "" {
-					fmt.Printf("  url      %s: this yard posts to it and asks it for what waits there\n", p.URL)
+					fmt.Fprintf(w, "  url      %s: this yard posts to it and asks it for what waits there\n", p.URL)
 				} else {
-					fmt.Println("  url      none: this yard never calls it; it calls this one")
+					fmt.Fprintln(w, "  url      none: this yard never calls it; it calls this one")
 				}
-				fmt.Printf("  send     %s\n", or(strings.Join(p.Send, ", "), "nothing"))
-				fmt.Printf("  receive  %s\n", or(strings.Join(p.Receive, ", "), "nothing"))
-				fmt.Printf("  expose   %s\n", exposeLine(*p))
-				fmt.Printf("  mail     %s\n", mailLine(*p, time.Now()))
+				fmt.Fprintf(w, "  send     %s\n", or(strings.Join(p.Send, ", "), "nothing"))
+				fmt.Fprintf(w, "  receive  %s\n", or(strings.Join(p.Receive, ", "), "nothing"))
+				fmt.Fprintf(w, "  expose   %s\n", exposeLine(*p))
+				fmt.Fprintf(w, "  mail     %s\n", mailLine(*p, time.Now()))
 				for i, line := range intakeLines(*p) {
 					if i == 0 {
-						fmt.Printf("  intake   %s\n", line)
+						fmt.Fprintf(w, "  intake   %s\n", line)
 					} else {
-						fmt.Printf("           %s\n", line)
+						fmt.Fprintf(w, "           %s\n", line)
 					}
 				}
 				for _, line := range untoldLines(*p) {
-					fmt.Printf("           %s\n", line)
+					fmt.Fprintf(w, "           %s\n", line)
 				}
 				if p.Build != "" {
-					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
+					fmt.Fprintf(w, "  build    yardr %s, as its last bead said\n", p.Build)
 				}
-				fmt.Println("  " + understandsLine(*p))
+				fmt.Fprintln(w, "  "+understandsLine(*p))
 				if line := exposesLine(*p); line != "" {
-					fmt.Println("  " + line)
+					fmt.Fprintln(w, "  "+line)
 				}
 				if line := trustLine(*p); line != "" {
-					fmt.Println("  trusted as: " + line)
+					fmt.Fprintln(w, "  trusted as: "+line)
 				}
 				for _, line := range reachLines(*p) {
-					fmt.Println("  reach: " + line)
+					fmt.Fprintln(w, "  reach: "+line)
 				}
-				fmt.Printf("  heard    %s\n", store.HeardLine(p.HeardAt))
+				fmt.Fprintf(w, "  heard    %s\n", store.HeardLine(p.HeardAt))
 				if p.Away > 0 {
-					fmt.Printf("  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
+					fmt.Fprintf(w, "  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
 				}
-				fmt.Printf("  incoming %s\n", in)
+				fmt.Fprintf(w, "  incoming %s\n", in)
 				if p.Failed > 0 {
-					fmt.Printf("  %d messages for it were given up (peer_message_failed in yardr events)\n", p.Failed)
+					fmt.Fprintf(w, "  %d messages for it were given up (peer_message_failed in yardr events)\n", p.Failed)
 				}
 				for _, m := range rows {
 					line := fmt.Sprintf("  waiting: %s %s", m.Kind, m.ID)
@@ -288,7 +288,7 @@ remove the peer first to replace it.`,
 					if m.Attempts > 0 {
 						line += fmt.Sprintf("; tried %d times, next at %s: %s", m.Attempts, m.RetryAt.Local().Format("15:04:05"), m.Error)
 					}
-					fmt.Println(line)
+					fmt.Fprintln(w, line)
 				}
 			})
 		},
@@ -310,7 +310,7 @@ open one is still worked or closed here, and nothing is returned for it.`,
 			if err := st.DeletePeer(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]string{"peer": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Printf("%s: removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"peer": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Fprintf(w, "%s: removed\n", args[0]) })
 		},
 	}
 
@@ -361,12 +361,12 @@ already.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"peer": p, "from": args[0], "crew": may}, func(w io.Writer) {
-				fmt.Printf("peer %s is %s now: its crew are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
+				fmt.Fprintf(w, "peer %s is %s now: its crew are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
 				if p.Waiting > 0 {
-					fmt.Printf("%d messages that waited for it still wait, and are delivered\n", p.Waiting)
+					fmt.Fprintf(w, "%d messages that waited for it still wait, and are delivered\n", p.Waiting)
 				}
 				if len(may) > 0 {
-					fmt.Printf("%s may mail it as before, and got mail from the yard that says so\n", strings.Join(may, ", "))
+					fmt.Fprintf(w, "%s may mail it as before, and got mail from the yard that says so\n", strings.Join(may, ", "))
 				}
 			})
 		},
@@ -414,22 +414,22 @@ the peer has already.`,
 			}
 			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				if p.URL == "" {
-					fmt.Printf("peer %s is never called now: it calls this yard and asks for what waits here\n", p.Name)
+					fmt.Fprintf(w, "peer %s is never called now: it calls this yard and asks for what waits here\n", p.Name)
 					if p.Waiting > 0 {
-						fmt.Printf("%d messages that waited for it still wait, and are handed over when it asks\n", p.Waiting)
+						fmt.Fprintf(w, "%d messages that waited for it still wait, and are handed over when it asks\n", p.Waiting)
 					}
 					// What only the peer can do is now all that brings its
 					// messages in and takes this yard's out.
 					listening, text := receiver(ctx, cfg, st)
-					fmt.Printf("incoming %s\n", peerIncoming(*p, listening, text))
+					fmt.Fprintf(w, "incoming %s\n", peerIncoming(*p, listening, text))
 					return
 				}
-				fmt.Printf("peer %s is called at %s now\n", p.Name, p.URL)
+				fmt.Fprintf(w, "peer %s is called at %s now\n", p.Name, p.URL)
 				if p.Waiting > 0 {
-					fmt.Printf("%d messages that waited for it still wait, and are posted there, each at its next try\n", p.Waiting)
+					fmt.Fprintf(w, "%d messages that waited for it still wait, and are posted there, each at its next try\n", p.Waiting)
 				}
 				if !config.DaemonRunning(cfg.DaemonLock()) {
-					fmt.Printf("no daemon runs on this yard, and the daemon is what calls it: %s daemon\n", yardrAt(cfg.Home))
+					fmt.Fprintf(w, "no daemon runs on this yard, and the daemon is what calls it: %s daemon\n", yardrAt(cfg.Home))
 				}
 			})
 		},
@@ -579,7 +579,7 @@ what came in the hour.`,
 			}
 			// To stderr, so --json prints the peer and nothing else.
 			for _, warning := range sendWarnings(*p, ch.Send) {
-				fmt.Fprintln(stderr, "warning: "+warning)
+				fmt.Fprintln(c.ErrOrStderr(), "warning: "+warning)
 			}
 			// Reach copies what is asked from now on: say what it leaves.
 			var stay []string
@@ -603,21 +603,21 @@ what came in the hour.`,
 				}
 			}
 			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
-				fmt.Printf("peer %s: send %s; receive %s; expose %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody"))
+				fmt.Fprintf(w, "peer %s: send %s; receive %s; expose %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody"))
 				if note := exposeNote(*p); note != "" {
-					fmt.Println(note)
+					fmt.Fprintln(w, note)
 				}
 				if line := trustLine(*p); line != "" {
-					fmt.Println("trusted as: " + line)
+					fmt.Fprintln(w, "trusted as: "+line)
 				}
 				for _, line := range reachLines(*p) {
-					fmt.Println("reach: " + line)
+					fmt.Fprintln(w, "reach: "+line)
 				}
 				if ch.MailLimit > 0 {
-					fmt.Println("mail: " + mailLine(*p, time.Now()))
+					fmt.Fprintln(w, "mail: "+mailLine(*p, time.Now()))
 				}
 				for _, line := range stay {
-					fmt.Println(line)
+					fmt.Fprintln(w, line)
 				}
 			})
 		},
@@ -657,7 +657,7 @@ both yards must allow ping both ways.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				fmt.Printf("pong from %s in %s: the ping went by %s, the pong came by %s\n", res.Peer, res.Took.Round(time.Millisecond), res.Out, res.Back)
+				fmt.Fprintf(w, "pong from %s in %s: the ping went by %s, the pong came by %s\n", res.Peer, res.Took.Round(time.Millisecond), res.Out, res.Back)
 			})
 		},
 	}
@@ -744,9 +744,9 @@ the flow does not resolve for it.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), p, func(w io.Writer) {
-					fmt.Printf("peer %s: removed the intake for depot %s\n", p.Name, in.Depot)
+					fmt.Fprintf(w, "peer %s: removed the intake for depot %s\n", p.Name, in.Depot)
 					for _, line := range untoldLines(*p) {
-						fmt.Println(line)
+						fmt.Fprintln(w, line)
 					}
 				})
 			}
@@ -760,7 +760,7 @@ the flow does not resolve for it.`,
 			}
 			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				if len(p.Intakes) == 0 {
-					fmt.Printf("peer %s: no intake; a bead it sends is refused\n", p.Name)
+					fmt.Fprintf(w, "peer %s: no intake; a bead it sends is refused\n", p.Name)
 					return
 				}
 				var have store.PeerIntake
@@ -769,16 +769,16 @@ the flow does not resolve for it.`,
 						have = in
 					}
 				}
-				fmt.Printf("peer %s: %s\n", p.Name, intakeLineFor(*p, have))
+				fmt.Fprintf(w, "peer %s: %s\n", p.Name, intakeLineFor(*p, have))
 				for _, line := range untoldLines(*p) {
-					fmt.Println(line)
+					fmt.Fprintln(w, line)
 				}
 				// The code of a bead worked in a repository goes back by a
 				// push, which is a stage of the flow and a script's: said
 				// here, where the operator decides what the peer's beads
 				// become.
 				if depot, err := st.GetDepot(ctx, have.Depot); err == nil && !depot.IsDir() {
-					a.returnBranchHint(have.Flow, depot.Name)
+					a.returnBranchHint(w, have.Flow, depot.Name)
 				}
 			})
 		},
@@ -797,7 +797,7 @@ the flow does not resolve for it.`,
 // the intake's flow runs it. One already there is kept as it is: it may be
 // the yard's own. A script that cannot be written is said and stops
 // nothing: the intake is set.
-func (a *app) returnBranchHint(flow, depot string) {
+func (a *app) returnBranchHint(w io.Writer, flow, depot string) {
 	cfg, err := a.config()
 	if err != nil {
 		return
@@ -807,17 +807,17 @@ func (a *app) returnBranchHint(flow, depot string) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		if _, err := writeNew(path, string(peerscripts.ReturnBranch), 0o755); err != nil {
-			fmt.Printf("return-branch could not be installed (%v): it is contrib/peer/return-branch of yardr\n", err)
+			fmt.Fprintf(w, "return-branch could not be installed (%v): it is contrib/peer/return-branch of yardr\n", err)
 			return
 		}
-		fmt.Printf("return-branch installed: %s (this build's contrib/peer/return-branch)\n", path)
+		fmt.Fprintf(w, "return-branch installed: %s (this build's contrib/peer/return-branch)\n", path)
 	case err != nil:
-		fmt.Printf("return-branch could not be read (%v)\n", err)
+		fmt.Fprintf(w, "return-branch could not be read (%v)\n", err)
 		return
 	case !bytes.Equal(have, peerscripts.ReturnBranch):
-		fmt.Printf("return-branch is there already and differs from this build's: %s is kept as it is\n", path)
+		fmt.Fprintf(w, "return-branch is there already and differs from this build's: %s is kept as it is\n", path)
 	}
-	fmt.Printf("Its beads' code goes back when a stage of flow %s pushes their branch (docs/peers.md, \"Code that comes back\"):\n"+
+	fmt.Fprintf(w, "Its beads' code goes back when a stage of flow %s pushes their branch (docs/peers.md, \"Code that comes back\"):\n"+
 		"  yardr group add %s/return --runner exec --limit 1 --set cmd=%s\n"+
 		"  yardr route add --stage push --depot %s --group %s/return\n"+
 		"Without such a stage the outcome and the notes go back, and no code.\n",

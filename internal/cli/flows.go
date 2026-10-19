@@ -87,7 +87,7 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("flow %s: %d stages\n", saved.Name, len(saved.Stages)) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Fprintf(w, "flow %s: %d stages\n", saved.Name, len(saved.Stages)) })
 		},
 	}
 	set.Flags().StringVarP(&file, "file", "f", "", "flow file (- reads stdin)")
@@ -119,14 +119,14 @@ flow file or a pack with no yard.`,
 				return err
 			}
 			if svg {
-				d, err := depotDiagram(c.Context(), st, args[0], which, a.home())
+				d, err := depotDiagram(c.ErrOrStderr(), c.Context(), st, args[0], which, a.home())
 				if err != nil {
 					return err
 				}
 				if mini {
-					_, err = os.Stdout.Write(flowdraw.MiniSVG(*d))
+					_, err = c.OutOrStdout().Write(flowdraw.MiniSVG(*d))
 				} else {
-					_, err = os.Stdout.Write(flowdraw.SVG(*d))
+					_, err = c.OutOrStdout().Write(flowdraw.SVG(*d))
 				}
 				return err
 			}
@@ -144,14 +144,14 @@ flow file or a pack with no yard.`,
 				return err
 			}
 			if len(views) == 0 {
-				return a.out(c.OutOrStdout(), views, func(w io.Writer) { fmt.Printf("depot %s has no flow: beads may move to any stage\n", args[0]) })
+				return a.out(c.OutOrStdout(), views, func(w io.Writer) { fmt.Fprintf(w, "depot %s has no flow: beads may move to any stage\n", args[0]) })
 			}
 			return a.out(c.OutOrStdout(), views, func(w io.Writer) {
 				for i, v := range views {
 					if i > 0 {
-						fmt.Println()
+						fmt.Fprintln(w)
 					}
-					fmt.Printf("flow %s (%s)\n", v.Flow.Name, v.Source)
+					fmt.Fprintf(w, "flow %s (%s)\n", v.Flow.Name, v.Source)
 					rows := [][]string{}
 					for _, s := range v.Stages {
 						// Edges names the outcome that takes each move, if any.
@@ -175,9 +175,9 @@ flow file or a pack with no yard.`,
 						}
 						rows = append(rows, []string{s.Stage, or(strings.Join(append([]string{s.Group}, s.Else...), " else "), "-"), members, strconv.Itoa(s.Open), file, next})
 					}
-					table(os.Stdout, "STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
-					for _, w := range v.Warnings {
-						fmt.Printf("warning: %s\n", w)
+					table(w, "STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
+					for _, warning := range v.Warnings {
+						fmt.Fprintf(w, "warning: %s\n", warning)
 					}
 				}
 			})
@@ -193,7 +193,7 @@ flow file or a pack with no yard.`,
 			if err != nil {
 				return err
 			}
-			rows, err := flowList(c.Context(), st)
+			rows, err := flowList(c.ErrOrStderr(), c.Context(), st)
 			if err != nil {
 				return err
 			}
@@ -202,7 +202,7 @@ flow file or a pack with no yard.`,
 				for _, r := range rows {
 					out = append(out, []string{r.Name, r.Source, strconv.Itoa(r.Stages), or(strings.Join(r.Governs, ", "), "-")})
 				}
-				table(os.Stdout, "NAME\tSOURCE\tSTAGES\tGOVERNS", out)
+				table(w, "NAME\tSOURCE\tSTAGES\tGOVERNS", out)
 			})
 		},
 	}
@@ -273,14 +273,14 @@ The colours follow the page: the file carries a light and a dark set
   yardr flow draw starter --mini > mini.svg`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			d, err := fileDiagram(args[0], drawn)
+			d, err := fileDiagram(c.ErrOrStderr(), args[0], drawn)
 			if err != nil {
 				return err
 			}
 			if drawMini {
-				_, err = os.Stdout.Write(flowdraw.MiniSVG(*d))
+				_, err = c.OutOrStdout().Write(flowdraw.MiniSVG(*d))
 			} else {
-				_, err = os.Stdout.Write(flowdraw.SVG(*d))
+				_, err = c.OutOrStdout().Write(flowdraw.SVG(*d))
 			}
 			return err
 		},
@@ -295,7 +295,7 @@ The colours follow the page: the file carries a light and a dark set
 // the group its routes put at each stage, as flow show lists them, or a
 // named flow of the store, which no route is known for. which picks another
 // of the depot's flows than its own, by the flow's name or its bead type.
-func depotDiagram(ctx context.Context, st store.API, name, which, home string) (*flowdraw.Diagram, error) {
+func depotDiagram(warn io.Writer, ctx context.Context, st store.API, name, which, home string) (*flowdraw.Diagram, error) {
 	if _, err := st.GetDepot(ctx, name); errors.Is(err, store.ErrNotFound) {
 		f, err := st.GetFlow(ctx, name)
 		if errors.Is(err, store.ErrNotFound) {
@@ -331,7 +331,7 @@ func depotDiagram(ctx context.Context, st store.API, name, which, home string) (
 		return nil, fmt.Errorf("depot %s has no flow %q: it has %s", name, which, strings.Join(names, ", "))
 	}
 	if which == "" && len(names) > 1 {
-		fmt.Fprintf(os.Stderr, "depot %s has flows %s: drawing %s (--flow <name> draws another)\n", name, strings.Join(names, ", "), v.Flow.Name)
+		fmt.Fprintf(warn, "depot %s has flows %s: drawing %s (--flow <name> draws another)\n", name, strings.Join(names, ", "), v.Flow.Name)
 	}
 	groups, err := st.Groups(ctx)
 	if err != nil {
@@ -350,7 +350,7 @@ func depotDiagram(ctx context.Context, st store.API, name, which, home string) (
 // fileDiagram is what flow draw draws of arg, read from files alone: a flow
 // file, under the name its file has, or a pack (a directory, or the name of
 // one yardr embeds) and the flow of it called which, its first when "".
-func fileDiagram(arg, which string) (*flowdraw.Diagram, error) {
+func fileDiagram(warn io.Writer, arg, which string) (*flowdraw.Diagram, error) {
 	if info, err := os.Stat(arg); err == nil && !info.IsDir() {
 		text, err := os.ReadFile(arg)
 		if err != nil {
@@ -399,7 +399,7 @@ func fileDiagram(arg, which string) (*flowdraw.Diagram, error) {
 		return nil, fmt.Errorf("pack %s has no flow %q: it has %s", p.Name, which, or(strings.Join(names, ", "), "none"))
 	}
 	if which == "" && len(names) > 1 {
-		fmt.Fprintf(os.Stderr, "pack %s has flows %s: drawing %s (--flow <name> draws another)\n", p.Name, strings.Join(names, ", "), f.Name)
+		fmt.Fprintf(warn, "pack %s has flows %s: drawing %s (--flow <name> draws another)\n", p.Name, strings.Join(names, ", "), f.Name)
 	}
 	d := flowdraw.FromPack(p, *f)
 	return &d, nil
@@ -459,13 +459,13 @@ func (a *app) showNamedFlow(w io.Writer, ctx context.Context, st store.API, name
 				with = append(with, s)
 			}
 		}
-		fmt.Printf("flow %s: %d stages, pointed at by %s\n", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"))
-		fmt.Printf("stage files: %s (%s)\n\n%s", or(strings.Join(with, ", "), "none"), filepath.Join(store.HomeStageDir(a.home(), f.Name), "<stage>.md"), f)
+		fmt.Fprintf(w, "flow %s: %d stages, pointed at by %s\n", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"))
+		fmt.Fprintf(w, "stage files: %s (%s)\n\n%s", or(strings.Join(with, ", "), "none"), filepath.Join(store.HomeStageDir(a.home(), f.Name), "<stage>.md"), f)
 		for _, s := range stray {
-			fmt.Printf("warning: stage file %s\n", s)
+			fmt.Fprintf(w, "warning: stage file %s\n", s)
 		}
 		for _, s := range broken {
-			fmt.Printf("warning: stage file %s\n", s)
+			fmt.Fprintf(w, "warning: stage file %s\n", s)
 		}
 	})
 }
@@ -489,7 +489,7 @@ type flowRow struct {
 
 // flowList is every named flow in the store, then every flow file in each
 // depot's repository, with what each one governs now.
-func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
+func flowList(warn io.Writer, ctx context.Context, st store.API) ([]flowRow, error) {
 	flows, err := st.ListFlows(ctx)
 	if err != nil {
 		return nil, err
@@ -504,7 +504,7 @@ func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
 	for _, r := range depots {
 		rfs, err := st.DepotFlows(ctx, r.Name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: depot %s: %v\n", r.Name, err)
+			fmt.Fprintf(warn, "warning: depot %s: %v\n", r.Name, err)
 		}
 		for _, rf := range rfs {
 			k := "store:" + rf.Flow.Name
@@ -515,7 +515,7 @@ func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
 		}
 		repo, err := st.RepoFlows(ctx, r.Name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: depot %s: %v\n", r.Name, err)
+			fmt.Fprintf(warn, "warning: depot %s: %v\n", r.Name, err)
 			continue
 		}
 		src := fmt.Sprintf("repo %s@%.7s", r.Name, repo.Commit)

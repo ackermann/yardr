@@ -295,7 +295,6 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	setInteractive(t, false)
-	captureStderr(t)
 	out, err = run(t, a.rootCmd(), "--json", "depot", "init", "web", "--yes", "--crew", "yardmaster=boss",
 		"--bind", "builders=claude", "--bind", "reviewers=claude", "--members", "backlog=", "--members", "decisions=Jo")
 	var got struct {
@@ -345,6 +344,7 @@ func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
 	}
 	// --start has nobody to wait for: it says so and starts nothing.
 	errs := captureStderr(t)
+	a.stderr = errs
 	out, err = run(t, a.rootCmd(), "init", "--start")
 	if err != nil || !strings.Contains(errs.String(), "--start: nothing is started, since the yard has no yardmaster to wait for") {
 		t.Errorf("init --start without a yardmaster: %v\n%s%s", err, out, errs)

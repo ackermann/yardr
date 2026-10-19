@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,8 +47,7 @@ func TestVersionFlagPrintsWhatVersionDoes(t *testing.T) {
 	// The flag is bare yardr's alone: under a command it stays unknown,
 	// free for what that command may mean by it.
 	var errs strings.Builder
-	stub[io.Writer](t, &stderr, &errs)
-	if code := execute(&app{}, []string{"doctor", "--version"}); code == 0 || !strings.Contains(errs.String(), "unknown flag: --version") {
+	if code := execute(&app{stderr: &errs}, []string{"doctor", "--version"}); code == 0 || !strings.Contains(errs.String(), "unknown flag: --version") {
 		t.Errorf("yardr doctor --version: exit %d, %q", code, errs.String())
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -99,10 +100,17 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 			}
 
 			calls := len(rig.m.calls)
-			out, err := run(t, a(false).rootCmd(), "uninstall", "--yes", "--handoff-wait", "0")
+			var stdout bytes.Buffer
+			c := a(false).rootCmd()
+			c.SetOut(&stdout)
+			escaped, err := run(t, c, "uninstall", "--yes", "--handoff-wait", "0")
 			if err != nil {
-				t.Fatalf("uninstall: %v\n%s", err, out)
+				t.Fatalf("uninstall: %v\n%s", err, stdout.String())
 			}
+			if escaped != "" {
+				t.Fatalf("uninstall wrote outside its command writer:\n%s", escaped)
+			}
+			out := stdout.String()
 			name := runner.YardName(home, nil)
 			wantText(t, out,
 				"daemon          stopped (pid ",

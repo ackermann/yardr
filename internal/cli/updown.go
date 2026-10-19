@@ -67,11 +67,11 @@ func (p yardPart) name() string {
 
 // line prints the part: did is what to say of one this run changed or found
 // as it should be.
-func (p yardPart) line(did string) {
+func (p yardPart) line(w io.Writer, did string) {
 	if p.Error != "" {
-		fmt.Printf("%-15s NOT %s\n", p.name(), p.Error)
+		fmt.Fprintf(w, "%-15s NOT %s\n", p.name(), p.Error)
 		if p.Do != "" {
-			fmt.Printf("%-15s   %s\n", "", p.Do)
+			fmt.Fprintf(w, "%-15s   %s\n", "", p.Do)
 		}
 		return
 	}
@@ -84,7 +84,7 @@ func (p yardPart) line(did string) {
 	if p.Detail != "" {
 		did += ": " + p.Detail
 	}
-	fmt.Printf("%-15s %s\n", p.name(), did)
+	fmt.Fprintf(w, "%-15s %s\n", p.name(), did)
 }
 
 // upReport is the answer of yardr up.
@@ -489,25 +489,25 @@ func (r *upReport) print(w io.Writer) {
 	for _, p := range r.Parts {
 		switch {
 		case p.Error != "" || p.Started:
-			p.line("started")
+			p.line(w, "started")
 		case p.Running:
-			p.line("running already")
+			p.line(w, "running already")
 		}
 		// A part the yard does not have (no address set) has no line.
 	}
-	printLogin(r.Login)
+	printLogin(w, r.Login)
 	yardr := yardrAt(r.Home)
 	if !r.Up {
-		fmt.Printf("\nThe yard in %s is not up: see NOT above.\n", r.Home)
+		fmt.Fprintf(w, "\nThe yard in %s is not up: see NOT above.\n", r.Home)
 		return
 	}
-	fmt.Printf("\nThe yard in %s is up. The daemon starts the crew and dispatches the beads that wait.\n", r.Home)
-	fmt.Printf("What runs: %s status. Talk to the yardmaster: %s chat. Stop it all: %s down\n", yardr, yardr, yardr)
+	fmt.Fprintf(w, "\nThe yard in %s is up. The daemon starts the crew and dispatches the beads that wait.\n", r.Home)
+	fmt.Fprintf(w, "What runs: %s status. Talk to the yardmaster: %s chat. Stop it all: %s down\n", yardr, yardr, yardr)
 	switch {
 	case loginFailed(r.Login):
-		fmt.Println("It does not all start at login: see NOT under \"At login\".")
+		fmt.Fprintln(w, "It does not all start at login: see NOT under \"At login\".")
 	case len(r.Login) > 0:
-		fmt.Printf("It starts at every login from now on. To end that: %s down --login\n", yardr)
+		fmt.Fprintf(w, "It starts at every login from now on. To end that: %s down --login\n", yardr)
 	}
 }
 
@@ -681,7 +681,7 @@ that could not be stopped).`,
 			if login {
 				scope = loginOfUp
 			}
-			rep, err := a.down(c.Context(), cfg, yes, wait, scope, nil)
+			rep, err := a.down(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, yes, wait, scope, nil)
 			if err != nil {
 				return err
 			}
@@ -740,7 +740,7 @@ const (
 // that kept it from stopping anything. first, when given, runs once the
 // yard's store answers and before anything is asked or stopped: an error
 // of it ends down with the yard as it was found.
-func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, login loginScope, first func(store.API) error) (*downReport, error) {
+func (a *app) down(w, warn io.Writer, ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, login loginScope, first func(store.API) error) (*downReport, error) {
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
 			return nil, notInitialized{cfg.Home}
@@ -813,7 +813,7 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 	// this command is about to stop.
 	hasAgents := rep.Working+rep.Idle > 0
 	if hasAgents && !a.json {
-		rep.warn(agents)
+		rep.warn(w, agents)
 	}
 	if !yes && hasAgents {
 		switch {
@@ -870,7 +870,7 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 		return nil, err
 	}
 	rep.count(agents)
-	a.handoffs(ctx, st, runners, agents, wait)
+	a.handoffs(warn, ctx, st, runners, agents, wait)
 	for i := range agents {
 		stopAgent(ctx, st, runners, &agents[i], noHerdr, yardr)
 	}
@@ -954,17 +954,17 @@ func (r *downReport) count(agents []yardAgent) {
 
 // warn says what down is about to stop: the agents in the middle of
 // something by name, the idle ones as a count.
-func (r *downReport) warn(agents []yardAgent) {
-	fmt.Printf("yardr down stops %s of the yard in %s:\n", plural(r.Working+r.Idle, "agent"), r.Home)
+func (r *downReport) warn(w io.Writer, agents []yardAgent) {
+	fmt.Fprintf(w, "yardr down stops %s of the yard in %s:\n", plural(r.Working+r.Idle, "agent"), r.Home)
 	for _, g := range agents {
 		if g.busy() {
-			fmt.Printf("  %-8s %s\n", g.State, g)
+			fmt.Fprintf(w, "  %-8s %s\n", g.State, g)
 		}
 	}
 	if r.Idle > 0 {
-		fmt.Printf("  %d idle\n", r.Idle)
+		fmt.Fprintf(w, "  %d idle\n", r.Idle)
 	}
-	fmt.Println("A bead's worktree and branch stay, and it is worked again after yardr up; a crew member is asked for its handoff first.")
+	fmt.Fprintln(w, "A bead's worktree and branch stay, and it is worked again after yardr up; a crew member is asked for its handoff first.")
 }
 
 // yardAgents are the agents the yard started that the store has as running:
@@ -1073,7 +1073,7 @@ func agentState(ctx context.Context, r dispatch.Runner, handle map[string]any, d
 // to wait, for all of them together, until each has written one or is
 // gone. One that could not be asked (it is at a dialog, its runner types
 // nothing) is not waited for. A wait of 0 asks for none.
-func (a *app) handoffs(ctx context.Context, st store.API, runners map[string]dispatch.Runner, agents []yardAgent, wait time.Duration) {
+func (a *app) handoffs(warn io.Writer, ctx context.Context, st store.API, runners map[string]dispatch.Runner, agents []yardAgent, wait time.Duration) {
 	if wait <= 0 {
 		return
 	}
@@ -1108,7 +1108,7 @@ func (a *app) handoffs(ctx context.Context, st store.API, runners map[string]dis
 			}
 		}
 		slices.Sort(names)
-		fmt.Fprintf(stderr, "waiting up to %s for the handoff of %s\n", wait, strings.Join(names, ", "))
+		fmt.Fprintf(warn, "waiting up to %s for the handoff of %s\n", wait, strings.Join(names, ", "))
 	}
 	for deadline := time.Now().Add(wait); len(asked) > 0 && time.Now().Before(deadline) && ctx.Err() == nil; time.Sleep(pollEvery) {
 		for i := range agents {
@@ -1183,21 +1183,21 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 }
 
 func (r *downReport) print(w io.Writer) {
-	r.lines()
+	r.lines(w)
 	if !r.Down {
-		fmt.Printf("\nThe yard in %s is not down: see NOT above.\n", r.Home)
+		fmt.Fprintf(w, "\nThe yard in %s is not down: see NOT above.\n", r.Home)
 		return
 	}
-	fmt.Printf("\nThe yard in %s is down. Start it again: %s up\n", r.Home, yardrAt(r.Home))
+	fmt.Fprintf(w, "\nThe yard in %s is down. Start it again: %s up\n", r.Home, yardrAt(r.Home))
 }
 
 // lines prints what was stopped, a line a part, and the login services.
-func (r *downReport) lines() {
+func (r *downReport) lines(w io.Writer) {
 	var beads, crew, handoffs int
 	for _, g := range r.Agents {
 		switch {
 		case g.Error != "":
-			fmt.Printf("%-15s NOT stopped: %s\n%-15s   %s\n", "agents", g.Error, "", g.Do)
+			fmt.Fprintf(w, "%-15s NOT stopped: %s\n%-15s   %s\n", "agents", g.Error, "", g.Do)
 		case !g.Stopped:
 			// Left as it was: the daemon could not be stopped before it.
 		case g.State == agentGone:
@@ -1216,9 +1216,9 @@ func (r *downReport) lines() {
 		case p.Part == svcDaemon:
 			// The agents' line is after the daemon's, as they were stopped.
 			if p.Error != "" || p.Stopped {
-				p.line("stopped")
+				p.line(w, "stopped")
 			} else {
-				p.line("was not running")
+				p.line(w, "was not running")
 			}
 			if beads+crew > 0 {
 				line := fmt.Sprintf("stopped %d", beads+crew)
@@ -1232,20 +1232,20 @@ func (r *downReport) lines() {
 					}
 					line += fmt.Sprintf("%s %s (%s)", map[bool]string{true: ";", false: ":"}[beads > 0], plural(crew, "crew session"), wrote)
 				}
-				fmt.Printf("%-15s %s\n", "agents", line)
+				fmt.Fprintf(w, "%-15s %s\n", "agents", line)
 			} else if p.Error == "" && !slices.ContainsFunc(r.Agents, func(g yardAgent) bool { return g.Error != "" }) {
-				fmt.Printf("%-15s none was running\n", "agents")
+				fmt.Fprintf(w, "%-15s none was running\n", "agents")
 			}
 		case p.Part == partHerdr:
-			fmt.Printf("%-15s %s\n", p.name(), p.Detail)
+			fmt.Fprintf(w, "%-15s %s\n", p.name(), p.Detail)
 		case p.Error != "" || p.Stopped:
-			p.line("stopped")
+			p.line(w, "stopped")
 		case p.Part == partServer && p.Running:
-			p.line("left running: the agents are not stopped while the daemon would start them again")
+			p.line(w, "left running: the agents are not stopped while the daemon would start them again")
 		case p.Part == partServer:
-			p.line("was not running")
+			p.line(w, "was not running")
 		}
 		// A part that did not run and is none of the yard's three has no line.
 	}
-	printLogin(r.Login)
+	printLogin(w, r.Login)
 }

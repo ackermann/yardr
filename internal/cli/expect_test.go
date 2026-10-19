@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -142,7 +143,7 @@ func TestReviewRefusesStaleDecision(t *testing.T) {
 	defer func(orig func(...huh.Field) error) { ask = orig }(ask)
 	ask = func(...huh.Field) error { return nil } // an empty note
 	a := &app{st: st, actor: "mckean"}
-	err = a.reviewAdvance(ctx, st, snapshot, reviewAction{Kind: actAdvance, Stage: "merged", Terminal: true})
+	err = a.reviewAdvance(io.Discard, ctx, st, snapshot, reviewAction{Kind: actAdvance, Stage: "merged", Terminal: true})
 	if err == nil || !strings.Contains(err.Error(), "stale: bead "+b.ID+" is now in new") {
 		t.Fatalf("stale decision: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestReviewRefusesStaleDecision(t *testing.T) {
 		t.Fatalf("stale decision changed the bead: %+v", cur)
 	}
 	// On a fresh snapshot the same decision goes through.
-	if err := a.reviewAdvance(ctx, st, *before, reviewAction{Kind: actAdvance, Stage: "review"}); err != nil {
+	if err := a.reviewAdvance(io.Discard, ctx, st, *before, reviewAction{Kind: actAdvance, Stage: "review"}); err != nil {
 		t.Fatalf("fresh decision: %v", err)
 	}
 }

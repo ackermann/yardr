@@ -57,14 +57,12 @@ func twoBuilders(t *testing.T) (store.API, context.Context) {
 	return st, ctx
 }
 
-// errOutput collects what commands write to stderr during the test.
+// errOutput is the buffer a test hands its app as the error stream, for
+// the identity line: a run through the root records its own, a direct
+// subcommand call reads the app's.
 func errOutput(t *testing.T) *bytes.Buffer {
 	t.Helper()
-	var errs bytes.Buffer
-	old := stderr
-	stderr = &errs
-	t.Cleanup(func() { stderr = old })
-	return &errs
+	return &bytes.Buffer{}
 }
 
 // yardr-8bhk: Codex ran every session's commands in one background server,
@@ -97,7 +95,7 @@ func TestWorktreeNamesTheSessionWhenTheEnvironmentIsAnothers(t *testing.T) {
 	t.Chdir(worktreeOf(t, runner.WorktreeSession{Bead: beadB.ID, Session: sessB.ID, Actor: actorB, Stage: "new", Group: "builders"}))
 	errs := errOutput(t)
 
-	a := &app{st: st}
+	a := &app{st: st, stderr: errs}
 	if _, err := run(t, a.beadCmd(), "note", beadB.ID, "from b"); err != nil {
 		t.Fatalf("note in b's worktree: %v", err)
 	}
@@ -112,7 +110,7 @@ func TestWorktreeNamesTheSessionWhenTheEnvironmentIsAnothers(t *testing.T) {
 	}
 
 	// Without the worktree this done is refused: session A does not own B.
-	if _, err := run(t, (&app{st: st}).beadCmd(), "done", beadB.ID); err != nil {
+	if _, err := run(t, (&app{st: st, stderr: errs}).beadCmd(), "done", beadB.ID); err != nil {
 		t.Fatalf("done in b's worktree: %v", err)
 	}
 	b, _ := st.GetBead(ctx, beadB.ID)
@@ -150,7 +148,7 @@ func TestEnvironmentNamesTheSessionOutsideAWorktree(t *testing.T) {
 	errs := errOutput(t)
 
 	want := "stale: bead " + beadB.ID + " is now in new owned by " + sessB.ID
-	if _, err := run(t, (&app{st: st}).beadCmd(), "done", beadB.ID); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := run(t, (&app{st: st, stderr: errs}).beadCmd(), "done", beadB.ID); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("done of b as session a: %v, want %q", err, want)
 	}
 	if errs.Len() != 0 {
@@ -186,14 +184,14 @@ func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 	t.Setenv("YARDR_SESSION", builder.ID)
 	t.Setenv("YARDR_BEAD", b.ID)
 	want := "stale: bead " + b.ID + " is now in review owned by " + reviewer.ID
-	if _, err := run(t, (&app{st: st}).beadCmd(), "done", b.ID); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := run(t, (&app{st: st, stderr: errs}).beadCmd(), "done", b.ID); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("done from the builder left open: %v, want %q", err, want)
 	}
 
 	t.Setenv("YARDR_ACTOR", "yardmaster")
 	t.Setenv("YARDR_SESSION", "")
 	t.Setenv("YARDR_BEAD", "")
-	if _, err := run(t, (&app{st: st}).beadCmd(), "note", b.ID, "looked in"); err != nil {
+	if _, err := run(t, (&app{st: st, stderr: errs}).beadCmd(), "note", b.ID, "looked in"); err != nil {
 		t.Fatal(err)
 	}
 	notes, _ := st.Notes(ctx, b.ID)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -577,7 +578,7 @@ func TestStatusNoYard(t *testing.T) {
 		})
 		errs := captureStderr(t)
 		var code int
-		out := capture(t, func() { code = execute(&app{}, []string{"status"}) })
+		out := capture(t, func() { code = execute(&app{stderr: errs}, []string{"status"}) })
 		if code != 2 || out != "" {
 			t.Fatalf("terminal %v: exit %d:\n%s", terminal, code, out)
 		}
@@ -589,10 +590,11 @@ func TestStatusNoYard(t *testing.T) {
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("status created the home directory")
 	}
+	var stdout bytes.Buffer
 	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"status", "--json"}) })
-	if code != 2 || !strings.Contains(out, "no yard in "+home+" yet") {
-		t.Fatalf("json: exit %d:\n%s", code, out)
+	escaped := capture(t, func() { code = execute(&app{stdout: &stdout}, []string{"status", "--json"}) })
+	if code != 2 || escaped != "" || !strings.Contains(stdout.String(), "no yard in "+home+" yet") {
+		t.Fatalf("json: exit %d, escaped %q:\n%s", code, escaped, stdout.String())
 	}
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("status --json created the home directory")

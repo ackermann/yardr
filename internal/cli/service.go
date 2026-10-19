@@ -484,41 +484,41 @@ func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (
 	return res, nil
 }
 
-func (r *serviceResult) print() {
+func (r *serviceResult) print(w io.Writer) {
 	kind := "launchd agent"
 	if r.Manager == systemd {
 		kind = "systemd user unit"
 	}
-	fmt.Printf("%s %s written: %s\n\n  runs     %s\n", kind, r.Name, r.File, shellLine(append([]string{r.Program}, r.Args...)))
+	fmt.Fprintf(w, "%s %s written: %s\n\n  runs     %s\n", kind, r.Name, r.File, shellLine(append([]string{r.Program}, r.Args...)))
 	for i, kv := range r.Env {
 		head := "         "
 		if i == 0 {
 			head = "  with   "
 		}
-		fmt.Printf("%s  %s\n", head, kv)
+		fmt.Fprintf(w, "%s  %s\n", head, kv)
 	}
-	fmt.Printf("  logs to  %s\n\n", r.Log)
-	for _, w := range r.Warnings {
-		fmt.Printf("Mind: %s\n\n", w)
+	fmt.Fprintf(w, "  logs to  %s\n\n", r.Log)
+	for _, warning := range r.Warnings {
+		fmt.Fprintf(w, "Mind: %s\n\n", warning)
 	}
 	if r.StoppedPID != 0 {
-		fmt.Printf("The %[1]s that was running (pid %[2]d) is stopped: the service runs the yard's one %[1]s now.\n", what(r.Kind), r.StoppedPID)
+		fmt.Fprintf(w, "The %[1]s that was running (pid %[2]d) is stopped: the service runs the yard's one %[1]s now.\n", what(r.Kind), r.StoppedPID)
 	}
 	switch {
 	case !r.Loaded && r.Manager == launchd:
-		fmt.Printf("Not loaded (--file-only): nothing is started now. launchd loads it at your next login, or now with:\n\n  %s\n", r.Load)
+		fmt.Fprintf(w, "Not loaded (--file-only): nothing is started now. launchd loads it at your next login, or now with:\n\n  %s\n", r.Load)
 	case !r.Loaded:
-		fmt.Printf("Not loaded (--file-only): nothing is started, now or at login. To load it:\n\n  %s\n", r.Load)
+		fmt.Fprintf(w, "Not loaded (--file-only): nothing is started, now or at login. To load it:\n\n  %s\n", r.Load)
 	default:
-		fmt.Printf("%s has started the %s and starts it at every login.\n", r.Manager, what(r.Kind))
+		fmt.Fprintf(w, "%s has started the %s and starts it at every login.\n", r.Manager, what(r.Kind))
 		if r.Manager == systemd {
-			fmt.Println("A user unit runs while you are logged in; `loginctl enable-linger` keeps it from boot to shutdown.")
+			fmt.Fprintln(w, "A user unit runs while you are logged in; `loginctl enable-linger` keeps it from boot to shutdown.")
 		}
 	}
 	if r.Address != "" && r.Loaded {
-		fmt.Printf("\nThe %s: %s\n", what(r.Kind), webURL(r.Address))
+		fmt.Fprintf(w, "\nThe %s: %s\n", what(r.Kind), webURL(r.Address))
 	}
-	fmt.Printf("\nTo remove it: %s %s uninstall\n", yardrAt(r.Home), r.Kind)
+	fmt.Fprintf(w, "\nTo remove it: %s %s uninstall\n", yardrAt(r.Home), r.Kind)
 }
 
 // removeResult is what an uninstall did.
@@ -572,20 +572,20 @@ func (a *app) uninstall(w io.Writer, ctx context.Context, cfg *config.Config, ki
 	yardr := yardrAt(cfg.Home)
 	if !res.Removed {
 		return a.out(w, res, func(w io.Writer) {
-			fmt.Printf("No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
+			fmt.Fprintf(w, "No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
 		})
 	}
 	return a.out(w, res, func(w io.Writer) {
-		fmt.Printf("removed %s\n", path)
+		fmt.Fprintf(w, "removed %s\n", path)
 		switch {
 		case fileOnly:
-			fmt.Printf("Not unloaded (--file-only): what %s runs of it now is left running. To unload it: %s\n", manager, shellLine(u.unloadCommand()))
+			fmt.Fprintf(w, "Not unloaded (--file-only): what %s runs of it now is left running. To unload it: %s\n", manager, shellLine(u.unloadCommand()))
 		case res.Unloaded && k.Without != "":
-			fmt.Printf("%s no longer has %s and has stopped the %s it ran. %s\n", manager, name, k.What, fmt.Sprintf(k.Without, yardr))
+			fmt.Fprintf(w, "%s no longer has %s and has stopped the %s it ran. %s\n", manager, name, k.What, fmt.Sprintf(k.Without, yardr))
 		case res.Unloaded:
-			fmt.Printf("%s no longer has %s and has stopped the %s it ran.\n", manager, name, k.What)
+			fmt.Fprintf(w, "%s no longer has %s and has stopped the %s it ran.\n", manager, name, k.What)
 		default:
-			fmt.Printf("%s did not have %s loaded; nothing was stopped.\n", manager, name)
+			fmt.Fprintf(w, "%s did not have %s loaded; nothing was stopped.\n", manager, name)
 		}
 	})
 }
@@ -753,16 +753,16 @@ var answers = func(addr string) bool {
 // onboarding goes on, since the yard runs either way. What the yard has
 // already is not asked for again: an onboarding taken up after a run that
 // got this far (resume) finds the service installed, or the view answering.
-func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
+func (a *app) offerServices(w, warn io.Writer, ctx context.Context, cfg *config.Config) error {
 	yardr := yardrAt(cfg.Home)
 	try := func(args ...string) {
-		fmt.Printf("\n  $ %s\n\n", commandLine(cfg.Home, args))
-		if err := a.sub(ctx, args...); err != nil {
-			fmt.Printf("yardr: %v\nThe yard runs without it; `%s` tries again.\n", err, commandLine(cfg.Home, args))
+		fmt.Fprintf(w, "\n  $ %s\n\n", commandLine(cfg.Home, args))
+		if err := a.sub(w, warn, ctx, args...); err != nil {
+			fmt.Fprintf(w, "yardr: %v\nThe yard runs without it; `%s` tries again.\n", err, commandLine(cfg.Home, args))
 		}
 	}
 	manager := managerOf()
-	fmt.Println()
+	fmt.Fprintln(w)
 	if manager != "" && !loginService(cfg) {
 		login := false
 		desc := fmt.Sprintf("The daemon runs in the background now, and does not come back after a reboot.\n"+
@@ -780,7 +780,7 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if webService(cfg) || answers(webLocalAddr) {
-		return a.offerLink(ctx, cfg)
+		return a.offerLink(w, warn, ctx, cfg)
 	}
 	view := false
 	if err := ask(huh.NewConfirm().Key("web").Title("Start the web view now?").
@@ -788,7 +788,7 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 			"Later: %s web start", webLocalAddr, yardr)).Value(&view)); err != nil {
 		return err
 	} else if !view {
-		return a.offerLink(ctx, cfg)
+		return a.offerLink(w, warn, ctx, cfg)
 	}
 	atLogin := false
 	if manager != "" {
@@ -803,14 +803,14 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 	} else {
 		try("web", "start")
 	}
-	return a.offerLink(ctx, cfg)
+	return a.offerLink(w, warn, ctx, cfg)
 }
 
 // offerLink asks whether to link the yard with another, and opens the
 // pairing form on a yes (pairForm). It is asked once a run, of the operator
 // alone, since only the operator pairs, and not on a yard that has a peer.
 // A pairing that fails says so and the setup goes on.
-func (a *app) offerLink(ctx context.Context, cfg *config.Config) error {
+func (a *app) offerLink(w, warn io.Writer, ctx context.Context, cfg *config.Config) error {
 	if a.linkAsked {
 		return nil
 	}
@@ -832,8 +832,8 @@ func (a *app) offerLink(ctx context.Context, cfg *config.Config) error {
 			"Later: %s peer pair", yardr)).Value(&link)); err != nil || !link {
 		return err
 	}
-	if err := a.pairForm(os.Stdout, ctx, cfg, st); err != nil {
-		fmt.Printf("yardr: %v\nThe yard runs without it; `%s peer pair` tries again.\n", err, yardr)
+	if err := a.pairForm(w, warn, ctx, cfg, st); err != nil {
+		fmt.Fprintf(w, "yardr: %v\nThe yard runs without it; `%s peer pair` tries again.\n", err, yardr)
 	}
 	return nil
 }

@@ -52,7 +52,6 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 	st := storetest.New(t)
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
-	captureStderr(t)
 	chats := stubChat(t)
 	start := func(args ...string) string {
 		t.Helper()
@@ -138,7 +137,6 @@ func TestOnboardingWithASilentYardmasterOpensNoChat(t *testing.T) {
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	stubAsk(t, (&former{t: t, goes: []string{goYardmaster}}).ask)
-	captureStderr(t)
 	chats := stubChat(t)
 	st := storetest.New(t)
 	stubStart(t, st, yardmasterHandle())

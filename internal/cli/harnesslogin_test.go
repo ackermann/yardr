@@ -104,22 +104,33 @@ func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogi
 	l := &ledLogin{t: t, dir: fakeTools(t, map[string]string{"claude": script}), lines: make(chan string, 16), exit: make(chan int, 1)}
 	in, answers := io.Pipe()
 	l.answers = answers
-	stub(t, &stdin, io.Reader(in))
+	a.stdin = in
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := os.Stdout
-	os.Stdout = w
+	// The run's needs go to its command's writer; the os.Stdout swap
+	// stays to catch what escapes it.
+	a.stdout = w
 	go func() {
 		defer close(l.lines)
 		for s := bufio.NewScanner(r); s.Scan(); {
 			l.lines <- s.Text()
 		}
 	}()
+	er, ew, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = ew
+	var escaped bytes.Buffer
+	caught := make(chan struct{})
+	go func() { _, _ = io.Copy(&escaped, er); close(caught) }()
 	go func() {
 		l.exit <- execute(a, args)
 		w.Close()
+		ew.Close()
 	}()
 	t.Cleanup(func() {
 		answers.Close()
@@ -127,6 +138,11 @@ func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogi
 		}
 		os.Stdout = old
 		r.Close()
+		er.Close()
+		<-caught
+		if got := escaped.String(); got != "" {
+			t.Errorf("login wrote outside its command writer:\n%s", got)
+		}
 	})
 	return l
 }
@@ -426,11 +442,13 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 	noHome(t)
 	setInteractive(t, false)
 	dir := fakeTools(t, map[string]string{"claude": loginStandIn})
-	stub(t, &stdin, io.Reader(strings.NewReader("")))
+	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
 		t.Helper()
 		var code int
-		out := capture(t, func() { code = execute(&app{}, args) })
+		out := capture(t, func() {
+			code = execute(&app{stdin: strings.NewReader(""), stderr: &errs}, args)
+		})
 		if code != want {
 			t.Fatalf("yardr %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
 		}
@@ -442,8 +460,6 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 	wantText(t, ask(0, "harness", "login", "kimi"), "yardr knows no login command of Kimi: start kimi in a terminal and log in on its own screen.")
 	wantText(t, ask(0, "harness", "login", "claude"), "Claude Code is logged in with its own command, in a terminal:\n  claude auth login\n",
 		"A program leads the same login for a person without one: yardr harness login claude --json")
-	var errs bytes.Buffer
-	stub(t, &stderr, io.Writer(&errs))
 	if ask(1, "harness", "login", "nope"); !strings.Contains(errs.String(), "nope is no harness kind") {
 		t.Errorf("a kind herdr does not start: %q", errs.String())
 	}

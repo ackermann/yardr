@@ -107,7 +107,7 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		Config: map[string]any{"kind": "claude", "login_for": "hal"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "hal-builders")
+	_, err := routeErr(t, a, errs, "add", "--stage", "new", "--group", "hal-builders")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		t.Errorf("route add warned %q, want the personal-login warning", got)
 	}
 	errs.Reset()
-	if _, err := run(t, a.routeCmd(), "add", "--stage", "review", "--originator", "me", "--group", "hal-builders"); err != nil {
+	if _, err := routeErr(t, a, errs, "add", "--stage", "review", "--originator", "me", "--group", "hal-builders"); err != nil {
 		t.Fatal(err)
 	}
 	if got := errs.String(); !strings.Contains(got, "hal-builders declares login_for=hal") ||
@@ -140,7 +140,7 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		}
 	}
 	errs.Reset()
-	if _, err := run(t, a.routeCmd(), "add", "--stage", "review", "--group", "ops", "--priority", "1"); err != nil {
+	if _, err := routeErr(t, a, errs, "add", "--stage", "review", "--group", "ops", "--priority", "1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := errs.String(); strings.Contains(got, "login_for=me") {

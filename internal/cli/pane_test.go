@@ -44,7 +44,6 @@ func blockedYardmaster(t *testing.T, panes ...string) *blocked {
 	stubLookPath(t, "claude", "git", "herdr")
 	stubServices(t, "darwin")
 	stubWeb(t)
-	captureStderr(t)
 	t.Setenv("HERDR_ENV", "")
 	stub(t, &pollEvery, 0)
 	b := &blocked{t: t, st: storetest.New(t), f: &former{t: t, panes: panes, goes: []string{goYardmaster}}}
@@ -296,7 +295,6 @@ func TestSetupTalkToTheYardmasterOffersItsPane(t *testing.T) {
 	home, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
 	chats := stubChat(t)
-	captureStderr(t)
 	t.Setenv("HERDR_ENV", "")
 	stub(t, &pollEvery, 0)
 	stub(t, &yardmasterWait, 30*time.Millisecond)

@@ -57,7 +57,7 @@ by a token: yardr user device.`}
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), u, func(w io.Writer) { fmt.Printf("user %s added\n", u.Name) })
+			return a.out(c.OutOrStdout(), u, func(w io.Writer) { fmt.Fprintf(w, "user %s added\n", u.Name) })
 		},
 	}
 	list := &cobra.Command{
@@ -90,7 +90,7 @@ by a token: yardr user device.`}
 					}
 					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
 				}
-				table(os.Stdout, "NAME\tROLE\tUNREAD\tTOLD", rows)
+				table(w, "NAME\tROLE\tUNREAD\tTOLD", rows)
 				printPeerParties(w, store.PeerParties(ps))
 			})
 		},
@@ -129,38 +129,38 @@ everything either way.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
-				fmt.Print(v.Name)
+				fmt.Fprint(w, v.Name)
 				if v.Operator {
-					fmt.Print("  the yard's operator")
+					fmt.Fprint(w, "  the yard's operator")
 				}
-				fmt.Printf("\n  added %s by %s\n", v.CreatedAt.Local().Format("2006-01-02 15:04"), v.CreatedBy)
+				fmt.Fprintf(w, "\n  added %s by %s\n", v.CreatedAt.Local().Format("2006-01-02 15:04"), v.CreatedBy)
 				if v.Unread == 0 {
-					fmt.Println("  inbox: nothing unread")
+					fmt.Fprintln(w, "  inbox: nothing unread")
 				} else {
-					fmt.Printf("  inbox: %d unread from %s\n", v.Unread, strings.Join(v.From, ", "))
+					fmt.Fprintf(w, "  inbox: %d unread from %s\n", v.Unread, strings.Join(v.From, ", "))
 				}
 				if v.Notifications > 0 {
-					fmt.Printf("  %s unread\n", notifications(v.Notifications))
+					fmt.Fprintf(w, "  %s unread\n", notifications(v.Notifications))
 				}
 				for _, sub := range v.Subscriptions {
-					fmt.Printf("  subscribed: %s\n", sub)
+					fmt.Fprintf(w, "  subscribed: %s\n", sub)
 				}
 				for _, src := range sortedKeys(v.Identities) {
 					id := v.Identities[src]
-					fmt.Printf("  %s identity: %s\n", src, strings.Join(slices.DeleteFunc([]string{id.ID, id.Key},
+					fmt.Fprintf(w, "  %s identity: %s\n", src, strings.Join(slices.DeleteFunc([]string{id.ID, id.Key},
 						func(s string) bool { return s == "" }), ", "))
 				}
 				if len(v.Credentials) > 0 {
-					fmt.Printf("  credentials: %s\n", strings.Join(v.Credentials, ", "))
+					fmt.Fprintf(w, "  credentials: %s\n", strings.Join(v.Credentials, ", "))
 				}
 				if v.Told != "" {
-					fmt.Printf("  told outside the yard: %s\n", v.Told)
+					fmt.Fprintf(w, "  told outside the yard: %s\n", v.Told)
 				}
 				if last := lastPush(&v.User); last != "" {
-					fmt.Printf("  last told: %s\n", last)
+					fmt.Fprintf(w, "  last told: %s\n", last)
 				}
 				for _, d := range v.Devices {
-					fmt.Printf("  device: %s, added %s, last used %s\n", d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d))
+					fmt.Fprintf(w, "  device: %s, added %s, last used %s\n", d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d))
 				}
 				printTimers(w, v.Timers, v.Name, "  ")
 			})
@@ -176,7 +176,7 @@ everything either way.`,
 			if err := st.DeleteUser(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]string{"removed": args[0]}, func(w io.Writer) { fmt.Printf("user %s removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"removed": args[0]}, func(w io.Writer) { fmt.Fprintf(w, "user %s removed\n", args[0]) })
 		},
 	}
 	set := &cobra.Command{
@@ -269,9 +269,9 @@ the source. notify= drops what was still to be told.`,
 			}
 			state := told(c.Context(), st, saved)
 			return a.out(c.OutOrStdout(), map[string]any{"user": saved, "told": state}, func(w io.Writer) {
-				fmt.Printf("user %s: told outside the yard: %s\n", saved.Name, or(state, "nowhere"))
+				fmt.Fprintf(w, "user %s: told outside the yard: %s\n", saved.Name, or(state, "nowhere"))
 				if saved.Notify != "" && saved.EnvFile != "" {
-					fmt.Printf("next: yardr source check %s --user %s sends one test message\n", saved.Notify, saved.Name)
+					fmt.Fprintf(w, "next: yardr source check %s --user %s sends one test message\n", saved.Notify, saved.Name)
 				}
 			})
 		},
@@ -338,8 +338,8 @@ again, and it ends as one giving that worked.`,
 				return secretErr(err)
 			}
 			return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
-				fmt.Printf("user %s: %s\n", keyed.User, keyed.State)
-				fmt.Println("next: " + keyed.Next)
+				fmt.Fprintf(w, "user %s: %s\n", keyed.User, keyed.State)
+				fmt.Fprintln(w, "next: "+keyed.Next)
 			})
 		},
 	}
@@ -659,7 +659,7 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 	}
 	return a.out(w, box, func(w io.Writer) {
 		if mail {
-			fmt.Println(partHead("Mail", len(box.Mail), box.Unread))
+			fmt.Fprintln(w, partHead("Mail", len(box.Mail), box.Unread))
 			for _, l := range box.Mail {
 				state := ""
 				if l.Read {
@@ -673,28 +673,28 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 				// The sender and the text are writers' words, shown without
 				// the mark, and the files stand under them on a marked line
 				// of their own, so no mail's words forge its files line.
-				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), store.Letters(from), state, store.Letters(l.Text))
+				fmt.Fprintf(w, "%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), store.Letters(from), state, store.Letters(l.Text))
 				if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
-					fmt.Printf("    %s\n", line)
+					fmt.Fprintf(w, "    %s\n", line)
 				}
-				printReactions(l)
+				printReactions(w, l)
 			}
-			partFoot(rest["mail"], acked["mail"], ack, newer["mail"])
+			partFoot(w, rest["mail"], acked["mail"], ack, newer["mail"])
 		}
 		if mail && notes {
-			fmt.Println()
+			fmt.Fprintln(w)
 		}
 		if notes {
 			p := box.Notifications
-			fmt.Println(partHead("Notifications", len(p.Notifications), p.Unread))
+			fmt.Fprintln(w, partHead("Notifications", len(p.Notifications), p.Unread))
 			for _, n := range unreadFirst(p.Notifications) {
 				state := ""
 				if n.Read {
 					state = "(read) "
 				}
-				fmt.Printf("%6d %s  %s%s\n", n.Seq, n.At.Local().Format(mailTime), state, n.Text)
+				fmt.Fprintf(w, "%6d %s  %s%s\n", n.Seq, n.At.Local().Format(mailTime), state, n.Text)
 			}
-			partFoot(rest["notifications"], acked["notifications"], ack, newer["notifications"])
+			partFoot(w, rest["notifications"], acked["notifications"], ack, newer["notifications"])
 		}
 	})
 }
@@ -732,14 +732,14 @@ func partHead(part string, shown, unread int) string {
 
 // partFoot says, under a part, what of its unread was not shown, what an
 // ack marked read, and what newer than the ack's seq stays unread.
-func partFoot(rest, ackedCount int, ack bool, newer int) {
+func partFoot(w io.Writer, rest, ackedCount int, ack bool, newer int) {
 	if rest > 0 {
-		fmt.Printf("… %d more unread\n", rest)
+		fmt.Fprintf(w, "… %d more unread\n", rest)
 	}
 	if ack {
-		fmt.Printf("acknowledged %d\n", ackedCount)
+		fmt.Fprintf(w, "acknowledged %d\n", ackedCount)
 		if newer > 0 {
-			fmt.Print(newerUnreadLine(newer))
+			fmt.Fprint(w, newerUnreadLine(newer))
 		}
 	}
 }
@@ -781,9 +781,9 @@ func (a *app) conversation(w io.Writer, ctx context.Context, st store.API, with 
 	return a.out(w, letters, func(w io.Writer) {
 		if len(letters) == 0 {
 			if after > 0 {
-				fmt.Printf("no mail between %s and %s after %d\n", me, with, after)
+				fmt.Fprintf(w, "no mail between %s and %s after %d\n", me, with, after)
 			} else {
-				fmt.Printf("no mail between %s and %s\n", me, with)
+				fmt.Fprintf(w, "no mail between %s and %s\n", me, with)
 			}
 			return
 		}
@@ -807,19 +807,19 @@ func (a *app) conversation(w io.Writer, ctx context.Context, st store.API, with 
 			}
 			// As the inbox above: the writers' words without the mark, and
 			// the files under them on a marked line of their own.
-			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.Letters(from), store.Letters(l.Text))
+			fmt.Fprintf(w, "%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.Letters(from), store.Letters(l.Text))
 			if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
-				fmt.Printf("    %s\n", line)
+				fmt.Fprintf(w, "    %s\n", line)
 			}
-			printReactions(l)
+			printReactions(w, l)
 		}
 	})
 }
 
 // printReactions prints the letter's reactions under it, one a line.
-func printReactions(l store.Letter) {
+func printReactions(w io.Writer, l store.Letter) {
 	for _, r := range l.Reactions {
-		fmt.Printf("  %s %s\n", store.Letters(r.Emoji), store.Letters(r.From))
+		fmt.Fprintf(w, "  %s %s\n", store.Letters(r.Emoji), store.Letters(r.From))
 	}
 }
 
@@ -915,7 +915,7 @@ func partyNotes(ctx context.Context, st store.API, crew []store.CrewMember, grou
 // unreadLine prints what waits for the acting user under bare yardr's
 // help: the unread mail, and how many notifications. It is a courtesy: a
 // store it cannot read says nothing here.
-func (a *app) unreadLine(ctx context.Context) {
+func (a *app) unreadLine(w io.Writer, ctx context.Context) {
 	if a.json {
 		return
 	}
@@ -936,8 +936,8 @@ func (a *app) unreadLine(ctx context.Context) {
 		told = p.Unread
 	}
 	if told > 0 {
-		fmt.Printf("\nMail for %s: %s, and %s (yardr inbox).\n", m.User, m.unread(), notifications(told))
+		fmt.Fprintf(w, "\nMail for %s: %s, and %s (yardr inbox).\n", m.User, m.unread(), notifications(told))
 		return
 	}
-	fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
+	fmt.Fprintf(w, "\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
 }

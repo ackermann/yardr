@@ -144,7 +144,7 @@ of the thread.`,
 					if already {
 						fmt.Fprintf(c.ErrOrStderr(), "already opened as %s; not opened again\n", printable(t.URL))
 					}
-					fmt.Println(printable(t.URL))
+					fmt.Fprintln(w, printable(t.URL))
 				})
 		},
 	}

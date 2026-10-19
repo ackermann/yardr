@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -51,6 +52,18 @@ func newCLIYard(t *testing.T, name string) *cliYard {
 func (y *cliYard) peer(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	return run(t, y.a.peerCmd(), args...)
+}
+
+// mustErr is must with the run's error stream in errs.
+func (y *cliYard) mustErr(t *testing.T, errs io.Writer, args ...string) string {
+	t.Helper()
+	c := y.a.peerCmd()
+	c.SetErr(errs)
+	out, err := run(t, c, args...)
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
 }
 
 func (y *cliYard) must(t *testing.T, args ...string) string {
@@ -422,7 +435,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 	// Nothing has come from south: it has not said.
 	wantText(t, north.must(t, "show", "south"), "  has not said what it understands (an older yardr")
 	errs := captureStderr(t)
-	out := north.must(t, "allow", "south", "--send", "ping", "--receive", "ping")
+	out := north.mustErr(t, errs, "allow", "south", "--send", "ping", "--receive", "ping")
 	wantText(t, out, "peer south: send ping; receive ping")
 	wantText(t, errs.String(), "warning: south has not said what its yardr understands (an older yardr, or nothing has come from it yet): a ping sent to it may be refused there")
 	if strings.Count(errs.String(), "warning:") != 1 {
@@ -439,7 +452,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 		t.Fatalf("show says both:\n%s", show)
 	}
 	errs.Reset()
-	out = north.must(t, "allow", "south", "--send", "bead", "--send", "mail", "--no-receive", "ping")
+	out = north.mustErr(t, errs, "allow", "south", "--send", "bead", "--send", "mail", "--no-receive", "ping")
 	wantText(t, out, "peer south: send bead, mail, ping; receive nothing")
 	wantText(t, errs.String(), "warning: south's yardr (v1.2.3) said at ", " that it understands mail, ping, and not bead: a bead sent to it is refused there until it is upgraded")
 	if strings.Count(errs.String(), "warning:") != 1 {
@@ -447,7 +460,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 	}
 	// Stopping a kind warns of nothing.
 	errs.Reset()
-	north.must(t, "allow", "south", "--no-send", "bead")
+	north.mustErr(t, errs, "allow", "south", "--no-send", "bead")
 	if errs.Len() != 0 {
 		t.Fatalf("--no-send warned:\n%s", errs)
 	}
@@ -457,7 +470,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 		Said *store.PeerSaid `json:"said"`
 		Send []string        `json:"send"`
 	}
-	js := north.must(t, "allow", "south", "--send", "bead")
+	js := north.mustErr(t, errs, "allow", "south", "--send", "bead")
 	if err := json.Unmarshal([]byte(js), &got); err != nil || got.Said == nil || got.Said.Yardr != "v1.2.3" || len(got.Send) != 3 {
 		t.Fatalf("allow --json = %s, %v", js, err)
 	}

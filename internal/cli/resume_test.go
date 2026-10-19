@@ -198,7 +198,6 @@ func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
 	stubServices(t, "darwin")
 	stubWeb(t)
 	stubFocus(t)
-	captureStderr(t)
 	f := &former{t: t, answers: answers, goes: []string{goYardmaster}}
 	stubAsk(t, f.ask)
 	return home, f

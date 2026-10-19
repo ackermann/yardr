@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -124,7 +125,6 @@ func formYards(t *testing.T, o *operators) (north, laptop *cliYard) {
 	stubAsk(t, o.ask)
 	stub(t, &pairFormPing, 20*time.Second)
 	stub(t, &answers, realAnswers)
-	bothStderr(t)
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan struct{}, 2)
 	for _, y := range []*cliYard{north, laptop} {
@@ -169,6 +169,7 @@ func formBoth(t *testing.T, o *operators, north, laptop *cliYard) (out string, h
 	pair := func(y *cliYard) error {
 		c := y.a.peerCmd()
 		c.SetArgs([]string{"pair"})
+		c.SetErr(io.Discard)
 		c.SilenceUsage, c.SilenceErrors = true, true
 		return c.Execute()
 	}
@@ -347,7 +348,7 @@ func TestPairFormFileGoesWithMail(t *testing.T) {
 		return nil
 	})
 	var f pairChoice
-	if _, err := f.ask("north", nil, nil, func(string) error { return nil }); err != nil || !f.mail || !f.file {
+	if _, err := f.ask(io.Discard, "north", nil, nil, func(string) error { return nil }); err != nil || !f.mail || !f.file {
 		t.Fatalf("answers: mail %v, file %v, %v", f.mail, f.file, err)
 	}
 }
@@ -374,7 +375,7 @@ func TestPairFormKeepsPing(t *testing.T) {
 		return nil
 	})
 	var f pairChoice
-	name, err := f.ask("north", nil, nil, func(string) error { return nil })
+	name, err := f.ask(io.Discard, "north", nil, nil, func(string) error { return nil })
 	if err != nil || name != "north" || !f.mail || f.file || f.expose != nil {
 		t.Fatalf("answers: %q, mail %v, file %v, expose %v, %v", name, f.mail, f.file, f.expose, err)
 	}
@@ -708,7 +709,7 @@ func TestSetupOffersTheLink(t *testing.T) {
 	a := &app{st: st}
 	cfg := &config.Config{Home: home}
 	for i := 0; i < 2; i++ {
-		if err := a.offerLink(context.Background(), cfg); err != nil {
+		if err := a.offerLink(io.Discard, io.Discard, context.Background(), cfg); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -723,7 +724,7 @@ func TestSetupOffersTheLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.asked = nil
-	if err := (&app{st: st}).offerLink(context.Background(), cfg); err != nil || len(f.asked) != 0 {
+	if err := (&app{st: st}).offerLink(io.Discard, io.Discard, context.Background(), cfg); err != nil || len(f.asked) != 0 {
 		t.Fatalf("a yard with a peer is asked %q, %v", f.asked, err)
 	}
 }
@@ -762,7 +763,9 @@ func TestPairFormAsksWhomToTrust(t *testing.T) {
 		f.t = t
 		stubAsk(t, f.ask)
 		var err error
-		out := capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", proved) })
+		var buf bytes.Buffer
+		err = south.a.askTrust(&buf, ctx, south.a.cfg, south.st, "up-north", proved)
+		out := buf.String()
 		if err != nil {
 			t.Fatalf("askTrust: %v\n%s", err, out)
 		}
@@ -811,7 +814,9 @@ func TestPairFormAsksWhomToTrust(t *testing.T) {
 	pages := &operators{t: t, answers: map[string]any{}}
 	stubAsk(t, pages.ask)
 	var err error
-	out = capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", true) })
+	var buf bytes.Buffer
+	err = south.a.askTrust(&buf, ctx, south.a.cfg, south.st, "up-north", true)
+	out = buf.String()
 	if err != nil || !slices.Equal(pages.asked, []string{"pair_trust"}) || trusts() != "" {
 		t.Fatalf("asked %q, trusted %q, %v\n%s", pages.asked, trusts(), err, out)
 	}
@@ -845,7 +850,9 @@ func TestPairFormAsksWhomToTrust(t *testing.T) {
 	}
 	pages = &operators{t: t, answers: map[string]any{"pair_trust": []string{"sam"}}}
 	stubAsk(t, pages.ask)
-	out = capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", true) })
+	buf.Reset()
+	err = south.a.askTrust(&buf, ctx, south.a.cfg, south.st, "up-north", true)
+	out = buf.String()
 	if err != nil || !slices.Equal(pages.asked, []string{"pair_trust", "pair_reach"}) || trusts() != "sam@up-north -> sam" || reaches() != "" {
 		t.Fatalf("asked %q, trusted %q, reach %q, %v\n%s", pages.asked, trusts(), reaches(), err, out)
 	}

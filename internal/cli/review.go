@@ -283,11 +283,11 @@ names no outcomes).`,
 			// The form needs a terminal; piped or scripted, list instead of
 			// failing on a prompt nobody can answer.
 			if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-				printReviewList(items)
-				fmt.Fprintln(os.Stderr, "not a terminal: listed instead of the form; move beads with yardr bead done or yardr bead advance")
+				printReviewList(c.OutOrStdout(), items)
+				fmt.Fprintln(c.ErrOrStderr(), "not a terminal: listed instead of the form; move beads with yardr bead done or yardr bead advance")
 				return nil
 			}
-			return a.reviewForm(c.Context(), st, items)
+			return a.reviewForm(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), st, items)
 		},
 	}
 	list := &cobra.Command{
@@ -301,7 +301,7 @@ names no outcomes).`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), items, func(w io.Writer) { printReviewList(items) })
+			return a.out(c.OutOrStdout(), items, func(w io.Writer) { printReviewList(w, items) })
 		},
 	}
 	cmd.PersistentFlags().StringSliceVarP(&only, "group", "g", nil, "only these manual groups' beads")
@@ -313,7 +313,7 @@ names no outcomes).`,
 // the moves it allows. A bead whose stage ask template broke shows the
 // error instead, where the ask would stand. The title is its writer's
 // words, one line, as letters only, so it cannot start a row of its own.
-func printReviewList(items []reviewItem) {
+func printReviewList(w io.Writer, items []reviewItem) {
 	rows := [][]string{}
 	for _, it := range items {
 		var next []string
@@ -334,7 +334,7 @@ func printReviewList(items []reviewItem) {
 		rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
 			nextCol, store.OneLine(it.Bead.Title)})
 	}
-	table(os.Stdout, "ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
+	table(w, "ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
 }
 
 // age is how long ago t was, coarsely.
@@ -351,12 +351,12 @@ func age(t time.Time) string {
 }
 
 // reviewForm asks, bead by bead, what to do with each item.
-func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) error {
+func (a *app) reviewForm(w, warn io.Writer, ctx context.Context, st store.API, items []reviewItem) error {
 	if len(items) == 0 {
-		fmt.Println("nothing waiting on you")
+		fmt.Fprintln(w, "nothing waiting on you")
 		return nil
 	}
-	as := trustMarks(os.Stderr, ctx, st)
+	as := trustMarks(warn, ctx, st)
 	for i, it := range items {
 		b := it.Bead
 		notes, err := st.Notes(ctx, b.ID)
@@ -402,16 +402,16 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 			ac := it.Actions[pick]
 			if ac.Kind == actDiff {
 				if err := pageDiff(ctx, st, b); err != nil {
-					fmt.Fprintln(os.Stderr, "yardr:", err)
+					fmt.Fprintln(warn, "yardr:", err)
 				}
 				continue
 			}
 			if ac.Kind == actAdvance || ac.Kind == actDone {
-				if err := a.reviewAdvance(ctx, st, b, ac); err != nil {
+				if err := a.reviewAdvance(w, ctx, st, b, ac); err != nil {
 					if errors.Is(err, huh.ErrUserAborted) {
 						continue
 					}
-					fmt.Fprintln(os.Stderr, "yardr:", err)
+					fmt.Fprintln(warn, "yardr:", err)
 					continue
 				}
 			}
@@ -423,7 +423,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 
 // reviewAdvance asks for the move's note and makes the move: reporting the
 // outcome for a done action, advancing for the others.
-func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac reviewAction) error {
+func (a *app) reviewAdvance(w io.Writer, ctx context.Context, st store.API, b store.Bead, ac reviewAction) error {
 	var note string
 	field := huh.NewText().Title("Note for " + b.ID).Value(&note)
 	if ac.NoteRequired {
@@ -450,9 +450,9 @@ func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac 
 		return err
 	}
 	if moved.Status == "closed" {
-		fmt.Printf("%s → %s (closed)\n", moved.ID, moved.Stage)
+		fmt.Fprintf(w, "%s → %s (closed)\n", moved.ID, moved.Stage)
 	} else {
-		fmt.Printf("%s → %s\n", moved.ID, moved.Stage)
+		fmt.Fprintf(w, "%s → %s\n", moved.ID, moved.Stage)
 	}
 	return nil
 }

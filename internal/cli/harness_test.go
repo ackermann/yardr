@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -19,10 +18,11 @@ import (
 func TestHarnessListAndShow(t *testing.T) {
 	user := noHome(t)
 	setInteractive(t, false)
+	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
 		t.Helper()
 		var code int
-		out := capture(t, func() { code = execute(&app{}, args) })
+		out := capture(t, func() { code = execute(&app{stderr: &errs}, args) })
 		if code != want {
 			t.Fatalf("yardr %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
 		}
@@ -133,8 +133,6 @@ func TestHarnessListAndShow(t *testing.T) {
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "cursor", "--json")), &shown); err != nil || shown.Kind != "cursor" || shown.Version != 0 {
 		t.Fatalf("show cursor --json: %v, %+v", err, shown)
 	}
-	var errs bytes.Buffer
-	stub(t, &stderr, io.Writer(&errs))
 	if ask(1, "harness", "show", "nope"); !strings.Contains(errs.String(), "nope is no harness kind; herdr starts: claude, codex,") {
 		t.Errorf("a kind herdr does not start: %q", errs.String())
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"os"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -216,7 +215,7 @@ func (a *app) identityOf(kind, long, example string, of func(context.Context, st
 				for _, src := range sortedKeys(ids) {
 					rows = append(rows, []string{src, or(ids[src].ID, "-"), or(ids[src].Key, "-")})
 				}
-				table(os.Stdout, "SOURCE\tID\tKEY", rows)
+				table(w, "SOURCE\tID\tKEY", rows)
 			})
 		},
 	}
@@ -457,20 +456,20 @@ them.`,
 			if err != nil {
 				return err
 			}
-			return a.showSubscriptions(c, st, args[0], kind, func(subs []store.Subscription, r *store.CrewMember) {
+			return a.showSubscriptions(c, st, args[0], kind, func(w io.Writer, subs []store.Subscription, r *store.CrewMember) {
 				if len(subs) > len(before) {
-					fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
+					fmt.Fprintf(w, "%s subscribed: %s\n", args[0], subs[len(subs)-1])
 				} else {
 					// As asked: which of the list it is, in the words the
 					// store keeps, only the store knows.
-					fmt.Printf("%s already subscribed: %s\n", args[0], sub)
+					fmt.Fprintf(w, "%s already subscribed: %s\n", args[0], sub)
 				}
 				// Neither yardr nor the linked yards have identities.
 				if r == nil || src == store.SourceYardr || src == store.SourcePeer {
 					return
 				}
 				if _, ok := r.Identities[src]; !ok && sub.Scope != store.ScopeAll {
-					fmt.Printf("note: %s has no %s identity, so it is never mentioned or assigned: yardr crew identity %s --source %s --id ...\n",
+					fmt.Fprintf(w, "note: %s has no %s identity, so it is never mentioned or assigned: yardr crew identity %s --source %s --id ...\n",
 						r.Name, src, r.Name, src)
 				}
 			})
@@ -684,14 +683,14 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 			}
 			rows = append(rows, cells)
 		}
-		table(os.Stdout, strings.Join(header, "\t"), rows)
+		table(w, strings.Join(header, "\t"), rows)
 		for _, col := range m.Subscribers {
 			if col.Kind == "group" {
-				fmt.Printf("%s reaches: %s\n", col, or(strings.Join(col.Reaches, ", "), "no crew member"))
+				fmt.Fprintf(w, "%s reaches: %s\n", col, or(strings.Join(col.Reaches, ", "), "no crew member"))
 			}
 		}
 		if len(m.ReachesNoOne) > 0 {
-			fmt.Printf("reaches no one (kinds of %s, a new crew member's --on, that nobody has): %s\n", store.KindAttention, strings.Join(m.ReachesNoOne, ", "))
+			fmt.Fprintf(w, "reaches no one (kinds of %s, a new crew member's --on, that nobody has): %s\n", store.KindAttention, strings.Join(m.ReachesNoOne, ", "))
 		}
 	})
 }
@@ -736,12 +735,12 @@ func subscriptionsOf(ctx context.Context, st store.API, name, kind string) (subs
 
 // showSubscriptions prints (or outputs) the subscriptions of the
 // crew member, user or group called name.
-func (a *app) showSubscriptions(c *cobra.Command, st store.API, name, kind string, text func([]store.Subscription, *store.CrewMember)) error {
+func (a *app) showSubscriptions(c *cobra.Command, st store.API, name, kind string, text func(io.Writer, []store.Subscription, *store.CrewMember)) error {
 	subs, r, err := subscriptionsOf(c.Context(), st, name, kind)
 	if err != nil {
 		return err
 	}
-	return a.out(c.OutOrStdout(), subs, func(w io.Writer) { text(subs, r) })
+	return a.out(c.OutOrStdout(), subs, func(w io.Writer) { text(w, subs, r) })
 }
 
 func (a *app) unsubscribeCmd() *cobra.Command {
@@ -787,7 +786,7 @@ do, the command refuses naming both, and --crew or --group says which.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"subscriber": args[0], "removed": n}, func(w io.Writer) {
-				fmt.Printf("%s: %d subscription(s) removed\n", args[0], n)
+				fmt.Fprintf(w, "%s: %d subscription(s) removed\n", args[0], n)
 			})
 		},
 	}
@@ -940,7 +939,7 @@ member takes part in.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func(w io.Writer) {
-				fmt.Printf("%s follows %s thread %s\n", args[0], source, printable(args[1]))
+				fmt.Fprintf(w, "%s follows %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
 	}
@@ -960,7 +959,7 @@ member takes part in.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func(w io.Writer) {
-				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, printable(args[1]))
+				fmt.Fprintf(w, "%s unfollowed %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
 	}
@@ -987,7 +986,7 @@ member takes part in.`,
 					rows = append(rows, []string{p.Source, printable(p.Thread), p.How, p.Since.Local().Format("01-02 15:04"),
 						printable(or(p.Title, "-"))})
 				}
-				table(os.Stdout, "SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
+				table(w, "SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
 			})
 		},
 	}
@@ -1072,7 +1071,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 			if err := st.AddSubscription(c.Context(), name, sub, a.who()); err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), sub, func(w io.Writer) { fmt.Printf("%s watches %s: %s\n", name, b.ID, sub) })
+			return a.out(c.OutOrStdout(), sub, func(w io.Writer) { fmt.Fprintf(w, "%s watches %s: %s\n", name, b.ID, sub) })
 		},
 	}
 	f := watch.Flags()
@@ -1101,7 +1100,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"subscriber": name, "bead": args[0], "removed": n}, func(w io.Writer) {
-				fmt.Printf("%s: %d watch(es) on %s removed\n", name, n, args[0])
+				fmt.Fprintf(w, "%s: %d watch(es) on %s removed\n", name, n, args[0])
 			})
 		},
 	}

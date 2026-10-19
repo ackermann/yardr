@@ -58,7 +58,7 @@ notes and prompts are never sent. See docs/otel.md.`,
 				Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 			}
 			if x.Traces == "" && x.Logs == "" {
-				fmt.Fprintln(os.Stderr, "yardr otel export: no collector: set OTEL_EXPORTER_OTLP_ENDPOINT or give --endpoint; nothing is exported")
+				fmt.Fprintln(c.ErrOrStderr(), "yardr otel export: no collector: set OTEL_EXPORTER_OTLP_ENDPOINT or give --endpoint; nothing is exported")
 				return nil
 			}
 			var err error

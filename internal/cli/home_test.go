@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,10 +172,9 @@ func TestHomeFlagInTheRefusal(t *testing.T) {
 	user := noHome(t)
 	setInteractive(t, false)
 	var errs bytes.Buffer
-	stub[io.Writer](t, &stderr, &errs)
 	home := filepath.Join(user, "my yard")
 
-	if code := execute(&app{}, []string{"--home", home, "bead", "list"}); code != 2 {
+	if code := execute(&app{stderr: &errs}, []string{"--home", home, "bead", "list"}); code != 2 {
 		t.Fatalf("exit %d: %s", code, &errs)
 	}
 	if got := errs.String(); !strings.Contains(got, "`yardr --home '"+home+"' init --harness <kind>`") || strings.Contains(got, "YARDR_HOME") {
@@ -184,7 +182,7 @@ func TestHomeFlagInTheRefusal(t *testing.T) {
 	}
 	errs.Reset()
 	t.Setenv("YARDR_HOME", "")
-	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
+	if code := execute(&app{stderr: &errs}, []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d: %s", code, &errs)
 	}
 	if got := errs.String(); !strings.Contains(got, "`yardr init --harness <kind>`") || strings.Contains(got, "--home") || strings.Contains(got, "YARDR_HOME") {
@@ -212,12 +210,11 @@ func TestYardrAt(t *testing.T) {
 func TestHomeFlagTooLong(t *testing.T) {
 	user := noHome(t)
 	var errs bytes.Buffer
-	stub[io.Writer](t, &stderr, &errs)
 	long := filepath.Join(user, strings.Repeat("h", config.MaxSocket))
 	fakeTools(t, map[string]string{"git": toolAnswers})
 	for _, args := range [][]string{{"--home", long, "bead", "list"}, {"init", "--home", long, "--harness", "claude"}, {"--home", long, "doctor"}} {
 		errs.Reset()
-		if code := execute(&app{}, args); code != 1 {
+		if code := execute(&app{stderr: &errs}, args); code != 1 {
 			t.Fatalf("%v: exit %d", args, code)
 		}
 		if got := errs.String(); !strings.Contains(got, "too long") || !strings.Contains(got, "--home") || !strings.Contains(got, "YARDR_HOME") {
@@ -229,7 +226,7 @@ func TestHomeFlagTooLong(t *testing.T) {
 	}
 
 	errs.Reset()
-	if code := execute(&app{}, []string{"--home", "", "bead", "list"}); code != 1 || !strings.Contains(errs.String(), "--home needs a directory") {
+	if code := execute(&app{stderr: &errs}, []string{"--home", "", "bead", "list"}); code != 1 || !strings.Contains(errs.String(), "--home needs a directory") {
 		t.Errorf("--home '': exit %d, %s", code, &errs)
 	}
 	if _, err := os.Stat(filepath.Join(user, ".yardr")); err == nil {

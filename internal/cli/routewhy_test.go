@@ -197,7 +197,7 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 		{[]string{"--group", "a"}, ""},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(added + 1)}, tc.args...)...)
+		id, err := routeErr(t, a, errs, append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(added + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}
@@ -257,7 +257,7 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 		{args: []string{"--group", "own@Weekly<80", "--else", "spare@Weekly<80", "--else", "spare-twin"}, first: "spare", warn: "spare-twin"},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
+		id, err := routeErr(t, a, errs, append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}
@@ -389,7 +389,7 @@ func TestRouteWarningsTakeAGroupWithoutAKindForTheYardsDefaultKind(t *testing.T)
 	add := func(args ...string) (id, warned string) {
 		t.Helper()
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add"}, args...)...)
+		id, err := routeErr(t, a, errs, append([]string{"add"}, args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", args, err)
 		}

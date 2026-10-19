@@ -121,7 +121,7 @@ func TestPeerAllowSendAskWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 	errs := captureStderr(t)
-	out := north.must(t, "allow", "south", "--send", "ask")
+	out := north.mustErr(t, errs, "allow", "south", "--send", "ask")
 	wantText(t, out, "peer south: send ask; receive nothing")
 	wantText(t, errs.String(), "warning: south's yardr (v1.2.3) said at ", " that it understands mail, ping, and not ask: an ask sent to it is refused there until it is upgraded")
 	if strings.Count(errs.String(), "warning:") != 1 {

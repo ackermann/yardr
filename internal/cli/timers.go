@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"os"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -110,7 +109,7 @@ bead stands.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), t, func(w io.Writer) { fmt.Printf("timer %s set: %s\n", t.ID, timerLine(*t, a.who(), time.Now())) })
+			return a.out(c.OutOrStdout(), t, func(w io.Writer) { fmt.Fprintf(w, "timer %s set: %s\n", t.ID, timerLine(*t, a.who(), time.Now())) })
 		},
 	}
 	f := add.Flags()
@@ -151,7 +150,7 @@ bead stands.`,
 					}
 					rows = append(rows, []string{t.ID, t.By, t.To, timerDue(t, now), or(t.Every, "-"), unless, firstLine(t.Reason)})
 				}
-				table(os.Stdout, "ID\tBY\tTO\tDUE\tEVERY\tUNLESS\tREASON", rows)
+				table(w, "ID\tBY\tTO\tDUE\tEVERY\tUNLESS\tREASON", rows)
 			})
 		},
 	}
@@ -169,7 +168,7 @@ bead stands.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), t, func(w io.Writer) { fmt.Printf("timer %s removed\n", t.ID) })
+			return a.out(c.OutOrStdout(), t, func(w io.Writer) { fmt.Fprintf(w, "timer %s removed\n", t.ID) })
 		},
 	}
 	cmd.AddCommand(add, list, rm)

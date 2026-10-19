@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -284,17 +285,17 @@ type loginUnit struct {
 func (l *loginUnit) of(u *unit) { l.Manager, l.Name, l.File = u.Manager, u.Name, u.Path }
 
 // printLogin prints the login services under their own heading.
-func printLogin(units []loginUnit) {
+func printLogin(w io.Writer, units []loginUnit) {
 	if len(units) == 0 {
 		return
 	}
-	fmt.Println("\nAt login:")
+	fmt.Fprintln(w, "\nAt login:")
 	for _, l := range units {
 		name := yardPart{Part: l.Part}.name()
 		if l.Error != "" {
-			fmt.Printf("%-15s NOT %s\n", name, l.Error)
+			fmt.Fprintf(w, "%-15s NOT %s\n", name, l.Error)
 			if l.Do != "" {
-				fmt.Printf("%-15s   %s\n", "", l.Do)
+				fmt.Fprintf(w, "%-15s   %s\n", "", l.Do)
 			}
 			continue
 		}
@@ -306,9 +307,9 @@ func printLogin(units []loginUnit) {
 		if l.Detail != "" {
 			did += ": " + l.Detail
 		}
-		fmt.Printf("%-15s %s\n", name, did)
-		for _, w := range l.Warnings {
-			fmt.Printf("%-15s   mind: %s\n", "", w)
+		fmt.Fprintf(w, "%-15s %s\n", name, did)
+		for _, warning := range l.Warnings {
+			fmt.Fprintf(w, "%-15s   mind: %s\n", "", warning)
 		}
 	}
 }

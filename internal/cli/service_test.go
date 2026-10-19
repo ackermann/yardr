@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -243,7 +244,18 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	stubLookPath(t, "git", "herdr")
 	st := storetest.New(t)
 	a := func() *app { return &app{st: st, actor: "me"} }
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	rund := func(args ...string) (string, error) {
+		t.Helper()
+		var stdout bytes.Buffer
+		c := a().rootCmd()
+		c.SetOut(&stdout)
+		escaped, err := run(t, c, args...)
+		if escaped != "" {
+			t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
+		}
+		return stdout.String(), err
+	}
+	if _, err := rund("init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	stub(t, &userHomeDir, func() (string, error) { return "/Users/jo", nil })
@@ -258,7 +270,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := run(t, a().rootCmd(), "daemon", "install")
+	out, err := rund("daemon", "install")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,15 +297,15 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	if want := []string{"launchctl print " + dom + "/" + label, "launchctl bootstrap " + dom + " " + file}; !slices.Equal(m.calls, want) {
 		t.Fatalf("calls = %q", m.calls)
 	}
-	out, _ = run(t, a().rootCmd(), "doctor")
+	out, _ = rund("doctor")
 	wantText(t, out, "configured      login service: the daemon starts at login ("+file+")",
 		"note            login service: depot notes (/Users/jo/Documents/notes) is in a folder macOS protects")
-	out, _ = run(t, a().rootCmd(), "daemon", "status")
+	out, _ = rund("daemon", "status")
 	wantText(t, out, "daemon   not running", "service  installed and loaded: launchd starts it at login ("+file+")")
 
 	// Again: the loaded one is taken out before the new one goes in.
 	m.calls = nil
-	if _, err := run(t, a().rootCmd(), "daemon", "install"); err != nil {
+	if _, err := rund("daemon", "install"); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"launchctl print " + dom + "/" + label, "launchctl bootout " + dom + "/" + label,
@@ -302,7 +314,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	}
 
 	m.calls = nil
-	out, err = run(t, a().rootCmd(), "daemon", "uninstall")
+	out, err = rund("daemon", "uninstall")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +328,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	if left, _ := os.ReadDir(dir); len(left) != 1 {
 		t.Fatalf("left in %s: %v", dir, left)
 	}
-	out, _ = run(t, a().rootCmd(), "doctor")
+	out, _ = rund("doctor")
 	wantText(t, out, "not configured  login service: ", here("yardr daemon install starts it at login"))
 	if strings.Contains(out, "macOS protects") {
 		t.Errorf("no service, and still the note:\n%s", out)
@@ -324,7 +336,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 
 	// Nothing installed: uninstall says so and asks the manager nothing.
 	m.calls = nil
-	out, err = run(t, a().rootCmd(), "daemon", "uninstall")
+	out, err = rund("daemon", "uninstall")
 	if err != nil || !strings.Contains(out, "No daemon service is installed") || len(m.calls) != 0 {
 		t.Fatalf("%v, calls %q\n%s", err, m.calls, out)
 	}

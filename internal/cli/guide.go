@@ -103,23 +103,23 @@ it prints the steps and the command for the next one.`,
 			next := nextStep(steps)
 			forms := !a.json && interactive() && !agentSession()
 			if err := a.out(c.OutOrStdout(), setupReport{Home: cfg.Home, Steps: steps, Next: next}, func(w io.Writer) {
-				fmt.Printf("The setup of the yard in %s\n\n", cfg.Home)
+				fmt.Fprintf(w, "The setup of the yard in %s\n\n", cfg.Home)
 				printSteps(w, steps)
 				if next != nil && !forms {
-					fmt.Println()
+					fmt.Fprintln(w)
 					printNextStep(w, cfg.Home, next)
 				}
 				if next == nil {
 					// The first bead has merged: herdr's server at login is
 					// listed as optional, never as a step that would hold the
 					// setup open.
-					fmt.Println("\nOptional")
-					fmt.Println(herdrLoginPart(cfg).line())
+					fmt.Fprintln(w, "\nOptional")
+					fmt.Fprintln(w, herdrLoginPart(cfg).line())
 				}
 			}); err != nil || !forms {
 				return err
 			}
-			return a.guide(c.OutOrStdout(), c.Context(), cfg, st)
+			return a.guide(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, st)
 		},
 	}
 	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "\"talk to the yardmaster\" prints where its pane is instead of opening yardr chat")
@@ -165,7 +165,7 @@ const (
 // Talking to the yardmaster is yardr chat, opened here on the yardmaster
 // (toChat): the person is in the conversation in the window the form ran in.
 // Where no chat can open it is the yardmaster's pane, brought to the front.
-func (a *app) handOff(w io.Writer, ctx context.Context, cfg *config.Config, yardmaster string, place *yardmasterPlace) error {
+func (a *app) handOff(w, warn io.Writer, ctx context.Context, cfg *config.Config, yardmaster string, place *yardmasterPlace) error {
 	st, err := a.store(ctx)
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func (a *app) handOff(w io.Writer, ctx context.Context, cfg *config.Config, yard
 	if next := nextStep(steps); next != nil {
 		opts = append(opts, huh.NewOption("Keep going here: a short run of forms, next "+next.Title, goHere))
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	err = ask(huh.NewSelect[string]().Key("go").Title("The rest of the setup").
 		Description(fmt.Sprintf("A repository to work in, who builds and reviews, how work lands, a first bead.\n"+
 			"%s does it with you as a conversation, or this terminal as forms. Both go by the\n"+
@@ -196,14 +196,14 @@ func (a *app) handOff(w io.Writer, ctx context.Context, cfg *config.Config, yard
 	case err != nil:
 		return err
 	case pick == goHere:
-		return a.guide(w, ctx, cfg, st)
+		return a.guide(w, warn, ctx, cfg, st)
 	}
 	if a.chats() {
-		if opened, err := a.toChat(ctx, cfg, st, yardmaster); err != nil || opened {
+		if opened, err := a.toChat(w, ctx, cfg, st, yardmaster); err != nil || opened {
 			return err
 		}
 	}
-	openYardmaster(ctx, yardmaster, place)
+	openYardmaster(w, ctx, yardmaster, place)
 	return nil
 }
 
@@ -212,6 +212,8 @@ type guide struct {
 	a   *app
 	cfg *config.Config
 	st  store.API
+	// w and warn are where the setup prints and warns: its command's.
+	w, warn io.Writer
 }
 
 // page does one setup step: it asks what the step's command needs, shows
@@ -237,8 +239,8 @@ func (g *guide) pages() map[string]page {
 // guide takes the steps not done one page at a time, asking after each how
 // to go on, until none is left, a page is left undone, or the person stops
 // or goes to the yardmaster.
-func (a *app) guide(w io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
-	g := &guide{a: a, cfg: cfg, st: st}
+func (a *app) guide(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
+	g := &guide{a: a, cfg: cfg, st: st, w: w, warn: warn}
 	yardr := yardrAt(cfg.Home)
 	for {
 		steps, err := setupSteps(ctx, st)
@@ -247,26 +249,26 @@ func (a *app) guide(w io.Writer, ctx context.Context, cfg *config.Config, st sto
 		}
 		next := nextStep(steps)
 		if next == nil {
-			fmt.Println("\nThe setup is complete.")
+			fmt.Fprintln(w, "\nThe setup is complete.")
 			if err := g.offerLanded(ctx); err != nil {
 				return err
 			}
-			return a.offerLink(ctx, cfg)
+			return a.offerLink(w, warn, ctx, cfg)
 		}
 		run := g.pages()[next.Key]
 		if run == nil {
 			return g.watch(ctx)
 		}
-		fmt.Printf("\nSetup: %s\n", next.Title)
+		fmt.Fprintf(w, "\nSetup: %s\n", next.Title)
 		done, err := run(ctx, *next)
 		switch {
 		case errors.Is(err, huh.ErrUserAborted):
-			fmt.Printf("\nCancelled at: %s. The yard is as the steps before it left it; `%s setup` goes on from here.\n", next.Title, yardr)
+			fmt.Fprintf(w, "\nCancelled at: %s. The yard is as the steps before it left it; `%s setup` goes on from here.\n", next.Title, yardr)
 			return nil
 		case err != nil:
 			return err
 		case !done:
-			fmt.Printf("\nThe setup waits at: %s. `%s setup` goes on from here.\n", next.Title, yardr)
+			fmt.Fprintf(w, "\nThe setup waits at: %s. `%s setup` goes on from here.\n", next.Title, yardr)
 			return nil
 		}
 		// Read again: what the page did is what the store shows, not what
@@ -281,18 +283,18 @@ func (a *app) guide(w io.Writer, ctx context.Context, cfg *config.Config, st sto
 		case after.Key == next.Key:
 			// Answers that leave the step undone (a no to the import, say):
 			// going on would ask the same again.
-			fmt.Printf("\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", yardr+" "))
+			fmt.Fprintf(w, "\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", yardr+" "))
 			return nil
 		}
 		pick, err := g.goOn(ctx, *after)
 		switch {
 		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick == goStop):
-			fmt.Printf("\nStopped. Next is %s: `%s setup` goes on from here.\n", after.Title, yardr)
+			fmt.Fprintf(w, "\nStopped. Next is %s: `%s setup` goes on from here.\n", after.Title, yardr)
 			return nil
 		case err != nil:
 			return err
 		case pick == goYardmaster:
-			return g.toYardmaster(w, ctx)
+			return g.toYardmaster(ctx)
 		case g.pages()[after.Key] == nil:
 			return g.watch(ctx)
 		}
@@ -326,7 +328,7 @@ func (g *guide) yardmasterAt() string {
 // running is no one to talk to: it says what yardr doctor says of it, and
 // opens no empty chat. One whose session runs without an answer is offered as
 // its pane first.
-func (g *guide) toYardmaster(w io.Writer, ctx context.Context) error {
+func (g *guide) toYardmaster(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
 	yardmaster := yardmasterOf(ctx, g.st)
 	r, err := g.st.GetCrew(ctx, yardmaster)
@@ -339,11 +341,11 @@ func (g *guide) toYardmaster(w io.Writer, ctx context.Context) error {
 		// back, as after a start (offerPane).
 		res := &startResult{said: true}
 		res.describe(ctx, g.cfg, g.st, r, yardmaster, fmt.Sprintf("%s has not answered its first prompt, so there is nobody to talk to yet.", yardmaster))
-		res.printProblem()
+		res.printProblem(g.w)
 		// What the diagnosis found, the call to the harness among it
 		// (tryAfterFailure): the pane's question quotes its first line.
-		res.printKnownNext()
-		if err := g.a.offerPane(ctx, g.cfg, g.st, yardmaster, yardmasterWait, res); err != nil {
+		res.printKnownNext(g.w)
+		if err := g.a.offerPane(g.w, g.warn, ctx, g.cfg, g.st, yardmaster, yardmasterWait, res); err != nil {
 			return err
 		}
 		if silent = !res.Running; !silent {
@@ -354,26 +356,26 @@ func (g *guide) toYardmaster(w io.Writer, ctx context.Context) error {
 	}
 	if err != nil || !r.Live() || silent {
 		if err != nil || !r.Live() {
-			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", yardmaster)
+			fmt.Fprintf(g.w, "\n%s is not running, so there is nobody to talk to yet.\n", yardmaster)
 		}
-		if err := g.a.doctorSays(w, ctx, g.cfg); err != nil {
+		if err := g.a.doctorSays(g.w, ctx, g.cfg); err != nil {
 			return err
 		}
-		fmt.Printf("\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", yardmaster, yardr)
+		fmt.Fprintf(g.w, "\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", yardmaster, yardr)
 		return nil
 	}
 	if g.a.chats() {
-		if opened, err := g.a.toChat(ctx, g.cfg, g.st, yardmaster); err != nil || opened {
+		if opened, err := g.a.toChat(g.w, ctx, g.cfg, g.st, yardmaster); err != nil || opened {
 			return err
 		}
 	}
 	all, _ := g.st.Settings(ctx)
 	place := placeOf(*r, runner.YardName(g.cfg.Home, all))
-	fmt.Println()
-	place.print(yardmaster)
-	fmt.Println()
-	openYardmaster(ctx, yardmaster, place)
-	fmt.Printf("%s goes on from the step that is next: it reads `%s doctor`. Write to it there.\n", yardmaster, yardr)
+	fmt.Fprintln(g.w)
+	place.print(g.w, yardmaster)
+	fmt.Fprintln(g.w)
+	openYardmaster(g.w, ctx, yardmaster, place)
+	fmt.Fprintf(g.w, "%s goes on from the step that is next: it reads `%s doctor`. Write to it there.\n", yardmaster, yardr)
 	return nil
 }
 
@@ -389,7 +391,7 @@ func commandLine(home string, args []string) string {
 // do shows a yardr command line, then runs it.
 func (g *guide) do(ctx context.Context, args ...string) error {
 	g.show(ctx, commandLine(g.cfg.Home, args))
-	return g.a.sub(ctx, args...)
+	return g.a.sub(g.w, g.warn, ctx, args...)
 }
 
 // show prints the command line a page is about to run, except to an operator
@@ -398,19 +400,23 @@ func (g *guide) do(ctx context.Context, args ...string) error {
 // happens. It reads the setting each time, as the steps are read.
 func (g *guide) show(ctx context.Context, line string) {
 	if guided(ctx, g.st) {
-		fmt.Println()
+		fmt.Fprintln(g.w)
 		return
 	}
-	fmt.Printf("\n  $ %s\n\n", line)
+	fmt.Fprintf(g.w, "\n  $ %s\n\n", line)
 }
 
 // sub runs a yardr command line in this process, as typed. The guided
 // setup's pages end in the commands themselves, not in a second way of
 // doing what they do, so a page cannot drift from the command it shows.
-func (a *app) sub(ctx context.Context, args ...string) error {
+func (a *app) sub(w, warn io.Writer, ctx context.Context, args ...string) error {
 	asJSON, actor, noChat := a.json, a.actor, a.noChat
 	root := a.rootCmd() // binds its flags to a, which resets them
 	a.json, a.actor, a.noChat = asJSON, actor, noChat
+	// The run inside prints where the run outside does: its output
+	// interleaves with the guide's, in time order, on one stream.
+	root.SetOut(w)
+	root.SetErr(warn)
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
 }
@@ -513,7 +519,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	if set {
 		whose = "the yard's " + defaultPackSetting + " setting"
 	}
-	fmt.Printf("This sets depot %s up from the pack %s, %s: its groups, the routes that send each\n"+
+	fmt.Fprintf(g.w, "This sets depot %s up from the pack %s, %s: its groups, the routes that send each\n"+
 		"stage to its group, and the flow with its stage files, in one import. The plan below names each.\n"+
 		"It asks for the agent, model and permissions of each group of agents and for who is in each group\n"+
 		"of people, and writes nothing before a yes at its last question.\n", depot.Name, pack, whose)
@@ -521,7 +527,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 		// The pack's assembly lands on local branches only, and holds every
 		// bead of a depot whose base is a remote's.
 		if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
-			fmt.Printf("\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
+			fmt.Fprintf(g.w, "\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
 				"and would hold every approved bead (docs/line.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
 		}
 	}
@@ -578,20 +584,20 @@ func (g *guide) watch(ctx context.Context) error {
 	if i := slices.IndexFunc(beads, work); i >= 0 {
 		b := beads[i]
 		id = b.ID
-		fmt.Printf("\nThe forms end here. The first bead, %s (%s), is in stage %s.", b.ID, b.Title, b.Stage)
+		fmt.Fprintf(g.w, "\nThe forms end here. The first bead, %s (%s), is in stage %s.", b.ID, b.Title, b.Stage)
 		if b.Hold {
-			fmt.Printf(" It is held: `%s bead show %s` says why.", yardr, b.ID)
+			fmt.Fprintf(g.w, " It is held: `%s bead show %s` says why.", yardr, b.ID)
 		}
-		fmt.Println()
+		fmt.Fprintln(g.w)
 	}
 	if !config.DaemonRunning(g.cfg.DaemonLock()) {
-		fmt.Printf("No daemon is running, so nothing picks it up yet: `%s init --start` starts one in the background.\n", yardr)
+		fmt.Fprintf(g.w, "No daemon is running, so nothing picks it up yet: `%s init --start` starts one in the background.\n", yardr)
 	}
 	web := "serves the yard in a browser while it runs, at http://127.0.0.1:8791/"
 	if webService(g.cfg) {
 		web = "runs as a login service already: the yard in a browser" + at(webServiceAddr(g.cfg))
 	}
-	fmt.Printf("\nTo watch it:\n\n"+
+	fmt.Fprintf(g.w, "\nTo watch it:\n\n"+
 		"  %s session list       # who works on what now\n"+
 		"  %s bead show %s   # where it is, with the notes of whoever worked it\n"+
 		"  %s watch              # every event as it happens\n"+
@@ -600,7 +606,7 @@ func (g *guide) watch(ctx context.Context) error {
 	if err := g.offerLanded(ctx); err != nil {
 		return err
 	}
-	return g.a.offerLink(ctx, g.cfg)
+	return g.a.offerLink(g.w, g.warn, ctx, g.cfg)
 }
 
 // offerLanded asks, where the forms end, whether the person wants to be
@@ -632,7 +638,7 @@ func (g *guide) offerLanded(ctx context.Context) error {
 		return err
 	}
 	if err := g.do(ctx, args...); err != nil {
-		fmt.Printf("yardr: %v\nThe yard runs without it; `%s` tries again.\n", err, line)
+		fmt.Fprintf(g.w, "yardr: %v\nThe yard runs without it; `%s` tries again.\n", err, line)
 	}
 	return nil
 }

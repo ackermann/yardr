@@ -28,10 +28,14 @@ type app struct {
 	// SetOut and SetErr. Commands write to their cobra command at run
 	// time (c.OutOrStdout, c.ErrOrStderr); these exist only for what
 	// runs before a command does, and for tests to preset. Nil means
-	// the process's streams.
+	// the process's streams. Pre-run records the run's error writer
+	// on stderr, for the helpers with no command in reach.
 	stdout io.Writer
 	stderr io.Writer
-	actor  string
+	// stdin is where a command a program leads reads its answers; tests
+	// hand their own. Nil means the process's standard input.
+	stdin io.Reader
+	actor string
 	// actingAs is the actor resolved once by PersistentPreRunE, so a later
 	// lookup cannot time out and silently change this run's attribution.
 	actingAs    string
@@ -57,14 +61,14 @@ type app struct {
 	self *resolved
 }
 
-// stderr is where Execute reports an error; tests replace it.
-var stderr io.Writer = os.Stderr
-
 // Execute runs the CLI and returns the process exit code.
 func Execute() int { return execute(&app{}, os.Args[1:]) }
 
 // execute runs args on a and returns the exit code.
 func execute(a *app, args []string) int {
+	if a.stdin == nil {
+		a.stdin = os.Stdin
+	}
 	root := a.rootCmd()
 	root.SetArgs(args)
 	err := root.ExecuteContext(context.Background())
@@ -101,10 +105,14 @@ func (a *app) rootCmd() *cobra.Command {
 			if err := c.Help(); err != nil {
 				return err
 			}
-			a.unreadLine(c.Context())
+			a.unreadLine(c.OutOrStdout(), c.Context())
 			return nil
 		},
 		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
+			// First: the run's error writer, for the helpers with no
+			// command in reach (identity). A preset survives: the root
+			// applies it, so this resolves to it.
+			a.stderr = c.ErrOrStderr()
 			// Before anything reads the home: every config.Load of this
 			// run, and the environment of what it starts, follow the flag.
 			if c.Flags().Changed("home") {
@@ -146,11 +154,6 @@ func (a *app) rootCmd() *cobra.Command {
 	}
 	if a.stderr != nil {
 		root.SetErr(a.stderr)
-	} else {
-		// Until B3 deletes the package's stderr, the root's error
-		// writer is that global, which tests replace; execute's
-		// error then reaches their buffer through the root.
-		root.SetErr(stderr)
 	}
 	return root
 }
@@ -171,7 +174,7 @@ for a go install, "unknown" for a build that carries neither.`,
 // printVersion is yardr version, and yardr --version.
 func (a *app) printVersion(w io.Writer) error {
 	return a.out(w, map[string]string{"version": version.Tag(), "revision": version.Current()}, func(w io.Writer) {
-		fmt.Println(version.Describe())
+		fmt.Fprintln(w, version.Describe())
 	})
 }
 

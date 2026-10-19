@@ -133,7 +133,7 @@ a person.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), map[string]any{"pairing": "ended", "user": p.User, "device": p.Device}, func(w io.Writer) {
-					fmt.Printf("the pairing for the device %s of %s is ended: its code is good for nothing\n", p.Device, p.User)
+					fmt.Fprintf(w, "the pairing for the device %s of %s is ended: its code is good for nothing\n", p.Device, p.User)
 				})
 			}
 			if len(args) != 2 {
@@ -168,25 +168,25 @@ a person.`,
 			if draw && !a.json {
 				if picture, err = drawQR(out.QR, term.IsTerminal(int(os.Stdout.Fd()))); err != nil {
 					// The pairing is open and its code good: only the picture is not there.
-					fmt.Fprintf(stderr, "no QR code could be drawn of %d characters (%v): give the device the address and the code\n", len(out.QR), err)
+					fmt.Fprintf(c.ErrOrStderr(), "no QR code could be drawn of %d characters (%v): give the device the address and the code\n", len(out.QR), err)
 				}
 			}
 			yardr := yardrAt(cfg.Home)
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Printf("Pairing is open for %s, until %s, for the device %s of %s. Give the device this yard's address and the code:\n\n"+
+				fmt.Fprintf(w, "Pairing is open for %s, until %s, for the device %s of %s. Give the device this yard's address and the code:\n\n"+
 					"  address  %s\n  code     %s\n\n",
 					short(pairing.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, out.Address, out.Code)
 				if picture != "" {
-					fmt.Printf("%s\n", picture)
+					fmt.Fprintf(w, "%s\n", picture)
 				}
-				fmt.Printf("The code is good once: the device is answered with its token, which is shown nowhere else. "+
+				fmt.Fprintf(w, "The code is good once: the device is answered with its token, which is shown nowhere else. "+
 					"%d wrong codes end the pairing, and so does: %s user device pair --end\n", pairing.MaxTries, yardr)
-				fmt.Printf("It then calls as %s until: %s user device rm %s %s\n", out.User, yardr, out.User, out.Device)
+				fmt.Fprintf(w, "It then calls as %s until: %s user device rm %s %s\n", out.User, yardr, out.User, out.Device)
 				if out.User != all[store.OperatorSetting] {
-					fmt.Printf("%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", out.User)
+					fmt.Fprintf(w, "%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", out.User)
 				}
 				if u, err := url.Parse(out.Address); err == nil && u.Scheme == "http" && u.Hostname() != "localhost" && !isLoopback(u.Hostname()) {
-					fmt.Printf("%s is plain http: whoever is between the device and this yard reads the code, and the token after it. Use it on a network you trust.\n", out.Address)
+					fmt.Fprintf(w, "%s is plain http: whoever is between the device and this yard reads the code, and the token after it. Use it on a network you trust.\n", out.Address)
 				}
 			})
 		},

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -208,6 +210,7 @@ func TestInitStart(t *testing.T) {
 		t.Fatalf("plain init: %d started, %v\n%s", *started, err, out)
 	}
 	errs := captureStderr(t)
+	a.stderr = errs
 	out, err = run(t, a.rootCmd(), "init", "--start")
 	if err != nil || *started != 1 {
 		t.Fatalf("--start: %d started, %v\n%s", *started, err, out)
@@ -253,7 +256,6 @@ func TestInitStartWithRunningDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	captureStderr(t)
 
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 	if *started != 0 {
@@ -315,7 +317,6 @@ func TestWaitForTheYardmastersOutput(t *testing.T) {
 			old := agentStatus
 			agentStatus = func(context.Context, map[string]any) (string, error) { return c.status, nil }
 			t.Cleanup(func() { agentStatus = old })
-			captureStderr(t)
 			out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 			if c.up != (err == nil) {
 				t.Fatalf("err = %v\n%s", err, out)
@@ -361,11 +362,17 @@ func TestWaitSaysTheHarnessWaitsInItsPane(t *testing.T) {
 		stubPane(t, "sh$ claude\nWelcome\nSelect login method:")
 		shortenWait(t, 5*time.Millisecond, 30*time.Millisecond)
 		errs := captureStderr(t)
-
-		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "300ms")
+		var stdout bytes.Buffer
+		c := (&app{st: st, actor: "me", stderr: errs}).rootCmd()
+		c.SetOut(&stdout)
+		escaped, err := run(t, c, "init", "--harness", "claude", "--start", "--wait", "300ms")
 		if err == nil {
-			t.Fatalf("err = nil\n%s", out)
+			t.Fatalf("err = nil\n%s", stdout.String())
 		}
+		if escaped != "" {
+			t.Fatalf("init --start wrote outside its command writer:\n%s", escaped)
+		}
+		out := stdout.String()
 		got := errs.String()
 		if n := strings.Count(got, line); n != 1 {
 			t.Errorf("the line is said %d times, want once:\n%s", n, got)
@@ -390,7 +397,7 @@ func TestWaitSaysTheHarnessWaitsInItsPane(t *testing.T) {
 		shortenWait(t, 5*time.Millisecond, 10*time.Second)
 		errs := captureStderr(t)
 
-		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+		out, err := run(t, (&app{st: st, actor: "me", stderr: errs}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 		if err == nil || !strings.Contains(out, "has not answered its first prompt within 30ms.") {
 			t.Fatalf("err = %v\n%s", err, out)
 		}
@@ -408,7 +415,7 @@ func TestWaitSaysTheHarnessWaitsInItsPane(t *testing.T) {
 		shortenWait(t, 5*time.Millisecond, 30*time.Millisecond)
 		errs := captureStderr(t)
 
-		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start")
+		out, err := run(t, (&app{st: st, actor: "me", stderr: errs}).rootCmd(), "init", "--harness", "claude", "--start")
 		if err != nil || !strings.Contains(out, "yardmaster is running, in herdr") {
 			t.Fatalf("err = %v\n%s", err, out)
 		}
@@ -433,7 +440,6 @@ func TestWaitEndsOnFirstOutput(t *testing.T) {
 		return answeredPane, nil
 	}
 	t.Cleanup(func() { paneTail = old })
-	captureStderr(t)
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start")
 	if err != nil || reads < 4 || !strings.Contains(out, "yardmaster is running, in herdr") {
 		t.Fatalf("%d reads, %v\n%s", reads, err, out)
@@ -470,11 +476,10 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		return nil, st.CrewStartFailed(ctx, "yardmaster", `herdr workspace.create: exec: "herdr": executable file not found in $PATH`, time.Minute)
 	}
 	t.Cleanup(func() { spawnDaemon = old })
-	captureStderr(t)
 
 	stubLookPath(t, "git")
 	began := time.Now()
-	res := a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
+	res := a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard)
 	unlock()
 	if res.Running || time.Since(began) > 10*time.Second || res.Problem != "yardmaster cannot start: herdr and claude are not on PATH." {
 		t.Fatalf("after %v: %+v", time.Since(began), res)
@@ -500,7 +505,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		}
 		return nil, nil
 	}
-	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
+	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard)
 	if res.Running || !strings.Contains(res.Problem, "the daemon gave up after") ||
 		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr crew start yardmaster")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
@@ -519,14 +524,14 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, nil }
-	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
+	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard)
 	if next := strings.Join(res.Next, "\n"); res.Running || strings.Contains(next, "doctor --try") {
 		t.Errorf("herdr's outage is no reason to try the harness: %+v", res)
 	}
 
 	// A daemon that cannot be started at all.
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
-	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.DaemonStarted ||
+	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard); res.DaemonStarted ||
 		res.Problem != "the daemon could not be started: fork: no" || !strings.Contains(res.Next[0], here("yardr daemon")) {
 		t.Fatalf("%+v", res)
 	}
@@ -537,7 +542,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		ch <- errors.New("exit status 1")
 		return ch, st.SetCrewEnabled(ctx, "yardmaster", true, "", op)
 	}
-	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.Problem != "the daemon stopped right after it started." ||
+	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard); res.Problem != "the daemon stopped right after it started." ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "no daemon is running on this yard") {
 		t.Fatalf("%+v", res)
 	}

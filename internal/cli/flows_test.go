@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"maps"
 	"slices"
@@ -95,8 +96,12 @@ func TestFlowViews(t *testing.T) {
 	unused.Name = "spare"
 	_, err = st.PutFlow(ctx, *unused, "me")
 	must(err)
-	rows, err := flowList(ctx, st)
+	var warned bytes.Buffer
+	rows, err := flowList(&warned, ctx, st)
 	must(err)
+	if warned.String() != "" {
+		t.Errorf("flow list warned:\n%s", warned.String())
+	}
 	got := map[string]string{}
 	for _, r := range rows {
 		got[r.Name] = r.Source + ": " + strings.Join(r.Governs, ", ")

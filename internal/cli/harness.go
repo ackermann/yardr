@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"os"
 	"yardr.dev/yardr/internal/agents"
 )
 
@@ -41,15 +40,15 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 				for _, h := range agents.Harnesses {
 					rows = append(rows, []string{h.Kind, h.Label, fmt.Sprintf("v%d", h.Version), strings.Join(harnessKnown(h), ", ")})
 				}
-				table(os.Stdout, "KIND\tHARNESS\tFILE\tYARDR KNOWS", rows)
+				table(w, "KIND\tHARNESS\tFILE\tYARDR KNOWS", rows)
 				var none []string
 				for _, k := range agents.Kinds() {
 					if _, ok := agents.Lookup(k); !ok {
 						none = append(none, k)
 					}
 				}
-				fmt.Printf("\nNo file, so started as herdr starts it and nothing more known: %s.\n", strings.Join(none, ", "))
-				fmt.Println("yardr harness show <kind> prints a file's content.")
+				fmt.Fprintf(w, "\nNo file, so started as herdr starts it and nothing more known: %s.\n", strings.Join(none, ", "))
+				fmt.Fprintln(w, "yardr harness show <kind> prints a file's content.")
 			})
 		},
 	})

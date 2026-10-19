@@ -90,18 +90,18 @@ The file does not shrink until it is compacted (yardr store compact).`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				fmt.Printf("pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
+				fmt.Fprintf(w, "pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
 				if res.Blobs > 0 {
-					fmt.Printf("  %d images no mail names any more\n", res.Blobs)
+					fmt.Fprintf(w, "  %d images no mail names any more\n", res.Blobs)
 				}
 				if res.HeldBy != "" {
-					fmt.Printf("older events kept: %s\n", res.HeldBy)
+					fmt.Fprintf(w, "older events kept: %s\n", res.HeldBy)
 				}
 				for _, name := range slices.Sorted(maps.Keys(res.Expired)) {
-					fmt.Printf("crew member %s: %d unread inbox events went with the log\n", name, res.Expired[name])
+					fmt.Fprintf(w, "crew member %s: %d unread inbox events went with the log\n", name, res.Expired[name])
 				}
 				for _, name := range slices.Sorted(maps.Keys(res.Peers)) {
-					fmt.Printf("peer %s: %d ids of messages taken from it forgotten, %d messages given up removed\n", name, res.Peers[name].Seen, res.Peers[name].Failed)
+					fmt.Fprintf(w, "peer %s: %d ids of messages taken from it forgotten, %d messages given up removed\n", name, res.Peers[name].Seen, res.Peers[name].Failed)
 				}
 			})
 		},
@@ -136,7 +136,7 @@ complete.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				fmt.Printf("%s: %d -> %d bytes\n", cfg.DBPath(), res.Before, res.After)
+				fmt.Fprintf(w, "%s: %d -> %d bytes\n", cfg.DBPath(), res.Before, res.After)
 			})
 		},
 	}
@@ -170,7 +170,7 @@ yard.db.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				fmt.Printf("%s: %d bytes, events up to %d\n", res.Path, res.Bytes, res.Head)
+				fmt.Fprintf(w, "%s: %d bytes, events up to %d\n", res.Path, res.Bytes, res.Head)
 			})
 		},
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,14 @@ import (
 // quotaCLI is a yard with two groups that start agents, one of people,
 // and a limits source whose command leaves a file behind when it runs:
 // only the dispatcher may run it.
+// routeErr runs route with its error stream in errs.
+func routeErr(t *testing.T, a *app, errs io.Writer, args ...string) (string, error) {
+	t.Helper()
+	c := a.routeCmd()
+	c.SetErr(errs)
+	return run(t, c, args...)
+}
+
 func quotaCLI(t *testing.T) (a *app, st store.API, ran func() bool) {
 	t.Helper()
 	st = storetest.New(t)
@@ -176,7 +185,7 @@ func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
 		{[]string{"--group", "a@machine.load<80,Weekly<80", "--else", "b"}, "a@machine.load<80,Weekly<80 else b"},
 	} {
 		errs := captureStderr(t)
-		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
+		id, err := routeErr(t, a, errs, append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}
@@ -271,7 +280,7 @@ func TestViewsNameARoutesGroupsInOrder(t *testing.T) {
 	if !strings.Contains(strings.Join(strings.Fields(out), " "), "new a else b - 1") {
 		t.Errorf("flow show does not name both groups of stage new:\n%s", out)
 	}
-	diagram, err := depotDiagram(ctx, st, "yard", "", "")
+	diagram, err := depotDiagram(io.Discard, ctx, st, "yard", "", "")
 	must(err)
 	if svg := string(flowdraw.SVG(*diagram)); !strings.Contains(svg, ">a else b</text>") {
 		t.Errorf("flow show --svg does not name both groups of stage new:\n%s", svg)

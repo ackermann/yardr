@@ -125,10 +125,10 @@ prints two documents, the code at once and the result at the end.`,
 				if err := st.PairClose(ctx, p.ID, a.who()); err != nil {
 					return err
 				}
-				return a.out(c.OutOrStdout(), map[string]string{"pairing": "ended"}, func(w io.Writer) { fmt.Println("the pairing is ended: its code is good for nothing") })
+				return a.out(c.OutOrStdout(), map[string]string{"pairing": "ended"}, func(w io.Writer) { fmt.Fprintln(w, "the pairing is ended: its code is good for nothing") })
 			}
 			if len(args) == 0 && !pairFlagged(c) && !a.json && interactive() && !agentSession() {
-				return a.pairForm(c.OutOrStdout(), ctx, cfg, st)
+				return a.pairForm(c.OutOrStdout(), c.ErrOrStderr(), ctx, cfg, st)
 			}
 			if !opt.yes && (a.json || !interactive()) {
 				return errors.New("a pairing asks its operator to compare a check, and there is no terminal to ask in (or --json was given): --yes confirms the check without asking, and prints it")
@@ -138,12 +138,12 @@ prints two documents, the code at once and the result at the end.`,
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			if len(args) == 0 {
-				return a.pairHost(c.OutOrStdout(), ctx, cfg, st, opt)
+				return a.pairHost(c.OutOrStdout(), c.ErrOrStderr(), ctx, cfg, st, opt)
 			}
 			if opt.url != "" {
 				return errors.New("--url is where the yard that opens the pairing is reached; the one that calls gives the address it calls")
 			}
-			return a.pairJoin(c.OutOrStdout(), ctx, cfg, st, args[0], args[1], opt)
+			return a.pairJoin(c.OutOrStdout(), c.ErrOrStderr(), ctx, cfg, st, args[0], args[1], opt)
 		},
 	}
 	cmd.Flags().StringVar(&opt.name, "name", "", "the name to save the other yard under (default: the name it gives itself)")
@@ -210,23 +210,23 @@ func validatePairExpose(ctx context.Context, st store.API, names []string) error
 
 // progress says how a pairing goes while it waits. With --json that is not
 // part of what is printed, so it goes to stderr.
-func (a *app) progress(format string, args ...any) {
+func (a *app) progress(w, warn io.Writer, format string, args ...any) {
 	if a.json {
-		fmt.Fprintf(stderr, format+"\n", args...)
+		fmt.Fprintf(warn, format+"\n", args...)
 		return
 	}
-	fmt.Printf(format+"\n", args...)
+	fmt.Fprintf(w, format+"\n", args...)
 }
 
 // confirmCheck shows the check and asks the operator whether the other
 // yard's is the same. With --yes it is printed and not asked.
-func (a *app) confirmCheck(opt pairOpts, peer, calls, check string) (bool, error) {
+func (a *app) confirmCheck(w, warn io.Writer, opt pairOpts, peer, calls, check string) (bool, error) {
 	if opt.form != nil {
-		return askSame(calls, check)
+		return askSame(w, calls, check)
 	}
-	a.progress("\n  check  %s\n", check)
+	a.progress(w, warn, "\n  check  %s\n", check)
 	if opt.yes {
-		a.progress("--yes: the check is confirmed without being compared with %s's", peer)
+		a.progress(w, warn, "--yes: the check is confirmed without being compared with %s's", peer)
 		return true, nil
 	}
 	return askCheck(peer, calls, check)
@@ -294,7 +294,7 @@ func behindLoopback(cfg *config.Config, addr string) string {
 
 // pairHost opens a pairing on this yard, shows its code and waits: for the
 // other yard to call, for the two operators, and for the ping.
-func (a *app) pairHost(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
+func (a *app) pairHost(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
 	yardr := yardrAt(cfg.Home)
 	if listening, text := receiver(ctx, cfg, st); !listening {
 		return fmt.Errorf("this yard has no listener, so the other yard cannot call it: %s\n"+
@@ -325,31 +325,31 @@ func (a *app) pairHost(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	command := fmt.Sprintf("yardr peer pair %s %s", inv.URL, opened.Code)
 	// The form gives the listener's own address, so only the command can
 	// name one the listener is not on.
-	var warn string
+	var loopback string
 	if opt.form == nil {
-		warn = behindLoopback(cfg, inv.URL)
+		loopback = behindLoopback(cfg, inv.URL)
 	}
 	if opt.form != nil {
-		showCode(inv.URL, opened.Code, opened.Expires)
+		showCode(w, inv.URL, opened.Code, opened.Expires)
 	} else if a.json {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(map[string]any{"pairing": id, "code": opened.Code, "address": inv.URL, "expires": opened.Expires, "command": command}); err != nil {
 			return err
 		}
-		if warn != "" {
-			a.progress("%s", warn)
+		if loopback != "" {
+			a.progress(w, warn, "%s", loopback)
 		}
 	} else {
-		fmt.Printf("Pairing is open for %s, until %s, for one yard. Read the code to the other operator, who runs:\n\n  %s\n\n",
+		fmt.Fprintf(w, "Pairing is open for %s, until %s, for one yard. Read the code to the other operator, who runs:\n\n  %s\n\n",
 			short(pairing.TTL), opened.Expires.Local().Format("15:04:05"), command)
-		if warn != "" {
-			fmt.Printf("%s\n\n", warn)
+		if loopback != "" {
+			fmt.Fprintf(w, "%s\n\n", loopback)
 		}
-		fmt.Println("Waiting for the other yard to call. Ctrl+C ends the pairing.")
+		fmt.Fprintln(w, "Waiting for the other yard to call. Ctrl+C ends the pairing.")
 	}
 
-	p, err := a.pairHosted(ctx, st, opened.Pairing, opt)
+	p, err := a.pairHosted(w, warn, ctx, st, opened.Pairing, opt)
 	if err != nil {
 		return err
 	}
@@ -357,12 +357,12 @@ func (a *app) pairHost(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	if err != nil {
 		return err
 	}
-	return a.pairDone(w, ctx, cfg, st, paired{Role: "host", Peer: peer, Check: p.Check}, opt)
+	return a.pairDone(w, warn, ctx, cfg, st, paired{Role: "host", Peer: peer, Check: p.Check}, opt)
 }
 
 // pairHosted follows the host's pairing until it is done, asking the
 // operator once the other yard has called.
-func (a *app) pairHosted(ctx context.Context, st store.API, p store.Pairing, opt pairOpts) (*store.Pairing, error) {
+func (a *app) pairHosted(w, warn io.Writer, ctx context.Context, st store.API, p store.Pairing, opt pairOpts) (*store.Pairing, error) {
 	tries, asked := 0, false
 	for {
 		now, err := st.GetPairing(ctx, p.ID)
@@ -375,21 +375,21 @@ func (a *app) pairHosted(ctx context.Context, st store.API, p store.Pairing, opt
 		}
 		if now.Tries > tries {
 			tries = now.Tries
-			a.progress("a wrong code was tried (%d of %d)", tries, pairing.MaxTries)
+			a.progress(w, warn, "a wrong code was tried (%d of %d)", tries, pairing.MaxTries)
 		}
 		if now.State == store.PairCalled && !asked {
 			asked = true
 			if opt.form == nil {
-				a.progress("%s called (it calls itself %s). Its key: %s", now.Peer, now.Calls, now.Key)
+				a.progress(w, warn, "%s called (it calls itself %s). Its key: %s", now.Peer, now.Calls, now.Key)
 			}
-			yes, err := a.confirmCheck(opt, now.Peer, now.Calls, now.Check)
+			yes, err := a.confirmCheck(w, warn, opt, now.Peer, now.Calls, now.Check)
 			if err != nil {
 				return nil, err
 			}
 			if yes && opt.form != nil {
 				// The form's other questions come before this yard's yes, so
 				// that nothing is saved on either yard until they are answered.
-				if yes, err = a.hostChoice(ctx, st, now, opt.form); err != nil {
+				if yes, err = a.hostChoice(w, ctx, st, now, opt.form); err != nil {
 					return nil, err
 				}
 			}
@@ -397,9 +397,9 @@ func (a *app) pairHosted(ctx context.Context, st store.API, p store.Pairing, opt
 				return nil, err
 			}
 			if now.State == store.PairCalled && opt.form != nil {
-				fmt.Printf("\nWaiting for the other operator to answer theirs, until %s.\n", now.Expires.Local().Format("15:04:05"))
+				fmt.Fprintf(w, "\nWaiting for the other operator to answer theirs, until %s.\n", now.Expires.Local().Format("15:04:05"))
 			} else if now.State == store.PairCalled {
-				a.progress("waiting for %s's operator to confirm, until %s", now.Peer, now.Expires.Local().Format("15:04:05"))
+				a.progress(w, warn, "waiting for %s's operator to confirm, until %s", now.Peer, now.Expires.Local().Format("15:04:05"))
 			}
 		}
 		switch now.State {
@@ -456,7 +456,7 @@ func pairAddress(s string) (string, error) {
 var pairHTTP = &http.Client{Timeout: 30 * time.Second}
 
 // pairJoin calls the yard at address with the code its operator read out.
-func (a *app) pairJoin(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, address, code string, opt pairOpts) error {
+func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, address, code string, opt pairOpts) error {
 	addr, err := pairAddress(address)
 	if err != nil {
 		return err
@@ -522,18 +522,18 @@ func (a *app) pairJoin(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	}
 
 	if opt.form == nil {
-		a.progress("%s answered at %s (it calls itself %s). Its key: %s", peer.Name, addr, host.Name, host.Key)
+		a.progress(w, warn, "%s answered at %s (it calls itself %s). Its key: %s", peer.Name, addr, host.Name, host.Key)
 		if host.URL != addr {
-			a.progress("it gives its address as %s; this yard keeps the one it answered at", host.URL)
+			a.progress(w, warn, "it gives its address as %s; this yard keeps the one it answered at", host.URL)
 		}
 	}
-	yes, err := a.confirmCheck(opt, peer.Name, host.Name, called.Check())
+	yes, err := a.confirmCheck(w, warn, opt, peer.Name, host.Name, called.Check())
 	if err == nil && yes && opt.form != nil {
 		// As on the yard that is called: every question before this yard's yes.
 		var name string
 		who, ticked, lerr := exposables(ctx, st)
 		if err = lerr; err == nil {
-			name, err = opt.form.ask(host.Name, who, ticked, func(name string) error {
+			name, err = opt.form.ask(w, host.Name, who, ticked, func(name string) error {
 				return st.CheckPeer(ctx, store.Peer{Name: name, Key: host.Key})
 			})
 		}
@@ -550,9 +550,9 @@ func (a *app) pairJoin(w io.Writer, ctx context.Context, cfg *config.Config, st 
 		return errSaidNo
 	}
 	if opt.form != nil {
-		fmt.Println("\nWaiting for the other operator to answer theirs.")
+		fmt.Fprintln(w, "\nWaiting for the other operator to answer theirs.")
 	} else {
-		a.progress("waiting for %s's operator to confirm", peer.Name)
+		a.progress(w, warn, "waiting for %s's operator to confirm", peer.Name)
 	}
 	wait, cancel := context.WithTimeout(ctx, pairing.ConfirmTTL)
 	defer cancel()
@@ -574,7 +574,7 @@ func (a *app) pairJoin(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	if err != nil {
 		return fmt.Errorf("%s has saved this yard, and this yard could not save it: %w\nRemove this yard there (yardr peer rm) and pair again", peer.Name, err)
 	}
-	return a.pairDone(w, ctx, cfg, st, paired{Role: "joiner", Peer: saved, Check: called.Check()}, opt)
+	return a.pairDone(w, warn, ctx, cfg, st, paired{Role: "joiner", Peer: saved, Check: called.Check()}, opt)
 }
 
 // hostSaidNo says why the yard that was called ended the pairing, and logs
@@ -669,9 +669,9 @@ func clipText(s string) string {
 // pairDone says what a pairing ended with, and proves the link with a
 // ping. The peer is saved whatever the ping does: no pong is said, with
 // what is known of why, and is no failure of the pairing.
-func (a *app) pairDone(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, res paired, opt pairOpts) error {
+func (a *app) pairDone(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, res paired, opt pairOpts) error {
 	if opt.form != nil {
-		return a.formDone(ctx, cfg, st, res.Peer, opt)
+		return a.formDone(w, ctx, cfg, st, res.Peer, opt)
 	}
 	yardr, p := yardrAt(cfg.Home), res.Peer
 	if len(opt.expose) > 0 {
@@ -679,9 +679,9 @@ func (a *app) pairDone(w io.Writer, ctx context.Context, cfg *config.Config, st 
 			return fmt.Errorf("peer %s is saved, and its exposure could not be allowed: %w", p.Name, err)
 		}
 	}
-	a.progress("peer %s saved (it calls itself %s): the link carries ping both ways and nothing else", p.Name, p.Calls)
+	a.progress(w, warn, "peer %s saved (it calls itself %s): the link carries ping both ways and nothing else", p.Name, p.Calls)
 	if p.URL == "" {
-		a.progress("it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
+		a.progress(w, warn, "it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
 	}
 	if p.URL != "" && !config.DaemonRunning(cfg.DaemonLock()) {
 		// Known now: not worth the wait for a pong that cannot come.
@@ -693,16 +693,16 @@ func (a *app) pairDone(w io.Writer, ctx context.Context, cfg *config.Config, st 
 	}
 	return a.out(w, res, func(w io.Writer) {
 		if res.Ping != nil {
-			fmt.Printf("pong from %s in %s: the ping went by %s, the pong came by %s\n", p.Name, res.Ping.Took.Round(time.Millisecond), res.Ping.Out, res.Ping.Back)
+			fmt.Fprintf(w, "pong from %s in %s: the ping went by %s, the pong came by %s\n", p.Name, res.Ping.Took.Round(time.Millisecond), res.Ping.Out, res.Ping.Back)
 		} else {
-			fmt.Fprintf(stderr, "the link is saved, and not proved yet: %s\n", res.PingError)
+			fmt.Fprintf(warn, "the link is saved, and not proved yet: %s\n", res.PingError)
 		}
 		if len(opt.expose) > 0 {
-			fmt.Printf("%s may write to: %s.\n", p.Name, strings.Join(opt.expose, ", "))
+			fmt.Fprintf(w, "%s may write to: %s.\n", p.Name, strings.Join(opt.expose, ", "))
 		} else {
-			fmt.Printf("%s may write to nobody here: %s peer allow %s --expose <crew member or user>,...\n", p.Name, yardr, p.Name)
+			fmt.Fprintf(w, "%s may write to nobody here: %s peer allow %s --expose <crew member or user>,...\n", p.Name, yardr, p.Name)
 		}
-		fmt.Printf("mail between crew members is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
+		fmt.Fprintf(w, "mail between crew members is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
 	})
 }
 

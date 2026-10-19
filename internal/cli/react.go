@@ -52,9 +52,9 @@ that crew member's inbox; nothing reaches a user's inbox. A 👍 counts as a
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "emoji": emoji}, func(w io.Writer) {
 				if clear {
-					fmt.Printf("cleared reaction on %d\n", seq)
+					fmt.Fprintf(w, "cleared reaction on %d\n", seq)
 				} else {
-					fmt.Printf("reacted %s to %d\n", emoji, seq)
+					fmt.Fprintf(w, "reacted %s to %d\n", emoji, seq)
 				}
 			})
 		},

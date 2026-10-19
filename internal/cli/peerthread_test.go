@@ -38,7 +38,7 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 		t.Fatal(err)
 	}
 	errs := errOutput(t)
-	if out := mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread"); !strings.Contains(out, "peer north: send bead, thread; receive thread;") {
+	if out := mustAsErr(t, st, "jo", errs, "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread"); !strings.Contains(out, "peer north: send bead, thread; receive thread;") {
 		t.Fatalf("peer allow:\n%s", out)
 	}
 	if got := errs.String(); !strings.Contains(got, "warning: north has not said what its yardr understands") || !strings.Contains(got, "a thread sent to it may be refused there") {
@@ -135,7 +135,6 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	errOutput(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
 	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
 	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
@@ -312,7 +311,6 @@ func TestThreadShowOfABeadAtAPeerCannotForgeAFilesLine(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	errOutput(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread")
 	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
 	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")

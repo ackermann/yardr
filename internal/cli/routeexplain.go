@@ -64,7 +64,7 @@ asks no provider.`,
 				return err
 			}
 			exp := explainBeadRouting(*b, rs, operator)
-			return a.out(c.OutOrStdout(), exp, func(w io.Writer) { printRouteExplanation(exp, operator) })
+			return a.out(c.OutOrStdout(), exp, func(w io.Writer) { printRouteExplanation(w, exp, operator) })
 		},
 	}
 	return cmd
@@ -201,39 +201,39 @@ func effectiveScope(depot *string) string {
 // facts, the matches in order with the winner, the routes considered
 // that do not match, the defaults set aside for the bead's stage, and
 // the winning route's groups.
-func printRouteExplanation(exp routeExplanation, operator string) {
-	fmt.Println(explainBeadLine(exp.Bead, operator))
+func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
+	fmt.Fprintln(w, explainBeadLine(exp.Bead, operator))
 	scope := effectiveScope(exp.Bead.Depot)
 	if len(exp.Matches) == 0 {
-		fmt.Printf("no route in %s matches: the bead is unrouted\n", scope)
+		fmt.Fprintf(w, "no route in %s matches: the bead is unrouted\n", scope)
 	} else {
-		fmt.Printf("matches in %s, in order:\n", scope)
+		fmt.Fprintf(w, "matches in %s, in order:\n", scope)
 		for i, m := range exp.Matches {
 			s := fmt.Sprintf("  %d. %s  %s  %s  -> %s", i+1, m.ID, m.Effective, explainRouteDesc(m.Route), m.GroupList())
 			if i == 0 {
-				fmt.Println(s + "  WINNER")
+				fmt.Fprintln(w, s+"  WINNER")
 				continue
 			}
-			fmt.Printf("%s  (%s)\n", s, explainLegText(i, m.Route, exp.Matches[i-1].Route, m.Leg))
+			fmt.Fprintf(w, "%s  (%s)\n", s, explainLegText(i, m.Route, exp.Matches[i-1].Route, m.Leg))
 		}
 	}
 	if len(exp.NonMatching) == 0 {
-		fmt.Println("considered and not matching: none")
+		fmt.Fprintln(w, "considered and not matching: none")
 	} else {
-		fmt.Println("considered and not matching:")
+		fmt.Fprintln(w, "considered and not matching:")
 		for _, m := range exp.NonMatching {
-			fmt.Printf("  %s  %s  %s: %s\n", m.ID, m.Effective, explainRouteDesc(m.Route), m.Reason)
+			fmt.Fprintf(w, "  %s  %s  %s: %s\n", m.ID, m.Effective, explainRouteDesc(m.Route), m.Reason)
 		}
 	}
-	printExplainSetAside(exp, operator)
+	printExplainSetAside(w, exp, operator)
 	if exp.Quota == nil {
 		return
 	}
 	if !exp.Quota.ClaimTime {
-		fmt.Println("quota: the winning route names one group with no condition; nothing to ask a provider for")
+		fmt.Fprintln(w, "quota: the winning route names one group with no condition; nothing to ask a provider for")
 		return
 	}
-	fmt.Printf("quota: the winning route names %s; the choice among these is made at the claim, from the windows then\n",
+	fmt.Fprintf(w, "quota: the winning route names %s; the choice among these is made at the claim, from the windows then\n",
 		exp.Matches[0].GroupList())
 }
 
@@ -295,21 +295,21 @@ func explainLegText(above int, r, o store.Route, leg *routeExplainLeg) string {
 // printExplainSetAside names the defaults the bead's depot sets aside
 // for the bead's stage, each with the own route that states its key, in
 // route list --depot's words.
-func printExplainSetAside(exp routeExplanation, operator string) {
+func printExplainSetAside(w io.Writer, exp routeExplanation, operator string) {
 	if exp.Bead.Depot == nil {
-		fmt.Println("defaults set aside: none (the bead names no depot)")
+		fmt.Fprintln(w, "defaults set aside: none (the bead names no depot)")
 		return
 	}
 	depot, aside := *exp.Bead.Depot, exp.SetAside
 	switch len(aside) {
 	case 0:
-		fmt.Printf("defaults set aside in %s for this stage: none\n", depot)
+		fmt.Fprintf(w, "defaults set aside in %s for this stage: none\n", depot)
 	case 1:
-		fmt.Printf("1 default set aside in %s for this stage: %s\n", depot, setAsideLine(aside[0], operator))
+		fmt.Fprintf(w, "1 default set aside in %s for this stage: %s\n", depot, setAsideLine(aside[0], operator))
 	default:
-		fmt.Printf("%d defaults set aside in %s for this stage:\n", len(aside), depot)
+		fmt.Fprintf(w, "%d defaults set aside in %s for this stage:\n", len(aside), depot)
 		for _, s := range aside {
-			fmt.Println("  " + setAsideLine(s, operator))
+			fmt.Fprintln(w, "  "+setAsideLine(s, operator))
 		}
 	}
 }

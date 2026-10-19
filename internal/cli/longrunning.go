@@ -662,9 +662,9 @@ are handed on to it.`, line, k.logName(), k.Name),
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				if addr != "" {
-					fmt.Printf("The %s: %s\n\n", k.What, webURL(addr))
+					fmt.Fprintf(w, "The %s: %s\n\n", k.What, webURL(addr))
 				}
-				fmt.Printf("The %s runs in the background (pid %d) and logs to %s. To stop it: %s %s stop\n",
+				fmt.Fprintf(w, "The %s runs in the background (pid %d) and logs to %s. To stop it: %s %s stop\n",
 					k.What, pid, k.Log(cfg), yardrAt(cfg.Home), k.Name)
 			})
 		},
@@ -695,13 +695,13 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				if len(run) == 0 {
-					fmt.Printf("no %s is running on the yard in %s\n", k.What, cfg.Home)
+					fmt.Fprintf(w, "no %s is running on the yard in %s\n", k.What, cfg.Home)
 					return
 				}
 				for _, r := range run {
-					fmt.Printf("%s stopped (pid %d)%s\n", k.What, r.PID, at(r.Addr))
+					fmt.Fprintf(w, "%s stopped (pid %d)%s\n", k.What, r.PID, at(r.Addr))
 				}
-				fmt.Printf("Start one again: %s %s start\n", yardrAt(cfg.Home), k.Name)
+				fmt.Fprintf(w, "Start one again: %s %s start\n", yardrAt(cfg.Home), k.Name)
 			})
 		},
 	}
@@ -722,12 +722,12 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				for _, r := range run {
-					fmt.Printf("%-8s running (pid %d)%s\n", k.Name, r.PID, at(r.Addr))
+					fmt.Fprintf(w, "%-8s running (pid %d)%s\n", k.Name, r.PID, at(r.Addr))
 				}
 				if len(run) == 0 {
-					fmt.Printf("%-8s not running\n", k.Name)
+					fmt.Fprintf(w, "%-8s not running\n", k.Name)
 				}
-				fmt.Printf("service  %s\n", service.line(k.Name, yardrAt(cfg.Home)))
+				fmt.Fprintf(w, "service  %s\n", service.line(k.Name, yardrAt(cfg.Home)))
 			})
 		},
 	}
@@ -787,14 +787,14 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			res.Address = k.addr(c.Flags())
 			res.Warnings = append(res.Warnings, warn...)
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
-				res.print()
+				res.print(w)
 				if k.Name == svcDaemon {
 					// The daemon is one of three things a reboot stops;
 					// herdr's server is another, whose service is yardr up
 					// --login's (docs/install.md, "Keep it running after a
 					// reboot").
-					fmt.Println()
-					fmt.Println(herdrLoginPart(cfg).line())
+					fmt.Fprintln(w)
+					fmt.Fprintln(w, herdrLoginPart(cfg).line())
 				}
 			})
 		},

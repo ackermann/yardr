@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -139,31 +138,31 @@ of its inbox.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
-				fmt.Printf("hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
+				fmt.Fprintf(w, "hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
 				if len(saved.Map) > 0 {
-					fmt.Printf("moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
+					fmt.Fprintf(w, "moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
 					if r, err := st.GetCrew(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
-						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr crew set %s %s=%s\n",
+						fmt.Fprintf(w, "note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr crew set %s %s=%s\n",
 							saved.As, saved.Source, saved.As, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","))
 					}
 				}
 				if len(saved.Says) > 0 {
-					fmt.Println("its events say of a bead:")
+					fmt.Fprintln(w, "its events say of a bead:")
 					for _, l := range store.SayLines(saved.Says) {
-						fmt.Printf("  %s\n", l)
+						fmt.Fprintf(w, "  %s\n", l)
 					}
 				}
 				if len(saved.Makes) > 0 {
-					fmt.Println("its events make a bead for a thread none tracks:")
+					fmt.Fprintln(w, "its events make a bead for a thread none tracks:")
 					for _, l := range store.MakeLines(saved.Makes) {
-						fmt.Printf("  %s\n", l)
+						fmt.Fprintf(w, "  %s\n", l)
 					}
 				}
 				if a.cfg == nil {
 					return
 				}
 				if listening, text := receiver(c.Context(), a.cfg, st); !listening {
-					fmt.Println("note: " + text)
+					fmt.Fprintln(w, "note: "+text)
 				}
 			})
 		},
@@ -244,7 +243,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 					}
 					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state, accepted, refused, moves})
 				}
-				table(os.Stdout, "NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tLAST ACCEPTED\tLAST REFUSED\tMOVES ISSUES", rows)
+				table(w, "NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tLAST ACCEPTED\tLAST REFUSED\tMOVES ISSUES", rows)
 			})
 		},
 	}
@@ -259,7 +258,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 			if err := st.DeleteHook(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]string{"hook": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Printf("%s: removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"hook": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Fprintf(w, "%s: removed\n", args[0]) })
 		},
 	}
 
@@ -293,9 +292,9 @@ the last error when a try failed (see yardr hook add).`,
 				if json.Indent(&pretty, raw, "", "  ") == nil {
 					raw = pretty.Bytes()
 				}
-				os.Stdout.Write(raw)
+				w.Write(raw)
 				if !bytes.HasSuffix(raw, []byte("\n")) {
-					fmt.Println()
+					fmt.Fprintln(w)
 				}
 			})
 		},
@@ -569,35 +568,35 @@ func (a *app) showHook(w io.Writer, ctx context.Context, name string) error {
 		}
 	}
 	return a.out(w, map[string]any{"hook": h, "issue_moves": moves}, func(w io.Writer) {
-		fmt.Printf("%s  %s  POST /hooks/%s\n", h.Name, h.Source, h.Name)
-		fmt.Printf("  secret file %s\n", h.SecretFile)
+		fmt.Fprintf(w, "%s  %s  POST /hooks/%s\n", h.Name, h.Source, h.Name)
+		fmt.Fprintf(w, "  secret file %s\n", h.SecretFile)
 		if h.Blocked != "" {
-			fmt.Printf("  blocked: %s\n", h.Blocked)
+			fmt.Fprintf(w, "  blocked: %s\n", h.Blocked)
 		}
 		if h.Accepted != nil {
-			fmt.Printf("  last accepted a delivery %s\n", since(*h.Accepted))
+			fmt.Fprintf(w, "  last accepted a delivery %s\n", since(*h.Accepted))
 		}
 		if h.Refused != nil {
-			fmt.Printf("  last refused one %s: %s\n", since(*h.Refused), h.RefusedFor)
+			fmt.Fprintf(w, "  last refused one %s: %s\n", since(*h.Refused), h.RefusedFor)
 		}
 		if h.As != "" {
-			fmt.Printf("  acts as %s\n", h.As)
+			fmt.Fprintf(w, "  acts as %s\n", h.As)
 		}
 		for _, l := range mapLines(h.Map) {
-			fmt.Printf("  map %s\n", l)
+			fmt.Fprintf(w, "  map %s\n", l)
 		}
 		for _, l := range store.SayLines(h.Says) {
-			fmt.Printf("  says %s\n", l)
+			fmt.Fprintf(w, "  says %s\n", l)
 		}
 		for _, l := range store.MakeLines(h.Makes) {
-			fmt.Printf("  makes %s\n", l)
+			fmt.Fprintf(w, "  makes %s\n", l)
 		}
 		for _, m := range moves {
 			line := fmt.Sprintf("  to do: %s (%s in %s) -> %s %s", m.Bead, m.Type, m.Stage, m.URL, m.State)
 			if m.Attempts > 0 {
 				line += fmt.Sprintf("; tried %d times, next at %s: %s", m.Attempts, m.RetryAt.Local().Format("15:04:05"), m.Error)
 			}
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 		}
 	})
 }

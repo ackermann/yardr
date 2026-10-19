@@ -37,7 +37,6 @@ func TestReplyOnABeadAtAPeer(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	errOutput(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
 	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
 	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")

@@ -58,7 +58,7 @@ func (a *app) serverCmd() *cobra.Command {
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func(w io.Writer) {
-				fmt.Printf("yardr server running (store %s)\n", cfg.DBPath())
+				fmt.Fprintf(w, "yardr server running (store %s)\n", cfg.DBPath())
 			})
 		},
 	}, &cobra.Command{
@@ -79,7 +79,7 @@ func (a *app) serverCmd() *cobra.Command {
 			}
 			ok := server.Running(c.Context(), cfg)
 			return a.out(c.OutOrStdout(), map[string]any{"store": cfg.DBPath(), "running": ok}, func(w io.Writer) {
-				fmt.Printf("%s running=%v\n", cfg.DBPath(), ok)
+				fmt.Fprintf(w, "%s running=%v\n", cfg.DBPath(), ok)
 			})
 		},
 	})
@@ -266,7 +266,7 @@ changes an existing depot's path, base or test command.`,
 				if _, err := os.Stat(path); err == nil {
 					return fmt.Errorf("%s already exists; drop --clone to register it as is", path)
 				}
-				fmt.Fprintf(os.Stderr, "cloning %s into %s\n", clone, path)
+				fmt.Fprintf(c.ErrOrStderr(), "cloning %s into %s\n", clone, path)
 				cl := exec.CommandContext(c.Context(), "git", "clone", clone, path)
 				cl.Stdout, cl.Stderr = os.Stderr, os.Stderr
 				if err := cl.Run(); err != nil {
@@ -290,9 +290,9 @@ changes an existing depot's path, base or test command.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), r, func(w io.Writer) {
-					fmt.Printf("depot %s → %s (dir: no git, no base)\n", r.Name, r.Path)
+					fmt.Fprintf(w, "depot %s → %s (dir: no git, no base)\n", r.Name, r.Path)
 					if r.Test != "" {
-						fmt.Printf("test: %s\n", r.Test)
+						fmt.Fprintf(w, "test: %s\n", r.Test)
 					}
 				})
 			}
@@ -314,9 +314,9 @@ changes an existing depot's path, base or test command.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
-				fmt.Printf("depot %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
+				fmt.Fprintf(w, "depot %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
 				if r.Test != "" {
-					fmt.Printf("test: %s\n", r.Test)
+					fmt.Fprintf(w, "test: %s\n", r.Test)
 				}
 			})
 		},
@@ -337,17 +337,17 @@ changes an existing depot's path, base or test command.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
-				fmt.Printf("depot %s\n", r.Name)
-				fmt.Printf("  path:  %s\n", r.Path)
-				fmt.Printf("  kind:  %s\n", r.Kind)
+				fmt.Fprintf(w, "depot %s\n", r.Name)
+				fmt.Fprintf(w, "  path:  %s\n", r.Path)
+				fmt.Fprintf(w, "  kind:  %s\n", r.Kind)
 				if r.IsDir() {
-					fmt.Printf("  base:  none (a dir depot)\n")
+					fmt.Fprintf(w, "  base:  none (a dir depot)\n")
 				} else {
-					fmt.Printf("  base:  %s\n", r.Base)
+					fmt.Fprintf(w, "  base:  %s\n", r.Base)
 				}
-				fmt.Printf("  flow:  %s\n", depotFlow(c.Context(), st, r.Name))
+				fmt.Fprintf(w, "  flow:  %s\n", depotFlow(c.Context(), st, r.Name))
 				if r.Test != "" {
-					fmt.Printf("  test:  %s\n", r.Test)
+					fmt.Fprintf(w, "  test:  %s\n", r.Test)
 				}
 			})
 		},
@@ -368,7 +368,7 @@ changes an existing depot's path, base or test command.`,
 				for _, r := range rs {
 					rows = append(rows, []string{r.Name, r.Kind, r.Path, or(r.Base, "-"), depotFlow(c.Context(), st, r.Name)})
 				}
-				table(os.Stdout, "NAME\tKIND\tPATH\tBASE\tFLOW", rows)
+				table(w, "NAME\tKIND\tPATH\tBASE\tFLOW", rows)
 			})
 		},
 	}
@@ -410,10 +410,10 @@ them under the flow they follow now, or pin them to it (yardr bead update
 			}
 			who := store.FlowPointer{Depot: args[0], Type: flowType}.String()
 			if clear {
-				fmt.Printf("%s points at no flow now; it follows %s\n", who, depotFlow(c.Context(), st, args[0]))
+				fmt.Fprintf(c.OutOrStdout(), "%s points at no flow now; it follows %s\n", who, depotFlow(c.Context(), st, args[0]))
 				return nil
 			}
-			fmt.Printf("%s → flow %s\n", who, name)
+			fmt.Fprintf(c.OutOrStdout(), "%s → flow %s\n", who, name)
 			return nil
 		},
 	}
@@ -445,14 +445,14 @@ names is refused too: clear the setting first (yardr settings set upgrade_from "
 				for _, p := range r.FlowPointers {
 					ptrs = append(ptrs, p.String())
 				}
-				fmt.Printf("removed depot %s; %d route(s) and %d flow pointer(s) went with it\n", r.Depot, len(r.Routes), len(ptrs))
+				fmt.Fprintf(w, "removed depot %s; %d route(s) and %d flow pointer(s) went with it\n", r.Depot, len(r.Routes), len(ptrs))
 				if len(r.Routes) > 0 {
-					fmt.Printf("  routes: %s\n", strings.Join(r.Routes, " "))
+					fmt.Fprintf(w, "  routes: %s\n", strings.Join(r.Routes, " "))
 				}
 				if len(ptrs) > 0 {
-					fmt.Printf("  flow pointers: %s\n", strings.Join(ptrs, ", "))
+					fmt.Fprintf(w, "  flow pointers: %s\n", strings.Join(ptrs, ", "))
 				}
-				fmt.Println("nothing on disk was touched")
+				fmt.Fprintln(w, "nothing on disk was touched")
 			})
 		},
 	}
@@ -560,7 +560,7 @@ yardmaster):
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Fprintf(w, "group %s (%s)\n", saved.Name, describe(*saved)) })
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
@@ -599,7 +599,7 @@ yardmaster):
 					}
 					rows = append(rows, []string{g.Name, g.Runner, limit, or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
 				}
-				table(os.Stdout, "NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
+				table(w, "NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
 			})
 		},
 	}
@@ -622,7 +622,7 @@ yardmaster):
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"group": args[0], "released": n}, func(w io.Writer) {
 				if n > 0 {
-					fmt.Printf("deleted group %s; ended its %d live session(s) and released their beads for routing\n", args[0], n)
+					fmt.Fprintf(w, "deleted group %s; ended its %d live session(s) and released their beads for routing\n", args[0], n)
 				}
 			})
 		},
@@ -673,9 +673,9 @@ yardmaster):
 			}
 			operator := settings[store.OperatorSetting]
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Printf("%s  %s\n", g.Name, describe(*g))
+				fmt.Fprintf(w, "%s  %s\n", g.Name, describe(*g))
 				if h, ok := agents.Lookup(kind); ok && len(h.Flags.Always) > 0 {
-					fmt.Printf("  harness %s always: %s\n", kind, strings.Join(h.Flags.Always, " "))
+					fmt.Fprintf(w, "  harness %s always: %s\n", kind, strings.Join(h.Flags.Always, " "))
 				}
 				// One key to a line, as group set takes it back; values
 				// named like secrets stay out of terminal scrollback.
@@ -694,7 +694,7 @@ yardmaster):
 							line += " (folder login: " + account + ")"
 						}
 					}
-					fmt.Printf("  %s\n", line)
+					fmt.Fprintf(w, "  %s\n", line)
 				}
 				for _, r := range routes {
 					line := "stage " + r.Stage
@@ -714,10 +714,10 @@ yardmaster):
 							line += " · " + f.name + " " + f.v
 						}
 					}
-					fmt.Printf("  route %s: %s · priority %d\n", r.ID, line, r.Priority)
+					fmt.Fprintf(w, "  route %s: %s · priority %d\n", r.ID, line, r.Priority)
 				}
 				for _, gr := range mayCall {
-					fmt.Printf("  calls %s%s: %s\n", gr.Source, asSuffix(gr), words(gr))
+					fmt.Fprintf(w, "  calls %s%s: %s\n", gr.Source, asSuffix(gr), words(gr))
 				}
 			})
 		},
@@ -791,10 +791,10 @@ named like a secret (token, secret, password, key) is not printed.`,
 			changes := groupChanges(ch.Was, ch.Is)
 			return a.out(c.OutOrStdout(), ch.Is, func(w io.Writer) {
 				if len(changes) == 0 {
-					fmt.Printf("group %s unchanged: it is set so already\n", name)
+					fmt.Fprintf(w, "group %s unchanged: it is set so already\n", name)
 					return
 				}
-				fmt.Printf("group %s saved\n%s\n", name, changeLines(changes))
+				fmt.Fprintf(w, "group %s saved\n%s\n", name, changeLines(changes))
 			})
 		},
 	}
@@ -987,9 +987,9 @@ cannot: why this route ranks as it does. route list prints it.`,
 			// The route is the operator's to write: what cannot work as it
 			// reads is said, and the route stands.
 			for _, w := range routeWarnings(c.Context(), st, *saved) {
-				fmt.Fprintf(stderr, "warning: route %s: %s\n", saved.ID, w)
+				fmt.Fprintf(c.ErrOrStderr(), "warning: route %s: %s\n", saved.ID, w)
 			}
-			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Println(saved.ID) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Fprintln(w, saved.ID) })
 		},
 	}
 	f := add.Flags()
@@ -1037,7 +1037,7 @@ the defaults it sets aside named underneath.`,
 						}
 						rows = append(rows, routeRow(r, scope, operator))
 					}
-					table(os.Stdout, "ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+					table(w, "ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
 				})
 			}
 			// As depot show fails for a depot that is not there.
@@ -1063,8 +1063,8 @@ the defaults it sets aside named underneath.`,
 				for _, m := range marked {
 					rows = append(rows, routeRow(m.Route, m.Effective, operator))
 				}
-				table(os.Stdout, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
-				saySetAside(listDepot, aside, operator)
+				table(w, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+				saySetAside(w, listDepot, aside, operator)
 			})
 		},
 	}
@@ -1110,7 +1110,7 @@ sessions end; only new claims follow the remaining routes.`,
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"route": r.ID, "claimed": claimed}, func(w io.Writer) {
 				if len(claimed) > 0 {
-					fmt.Printf("%d bead(s) in %s already claimed by %s keep it until their sessions end: %s\n",
+					fmt.Fprintf(w, "%d bead(s) in %s already claimed by %s keep it until their sessions end: %s\n",
 						len(claimed), r.Stage, strings.Join(append([]string{r.Worker()}, r.Further()...), " or "), strings.Join(claimed, " "))
 				}
 			})
@@ -1215,15 +1215,15 @@ func setAsideLine(s store.SetAside, operator string) string {
 
 // saySetAside names the defaults the depot's own routes set aside,
 // underneath route list --depot: nothing where none is set aside.
-func saySetAside(depot string, aside []store.SetAside, operator string) {
+func saySetAside(w io.Writer, depot string, aside []store.SetAside, operator string) {
 	switch len(aside) {
 	case 0:
 	case 1:
-		fmt.Printf("1 default set aside in %s: %s\n", depot, setAsideLine(aside[0], operator))
+		fmt.Fprintf(w, "1 default set aside in %s: %s\n", depot, setAsideLine(aside[0], operator))
 	default:
-		fmt.Printf("%d defaults set aside in %s:\n", len(aside), depot)
+		fmt.Fprintf(w, "%d defaults set aside in %s:\n", len(aside), depot)
 		for _, s := range aside {
-			fmt.Println(setAsideLine(s, operator))
+			fmt.Fprintln(w, setAsideLine(s, operator))
 		}
 	}
 }
@@ -1297,15 +1297,15 @@ group until its session ends; the next claim takes the new chain.`,
 			}
 			// As route add says what cannot work as it reads.
 			for _, w := range routeWarnings(c.Context(), st, ch.Is) {
-				fmt.Fprintf(stderr, "warning: route %s: %s\n", ch.Is.ID, w)
+				fmt.Fprintf(c.ErrOrStderr(), "warning: route %s: %s\n", ch.Is.ID, w)
 			}
 			changes := routeChanges(ch.Was, ch.Is)
 			return a.out(c.OutOrStdout(), ch.Is, func(w io.Writer) {
 				if len(changes) == 0 {
-					fmt.Printf("route %s unchanged: it is set so already\n", args[0])
+					fmt.Fprintf(w, "route %s unchanged: it is set so already\n", args[0])
 					return
 				}
-				fmt.Printf("route %s saved\n%s\n", args[0], changeLines(changes))
+				fmt.Fprintf(w, "route %s saved\n%s\n", args[0], changeLines(changes))
 			})
 		},
 	}
@@ -1419,10 +1419,10 @@ fewer, and --all every session there is, which is what a script wants.
 					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.Originator, s.Login, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
-				table(os.Stdout, "ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tLOGIN\tSTATE\tRUNNER\tSTARTED", rows)
+				table(w, "ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tLOGIN\tSTATE\tRUNNER\tSTARTED", rows)
 				for _, s := range listed {
 					if s.ResetWait != nil {
-						fmt.Println(resetWaitLine(*s.ResetWait, s.Session, now))
+						fmt.Fprintln(w, resetWaitLine(*s.ResetWait, s.Session, now))
 					}
 				}
 			})
@@ -1599,7 +1599,7 @@ continues from the last event it printed. With --json, one event per line.`,
 			// each Encode writes its line as the event is committed.
 			var enc *json.Encoder
 			if a.json {
-				enc = json.NewEncoder(os.Stdout)
+				enc = json.NewEncoder(c.OutOrStdout())
 			}
 			// When the yardr server goes away, Follow waits for it and resumes
 			// after the last event printed.

@@ -60,7 +60,13 @@ func (a *app) worktreeIdentity(env identity) identity {
 	if ws == nil || ws.Bead == env.bead {
 		return env
 	}
-	fmt.Fprintf(stderr, "yardr: the environment names %s (bead %s, session %s), but this is the worktree of %s: acting as %s (session %s). An agent whose shell is shared between sessions gets another's environment; run yardr from your own worktree, or name yourself: YARDR_ACTOR=%[5]s YARDR_SESSION=%[6]s YARDR_BEAD=%[4]s yardr ...\n",
+	// The run's error writer, recorded by pre-run; the process's where
+	// no run recorded one (a direct subcommand call).
+	warn := a.stderr
+	if warn == nil {
+		warn = os.Stderr
+	}
+	fmt.Fprintf(warn, "yardr: the environment names %s (bead %s, session %s), but this is the worktree of %s: acting as %s (session %s). An agent whose shell is shared between sessions gets another's environment; run yardr from your own worktree, or name yourself: YARDR_ACTOR=%[5]s YARDR_SESSION=%[6]s YARDR_BEAD=%[4]s yardr ...\n",
 		or(env.actor, "nobody"), env.bead, or(env.session, "none"), ws.Bead, ws.Actor, ws.Session)
 	return identity{actor: ws.Actor, session: ws.Session, bead: ws.Bead}
 }

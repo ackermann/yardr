@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"os"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -66,15 +65,15 @@ printed with the token, to hand both over together.`,
 				URL string `json:"url,omitempty"`
 			}{d, url}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Printf("device %s of %s. Its token, shown once:\n\n  %s\n\n", d.Name, d.User, d.Token)
+				fmt.Fprintf(w, "device %s of %s. Its token, shown once:\n\n  %s\n\n", d.Name, d.User, d.Token)
 				if url != "" {
-					fmt.Printf("Give it to the device with this yard's address: %s\n", url)
+					fmt.Fprintf(w, "Give it to the device with this yard's address: %s\n", url)
 				} else {
-					fmt.Println("Give it to the device with this yard's address, the one the device will reach it at.")
+					fmt.Fprintln(w, "Give it to the device with this yard's address, the one the device will reach it at.")
 				}
-				fmt.Printf("It calls as %s until: yardr user device rm %s %s\n", d.User, d.User, d.Name)
+				fmt.Fprintf(w, "It calls as %s until: yardr user device rm %s %s\n", d.User, d.User, d.Name)
 				if d.User != all[store.OperatorSetting] {
-					fmt.Printf("%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", d.User)
+					fmt.Fprintf(w, "%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", d.User)
 				}
 			})
 		},
@@ -98,9 +97,9 @@ printed with the token, to hand both over together.`,
 			return a.out(c.OutOrStdout(), devices, func(w io.Writer) {
 				if len(devices) == 0 {
 					if user != "" {
-						fmt.Printf("%s has no device (yardr user device add %s <device>)\n", user, user)
+						fmt.Fprintf(w, "%s has no device (yardr user device add %s <device>)\n", user, user)
 					} else {
-						fmt.Println("no devices (yardr user device add <user> <device>)")
+						fmt.Fprintln(w, "no devices (yardr user device add <user> <device>)")
 					}
 					return
 				}
@@ -108,7 +107,7 @@ printed with the token, to hand both over together.`,
 				for _, d := range devices {
 					rows = append(rows, []string{d.User, d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d)})
 				}
-				table(os.Stdout, "USER\tDEVICE\tADDED\tLAST USED", rows)
+				table(w, "USER\tDEVICE\tADDED\tLAST USED", rows)
 			})
 		},
 	}
@@ -124,7 +123,7 @@ printed with the token, to hand both over together.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"removed": d}, func(w io.Writer) {
-				fmt.Printf("device %s of %s removed: its token is refused from now on, and the streams it held are closed\n", d.Name, d.User)
+				fmt.Fprintf(w, "device %s of %s removed: its token is refused from now on, and the streams it held are closed\n", d.Name, d.User)
 			})
 		},
 	}

@@ -192,7 +192,7 @@ is, else 1.`,
 			if err != nil {
 				return err
 			}
-			rep, err := a.uninstallYard(c.Context(), cfg, yes, wait, purge)
+			rep, err := a.uninstallYard(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, yes, wait, purge)
 			if err != nil {
 				return err
 			}
@@ -253,10 +253,10 @@ func readYard(ctx context.Context, cfg *config.Config, st store.API) (*yardFacts
 // uninstallYard stops the yard, removes its login services and lists what
 // is left. An error is one that kept it from doing anything: a --purge that
 // was not agreed to among them.
-func (a *app) uninstallYard(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, purge purgeFlag) (*uninstallReport, error) {
+func (a *app) uninstallYard(w, warn io.Writer, ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, purge purgeFlag) (*uninstallReport, error) {
 	rep := &uninstallReport{Home: cfg.Home, Login: []loginUnit{}}
 	var facts *yardFacts
-	down, err := a.down(ctx, cfg, yes, wait, loginAll, func(st store.API) error {
+	down, err := a.down(w, warn, ctx, cfg, yes, wait, loginAll, func(st store.API) error {
 		f, err := readYard(ctx, cfg, st)
 		if err != nil {
 			return err
@@ -268,7 +268,7 @@ func (a *app) uninstallYard(ctx context.Context, cfg *config.Config, yes bool, w
 			if err := a.operatorOnly(ctx, st, "delete the yard's home"); err != nil {
 				return fmt.Errorf("%w. Nothing was stopped or deleted.", err)
 			}
-			return a.agreePurge(cfg, f, purge.name, yes)
+			return a.agreePurge(w, cfg, f, purge.name, yes)
 		}
 		return nil
 	})
@@ -408,7 +408,7 @@ func purgeable(cfg *config.Config, f *yardFacts) error {
 // agreePurge is the agreement --purge needs before anything is stopped:
 // the yard's name, typed in a terminal or given as the flag's value, and
 // with nobody to ask --yes beside it. An error is a refusal.
-func (a *app) agreePurge(cfg *config.Config, f *yardFacts, given string, yes bool) error {
+func (a *app) agreePurge(w io.Writer, cfg *config.Config, f *yardFacts, given string, yes bool) error {
 	if err := purgeable(cfg, f); err != nil {
 		return err
 	}
@@ -428,8 +428,8 @@ func (a *app) agreePurge(cfg *config.Config, f *yardFacts, given string, yes boo
 	case !asks:
 		return fmt.Errorf("--purge deletes %s. With nobody to ask (no terminal) it takes the yard's name as its value, and --yes: %s. %s", what, both, nothing)
 	}
-	fmt.Printf("yardr uninstall --purge deletes %s.\n", what)
-	fmt.Println("Kept: a depot's repository, a worktree with uncommitted changes, every branch, and this program.")
+	fmt.Fprintf(w, "yardr uninstall --purge deletes %s.\n", what)
+	fmt.Fprintln(w, "Kept: a depot's repository, a worktree with uncommitted changes, every branch, and this program.")
 	typed := ""
 	if err := ask(huh.NewInput().Title("Type the yard's name to delete its home").
 		Description(fmt.Sprintf("%s, with %s. Anything else leaves the yard as it is.", cfg.Home, plural(f.beads, "bead"))).Value(&typed)); err != nil && !errors.Is(err, huh.ErrUserAborted) {
@@ -741,57 +741,57 @@ func (l leftThing) label() string {
 func (r *uninstallReport) print(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.Yard {
-		r.Down.lines()
+		r.Down.lines(w)
 	} else {
-		fmt.Printf("No yard is in %s: nothing to stop.\n", r.Home)
+		fmt.Fprintf(w, "No yard is in %s: nothing to stop.\n", r.Home)
 	}
-	printLogin(r.Login)
+	printLogin(w, r.Login)
 	if r.Yard && r.Down.Down && !slices.ContainsFunc(r.Down.Parts, func(p yardPart) bool { return p.Stopped }) &&
 		!slices.ContainsFunc(r.Down.Agents, func(g yardAgent) bool { return g.Stopped }) &&
 		!slices.ContainsFunc(r.Login, func(l loginUnit) bool { return l.Result == loginRemoved }) {
-		fmt.Println("\nNothing of the yard was running, and no login service of it was installed.")
+		fmt.Fprintln(w, "\nNothing of the yard was running, and no login service of it was installed.")
 	}
 	if p := r.Purge; p != nil {
-		fmt.Println()
+		fmt.Fprintln(w)
 		switch {
 		case p.Detail != "":
-			fmt.Printf("%-15s %s: %s\n", "home", p.Home, p.Detail)
+			fmt.Fprintf(w, "%-15s %s: %s\n", "home", p.Home, p.Detail)
 		case !p.Deleted:
-			fmt.Printf("%-15s NOT %s\n%-15s   %s\n", "home", p.Error, "", p.Do)
+			fmt.Fprintf(w, "%-15s NOT %s\n%-15s   %s\n", "home", p.Error, "", p.Do)
 		default:
 			did := fmt.Sprintf("deleted: %s, with %s", p.Home, plural(p.Beads, "bead"))
 			if !p.Gone {
 				did = fmt.Sprintf("deleted but for what is kept: %s, with %s", p.Home, plural(p.Beads, "bead"))
 			}
-			fmt.Printf("%-15s %s\n", "home", did)
+			fmt.Fprintf(w, "%-15s %s\n", "home", did)
 			for _, k := range p.Kept {
-				fmt.Printf("%-15s   kept %s (%s)\n", "", k.Path, k.Why)
+				fmt.Fprintf(w, "%-15s   kept %s (%s)\n", "", k.Path, k.Why)
 			}
 			if p.Error != "" {
-				fmt.Printf("%-15s NOT %s\n%-15s   %s\n", "home", p.Error, "", p.Do)
+				fmt.Fprintf(w, "%-15s NOT %s\n%-15s   %s\n", "home", p.Error, "", p.Do)
 			}
 		}
 	}
-	fmt.Println("\nNot touched, and where each is:")
+	fmt.Fprintln(w, "\nNot touched, and where each is:")
 	for _, l := range r.Left {
 		line := l.Path
 		if l.Detail != "" {
 			line += ": " + l.Detail
 		}
-		fmt.Printf("  %-18s %s\n", l.label(), line)
+		fmt.Fprintf(w, "  %-18s %s\n", l.label(), line)
 		if l.Remove != "" {
-			fmt.Printf("  %-18s   to remove: %s\n", "", l.Remove)
+			fmt.Fprintf(w, "  %-18s   to remove: %s\n", "", l.Remove)
 		}
 	}
 	switch {
 	case !r.Uninstalled:
-		fmt.Printf("\nNot all of it is done: see NOT above. Then: %s uninstall, once more\n", yardr)
+		fmt.Fprintf(w, "\nNot all of it is done: see NOT above. Then: %s uninstall, once more\n", yardr)
 	case !r.Yard:
-		fmt.Printf("\nNothing of yardr runs or starts at login for %s.\n", r.Home)
+		fmt.Fprintf(w, "\nNothing of yardr runs or starts at login for %s.\n", r.Home)
 	case r.Purge != nil:
-		fmt.Printf("\nThe yard %s is deleted, and nothing of it runs or starts at login.\n", r.Name)
+		fmt.Fprintf(w, "\nThe yard %s is deleted, and nothing of it runs or starts at login.\n", r.Name)
 	default:
-		fmt.Printf("\nThe yard %s in %s is uninstalled: nothing of it runs or starts at login, and all of your work is where it was.\n"+
+		fmt.Fprintf(w, "\nThe yard %s in %s is uninstalled: nothing of it runs or starts at login, and all of your work is where it was.\n"+
 			"To use it again: %s up. To delete its home too: %s uninstall --purge\n", r.Name, r.Home, yardr, yardr)
 	}
 }

@@ -222,7 +222,7 @@ window and resets_at, or the reason under limits_unknown.`,
 						if err := a.out(c.OutOrStdout(), map[string]any{"limits": []kindLimits{}, "sources": own, "unmapped": []string{}}, func(w io.Writer) {
 							now := time.Now()
 							for _, l := range own[0].lines(now) {
-								fmt.Println(l)
+								fmt.Fprintln(w, l)
 							}
 						}); err != nil {
 							return err
@@ -241,7 +241,7 @@ window and resets_at, or the reason under limits_unknown.`,
 					now := time.Now()
 					for _, k := range asked {
 						for _, l := range k.lines(now) {
-							fmt.Println(l)
+							fmt.Fprintln(w, l)
 						}
 					}
 				}); err != nil {
@@ -266,7 +266,7 @@ window and resets_at, or the reason under limits_unknown.`,
 					now := time.Now()
 					for _, k := range asked {
 						for _, l := range k.lines(now) {
-							fmt.Println(l)
+							fmt.Fprintln(w, l)
 						}
 					}
 				}); err != nil {
@@ -298,8 +298,8 @@ window and resets_at, or the reason under limits_unknown.`,
 			}
 			if len(as) == 0 && len(groups) == 0 {
 				return a.out(c.OutOrStdout(), map[string]any{"limits": []providerLimits{}, "sources": []sourceLimits{}, "unmapped": unmapped}, func(w io.Writer) {
-					fmt.Println("No source of this yard says limits: nothing is known, and nothing was asked.")
-					fmt.Println("A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
+					fmt.Fprintln(w, "No source of this yard says limits: nothing is known, and nothing was asked.")
+					fmt.Fprintln(w, "A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
 				})
 			}
 			asked := []providerLimits{}
@@ -312,24 +312,24 @@ window and resets_at, or the reason under limits_unknown.`,
 			}
 			if len(asked) == 0 && len(own) == 0 {
 				return a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func(w io.Writer) {
-					fmt.Printf("Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (%s).\n", answeredKinds(as))
-					fmt.Println("yardr limits <kind> asks for one.")
+					fmt.Fprintf(w, "Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (%s).\n", answeredKinds(as))
+					fmt.Fprintln(w, "yardr limits <kind> asks for one.")
 				})
 			}
 			if err := a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func(w io.Writer) {
 				now := time.Now()
 				for _, p := range asked {
 					for _, l := range p.lines(now) {
-						fmt.Println(l)
+						fmt.Fprintln(w, l)
 					}
 				}
 				for _, s := range own {
 					for _, l := range s.lines(now) {
-						fmt.Println(l)
+						fmt.Fprintln(w, l)
 					}
 				}
 				if len(unmapped) > 0 {
-					fmt.Printf("not asked: %s, in use here and listed by no source (limits.kinds)\n", strings.Join(unmapped, ", "))
+					fmt.Fprintf(w, "not asked: %s, in use here and listed by no source (limits.kinds)\n", strings.Join(unmapped, ", "))
 				}
 			}); err != nil {
 				return err

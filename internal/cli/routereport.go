@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"os"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -755,10 +754,10 @@ them: the eta line of yardr bead show (docs/line.md).`,
 			}
 			return a.out(c.OutOrStdout(), rep, func(w io.Writer) {
 				if rep.From == nil {
-					fmt.Println("the event log holds no events")
+					fmt.Fprintln(w, "the event log holds no events")
 					return
 				}
-				fmt.Printf("events since %s\n", rep.From.Local().Format("2006-01-02 15:04"))
+				fmt.Fprintf(w, "events since %s\n", rep.From.Local().Format("2006-01-02 15:04"))
 				rows := make([][]string, len(rep.Rows))
 				for i, r := range rep.Rows {
 					median := "-"
@@ -771,12 +770,12 @@ them: the eta line of yardr bead show (docs/line.md).`,
 						strconv.FormatFloat(r.SecFixed, 'f', 1, 64),
 						strconv.Itoa(r.Failed), median}
 				}
-				table(os.Stdout, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
+				table(w, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
 				for _, b := range rep.best {
-					fmt.Printf("best %s: %s at %s sent back + repaired per bead (%d beads)\n",
+					fmt.Fprintf(w, "best %s: %s at %s sent back + repaired per bead (%d beads)\n",
 						b.label, b.group, strconv.FormatFloat(b.perBead, 'f', 1, 64), b.beads)
 				}
-				fmt.Println("BY HARNESS")
+				fmt.Fprintln(w, "BY HARNESS")
 				kinds := make([][]string, len(rep.ByKind))
 				for i, r := range rep.ByKind {
 					hours, median := "-", "-"
@@ -792,7 +791,7 @@ them: the eta line of yardr bead show (docs/line.md).`,
 					}
 					kinds[i] = []string{r.Kind, strconv.Itoa(r.Sessions), hours, median, stages}
 				}
-				table(os.Stdout, "KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
+				table(w, "KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
 			})
 		},
 	}

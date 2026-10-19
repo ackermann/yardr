@@ -45,14 +45,12 @@ func yardWithoutServer(t *testing.T) *config.Config {
 	return cfg
 }
 
-// captureStderr returns what execute reports until the test ends.
+// captureStderr is the buffer a test hands a command as its error stream:
+// an app preset (stderr) for a run through the root, SetErr for a direct
+// subcommand, warn for a helper called directly.
 func captureStderr(t *testing.T) *bytes.Buffer {
 	t.Helper()
-	var errs bytes.Buffer
-	old := stderr
-	stderr = &errs
-	t.Cleanup(func() { stderr = old })
-	return &errs
+	return &bytes.Buffer{}
 }
 
 // store compact on a yard with no server running compacts the file and
@@ -62,7 +60,7 @@ func TestCompactWithoutAServer(t *testing.T) {
 	setInteractive(t, false)
 	errs := captureStderr(t)
 	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"store", "compact"}) })
+	out := capture(t, func() { code = execute(&app{stderr: errs}, []string{"store", "compact"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}
@@ -111,7 +109,7 @@ func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
 
 	errs := captureStderr(t)
 	var code int
-	capture(t, func() { code = execute(&app{}, []string{"store", "compact"}) })
+	capture(t, func() { code = execute(&app{stderr: errs}, []string{"store", "compact"}) })
 	if code != 1 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}

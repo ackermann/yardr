@@ -582,11 +582,8 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	home := newHome(t)
 	setInteractive(t, false)
 	var errs bytes.Buffer
-	old := stderr
-	stderr = &errs
-	t.Cleanup(func() { stderr = old })
 
-	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
+	if code := execute(&app{stderr: &errs}, []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d", code)
 	}
 	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "`yardr --home "+home+" init --harness") {
@@ -598,7 +595,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	errs.Reset()
 	for _, args := range [][]string{{"help"}, {"init", "--help"}, {"server", "--help"}} {
 		var code int
-		capture(t, func() { code = execute(&app{}, args) })
+		capture(t, func() { code = execute(&app{stderr: &errs}, args) })
 		if code != 0 {
 			t.Errorf("%v: exit %d: %s", args, code, errs.String())
 		}

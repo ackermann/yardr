@@ -954,9 +954,9 @@ func (a *app) doctorSays(w io.Writer, ctx context.Context, cfg *config.Config) e
 		}
 	}
 	yardr := yardrAt(cfg.Home)
-	fmt.Printf("\n`%s doctor` says of it:\n\n", yardr)
+	fmt.Fprintf(w, "\n`%s doctor` says of it:\n\n", yardr)
 	printLines(w, say)
-	fmt.Printf("\n`%s doctor` prints the whole of it, and is how to tell when it is set right.\n", yardr)
+	fmt.Fprintf(w, "\n`%s doctor` prints the whole of it, and is how to tell when it is set right.\n", yardr)
 	return nil
 }
 
@@ -980,50 +980,50 @@ func printLines(w io.Writer, lines []docLine) {
 func (r *doctorReport) print(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.Yard {
-		fmt.Printf("yardr doctor: the yard in %s\n", r.Home)
+		fmt.Fprintf(w, "yardr doctor: the yard in %s\n", r.Home)
 	} else {
-		fmt.Printf("yardr doctor: no yard in %s yet. Create one with `%s init --harness <kind>`, or run yardr in a terminal "+
+		fmt.Fprintf(w, "yardr doctor: no yard in %s yet. Create one with `%s init --harness <kind>`, or run yardr in a terminal "+
 			"for the onboarding. Nothing was created.\n", r.Home, yardr)
 	}
-	fmt.Println("\nNeeded on this machine")
+	fmt.Fprintln(w, "\nNeeded on this machine")
 	printLines(w, r.machineLines())
 	if r.State != nil {
-		fmt.Println("\nThe yard")
+		fmt.Fprintln(w, "\nThe yard")
 		printLines(w, r.State.lines(r.Home))
 	}
 	if len(r.Steps) > 0 {
-		fmt.Println("\nSetup")
+		fmt.Fprintln(w, "\nSetup")
 		printSteps(w, r.Steps)
 	} else if len(r.Skipped) > 0 {
-		fmt.Printf("\nSetup\n  %-5s  skipped: %s\n", tagNote, skippedWhy)
+		fmt.Fprintf(w, "\nSetup\n  %-5s  skipped: %s\n", tagNote, skippedWhy)
 	}
 	if len(r.Optional) > 0 {
-		fmt.Println("\nOptional")
+		fmt.Fprintln(w, "\nOptional")
 		for _, p := range r.Optional {
-			fmt.Println(p.line())
+			fmt.Fprintln(w, p.line())
 			for _, n := range p.Notes {
-				fmt.Printf("  %-14s  %s: %s\n", tagNote, p.Title, n)
+				fmt.Fprintf(w, "  %-14s  %s: %s\n", tagNote, p.Title, n)
 			}
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	switch len(r.Faults) {
 	case 0:
 		if len(r.Skipped) > 0 {
-			fmt.Println("Nothing that was checked is missing; what the yard's store holds was not checked (skipped above).")
+			fmt.Fprintln(w, "Nothing that was checked is missing; what the yard's store holds was not checked (skipped above).")
 			break
 		}
-		fmt.Println("Nothing the yard needs is missing.")
+		fmt.Fprintln(w, "Nothing the yard needs is missing.")
 	case 1:
-		fmt.Println("1 fault: something the yard needs is missing or not working (FAULT above).")
+		fmt.Fprintln(w, "1 fault: something the yard needs is missing or not working (FAULT above).")
 	default:
-		fmt.Printf("%d faults: things the yard needs are missing or not working (FAULT above).\n", len(r.Faults))
+		fmt.Fprintf(w, "%d faults: things the yard needs are missing or not working (FAULT above).\n", len(r.Faults))
 	}
 	switch {
 	case !r.Yard:
 	case len(r.Steps) == 0:
 	case r.Next == nil:
-		fmt.Println("The setup is complete.")
+		fmt.Fprintln(w, "The setup is complete.")
 	default:
 		printNextStep(w, r.Home, r.Next)
 	}

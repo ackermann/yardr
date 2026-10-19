@@ -268,7 +268,7 @@ func (a *app) onboard(c *cobra.Command) error {
 			return nil
 		}
 		// Bare yardr on a yard: help, unless its onboarding is to finish.
-		return a.resume(c.OutOrStdout(), c.Context(), cfg)
+		return a.resume(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg)
 	}
 	if !interactive() {
 		return notInitialized{cfg.Home}
@@ -277,7 +277,7 @@ func (a *app) onboard(c *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	opts, err := onboardForm(cfg.Home, part)
+	opts, err := onboardForm(c.OutOrStdout(), cfg.Home, part)
 	if errors.Is(err, huh.ErrUserAborted) {
 		if part != nil {
 			return fmt.Errorf("onboarding cancelled; nothing was added to %s", cfg.Home)
@@ -291,14 +291,14 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	a.onboarded = true
-	return a.goOn(c.OutOrStdout(), c.Context(), cfg, res, opts)
+	return a.goOn(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, res, opts)
 }
 
 // goOn is the onboarding after the yard is created: the summary, the start
 // when asked for, and once the yardmaster is up the services and the hand-off.
 // When the yardmaster is not up it says how the onboarding is taken up again.
-func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
-	if err := a.report(w, ctx, cfg, res, opts); err != nil {
+func (a *app) goOn(w, warn io.Writer, ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
+	if err := a.report(w, warn, ctx, cfg, res, opts); err != nil {
 		return err
 	}
 	if res.Start == nil || a.json {
@@ -310,17 +310,17 @@ func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *in
 		if err := a.doctorSays(w, ctx, cfg); err != nil {
 			return err
 		}
-		fmt.Printf("\nOnce that is set right, run %s in this terminal again: it goes on from here.\n", yardrAt(cfg.Home))
+		fmt.Fprintf(w, "\nOnce that is set right, run %s in this terminal again: it goes on from here.\n", yardrAt(cfg.Home))
 		return nil
 	}
 	// What the yard runs without, before the rest of its setup: the
 	// answers are the same wherever that goes on.
-	if err := a.offerServices(ctx, cfg); errors.Is(err, huh.ErrUserAborted) {
+	if err := a.offerServices(w, warn, ctx, cfg); errors.Is(err, huh.ErrUserAborted) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	return a.handOff(w, ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
+	return a.handOff(w, warn, ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
 }
 
 // resume is bare yardr in a terminal on a yard whose onboarding did not reach
@@ -334,7 +334,7 @@ func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *in
 //
 // It goes by the yard as it is, not by a record of the earlier run: a yard
 // made by yardr init and never started is taken up the same way.
-func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error {
+func (a *app) resume(w, warn io.Writer, ctx context.Context, cfg *config.Config) error {
 	if a.json || !interactive() || agentSession() {
 		return nil
 	}
@@ -377,9 +377,9 @@ func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error
 		lines = append(lines, docLine{tagFault, "settings", "default_kind is not set: an earlier setup stopped before it marked the yard set up"})
 	}
 	yardr := yardrAt(cfg.Home)
-	fmt.Printf("The yard in %s has no depot yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
+	fmt.Fprintf(w, "The yard in %s has no depot yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
 	printLines(w, lines)
-	fmt.Println()
+	fmt.Fprintln(w)
 	a.onboarded = true // from here on this run is the onboarding, not help
 	finish := true
 	what := "Waits for " + m.Name
@@ -396,7 +396,7 @@ func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error
 		return err
 	}
 	if err != nil || !finish {
-		fmt.Printf("Left as it is. To finish later: %s init --start, or %s in a terminal.\n", yardr, yardr)
+		fmt.Fprintf(w, "Left as it is. To finish later: %s init --start, or %s in a terminal.\n", yardr, yardr)
 		return nil
 	}
 	opts := initOptions{Yardmaster: m.Name, Start: true, resumed: true}
@@ -404,21 +404,21 @@ func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error
 	if err != nil {
 		return err
 	}
-	return a.goOn(w, ctx, cfg, res, opts)
+	return a.goOn(w, warn, ctx, cfg, res, opts)
 }
 
 // report prints what init did and, when asked to, starts the yard in between:
 // the summary first, so the wait for the yardmaster has something above it,
 // then how the start ended. As JSON it is one object, at the end.
-func (a *app) report(w io.Writer, ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
+func (a *app) report(w, warn io.Writer, ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
 	if !a.json && !(o.resumed && res.YardmasterKept && len(res.Found) == 0) {
 		// An onboarding taken up on a yard that lacked nothing has said
 		// what is there (resume); the summary would say it again.
-		res.printYard()
+		res.printYard(w)
 	}
 	if o.Start && res.NoYardmaster {
 		// To stderr: --json's output stays the result alone.
-		fmt.Fprintf(stderr, "--start: nothing is started, since the yard has no yardmaster to wait for; %s daemon starts the yard\n", yardrAt(res.Home))
+		fmt.Fprintf(warn, "--start: nothing is started, since the yard has no yardmaster to wait for; %s daemon starts the yard\n", yardrAt(res.Home))
 	} else if o.Start {
 		st, err := a.store(ctx)
 		if err != nil {
@@ -430,15 +430,15 @@ func (a *app) report(w io.Writer, ctx context.Context, cfg *config.Config, res *
 		}
 		// One real call to the yardmaster's harness first, if the person says
 		// so: one that is not logged in is named before any pane exists.
-		if goOn, err := a.askHarness(ctx, cfg, st, res.Yardmaster); err != nil || !goOn {
+		if goOn, err := a.askHarness(w, ctx, cfg, st, res.Yardmaster); err != nil || !goOn {
 			// Stopped: it said what is there and how to come back, and
 			// nothing was started to report on.
 			return err
 		}
-		res.Start = a.startYard(ctx, cfg, st, res.Yardmaster, wait)
+		res.Start = a.startYard(ctx, cfg, st, res.Yardmaster, wait, warn)
 		// A yardmaster whose harness waits at something only a person answers:
 		// the way to its pane and back, before the start is reported.
-		if err := a.offerPane(ctx, cfg, st, res.Yardmaster, wait, res.Start); err != nil {
+		if err := a.offerPane(w, warn, ctx, cfg, st, res.Yardmaster, wait, res.Start); err != nil {
 			return err
 		}
 		res.Daemon = config.DaemonRunning(cfg.DaemonLock())
@@ -849,56 +849,56 @@ func bases(paths []string) []string {
 }
 
 // printYard is the summary of the yard init created or set up again.
-func (r *initResult) printYard() {
+func (r *initResult) printYard(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	switch {
 	case len(r.Found) > 0:
 		// An init cut short left part of it; this run finished it.
-		fmt.Printf("yard in %s finished: part of it was there, from a setup that did not reach its end\n\n", r.Home)
-		fmt.Printf("  found      %s\n", strings.Join(r.Found, "; "))
-		fmt.Printf("  added      %s\n", strings.Join(r.Added, "; "))
+		fmt.Fprintf(w, "yard in %s finished: part of it was there, from a setup that did not reach its end\n\n", r.Home)
+		fmt.Fprintf(w, "  found      %s\n", strings.Join(r.Found, "; "))
+		fmt.Fprintf(w, "  added      %s\n", strings.Join(r.Added, "; "))
 	case r.YardmasterKept:
-		fmt.Printf("yard in %s set up again\n\n", r.Home)
+		fmt.Fprintf(w, "yard in %s set up again\n\n", r.Home)
 	default:
-		fmt.Printf("yard created in %s\n\n", r.Home)
+		fmt.Fprintf(w, "yard created in %s\n\n", r.Home)
 	}
-	fmt.Printf("  harness    %s (the yard's default_kind: groups and crew members get it when --set kind is omitted)\n", r.Harness)
+	fmt.Fprintf(w, "  harness    %s (the yard's default_kind: groups and crew members get it when --set kind is omitted)\n", r.Harness)
 	if len(r.SettingsKept) > 0 {
-		fmt.Printf("  kept       %s, as set before: --harness, --operator, --yardmaster, --style and --about change them\n", strings.Join(r.SettingsKept, ", "))
+		fmt.Fprintf(w, "  kept       %s, as set before: --harness, --operator, --yardmaster, --style and --about change them\n", strings.Join(r.SettingsKept, ", "))
 	}
 	if s, ok := styleOf(r.Style); ok {
-		fmt.Printf("  operator   %s, with whom agents work in the style %s (%q): every session reads it when it starts\n", r.Operator, s.key, s.label)
+		fmt.Fprintf(w, "  operator   %s, with whom agents work in the style %s (%q): every session reads it when it starts\n", r.Operator, s.key, s.label)
 	}
 	if r.YardmasterKept {
-		fmt.Printf("  yardmaster %s, already a crew member: kept as it was\n", r.Yardmaster)
+		fmt.Fprintf(w, "  yardmaster %s, already a crew member: kept as it was\n", r.Yardmaster)
 	} else if r.NoYardmaster {
-		fmt.Printf("  yardmaster none: the yard's default pack, %s, has no crew member called %s. One is added with\n"+
+		fmt.Fprintf(w, "  yardmaster none: the yard's default pack, %s, has no crew member called %s. One is added with\n"+
 			"             %s crew add %s\n", r.Pack, packYardmaster, yardr, r.Yardmaster)
 	} else {
-		fmt.Printf("  yardmaster %s, working in %s, rotating every 24h\n", r.Yardmaster, r.Dir)
+		fmt.Fprintf(w, "  yardmaster %s, working in %s, rotating every 24h\n", r.Yardmaster, r.Dir)
 		if len(r.Args) > 0 {
-			fmt.Printf("             runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
+			fmt.Fprintf(w, "             runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
-			fmt.Printf("             runs with no unattended flags: %s may stop to ask; give it its own with\n"+
+			fmt.Fprintf(w, "             runs with no unattended flags: %s may stop to ask; give it its own with\n"+
 				"             %s crew set %s 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Yardmaster)
 		}
 	}
 	if r.Prompt != "" {
-		fmt.Printf("  roles      %s (pack %s, the yard's default)\n"+
+		fmt.Fprintf(w, "  roles      %s (pack %s, the yard's default)\n"+
 			"             the yardmaster's prompt is %s there, naming %s. A depot's builders and\n"+
 			"             reviewers get theirs beside it when the depot is set up (%s depot init <depot>);\n"+
 			"             the pack is where a role is changed, and %s pack apply brings the change here.\n",
 			r.Roles, r.Pack, filepath.Base(r.Prompt), r.Operator, yardr, yardr)
 	}
 	if r.OldRoles != "" {
-		fmt.Printf("  roles      %s, from an earlier yardr, is read as before by a group whose prompt is\n"+
+		fmt.Fprintf(w, "  roles      %s, from an earlier yardr, is read as before by a group whose prompt is\n"+
 			"             roles/<name>.md, and is yours: init no longer writes or refreshes it.\n", r.OldRoles)
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	if !config.IsDefaultHome(r.Home) {
 		// Not the default home: without the flag a command goes to
 		// ~/.yardr, the daemon's first of all (yard-0wys).
-		fmt.Printf("This yard is not in the default home: every yardr command for it needs\n"+
+		fmt.Fprintf(w, "This yard is not in the default home: every yardr command for it needs\n"+
 			"--home %s, or YARDR_HOME exported.\n", shellQuote(r.Home))
 	}
 }
@@ -908,26 +908,26 @@ func (r *initResult) printYard() {
 func (r *initResult) printNext(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.NoYardmaster {
-		fmt.Printf("Start the daemon in a terminal pane of its own: %s daemon. The steps from here to a first bead: %s setup\n", yardr, yardr)
+		fmt.Fprintf(w, "Start the daemon in a terminal pane of its own: %s daemon. The steps from here to a first bead: %s setup\n", yardr, yardr)
 		return
 	}
 	switch {
 	case r.Start != nil:
-		r.Start.print(r.Yardmaster)
+		r.Start.print(w, r.Yardmaster)
 		if !r.Start.Running {
 			return
 		}
 	case r.Daemon:
-		fmt.Printf("The daemon is running; it starts %s shortly. Where %s is then: %s init --start\n", r.Yardmaster, r.Yardmaster, yardr)
+		fmt.Fprintf(w, "The daemon is running; it starts %s shortly. Where %s is then: %s init --start\n", r.Yardmaster, r.Yardmaster, yardr)
 	default:
-		fmt.Printf("Start the daemon in a terminal pane of its own, to watch it; %s starts when it does:\n\n  %s daemon\n\n"+
+		fmt.Fprintf(w, "Start the daemon in a terminal pane of its own, to watch it; %s starts when it does:\n\n  %s daemon\n\n"+
 			"Or in the background, waiting for %s and printing where it is:\n\n  %s init --start\n",
 			r.Yardmaster, yardr, r.Yardmaster, yardr)
 	}
 	// The rest of the setup is a conversation, or a run of forms: the
 	// yardmaster's first run and yardr setup go by the same steps (setupSteps).
 	// The commands for scripts are in yardr init --help.
-	fmt.Printf("\n%s sets up the rest with you: the repository to work in, who builds and\n"+
+	fmt.Fprintf(w, "\n%s sets up the rest with you: the repository to work in, who builds and\n"+
 		"reviews, and a first bead to try it on. Talk to it in any terminal, or take\n"+
 		"the same steps yourself as a short run of forms:\n\n  %s chat\n  %s setup\n", r.Yardmaster, yardr, yardr)
 }
@@ -966,7 +966,7 @@ func harnessOptions() ([]huh.Option[string], string) {
 // so, and the yardmaster's name and how agents work with you start at what
 // that run stored. Your name does not: it is who this terminal acts as
 // (actsAs), whatever that run was told.
-func onboardForm(home string, part *partYard) (initOptions, error) {
+func onboardForm(w io.Writer, home string, part *partYard) (initOptions, error) {
 	opts, def := harnessOptions()
 	operator, err := config.Actor()
 	if err != nil {
@@ -975,17 +975,17 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	o := initOptions{Harness: def, Yardmaster: "yardmaster", Dir: filepath.Dir(home), Operator: operator, Style: defaultStyle, Start: true,
 		// The form's answers are given, whatever the store holds.
 		Given: map[string]bool{"harness": true, "operator": true, "yardmaster": true, "style": true, "about": true}}
-	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a yardmaster on it.\n\n", home)
+	fmt.Fprintf(w, "No yard in %s yet. This sets one up: a default agent harness, and a yardmaster on it.\n\n", home)
 	if part != nil {
 		o.Yardmaster = or(part.yardmaster, o.Yardmaster)
 		if _, ok := styleOf(part.style); ok {
 			o.Style = part.style
 		}
 		o.About = part.note
-		fmt.Printf("An earlier setup of this home did not reach its end. It left %s.\n"+
+		fmt.Fprintf(w, "An earlier setup of this home did not reach its end. It left %s.\n"+
 			"This one goes on from that, and says at its end what it added.\n\n", strings.Join(part.found(home), "; "))
 	}
-	if err := preflight(); err != nil {
+	if err := preflight(w); err != nil {
 		return o, err
 	}
 	if err := ask(huh.NewSelect[string]().Title("Harness").
@@ -1192,7 +1192,7 @@ Unattended flags per harness:
 			if err != nil {
 				return err
 			}
-			if err := a.report(c.OutOrStdout(), c.Context(), cfg, res, o); err != nil {
+			if err := a.report(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, res, o); err != nil {
 				return err
 			}
 			if res.Start != nil && !res.Start.Running {
@@ -1204,7 +1204,7 @@ Unattended flags per harness:
 				if err != nil {
 					return err
 				}
-				_, err = a.toChat(c.Context(), cfg, st, res.Yardmaster)
+				_, err = a.toChat(c.OutOrStdout(), c.Context(), cfg, st, res.Yardmaster)
 				return err
 			}
 			return nil
@@ -1428,7 +1428,7 @@ error; --json has where it is from.`,
 						}
 						lines = append(lines, []string{r.Key, or(r.Value, "-"), or(r.From, "-"), help})
 					}
-					table(os.Stdout, "KEY\tVALUE\tFROM\tMEANING", lines)
+					table(w, "KEY\tVALUE\tFROM\tMEANING", lines)
 				})
 			}
 			i := slices.IndexFunc(rows, func(r settingRow) bool { return r.Key == args[0] })
@@ -1438,7 +1438,7 @@ error; --json has where it is from.`,
 			if rows[i].From == "" {
 				return fmt.Errorf("%s is not set: %w", args[0], store.ErrNotFound)
 			}
-			return a.out(c.OutOrStdout(), rows[i], func(w io.Writer) { fmt.Println(rows[i].Value) })
+			return a.out(c.OutOrStdout(), rows[i], func(w io.Writer) { fmt.Fprintln(w, rows[i].Value) })
 		},
 	}
 	set := &cobra.Command{
@@ -1462,7 +1462,7 @@ error; --json has where it is from.`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]string{args[0]: args[1]}, func(w io.Writer) {
-				fmt.Printf("%s = %s\n", args[0], or(args[1], "(unset)"))
+				fmt.Fprintf(w, "%s = %s\n", args[0], or(args[1], "(unset)"))
 				k := addrSettingOf(args[0])
 				if args[0] != hooks.FromSetting && k == nil {
 					return
@@ -1474,10 +1474,10 @@ error; --json has where it is from.`,
 					}
 				}
 				if k != nil {
-					fmt.Println(k.addrTakes(cfg))
+					fmt.Fprintln(w, k.addrTakes(cfg))
 					return
 				}
-				fmt.Println(hookAddrTakes(cfg))
+				fmt.Fprintln(w, hookAddrTakes(cfg))
 			})
 		},
 	}

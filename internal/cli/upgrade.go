@@ -155,7 +155,7 @@ docs/upgrade.md says every line.`,
 				if err != nil {
 					return err
 				}
-				return a.upgradeRun(c.Context(), cfg, timeout, noRestore, from)
+				return a.upgradeRun(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, timeout, noRestore, from)
 			}
 			cutoff, err := upgradeSince(since)
 			if err != nil {
@@ -572,7 +572,7 @@ func dialAddr(addr string) string {
 
 // print is the report for a person: one line per check.
 func (r *upgradeCheckReport) print(w io.Writer) {
-	fmt.Printf("%-9s  %s: %s\n", "server", r.Server.Verdict, r.Server.Detail)
-	fmt.Printf("%-9s  %s: %s\n", "daemon", r.Daemon.Verdict, r.Daemon.Detail)
-	fmt.Printf("%-9s  %s: %s\n", "views", r.Views.Verdict, r.Views.Detail)
+	fmt.Fprintf(w, "%-9s  %s: %s\n", "server", r.Server.Verdict, r.Server.Detail)
+	fmt.Fprintf(w, "%-9s  %s: %s\n", "daemon", r.Daemon.Verdict, r.Daemon.Detail)
+	fmt.Fprintf(w, "%-9s  %s: %s\n", "views", r.Views.Verdict, r.Views.Detail)
 }

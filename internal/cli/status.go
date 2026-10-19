@@ -594,18 +594,18 @@ func (r *statusReport) print(w io.Writer) {
 	for _, p := range r.parts() {
 		name := p.name
 		for _, l := range p.lines {
-			fmt.Printf("%-9s  %s\n", name, l)
+			fmt.Fprintf(w, "%-9s  %s\n", name, l)
 			name = ""
 		}
 	}
 	yardr := yardrAt(r.Home)
 	switch {
 	case !r.Server.Running:
-		fmt.Println("\ncrew, hooks, peers and work: not known while the server is not running")
+		fmt.Fprintln(w, "\ncrew, hooks, peers and work: not known while the server is not running")
 	case r.Faults == nil || *r.Faults == 0:
 	case *r.Faults == 1:
-		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)
+		fmt.Fprintf(w, "\n%s doctor reports 1 fault, and says what it is.\n", yardr)
 	default:
-		fmt.Printf("\n%s doctor reports %d faults, and says what they are.\n", yardr, *r.Faults)
+		fmt.Fprintf(w, "\n%s doctor reports %d faults, and says what they are.\n", yardr, *r.Faults)
 	}
 }

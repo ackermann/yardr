@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -40,14 +41,14 @@ var screenSettle = 10 * time.Second
 // PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
 // the user stop or go on. The answer starts at "go on" only when herdr is
 // there: without herdr the yard this form creates cannot start its yardmaster.
-func preflight() error {
+func preflight(w io.Writer) error {
 	var gone []string
 	goOn := true
 	for _, n := range basicNeeds() {
 		if n.Found {
 			continue
 		}
-		fmt.Printf("%s is not on PATH: %s.\n  Get it: %s\n", n.Program, n.For, n.Get)
+		fmt.Fprintf(w, "%s is not on PATH: %s.\n  Get it: %s\n", n.Program, n.For, n.Get)
 		gone = append(gone, n.Program)
 		if n.Program == "herdr" {
 			goOn = false
@@ -56,7 +57,7 @@ func preflight() error {
 	if len(gone) == 0 {
 		return nil
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	if err := ask(huh.NewConfirm().Title("Go on without " + strings.Join(gone, " and ") + "?").
 		Description("Stopping creates nothing: install what is missing and run yardr again.").
 		Affirmative("Go on").Negative("Stop").Value(&goOn)); err != nil {
@@ -189,7 +190,7 @@ const (
 // startYard starts the daemon in the background, unless one runs on the home
 // already, and waits up to wait for the yardmaster (waitYardmaster). It never
 // fails: what went wrong is in the result, in words for the person reading.
-func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration) *startResult {
+func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, warn io.Writer) *startResult {
 	res := &startResult{}
 	var exited <-chan error
 	if !config.DaemonRunning(cfg.DaemonLock()) {
@@ -201,7 +202,7 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, y
 		}
 		res.DaemonStarted, res.DaemonLog = true, cfg.DaemonLog()
 	}
-	a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, exited, res)
+	a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, exited, res, warn)
 	return res
 }
 
@@ -209,8 +210,8 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, y
 // writes into res how that ended: where the yardmaster is, and for one that
 // is not up the problem, its pane's last lines, what is known and how to go
 // on.
-func (a *app) awaitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error, res *startResult) {
-	r, problem := waitYardmaster(ctx, cfg, st, yardmaster, wait, exited)
+func (a *app) awaitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error, res *startResult, warn io.Writer) {
+	r, problem := waitYardmaster(ctx, cfg, st, yardmaster, wait, exited, warn)
 	res.describe(ctx, cfg, st, r, yardmaster, problem)
 }
 
@@ -255,7 +256,7 @@ const (
 // and was not given up on. A kind with no one-shot form, and a harness that
 // is not on PATH (the start says so), are not asked about. The call costs a
 // model call, so it is made on a yes only.
-func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (goOn bool, err error) {
+func (a *app) askHarness(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (goOn bool, err error) {
 	if a.json || !interactive() || agentSession() || config.DaemonRunning(cfg.DaemonLock()) {
 		return true, nil
 	}
@@ -274,14 +275,14 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 		return true, nil
 	}
 	check := true
-	fmt.Println()
+	fmt.Fprintln(w)
 	err = ask(huh.NewConfirm().Key("try").Title("Check that " + kind + " answers?").
 		Description(fmt.Sprintf("It makes one real call (it costs a model call), outside a pane: a %s that is not logged in\n"+
 			"says so here, before %s is started on it.", kind, yardmaster)).
 		Affirmative("Check").Negative("Skip").Value(&check))
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
-		stoppedBefore(cfg, yardmaster, kind)
+		stoppedBefore(w, cfg, yardmaster, kind)
 		return false, nil
 	case err != nil:
 		return false, err
@@ -289,19 +290,19 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 		return true, nil
 	}
 	for ctx.Err() == nil {
-		fmt.Printf("Asking %s for one answer (up to %s).\n", kind, tryTimeout)
+		fmt.Fprintf(w, "Asking %s for one answer (up to %s).\n", kind, tryTimeout)
 		t := tryHarnessCall(ctx, kind, path, nil)
 		switch t.State {
 		case tryOK:
-			fmt.Printf("%s answers (%s).\n\n", kind, or(t.Output, "no output"))
+			fmt.Fprintf(w, "%s answers (%s).\n\n", kind, or(t.Output, "no output"))
 			return true, nil
 		case tryNotTried:
-			fmt.Printf("%s was not asked: %s.\n\n", kind, t.Output)
+			fmt.Fprintf(w, "%s was not asked: %s.\n\n", kind, t.Output)
 			return true, nil
 		}
-		t.print(kind, exe)
+		t.print(w, kind, exe)
 		pick := tryAgain
-		fmt.Println()
+		fmt.Fprintln(w)
 		err := ask(huh.NewSelect[string]().Key("tried").Title(kind+" did not answer").
 			Description(fmt.Sprintf("%s runs on it: started now, it would likely sit in its pane the same way.", yardmaster)).
 			Options(huh.NewOption("Try again: once you have set it right in another terminal", tryAgain),
@@ -309,7 +310,7 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 				huh.NewOption("Stop here: the yard stays, and nothing is started on it", tryStop)).Value(&pick))
 		switch {
 		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick == tryStop):
-			stoppedBefore(cfg, yardmaster, kind)
+			stoppedBefore(w, cfg, yardmaster, kind)
 			return false, nil
 		case err != nil:
 			return false, err
@@ -323,22 +324,22 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 // print says of a call that failed or did not end what it came to: how it
 // ended, the last lines the harness printed and, where they tell, what that
 // usually means.
-func (t tryCheck) print(kind, exe string) {
+func (t tryCheck) print(w io.Writer, kind, exe string) {
 	if t.State == tryHangs {
-		fmt.Printf("\n%s did not answer: the call did not end within %s.\n", kind, tryTimeout)
+		fmt.Fprintf(w, "\n%s did not answer: the call did not end within %s.\n", kind, tryTimeout)
 	} else {
-		fmt.Printf("\n%s did not answer: the call failed (%s).\n", kind, or(t.err, "no error"))
+		fmt.Fprintf(w, "\n%s did not answer: the call failed (%s).\n", kind, or(t.err, "no error"))
 	}
 	if t.printed == "" {
-		fmt.Println("It printed nothing.")
+		fmt.Fprintln(w, "It printed nothing.")
 	} else {
-		fmt.Printf("\nThe last lines it printed:\n\n")
+		fmt.Fprintf(w, "\nThe last lines it printed:\n\n")
 		for _, l := range strings.Split(t.printed, "\n") {
-			fmt.Printf("  | %s\n", l)
+			fmt.Fprintf(w, "  | %s\n", l)
 		}
 	}
 	if means := t.means(kind, exe); means != "" {
-		fmt.Printf("\n%s\n", means)
+		fmt.Fprintf(w, "\n%s\n", means)
 	}
 }
 
@@ -376,9 +377,9 @@ func (t tryCheck) means(kind, exe string) string {
 
 // stoppedBefore says, after "Stop here", what is there and how to come
 // back.
-func stoppedBefore(cfg *config.Config, yardmaster, kind string) {
+func stoppedBefore(w io.Writer, cfg *config.Config, yardmaster, kind string) {
 	yardr := yardrAt(cfg.Home)
-	fmt.Printf("Stopped before %s was started. The yard is there, and nothing runs on it.\n"+
+	fmt.Fprintf(w, "Stopped before %s was started. The yard is there, and nothing runs on it.\n"+
 		"Once %s answers (`%s doctor --try` asks it again, for a model call), this starts the yard\n"+
 		"and waits for %s:\n\n  %s init --start\n\n"+
 		"%s in a terminal does the same and goes on from here. `%s setup` takes the rest of\n"+
@@ -404,15 +405,15 @@ const (
 // It asks only where a chat could open (chats), since that is where it
 // leads. yardr types nothing into the pane: what the harness asks there is
 // the person's to answer.
-func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, res *startResult) error {
+func (a *app) offerPane(w, warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, res *startResult) error {
 	for a.chats() && !res.Running && res.Yardmaster != nil && res.Yardmaster.Agent != "" && ctx.Err() == nil {
-		res.printHead()
+		res.printHead(w)
 		agent, pick := res.Yardmaster.Agent, paneOpen
 		known := "its harness may wait at a login, a question or a system dialog"
 		if len(res.Known) > 0 {
 			known = res.Known[0]
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 		err := ask(huh.NewSelect[string]().Key("pane").Title("Open "+yardmaster+"'s pane?").
 			Description(known+".\nOnly you can answer it there; yardr types nothing into the pane.").
 			Options(huh.NewOption("Open the yardmaster's pane", paneOpen), huh.NewOption("Not now", paneLater)).Value(&pick))
@@ -427,29 +428,29 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, y
 			// yardmaster's pane in place of this one, as yardr chat's key for
 			// it does, and this run waits behind it.
 			if err := focusAgent(ctx, agent); err != nil {
-				fmt.Printf("%s's pane could not be brought to the front: %v\n", yardmaster, err)
+				fmt.Fprintf(w, "%s's pane could not be brought to the front: %v\n", yardmaster, err)
 				return nil
 			}
-			fmt.Printf("herdr shows %s's pane now. To come back to this one: %s opens herdr's list of panes.\n"+
+			fmt.Fprintf(w, "herdr shows %s's pane now. To come back to this one: %s opens herdr's list of panes.\n"+
 				"This pane waits for %s meanwhile, and opens the chat once it is up.\n", yardmaster, gotoKeys, yardmaster)
 		} else {
-			fmt.Printf("Opening %s's pane here. To come back: %s (press ctrl+b, release, then q).\n"+
+			fmt.Fprintf(w, "Opening %s's pane here. To come back: %s (press ctrl+b, release, then q).\n"+
 				"Leaving that way stops nothing: %s keeps running, and this goes on.\n", yardmaster, detachKeys, yardmaster)
 			if err := attachAgent(ctx, agent); err != nil {
-				fmt.Printf("\n%s's pane could not be opened: %v\n", yardmaster, err)
+				fmt.Fprintf(w, "\n%s's pane could not be opened: %v\n", yardmaster, err)
 				return nil
 			}
-			fmt.Printf("\nBack from %s's pane.\n", yardmaster)
+			fmt.Fprintf(w, "\nBack from %s's pane.\n", yardmaster)
 		}
-		fmt.Printf("Waiting for %s to answer its first prompt (up to %s).\n", yardmaster, wait)
+		fmt.Fprintf(w, "Waiting for %s to answer its first prompt (up to %s).\n", yardmaster, wait)
 		again := &startResult{DaemonStarted: res.DaemonStarted, DaemonLog: res.DaemonLog}
-		a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, nil, again)
+		a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, nil, again, warn)
 		*res = *again
 		// The daemon's line stands above; a yardmaster still not up is said
 		// anew, with its pane as it is now.
 		res.said = true
 		if !res.Running {
-			res.printProblem()
+			res.printProblem(w)
 		}
 	}
 	return nil
@@ -469,17 +470,17 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, y
 // for the settle — is told of once, with the pane and how to reach it; the
 // wait goes on. Progress goes to stderr: a line that counts on a terminal,
 // one line otherwise.
-func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error) (*store.CrewMember, string) {
+func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error, warn io.Writer) (*store.CrewMember, string) {
 	tty := false
-	if f, ok := stderr.(*os.File); ok {
+	if f, ok := warn.(*os.File); ok {
 		tty = term.IsTerminal(int(f.Fd()))
 	}
 	if tty {
 		// The counting line is wiped once the wait is over: what follows
 		// says how it ended.
-		defer fmt.Fprint(stderr, "\r\033[K")
+		defer fmt.Fprint(warn, "\r\033[K")
 	} else {
-		fmt.Fprintf(stderr, "waiting for %s to start (up to %s)\n", yardmaster, wait)
+		fmt.Fprintf(warn, "waiting for %s to start (up to %s)\n", yardmaster, wait)
 	}
 	began := time.Now()
 	var r *store.CrewMember
@@ -492,7 +493,7 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 		}
 		elapsed := time.Since(began)
 		if tty {
-			fmt.Fprintf(stderr, "\rWaiting for %s to start… %ds ", yardmaster, int(elapsed.Seconds()))
+			fmt.Fprintf(warn, "\rWaiting for %s to start… %ds ", yardmaster, int(elapsed.Seconds()))
 		}
 		switch {
 		case r.Live() && up(ctx, *r):
@@ -513,9 +514,9 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 				if !saidScreen && time.Since(screenSince) >= screenSettle {
 					saidScreen = true
 					if tty {
-						fmt.Fprint(stderr, "\r\033[K")
+						fmt.Fprint(warn, "\r\033[K")
 					}
-					sayHarnessWaits(ctx, cfg, st, r, yardmaster)
+					sayHarnessWaits(warn, ctx, cfg, st, r, yardmaster)
 				}
 			} else {
 				screenSince = time.Time{}
@@ -557,17 +558,17 @@ func pendingNoScreen(r store.CrewMember) bool {
 // harness waits for the person in its pane: what the pane shows and how to
 // reach it, as the question that offers the pane does (offerPane). It goes
 // to stderr, with the wait's progress: stdout is the result's (and JSON's).
-func sayHarnessWaits(ctx context.Context, cfg *config.Config, st store.API, r *store.CrewMember, yardmaster string) {
-	fmt.Fprintf(stderr, "\n%s's harness waits for you in its pane: answer it there, the prompt is typed once it is up.\n", yardmaster)
+func sayHarnessWaits(warn io.Writer, ctx context.Context, cfg *config.Config, st store.API, r *store.CrewMember, yardmaster string) {
+	fmt.Fprintf(warn, "\n%s's harness waits for you in its pane: answer it there, the prompt is typed once it is up.\n", yardmaster)
 	if tail, err := paneTail(ctx, r.Handle, paneLines); err == nil && tail != "" {
-		fmt.Fprint(stderr, "\nThe last lines of its pane:\n\n")
+		fmt.Fprint(warn, "\nThe last lines of its pane:\n\n")
 		for _, l := range strings.Split(tail, "\n") {
-			fmt.Fprintf(stderr, "  | %s\n", l)
+			fmt.Fprintf(warn, "  | %s\n", l)
 		}
 	}
 	all, _ := st.Settings(ctx)
 	if p := placeOf(*r, runner.YardName(cfg.Home, all)); p.Agent != "" {
-		fmt.Fprintf(stderr, "\nTo reach it:\n\n"+
+		fmt.Fprintf(warn, "\nTo reach it:\n\n"+
 			"  herdr agent focus %s     # in herdr: brings its pane to the front\n"+
 			"  herdr agent attach %s    # from any other terminal: opens its pane there\n", p.Agent, p.Agent)
 	}
@@ -810,67 +811,67 @@ func lastSessionFailure(ctx context.Context, st store.API, r store.CrewMember, u
 
 // print says how the start ended: where the yardmaster is and how to get there,
 // or what is known and how to go on.
-func (s *startResult) print(yardmaster string) {
-	s.printHead()
+func (s *startResult) print(w io.Writer, yardmaster string) {
+	s.printHead(w)
 	if !s.Running {
-		s.printKnownNext()
+		s.printKnownNext(w)
 		return
 	}
-	fmt.Println()
-	s.Yardmaster.print(yardmaster)
+	fmt.Fprintln(w)
+	s.Yardmaster.print(w, yardmaster)
 }
 
 // printKnownNext prints what is known and how to go on, for a yardmaster that
 // is not up: after the head (print), or after the problem and its pane where
 // the head was said already (the setup's way to a silent yardmaster).
-func (s *startResult) printKnownNext() {
+func (s *startResult) printKnownNext(w io.Writer) {
 	if len(s.Known) > 0 {
-		fmt.Println("\nWhat is known:")
+		fmt.Fprintln(w, "\nWhat is known:")
 		for _, k := range s.Known {
-			fmt.Printf("  - %s\n", k)
+			fmt.Fprintf(w, "  - %s\n", k)
 		}
 	}
 	if len(s.Next) > 0 {
-		fmt.Println("\nHow to go on:")
+		fmt.Fprintln(w, "\nHow to go on:")
 		for _, n := range s.Next {
-			fmt.Printf("  - %s\n", n)
+			fmt.Fprintf(w, "  - %s\n", n)
 		}
 	}
 }
 
 // printHead says, once, what print starts with: the daemon, and of a yardmaster
 // that is not up the problem and the last lines of its pane.
-func (s *startResult) printHead() {
+func (s *startResult) printHead(w io.Writer) {
 	if s.said {
 		return
 	}
 	s.said = true
 	if s.DaemonStarted {
-		fmt.Printf("The daemon is started, in the background; it logs to %s.\n", s.DaemonLog)
+		fmt.Fprintf(w, "The daemon is started, in the background; it logs to %s.\n", s.DaemonLog)
 	} else if s.Running || len(s.Known) > 0 {
-		fmt.Println("The daemon was running already.")
+		fmt.Fprintln(w, "The daemon was running already.")
 	}
 	if !s.Running {
-		s.printProblem()
+		s.printProblem(w)
 	}
 }
 
 // printProblem says why the yardmaster is not up, with the last lines of its
 // pane.
-func (s *startResult) printProblem() {
-	fmt.Printf("\n%s\n", s.Problem)
+func (s *startResult) printProblem(w io.Writer) {
+	fmt.Fprintf(w, "\n%s\n", s.Problem)
 	if s.Pane != "" {
-		fmt.Printf("\nThe last lines of its pane:\n\n")
+		fmt.Fprintf(w, "\nThe last lines of its pane:\n\n")
 		for _, l := range strings.Split(s.Pane, "\n") {
-			fmt.Printf("  | %s\n", l)
+			fmt.Fprintf(w, "  | %s\n", l)
 		}
 	}
 }
 
 // print says where the running yardmaster is, as herdr names it, and how to get
 // there.
-func (p *yardmasterPlace) print(yardmaster string) {
-	fmt.Printf("%s is running, in herdr:\n\n"+
+func (p *yardmasterPlace) print(w io.Writer, yardmaster string) {
+	fmt.Fprintf(w, "%s is running, in herdr:\n\n"+
 		"  agent      %s\n"+
 		"  workspace  %q (%s), tab %s, pane %s\n\n"+
 		"To get there:\n\n"+
@@ -882,15 +883,15 @@ func (p *yardmasterPlace) print(yardmaster string) {
 // openYardmaster brings the yardmaster's pane to the front. herdr focuses a
 // pane for any process that asks over its socket; what the person then sees
 // depends on where they sit, which the answer says.
-func openYardmaster(ctx context.Context, yardmaster string, p *yardmasterPlace) {
+func openYardmaster(w io.Writer, ctx context.Context, yardmaster string, p *yardmasterPlace) {
 	if err := focusAgent(ctx, p.Agent); err != nil {
-		fmt.Printf("%s's pane could not be brought to the front: %v\n", yardmaster, err)
+		fmt.Fprintf(w, "%s's pane could not be brought to the front: %v\n", yardmaster, err)
 		return
 	}
 	if os.Getenv("HERDR_ENV") != "" {
-		fmt.Printf("herdr shows %s now.\n", yardmaster)
+		fmt.Fprintf(w, "herdr shows %s now.\n", yardmaster)
 	} else {
-		fmt.Printf("%s is in front in herdr; this terminal is not in herdr, so open it with `herdr`,\n"+
+		fmt.Fprintf(w, "%s is in front in herdr; this terminal is not in herdr, so open it with `herdr`,\n"+
 			"or `herdr agent attach %s` for its pane alone.\n", yardmaster, p.Agent)
 	}
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -130,7 +131,7 @@ func TestUpgradeRestoreOn(t *testing.T) {
 func TestUpgradeRejectsNonPositiveTimeout(t *testing.T) {
 	t.Parallel()
 	for _, timeout := range []time.Duration{0, -time.Second} {
-		err := (&app{}).upgradeRun(context.Background(), config.At(t.TempDir()), timeout, false, "")
+		err := (&app{}).upgradeRun(io.Discard, io.Discard, context.Background(), config.At(t.TempDir()), timeout, false, "")
 		if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
 			t.Fatalf("timeout %s: err = %v", timeout, err)
 		}
@@ -284,7 +285,7 @@ func TestUpgradeLogMarked(t *testing.T) {
 		if err := config.WriteUpgradeFailed(home, m); err != nil {
 			t.Fatal(err)
 		}
-		upgradeLogMarked(ctx, st, home, "yard")
+		upgradeLogMarked(io.Discard, ctx, st, home, "yard")
 		if _, err := os.Stat(config.At(home).UpgradeFailed()); !os.IsNotExist(err) {
 			t.Fatalf("the marker stays: %v", err)
 		}

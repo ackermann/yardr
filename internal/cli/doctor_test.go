@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -818,7 +819,9 @@ func TestPreflightSaysWhereToGet(t *testing.T) {
 	fakeTools(t, map[string]string{"git": toolAnswers})
 	stubAsk(t, func(...huh.Field) error { return nil })
 	var err error
-	out := capture(t, func() { err = preflight() })
+	var buf bytes.Buffer
+	err = preflight(&buf)
+	out := buf.String()
 	if !errors.Is(err, huh.ErrUserAborted) {
 		t.Fatalf("no herdr: %v", err)
 	}

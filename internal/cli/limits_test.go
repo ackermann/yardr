@@ -81,10 +81,7 @@ func TestLimitsOfAKind(t *testing.T) {
 	if got := asks(t, asked); got != "" {
 		t.Fatalf("adding the source asked it: %q", got)
 	}
-	out, err = run(t, a.limitsCmd(), "kimi")
-	if err != nil {
-		t.Fatalf("limits kimi: %q %v", out, err)
-	}
+	out, _ = writerRun(t, a.limitsCmd(), "kimi")
 	for _, want := range []string{
 		"kimi  quokka says (provider Kimi):\n",
 		"  5h      100% used (100 of 100)  resets ",
@@ -102,7 +99,7 @@ func TestLimitsOfAKind(t *testing.T) {
 	}
 
 	a.json = true
-	out, err = run(t, a.limitsCmd(), "kimi")
+	out, _ = writerRun(t, a.limitsCmd(), "kimi")
 	a.json = false
 	var res struct {
 		Limits []struct {
@@ -115,8 +112,8 @@ func TestLimitsOfAKind(t *testing.T) {
 			ResetsAt time.Time `json:"resets_at"`
 		} `json:"limits"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 1 {
-		t.Fatalf("limits kimi --json: %q %v", out, err)
+	if json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 1 {
+		t.Fatalf("limits kimi --json: %q", out)
 	}
 	if k := res.Limits[0]; k.Kind != "kimi" || k.Limits.Source != "quokka" || k.Limits.Provider != "Kimi" || len(k.Limits.Windows) != 2 ||
 		k.Window != "5h" || time.Until(k.ResetsAt) < 40*time.Minute || time.Until(k.ResetsAt) > 43*time.Minute {

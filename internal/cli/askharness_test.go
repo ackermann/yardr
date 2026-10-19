@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -87,7 +88,6 @@ func newAsker(t *testing.T, f *former) *asker {
 	stubServices(t, "darwin")
 	stubWeb(t)
 	stubFocus(t)
-	captureStderr(t)
 	t.Setenv("HERDR_ENV", "")
 	stubAsk(t, f.ask)
 	a.started = stubStart(t, a.st, yardmasterHandle())
@@ -376,7 +376,9 @@ func TestWhatNoAnswerMeans(t *testing.T) {
 	}
 	// A call that did not end, and one that printed nothing.
 	stub(t, &tryTimeout, 2*time.Second)
-	out := capture(t, func() { tryCheck{State: tryHangs}.print("kimi", "kimi") })
+	var buf bytes.Buffer
+	tryCheck{State: tryHangs}.print(&buf, "kimi", "kimi")
+	out := buf.String()
 	wantText(t, out, "\nkimi did not answer: the call did not end within 2s.\nIt printed nothing.\n\nIt may wait at something nobody sees here",
 		"Run kimi once in\nanother terminal and answer what it asks.\n")
 }

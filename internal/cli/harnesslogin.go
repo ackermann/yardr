@@ -23,10 +23,6 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// stdin is where a command a program leads reads its answers; tests replace
-// it.
-var stdin io.Reader = os.Stdin
-
 // loginTimeout is how long a login a program leads may take, from the start
 // of the harness's login command to its end: a person signs in on a web
 // page meanwhile. A login nobody finishes ends then, and with it the port
@@ -182,15 +178,15 @@ operator the way the machine's own login does.`,
 			if !a.json {
 				if r := h.LoginRecipe; r == nil {
 					if group != "" {
-						fmt.Printf("yardr knows no login command of %s: log it in in a terminal with group %s's env set (%s).\n", h.Label, group, file)
+						fmt.Fprintf(c.OutOrStdout(), "yardr knows no login command of %s: log it in in a terminal with group %s's env set (%s).\n", h.Label, group, file)
 					} else {
-						fmt.Printf("yardr knows no login command of %s: start %s in a terminal and log in on its own screen.\n", h.Label, exe)
+						fmt.Fprintf(c.OutOrStdout(), "yardr knows no login command of %s: start %s in a terminal and log in on its own screen.\n", h.Label, exe)
 					}
 				} else {
-					fmt.Printf("%s is logged in with its own command, in a terminal:\n  %s %s\n", h.Label, exe, strings.Join(r.Argv, " "))
-					fmt.Printf("A program leads the same login for a person without one: yardr harness login %s --json\n", h.Kind)
+					fmt.Fprintf(c.OutOrStdout(), "%s is logged in with its own command, in a terminal:\n  %s %s\n", h.Label, exe, strings.Join(r.Argv, " "))
+					fmt.Fprintf(c.OutOrStdout(), "A program leads the same login for a person without one: yardr harness login %s --json\n", h.Kind)
 					if group != "" {
-						fmt.Printf("With --group %s the same login is led with that group's env, so it lands in the folder its env names.\n", group)
+						fmt.Fprintf(c.OutOrStdout(), "With --group %s the same login is led with that group's env, so it lands in the folder its env names.\n", group)
 					}
 				}
 				return nil
@@ -218,7 +214,7 @@ operator the way the machine's own login does.`,
 					}
 				}
 			}
-			return leadLogin(c.Context(), h, path, stdin, os.Stdout, env, loginSt)
+			return leadLogin(c.Context(), h, path, a.stdin, c.OutOrStdout(), env, loginSt)
 		},
 	}
 	cmd.Flags().StringVar(&group, "group", "", "lead the login with the group's env, so it lands in that group's folder")

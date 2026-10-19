@@ -39,7 +39,6 @@ func TestPeerSourceCommands(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	errOutput(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
 	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
 	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
@@ -197,7 +196,6 @@ func TestPeerSourceCommands(t *testing.T) {
 // The yard that works the bead prints the row the other way.
 func TestPeerSourceRowOfABeadThatCame(t *testing.T) {
 	st, own, key := beadYard(t)
-	errOutput(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
 	id := northSends(t, st, own, key, "m1", "y-k3f9")
