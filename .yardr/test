@@ -676,7 +676,7 @@ summary() {
   echo "test: sh .yardr/test @ $(git rev-parse --short HEAD): $res, $pkgs_ok packages ok, $pkgs_failed failed, $(($(date +%s) - started)) s, waited $waited_total s"
 }
 # The packages over the 60 s budget (docs/testing.md R1): a directory, the
-# bead that brings it under budget, and why it is over. One is over even
+# bead that brings it under budget, and why it is over. Two are over even
 # alone, none only in full runs (docs/design/2026-10-16-yardr-635g-test-time.md
 # section 2.1 measured two; yardr-2ddt brought assembly under budget).
 # A race leg that runs one of these over 60 s still passes;
@@ -687,6 +687,7 @@ summary() {
 # it, but delete it anyway.
 over60='
 internal/cli yardr-14tr 769 sequential tests at 0.10 s mean plus 67 parallel; 75 s alone; stdout and env are process globals in cli tests; parallel needs output/config threaded through commands (design yardr-14tr)
+internal/web yardr-bds8 238 sequential tests, no t.Parallel; 52-54 s beside root and cli (16 Oct), 61-83 s alone (18-19 Oct); TestSteadyClient 16 s, TestBeadsPageManyBeads 7 s (design yardr-bds8 class C)
 '
 # loadedmachine prints the machine's one-minute load average and core count,
 # as "load <avg> on <cores> cores", when the machine is too loaded for a
