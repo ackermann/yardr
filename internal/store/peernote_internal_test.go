@@ -54,7 +54,7 @@ func TestPeerBeadNoteOfABeadWhoseFlowIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Stage != "work" || !got.Hold || len(notes) != 2 || notes[0].Author != "jo@north" || notes[1].Author != "yard" ||
+	if got.Stage != "work" || !got.Hold || got.HeldBy != "yard" || len(notes) != 2 || notes[0].Author != "jo@north" || notes[1].Author != "yard" ||
 		!strings.Contains(notes[1].Text, "this bead's flow does not read") || !strings.Contains(notes[1].Text, "yardr bead unhold "+b.ID) {
 		t.Fatalf("the bead after a note it has no flow for = %+v, notes %+v", got, notes)
 	}

@@ -281,7 +281,7 @@ func TestPeerCodeRemoteDown(t *testing.T) {
 	a.pass(t)
 	got = a.get(t, mine.ID)
 	away = got.Away()
-	if got.Stage != "build" || !got.Hold || away.FetchGaveUp == nil || away.FetchTries != 2 || len(a.live(t)) != 1 ||
+	if got.Stage != "build" || !got.Hold || got.HeldBy != "yard" || away.FetchGaveUp == nil || away.FetchTries != 2 || len(a.live(t)) != 1 ||
 		!strings.Contains(away.CodeLine(mine.ID), "given up after 2 tries") || !strings.Contains(away.CodeLine(mine.ID), "yardr bead unhold "+mine.ID+" tries again") {
 		t.Fatalf("a's bead after its tries = %+v, %+v, sessions %+v", got, away, a.live(t))
 	}

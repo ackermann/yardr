@@ -191,7 +191,7 @@ func TestListedBeadsShareNothing(t *testing.T) {
 	at := time.Now()
 	str := func(v string) *string { return &v }
 	b := store.Bead{ID: "web-1", UUID: "u", Title: "t", Body: "b", Type: "task", Stage: "new", Status: "open", Priority: 1,
-		Depot: str("web"), Labels: []string{"a"}, Metadata: map[string]any{"k": []any{map[string]any{"k": "v"}}}, Hold: true,
+		Depot: str("web"), Labels: []string{"a"}, Metadata: map[string]any{"k": []any{map[string]any{"k": "v"}}}, Hold: true, HeldBy: "me",
 		Group: str("g"), Session: str("s"), CloseReason: str("r"), CreatedAt: at, UpdatedAt: at, ClosedAt: &at,
 		CreatedBy: str("me"), Originator: "me", Revision: "r", Train: "web-e", Notify: "s"}
 	c := store.CloneBead(&b)

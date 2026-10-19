@@ -1,8 +1,10 @@
 package eta
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -156,6 +158,47 @@ func TestArrivalsRemarkFault(t *testing.T) {
 	}
 	if rows[1].Remark != "stalled" || rows[1].Tone != "red" {
 		t.Fatalf("stalled: %+v", rows[1])
+	}
+}
+
+// A hold says who holds the bead where the yard knows, "held by nell",
+// and "held" alone where it does not: a hold from before the yard kept
+// the holder. The row carries the holder beside the remark, for a reader
+// that tells its own holds from another's without parsing the remark; it
+// is absent for an unknown holder and for a bead that is not held, even
+// one with a holder left over. Not the board's: signalbox says "held".
+func TestArrivalsRemarkHeldBy(t *testing.T) {
+	rows := Arrivals([]ArrivalBead{
+		arrivalBead("wharf-a", func(b *ArrivalBead) { b.Hold, b.HeldBy = true, "nell" }),
+		arrivalBead("wharf-b", func(b *ArrivalBead) { b.Hold = true }),
+		arrivalBead("wharf-c", func(b *ArrivalBead) { b.HeldBy = "nell" }),
+		arrivalBead("wharf-d", func(b *ArrivalBead) { b.Hold, b.HeldBy, b.BlockedBy = true, "peer:north", "wharf-x" }),
+	})
+	byID := map[string]ArrivalRow{}
+	for _, r := range rows {
+		byID[r.Bead] = r
+	}
+	if r := byID["wharf-a"]; r.Remark != "held by nell" || r.Tone != "red" || r.HeldBy != "nell" {
+		t.Errorf("held by nell: %+v", r)
+	}
+	if r := byID["wharf-b"]; r.Remark != "held" || r.Tone != "red" || r.HeldBy != "" {
+		t.Errorf("held, holder unknown: %+v", r)
+	}
+	if r := byID["wharf-c"]; r.Remark != "" || r.Tone != "none" || r.HeldBy != "" {
+		t.Errorf("not held, a holder left over: %+v", r)
+	}
+	// The hold stands first in the remark order, holder or not.
+	if r := byID["wharf-d"]; r.Remark != "held by peer:north" || r.Tone != "red" || r.HeldBy != "peer:north" {
+		t.Errorf("held and blocked: %+v", r)
+	}
+	for id, wantKey := range map[string]bool{"wharf-a": true, "wharf-b": false, "wharf-c": false} {
+		raw, err := json.Marshal(byID[id])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if has := strings.Contains(string(raw), `"held_by"`); has != wantKey {
+			t.Errorf("%s served as %s, want held_by present = %v", id, raw, wantKey)
+		}
 	}
 }
 

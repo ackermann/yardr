@@ -177,8 +177,9 @@ func flowBead(prefix string) []field {
 		{prefix + "bead", "string", "the bead's handle"},
 		{prefix + "title", "string", "the bead's title"},
 		{prefix + "expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead"},
-		{prefix + "remark", "string", "held, stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
+		{prefix + "remark", "string", "held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
 		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
+		{prefix + "held_by", "string?", "who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held`"},
 		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
 		{prefix + "worker", "string?", "who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim"},
 		{prefix + "entered_stage_at", "time?", "when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock"},
@@ -498,7 +499,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Arrivals",
-		says:     "The arrivals board: the open beads still travelling, everything but the backlog, up to 15 rows in arrival order, beside the platforms in the order the beads travel. It is what footplate draws: the yard computes the board once so the readers draw without computing. A row is the bead, its title, its platform (stage) and line (depot), the expected arrival as the yard's printed range, and the remark with its tone; no via, no badge.",
+		says:     "The arrivals board: the open beads still travelling, everything but the backlog, up to 15 rows in arrival order, beside the platforms in the order the beads travel. It is what footplate draws: the yard computes the board once so the readers draw without computing. A row is the bead, its title, its platform (stage) and line (depot), the expected arrival as the yard's printed range, and the remark with its tone, and for a held bead who holds it; no via, no badge.",
 		requests: []string{`{}`},
 		fields: []field{
 			{"rows[].bead", "string", "the bead's handle"},
@@ -506,11 +507,12 @@ var apiCalls = []apiCall{
 			{"rows[].platform", "string", "the stage the bead stands at"},
 			{"rows[].line", "string", "the depot the bead is worked in, `\"\"` when it has none"},
 			{"rows[].expected", "string", "the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead"},
-			{"rows[].remark", "string", "held, stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
+			{"rows[].remark", "string", "held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
 			{"rows[].tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
+			{"rows[].held_by", "string?", "who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held`"},
 			{"platforms", "array of string", "the stages the rows stand on, in the order the beads travel: group the rows by this list"},
 		},
-		after: "The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too: held, stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order.\n\n" +
+		after: "The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too, but for a hold's holder: held (`held by <name>`, or `held` where the yard does not know who held the bead), stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order.\n\n" +
 			"Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.\n\n" +
 			"Read it again on every event that carries a bead, and on the events without one that move its inputs: `group_set` and `group_removed`, `route_added`, `route_set` and `route_removed`, `flow_set`, `flow_removed`, `flow_pointer_set` and `flow_pointer_cleared`, `depot_updated`, and `setting_changed` whose `key` is `max_sessions` or `operator`. One minute is the ETA's grain: no timed refresh.",
 	},
@@ -1244,6 +1246,23 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	claim(train.ID, "train-new")
 	claim(greet.ID, "greet-new")
 	claim(links.ID, "links-new")
+
+	// The held beads of the Arrivals rows and the flows view: one on a
+	// stage, one off the line (it pins a flow of its own) and one with no
+	// line, held by a person, a crew member and the yard, so every row's
+	// held_by has something to say. A hold ends the session, so these are
+	// not the worked beads above, whose workers the rows keep; the one on
+	// a stage lights its stage's lamp. Last again, for the seqs above.
+	held := func(nb store.NewBead, holder string) {
+		nb.Stage = "new"
+		_, err := st.CreateBead(ctx, nb, "yardmaster")
+		must(err)
+		_, err = st.SetHold(ctx, nb.ID, true, store.Expect{}, holder)
+		must(err)
+	}
+	held(store.NewBead{Title: "Mend the gate", ID: "yd-gate", Depot: "yard"}, "jo")
+	held(store.NewBead{Title: "Paint the fence", ID: "yd-fence", Depot: "yard", Metadata: map[string]any{"flow": "default"}}, "yardmaster")
+	held(store.NewBead{Title: "Clear the siding", ID: "yd-siding"}, "yard")
 	return st, d.Token
 }
 

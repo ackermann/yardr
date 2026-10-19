@@ -46,6 +46,12 @@ type Bead struct {
 	// changed only by the operator. Empty reads as the operator's, so a
 	// bead from a path that names none still routes as every bead does.
 	Originator string `json:"originator,omitempty"`
+	// HeldBy is who put the bead on hold: the actor of the held event that
+	// began the hold, so a pane's hold is its session's actor or its crew
+	// member (paneAuthor). Empty when the bead is not held, and when it is
+	// held and the holder is not known: a hold from before the yard kept
+	// the holder reads as unknown, never as anyone.
+	HeldBy string `json:"held_by,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
 	// Train is the handle of the train the bead is a child of (see Family),
@@ -1334,6 +1340,16 @@ func (w *wtx) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[
 	if row.Stage != old.Stage {
 		row.Failures = 0 // attempts are per stage
 	}
+	// The holder is whoever the change that began the hold is recorded as,
+	// the actor of its held event, so every writer of Hold gets it without
+	// naming it. A hold already on keeps its holder: holding again changes
+	// nothing and logs nothing, as before.
+	switch {
+	case !row.Hold:
+		row.HeldBy = ""
+	case !old.Hold:
+		row.HeldBy = actor
+	}
 	wrote, err := w.saveBead(old, row, actor)
 	if err != nil {
 		return nil, err
@@ -1964,7 +1980,8 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 // fresh attempts (its failure count starts over). A stale exp refuses it
 // (see Expect). From a session's or a crew member's pane the hold is
 // recorded as that session's actor or that crew member, whatever actor
-// says; from anywhere else, as given (paneAuthor).
+// says; from anywhere else, as given (paneAuthor). That actor is the
+// bead's HeldBy until the hold is lifted.
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	b, err := s.changeBead(ctx, id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {

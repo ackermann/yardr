@@ -94,6 +94,9 @@ type FlowBead struct {
 	Expected string `json:"expected"`
 	Remark   string `json:"remark"`
 	Tone     string `json:"tone"`
+	// HeldBy is who holds a held bead, as the Arrivals row says it;
+	// absent where the bead is not held and where the holder is not known.
+	HeldBy string `json:"held_by,omitempty"`
 	// Working is a bead an agent's or a command's session has claimed; a
 	// manual group's claim is a person's turn and no work in progress, as
 	// on Home and the line.
@@ -189,7 +192,7 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 	row := func(b Bead) FlowBead {
 		r := rows[b.ID]
 		fb := FlowBead{Bead: b.ID, Title: b.Title, Expected: r.Expected,
-			Remark: r.Remark, Tone: r.Tone, Working: b.Session != nil && !manual[*b.Session]}
+			Remark: r.Remark, Tone: r.Tone, HeldBy: r.HeldBy, Working: b.Session != nil && !manual[*b.Session]}
 		// Who works the bead and when it entered its stage, where a live
 		// session claimed it. A manual group's claim names no worker, but
 		// the stay still has its clock.

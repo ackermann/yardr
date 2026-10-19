@@ -135,8 +135,8 @@ func TestBeadBlockedStartHoldsBeadWithReason(t *testing.T) {
 
 	got, err := s.GetBead(ctx, b.ID)
 	must(t, err)
-	if !got.Hold {
-		t.Fatalf("bead not held after blocked start: %+v", got)
+	if !got.Hold || got.HeldBy != "yard" {
+		t.Fatalf("bead not held by the yard after blocked start: %+v", got)
 	}
 	if n, err := s.FailureCount(ctx, b.ID, b.Stage); err != nil || n != 0 {
 		t.Fatalf("failure count = %d, %v; want 0", n, err)

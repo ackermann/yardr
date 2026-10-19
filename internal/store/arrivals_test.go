@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -80,6 +81,22 @@ func (y *arrivalsTest) flowDepot(t testing.TB, depot, flow string, stages ...str
 		t.Fatal(err)
 	}
 	if err := y.SetFlowPointer(ctx, depot, "", flow, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// holdWithoutHolder holds the bead as the yard did before it kept who held
+// a bead: the hold is on and the holder is not on record.
+func (y *arrivalsTest) holdWithoutHolder(t testing.TB, id string) {
+	t.Helper()
+	if err := y.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		row.Hold, row.HeldBy = true, ""
+		return w.mintBead(row, "me")
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -319,11 +336,68 @@ func TestArrivalsHeldFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := board.Rows
-	// Board: "held before stalled before waiting before late".
-	if len(rows) != 1 || rows[0].Remark != "held" || rows[0].Tone != "red" {
+	// Board: "held before stalled before waiting before late", and the
+	// hold says who holds the bead.
+	if len(rows) != 1 || rows[0].Remark != "held by me" || rows[0].Tone != "red" || rows[0].HeldBy != "me" {
 		t.Fatalf("held: %+v", rows)
 	}
 }
+
+// A hold says who holds the bead, in the remark and in held_by beside it;
+// where the yard has no holder on record (a bead held before it kept
+// one) the remark is "held" and the row carries no held_by; and lifting
+// the hold takes both away.
+func TestArrivalsHeldBy(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	y.create(t, "wharf-plain", "new")
+	y.holdWithoutHolder(t, y.create(t, "wharf-old", "new").ID)
+	nell := y.create(t, "wharf-nell", "new")
+	if _, err := y.SetHold(ctx, nell.ID, true, Expect{}, "nell"); err != nil {
+		t.Fatal(err)
+	}
+	rows := func() map[string]arrivalRow {
+		t.Helper()
+		board, err := y.Arrivals(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]arrivalRow{}
+		for _, r := range board.Rows {
+			out[r.Bead] = arrivalRow{r.Remark, r.Tone, r.HeldBy}
+		}
+		return out
+	}
+	want := map[string]arrivalRow{
+		"wharf-plain": {"", "none", ""},
+		"wharf-old":   {"held", "red", ""},
+		"wharf-nell":  {"held by nell", "red", "nell"},
+	}
+	if got := rows(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows:\n got %+v\nwant %+v", got, want)
+	}
+	// Lifted, the hold and its holder are gone; held again by someone
+	// else, the new holder is named.
+	if _, err := y.SetHold(ctx, nell.ID, false, Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	want["wharf-nell"] = arrivalRow{"", "none", ""}
+	if got := rows(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows after the unhold:\n got %+v\nwant %+v", got, want)
+	}
+	if _, err := y.SetHold(ctx, nell.ID, true, Expect{}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	want["wharf-nell"] = arrivalRow{"held by yardmaster", "red", "yardmaster"}
+	if got := rows(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows after the second hold:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// arrivalRow is what a row says of a hold: its remark, its tone and its
+// held_by.
+type arrivalRow struct{ remark, tone, heldBy string }
 
 func TestArrivalsWaitsWithoutMembers(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).

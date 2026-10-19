@@ -10,7 +10,9 @@
 // cannot drift: running sessions first, then by the low end of the
 // expected arrival in minutes, then by stage age and id, capped; the
 // remark held, stalled, blocked by an open bead, waiting for a person,
-// late, in that order. No via and no badge: the row carries neither.
+// late, in that order. No via and no badge: the row carries neither. The
+// one departure is the hold, which names its holder where the yard knows
+// it ("held by nell"), as the board's own beads do not.
 package eta
 
 import (
@@ -44,6 +46,9 @@ type ArrivalBead struct {
 	// Running says a live session holds the bead now.
 	Running bool
 	Hold    bool
+	// HeldBy is who put the bead on hold, "" where the bead is not held
+	// or the holder is not known.
+	HeldBy string
 	// Fault says its latest ended session came to no good end, and no
 	// live session holds it now: the board's red block.
 	Fault bool
@@ -64,7 +69,10 @@ type ArrivalBead struct {
 
 // An ArrivalRow is one row of the board: everything it shows of one
 // bead, as text. The remark is blank when there is none; its tone is
-// the board's red block or its yellow, "none" with no remark.
+// the board's red block or its yellow, "none" with no remark. HeldBy is
+// who holds a held bead, beside the remark that says it, so a reader can
+// tell its own holds from another's without parsing the remark; absent
+// where the bead is not held and where the holder is not known.
 type ArrivalRow struct {
 	Bead     string `json:"bead"`
 	Title    string `json:"title"`
@@ -73,6 +81,7 @@ type ArrivalRow struct {
 	Expected string `json:"expected"`
 	Remark   string `json:"remark"`
 	Tone     string `json:"tone"`
+	HeldBy   string `json:"held_by,omitempty"`
 }
 
 // An ArrivalBoard is what the yard serves for the board: the rows beside
@@ -130,10 +139,14 @@ func Arrivals(beads []ArrivalBead) []ArrivalRow {
 // so the two can never disagree about one.
 func ArrivalRowFor(b ArrivalBead) ArrivalRow {
 	remark, tone := arrivalRemark(b)
-	return ArrivalRow{
+	row := ArrivalRow{
 		Bead: b.ID, Title: b.Title, Platform: b.Stage, Line: b.Depot,
 		Expected: arrivalTime(b), Remark: remark, Tone: tone,
 	}
+	if b.Hold {
+		row.HeldBy = b.HeldBy
+	}
+	return row
 }
 
 // arrivalTime is the row's time: the yard's range, one span when both
@@ -152,9 +165,13 @@ func arrivalTime(b ArrivalBead) string {
 // arrivalRemark is the row's remark: held, stalled, blocked by an open
 // bead, waiting for a person, late, in that order, else blank. A hold
 // and a session that came to no good end are the board's red block;
-// blocked, waiting and late are its yellow.
+// blocked, waiting and late are its yellow. A hold says who holds the
+// bead where the yard knows: "held by nell", else "held".
 func arrivalRemark(b ArrivalBead) (remark, tone string) {
 	if b.Hold {
+		if b.HeldBy != "" {
+			return "held by " + b.HeldBy, "red"
+		}
 		return "held", "red"
 	}
 	if b.Fault {

@@ -429,7 +429,7 @@ func TestPeerBeadOutcomeTheStageDoesNotName(t *testing.T) {
 	must(t, err)
 	b.pass(t)
 	got := a.get(t, mine.ID)
-	if got.Stage != "build" || !got.Hold || got.Group != nil || len(a.live(t)) != 0 {
+	if got.Stage != "build" || !got.Hold || got.HeldBy != "peer:b" || got.Group != nil || len(a.live(t)) != 0 {
 		t.Fatalf("a's bead after an outcome its stage does not name = %+v", got)
 	}
 	ns := a.notes(t, mine.ID)

@@ -90,7 +90,7 @@ func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalB
 	inputs := make([]eta.ArrivalBead, 0, len(beads))
 	for _, b := range beads {
 		in := eta.ArrivalBead{ID: b.ID, Title: b.Title, Stage: b.Stage,
-			StayStart: stays[b.ID], Hold: b.Hold}
+			StayStart: stays[b.ID], Hold: b.Hold, HeldBy: b.HeldBy}
 		if b.Depot != nil {
 			in.Depot = *b.Depot
 		}

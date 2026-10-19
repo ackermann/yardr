@@ -175,14 +175,58 @@ func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
 	if got := flowBeads(board.Unassigned); !reflect.DeepEqual(got, []string{"wild-new"}) {
 		t.Errorf("unassigned = %v, want the travelling bead with no depot", got)
 	}
-	// Every row carries its Arrivals remark: the held bead's is held and
-	// red, and the rest have none to make.
+	// Every row carries its Arrivals remark: the held bead's is held, by
+	// whom, and red, and the rest have none to make.
 	held := shop.Flows[0].Stages[1].Beads[0]
-	if held.Title != "shop-held" || held.Remark != "held" || held.Tone != "red" {
-		t.Errorf("the held bead's row = %+v, want the Arrivals held remark", held)
+	if held.Title != "shop-held" || held.Remark != "held by me" || held.Tone != "red" || held.HeldBy != "me" {
+		t.Errorf("the held bead's row = %+v, want the Arrivals held remark and its holder", held)
 	}
-	if r := shop.Flows[0].Stages[1].Beads[1]; r.Remark != "" || r.Tone != "none" {
+	if r := shop.Flows[0].Stages[1].Beads[1]; r.Remark != "" || r.Tone != "none" || r.HeldBy != "" {
 		t.Errorf("the plain bead's row = %+v, want no remark", r)
+	}
+}
+
+// TestFlowsHeldBy pins the holder on a flow bead wherever it stands: on a
+// stage, off the line in a depot's Elsewhere, and unassigned. A bead held
+// with no holder on record reads "held" and carries no held_by.
+func TestFlowsHeldBy(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	flowsBoard(t, y)
+	ctx := context.Background()
+	if _, err := y.SetHold(ctx, "shop-pinned", true, Expect{}, "nell"); err != nil {
+		t.Fatal(err)
+	}
+	y.holdWithoutHolder(t, "wild-new")
+	board, err := y.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shop FlowsDepot
+	for _, d := range board.Depots {
+		if d.Name == "shop" {
+			shop = d
+		}
+	}
+	for _, c := range []struct {
+		where string
+		row   FlowBead
+		want  [3]string // remark, tone, held_by
+	}{
+		{"on a stage", shop.Flows[0].Stages[1].Beads[0], [3]string{"held by me", "red", "me"}},
+		{"in Elsewhere", shop.Elsewhere[0], [3]string{"held by nell", "red", "nell"}},
+		{"unassigned, no holder on record", board.Unassigned[0], [3]string{"held", "red", ""}},
+	} {
+		if got := [3]string{c.row.Remark, c.row.Tone, c.row.HeldBy}; got != c.want {
+			t.Errorf("%s: %s is %v, want %v", c.where, c.row.Bead, got, c.want)
+		}
+		raw, err := json.Marshal(c.row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if has := strings.Contains(string(raw), `"held_by"`); has != (c.want[2] != "") {
+			t.Errorf("%s: %s served as %s, want held_by present = %v", c.where, c.row.Bead, raw, c.want[2] != "")
+		}
 	}
 }
 
@@ -367,7 +411,7 @@ func TestFlowsWorking(t *testing.T) {
 }
 
 // TestFlowsRowsMatchArrivals pins the reuse: every travelling bead's served
-// expected, remark and tone are the board's.
+// expected, remark, tone and holder are the board's.
 func TestFlowsRowsMatchArrivals(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
@@ -381,10 +425,10 @@ func TestFlowsRowsMatchArrivals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	type triple struct{ expected, remark, tone string }
-	rows := map[string]triple{}
+	type shown struct{ expected, remark, tone, heldBy string }
+	rows := map[string]shown{}
 	for _, r := range arrivals.Rows {
-		rows[r.Bead] = triple{r.Expected, r.Remark, r.Tone}
+		rows[r.Bead] = shown{r.Expected, r.Remark, r.Tone, r.HeldBy}
 	}
 	served := map[string]FlowBead{}
 	collect := func(b FlowBead) { served[b.Bead] = b }
@@ -417,7 +461,7 @@ func TestFlowsRowsMatchArrivals(t *testing.T) {
 			}
 			continue
 		}
-		want := triple{b.Expected, b.Remark, b.Tone}
+		want := shown{b.Expected, b.Remark, b.Tone, b.HeldBy}
 		if got != want {
 			t.Errorf("%s: flows %+v, board %+v", id, want, got)
 		}

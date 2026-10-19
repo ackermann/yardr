@@ -300,8 +300,8 @@ func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
 	f.dead[*got.Session] = true
 	must(t, d.Reconcile(ctx))
 	got, _ = s.GetBead(ctx, b.ID)
-	if !got.Hold || got.Group != nil {
-		t.Fatalf("bead not held after %d failures: %+v", d.MaxAttempts, got)
+	if !got.Hold || got.HeldBy != "yard" || got.Group != nil {
+		t.Fatalf("bead not held by the yard after %d failures: %+v", d.MaxAttempts, got)
 	}
 	evs, _ := s.Events(ctx, b.ID, 100)
 	if evs[len(evs)-1].Kind != "gave_up" {
@@ -316,7 +316,7 @@ func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
 	must(t, d.Reconcile(ctx)) // start fails (attempt 1 since unhold)
 	must(t, d.Reconcile(ctx)) // retried
 	got, _ = s.GetBead(ctx, b.ID)
-	if got.Group == nil || got.Hold {
+	if got.Group == nil || got.Hold || got.HeldBy != "" {
 		t.Fatalf("not re-dispatched after unhold: %+v", got)
 	}
 	if n := len(f.starts()); n != 3 {
