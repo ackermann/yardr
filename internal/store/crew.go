@@ -858,10 +858,10 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobF
 	})
 }
 
-// AllowedReactions are the emoji a party to a letter may put on it.
-var AllowedReactions = []string{"👍", "👎", "❤️", "🎉", "👀", "✅"}
+// allowedReactions are the emoji a party to a letter may put on it.
+var allowedReactions = [...]string{"👍", "👎", "❤️", "🎉", "👀", "✅"}
 
-// React puts the party's reaction on the mail seq: one of AllowedReactions,
+// React puts the party's reaction on the mail seq: one of the allowed reactions,
 // or "" to take it away. Only the letter's sender or receiver may react, and
 // only mail its sender wrote takes one: a timer's letter, another kind's
 // event or an unknown seq is refused. One party holds one reaction: a new one
@@ -869,8 +869,8 @@ var AllowedReactions = []string{"👍", "👎", "❤️", "🎉", "👀", "✅"}
 // member's pane the reaction is recorded as that session's actor or that crew
 // member, whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) React(ctx context.Context, seq uint64, emoji, actor string) error {
-	if emoji != "" && !slices.Contains(AllowedReactions, emoji) {
-		return fmt.Errorf("reaction %q: use one of %s", emoji, strings.Join(AllowedReactions, " "))
+	if emoji != "" && !slices.Contains(allowedReactions[:], emoji) {
+		return fmt.Errorf("reaction %q: use one of %s", emoji, strings.Join(allowedReactions[:], " "))
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)

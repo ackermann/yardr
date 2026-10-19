@@ -77,8 +77,8 @@ type User struct {
 	Pushed   []time.Time `json:"pushed,omitempty"`
 }
 
-// Reaction is one party's emoji on a letter: who put it and which of
-// AllowedReactions it is.
+// Reaction is one party's emoji on a letter: who put it and which of the
+// fixed reactions it is.
 type Reaction struct {
 	From  string `json:"from"`
 	Emoji string `json:"emoji"`

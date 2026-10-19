@@ -114,7 +114,7 @@ func TestReactRefused(t *testing.T) {
 	if err := s.React(ctx, seq, "💩", "jo"); err == nil {
 		t.Fatal("an emoji outside the set was accepted")
 	} else {
-		for _, want := range append([]string{"use one of"}, store.AllowedReactions...) {
+		for _, want := range []string{"use one of", "👍", "👎", "❤️", "🎉", "👀", "✅"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("the refusal names no set: %v", err)
 			}
