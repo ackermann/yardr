@@ -465,9 +465,29 @@ the slices that finish each thread, not before.
 S1-S4 are the output thread (about 1,000 print sites, but one funnel,
 about 35 helpers, and then per-family mechanical edits); S5-S6 are the
 environment thread (36 `config.Load` sites, 34 environment reads, then
-about 66 test files); the two threads share no file group except the
-test harness, so they can interleave, but each thread's slices land in
-their own order.
+about 66 test files). The two threads cannot interleave, because they
+edit the same files. In `internal/cli/root.go`, S1 changes `app`,
+`execute`, `out` and `table`, and S5 changes `PersistentPreRunE` and
+`store`. Outside root.go, 15 non-test files call `config.Load`
+(`guide.go`, `harnesslogin.go`, `init.go`, `limits.go`,
+`longrunning.go`, `ops.go`, `pack.go`, `peers.go`, `root.go`,
+`sourcecmd.go`, `storecmd.go`, `uninstall.go`, `updown.go`, `web.go`,
+`upgrade.go`), and 21 read the environment or the working directory
+directly (`beads.go`, `chat.go`, `codextrust.go`, `crew.go`,
+`grouplogin.go`, `guide.go`, `harnesslogin.go`, `identity.go`,
+`init.go`, `lock.go`, `login.go`, `longrunning.go`, `needs.go`,
+`otel.go`, `reply.go`, `review.go`, `root.go`, `service.go`,
+`start.go`, `updown.go`, `users.go`). Of the 29 distinct files in
+those two lists, 22 also hold print sites that S1, S2 or S3 converts;
+only `codextrust.go`, `grouplogin.go`, `identity.go`, `lock.go`,
+`needs.go`, `otel.go` and `web.go` hold none. A split by file
+ownership would cut across every command family, so the slices are
+put in sequence instead: S1, S2, S3, S4, then S5, S6, S7. Each slice
+starts from a base where the slice before it has landed, and no two
+slices are open on the same file at once. The one part of S5 outside
+`internal/cli`, `config.LoadWith` in `internal/config/config.go`,
+touches no file the output thread edits. It may land at any point
+before the rest of S5 (bead B5a in section 6).
 
 ### 3.5 The expected wall, with the numbers
 
@@ -727,18 +747,32 @@ assertion), `root.go`. Done when: `capture` has no callers and is
 gone; the package's tests still assert the same output; the gate is
 green. Size: small. Depends on: B3.
 
-**B5. Environment plumbing (S5).** Goal: `config.LoadWith` resolves a
-`Config` from a lookup; `app` carries `env`, `config()` and `cwd()`;
-`--home` is recorded in the run's map; children are started from
-`a.environ()`; the process fallback keeps every existing test true.
-Where to look: `internal/config/config.go` (`Load`, `UseHome`),
-`internal/cli/root.go` (`PersistentPreRunE`, `store`),
-`internal/cli/identity.go`, and the child builders
-(`daemonEnv`, `server.ServerEnv`, `serviceEnv`; `home_test.go`).
-Done when: `TestHomeFlagOrder` and `TestHomeFlagReachesChildren`
-pass against the threaded path; no `--home` handling calls
-`os.Setenv`; the gate is green. Size: medium. Depends on: the Q2
-decision; independent of B1-B4 and may land before them.
+**B5a. config.LoadWith (the internal/config part of S5).** Goal:
+`config.LoadWith(get, userHome)` resolves a `Config` from a lookup,
+and `Load` becomes a call to it with the process lookup, sharing one
+body (the socket-length refusal and home creation included). Where
+to look: `internal/config/config.go` (`Load`, `Getenv`) and its
+tests. Done when: a test in `internal/config` resolves two different
+homes from two maps without touching the process environment; every
+existing `Load` caller is unchanged; the gate is green. Size: small.
+Depends on: the Q2 decision. It edits no file in `internal/cli`, so
+it may land at any point before B5b, in parallel with B1-B4.
+
+**B5b. Environment plumbing in internal/cli (the rest of S5).** Goal:
+`app` carries `env`, `config()` and `cwd()`; the 36 `config.Load`
+call sites use `a.config()`; `--home` is recorded in the run's map;
+children are started from `a.environ()`; the process fallback keeps
+every existing test true. Where to look: `internal/cli/root.go`
+(`PersistentPreRunE`, `store`), `internal/cli/identity.go`, the 15
+files that call `config.Load` and the 21 that read the environment
+(section 3.4 lists them), and the child builders (`daemonEnv`,
+`server.ServerEnv`, `serviceEnv`; `home_test.go`). Done when:
+`TestHomeFlagOrder` and `TestHomeFlagReachesChildren` pass against
+the threaded path; no `--home` handling calls `os.Setenv`; the gate
+is green. Size: medium. Depends on: B4 and B5a. It edits root.go
+after B1 does, and `ops.go`, `init.go`, `guide.go` and the other
+long-tail files after B3 has converted them, so it starts from a
+base where the whole output thread has landed.
 
 **B6. Test homes become environment maps (S6).** Goal: `testApp` and
 the map forms of `newHome`, `noHome`, `noGitHubCredential` and
@@ -750,7 +784,8 @@ the map forms of `newHome`, `noHome`, `noGitHubCredential` and
 in B3. Done when: per file group, no test in it calls `t.Setenv` or
 `t.Chdir`; the groups' outputs and homes are asserted as before; the
 gate is green. Size: large, landing as one small-to-medium bead per
-file group. Depends on: B5.
+file group. Depends on: B5b. Its test files are the ones B2 and B3
+already edited to drop `capture`, so it follows them as well.
 
 **B7. Parallelism and the bridges come down (S7).** Goal:
 `t.Parallel` on every test the section 3.3 rule allows, the process
