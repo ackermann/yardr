@@ -1161,7 +1161,7 @@ yardr doctor and bare yardr say what waits.`,
 					return
 				}
 				for _, e := range page.Events {
-					printInboxEvent(e, name, a.mailHome())
+					printInboxEvent(w, e, name, a.mailHome())
 				}
 				if rest := page.Total - len(page.Events); rest > 0 {
 					fmt.Printf("… %d more\n", rest)
@@ -1206,7 +1206,7 @@ func newerUnreadLine(n int) string {
 // printInboxEvent prints one event of member's inbox. home is the yard's
 // home: mail that carries files names them under its line, on a marked
 // line of their own.
-func printInboxEvent(e store.Event, member, home string) {
+func printInboxEvent(w io.Writer, e store.Event, member, home string) {
 	switch e.Kind {
 	case "mail":
 		// A name the yard trusts as a user says whom it speaks as, and is
@@ -1218,10 +1218,10 @@ func printInboxEvent(e store.Event, member, home string) {
 		// The sender and the text are writers' words, shown without the
 		// mark, and the files stand under them on a marked line of their
 		// own, so no mail's words forge its files line.
-		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.Letters(from),
+		fmt.Fprintf(w, "%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.Letters(from),
 			store.Letters(show(e.Data["text"])))
 		if line := store.NoteFilesLine(home, store.MailFiles(e)); line != "" {
-			fmt.Printf("    %s\n", line)
+			fmt.Fprintf(w, "    %s\n", line)
 		}
 	case "reaction":
 		// The reactor, the emoji and the target's first words are writers'
@@ -1238,12 +1238,12 @@ func printInboxEvent(e store.Event, member, home string) {
 		fmt.Printf("%6d %s  %s by %s on your mail %d: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"),
 			store.Letters(emoji), store.Letters(e.Actor), target, store.Letters(preview))
 	case "hook":
-		printHookDelivery(e, member)
+		printHookDelivery(w, e, member)
 	case "timer":
 		// The text says it is a timer, who set it and when.
-		fmt.Printf("%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
+		fmt.Fprintf(w, "%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
 	default:
-		printBeadDelivery(e, member)
+		printBeadDelivery(w, e, member)
 	}
 }
 
@@ -1749,7 +1749,7 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 		}
 		fmt.Printf("## Inbox: %d unread\n\n", p.InboxTotal)
 		for _, e := range p.Inbox {
-			printInboxEvent(e, name, a.mailHome())
+			printInboxEvent(w, e, name, a.mailHome())
 		}
 		if p.InboxTotal > 0 {
 			fmt.Println()

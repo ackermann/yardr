@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,7 +106,9 @@ func TestInboxLineNamesWhatWas(t *testing.T) {
 	bead := "yard-1"
 	e := store.Event{Seq: 7, Bead: &bead, Kind: "updated", Actor: "jo",
 		Data: map[string]any{"body": true, "was": map[string]any{"body": "Hang it.\nOn two hinges.\n"}}}
-	out := capture(t, func() { printBeadDelivery(e, "yardmaster") })
+	var buf bytes.Buffer
+	printBeadDelivery(&buf, e, "yardmaster")
+	out := buf.String()
 	if !strings.Contains(out, "by jo body=true was=[body]\n") || strings.Contains(out, "hinges") {
 		t.Errorf("inbox line: %q", out)
 	}

@@ -802,11 +802,11 @@ do, the command refuses naming both, and --crew or --group says which.`,
 
 // printHookDelivery shows a hook event as it reached crew member: what
 // happened, who did it, and why the crew member hears of it.
-func printHookDelivery(e store.Event, member string) {
+func printHookDelivery(w io.Writer, e store.Event, member string) {
 	// What a linked yard said of a bead is the yard's own sentence, with no
 	// text of the other yard's, and how to read what was written there.
 	if line := store.PeerDeliveryLine(e.Data); line != "" {
-		fmt.Printf("%6d %s  %s: yardr thread show %d  [%s]\n", e.Seq, e.At.Local().Format("01-02 15:04"), line, e.Seq, or(store.Reason(e, member), "-"))
+		fmt.Fprintf(w, "%6d %s  %s: yardr thread show %d  [%s]\n", e.Seq, e.At.Local().Format("01-02 15:04"), line, e.Seq, or(store.Reason(e, member), "-"))
 		return
 	}
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
@@ -844,14 +844,14 @@ func printHookDelivery(e store.Event, member string) {
 	if title != "" {
 		what += " on " + fmt.Sprintf("%q", printable(title))
 	}
-	fmt.Printf("%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, member), "-"), what)
+	fmt.Fprintf(w, "%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, member), "-"), what)
 	if t := str("text"); t != "" {
-		fmt.Printf(": %s", t)
+		fmt.Fprintf(w, ": %s", t)
 	}
 	if u := str("url"); u != "" {
-		fmt.Printf("  %s", printable(u))
+		fmt.Fprintf(w, "  %s", printable(u))
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 }
 
 // hookField is the first value of a hook event's fields key, "" for none.
@@ -998,9 +998,9 @@ member takes part in.`,
 // printBeadDelivery shows a bead event in crew member's inbox, with why it
 // is there: a subscription's reason, or "on" for a --on kind. An answer
 // reads as its sentence instead, in words wherever it lands.
-func printBeadDelivery(e store.Event, member string) {
+func printBeadDelivery(w io.Writer, e store.Event, member string) {
 	if line, _ := e.Data["answer"].(string); line != "" {
-		fmt.Printf("%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), line)
+		fmt.Fprintf(w, "%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), line)
 		return
 	}
 	data := map[string]any{}
@@ -1028,7 +1028,7 @@ func printBeadDelivery(e store.Event, member string) {
 	if len(data) > 0 {
 		extra = lead + fmtConfig(data)
 	}
-	fmt.Printf("%6d %s  %-8s %s (%s) by %s %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), deref(e.Bead), e.Kind,
+	fmt.Fprintf(w, "%6d %s  %-8s %s (%s) by %s %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), deref(e.Bead), e.Kind,
 		or(store.Reason(e, member), "on"), e.Actor, extra)
 }
 
