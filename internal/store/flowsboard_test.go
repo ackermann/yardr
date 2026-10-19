@@ -628,3 +628,103 @@ func TestFlowsSeats(t *testing.T) {
 		t.Errorf("done omits its zero seats from JSON: %s", raw)
 	}
 }
+
+// TestFlowsWorkerAndStageEntry pins who works a Flows bead and when it
+// entered its stage: a claimed bead serves its worker's name and its stage
+// entry, an unclaimed bead serves neither, and a move re-serves the new
+// entry. A manual group's claim names no worker, but the stay still has
+// its clock. The entries are the stays' clocks, pinned by the fake clock
+// at creation and at the move.
+func TestFlowsWorkerAndStageEntry(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	y.flowDepot(t, "shop", "code", "new", "review")
+	entered := y.now
+	run := y.travel(t, "run", "shop", "new")
+	sess, err := y.Claim(ctx, run.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, sess.ID, map[string]any{"agent": "run-new"}); err != nil {
+		t.Fatal(err)
+	}
+	byhand := y.travel(t, "byhand", "shop", "new")
+	if _, err := y.Claim(ctx, byhand.ID, "deciders", "new", "nell"); err != nil {
+		t.Fatal(err)
+	}
+	y.travel(t, "idle", "shop", "new")
+	// A move ends the session and starts a new stay: re-claimed, the bead
+	// serves the new entry.
+	moved := y.travel(t, "moved", "shop", "new")
+	if _, err := y.Claim(ctx, moved.ID, "builders", "new", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(y.now.Add(41 * time.Minute))
+	remained := y.now
+	if _, err := y.Advance(ctx, moved.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	msess, err := y.Claim(ctx, moved.ID, "builders", "review", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, msess.ID, map[string]any{"agent": "moved-review"}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := y.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]FlowBead{}
+	for _, d := range board.Depots {
+		for _, f := range d.Flows {
+			for _, s := range f.Stages {
+				for _, b := range s.Beads {
+					rows[b.Bead] = b
+				}
+			}
+		}
+	}
+	entry := func(b FlowBead) (time.Time, bool) {
+		if b.EnteredStageAt == nil {
+			return time.Time{}, false
+		}
+		return *b.EnteredStageAt, true
+	}
+	if got := rows["run"].Worker; got != "herdr run-new" {
+		t.Errorf("run worker = %q, want the session-list word for its session", got)
+	}
+	if got, ok := entry(rows["run"]); !ok || !got.Equal(entered) {
+		t.Errorf("run entry = %v, %v, want %v, served", got, ok, entered)
+	}
+	if got := rows["byhand"].Worker; got != "" {
+		t.Errorf("byhand worker = %q, want absent: a manual group's claim names no worker", got)
+	}
+	if got, ok := entry(rows["byhand"]); !ok || !got.Equal(entered) {
+		t.Errorf("byhand entry = %v, %v, want %v, served: the stay still has its clock", got, ok, entered)
+	}
+	if got := rows["idle"]; got.Worker != "" || got.EnteredStageAt != nil {
+		t.Errorf("idle serves worker %q entry %v, want neither", got.Worker, got.EnteredStageAt)
+	}
+	if got := rows["moved"].Worker; got != "herdr moved-review" {
+		t.Errorf("moved worker = %q, want herdr moved-review", got)
+	}
+	if got, ok := entry(rows["moved"]); !ok || !got.Equal(remained) {
+		t.Errorf("moved entry = %v, %v, want %v, the move's stay, not the creation's", got, ok, remained)
+	}
+	raw, err := json.Marshal(rows["idle"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"worker":`) || strings.Contains(string(raw), `"entered_stage_at":`) {
+		t.Errorf("idle serves a worker or an entry in JSON: %s", raw)
+	}
+	raw, err = json.Marshal(rows["run"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"worker":"herdr run-new"`) || !strings.Contains(string(raw), `"entered_stage_at":"2099-01-01T12:00:00Z"`) {
+		t.Errorf("run omits its worker or entry from JSON: %s", raw)
+	}
+}

@@ -1783,6 +1783,20 @@ func (s Session) RunnerName() string {
 // runs in it, a person works the bead.
 func (s Session) Manual() bool { return s.RunnerName() == "manual" }
 
+// RunnerShown is the runner that started the session and what it runs
+// there, as `yardr session list` shows it: the runner's name, then the
+// herdr agent's name or the exec pid where the handle holds one.
+func (s Session) RunnerShown() string {
+	runner := s.RunnerName()
+	if v, ok := s.Handle["agent"]; ok {
+		return fmt.Sprintf("%s %v", runner, v)
+	}
+	if v, ok := s.Handle["pid"]; ok {
+		return fmt.Sprintf("%s pid %v", runner, v)
+	}
+	return runner
+}
+
 // RunsHere reports whether a session of the runner named runs something on
 // this machine, an agent or a script, and so counts against max_sessions
 // (MaxSessions): not a manual group's claim, which is a person's turn, and

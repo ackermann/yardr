@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 98,
+  "seq": 104,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 99,
+  "seq": 105,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 100,
+  "seq": 106,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -667,7 +667,7 @@ POST /call/Head
 {}
 
 {
-  "result": 95
+  "result": 101
 }
 ```
 
@@ -1073,7 +1073,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 96,
+      "seq": 102,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1081,7 +1081,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 97,
+      "seq": 103,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1107,7 +1107,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 96,
+      "seq": 102,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1115,7 +1115,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 97,
+      "seq": 103,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1142,7 +1142,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 98,
+      "seq": 104,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2613,15 +2613,6 @@ POST /call/Arrivals
   "result": {
     "rows": [
       {
-        "bead": "yd-shed",
-        "title": "Paint the shed",
-        "platform": "new",
-        "line": "",
-        "expected": "—",
-        "remark": "",
-        "tone": "none"
-      },
-      {
         "bead": "yd-train",
         "title": "Release train",
         "platform": "new",
@@ -2644,6 +2635,15 @@ POST /call/Arrivals
         "title": "The greeting",
         "platform": "new",
         "line": "drafts",
+        "expected": "—",
+        "remark": "",
+        "tone": "none"
+      },
+      {
+        "bead": "yd-shed",
+        "title": "Paint the shed",
+        "platform": "new",
+        "line": "",
         "expected": "—",
         "remark": "",
         "tone": "none"
@@ -2704,7 +2704,9 @@ POST /call/Flows
             "expected": "—",
             "remark": "",
             "tone": "none",
-            "working": false
+            "working": true,
+            "worker": "herdr greet-new",
+            "entered_stage_at": "2026-10-08T09:30:00Z"
           }
         ],
         "error": ".yardr/flows/default.flow: flow line 1: want 'stage -\u003e next on outcome | other' or 'stage terminal', got \"this is no flow\""
@@ -2726,7 +2728,7 @@ POST /call/Flows
                 "lamp": "none",
                 "terminal": false,
                 "limit": 5,
-                "taken": 0,
+                "taken": 3,
                 "beads": [
                   {
                     "bead": "yd-train",
@@ -2734,7 +2736,9 @@ POST /call/Flows
                     "expected": "—",
                     "remark": "",
                     "tone": "none",
-                    "working": false
+                    "working": true,
+                    "worker": "herdr train-new",
+                    "entered_stage_at": "2026-10-08T09:30:00Z"
                   }
                 ]
               },
@@ -2756,16 +2760,18 @@ POST /call/Flows
     ],
     "unassigned": [
       {
-        "bead": "yd-crm",
-        "title": "Read the CRM",
+        "bead": "yd-links",
+        "title": "Move the links",
         "expected": "—",
         "remark": "",
         "tone": "none",
-        "working": false
+        "working": true,
+        "worker": "herdr links-new",
+        "entered_stage_at": "2026-10-08T09:30:00Z"
       },
       {
-        "bead": "yd-links",
-        "title": "Move the links",
+        "bead": "yd-crm",
+        "title": "Read the CRM",
         "expected": "—",
         "remark": "",
         "tone": "none",
@@ -2806,12 +2812,16 @@ POST /call/Flows
 | `depots[].flows[].stages[].beads[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
 | `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+| `depots[].flows[].stages[].beads[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `depots[].flows[].stages[].beads[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
 | `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
 | `depots[].elsewhere[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
 | `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+| `depots[].elsewhere[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `depots[].elsewhere[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
 | `depots[].error` | string, may be absent | why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read |
 | `unassigned[].bead` | string | the bead's handle |
 | `unassigned[].title` | string | the bead's title |
@@ -2819,6 +2829,8 @@ POST /call/Flows
 | `unassigned[].remark` | string | held, stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
 | `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
+| `unassigned[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `unassigned[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
 
 Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.
 

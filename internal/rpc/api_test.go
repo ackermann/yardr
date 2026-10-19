@@ -176,6 +176,8 @@ func flowBead(prefix string) []field {
 		{prefix + "remark", "string", "held, stalled, blocked by an open bead, waits for a person, late, in that order; `\"\"` when there is none"},
 		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
 		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
+		{prefix + "worker", "string?", "who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim"},
+		{prefix + "entered_stage_at", "time?", "when the bead entered its stage; absent where no session claimed it, and where the stay has no clock"},
 	}
 }
 
@@ -1183,6 +1185,19 @@ func apiStore(t *testing.T) (*store.Store, string) {
 		Setup:   &store.AskSetup{Pack: "courier", To: []store.Grantee{{Group: "elders"}, {Crew: "yardmaster"}}}}, "yardmaster")
 	must(err)
 	must(st.AddAnswer(ctx, crm.ID, store.Answer{Ask: declinedSetup, Decline: true, Words: "the builders' card covers it"}, "jo"))
+
+	// The flows view's worked beads: one on a stage, one off the line and
+	// one with no line, each claimed with its agent, so every bead row's
+	// worker and stage entry has something to say. Last, for the seqs
+	// above, and after the groups it claims with.
+	claim := func(id, agent string) {
+		sess, err := st.Claim(ctx, id, "builders", "new", "yard")
+		must(err)
+		must(st.MarkRunning(ctx, sess.ID, map[string]any{"agent": agent}))
+	}
+	claim(train.ID, "train-new")
+	claim(greet.ID, "greet-new")
+	claim(links.ID, "links-new")
 	return st, d.Token
 }
 

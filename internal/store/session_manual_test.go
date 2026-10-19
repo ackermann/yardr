@@ -30,3 +30,24 @@ func TestSessionRunnerName(t *testing.T) {
 		}
 	}
 }
+
+// RunnerShown is the runner and what it runs there, as `yardr session list`
+// shows it: the agent's name or the pid where the handle holds one.
+func TestSessionRunnerShown(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		s    Session
+		want string
+	}{
+		{"herdr with its agent", Session{Runner: "herdr", Handle: map[string]any{"agent": "builder-2"}}, "herdr builder-2"},
+		{"exec with its pid", Session{Runner: "exec", Handle: map[string]any{"pid": 7}}, "exec pid 7"},
+		{"starting, no handle yet", Session{Runner: "herdr"}, "herdr"},
+		{"old herdr session", Session{Handle: map[string]any{"agent": "builder-2"}}, "herdr builder-2"},
+		{"manual claim", Session{Runner: "manual", Handle: map[string]any{"manual": true}}, "manual"},
+	} {
+		if got := c.s.RunnerShown(); got != c.want {
+			t.Errorf("%s: RunnerShown() = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

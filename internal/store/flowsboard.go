@@ -6,6 +6,9 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/eta"
 )
@@ -95,6 +98,15 @@ type FlowBead struct {
 	// manual group's claim is a person's turn and no work in progress, as
 	// on Home and the line.
 	Working bool `json:"working"`
+	// Worker is who works the bead, as `yardr session list` shows the
+	// claiming session: the runner with the agent's name or pid. Absent
+	// where no session claimed the bead, and on a manual group's claim,
+	// which names no worker.
+	Worker string `json:"worker,omitempty"`
+	// EnteredStageAt is when the bead entered its stage, so a reader can
+	// say how long it has stood there. Absent where no session claimed
+	// the bead, and where the stay has no clock.
+	EnteredStageAt *time.Time `json:"entered_stage_at,omitempty"`
 }
 
 // Flows answers the flows view: the depots each with its flows, each flow
@@ -128,10 +140,23 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 	// A manual group's claim is a person's turn, not work in progress,
 	// as on Home and the line.
 	manual := map[string]bool{}
+	bySession := make(map[string]Session, len(live))
 	for _, sess := range live {
 		if sess.Manual() {
 			manual[sess.ID] = true
 		}
+		bySession[sess.ID] = sess
+	}
+	// When each bead entered its stage, the stay's clock, which the
+	// served bead does not carry.
+	stay := map[string]time.Time{}
+	if err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			stay[r.UUID] = r.StayStart
+			return nil
+		})
+	}); err != nil {
+		return nil, err
 	}
 	routes, err := s.Routes(ctx)
 	if err != nil {
@@ -163,8 +188,22 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 	}
 	row := func(b Bead) FlowBead {
 		r := rows[b.ID]
-		return FlowBead{Bead: b.ID, Title: b.Title, Expected: r.Expected,
+		fb := FlowBead{Bead: b.ID, Title: b.Title, Expected: r.Expected,
 			Remark: r.Remark, Tone: r.Tone, Working: b.Session != nil && !manual[*b.Session]}
+		// Who works the bead and when it entered its stage, where a live
+		// session claimed it. A manual group's claim names no worker, but
+		// the stay still has its clock.
+		if b.Session != nil {
+			if sess, ok := bySession[*b.Session]; ok {
+				if !sess.Manual() {
+					fb.Worker = sess.RunnerShown()
+				}
+				if entry := stay[b.UUID]; !entry.IsZero() {
+					fb.EnteredStageAt = &entry
+				}
+			}
+		}
+		return fb
 	}
 	out := &FlowsBoard{Depots: []FlowsDepot{}, Unassigned: []FlowBead{}}
 	var unassigned []Bead
