@@ -79,6 +79,10 @@ type Carry struct {
 	// name, "" for a typed account. The carrying out points the pack's
 	// sources at its file instead of writing a typed value.
 	Account string `json:"account,omitempty"`
+	// Keep is a setup approval that keeps the standing account: no typed
+	// values, no picked candidate. The carrying out verifies the file
+	// still holds every name and goes on to the grants.
+	Keep bool `json:"keep,omitempty"`
 }
 
 // CarrySource is one source's credential standing at approval, by name.

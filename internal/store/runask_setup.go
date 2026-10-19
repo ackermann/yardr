@@ -73,6 +73,14 @@ type AskSetup struct {
 	// Candidates stand, the answer names one of them or types another.
 	Account     []string `json:"account,omitempty"`
 	AccountFile string   `json:"account_file,omitempty"`
+	// Given is a drift card whose standing file holds every account name:
+	// the answer may keep it with a bare preset pick, type another, or
+	// take a candidate. Missing are the account names the standing file
+	// does not set where the updated declaration newly needs them: the
+	// card names them and the answer types them, or takes a candidate.
+	// Both are empty on a first setup, which has no standing file.
+	Given   bool     `json:"given,omitempty"`
+	Missing []string `json:"missing,omitempty"`
 	// Candidates are the yard sources whose account the card offers, each
 	// by source name with its file and the shared values it holds, in the
 	// order of their names. Empty where none matches.
@@ -120,10 +128,11 @@ func (s AskSetup) Summary() string {
 }
 
 // AskSetupApproved is what ApproveSetup did: the ask and who asked it, the
-// pack with the preset picked, the names given or the candidate taken, and
-// what the approval recorded (CarryPending until the server carries it
-// out). Exactly one of Given and Account is set: the typed names, or the
-// picked candidate's source.
+// pack with the preset picked, the names given, the candidate taken or the
+// standing account kept, and what the approval recorded (CarryPending until
+// the server carries it out). Exactly one of Given, Account and Keep is
+// set: the typed names, the picked candidate's source, or a kept standing
+// account on a drift card.
 type AskSetupApproved struct {
 	Bead    string   `json:"bead"`
 	Ask     uint64   `json:"ask"`
@@ -132,6 +141,7 @@ type AskSetupApproved struct {
 	Preset  string   `json:"preset"`
 	Given   []string `json:"given,omitempty"`
 	Account string   `json:"account,omitempty"`
+	Keep    bool     `json:"keep,omitempty"`
 	Result  string   `json:"result"`
 }
 
@@ -147,9 +157,13 @@ type SetupAsked struct {
 	// Account are the names to type unseen beside the preset pick, and
 	// AccountFile the file the value goes to, on the yard's machine.
 	// Where Candidates stand, the answer names one of them or types
-	// another.
+	// another. Given is a drift card whose standing file holds every
+	// name, kept with a bare pick; Missing are the names the standing
+	// file does not set, which the answer types.
 	Account     []string `json:"account"`
 	AccountFile string   `json:"account_file"`
+	Given       bool     `json:"given,omitempty"`
+	Missing     []string `json:"missing,omitempty"`
 	// Candidates are the yard sources whose account the card offers, each
 	// by source name with its file and the shared values it holds.
 	Candidates []AskCandidate `json:"candidates,omitempty"`
@@ -177,7 +191,8 @@ func (a Ask) setup() *SetupAsked {
 		return nil
 	}
 	return &SetupAsked{Pack: a.Setup.Pack, Label: a.Setup.Label, Account: a.Setup.Account,
-		AccountFile: a.Setup.AccountFile, Candidates: a.Setup.Candidates, Does: a.Setup.Does, Back: a.Setup.Back,
+		AccountFile: a.Setup.AccountFile, Given: a.Setup.Given, Missing: a.Setup.Missing,
+		Candidates: a.Setup.Candidates, Does: a.Setup.Does, Back: a.Setup.Back,
 		BackBy: a.Setup.BackBy, Carried: a.Setup.Carried, Presets: a.Setup.Presets, To: a.Setup.To}
 }
 
@@ -251,7 +266,11 @@ func (w *wtx) askedSetup(ctx context.Context, ask Ask, to, actor string) (*AskSe
 		}
 		decls[d.Name] = d
 	}
-	return card, setupOptions(card.Presets, card.Carried, decls, ask.Recommend), nil
+	options, err := w.setupOptions(card.Presets, card.Carried, decls, card.To, ask.Recommend)
+	if err != nil {
+		return nil, nil, err
+	}
+	return card, options, nil
 }
 
 // normSetupTo is the grantees in the yard's own order, once each: the
@@ -343,7 +362,7 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 	if err != nil {
 		return nil, err
 	}
-	account, file, err := w.setupAccount(pack, carried, decls)
+	account, file, given, missing, err := w.setupAccount(pack, carried, decls)
 	if err != nil {
 		return nil, err
 	}
@@ -394,12 +413,13 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 			seenMap[t.seenKey()] = fingerprint
 		}
 	}
-	does, err := w.setupDoes(pack, reading, carried, decls, account, file, candidates, to)
+	does, err := w.setupDoes(pack, reading, carried, decls, account, file, given, missing, candidates, to)
 	if err != nil {
 		return nil, err
 	}
 	card := &AskSetup{Pack: pack, Kind: reading.Kind, Label: reading.Label, To: to,
-		Account: account, AccountFile: file, Candidates: candidates, Carried: carried, Presets: presets,
+		Account: account, AccountFile: file, Given: given, Missing: missing,
+		Candidates: candidates, Carried: carried, Presets: presets,
 		Does: does, Seen: seenMap, Back: setupBack(carried, to), BackBy: "the operator"}
 	if len(does)+len(presets) > MaxRunSourceCardLines {
 		return nil, fmt.Errorf("pack %s: its setup card would run to %d lines: a card is read whole, so set it up step by step instead (yardr pack check %s shows its plan there): a pack apply card, an account card per source, and a grant card per source and kind", pack, len(does)+len(presets), pack)
@@ -456,8 +476,10 @@ func setupPresetsSeen(presets []AskPreset) string {
 // source that names a credential must name the same one, by the shared
 // account rule (source.SharesAccount); the file is the first such source's,
 // in the pack's declaration order. A pack whose sources name different
-// credentials is set up step by step, an account card per source.
-func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*source.Declaration) ([]string, string, error) {
+// credentials is set up step by step, an account card per source. On a drift
+// card, where the first source already stands in the yard, it also says
+// whether that file holds every name (given) or which it does not (missing).
+func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*source.Declaration) ([]string, string, bool, []string, error) {
 	var have []string
 	settings := map[string]string{}
 	byName := map[string]AskSource{}
@@ -471,30 +493,52 @@ func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*s
 		if src, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
 			settings[carried[i].Name] = src.MintCommand
 		} else if !errors.Is(err, ErrNotFound) {
-			return nil, "", err
+			return nil, "", false, nil, err
 		}
 	}
 	if len(have) == 0 {
-		return nil, "", fmt.Errorf("pack %s names no credential: no account is owed, so set it up step by step instead: a pack apply card, and a grant card per source and kind", pack)
+		return nil, "", false, nil, fmt.Errorf("pack %s names no credential: no account is owed, so set it up step by step instead: a pack apply card, and a grant card per source and kind", pack)
 	}
 	for _, name := range have[1:] {
 		first, second := byName[have[0]], byName[name]
 		if !source.SharesAccount(decls[have[0]], decls[name], settings[have[0]], settings[name],
 			carriedProgSHA(first), carriedProgSHA(second)) {
-			return nil, "", differentSetupCredentials(pack, have[0], name)
+			return nil, "", false, nil, differentSetupCredentials(pack, have[0], name)
 		}
 	}
 	d := decls[have[0]]
 	account := d.Credential.MintOrStatic()
 	file := ""
-	if src, _, err := sourceIn(w.Tx, have[0]); err == nil && src.EnvFile != "" {
-		file = src.EnvFile
-	} else if err != nil && !errors.Is(err, ErrNotFound) {
-		return nil, "", err
+	standing := false
+	if src, _, err := sourceIn(w.Tx, have[0]); err == nil {
+		standing = true
+		if src.EnvFile != "" {
+			file = src.EnvFile
+		} else if w.store != nil {
+			file = source.EnvFile(w.store.home, have[0])
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, "", false, nil, err
 	} else if w.store != nil {
 		file = source.EnvFile(w.store.home, have[0])
 	}
-	return account, file, nil
+	if !standing || w.store == nil || w.store.home == "" || file == "" {
+		return account, file, false, nil, nil
+	}
+	f, err := config.ReadEnvFile(file)
+	if err != nil {
+		return account, file, false, append([]string{}, account...), nil
+	}
+	var missing []string
+	for _, n := range account {
+		if source.Lookup(f.Env, n) == "" {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) == 0 {
+		return account, file, true, nil, nil
+	}
+	return account, file, false, missing, nil
 }
 
 func differentSetupCredentials(pack, first, second string) error {
@@ -720,7 +764,7 @@ func candidateSeen(c AskCandidate) string {
 // file, the account step doing that. Each source reads as the apply card
 // renders it but for what stays owed after: the card settles the account
 // itself, so the credential is no part of it.
-func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, candidates []AskCandidate, to []Grantee) ([]string, error) {
+func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, given bool, missing []string, candidates []AskCandidate, to []Grantee) ([]string, error) {
 	adds, replaces, files, commands, err := w.packSourceCounts(carried, decls)
 	if err != nil {
 		return nil, err
@@ -749,7 +793,7 @@ func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, 
 		}
 		does = append(does, lines...)
 	}
-	does = append(does, setupAccountLine(account, file, candidates))
+	does = append(does, setupAccountLine(account, file, given, missing, candidates))
 	does = append(does, fmt.Sprintf("grants to %s — pick one:", granteesWord(to)))
 	for i := range does {
 		does[i] = safeSourceCardLine(does[i])
@@ -761,28 +805,58 @@ func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, 
 // unseen and the file a typed value goes to, with each candidate the card
 // offers by source name and the shared values its file holds. There is no
 // silent reuse, not even with a single match: the answer names a candidate
-// or types another.
-func setupAccountLine(account []string, file string, candidates []AskCandidate) string {
+// or types another. On a drift card the standing file already holds the
+// account: the line reads given with its file, kept with a bare preset
+// pick, typed another to change it, or a candidate's file to take. Where
+// the updated declaration newly needs names the file does not set, the
+// line names the missing names and the answer types them.
+func setupAccountLine(account []string, file string, given bool, missing []string, candidates []AskCandidate) string {
 	names := strings.Join(account, " and ")
+	candidateWords := func() (string, string) {
+		var each []string
+		for _, c := range candidates {
+			var pairs []string
+			ordered := append([]string{}, account...)
+			sort.Strings(ordered)
+			for _, n := range ordered {
+				pairs = append(pairs, n+"="+c.Values[n])
+			}
+			each = append(each, fmt.Sprintf("for %s (%s, in %s)", c.Source, strings.Join(pairs, ", "), c.File))
+		}
+		already := "already given " + andList(each)
+		take := fmt.Sprintf("Take it with --account %s", candidates[0].Source)
+		if len(candidates) > 1 {
+			take = "Take one with --account <source>"
+		}
+		return already, take
+	}
+	if len(missing) > 0 {
+		need := strings.Join(missing, " and ")
+		if len(missing) == len(account) {
+			if len(candidates) == 0 {
+				return fmt.Sprintf("the account %s: the file %s holds none of it: type %s unseen (written to %s, named in the answer, never the value).", names, file, need, file)
+			}
+			already, take := candidateWords()
+			return fmt.Sprintf("the account %s: the file %s holds none of it. %s. %s, or type %s unseen (written to %s, named in the answer, never the value).", names, file, already, take, need, file)
+		}
+		if len(candidates) == 0 {
+			return fmt.Sprintf("the account %s: given, in %s, but missing %s: type %s unseen (written to %s, named in the answer, never the value).", names, file, need, need, file)
+		}
+		already, take := candidateWords()
+		return fmt.Sprintf("the account %s: given, in %s, but missing %s. %s. %s, or type %s unseen (written to %s, named in the answer, never the value).", names, file, need, already, take, need, file)
+	}
+	if given {
+		if len(candidates) == 0 {
+			return fmt.Sprintf("the account %s: given, in %s. Type another unseen to change it, or approve keeping it with a bare preset pick (written to %s, named in the answer, never the value).", names, file, file)
+		}
+		already, take := candidateWords()
+		return fmt.Sprintf("the account %s: given, in %s. %s. %s, type another unseen to change it, or approve keeping it with a bare preset pick (written to %s, named in the answer, never the value).", names, file, already, take, file)
+	}
 	if len(candidates) == 0 {
 		return fmt.Sprintf("the account %s: type it unseen. It is written to %s, named in the answer, never the value.", names, file)
 	}
-	var each []string
-	for _, c := range candidates {
-		var pairs []string
-		ordered := append([]string{}, account...)
-		sort.Strings(ordered)
-		for _, n := range ordered {
-			pairs = append(pairs, n+"="+c.Values[n])
-		}
-		each = append(each, fmt.Sprintf("for %s (%s, in %s)", c.Source, strings.Join(pairs, ", "), c.File))
-	}
-	given := "already given " + andList(each)
-	take := fmt.Sprintf("Take it with --account %s, or type another unseen", candidates[0].Source)
-	if len(candidates) > 1 {
-		take = "Take one with --account <source>, or type another unseen"
-	}
-	return fmt.Sprintf("the account %s: %s. %s (written to %s, named in the answer, never the value).", names, given, take, file)
+	already, take := candidateWords()
+	return fmt.Sprintf("the account %s: %s. %s, or type another unseen (written to %s, named in the answer, never the value).", names, already, take, file)
 }
 
 // setupBack is the commands that take the setup back: each source removed,
@@ -809,17 +883,23 @@ func setupBack(carried []AskSource, to []Grantee) string {
 // consequence rendered by the yard from the declarations, with YouDecide
 // last. Picking YouDecide grants the asker's recommended preset; with
 // none recommended the card says to pick a preset instead. An operator
-// who wants no grants declines the card and applies by terminal.
-func setupOptions(presets []AskPreset, carried []AskSource, decls map[string]*source.Declaration, recommend int) []AskOption {
+// who wants no grants declines the card and applies by terminal. On a
+// drift card each preset is rendered against what the grantees hold:
+// calls held marked held, calls the preset would add marked new.
+func (w *wtx) setupOptions(presets []AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee, recommend int) ([]AskOption, error) {
 	out := make([]AskOption, 0, len(presets)+1)
 	for _, p := range presets {
-		out = append(out, AskOption{Label: p.Name, Consequence: setupPresetSays(p, carried, decls)})
+		says, err := w.setupPresetSays(p, carried, decls, to)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, AskOption{Label: p.Name, Consequence: says})
 	}
 	decide := "no preset is recommended, so pick one of the presets above"
 	if recommend >= 1 && recommend <= len(presets) {
 		decide = fmt.Sprintf("the recommended preset, %s, is granted", presets[recommend-1].Name)
 	}
-	return append(out, AskOption{Label: YouDecide, Consequence: decide})
+	return append(out, AskOption{Label: YouDecide, Consequence: decide}), nil
 }
 
 // setupPresetSays renders what picking the preset grants, from the
@@ -827,7 +907,7 @@ func setupOptions(presets []AskPreset, carried []AskSource, decls map[string]*so
 // today's reads with the later-reads line, an update marked as changing
 // something there. It reads as the grant card reads, for each source the
 // preset grants of.
-func setupPresetSays(p AskPreset, carried []AskSource, decls map[string]*source.Declaration) string {
+func (w *wtx) setupPresetSays(p AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee) (string, error) {
 	var clauses []string
 	for i := range carried {
 		d := decls[carried[i].Name]
@@ -840,13 +920,17 @@ func setupPresetSays(p AskPreset, carried []AskSource, decls map[string]*source.
 		if len(calls) == 0 {
 			continue
 		}
-		clauses = append(clauses, setupPresetSourceSays(d, calls))
+		says, err := w.setupPresetSourceSays(p.Name, d, calls, to)
+		if err != nil {
+			return "", err
+		}
+		clauses = append(clauses, says)
 	}
-	return strings.Join(clauses, " ")
+	return strings.Join(clauses, " "), nil
 }
 
 // setupPresetSourceSays renders what the preset grants of one source.
-func setupPresetSourceSays(d *source.Declaration, calls []string) string {
+func (w *wtx) setupPresetSourceSays(preset string, d *source.Declaration, calls []string, to []Grantee) (string, error) {
 	of := fmt.Sprintf("of the source %s (%s)", d.Name, sourceHost(d))
 	var rest []string
 	hasRead := false
@@ -857,55 +941,193 @@ func setupPresetSourceSays(d *source.Declaration, calls []string) string {
 			rest = append(rest, what)
 		}
 	}
+	// A source not yet in the yard reads as the first setup does: what
+	// the preset grants, with no holdings to mark it against. A source
+	// already in the yard is drift: each call marked held where the
+	// grantees hold it and new where the preset would add it.
+	old, err := declared(w.Tx, d.Name)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return "", err
+	}
+	if old == nil {
+		var says []string
+		if hasRead {
+			var reads []string
+			for _, c := range d.Calls {
+				if c.Kind == source.Read {
+					reads = append(reads, callSays(c))
+				}
+			}
+			today := "today that is " + strings.Join(reads, ", ")
+			if len(reads) == 0 {
+				today = "today the source has none"
+			}
+			says = append(says, fmt.Sprintf("may make every read call %s: %s, and it covers any read call the operator later gives the source.", of, today))
+		}
+		for _, what := range rest {
+			c, ok := d.Call(what)
+			if !ok {
+				continue // checked at asking; the approval renders what stands
+			}
+			if c.Kind == source.Update {
+				says = append(says, fmt.Sprintf("may make the call %s %s, which changes something there.", callSays(*c), of))
+			} else {
+				says = append(says, fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of))
+			}
+		}
+		return strings.Join(says, " "), nil
+	}
+	held := map[Grantee]SourceGrant{}
+	for _, t := range to {
+		var g SourceGrant
+		if _, err := get(w.Tx, bSourceGrants, grantKey(d.Name, t, ""), &g); err != nil {
+			return "", err
+		}
+		held[t] = g
+	}
+	oldNames := map[string]bool{}
+	for _, c := range old.Calls {
+		oldNames[c.Name] = true
+	}
 	var says []string
 	if hasRead {
-		var reads []string
+		var reads, added []string
 		for _, c := range d.Calls {
-			if c.Kind == source.Read {
-				reads = append(reads, callSays(c))
+			if c.Kind != source.Read {
+				continue
 			}
+			word := callSays(c)
+			if !oldNames[c.Name] {
+				word += " (new)"
+				added = append(added, c.Name)
+			}
+			reads = append(reads, word)
 		}
 		today := "today that is " + strings.Join(reads, ", ")
 		if len(reads) == 0 {
 			today = "today the source has none"
 		}
-		says = append(says, fmt.Sprintf("may make every read call %s: %s, and it covers any read call the operator later gives the source.", of, today))
+		line := fmt.Sprintf("may make every read call %s: %s, and it covers any read call the operator later gives the source.", of, today)
+		line = strings.TrimSuffix(line, ".") + setupHeldMark(to, held, func(g SourceGrant) bool {
+			return slices.Contains(g.Calls, GrantRead)
+		}) + "."
+		says = append(says, line)
+		// A standing read grant covers a read call the update adds, and
+		// the card says so beside that call; only an update call the
+		// update adds waits on a preset that names it.
+		if len(added) > 0 {
+			var covered, fresh []string
+			for _, t := range to {
+				if slices.Contains(held[t].Calls, GrantRead) {
+					covered = append(covered, granteeShort(t))
+				} else {
+					fresh = append(fresh, granteeShort(t))
+				}
+			}
+			noun := "call " + strings.Join(added, ", ")
+			if len(added) > 1 {
+				noun = "calls " + strings.Join(added, ", ")
+			}
+			switch {
+			case len(covered) == len(to):
+				says = append(says, fmt.Sprintf("New read %s is covered by the standing read grant, no grant needed.", noun))
+			case len(covered) > 0:
+				says = append(says, fmt.Sprintf("New read %s is covered for %s by the standing read grant, no grant needed there; new for %s.", noun, andList(covered), andList(fresh)))
+			}
+		}
 	}
 	for _, what := range rest {
 		c, ok := d.Call(what)
 		if !ok {
 			continue // checked at asking; the approval renders what stands
 		}
+		var line string
 		if c.Kind == source.Update {
-			says = append(says, fmt.Sprintf("may make the call %s %s, which changes something there.", callSays(*c), of))
+			line = fmt.Sprintf("may make the call %s %s, which changes something there.", callSays(*c), of)
 		} else {
-			says = append(says, fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of))
+			line = fmt.Sprintf("may make the call %s %s, which the declaration says reads there and changes nothing.", callSays(*c), of)
+		}
+		line = strings.TrimSuffix(line, ".") + setupHeldMark(to, held, func(g SourceGrant) bool {
+			return g.Covers(c, "")
+		})
+		if !oldNames[c.Name] {
+			var waiting []Grantee
+			for _, t := range to {
+				if !held[t].Covers(c, "") {
+					waiting = append(waiting, t)
+				}
+			}
+			if len(waiting) > 0 && c.Kind == source.Update {
+				if len(waiting) == len(to) {
+					line += fmt.Sprintf(", waiting on the preset %s", preset)
+				} else {
+					var who []string
+					for _, t := range waiting {
+						who = append(who, granteeShort(t))
+					}
+					line += fmt.Sprintf(", waiting on the preset %s for %s", preset, andList(who))
+				}
+			}
+		}
+		says = append(says, line+".")
+	}
+	return strings.Join(says, " "), nil
+}
+
+// setupHeldMark is what a drift preset's call carries for who holds it:
+// held where every grantee does, new where none does, and the split where
+// some do. It stands where the sentence's full stop was, which the caller
+// puts back.
+func setupHeldMark(to []Grantee, held map[Grantee]SourceGrant, has func(SourceGrant) bool) string {
+	var have, lack []string
+	for _, t := range to {
+		if has(held[t]) {
+			have = append(have, granteeShort(t))
+		} else {
+			lack = append(lack, granteeShort(t))
 		}
 	}
-	return strings.Join(says, " ")
+	switch {
+	case len(have) == len(to):
+		return " (held)"
+	case len(have) == 0:
+		return " (new)"
+	default:
+		return fmt.Sprintf(" (held by %s, new for %s)", andList(have), andList(lack))
+	}
+}
+
+// granteeShort is who the grants are for, in the card's short words.
+func granteeShort(t Grantee) string {
+	if t.Crew != "" {
+		return "crew " + t.Crew
+	}
+	return "group " + t.Group
 }
 
 // ApproveSetup approves the setup ask ask on the bead id as actor: the
-// preset pick option with the account typed unseen (values) or the
-// candidate taken (account). In one write it checks the ask and who
-// approves, holds the approval to the yard the card was written from, and
-// records an answer that holds the preset, the names given or the candidate
-// taken, and CarryPending, with the carrying record beside it for the
-// server to take up. Typed values are handed to the server's memory after
-// the write commits, never stored: between the approval and the account's
-// write they live there alone. A picked candidate hands nothing.
+// preset pick option with the account typed unseen (values), the candidate
+// taken (account), or neither where a drift card's standing account is
+// kept. In one write it checks the ask and who approves, holds the approval
+// to the yard the card was written from, and records an answer that holds
+// the preset, the names given, the candidate taken or the kept account,
+// and CarryPending, with the carrying record beside it for the server to
+// take up. Typed values are handed to the server's memory after the write
+// commits, never stored: between the approval and the account's write they
+// live there alone. A picked candidate and a kept account hand nothing.
 //
 // It refuses an ask that is not on the bead, sets up no pack, or was
 // declined, taken back or approved already: a setup runs once for one ask.
 // It refuses anyone but the operator, and every call from the pane of an
 // agent whatever actor it names (mayApprove). It refuses when the yard
-// would not write the same card now (setupStale), and when every grantee
-// holds the picked preset already. Picking YouDecide grants the asker's
-// recommended preset, and is refused where none is recommended. Where
-// candidates stand, exactly one of the typed values and the picked
-// candidate settles the account, and where none stand the typed values do.
-// A refused approval records nothing and changes nothing, and leaves the
-// ask open.
+// would not write the same card now (setupStale), and — on a first setup —
+// when every grantee holds the picked preset already. Picking YouDecide
+// grants the asker's recommended preset, and is refused where none is
+// recommended. Where candidates stand, exactly one of the typed values and
+// the picked candidate settles the account, and where none stand the typed
+// values do; a drift card whose file holds every name is also kept with a
+// bare pick, and one with missing names wants those typed. A refused
+// approval records nothing and changes nothing, and leaves the ask open.
 //
 // It is served on the yard's socket, and on the listener to a device of
 // the operator and to no other caller (rpc.OperatorCalls), as run
@@ -929,7 +1151,7 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 	if err != nil {
 		return nil, err
 	}
-	if account == "" {
+	if account == "" && len(values) > 0 {
 		s.handSetupSecretLocked(carryKey(out.Bead, ask), values)
 	}
 	return out, nil
@@ -999,6 +1221,7 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	if account != "" && len(values) > 0 {
 		return nil, fmt.Errorf("ask %d takes the account typed or a candidate taken, not both: --secret or --account <source>", seq)
 	}
+	keep := false
 	if account != "" {
 		found := false
 		for _, c := range was.Candidates {
@@ -1016,24 +1239,48 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 			}
 			return nil, fmt.Errorf("ask %d lists no candidate %s: it lists %s, or type another %s", seq, account, strings.Join(names, ", "), strings.Join(was.Account, " and "))
 		}
+	} else if len(was.Missing) > 0 {
+		// A drift card with missing names wants those typed: the
+		// standing names stay where they are.
+		if err := checkSetupValues(seq, was, values); err != nil {
+			return nil, err
+		}
+		for _, n := range was.Missing {
+			if _, ok := values[n]; !ok {
+				if len(was.Candidates) > 0 {
+					return nil, fmt.Errorf("ask %d asks for the missing account %s: %s was not given, and no candidate was taken (--account <source>)", seq, strings.Join(was.Missing, " and "), n)
+				}
+				return nil, fmt.Errorf("ask %d asks for the missing account %s: %s was not given", seq, strings.Join(was.Missing, " and "), n)
+			}
+		}
+		if !sameNames(values, was.Missing) {
+			return nil, fmt.Errorf("ask %d asks for the missing account %s: type %s", seq, strings.Join(was.Missing, " and "), strings.Join(was.Missing, " and "))
+		}
+	} else if was.Given {
+		// A drift card whose file holds every name is kept with a bare
+		// pick, typed another to change it, or a candidate taken.
+		if len(values) == 0 {
+			keep = true
+		} else {
+			if err := checkSetupValues(seq, was, values); err != nil {
+				return nil, err
+			}
+			if !sameNames(values, was.Account) {
+				return nil, fmt.Errorf("ask %d holds the account %s: type %s to change it, or approve keeping it with a bare preset pick", seq, strings.Join(was.Account, " and "), strings.Join(was.Account, " and "))
+			}
+		}
 	} else {
 		// What was sent is not said back: a client that put a value
 		// where a name goes would read it in the refusal.
-		for n := range values {
-			if !slices.Contains(was.Account, n) {
-				return nil, fmt.Errorf("ask %d asks for the account %s, and was given a name it did not ask for", seq, strings.Join(was.Account, " and "))
-			}
+		if err := checkSetupValues(seq, was, values); err != nil {
+			return nil, err
 		}
 		for _, n := range was.Account {
-			value, ok := values[n]
-			if !ok {
+			if _, ok := values[n]; !ok {
 				if len(was.Candidates) > 0 {
 					return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given, and no candidate was taken (--account <source>)", seq, strings.Join(was.Account, " and "), n)
 				}
 				return nil, fmt.Errorf("ask %d asks for the account %s: %s was not given", seq, strings.Join(was.Account, " and "), n)
-			}
-			if err := loginValueError(seq, n, value); err != nil {
-				return nil, err
 			}
 		}
 	}
@@ -1052,15 +1299,24 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	}
 	// An approval the yard carries out after this write leaves its
 	// carrying record in it, for the server to take up (carry.go).
-	if err := w.recordSetupCarry(row.ID, seq, was, account, actor); err != nil {
+	if err := w.recordSetupCarry(row.ID, seq, was, account, keep, actor); err != nil {
 		return nil, err
 	}
 	ans := Answer{Ask: seq, Option: picked, Ran: &AskRan{Argv: []string{"setup", was.Pack}, Result: CarryPending}}
 	out := &AskSetupApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Pack: was.Pack, Preset: was.Presets[picked-1].Name, Result: CarryPending}
-	if account != "" {
+	switch {
+	case account != "":
 		ans.Account, out.Account = account, account
-	} else {
-		ans.Given, out.Given = was.Account, was.Account
+	case keep:
+		out.Keep = true
+	default:
+		var given []string
+		for _, n := range was.Account {
+			if _, ok := values[n]; ok {
+				given = append(given, n)
+			}
+		}
+		ans.Given, out.Given = given, given
 	}
 	text, err := json.Marshal(ans)
 	if err != nil {
@@ -1070,6 +1326,36 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 		return nil, err
 	}
 	return out, nil
+}
+
+// checkSetupValues checks typed account values against the ask: every name
+// sent is one the card asked for, and every value is a login value. What
+// was sent is not said back: a client that put a value where a name goes
+// would read it in the refusal.
+func checkSetupValues(seq uint64, was AskSetup, values map[string]string) error {
+	for n, value := range values {
+		if !slices.Contains(was.Account, n) {
+			return fmt.Errorf("ask %d asks for the account %s, and was given a name it did not ask for", seq, strings.Join(was.Account, " and "))
+		}
+		if err := loginValueError(seq, n, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sameNames reports whether the values hold exactly the names: no more,
+// no fewer.
+func sameNames(values map[string]string, names []string) bool {
+	if len(values) != len(names) {
+		return false
+	}
+	for _, n := range names {
+		if _, ok := values[n]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // setupStale says why a setup approval is refused: the build or the pack's
@@ -1175,8 +1461,13 @@ func setupCandidatesStale(seq uint64, was, now AskSetup) error {
 // setupHeldStale refuses a setup approval whose picked preset every
 // grantee already holds: it was granted since, and nothing is left to
 // grant. What a grantee holds beside the preset is no part of it: a grant
-// landed since is run past, as the grant row runs it.
+// landed since is run past, as the grant row runs it. A drift card whose
+// pack would change anything is never refused for it: the update itself
+// still wants applying, and the grants step runs past what is held.
 func (w *wtx) setupHeldStale(seq uint64, was AskSetup, picked int) error {
+	if (was.Given || len(was.Missing) > 0) && setupDriftChanges(w, was) {
+		return nil
+	}
 	p := was.Presets[picked-1]
 	unheld := false
 outer:
@@ -1217,14 +1508,40 @@ outer:
 	return fmt.Errorf("ask %d would grant the preset %s of pack %s to %s, and it is held already: it was granted since%s. %s", seq, p.Name, was.Pack, was.Grantees(), since(e), nothingRan)
 }
 
+// setupDriftChanges reports whether the drift card's pack would change
+// anything were it applied: a source added, a declaration replaced, or a
+// command file changed or removed. A drift card that would change nothing,
+// with its preset held and its account standing, is refused held already,
+// as a first setup is.
+func setupDriftChanges(w *wtx, was AskSetup) bool {
+	for i := range was.Carried {
+		c := was.Carried[i]
+		if len(c.Old) > 0 || len(c.Removed) > 0 {
+			return true
+		}
+		src, _, err := sourceIn(w.Tx, c.Name)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return true
+			}
+			continue
+		}
+		if src.Text != c.Text {
+			return true
+		}
+	}
+	return false
+}
+
 // recordSetupCarry makes the carrying record of the setup ask bead/seq in
 // the approval's own write: approved and not yet taken, with what each
 // source it names stands with now. Argv names the setup for the server to
 // take up; the typed account values are handed to the server's memory
-// beside it (handSetupSecret), never stored, and a picked candidate is
-// named on the record for the carrying out to point at.
-func (w *wtx) recordSetupCarry(bead string, seq uint64, was AskSetup, account, actor string) error {
-	rec := Carry{Bead: bead, Ask: seq, Argv: []string{"setup", was.Pack}, State: CarryApproved, Actor: actor, Account: account}
+// beside it (handSetupSecret), never stored, a picked candidate is named
+// on the record for the carrying out to point at, and a kept standing
+// account is marked so a stop loses nothing.
+func (w *wtx) recordSetupCarry(bead string, seq uint64, was AskSetup, account string, keep bool, actor string) error {
+	rec := Carry{Bead: bead, Ask: seq, Argv: []string{"setup", was.Pack}, State: CarryApproved, Actor: actor, Account: account, Keep: keep}
 	for _, carried := range was.Carried {
 		snap := CarrySource{Name: carried.Name}
 		if src, _, err := sourceIn(w.Tx, carried.Name); err == nil {

@@ -812,8 +812,16 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	case ask.Run != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
 		return "", fmt.Errorf("ask %d takes an approval, not words: yardr bead answer %s %d --approve", ans.Ask, id, ans.Ask)
 	// A setup ask has options, but a pick alone settles nothing: the
-	// preset pick goes with the account, in one approval.
+	// preset pick goes with the account, in one approval; a drift card
+	// whose file holds every name is kept with a bare pick, through the
+	// same approval.
 	case ask.Setup != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
+		if ask.Setup.Given && len(ask.Setup.Missing) == 0 {
+			if len(ask.Setup.Candidates) > 0 {
+				return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n>, <n> --secret, or <n> --account <source>", ans.Ask, id, ans.Ask)
+			}
+			return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n> or <n> --secret", ans.Ask, id, ans.Ask)
+		}
 		return "", fmt.Errorf("ask %d takes a preset pick with the account, not words alone: yardr bead answer %s %d <n> --secret (or --account <source> where the card lists one)", ans.Ask, id, ans.Ask)
 	case ask.Secret == nil && ans.Decline && ans.Words == "":
 		return RefusedNotAsk, fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
@@ -1365,6 +1373,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 				what += "; took " + OneLine(c.Answer.Account)
 			} else if len(c.Answer.Given) > 0 {
 				what += "; gave " + OneLine(strings.Join(c.Answer.Given, " and "))
+			} else {
+				what += "; kept"
 			}
 			switch {
 			case c.Answer.Ran.Failed:
@@ -1423,6 +1433,10 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch {
 	case r.State == AskDeclined, r.State == AskTakenBack:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
+	case r.Ask.Setup != nil && r.Ask.Setup.Given && len(r.Ask.Setup.Missing) == 0 && len(r.Ask.Setup.Candidates) > 0:
+		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n>, <n> --secret, or <n> --account <source>", r.Note.Bead, r.Note.Seq))
+	case r.Ask.Setup != nil && r.Ask.Setup.Given && len(r.Ask.Setup.Missing) == 0:
+		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> or <n> --secret", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Setup != nil && len(r.Ask.Setup.Candidates) > 0:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret, or <n> --account <source>", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Setup != nil:

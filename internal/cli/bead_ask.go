@@ -738,6 +738,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --secret            give the secret a secret ask asks for
   yardr bead answer <id> <ask> <n> --secret        pick a setup ask's preset with the account typed
   yardr bead answer <id> <ask> <n> --account <source>   pick a setup ask's preset, taking a listed account
+  yardr bead answer <id> <ask> <n>                 pick a drift card's preset, keeping the standing account
   yardr bead answer <id> <ask> --approve           approve the command a run ask proposes
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
@@ -785,10 +786,13 @@ pick with the account typed unseen beside it, as --secret types it.
 <n> --account <source> answers it taking the named candidate's account
 instead, one the card lists with its address; where the card lists any,
 exactly one of the two settles the account, and where it lists none the
-typed value does. The yard then applies the pack, takes the account, and
-grants the preset picked, as the operator, and records what ran. It is
-the operator's to give, and is refused from the pane of an agent. A pick
-with --secret or --account is allowed on a setup ask only; everywhere
+typed value does. A drift card, on a pack already applied, is kept with a
+bare <n> where its file holds every name, typed missing names where the
+update newly needs them, or a candidate's file taken as ever. The yard
+then applies the pack, takes the account, and grants the preset picked,
+as the operator, and records what ran. It is the operator's to give, and
+is refused from the pane of an agent. A pick with --secret or --account
+is allowed on a setup ask only, as a bare pick that keeps is; everywhere
 else a secret answer still takes no pick.
 
 --approve answers a run ask (yardr bead ask --run): the yard runs the
@@ -899,6 +903,11 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				}
 				if ansLater || declined {
 					return fmt.Errorf("an option with --later or --decline: pick, put aside, or decline, one of the three")
+				}
+				if len(args) == 3 && ans.Words == "" {
+					if setup, err := askedSetup(c.Context(), st, id, askSeq); err == nil && setup != nil && setup.Given && len(setup.Missing) == 0 {
+						return a.approveSetupKeep(c, st, id, askSeq, n)
+					}
 				}
 			} else {
 				switch {
@@ -1158,7 +1167,8 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 // from a terminal or as NAME=value lines from anything else, and approves
 // the setup with the preset pick. What it prints is the preset picked and
 // who gave which names, never a value. Where the card lists candidates,
-// --account <source> takes one instead (approveSetupAccount).
+// --account <source> takes one instead (approveSetupAccount); where a drift
+// card names missing names, only those are read.
 func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
 	notes, err := st.Notes(c.Context(), id)
 	if err != nil {
@@ -1198,7 +1208,11 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	if d == nil || d.Credential == nil {
 		return fmt.Errorf("ask %d sets up a pack with no credentialed source: nothing typed settles it", seq)
 	}
-	values, err := readKeys(d, setup.Account, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
+	names := setup.Account
+	if len(setup.Missing) > 0 {
+		names = setup.Missing
+	}
+	values, err := readKeys(d, names, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
 	if err != nil {
 		return err
 	}
@@ -1247,6 +1261,44 @@ func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq
 	return a.out(done, func() {
 		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
 		fmt.Printf("%s took %s\n", a.who(), done.Account)
+		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
+	})
+}
+
+// approveSetupKeep is yardr bead answer <id> <ask> <n> on a drift card
+// whose file holds every account name: it approves the setup with the
+// preset pick, keeping the standing account. What it prints is the preset
+// picked and who kept it.
+func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
+	notes, err := st.Notes(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	var setup *store.AskSetup
+	found := false
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		found = true
+		if r.AskErr != nil {
+			return r.AskErr
+		}
+		setup = r.Ask.Setup
+	}
+	switch {
+	case !found:
+		return fmt.Errorf("bead %s has no ask %d", id, seq)
+	case setup == nil:
+		return fmt.Errorf("ask %d sets up no pack", seq)
+	}
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, "", a.who())
+	if err != nil {
+		return secretErr(err)
+	}
+	return a.out(done, func() {
+		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Printf("%s kept the standing account\n", a.who())
 		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
 	})
 }

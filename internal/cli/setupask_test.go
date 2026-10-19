@@ -223,3 +223,31 @@ calls:
 		t.Errorf("--account alone was taken or refused otherwise: %v\n%s", err, out)
 	}
 }
+
+// A drift card whose file holds every name is kept with a bare preset
+// pick: no --secret, no --account.
+func TestBeadAnswerSetupKeep(t *testing.T) {
+	y, b := setupYardCLI(t)
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "clipphone.yaml", cliSetupDecl, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "clipphone.env")
+	if err := os.WriteFile(file, []byte("CLIPHONE_ACCOUNT=1555\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetSource(ctx, "clipphone", store.SourceEnvFile, file, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Set up clipphone?", "--setup", "clipphone",
+		"--crew", "yardmaster", "--context", "The yardmaster rings the person."); err != nil {
+		t.Fatal(err)
+	}
+	out, err := y.as(t, "jo", "answer", b.ID, "1", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1, asked by yardmaster: setup of pack clipphone, preset read to crew yardmaster\njo kept the standing account\njo approved it: approved, to be carried out\n"; out != want {
+		t.Fatalf("answer printed %q, want %q", out, want)
+	}
+}

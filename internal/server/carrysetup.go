@@ -112,7 +112,25 @@ func (c *carrier) carrySetupAccount(ctx context.Context, rec *store.Carry, setup
 	if rec.Account != "" {
 		return c.carrySetupAccountPicked(ctx, rec, setup, preset, srcs)
 	}
+	if rec.Keep {
+		return c.carrySetupAccountKept(ctx, rec, setup, preset, srcs)
+	}
 	return c.carrySetupAccountTyped(ctx, rec, setup, preset, srcs)
+}
+
+// carrySetupAccountKept is a setup's account step for a kept standing
+// account on a drift card: no value typed, no candidate taken. The file
+// still holds every name, verified back, and the carrying out goes on to
+// the grants. A stop loses nothing, since nothing was handed.
+func (c *carrier) carrySetupAccountKept(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string) (string, string) {
+	names := strings.Join(setup.Account, " and ")
+	file, stands := c.setupAccountStands(ctx, srcs[0], setup.Account)
+	if !stands {
+		return "", fmt.Sprintf("pack %s is applied, but the account %s kept no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+			setup.Pack, names, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
+			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	return file, ""
 }
 
 // setupAccountSources are the sources a setup's account step settles: every
@@ -206,16 +224,18 @@ func (c *carrier) carrySetupAccountPicked(ctx context.Context, rec *store.Carry,
 // value written once to the first matching source's file, and each matching
 // source pointed at it. Where the first source's env_file already points at
 // a shared file, it first leaves it for its own default, so the write lands
-// in the source's own file and the sibling's value stands.
+// in the source's own file and the sibling's value stands. Where a drift
+// card's missing names alone were typed, they are written into each
+// matching source's standing file instead, with no leaving and no pointing.
 func (c *carrier) carrySetupAccountTyped(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string) (string, string) {
 	names := strings.Join(setup.Account, " and ")
 	src := srcs[0]
-	if failure := c.carrySetupLeaveShared(ctx, rec, setup, preset, src); failure != "" {
-		return "", failure
-	}
 	values, ok := c.st.TakeSetupSecret(rec.Bead, rec.Ask)
 	if !ok {
 		if rec.AccountWritten {
+			if len(setup.Missing) > 0 && len(setup.Missing) != len(setup.Account) {
+				return c.carrySetupMissingResumed(ctx, rec, setup, preset, srcs)
+			}
 			file, stands := c.setupAccountStands(ctx, src, setup.Account)
 			if !stands {
 				return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
@@ -230,6 +250,12 @@ func (c *carrier) carrySetupAccountTyped(ctx context.Context, rec *store.Carry, 
 		return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed is lost: the server stopped before a completed account write was recorded, and a typed value is kept in no note. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
 			setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
 			strings.Join(setupGrantCommands(setup, preset), "; "))
+	}
+	if len(values) != len(setup.Account) {
+		return c.carrySetupAccountMissing(ctx, rec, setup, preset, srcs, values)
+	}
+	if failure := c.carrySetupLeaveShared(ctx, rec, setup, preset, src); failure != "" {
+		return "", failure
 	}
 	keyed, err := c.st.KeySourceForSetup(ctx, rec.Bead, rec.Ask, rec.Boot, src, values, rec.Actor)
 	if err != nil {
@@ -262,6 +288,90 @@ func (c *carrier) carrySetupAccountTyped(ctx context.Context, rec *store.Carry, 
 		return "", failure
 	}
 	return keyed.File, ""
+}
+
+// carrySetupAccountMissing is a drift card's account step for missing names
+// alone: the typed values written into each matching source's standing
+// file, with no leaving and no pointing. A shared file takes them once
+// for all that point at it; separate files each take them, keeping their
+// standing values.
+func (c *carrier) carrySetupAccountMissing(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string, values map[string]string) (string, string) {
+	names := strings.Join(setup.Account, " and ")
+	done := map[string]bool{}
+	var first string
+	for _, src := range srcs {
+		s, err := c.st.GetSource(ctx, src)
+		if err != nil {
+			return "", fmt.Sprintf("pack %s is applied, but the account %s was not written for the source %s: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, names, src, err, setupKeyCommand(src, setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+		file := s.EnvFile
+		if file == "" {
+			file = source.EnvFile(c.home, src)
+		}
+		if done[setupResolvedFile(file)] {
+			continue
+		}
+		done[setupResolvedFile(file)] = true
+		keyed, err := c.st.KeySourceForSetup(ctx, rec.Bead, rec.Ask, rec.Boot, src, values, rec.Actor)
+		if err != nil {
+			var lost *store.KeyNotRecorded
+			if errors.As(err, &lost) {
+				return "", fmt.Sprintf("pack %s is applied, but %v Finish it with %s in a terminal, then grant the preset's calls: %s.",
+					setup.Pack, err, setupKeyCommand(src, setup.Account),
+					strings.Join(setupGrantCommands(setup, preset), "; "))
+			}
+			return "", fmt.Sprintf("pack %s is applied, but the account %s was not written to %s: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, names, file, err, setupKeyCommand(src, setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+		if first == "" {
+			first = keyed.File
+		}
+		f, err := config.ReadEnvFile(keyed.File)
+		if err != nil {
+			return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, names, keyed.File, err, setupKeyCommand(src, setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+		for n, want := range values {
+			if got := source.Lookup(f.Env, n); got != want {
+				return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %s does not hold the approved value. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+					setup.Pack, names, keyed.File, n, setupKeyCommand(src, setup.Account),
+					strings.Join(setupGrantCommands(setup, preset), "; "))
+			}
+		}
+		for _, n := range setup.Account {
+			if source.Lookup(f.Env, n) == "" {
+				return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %s is still missing. Finish it with %s in a terminal, then grant the preset's calls: %s.",
+					setup.Pack, names, keyed.File, n, setupKeyCommand(src, setup.Account),
+					strings.Join(setupGrantCommands(setup, preset), "; "))
+			}
+		}
+	}
+	return first, ""
+}
+
+// carrySetupMissingResumed is a drift card's missing-names step taken up
+// after a stop: the values are lost to it, so every standing file must
+// already hold the whole account. Anything still missing fails naming the
+// account asked again.
+func (c *carrier) carrySetupMissingResumed(ctx context.Context, rec *store.Carry, setup *store.AskSetup, preset store.AskPreset, srcs []string) (string, string) {
+	names := strings.Join(setup.Account, " and ")
+	var first string
+	for _, src := range srcs {
+		file, stands := c.setupAccountStands(ctx, src, setup.Account)
+		if !stands {
+			return "", fmt.Sprintf("pack %s is applied, but the account %s the approval typed no longer stands in its file. Ask for it again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
+				setup.Pack, names, setupSecretAsk(rec.Bead, src), setupKeyCommand(src, setup.Account),
+				strings.Join(setupGrantCommands(setup, preset), "; "))
+		}
+		if first == "" {
+			first = file
+		}
+	}
+	return first, ""
 }
 
 // carrySetupLeaveShared leaves a shared file for the source's own default

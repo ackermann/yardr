@@ -1490,6 +1490,22 @@ an earlier import's record, any flag of `pack apply`, a first install of
 a depot pack, and a plan that asks, is refused to a terminal, where
 `yardr pack check <name>` shows the plan.
 
+**A pack updated is one card again.** A setup ask on a pack already
+applied (`yardr bead ask <id> "<question>" --setup <pack>`,
+[chat.md](chat.md#setting-up-a-packs-sources)) is the same setup card
+again, showing the difference: each source's declaration diff old against
+new and each command file's old and new sha256 with its unified diff, as
+the replacement row shows them; the account line reading given with its
+file where that file holds every name the declaration needs, kept with a
+bare preset pick, typed another to change it, or a candidate's file
+taken; where the declaration newly needs a name the file does not set,
+the card names the missing names and the answer types them; and each
+preset rendered against what the grantee holds, calls held marked held
+and calls the preset would add marked new, a new read call under a
+standing read grant reading covered with no grant needed and a new update
+call waiting on its preset. Picking a preset grants what it names past
+what is held, and revokes nothing.
+
 What a stage means in such a source is not the integration pack's to say:
 that is the flow pack's, the one the depot follows. The seam between the
 two packs is the source's name:

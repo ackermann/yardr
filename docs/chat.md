@@ -501,8 +501,15 @@ declined and asked again. A pack past 40 lines, one carrying sources
 under different credentials, and one with no presets stay on the
 existing per-step flow: a pack apply card, an account card per source,
 and a grant card per source and kind. A pick with `--secret` or
-`--account` is allowed on a setup ask only; a pick or words alone
-approve nothing, and `--later` puts it aside as for any ask.
+`--account` is allowed on a setup ask only, as a bare pick that keeps
+a drift card's standing account is; words alone approve nothing, and
+`--later` puts it aside as for any ask.
+
+A pack updated is the same card again, showing the difference: each
+source's declaration and file diffs as the replacement row shows them,
+the account given with its file and kept with a bare pick, missing
+names typed where the update newly needs them, and each preset marked
+held and new against what the grantee holds.
 
 #### Typing a secret
 
