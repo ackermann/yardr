@@ -43,11 +43,12 @@ func sign(key string, body []byte) string {
 }
 
 type depot struct {
-	st  store.API
-	own *store.Store // what the receiver records on: it runs in the owning process
-	rc  *hooks.Receiver
-	srv *httptest.Server
-	now time.Time
+	st   store.API
+	own  *store.Store // what the receiver records on: it runs in the owning process
+	rc   *hooks.Receiver
+	srv  *httptest.Server
+	now  time.Time
+	home string
 }
 
 func newDepot(t *testing.T) *depot {
@@ -82,7 +83,7 @@ func newDepot(t *testing.T) *depot {
 	if _, err := st.PutSource(context.Background(), "github.yaml", string(text), "me"); err != nil {
 		t.Fatal(err)
 	}
-	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, home, nil)}
+	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, home, nil), home: home}
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv = httptest.NewServer(r.rc.Handler())
 	t.Cleanup(r.srv.Close)

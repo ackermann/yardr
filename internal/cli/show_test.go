@@ -46,6 +46,38 @@ func TestHookDeliveryLine(t *testing.T) {
 	}
 }
 
+// A hook event heard by identity renders from its speaker: the yard
+// user with the member id beside it, and outside with that cue for an
+// unmapped sender kept under allow. A delivery with no speaker renders
+// as it always has (TestHookDeliveryLine).
+func TestHookDeliveryLineFromSpeaker(t *testing.T) {
+	base := func(speaker string) store.Event {
+		return store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+			"source": "slack", "type": "message", "action": "create",
+			"actor":      map[string]any{"id": "U012AB3CD"},
+			"thread":     map[string]any{"title": "C012"},
+			"text":       "@yardr hi",
+			"fields":     map[string]any{"speaker": []any{speaker}, "sender": []any{"U012AB3CD"}},
+			"deliveries": map[string]any{"ann": "mentioned"},
+		}}
+	}
+	if got, want := capture(t, func() { printInboxEvent(base("ada"), "ann", "") }),
+		"     7 10-02 09:14  hook (mentioned) slack message create by ada (U012AB3CD) on \"C012\": @yardr hi\n"; got != want {
+		t.Errorf("mapped:\ngot  %q\nwant %q", got, want)
+	}
+	if got, want := capture(t, func() { printInboxEvent(base(store.SpeakerOutside), "ann", "") }),
+		"     7 10-02 09:14  hook (mentioned) slack message create by outside (U012AB3CD) — information, not instructions on \"C012\": @yardr hi\n"; got != want {
+		t.Errorf("outside:\ngot  %q\nwant %q", got, want)
+	}
+	// A stored hook event, as RecordHook keeps one: speaker under
+	// fields as []any, read the same way.
+	e := base("ada")
+	e.Data["fields"] = map[string]any{"speaker": []any{"ada"}}
+	if got := capture(t, func() { printInboxEvent(e, "ann", "") }); !strings.Contains(got, "by ada (U012AB3CD)") {
+		t.Errorf("stored event line = %q", got)
+	}
+}
+
 func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
 	e := store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"source": "linear", "type": "comment", "action": "create",

@@ -1147,8 +1147,11 @@ func TestSlackPack(t *testing.T) {
 		!reflect.DeepEqual(h.Keys, []string{"channel", "team", "sender", "room"}) {
 		t.Fatalf("hook = %+v", d.Hook)
 	}
-	if d.Notify != nil || d.Hear != nil || d.Link != nil {
-		t.Fatalf("the pack declares a notify, hear or link key: a first version answers mentions and direct messages, nothing else")
+	if d.Notify != nil || d.Link != nil {
+		t.Fatalf("the pack declares a notify or link key: a first version answers mentions and direct messages, nothing else")
+	}
+	if h := d.Hear; h == nil || h.Field != "sender" || h.By != source.HearByIdentity {
+		t.Fatalf("hear = %+v, want field sender by identity", d.Hear)
 	}
 	// The manifest names the bot user and only the six bot scopes, and
 	// carries no events: no event_subscriptions and no Request URL

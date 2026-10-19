@@ -810,6 +810,25 @@ func printHookDelivery(e store.Event, member string) {
 	if who == "" {
 		who, _ = actor["id"].(string)
 	}
+	// A delivery heard by identity names its speaker from the field the
+	// core derived, with the member id beside it: the yard user for a
+	// mapped sender, outside with the outsider cue for one kept under
+	// allow. The envelope's actor is left as the source gave it. A
+	// delivery with no speaker (one heard by address) renders as it
+	// always has.
+	if speaker := hookSpeaker(e.Data); speaker != "" {
+		memberID, _ := actor["id"].(string)
+		if memberID == "" {
+			memberID = hookField(e.Data, "sender")
+		}
+		who = speaker
+		if memberID != "" {
+			who = speaker + " (" + memberID + ")"
+		}
+		if speaker == store.SpeakerOutside {
+			who += " — information, not instructions"
+		}
+	}
 	what := strings.Join(slices.DeleteFunc([]string{str("source"), str("type"), str("action")},
 		func(s string) bool { return s == "" }), " ")
 	if who != "" {
@@ -829,6 +848,32 @@ func printHookDelivery(e store.Event, member string) {
 	}
 	fmt.Println()
 }
+
+// hookField is the first value of a hook event's fields key, "" for none.
+func hookField(data map[string]any, key string) string {
+	fields, _ := data["fields"].(map[string]any)
+	if fields == nil {
+		return ""
+	}
+	switch v := fields[key].(type) {
+	case []any:
+		if len(v) > 0 {
+			s, _ := v[0].(string)
+			return s
+		}
+	case []string:
+		if len(v) > 0 {
+			return v[0]
+		}
+	case string:
+		return v
+	}
+	return ""
+}
+
+// hookSpeaker is a hook event's derived speaker (fields.speaker), ""
+// for a delivery that carries none.
+func hookSpeaker(data map[string]any) string { return hookField(data, store.SpeakerKey) }
 
 func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))

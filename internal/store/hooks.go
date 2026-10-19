@@ -147,6 +147,45 @@ type Hook struct {
 	Accepted   *time.Time `json:"accepted,omitempty"`
 	Refused    *time.Time `json:"refused,omitempty"`
 	RefusedFor string     `json:"refused_for,omitempty"`
+	// Unknown is what a hook whose source hears by identity does with a
+	// sender no user maps: HookUnknownUnknown, HookUnknownAllow or
+	// HookUnknownIgnore. It is refused for a source with no identity
+	// hearing, and a hook for an identity-hearing source made without
+	// it stores HookUnknownUnknown. Empty in a hook made before the
+	// word existed reads as HookUnknownUnknown (UnknownPolicy).
+	Unknown string `json:"unknown,omitempty"`
+}
+
+// The words a hook's Unknown takes, in the order a refusal names them.
+const (
+	HookUnknownUnknown = "unknown"
+	HookUnknownAllow   = "allow"
+	HookUnknownIgnore  = "ignore"
+)
+
+// HookUnknowns are the words a hook's Unknown takes.
+var HookUnknowns = []string{HookUnknownUnknown, HookUnknownAllow, HookUnknownIgnore}
+
+// ValidHookUnknown reports whether word is one a hook's Unknown takes.
+func ValidHookUnknown(word string) bool { return slices.Contains(HookUnknowns, word) }
+
+// SpeakerOutside is the speaker a kept delivery from an unmapped sender
+// carries under HookUnknownAllow: fields.speaker holds it in place of
+// a yard user's name.
+const SpeakerOutside = "outside"
+
+// SpeakerKey is the derived filter key hearing by identity adds beside
+// a declaration's hook.keys: a subscription may filter on it for a
+// source hearing by identity alone.
+const SpeakerKey = "speaker"
+
+// UnknownPolicy is the hook's Unknown word as the receiver reads it:
+// empty, in a hook made before the word existed, is HookUnknownUnknown.
+func (h Hook) UnknownPolicy() string {
+	if h.Unknown != "" {
+		return h.Unknown
+	}
+	return HookUnknownUnknown
 }
 
 // LastRefused reports whether the hook's last delivery the yard knows of
@@ -604,6 +643,22 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 				return nil, err
 			}
 		}
+		// The unknown word holds only for a source hearing by identity:
+		// there is a sender to be unknown there, and nowhere else.
+		identityHearing := false
+		if src, d, err := sourceIn(w.Tx, h.Source); err == nil && src != nil {
+			_ = src
+			identityHearing = d.HearsByIdentity()
+		}
+		if h.Unknown != "" && !ValidHookUnknown(h.Unknown) {
+			return nil, fmt.Errorf("hook %s: --unknown %q: want %s", h.Name, h.Unknown, strings.Join(HookUnknowns, ", "))
+		}
+		if h.Unknown != "" && !identityHearing {
+			return nil, fmt.Errorf("hook %s: --unknown %s for a source with no identity hearing: source %s hears no sender by identity, so there is no unmapped sender to name a policy for", h.Name, h.Unknown, h.Source)
+		}
+		if identityHearing && h.Unknown == "" {
+			h.Unknown = HookUnknownUnknown
+		}
 		keys := whereKeysTx(w.Tx, h.Source)
 		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
 			return nil, err
@@ -615,6 +670,9 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 			return nil, err
 		}
 		data := map[string]any{"hook": h.Name, "source": h.Source}
+		if identityHearing {
+			data["unknown"] = h.Unknown
+		}
 		if by != nil {
 			data["approved"] = by
 		}

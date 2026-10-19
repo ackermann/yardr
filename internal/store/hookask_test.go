@@ -491,3 +491,128 @@ func TestHookAskAfterSourceAdd(t *testing.T) {
 		t.Fatalf("the approval answers %+v", done)
 	}
 }
+
+// chatxDecl declares a source hearing by identity: fields.sender holds
+// a member id, as slack's declaration does.
+const chatxDecl = `name: chatx
+base: https://chatx.example.com
+credential: { env: CHATX_TOKEN }
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Chatx-Signature, encoding: hex }
+    delivery: { header: Chatx-Delivery }
+  bodies: unique
+  normalize: [chatx/normalize]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+calls:
+  viewer: { kind: read, request: { method: GET, path: /viewer } }
+`
+
+func chatxYard(t *testing.T) *askYard {
+	t.Helper()
+	y, _ := runYard(t)
+	if _, err := y.PutSource(y.ctx, "chatx.yaml", chatxDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.PutSource(y.ctx, "linear.yaml", hookLinear, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	return y
+}
+
+// giveChatxSecret gives the signing secret for hook name on y's bead.
+func giveChatxSecret(t *testing.T, y *askYard, hook string) {
+	t.Helper()
+	seq := y.ask(t, hookSecretAsk("chatx", hook), "yardmaster")
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq,
+		map[string]string{"CHATX_SIGNING_SECRET": hookSecretValue}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The hook add row takes --unknown for a source hearing by identity:
+// the typed command parses, the card states the word, and approval
+// stores it. Without the flag it stores unknown, repeated and
+// out-of-list words and a word for a source with no identity hearing
+// are refused at asking, --map, --as and --secret-file stay refused,
+// and a card whose word was changed meanwhile is stale.
+func TestHookAskUnknown(t *testing.T) {
+	// Typed, stated, and stored, for the word given.
+	y := chatxYard(t)
+	giveChatxSecret(t, y, "chatx")
+	runSeq := y.ask(t, hookRunAsk("hook add chatx --source chatx --unknown unknown"), "yardmaster")
+	runAsk := y.asked(t, runSeq)
+	if runAsk.Ask.Run == nil || !slices.Equal(runAsk.Ask.Run.Argv,
+		[]string{"hook", "add", "chatx", "--source", "chatx", "--unknown", "unknown"}) {
+		t.Fatalf("the run ask stores %+v", runAsk.Ask.Run)
+	}
+	if does := strings.Join(runAsk.Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown unknown for an unmapped sender") {
+		t.Fatalf("the card says:\n%s\nwant the --unknown unknown sentence", does)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != HookUnknownUnknown {
+		t.Fatalf("the hook = %+v, %v, want unknown %q", hook, err, HookUnknownUnknown)
+	}
+
+	// Each word stores as given, and without the flag stores unknown.
+	for _, c := range []struct{ command, stored string }{
+		{"hook add chatx --source chatx --unknown allow", HookUnknownAllow},
+		{"hook add chatx --source chatx --unknown ignore", HookUnknownIgnore},
+		{"hook add chatx --source chatx", HookUnknownUnknown},
+	} {
+		y := chatxYard(t)
+		giveChatxSecret(t, y, "chatx")
+		runSeq := y.ask(t, hookRunAsk(c.command), "yardmaster")
+		if does := strings.Join(y.asked(t, runSeq).Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown "+c.stored) {
+			t.Fatalf("%s: the card says:\n%s\nwant --unknown %s", c.command, does, c.stored)
+		}
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean"); err != nil {
+			t.Fatalf("%s: %v", c.command, err)
+		}
+		if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != c.stored {
+			t.Fatalf("%s: the hook = %+v, %v, want %q", c.command, hook, err, c.stored)
+		}
+	}
+
+	// Refused at asking, each leaving no note.
+	for _, c := range []struct{ name, command, want string }{
+		{"repeated --unknown", "hook add chatx --source chatx --unknown allow --unknown ignore", "--unknown once"},
+		{"a word outside the three", "hook add chatx --source chatx --unknown shrug", `--unknown "shrug": want unknown, allow, ignore`},
+		{"a word for no identity hearing", "hook add linear --source linear --unknown allow", "for a source with no identity hearing"},
+		{"--map with --unknown", "hook add chatx --source chatx --unknown allow --map action=open", "hook add with --map is the operator's to type in a terminal"},
+		{"--as with --unknown", "hook add chatx --source chatx --unknown allow --as yardmaster", "hook add with --as is the operator's to type in a terminal"},
+		{"--secret-file with --unknown", "hook add chatx --source chatx --unknown allow --secret-file /tmp/x", "hook add with --secret-file is the operator's to type in a terminal"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			y := chatxYard(t)
+			if _, err := y.AddAsk(y.ctx, y.bead, hookRunAsk(c.command), "yardmaster"); err == nil ||
+				!strings.Contains(err.Error(), c.want) {
+				t.Fatalf("AddAsk %q = %v, want %q", c.command, err, c.want)
+			}
+			if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+				t.Fatalf("the refused ask left %d notes, %v", len(notes), err)
+			}
+		})
+	}
+
+	// A card whose word was changed meanwhile is stale and runs
+	// nothing: the hook made in a terminal with another word stands.
+	y = chatxYard(t)
+	giveChatxSecret(t, y, "chatx")
+	runSeq = y.ask(t, hookRunAsk("hook add chatx --source chatx --unknown allow"), "yardmaster")
+	if _, err := y.PutHook(y.ctx, Hook{Name: "chatx", Source: "chatx",
+		SecretFile: filepath.Join(y.home, "elsewhere.secret"), Unknown: HookUnknownIgnore}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, runSeq, "its word was changed meanwhile")
+	if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != HookUnknownIgnore {
+		t.Fatalf("the hook after a stale approval = %+v, %v, want ignore kept", hook, err)
+	}
+}

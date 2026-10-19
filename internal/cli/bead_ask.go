@@ -199,11 +199,13 @@ is one of the list the yard runs from a card:
       object and each changed file's diff; the approval is carried out
       by the server after it; a directory, URL or imported pack, any
       flag, a first install and a plan that asks stay in a terminal
-  hook add <name> --source <declared source>
+  hook add <name> --source <declared source> [--unknown unknown|allow|ignore]
       a new webhook endpoint POST /hooks/<name> for the declared
       source, verified with its signing secret given on the hook's own
       secret card (--secret-hook) into the file the yard owns for it;
-      --map, --as and a replacement stay in a terminal
+      for a source that hears by identity, --unknown names what an
+      unmapped sender is (unknown without it); --map, --as and a
+      replacement stay in a terminal
   subscribe <user> yardr [--done] [--where <key>=<value>]
       a user is told of the yard's own events in their inbox; with --done,
       --where or both

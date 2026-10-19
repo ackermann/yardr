@@ -73,8 +73,11 @@ func TestPackApplySlackCarriesDeclarationAndScripts(t *testing.T) {
 	if d.Thread == nil || len(d.Thread.Reply) == 0 || len(d.Thread.Posted) == 0 || len(d.Thread.Read) == 0 {
 		t.Errorf("the stored source answers nowhere: %+v", d.Thread)
 	}
-	if d.Notify != nil || d.Hear != nil {
-		t.Errorf("the stored source tells or hears where the pack says neither: notify %+v hear %+v", d.Notify, d.Hear)
+	if d.Notify != nil {
+		t.Errorf("the stored source tells where the pack says it does not: notify %+v", d.Notify)
+	}
+	if h := d.Hear; h == nil || h.Field != "sender" || h.By != "identity" {
+		t.Errorf("the stored source hears as the pack says it does not: hear %+v, want field sender by identity", d.Hear)
 	}
 	if d.Check != "whoami" {
 		t.Errorf("the stored source checks nothing as the pack says: %q", d.Check)

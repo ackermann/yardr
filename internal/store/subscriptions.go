@@ -142,7 +142,11 @@ func hearSubscribeKeys(d *source.Declaration) error {
 
 // whereKeysTx are the keys a subscription to source may filter on: whereKeys,
 // with the keys of a declared source's hook beside them, those it names
-// twice said once.
+// twice said once. A source hearing by identity adds the derived
+// SpeakerKey beside them, for that kind of source alone: it is a field
+// the core derives, and no normalize script sets it, so it stands in
+// no hook.keys. A source with no identity hearing still refuses
+// speaker.
 func whereKeysTx(tx *bolt.Tx, source string) []string {
 	keys := whereKeys(source)
 	var src Source
@@ -150,14 +154,19 @@ func whereKeysTx(tx *bolt.Tx, source string) []string {
 		return keys
 	}
 	d, err := src.Declaration()
-	if err != nil || d.Hook == nil {
+	if err != nil {
 		return keys
 	}
 	out := slices.Clone(keys)
-	for _, k := range d.Hook.Keys {
-		if !slices.Contains(out, k) {
-			out = append(out, k)
+	if d.Hook != nil {
+		for _, k := range d.Hook.Keys {
+			if !slices.Contains(out, k) {
+				out = append(out, k)
+			}
 		}
+	}
+	if d.HearsByIdentity() && !slices.Contains(out, SpeakerKey) {
+		out = append(out, SpeakerKey)
 	}
 	return out
 }
@@ -266,6 +275,9 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 				return err
 			}
 			id.Key = foldIdentityKey(w.Tx, source, id.Key)
+			if err := checkUserIdentityOneToOne(w.Tx, name, source, id); err != nil {
+				return err
+			}
 			kind, data, err := setIdentityIn(&u.Identities, name, source, id, "user", "user")
 			if err != nil {
 				return err
@@ -279,6 +291,91 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 	return s.write(func(w *wtx) error {
 		return w.setCrewIdentity(ctx, name, source, id, actor, nil)
 	})
+}
+
+// checkUserIdentityOneToOne refuses a user's new identity in a source
+// hearing by identity whose id or key another user already holds
+// there: a member id names one user of the yard, so hearing by
+// identity has one speaker to name. It is checked in the write that
+// sets a user's identity, beside mayIdentify, so a mapping typed in a
+// terminal and one approved on a card are refused alike. It holds
+// for a source hearing by identity alone: an identity in another
+// source (a login, say) may be held twice, and the readers that name
+// a party by it (a made bead's originator, a mention) say safely
+// that it names nobody then. A zero identity (a removal) holds
+// nothing. An id a store already holds twice is not repaired here:
+// hearing reads it as unmapped until one identity is removed.
+func checkUserIdentityOneToOne(tx *bolt.Tx, name, source string, id Identity) error {
+	if id.zero() {
+		return nil
+	}
+	if _, d, err := sourceIn(tx, source); err != nil || !d.HearsByIdentity() {
+		return nil
+	}
+	held := id.ID
+	if held == "" {
+		held = id.Key
+	}
+	var clash string
+	err := each(tx, bUsers, "", func(_ []byte, u *User) error {
+		if u.Name == name || clash != "" {
+			return nil
+		}
+		other, ok := u.Identities[source]
+		if !ok || other.zero() {
+			return nil
+		}
+		if (id.ID != "" && other.is(id.ID)) || (id.Key != "" && other.is(id.Key)) {
+			clash = u.Name
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if clash != "" {
+		return fmt.Errorf("user %s: %s in %s names %s already: an id in a source names one user of the yard", name, held, source, clash)
+	}
+	return nil
+}
+
+// checkCrewIdentityOneToOne is checkUserIdentityOneToOne for a crew
+// member: an id or key in a source hearing by identity names one crew
+// member there. It is checked in setCrewIdentity, the write a crew
+// identity card approval runs, as the user's is in theirs, and holds
+// for a source hearing by identity alone, as theirs does.
+func checkCrewIdentityOneToOne(tx *bolt.Tx, name, source string, id Identity) error {
+	if id.zero() {
+		return nil
+	}
+	if _, d, err := sourceIn(tx, source); err != nil || !d.HearsByIdentity() {
+		return nil
+	}
+	held := id.ID
+	if held == "" {
+		held = id.Key
+	}
+	var clash string
+	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
+		if r.Name == name || clash != "" {
+			return nil
+		}
+		other, ok := r.Identities[source]
+		if !ok || other.zero() {
+			return nil
+		}
+		if (id.ID != "" && other.is(id.ID)) || (id.Key != "" && other.is(id.Key)) {
+			clash = r.Name
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if clash != "" {
+		return fmt.Errorf("crew member %s: %s in %s names %s already: an id in a source names one crew member of the yard", name, held, source, clash)
+	}
+	return nil
 }
 
 // setIdentityIn changes the identities of a party of that kind, and says
@@ -314,6 +411,9 @@ func (w *wtx) setCrewIdentity(ctx context.Context, name, source string, id Ident
 		return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 	}
 	id.Key = foldIdentityKey(w.Tx, source, id.Key)
+	if err := checkCrewIdentityOneToOne(w.Tx, name, source, id); err != nil {
+		return err
+	}
 	kind, data, err := setIdentityIn(&r.Identities, name, source, id, "crew member", "crew")
 	if err != nil {
 		return err

@@ -1313,6 +1313,52 @@ func TestParseHear(t *testing.T) {
 	}
 }
 
+// Hearing by identity: the field holds a speaker's id in the source,
+// matched against a user's identity there. It needs no notify key and
+// no address, and address and from are refused with it, as is a field
+// no hook key names and a by that is no way the yard hears.
+func TestParseHearByIdentity(t *testing.T) {
+	hooked := "hook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
+		"  bodies: unique\n  normalize: [normalize]\n  keys: [sender, channel]\n"
+	base := pushover + hooked
+	// Without its notify key the file still parses by identity: hearing
+	// by who speaks names no address telling reads.
+	unnotified := strings.SplitN(pushover, "notify:\n", 2)[0] + hooked
+	for _, text := range []string{
+		base + "hear:\n  field: sender\n  by: identity\n",
+		unnotified + "hear:\n  field: sender\n  by: identity\n",
+	} {
+		d, err := Parse("p.yaml", []byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h := d.Hear; h == nil || h.Field != "sender" || h.By != HearByIdentity || !h.ByIdentity() || !d.HearsByIdentity() {
+			t.Fatalf("hear = %+v", d.Hear)
+		}
+		if _, _, ok := d.ClaimAddress(); ok {
+			t.Fatal("a source hearing by identity claims an address")
+		}
+	}
+	for name, tc := range map[string]struct{ text, want string }{
+		"by identity with an address": {base + "hear:\n  field: sender\n  by: identity\n  address: { env: PUSHOVER_USER }\n",
+			"hear.address: is for hearing by address, and by: identity hears by who a speaker is: leave address out with by: identity"},
+		"by identity with a from": {base + "hear:\n  field: sender\n  by: identity\n  from: operator\n",
+			"hear.from: is for hearing by address, and by: identity hears by who a speaker is: leave from out with by: identity"},
+		"a by that is none": {base + "hear:\n  field: sender\n  by: address\n  address: { env: PUSHOVER_USER }\n",
+			`hear.by: "address": want identity`},
+		"a field under no key": {base + "hear:\n  field: room\n  by: identity\n",
+			"hear.field: room is no key the envelope carries: hook.keys names sender, channel"},
+		"no field": {base + "hear:\n  by: identity\n",
+			"hear.field: missing: the envelope field that must hold a user's address (chat)"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
 // What is refused of the hear key is what would fail at every delivery,
 // or hear nothing: no field, no address, a field the envelope carries
 // under no key the file names, an address that is not the one telling
@@ -1332,7 +1378,7 @@ func TestParseHearRefusals(t *testing.T) {
 		"no field":                        {with("  address: { env: PUSHOVER_USER }\n"), "hear.field: missing: the envelope field that must hold a user's address (chat)"},
 		"no address":                      {with("  field: chat\n"), "hear.address: missing: { env: <the name the address is under in a user's env file> }"},
 		"an address with no env":          {with("  field: chat\n  address: {}\n"), "hear.address.env: missing: the name of the variable the address is in, in a user's env file"},
-		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, address, from, subscribe)"},
+		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, by, address, from, subscribe)"},
 		"an address key it does not have": {with("  field: chat\n  address: { env: PUSHOVER_USER, file: u.env }\n"), "hear.address.file: unknown key (known here: env)"},
 		"a field that is none":            {with("  field: Chat\n  address: { env: PUSHOVER_USER }\n"), `hear.field: "Chat": a field is lowercase letters, digits and _`},
 		"a field under no key":            {with("  field: room\n  address: { env: PUSHOVER_USER }\n"), "hear.field: room is no key the envelope carries: hook.keys names chat"},

@@ -59,6 +59,62 @@ func TestHookCRUD(t *testing.T) {
 	}
 }
 
+// A hook for a source hearing by identity stores unknown without
+// --unknown and the word given with it, and each is refused for a
+// source with no identity hearing, telegram's included, and a word
+// outside the three everywhere. This is the write a terminal hook add
+// runs, so it holds what the card's approval stores through runHookAdd.
+func TestHookUnknownWord(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	declarePack(t, s, "slack")
+	declarePack(t, s, "telegram")
+	// Without the flag the hook stores unknown.
+	h, err := s.PutHook(ctx, store.Hook{Name: "slackline", Source: "slack", SecretFile: "/s"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook without --unknown stored %q, want %q", h.Unknown, store.HookUnknownUnknown)
+	}
+	if h.UnknownPolicy() != store.HookUnknownUnknown || (store.Hook{}).UnknownPolicy() != store.HookUnknownUnknown {
+		t.Fatal("an empty unknown does not read as unknown")
+	}
+	// With each word it stores that word.
+	for _, word := range store.HookUnknowns {
+		name := "slack-" + word
+		h, err := s.PutHook(ctx, store.Hook{Name: name, Source: "slack", SecretFile: "/s", Unknown: word}, "me")
+		if err != nil {
+			t.Fatalf("--unknown %s: %v", word, err)
+		}
+		if h.Unknown != word {
+			t.Fatalf("--unknown %s stored %q", word, h.Unknown)
+		}
+	}
+	// A word outside the three, for slack and telegram alike.
+	for _, src := range []string{"slack", "telegram"} {
+		if _, err := s.PutHook(ctx, store.Hook{Name: "bad-" + src, Source: src, SecretFile: "/s", Unknown: "shrug"}, "me"); err == nil ||
+			!strings.Contains(err.Error(), `--unknown "shrug": want unknown, allow, ignore`) {
+			t.Errorf("--unknown shrug for %s = %v", src, err)
+		}
+	}
+	// Each word for a source with no identity hearing, telegram's
+	// included, is refused, and a telegram hook stores no word.
+	for _, word := range store.HookUnknowns {
+		if _, err := s.PutHook(ctx, store.Hook{Name: "tg-" + word, Source: "telegram", SecretFile: "/s", Unknown: word}, "me"); err == nil ||
+			!strings.Contains(err.Error(), "for a source with no identity hearing") {
+			t.Errorf("--unknown %s for telegram = %v", word, err)
+		}
+	}
+	h, err = s.PutHook(ctx, store.Hook{Name: "tg", Source: "telegram", SecretFile: "/s"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Unknown != "" {
+		t.Fatalf("telegram hook stored %q, want no word", h.Unknown)
+	}
+}
+
 func TestRecordHookKeepsPayload(t *testing.T) {
 	t.Parallel()
 	s, own := storetest.NewOwned(t)

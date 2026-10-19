@@ -24,14 +24,17 @@ import (
 )
 
 // hookAddUse is how a refusal names the hook add a run ask takes.
-const hookAddUse = "yardr hook add <name> --source <declared source>"
+const hookAddUse = "yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]"
 
-// parseHookAdd reads the words of hook add <name> --source <source>.
-// The secret file is the yard's to name, so no file flag is read: one
-// that is given, and --map and --as, are refused as the operator's to
-// type in a terminal by runWords.
+// parseHookAdd reads the words of hook add <name> --source <source>
+// [--unknown <word>]. The secret file is the yard's to name, so no file
+// flag is read: one that is given, and --map and --as, are refused as
+// the operator's to type in a terminal by runWords. --unknown is read
+// by name, each flag at most once, and its word held to the three the
+// hook takes; that it names a source hearing by identity is the
+// card's to refuse, from the declaration it reads.
 func parseHookAdd(rest []string) ([]string, error) {
-	args, values, err := runWords(hookAddUse, "hook add", "the operator's", rest, map[string]bool{"--source": true})
+	args, values, err := runWords(hookAddUse, "hook add", "the operator's", rest, map[string]bool{"--source": true, "--unknown": true})
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +47,58 @@ func parseHookAdd(rest []string) ([]string, error) {
 	if len(values["--source"]) != 1 {
 		return nil, fmt.Errorf("--run takes %s: --source once, with the declared source the hook serves", hookAddUse)
 	}
-	return []string{args[0], "--source", values["--source"][0]}, nil
+	if len(values["--unknown"]) > 1 {
+		return nil, fmt.Errorf("--run takes %s: --unknown once, with the word the hook stores for an unmapped sender", hookAddUse)
+	}
+	out := []string{args[0], "--source", values["--source"][0]}
+	if len(values["--unknown"]) == 1 {
+		word := values["--unknown"][0]
+		if !ValidHookUnknown(word) {
+			return nil, fmt.Errorf("--run takes %s: --unknown %q: want %s", hookAddUse, word, strings.Join(HookUnknowns, ", "))
+		}
+		out = append(out, "--unknown", word)
+	}
+	return out, nil
 }
 
-// hookAddOf is the hook and the source of a parsed hook add.
-func hookAddOf(argv []string) (name, source string) { return argv[2], argv[4] }
+// hookAddOf is the hook and the source of a parsed hook add, read by
+// flag name rather than by position, so a stored command carrying
+// --unknown is read as one without it is.
+func hookAddOf(argv []string) (name, source string) {
+	name, source, _ = hookAddParts(argv)
+	return name, source
+}
+
+// hookAddParts is the hook, the source and the --unknown word of a
+// parsed hook add, the word "" when the command names none.
+func hookAddParts(argv []string) (name, source, unknown string) {
+	if len(argv) > 2 {
+		name = argv[2]
+	}
+	for i := 3; i+1 < len(argv); i += 2 {
+		switch argv[i] {
+		case "--source":
+			source = argv[i+1]
+		case "--unknown":
+			unknown = argv[i+1]
+		}
+	}
+	return name, source, unknown
+}
+
+// hookUnknownSays is a card's sentence for the --unknown word a hook
+// add will store, effective being the word itself: what an unmapped
+// sender is under it.
+func hookUnknownSays(effective string) string {
+	switch effective {
+	case HookUnknownAllow:
+		return fmt.Sprintf("it stores --unknown %s for an unmapped sender: a sender no user maps is heard as %s (speaker: %s), as information, not instructions.", effective, SpeakerOutside, SpeakerOutside)
+	case HookUnknownIgnore:
+		return fmt.Sprintf("it stores --unknown %s for an unmapped sender: a sender no user maps is dropped, recorded nowhere, and offered no card.", effective)
+	default:
+		return fmt.Sprintf("it stores --unknown %s for an unmapped sender: a sender no user maps is dropped until the operator maps them, and a mapping card is offered for them.", HookUnknownUnknown)
+	}
+}
 
 // checkHookAdd is adding a hook's own check as the asker: a new hook
 // may be proposed, and replacing one the yard has is the operator's
@@ -61,15 +111,18 @@ func checkHookAdd(ctx context.Context, w *wtx, argv []string, actor string) erro
 	return w.operatorOnly(ctx, actor, "add a hook", Askable)
 }
 
-// hookAddCard is the card of hook add <name> --source <source>: the
-// public path it serves, the source it serves and that it takes the
-// source's signing secret, given on the hook's own card into the file
-// the yard owns for the hook. The approval is held to the source as it
-// was and to the hook's name being free (Seen). Asking refuses a name
-// the yard has, a source the yard does not declare and one whose
-// declaration has no hook key.
+// hookAddCard is the card of hook add <name> --source <source>
+// [--unknown <word>]: the public path it serves, the source it serves,
+// the --unknown word it stores where the source hears by identity
+// (the default unknown where the command names none), and that it
+// takes the source's signing secret, given on the hook's own card into
+// the file the yard owns for the hook. The approval is held to the
+// source as it was, to the hook's name being free and to the word it
+// stores (Seen). Asking refuses a name the yard has, a source the yard
+// does not declare, one whose declaration has no hook key, and an
+// --unknown word for a source with no identity hearing.
 func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
-	name, sourceName := hookAddOf(argv)
+	name, sourceName, unknownWord := hookAddParts(argv)
 	if !hookName.MatchString(name) {
 		return AskRun{}, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", name)
 	}
@@ -83,12 +136,17 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 		// The name was taken since the card was written: say so in one
 		// sentence, so the approval is held to it as stale.
 		seenMap := map[string]string{"hook " + name: seen(was.Source, was.SecretFile)}
-		if src, _, err := sourceIn(w.Tx, sourceName); err == nil {
+		if src, d, err := sourceIn(w.Tx, sourceName); err == nil {
 			fingerprint, err := w.sourceSeen(src)
 			if err != nil {
 				return AskRun{}, err
 			}
 			seenMap["source "+sourceName] = fingerprint
+			if d.HearsByIdentity() || was.Unknown != "" {
+				seenMap["hook "+name+" unknown"] = seen(was.UnknownPolicy())
+			}
+		} else if was.Unknown != "" {
+			seenMap["hook "+name+" unknown"] = seen(was.UnknownPolicy())
 		}
 		return AskRun{
 			Argv:   argv,
@@ -105,33 +163,56 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 	if d.Hook == nil {
 		return AskRun{}, fmt.Errorf("source %s: its declaration has no hook key, so the yard hears nothing from it", sourceName)
 	}
+	if unknownWord != "" && !ValidHookUnknown(unknownWord) {
+		return AskRun{}, fmt.Errorf("--run takes %s: --unknown %q: want %s", hookAddUse, unknownWord, strings.Join(HookUnknowns, ", "))
+	}
+	identityHearing := d.HearsByIdentity()
+	if unknownWord != "" && !identityHearing {
+		return AskRun{}, fmt.Errorf("source %s: --unknown %s for a source with no identity hearing: source %s hears no sender by identity, so there is no unmapped sender to name a policy for", sourceName, unknownWord, sourceName)
+	}
+	effectiveUnknown := unknownWord
+	if effectiveUnknown == "" && identityHearing {
+		effectiveUnknown = HookUnknownUnknown
+	}
 	fingerprint, err := w.sourceSeen(src)
 	if err != nil {
 		return AskRun{}, err
+	}
+	seenMap := map[string]string{"source " + sourceName: fingerprint, "hook " + name: ""}
+	if identityHearing {
+		seenMap["hook "+name+" unknown"] = seen(effectiveUnknown)
 	}
 	if d.Hook.RegistersSecret() {
 		does, publicURL, err := w.hookRegisterDoes(name, sourceName, d)
 		if err != nil {
 			return AskRun{}, err
 		}
+		if identityHearing {
+			does = append([]string{does[0], hookUnknownSays(effectiveUnknown)}, does[1:]...)
+		}
+		seenMap["setting "+HookPublicURLSetting] = seen(publicURL)
 		return AskRun{
 			Argv:   argv,
 			Does:   does,
 			Back:   runCommandLine([]string{"hook", "rm", name}),
 			BackBy: "only the operator",
-			Seen:   map[string]string{"source " + sourceName: fingerprint, "hook " + name: "", "setting " + HookPublicURLSetting: seen(publicURL)},
+			Seen:   seenMap,
 		}, nil
 	}
+	does := []string{
+		fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s).", name, name, sourceName, sourceHost(d)),
+		hookSays(d),
+		fmt.Sprintf("the signing secret is given on the hook's own secret card for %s and kept in %s (mode 0600); the hook names that file, and the value is in no note, event or answer.", name, HookSecretFile(w.home, name)),
+	}
+	if identityHearing {
+		does = append([]string{does[0], hookUnknownSays(effectiveUnknown)}, does[1:]...)
+	}
 	return AskRun{
-		Argv: argv,
-		Does: []string{
-			fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s).", name, name, sourceName, sourceHost(d)),
-			hookSays(d),
-			fmt.Sprintf("the signing secret is given on the hook's own secret card for %s and kept in %s (mode 0600); the hook names that file, and the value is in no note, event or answer.", name, HookSecretFile(w.home, name)),
-		},
+		Argv:   argv,
+		Does:   does,
 		Back:   runCommandLine([]string{"hook", "rm", name}),
 		BackBy: "only the operator",
-		Seen:   map[string]string{"source " + sourceName: fingerprint, "hook " + name: ""},
+		Seen:   seenMap,
 	}, nil
 }
 
@@ -171,11 +252,32 @@ func (w *wtx) hookRegisterDoes(name, sourceName string, d *source.Declaration) (
 }
 
 // hookAddStale says why the ask seq for hook add is approved no more:
-// the source is another under its name, or the hook's name was taken.
+// the source is another under its name, the hook's name was taken, or
+// the --unknown word the hook stands with now is not the word the card
+// would store.
 func (w *wtx) hookAddStale(seq uint64, was, now AskRun) error {
-	name, sourceName := hookAddOf(was.Argv)
+	name, sourceName, unknownWord := hookAddParts(was.Argv)
 	if err := w.staleSource(seq, sourceName, was, now); err != nil {
 		return err
+	}
+	if key := "hook " + name + " unknown"; (was.Seen[key] != "" || now.Seen[key] != "") && was.Seen[key] != now.Seen[key] {
+		// The word that stands now is the standing hook's, where one
+		// was made since; the card's is its own effective word.
+		cardWord := unknownWord
+		if cardWord == "" {
+			cardWord = HookUnknownUnknown
+		}
+		nowWord := cardWord
+		var standing Hook
+		if had, err := get(w.Tx, bHooks, name, &standing); err == nil && had {
+			nowWord = standing.UnknownPolicy()
+		}
+		if nowWord != cardWord {
+			return fmt.Errorf("ask %d was written when hook %s would store --unknown %s, and its word was changed meanwhile to %s: the card is from before that changed. %s", seq, name, cardWord, nowWord, nothingRan)
+		}
+		if was.Seen["hook "+name] == now.Seen["hook "+name] {
+			return fmt.Errorf("ask %d was written when hook %s would store --unknown %s, and its word was changed meanwhile: the card is from before that changed. %s", seq, name, cardWord, nothingRan)
+		}
 	}
 	if key := "hook " + name; was.Seen[key] != now.Seen[key] {
 		e := lastEvent(w.Tx, "hook_added", naming("hook", name))
@@ -190,7 +292,7 @@ func (w *wtx) hookAddStale(seq uint64, was, now AskRun) error {
 // hook's secret card: without it the hook would take nothing, so the
 // approval runs only after that giving.
 func runHookAdd(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
-	name, sourceName := hookAddOf(argv)
+	name, sourceName, unknownWord := hookAddParts(argv)
 	_, d, err := sourceIn(w.Tx, sourceName)
 	if err != nil {
 		return "", err
@@ -217,7 +319,7 @@ func runHookAdd(ctx context.Context, w *wtx, argv []string, actor string, by *ap
 	if len(secret) == 0 {
 		return "", fmt.Errorf("hook %s: give its signing secret on the hook's secret card for %s first: the secret file %s is empty", name, name, file)
 	}
-	saved, err := w.putHook(ctx, Hook{Name: name, Source: sourceName, SecretFile: file}, actor, by, Askable)
+	saved, err := w.putHook(ctx, Hook{Name: name, Source: sourceName, SecretFile: file, Unknown: unknownWord}, actor, by, Askable)
 	if err != nil {
 		return "", err
 	}
@@ -274,12 +376,13 @@ func (s *Store) hookRegisterTarget(id string, seq uint64) (string, bool) {
 				continue
 			}
 			_, argv, err := parseRun(r.Ask.Run.Argv)
-			if err != nil || len(argv) != 5 || argv[0] != "hook" || argv[1] != "add" {
+			if err != nil || len(argv) < 5 || argv[0] != "hook" || argv[1] != "add" {
 				continue
 			}
-			_, d, err := sourceIn(tx, argv[4])
+			hookName, sourceName := hookAddOf(argv)
+			_, d, err := sourceIn(tx, sourceName)
 			if err == nil && d.Hook.RegistersSecret() {
-				name = argv[2]
+				name = hookName
 			}
 		}
 		return nil

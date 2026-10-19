@@ -25,19 +25,26 @@ type Notify struct {
 	Link  string `json:"link,omitempty"`
 }
 
-// Hear says which deliveries of the source the yard keeps: one whose
-// envelope field holds an address a user's env file sets, whatever the
-// user is told through. A delivery from anything else is dropped after
-// verification: answered 200, recorded nowhere, and counted in sums
-// beside refusals.
+// Hear says which deliveries of the source the yard keeps. By address
+// (the spelling without by) a delivery is kept when its envelope field
+// holds an address a user's env file sets, whatever the user is told
+// through. By identity (by: identity) a delivery is kept when its
+// envelope field holds the id of some user's identity in this source.
+// A delivery from anything else is dropped after verification:
+// answered 200, recorded nowhere, and counted in sums beside refusals.
 type Hear struct {
-	// Field is the envelope field that must hold a user's address.
+	// Field is the envelope field that must hold a user's address, or,
+	// by identity, a speaker's id in this source.
 	Field string `json:"field"`
+	// By is how Field is matched: HearByIdentity, or "" for by address.
+	By string `json:"by,omitempty"`
 	// Address is where that address is read from: the variable of the
-	// user's own env file, the same one telling reads.
-	Address HearAddress `json:"address"`
-	// From narrows whom the source hears: HearFromOperator, or "" for
-	// every user whose env file sets the address.
+	// user's own env file, the same one telling reads. It applies to
+	// hearing by address alone, and is refused with by: identity.
+	Address HearAddress `json:"address,omitempty"`
+	// From narrows whom the source hears by address: HearFromOperator,
+	// or "" for every user whose env file sets the address. It is
+	// refused with by: identity.
 	From string `json:"from,omitempty"`
 	// Subscribe is the filter a claim approval subscribes the yard's
 	// hearer with beside the claimed address: key -> value, as a
@@ -58,6 +65,17 @@ type HearAddress struct {
 // never a person.
 const HearFromOperator = "operator"
 
+// HearByIdentity is the one by a hear key takes: the envelope field
+// holds a speaker's id in this source, matched against every user's
+// identity in it (User.IsIn), rather than an address in an env file.
+const HearByIdentity = "identity"
+
+// ByIdentity reports whether this hear matches by identity.
+func (h *Hear) ByIdentity() bool { return h != nil && h.By == HearByIdentity }
+
+// HearsByIdentity reports whether the declaration hears by identity.
+func (d *Declaration) HearsByIdentity() bool { return d != nil && d.Hear.ByIdentity() }
+
 // ClaimAddress is the address a delivery from no known user may claim:
 // the envelope field that holds it and the variable it is written under
 // in a user's env file. It is the hear key's field with the notify
@@ -66,7 +84,7 @@ const HearFromOperator = "operator"
 // false for a source that hears nothing back: such a source drops no
 // delivery for an unknown address, so it offers no claim.
 func (d *Declaration) ClaimAddress() (field, env string, ok bool) {
-	if d == nil || d.Hear == nil || d.Hear.Field == "" {
+	if d == nil || d.Hear == nil || d.Hear.Field == "" || d.Hear.ByIdentity() {
 		return "", "", false
 	}
 	env = d.Hear.Address.Env
@@ -189,19 +207,22 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 	return n
 }
 
-// hear reads the key that makes a source one that hears only the
-// addresses its users' env files set. What it refuses is what would fail
-// at every delivery, or hear nothing: a key beside field, address, from
-// and subscribe, a field the envelope carries under no key the file
-// names, an address that is not the one telling reads, a from that is no
-// role the yard has, and a subscribe that is no filter or names the
-// field the claim sets itself. Without a hook key there is no delivery
-// to hear, and without a notify key no address is named to match, so
-// with neither is hear refused too.
+// hear reads the key that makes a source one that hears only some
+// deliveries: by address, those from an address its users' env files
+// set; by identity, those whose speaker a user is mapped to. What it
+// refuses is what would fail at every delivery, or hear nothing: a key
+// beside field, by, address, from and subscribe, a by that is no way
+// the yard hears, a field the envelope carries under no key the file
+// names, by: identity with an address or a from, an address that is
+// not the one telling reads, a from that is no role the yard has, and
+// a subscribe that is no filter or names the field the claim sets
+// itself. Without a hook key there is no delivery to hear; hearing by
+// address without a notify key names no address to match, so it is
+// refused too, while hearing by identity needs no notify key.
 func (r *reader) hear(d *Declaration, e entry) *Hear {
 	h := &Hear{}
-	var field, address, env, subscribe *entry
-	for _, f := range r.entries(e.v, e.path, "field", "address", "from", "subscribe") {
+	var field, address, env, subscribe, fromEntry, byEntry *entry
+	for _, f := range r.entries(e.v, e.path, "field", "by", "address", "from", "subscribe") {
 		switch f.key {
 		case "field":
 			field = &f
@@ -209,6 +230,13 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 				r.errf(f.v, f.path, "%q: a field is lowercase letters, digits and _, starting with a letter or digit (chat)", s)
 			} else if ok {
 				h.Field = s
+			}
+		case "by":
+			byEntry = &f
+			if s, ok := r.str(f.v, f.path); ok && s != HearByIdentity {
+				r.errf(f.v, f.path, "%q: want %s", s, HearByIdentity)
+			} else if ok {
+				h.By = s
 			}
 		case "address":
 			address = &f
@@ -221,6 +249,7 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 				}
 			}
 		case "from":
+			fromEntry = &f
 			if s, ok := r.str(f.v, f.path); ok && s != HearFromOperator {
 				r.errf(f.v, f.path, "%q: want %s", s, HearFromOperator)
 			} else if ok {
@@ -250,20 +279,34 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 	if field == nil {
 		r.errf(e.v, join(e.path, "field"), "missing: the envelope field that must hold a user's address (chat)")
 	}
-	if address == nil {
-		r.errf(e.v, join(e.path, "address"), "missing: { env: <the name the address is under in a user's env file> }")
-	} else if address.v.Kind == yaml.MappingNode && env == nil {
-		r.errf(address.v, join(address.path, "env"), "missing: the name of the variable the address is in, in a user's env file")
+	byIdentity := h.By == HearByIdentity
+	if byIdentity {
+		if address != nil {
+			r.errf(address.v, address.path, "is for hearing by address, and by: identity hears by who a speaker is: leave address out with by: identity")
+		}
+		if fromEntry != nil {
+			r.errf(fromEntry.v, fromEntry.path, "is for hearing by address, and by: identity hears by who a speaker is: leave from out with by: identity")
+		}
+	} else if byEntry == nil || h.By == "" {
+		// Hearing by address, the standing spelling: an invalid by has
+		// already been refused above, and still names no other way.
+		if address == nil {
+			r.errf(e.v, join(e.path, "address"), "missing: { env: <the name the address is under in a user's env file> }")
+		} else if address.v.Kind == yaml.MappingNode && env == nil {
+			r.errf(address.v, join(address.path, "env"), "missing: the name of the variable the address is in, in a user's env file")
+		}
 	}
 	if d.Hook == nil {
 		r.errf(e.v, e.path, "needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any")
 	} else if field != nil && h.Field != "" && !slices.Contains(d.Hook.Keys, h.Field) {
 		r.errf(field.v, field.path, "%s is no key the envelope carries: hook.keys names %s", h.Field, or(strings.Join(d.Hook.Keys, ", "), "none"))
 	}
-	if d.Notify == nil {
-		r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
-	} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
-		r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
+	if !byIdentity {
+		if d.Notify == nil {
+			r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
+		} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
+			r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
+		}
 	}
 	if subscribe != nil && h.Field != "" {
 		if _, ok := h.Subscribe[h.Field]; ok {

@@ -15,10 +15,8 @@
 # alone, by its app_mention, and message.mpim is never subscribed.
 #
 # There is no notify key in a first version: the wish is to write to the
-# yard, not to be told by it. There is no hear key yet either: hearing
-# is by who speaks, matched against yardr user identity --source slack,
-# which the core learns in a later bead with the hear.by key; until then
-# every verified delivery is kept, as for a source with no hear key.
+# yard, not to be told by it. Hearing is by who speaks, matched against
+# yardr user identity --source slack (the hear key below).
 # There is no link or thread.state: a Slack thread has no status, and a
 # channel message is no bead's link.
 name: slack
@@ -79,6 +77,19 @@ hook:
   # mark in an app_mention reliably tells a group from a channel; it has
   # no group word, and none is promised.
   keys: [channel, team, sender, room]
+
+# ---- who is heard ---------------------------------------------------------
+# A delivery is kept when its sender is a user of the yard, matched by
+# identity: fields.sender holds the member's id, which normalize also
+# sets as actor.id. The core adds fields.speaker for a kept delivery
+# (the yard user's name, or outside where the hook's --unknown word
+# allows an unmapped sender); speaker is the derived filter key for
+# this hear, and stands in no hook.keys above, which names only what
+# normalize may set.
+
+hear:
+  field: sender
+  by: identity
 
 # ---- what the yard does in its threads ------------------------------------
 # One command per thing, each handed its object on stdin and the

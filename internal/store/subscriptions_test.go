@@ -835,3 +835,137 @@ func TestManualGroupSubscriptionIsAMembersOrTheOperators(t *testing.T) {
 		t.Errorf("subscribed event actor = %q, want the pane's actor %q", a, "yardmaster")
 	}
 }
+
+// declarePack declares a shipped pack's source in s.
+func declarePack(t *testing.T, s store.API, pack string) {
+	t.Helper()
+	b, err := os.ReadFile("../../packs/" + pack + "/" + pack + ".yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutSource(context.Background(), pack+".yaml", string(b), "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A subscription may filter on speaker for a source hearing by
+// identity (slack's declaration), and speaker is refused for a source
+// with no identity hearing, telegram's included, by the same word the
+// store refuses any key it may not filter on.
+func TestSpeakerFilterKey(t *testing.T) {
+	ctx := context.Background()
+	s, own := storetest.NewOwned(t)
+	declarePack(t, s, "slack")
+	declarePack(t, s, "telegram")
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "ann"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// Against slack the derived key filters, and a delivery is matched
+	// on the speaker the receiver stamped.
+	if err := s.AddSubscription(ctx, "ann", store.Subscription{Source: "slack", Scope: store.ScopeAll,
+		Where: map[string]string{"speaker": "ada"}}, "ann"); err != nil {
+		t.Fatalf("speaker against slack: %v", err)
+	}
+	seq, dup, err := own.RecordHook(ctx, "slackline", map[string]any{
+		"source": "slack", "type": "message", "action": "create", "hook": "slackline",
+		"fields": map[string]any{"speaker": []any{"ada"}, "sender": []any{"U012"}},
+	}, []byte("x"), nil)
+	if err != nil || dup {
+		t.Fatalf("RecordHook = %d, %v, %v", seq, dup, err)
+	}
+	page, err := s.Inbox(ctx, "ann", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("speaker=ada inbox holds %d, want the ada delivery", page.Total)
+	}
+	if _, _, err := own.RecordHook(ctx, "slackline", map[string]any{
+		"source": "slack", "type": "message", "action": "create", "hook": "slackline",
+		"fields": map[string]any{"speaker": []any{"bo"}, "sender": []any{"U999"}},
+	}, []byte("y"), nil); err != nil {
+		t.Fatal(err)
+	}
+	page, err = s.Inbox(ctx, "ann", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("speaker=ada inbox holds %d after a bo delivery, want still 1", page.Total)
+	}
+	// Against a source with no identity hearing, speaker is refused.
+	for _, src := range []string{"telegram", "linear"} {
+		err := s.AddSubscription(ctx, "ann", store.Subscription{Source: src, Scope: store.ScopeAll,
+			Where: map[string]string{"speaker": "ada"}}, "ann")
+		if err == nil || !strings.Contains(err.Error(), "cannot filter "+src+" on") || !strings.Contains(err.Error(), "speaker") {
+			t.Errorf("speaker against %s = %v, want a refusal naming speaker", src, err)
+		}
+	}
+	// A hook's says may filter on speaker for slack too, through the
+	// same whereKeys.
+}
+
+// A user's identity in a source is one to one: setting another user's
+// to the member id one already holds is refused in the write that
+// sets it, as the terminal runs it and as an approval runs it (the
+// operator), and neither user's identity moves.
+func TestUserIdentityOneToOne(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	declarePack(t, s, "slack")
+	for _, u := range []string{"ada", "bo"} {
+		if _, err := s.AddUser(ctx, u, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetIdentity(ctx, "ada", "slack", store.Identity{ID: "U012"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	// By terminal: bo, as themselves.
+	if err := s.SetIdentity(ctx, "bo", "slack", store.Identity{ID: "U012"}, "bo"); err == nil ||
+		!strings.Contains(err.Error(), "U012 in slack names ada already") {
+		t.Fatalf("second holder by terminal = %v, want a refusal naming ada", err)
+	}
+	// By card alike: the operator, as an approval runs the same write.
+	if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "op", "op"); err != nil {
+		// op may already stand as the first user above; a duplicate
+		// add is not the refusal under test.
+		_ = err
+	}
+	if err := s.SetIdentity(ctx, "bo", "slack", store.Identity{ID: "U012"}, "op"); err == nil ||
+		!strings.Contains(err.Error(), "names ada already") {
+		t.Fatalf("second holder by approval = %v, want a refusal naming ada", err)
+	}
+	// A key that is another's id is the same collision.
+	if err := s.SetIdentity(ctx, "bo", "slack", store.Identity{Key: "U012"}, "bo"); err == nil ||
+		!strings.Contains(err.Error(), "names ada already") {
+		t.Fatalf("second holder by key = %v, want a refusal naming ada", err)
+	}
+	ada, err := s.GetUser(ctx, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ada.Identities["slack"]; got.ID != "U012" {
+		t.Fatalf("ada's slack identity = %+v, want U012 kept", got)
+	}
+	bo, err := s.GetUser(ctx, "bo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bo.Identities["slack"]; ok {
+		t.Fatalf("bo holds a slack identity after refused writes: %+v", bo.Identities)
+	}
+	// Setting one's own again, and removing one, are not refused.
+	if err := s.SetIdentity(ctx, "ada", "slack", store.Identity{ID: "U012"}, "ada"); err != nil {
+		t.Fatalf("own identity again: %v", err)
+	}
+	if err := s.SetIdentity(ctx, "ada", "slack", store.Identity{}, "ada"); err != nil {
+		t.Fatalf("removing own identity: %v", err)
+	}
+	if err := s.SetIdentity(ctx, "bo", "slack", store.Identity{ID: "U012"}, "bo"); err != nil {
+		t.Fatalf("bo after ada removed theirs: %v", err)
+	}
+}

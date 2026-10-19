@@ -268,6 +268,216 @@ printf '%s' '{"type":"message","action":"create","text":"hi"}'
 	}
 }
 
+// ---- hearing by identity -------------------------------------------
+
+const talkNormalize = `#!/bin/sh
+sender=$(cat | sed -n 's/.*"sender": *"\([^"]*\)".*/\1/p')
+printf '{"type":"message","action":"create","text":"hi","actor":{"id":"%s"},"fields":{"sender":["%s"],"channel":["C1"]}}' "$sender" "$sender"
+`
+
+const talkText = `name: talk
+base: https://talk.example.com
+credential: { env: TALK_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { text: { type: string } }
+    request: { method: POST, path: /send, body: { text: "{text}" } }
+hook:
+  verify: { scheme: secret, signature: { header: Talk-Secret } }
+  bodies: unique
+  normalize: [%s]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+`
+
+// identityDepot is a yard like hearDepot's whose source hears by
+// identity: fields.sender holds a member id, matched against a user's
+// identity in talk. unknown is the hook's --unknown word, "" for a
+// hook made without it.
+func identityDepot(t *testing.T, unknown string) *depot {
+	t.Helper()
+	home := t.TempDir()
+	r := newDepot(t)
+	r.home = home
+	r.rc = hooks.NewReceiver(r.own, home, nil)
+	r.rc.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = r.rc.Handler()
+	ctx := context.Background()
+	text := fmt.Sprintf(talkText, "normalize")
+	d, err := source.Parse("talk.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(talkNormalize), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	if _, err := r.st.PutSource(ctx, "talk.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(home, "talk.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "talk", Source: "talk", SecretFile: secretFile, Unknown: unknown}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// talk posts a delivery from the sender to the talk hook.
+func (r *depot) talk(t *testing.T, sender, text string) int {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"sender": sender, "text": text})
+	return r.post(t, "/hooks/talk", body, map[string]string{"Talk-Secret": secret})
+}
+
+func mapTalk(t *testing.T, r *depot, user, id string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := r.st.GetUser(ctx, user); err != nil {
+		if _, err := r.st.AddUser(ctx, user, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.st.SetIdentity(ctx, user, "talk", store.Identity{ID: id}, user); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func speakerOf(t *testing.T, e store.Event) string {
+	t.Helper()
+	fields, _ := e.Data["fields"].(map[string]any)
+	if fields == nil {
+		return ""
+	}
+	switch v := fields["speaker"].(type) {
+	case []any:
+		if len(v) > 0 {
+			s, _ := v[0].(string)
+			return s
+		}
+	case []string:
+		if len(v) > 0 {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// Hearing by identity: a mapped sender is kept with their yard name as
+// speaker, an unmapped one is dropped under unknown with a mapping
+// card offered (no address claim stands for an identity source, so
+// the drop is the record the receiver test holds), kept as outside
+// under allow, and dropped with none under ignore.
+func TestHearByIdentity(t *testing.T) {
+	// Mapped under the default word, and unmapped under it.
+	r := identityDepot(t, "")
+	mapTalk(t, r, "ada", "U012")
+	r.now = time.Now()
+	if code := r.talk(t, "U012", "mapped words"); code != http.StatusOK {
+		t.Fatalf("mapped answered %d", code)
+	}
+	if code := r.talk(t, "U999", "unmapped words"); code != http.StatusOK {
+		t.Fatalf("unmapped answered %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 {
+		t.Fatalf("want 1 hook event, got %d", len(evs))
+	}
+	if got := speakerOf(t, evs[0]); got != "ada" {
+		t.Fatalf("speaker = %q, want ada", got)
+	}
+	actor, _ := evs[0].Data["actor"].(map[string]any)
+	if actor["id"] != "U012" {
+		t.Fatalf("actor = %v, want its id left as the member id", actor)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("stranger count %d, want 1", got)
+	}
+	if h, err := r.st.GetHook(context.Background(), "talk"); err != nil || h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook without --unknown stored %+v %v, want unknown %q", h, err, store.HookUnknownUnknown)
+	}
+
+	// Unmapped under allow is kept as outside.
+	r = identityDepot(t, store.HookUnknownAllow)
+	mapTalk(t, r, "ada", "U012")
+	r.now = time.Now()
+	r.talk(t, "U999", "outside words")
+	evs = r.hookEvents(t)
+	if len(evs) != 1 {
+		t.Fatalf("allow: want 1 hook event, got %d", len(evs))
+	}
+	if got := speakerOf(t, evs[0]); got != store.SpeakerOutside {
+		t.Fatalf("allow: speaker = %q, want %q", got, store.SpeakerOutside)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 0 {
+		t.Fatalf("allow: stranger count %d, want 0", got)
+	}
+
+	// Unmapped under ignore is dropped, with no card offered: no hook
+	// event, and the stranger count the drop's only record besides the
+	// bounded refusal sum.
+	r = identityDepot(t, store.HookUnknownIgnore)
+	mapTalk(t, r, "ada", "U012")
+	r.now = time.Now()
+	r.talk(t, "U999", "ignored words")
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("ignore: want 0 hook events, got %d", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("ignore: stranger count %d, want 1", got)
+	}
+
+	// Each of the three words stores on the hook as given.
+	for _, word := range store.HookUnknowns {
+		rr := identityDepot(t, word)
+		if h, err := rr.st.GetHook(context.Background(), "talk"); err != nil || h.Unknown != word {
+			t.Fatalf("hook with --unknown %s stored %+v %v", word, h, err)
+		}
+	}
+}
+
+// duplicateUsers stands in for a store that already holds an id twice,
+// as one made before the one-to-one write could: hearing reads it as
+// unmapped until one identity is removed.
+type duplicateUsers struct {
+	hooks.Store
+	users []store.User
+}
+
+func (d duplicateUsers) Users(context.Context) ([]store.User, error) { return d.users, nil }
+
+func TestHearByIdentityHeldTwiceIsUnmapped(t *testing.T) {
+	r := identityDepot(t, "")
+	mapTalk(t, r, "ada", "U012")
+	dup := duplicateUsers{Store: r.own, users: []store.User{
+		{Name: "ada", Identities: map[string]store.Identity{"talk": {ID: "U012"}}},
+		{Name: "bo", Identities: map[string]store.Identity{"talk": {ID: "U012"}}},
+	}}
+	rc2 := hooks.NewReceiver(dup, r.home, nil)
+	rc2.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = rc2.Handler()
+	r.rc = rc2
+	r.now = time.Now()
+	if code := r.talk(t, "U012", "ambiguous words"); code != http.StatusOK {
+		t.Fatalf("answered %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("an id held twice was heard: %d hook events", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("stranger count %d, want 1", got)
+	}
+}
+
 // A user whose address cannot be read hears nothing: the delivery is
 // dropped, never answered with an error the service would retry.
 func TestHearUnreadableAddressDrops(t *testing.T) {

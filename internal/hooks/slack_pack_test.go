@@ -75,10 +75,8 @@ func slackDecl(t *testing.T) (hooks.Declared, string) {
 // header, the whoami check call with its select and the post call, a hook
 // verified over v0:{timestamp}:{body} with the url_verification challenge
 // answered after verification, the channel, team, sender and room keys,
-// and thread commands to answer in the thread. No notify key: a first
-// version cannot tell through Slack. No hear key yet either: hearing by
-// who speaks lands with the hear.by key in a later bead, so until then
-// every verified delivery is kept.
+// hearing by identity on the sender field, and thread commands to answer
+// in the thread. No notify key: a first version cannot tell through Slack.
 func TestSlackPackDeclaration(t *testing.T) {
 	d, _, _ := slackParse(t)
 	if d.Name != "slack" {
@@ -144,8 +142,8 @@ func TestSlackPackDeclaration(t *testing.T) {
 	if d.Notify != nil {
 		t.Errorf("the pack declares a notify key: a first version cannot tell through Slack: %+v", d.Notify)
 	}
-	if d.Hear != nil {
-		t.Errorf("the pack declares a hear key: hearing by who speaks lands with hear.by in a later bead: %+v", d.Hear)
+	if h := d.Hear; h == nil || h.Field != "sender" || h.By != source.HearByIdentity || h.Address.Env != "" || h.From != "" {
+		t.Errorf("hear = %+v, want field sender by identity", d.Hear)
 	}
 }
 

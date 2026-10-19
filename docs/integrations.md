@@ -1016,6 +1016,30 @@ hear:
   subscribe: { type: message }
 ```
 
+A source may instead hear by who speaks: `by: identity` in place of
+the address, with no `address` and no `from`.
+
+```yaml
+hear:
+  field: sender
+  by: identity
+```
+
+`fields[field]` must then hold a member id that is some user's
+identity in the source (`yardr user identity <user> --source <source>
+--id <id>`); the mapping is the consent to be heard, one id naming
+one user, written one to one. A kept delivery carries
+`fields.speaker`: the yard user's name, or `outside` for an unmapped
+sender a hook allows (below). `speaker` is a key subscriptions to the
+source may filter on, derived by the yard and set by no normalize
+script, so it stands in no `hook.keys`; the envelope's actor is left
+as the source gave it. What an unmapped sender is, is the hook's, not
+the declaration's: `yardr hook add <name> --source <source>
+--unknown unknown|allow|ignore` (unknown without the flag) drops one
+until the operator maps them, hears one as `outside`, or drops one
+with no card offered. A source with no identity hearing refuses
+`--unknown`, and refuses `speaker` as a filter key.
+
 `fields[field]` must hold the address a user's env file sets under
 `address.env`, read as telling reads it; setting the address is the
 consent to be heard, and telling is a separate choice. `from` narrows
@@ -1053,11 +1077,13 @@ heard, and telling another through telegram tells them but hears
 nothing back, as does setting another user's address; its `subscribe`
 says `type: message`, so the hearer hears messages and not the chat's
 other Updates. Refused: a `hear`
-without a `hook` key or a `notify` key; a field that is no key of
-`hook.keys`; an address that is not the one `notify` reads; a `from`
-that is not `operator`; a `subscribe` that is no mapping, names the
-field the claim sets itself, or names a key no subscription to the
-source takes. A pack of kind `source` may bring the key; a
+without a `hook` key; hearing by address without a `notify` key; a
+field that is no key of `hook.keys`; `by: identity` with an
+`address` or a `from`, or a `by` that is no way the yard hears; an
+address that is not the one `notify` reads; a `from` that is not
+`operator`; a `subscribe` that is no mapping, names the field the
+claim sets itself, or names a key no subscription to the source
+takes. A pack of kind `source` may bring the key; a
 pack for a depot brings no `hear` key, as it brings no `hook` key.
 
 #### Pull requests and CI

@@ -433,7 +433,7 @@ var runList = []runCommand{{
 	runRun:      runPackApply,
 }, {
 	words:       []string{"hook", "add"},
-	use:         "yardr hook add <name> --source <declared source>",
+	use:         "yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]",
 	description: "Create a webhook endpoint POST /hooks/<name> (a replacement stays in a terminal)",
 	parse:       parseHookAdd,
 	check:       checkHookAdd,

@@ -231,14 +231,14 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":                                            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
-		"yardr source add <file>":                                       {"source add " + addedFile},
-		"yardr pack apply <name>":                                       {"pack apply telegram"},
-		"yardr hook add <name> --source <declared source>":              {"hook add linear --source linear"},
-		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]": {"subscribe jo yardr --where label=ui --done --where label=web"},
-		"yardr user set <user> tell=<parts>":                            {"user set jo tell=asks,notifications"},
-		"yardr user key <user> <source>":                                {"user key jo pushover"},
-		"yardr user add <name>":                                         {"user add eve"},
-		"yardr user rm <name>":                                          {"user rm ada"},
+		"yardr source add <file>": {"source add " + addedFile},
+		"yardr pack apply <name>": {"pack apply telegram"},
+		"yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]": {"hook add linear --source linear"},
+		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                     {"subscribe jo yardr --where label=ui --done --where label=web"},
+		"yardr user set <user> tell=<parts>":                                                {"user set jo tell=asks,notifications"},
+		"yardr user key <user> <source>":                                                    {"user key jo pushover"},
+		"yardr user add <name>":                                                             {"user add eve"},
+		"yardr user rm <name>":                                                              {"user rm ada"},
 		"yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>": {
 			"crew set yardmaster peers=airy",
 		},
@@ -330,7 +330,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			// yard it is given on its card, and at a terminal it stands
 			// in the file the command names.
 			var typedSecret string
-			if use == "yardr hook add <name> --source <declared source>" {
+			if use == "yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]" {
 				secretSeq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "The signing secret for it?", To: "jo",
 					Context: []string{"why"}, Secret: &store.AskSecret{Source: "linear", Hook: "linear"}}, "yardmaster")
 				if err != nil {

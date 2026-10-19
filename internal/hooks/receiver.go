@@ -171,28 +171,59 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	env.Delivery = delivery
 	deriveTrain(env)
-	// A declared source that hears only the addresses its users' env files
-	// set drops a delivery from any other after verification: answered
-	// 200, so the service does not retry it, recorded nowhere, and
-	// counted in sums beside refusals, so a stranger's burst is one
-	// bounded entry.
-	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil && !rc.hears(r.Context(), dec.D, env) {
-		rc.count("stranger")
-		rc.refuse(h, name, "stranger", http.StatusOK)
-		// Offer the operator a claim for the address it arrived from:
-		// the person wrote to the service, and confirming the card is
-		// how the yard learns their address. A claim that cannot be
-		// offered (no operator, one waiting already, an address set
-		// since) leaves the drop as it was, answered 200 either way.
-		if field, _, ok := dec.D.ClaimAddress(); ok {
-			if values := env.Fields[field]; len(values) > 0 && values[0] != "" {
-				if _, err := rc.st.ClaimAddress(r.Context(), dec.D.Name, values[0], env.Text); err != nil {
-					rc.log.Warn("address claim not offered", "hook", name, "source", dec.D.Name, "err", err)
+	// A declared source that hears drops a delivery from a speaker it
+	// does not hear after verification: answered 200, so the service
+	// does not retry it, recorded nowhere, and counted in sums beside
+	// refusals, so a stranger's burst is one bounded entry. By address
+	// that is any address no user's env file sets; by identity it is
+	// the hook's Unknown word that says what an unmapped sender is.
+	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil {
+		if dec.D.Hear.ByIdentity() {
+			speaker, mapped := rc.speaker(r.Context(), dec.D, env)
+			switch {
+			case mapped:
+				stampSpeaker(env, speaker)
+			case h.UnknownPolicy() == store.HookUnknownAllow:
+				stampSpeaker(env, store.SpeakerOutside)
+			default:
+				rc.count("stranger")
+				rc.refuse(h, name, "stranger", http.StatusOK)
+				if h.UnknownPolicy() == store.HookUnknownUnknown {
+					// Offer the operator a card for the sender it
+					// arrived from. An identity source claims no
+					// address (ClaimAddress is address hearing's),
+					// so this offer stands where the mapping card
+					// of a later bead is offered; where none can
+					// be offered the drop stands as it was,
+					// answered 200 either way. Under ignore no
+					// card is offered at all.
+					if values := env.Fields[dec.D.Hear.Field]; len(values) > 0 && values[0] != "" {
+						if _, err := rc.st.ClaimAddress(r.Context(), dec.D.Name, values[0], env.Text); err != nil {
+							rc.log.Warn("address claim not offered", "hook", name, "source", dec.D.Name, "err", err)
+						}
+					}
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+				return
+			}
+		} else if !rc.hears(r.Context(), dec.D, env) {
+			rc.count("stranger")
+			rc.refuse(h, name, "stranger", http.StatusOK)
+			// Offer the operator a claim for the address it arrived from:
+			// the person wrote to the service, and confirming the card is
+			// how the yard learns their address. A claim that cannot be
+			// offered (no operator, one waiting already, an address set
+			// since) leaves the drop as it was, answered 200 either way.
+			if field, _, ok := dec.D.ClaimAddress(); ok {
+				if values := env.Fields[field]; len(values) > 0 && values[0] != "" {
+					if _, err := rc.st.ClaimAddress(r.Context(), dec.D.Name, values[0], env.Text); err != nil {
+						rc.log.Warn("address claim not offered", "hook", name, "source", dec.D.Name, "err", err)
+					}
 				}
 			}
+			writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
-		return
 	}
 	// Dedupe after Verify, so only the source can claim a body or a
 	// delivery id; the store checks and records the keys in the write that
@@ -250,6 +281,56 @@ func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
 		d, _ = src.Declaration()
 	}
 	return AdapterFor(name, d, rc.home)
+}
+
+// stampSpeaker records who a kept delivery was heard from, as the
+// core derives an envelope's train: fields.speaker holds the yard
+// user's name, or SpeakerOutside for an unmapped sender kept under
+// allow. No normalize script sets it, and the envelope's actor is
+// left as the source gave it.
+func stampSpeaker(env *Envelope, speaker string) {
+	if env.Fields == nil {
+		env.Fields = map[string][]string{}
+	}
+	env.Fields[store.SpeakerKey] = []string{speaker}
+}
+
+// speaker is who a delivery heard by identity was heard from: the one
+// user whose identity in this source the value of fields[field] is
+// (User.IsIn read over every user). mapped is false for a sender no
+// user maps, for one whose id two users hold already (an ambiguous id
+// names nobody until one identity is removed), for a delivery with
+// no field to read, and for a yard whose users are unreadable: each
+// is unmapped, and the hook's Unknown word says what happens then.
+func (rc *Receiver) speaker(ctx context.Context, d *source.Declaration, env *Envelope) (speaker string, mapped bool) {
+	values := env.Fields[d.Hear.Field]
+	if len(values) == 0 {
+		return "", false
+	}
+	users, err := rc.st.Users(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		var holders []string
+		for _, u := range users {
+			if u.IsIn(d.Name, v) && !slices.Contains(holders, u.Name) {
+				holders = append(holders, u.Name)
+			}
+		}
+		switch len(holders) {
+		case 1:
+			return holders[0], true
+		case 0:
+			continue
+		default:
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // hears reports whether the delivery's envelope carries an address a

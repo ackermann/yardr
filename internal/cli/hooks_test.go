@@ -118,6 +118,52 @@ func TestHookListShowsBlocked(t *testing.T) {
 	}
 }
 
+// hook add takes --unknown for a source hearing by identity: without
+// it the hook stores unknown, with each word that word, and a word for
+// a source with no identity hearing is refused with nothing saved.
+func TestHookAddUnknown(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "me"}
+	ctx := context.Background()
+	for _, pack := range []string{"slack", "telegram"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "packs", pack, pack+".yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutSource(ctx, pack+".yaml", string(b), "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := filepath.Join(t.TempDir(), "s.secret")
+	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "slackline", "--source", "slack", "--secret-file", f); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := st.GetHook(ctx, "slackline"); err != nil || h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook without --unknown = %+v %v", h, err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "slackok", "--source", "slack", "--secret-file", f, "--unknown", "allow"); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := st.GetHook(ctx, "slackok"); err != nil || h.Unknown != store.HookUnknownAllow {
+		t.Fatalf("hook with --unknown allow = %+v %v", h, err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "tg", "--source", "telegram", "--secret-file", f, "--unknown", "allow"); err == nil ||
+		!strings.Contains(err.Error(), "for a source with no identity hearing") {
+		t.Fatalf("hook add --unknown for telegram = %v", err)
+	}
+	if _, err := st.GetHook(ctx, "tg"); err == nil {
+		t.Fatal("a refused hook add saved the hook")
+	}
+	for _, c := range a.hookCmd().Commands() {
+		if c.Name() == "add" && c.Flags().Lookup("unknown") == nil {
+			t.Fatal("hook add has no --unknown flag")
+		}
+	}
+}
+
 // hook add takes the crew member to act as and the map; list and show print
 // them, and what cannot be acted on is refused with nothing saved.
 func TestHookAddMap(t *testing.T) {
