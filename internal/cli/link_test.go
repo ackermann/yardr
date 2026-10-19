@@ -62,6 +62,7 @@ func link(t *testing.T, a *app, args ...string) (string, error) {
 // the first; link move hands the issue to a train; a bead tracks one Linear
 // and one GitHub issue, never two of one.
 func TestLinkCommands(t *testing.T) {
+	t.Parallel()
 	a, st, _ := linkYard(t)
 	ctx := context.Background()
 	const lin, gh = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7"
@@ -153,6 +154,7 @@ func TestLinkCommands(t *testing.T) {
 // link. A delivery that is no issue's (a pull request, a token source's)
 // links nothing.
 func TestLinkByDelivery(t *testing.T) {
+	t.Parallel()
 	a, st, own := linkYard(t)
 	ctx := context.Background()
 	const lin = "https://linear.app/acme/issue/YRD-1"
@@ -222,6 +224,7 @@ func TestLinkByDelivery(t *testing.T) {
 // creates it, so a refused link creates no bead; bead show lists the links
 // with kind, source and URL, and --json has them as links.
 func TestBeadCreateAndShowLinks(t *testing.T) {
+	t.Parallel()
 	a, st, _ := linkYard(t)
 	ctx := context.Background()
 	const lin, gh = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7"
@@ -330,6 +333,7 @@ calls:
 // which the link is of; without it a hooked one wins over one with no
 // hook, else the first as the yard lists them.
 func TestLinkSourceFlagAndDefault(t *testing.T) {
+	t.Parallel()
 	a, st, own := linkYard(t)
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "gh-declared.yaml", ghDeclared, "me"); err != nil {
@@ -388,6 +392,7 @@ func TestLinkSourceFlagAndDefault(t *testing.T) {
 // back undoes it. A bead that would then track two issues refuses the
 // whole move, and sources on different hosts are refused.
 func TestLinkMoveSource(t *testing.T) {
+	t.Parallel()
 	a, st, _ := linkYard(t)
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "lin-declared.yaml", linDeclared, "me"); err != nil {

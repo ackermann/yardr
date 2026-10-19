@@ -174,8 +174,7 @@ func openYard(t *testing.T, allowed, ghBase string) (*app, store.API, *store.Sto
 	// The token alone: an App in the environment goes before it, and
 	// TestMain leaves none.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
-	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}, st, own, dir
+	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}, env: testEnv(t, "", "YARDR_CREW=yardmaster")}, st, own, dir
 }
 
 // acmeIssues is how many issues acme's open left in dir, one per key.
@@ -406,7 +405,7 @@ func TestThreadOpenRefusals(t *testing.T) {
 	refused("crew member ghost", "github", "--in", "Acme/webapp", "Train", "--crew", "ghost")
 
 	// A bead's agent, or another crew member, naming it with --crew.
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	a.actor = "yard-10-new"
 	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
 		"github", "--in", "Acme/webapp", "Train", "--crew", "yardmaster")

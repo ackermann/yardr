@@ -492,8 +492,9 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 // The import only adds: a source the crew member may open threads in by hand
 // stays through a yes, a no, and a pack that does not ask at all.
 func TestPackApplyOnlyAddsToOpenThreads(t *testing.T) {
+	t.Parallel()
 	a := openApp(t, "linear")
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if _, err := a.st.AllowOpening(ctx, "boss", []string{"github"}, "", "me"); err != nil {
 		t.Fatal(err)

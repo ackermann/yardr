@@ -46,6 +46,7 @@ func keyFrom(t *testing.T, a *app, stdin string, args ...string) (string, error)
 // set and never a value. One name of two is written and what is missing
 // is said; a second giving completes it and keeps the first.
 func TestSourceKeyFromAPipe(t *testing.T) {
+	t.Parallel()
 	a, _, file := keyYard(t)
 	out, err := keyFrom(t, a, "# from the vault\nCRM_TOKEN=s3cret-read\n", "crm")
 	if err != nil {
@@ -177,6 +178,7 @@ func TestSourceKeyTyped(t *testing.T) {
 // is said by yardr source show, with the two ways out; the giving takes
 // it up and keeps its other lines.
 func TestSourceShowSaysAFileThatIsNotSet(t *testing.T) {
+	t.Parallel()
 	a, _, file := keyYard(t)
 	out, err := run(t, a.sourceCmd(), "show", "crm")
 	if err != nil || !strings.Contains(out, "credential: CRM_TOKEN is not set up: yardr source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN") {
@@ -207,6 +209,7 @@ func TestSourceShowSaysAFileThatIsNotSet(t *testing.T) {
 // A server that dies during the giving: source key says the words every
 // client says of one, never the transport's error and never the value.
 func TestSourceKeyWithoutAnAnswer(t *testing.T) {
+	t.Parallel()
 	a, st, _ := keyYard(t)
 	a.st = dyingClient(t, st, "KeySource")
 	out, err := keyFrom(t, a, "CRM_TOKEN=s3cret-read\n", "crm")

@@ -62,6 +62,7 @@ type runWriterFunc func([]byte) (int, error)
 func (f runWriterFunc) Write(p []byte) (int, error) { return f(p) }
 
 func TestRunPreservesUncomparablePresetWriter(t *testing.T) {
+	t.Parallel()
 	var got bytes.Buffer
 	c := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
 		_, err := fmt.Fprintln(c.OutOrStdout(), "preset")
@@ -86,6 +87,7 @@ func TestRunPreservesUncomparablePresetWriter(t *testing.T) {
 // runs, and what the command says on its error stream is not in what run
 // returns.
 func TestRunLeavesTheProcessStreamsAlone(t *testing.T) {
+	t.Parallel()
 	stdout, stderr := os.Stdout, os.Stderr
 	c := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
 		if os.Stdout != stdout || os.Stderr != stderr {
@@ -108,6 +110,7 @@ func TestRunLeavesTheProcessStreamsAlone(t *testing.T) {
 // bead update refuses a pin naming no flow, rather than store it and fail
 // later, when dispatch or a move resolves it.
 func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"); err != nil {
@@ -148,6 +151,7 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 // show, prime and review still work for a bead whose flow does not
 // resolve, and say why next to it.
 func TestBrokenFlowStillShown(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, "")
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "stuck", Depot: "yard", Stage: "decide"}, "me")
 	if err != nil {
@@ -185,6 +189,7 @@ func TestBrokenFlowStillShown(t *testing.T) {
 // dep add -k parent adds the child's blocks edge to its train too, and says
 // so; dep rm -k parent takes both away.
 func TestDepAddParentPairsBlocks(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -222,6 +227,7 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 // that edge, and without it a staged edge stays. The stage must be one of
 // the target's flow, and --at is refused for any other kind.
 func TestDepAddAtStagesTheEdge(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -310,6 +316,7 @@ func TestDepAddAtStagesTheEdge(t *testing.T) {
 // The stage must be one of the blocker's flow, and --until is refused for
 // any other kind.
 func TestDepAddUntilStagesTheEdge(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -417,6 +424,7 @@ func TestDepAddUntilStagesTheEdge(t *testing.T) {
 // column after the bead, and in --json; bead list --train lists one train's
 // family; bead show --json still carries the train.
 func TestListingsShowTheTrain(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -546,6 +554,7 @@ func TestListingsShowTheTrain(t *testing.T) {
 // says so on both beads, in text and JSON, and bead list --discovered-from
 // lists what a bead led to. An unknown origin creates nothing.
 func TestBeadDiscoveredFrom(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -677,6 +686,7 @@ func (o *oldServer) CreateBead(ctx context.Context, nb store.NewBead, actor stri
 // Against a server from before the flag, bead create --discovered-from
 // creates nothing rather than a bead without its edge.
 func TestDiscoveredFromRefusesAnOlderServer(t *testing.T) {
+	t.Parallel()
 	st := &oldServer{API: storetest.New(t)}
 	ctx := context.Background()
 	if _, err := st.API.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the origin"}, "me"); err != nil {
@@ -698,6 +708,7 @@ func TestDiscoveredFromRefusesAnOlderServer(t *testing.T) {
 // Against a server from before the flag, bead create --for creates
 // nothing rather than a bead billed to the operator's subscription.
 func TestCreateForRefusesAnOlderServer(t *testing.T) {
+	t.Parallel()
 	st := &oldServer{API: storetest.New(t)}
 	a := &app{st: st, actor: "me"}
 	if _, err := run(t, a.beadCmd(), "create", "for hal", "--for", "hal"); err == nil || !strings.Contains(err.Error(), "no such method") {
@@ -711,6 +722,7 @@ func TestCreateForRefusesAnOlderServer(t *testing.T) {
 // bead create --for names the user the bead is for, and bead show prints
 // it beside the owner; an unknown --for is refused and creates nothing.
 func TestBeadCreateFor(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
@@ -750,6 +762,7 @@ func TestBeadCreateFor(t *testing.T) {
 
 // bead show --json carries the originator.
 func TestBeadShowOriginatorJSON(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
@@ -779,6 +792,7 @@ func TestBeadShowOriginatorJSON(t *testing.T) {
 // bead update --originator is the operator's to change: anyone else is
 // refused, and the bead keeps its originator.
 func TestBeadUpdateOriginator(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
@@ -809,6 +823,7 @@ func TestBeadUpdateOriginator(t *testing.T) {
 // an unknown blocker leaves no bead for bead list and ready to show, and
 // several blockers are all there when the bead is.
 func TestBeadCreateBlockedBy(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	for _, id := range []string{"yd-1", "yd-2"} {
@@ -849,6 +864,7 @@ func TestBeadCreateBlockedBy(t *testing.T) {
 // bead create refuses an empty title and one of only spaces, and creates
 // nothing; bead update refuses to set one the same way (yardr-0fbd).
 func TestBeadRefusesAnEmptyTitle(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "titled"}, "me")
@@ -876,6 +892,7 @@ func TestBeadRefusesAnEmptyTitle(t *testing.T) {
 // Against a server from before NewBead.BlockedBy, bead create --blocked-by
 // creates nothing rather than a bead a route could hand out unblocked.
 func TestBlockedByRefusesAnOlderServer(t *testing.T) {
+	t.Parallel()
 	st := &oldServer{API: storetest.New(t)}
 	ctx := context.Background()
 	if _, err := st.API.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "a blocker"}, "me"); err != nil {
@@ -896,6 +913,7 @@ func TestBlockedByRefusesAnOlderServer(t *testing.T) {
 // prints as before. bead note says what it wrote: the bead and the note's
 // seq.
 func TestBeadShowPrintsNotes(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed", Body: "two coats"}, "me"); err != nil {
@@ -1017,6 +1035,7 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 // this yard's own carries neither, and --json names the author as the
 // note has it.
 func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
@@ -1112,6 +1131,7 @@ func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
 // bead show lists one author for it; and what would move the cursor back
 // over that line never reaches the terminal.
 func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed"}, "me"); err != nil {
@@ -1149,6 +1169,7 @@ func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
 // in it folds into the bead's own row, as letters only. Escape sequences
 // reach no terminal; the words stay.
 func TestBeadListTitleCannotForgeARow(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -1179,6 +1200,7 @@ func TestBeadListTitleCannotForgeARow(t *testing.T) {
 // estimate stands under the eta line: both are printed on the writer
 // printBeadFlow is given, with no store to read them from.
 func TestPrintBeadFlowMarksAHeldBeadAndItsLateStage(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	b := &store.Bead{ID: "yd-1", Title: "the shed", Type: "task", Stage: "new", Status: "open", Hold: true}
 	est := &eta.Result{

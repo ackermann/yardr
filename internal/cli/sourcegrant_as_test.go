@@ -16,6 +16,7 @@ import (
 // show, crew show and group list say "as <user>" for who may call, and
 // revoke by the same words takes only that grant back.
 func TestSourceGrantAs(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {

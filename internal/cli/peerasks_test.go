@@ -15,6 +15,7 @@ import (
 // out, when a crew asker lacks the peer in its peers setting, and when
 // the asker is a bead's agent.
 func TestBeadAskAcrossYards(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -108,6 +109,7 @@ func TestBeadAskAcrossYards(t *testing.T) {
 // yardr peer allow --send ask warns as for other kinds when the peer has
 // not said it understands ask, and allows all the same.
 func TestPeerAllowSendAskWarns(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -137,6 +139,7 @@ func TestPeerAllowSendAskWarns(t *testing.T) {
 // mail is: a stranger's until the name is trusted, that user's word
 // after.
 func TestBeadAnswerForeign(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	ctx := context.Background()
@@ -241,6 +244,7 @@ func TestBeadAnswerForeign(t *testing.T) {
 // line break, so the answer's confirmation folds it to one line: a forged
 // second line must not stand at the margin as the yard's own.
 func TestBeadAnswerForeignQuestionOneLine(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	ctx := context.Background()

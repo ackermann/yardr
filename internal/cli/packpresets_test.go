@@ -45,6 +45,7 @@ const presetShowText = `presets of pack acme-pack (the pack's suggested grants, 
 // file order, each with the words it grants of each source; --json
 // carries them as data.
 func TestPackShowPrintsPresets(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	dir := setupPack(t)
 	addPresets(t, dir)
@@ -85,6 +86,7 @@ func TestPackShowPrintsPresets(t *testing.T) {
 // A pack with presets but no setup notes says it has none, then prints
 // the presets.
 func TestPackShowPresetsWithoutNotes(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	dir := kindPack(t)
 	addPresets(t, dir)
@@ -100,6 +102,7 @@ func TestPackShowPresetsWithoutNotes(t *testing.T) {
 // pack check reports a preset's mistakes with file, line and key, as any
 // mistake of the pack.
 func TestPackCheckReportsPresetMistakes(t *testing.T) {
+	t.Parallel()
 	dir := kindPack(t)
 	file := filepath.Join(dir, "pack.yaml")
 	text, err := os.ReadFile(file)

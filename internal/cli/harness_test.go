@@ -17,7 +17,7 @@ import (
 // kind herdr does not start.
 func TestHarnessListAndShow(t *testing.T) {
 	user := noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
 		t.Helper()
@@ -147,7 +147,7 @@ func TestHarnessListAndShow(t *testing.T) {
 // file names none carries none.
 func TestDoctorOffers(t *testing.T) {
 	newHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
@@ -184,7 +184,7 @@ func TestDoctorOffers(t *testing.T) {
 // herdr carry neither.
 func TestDoctorHarnessLabels(t *testing.T) {
 	newHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)

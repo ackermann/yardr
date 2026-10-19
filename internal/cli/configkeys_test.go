@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,6 +75,7 @@ func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 // setting nothing reads. It opens and runs as it did, and doctor notes
 // each with how it is removed: notes, no faults (yardr-3wt9).
 func TestDoctorNotesWhatNothingReads(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	old, err := store.Open(path)
@@ -98,9 +98,12 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 	storetest.OldConfig(t, path, "settings", "", "hook_adr", "4")
 	st := storetest.Open(t, path)
 
+	// The yard's environment first, so the runs below read it: the home
+	// the process names, snapshotted as the yard's own.
+	home := yardEnv(t, st)["YARDR_HOME"]
 	rep, _ := doctorJSON(t, st)
 	// The commands as they are typed for this home.
-	y := yardrAt(os.Getenv("YARDR_HOME"))
+	y := yardrAt(home)
 	want := []string{
 		`group agents: herdr runner needs config.cleanup as true or false, got the JSON string "no". Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`group agents: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, login_for, max_age, model, prompt, provider, stall, still, trust, worktrees. Change it: yardr group set agents <key>=<value>, or --unset <key>`,
@@ -142,6 +145,7 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 // the group itself, with no check of the CLI's before it: the store's is
 // the one it meets.
 func TestGroupFormMeetsTheStoresCheck(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	g := groupAnswers{Name: "agents", Runner: "herdr", Kind: "claude", Limit: "1", Other: map[string]any{"idel": "5m"}}.group()
 	if err := st.PutGroup(context.Background(), g, "jo"); err == nil || !strings.Contains(err.Error(), `group agents: unknown config key "idel"`) {

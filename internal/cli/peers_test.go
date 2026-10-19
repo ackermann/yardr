@@ -99,6 +99,7 @@ func cliEnv(t *testing.T, yards ...*cliYard) {
 // time; a key file open to others is refused. The invite carries the
 // yard's name, that key and the URL when one is given.
 func TestPeerKeyAndInvite(t *testing.T) {
+	t.Parallel()
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	first := strings.TrimSpace(y.must(t, "key"))
@@ -143,6 +144,7 @@ func TestPeerKeyAndInvite(t *testing.T) {
 // operator's to say: a crew member's session, and a bead's agent, are refused
 // peer add, peer allow and peer rm. Anyone may stop a kind.
 func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -235,6 +237,7 @@ func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
 // A peer that is never called, on a yard with no listener, cannot be heard
 // at all, and show says so.
 func TestPeerShowSaysNoListenerNoIncoming(t *testing.T) {
+	t.Parallel()
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
 	cliEnv(t, north, laptop)
 	invite := strings.TrimSpace(laptop.must(t, "invite"))
@@ -257,6 +260,7 @@ func TestPeerShowSaysNoListenerNoIncoming(t *testing.T) {
 // took and which way each went; with nothing to carry it, it says what is
 // missing.
 func TestPeerPing(t *testing.T) {
+	t.Parallel()
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
 	cliEnv(t, north, laptop)
 	// north can be called, laptop cannot.
@@ -315,6 +319,7 @@ func TestPeerPing(t *testing.T) {
 // and what keeps their messages from crossing: no key, no listener for a
 // peer that must call, messages given up, mail taken for nobody.
 func TestDoctorPeers(t *testing.T) {
+	t.Parallel()
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	ctx := context.Background()
@@ -442,6 +447,7 @@ func TestPeerShowExposes(t *testing.T) {
 // peer allow --send warns, and allows all the same, for a kind the peer has
 // not said it understands.
 func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -509,6 +515,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 // the outcome and both stages, and for every depot the flow governs. A
 // flow whose peer outcomes all lead to agents or people gets none.
 func TestDoctorPeerLandings(t *testing.T) {
+	t.Parallel()
 	y := newCLIYard(t, "laptop")
 	ctx := context.Background()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))

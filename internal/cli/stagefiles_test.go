@@ -74,6 +74,7 @@ func stageYard(t *testing.T) (a *app, repo, home string, git func(args ...string
 // A file on a branch is not shown, and without stage files prime prints
 // what it did before.
 func TestPrimeShowsTheStageFile(t *testing.T) {
+	t.Parallel()
 	a, repo, home, git, write := stageYard(t)
 	ctx := context.Background()
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "api2"}, "me"); err != nil {
@@ -163,6 +164,7 @@ func TestPrimeShowsTheStageFile(t *testing.T) {
 // prime shows the stage file without its ## Ask section; --json keeps the
 // whole file.
 func TestPrimeLeavesOutTheAskSection(t *testing.T) {
+	t.Parallel()
 	a, repo, _, git, write := stageYard(t)
 	ctx := context.Background()
 	text := "Read the whole diff.\n\n## Ask\nkind: choice\nquestion: Where next?\ncontext:\n- The diff is green.\ndone: Merge it.\nchanges: Send it back.\n"
@@ -204,6 +206,7 @@ func TestPrimeLeavesOutTheAskSection(t *testing.T) {
 // flow show says, per stage, whether it has a stage file: for a depot's
 // flows in the FILE column, for a named flow with where its files live.
 func TestFlowShowNamesStageFiles(t *testing.T) {
+	t.Parallel()
 	a, repo, home, git, write := stageYard(t)
 	write(repo, map[string]string{".yardr/flows/default/review.md": "Read the diff.\n"})
 	git("add", "-A")
@@ -258,6 +261,7 @@ func TestFlowShowNamesStageFiles(t *testing.T) {
 // file: one that does not parse, or whose outcomes do not resolve under the
 // flow. A valid template warns of nothing.
 func TestFlowShowWarnsOfBrokenAskTemplate(t *testing.T) {
+	t.Parallel()
 	a, repo, home, git, write := stageYard(t)
 	write(repo, map[string]string{
 		".yardr/flows/default/review.md":    "Read the diff.\n\n## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n",
@@ -329,6 +333,7 @@ func TestFlowShowWarnsOfBrokenAskTemplate(t *testing.T) {
 // to no stage, under the flow whose directory it is in: a typo in the name,
 // or a directory with no flow file beside it. One on a branch is not read.
 func TestFlowShowWarnsOfStrayStageFilesOnTheBase(t *testing.T) {
+	t.Parallel()
 	a, repo, _, git, write := stageYard(t)
 	git("checkout", "-q", "-b", "yard/x")
 	write(repo, map[string]string{".yardr/flows/default/reveiw.md": "typo\n"})

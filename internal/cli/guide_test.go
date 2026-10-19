@@ -589,8 +589,9 @@ func TestSetupWithoutForms(t *testing.T) {
 // login as optional; before that it lists nothing of it, and never a todo
 // that would hold the setup open.
 func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	st := storetest.New(t)
 	testYard(t, st, home)
 	ctx := context.Background()
@@ -702,6 +703,7 @@ func TestDepotNameFor(t *testing.T) {
 // its prompt: the steps name no role. Every step the import does names the
 // one command, with the pack for the depot's kind.
 func TestStepsGoByRoutes(t *testing.T) {
+	t.Parallel()
 	s := setupState{depots: []store.Depot{{Name: "docs", Kind: store.DepotDir}, {Name: "web", Kind: store.DepotGit}},
 		pointed: map[string]string{"docs": "dir.default", "web": "starter.default"}}
 	byKey := func() map[string]setupStep {

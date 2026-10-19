@@ -26,7 +26,7 @@ func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
+	a := &app{st: st, actor: "me", env: testEnv(t, home)}
 	// The yard as the build before made it and the store's upgrade left it.
 	dir := filepath.Join(home, "roles")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -83,6 +83,7 @@ func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
 // (yardr-4c01 dropped the last), so one that help does not list is one
 // nobody was told of.
 func TestHelpListsEveryCommandAndFlag(t *testing.T) {
+	t.Parallel()
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		if c.Hidden {

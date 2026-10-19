@@ -65,8 +65,9 @@ func yardOf(t *testing.T, a *app) string {
 // the flow and every role. A second run changes nothing and keeps the test
 // command, whoever set it.
 func TestDepotInitPack(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	before := snapshot(t, repo)
 	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
 	out, err := run(t, a.depotCmd(), args...)
@@ -248,8 +249,9 @@ func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 // --yes. A repository that does not say how it is tested gets none, and is
 // told how to set one.
 func TestDepotInitPackTestAlone(t *testing.T) {
+	t.Parallel()
 	a, _ := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -295,8 +297,9 @@ func TestDepotInitPackTestAlone(t *testing.T) {
 // for the role files it once wrote into a depot. (A pack for the other kind
 // of depot: TestDepotInitPackIsForTheDepotsKind.)
 func TestDepotInitPackRefusals(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := t.TempDir()
 	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
@@ -332,12 +335,13 @@ func TestDepotInitPackRefusals(t *testing.T) {
 // the pack could use once, as optional, with the command that sets it up;
 // no step calls one "missing".
 func TestDepotInitSaysUnusedSourcesOnceAsOptional(t *testing.T) {
+	t.Parallel()
 	a, _, _, _, _ := stageYard(t)
 	// The import runs as the operator, as an operator's import does.
 	if err := a.st.SetSetting(context.Background(), store.OperatorSetting, "me", "me"); err != nil {
 		t.Fatal(err)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
 	out, err := run(t, a.depotCmd(), args...)
 	if err != nil {
@@ -376,8 +380,9 @@ func TestDepotInitSaysUnusedSourcesOnceAsOptional(t *testing.T) {
 // declared but no hook, the hook, identity and credential are "missing",
 // not "optional".
 func TestDepotInitKeepsMissingForASourceTheYardHas(t *testing.T) {
+	t.Parallel()
 	a, _ := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
 	out, err := run(t, a.depotCmd(), args...)
 	if err != nil {

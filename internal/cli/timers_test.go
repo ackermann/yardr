@@ -24,6 +24,7 @@ func timerUserYard(t *testing.T) store.API {
 // yardr timer add, list and rm: who may set one for whom, whose a listing
 // shows, and who removes which.
 func TestTimerCommands(t *testing.T) {
+	t.Parallel()
 	st := timerUserYard(t)
 	ctx := context.Background()
 
@@ -102,6 +103,7 @@ func TestTimerCommands(t *testing.T) {
 // The two settings bound what timer add takes, and refuse what is no
 // number and no duration.
 func TestTimerSettings(t *testing.T) {
+	t.Parallel()
 	st := timerUserYard(t)
 	refusedAs(t, st, "jo", "timer_limit \"many\": a whole number, 1 or more", "settings", "set", "timer_limit", "many")
 	refusedAs(t, st, "jo", "timer_min_every: bad duration", "settings", "set", "timer_min_every", "often")
@@ -117,6 +119,7 @@ func TestTimerSettings(t *testing.T) {
 // A fired timer reads as a timer where its receiver reads: a crew member's
 // inbox, a user's inbox and the conversation with whoever set it.
 func TestTimerFiringIsRead(t *testing.T) {
+	t.Parallel()
 	st := timerUserYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "look at the deploy")
@@ -145,6 +148,7 @@ func TestTimerFiringIsRead(t *testing.T) {
 // in user show; the prime says in its "How you work" when a timer is the
 // right tool.
 func TestTimersAreSeen(t *testing.T) {
+	t.Parallel()
 	st := timerUserYard(t)
 	mustAs(t, st, "yardmaster", "timer", "add", "--in", "40m", "look at the deploy")
 	mustAs(t, st, "yardmaster", "timer", "add", "--every", "1d", "--to", "jo", "the assembly is red")

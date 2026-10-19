@@ -20,7 +20,8 @@ import (
 // which a bead from it is taken under.
 func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	t.Helper()
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	// No tool is stubbed: the commands under test reach lookPath nowhere,
+	// so the callers may run beside others.
 	st, own = storetest.NewOwned(t)
 	testYard(t, st, newHomeDir(t))
 	mustAs(t, st, "jo", "init", "--harness", "claude", "--operator", "jo")
@@ -77,6 +78,7 @@ func northSends(t *testing.T, st store.API, own *store.Store, key, id, theirs st
 // people with members, people without, agents, a script, another yard,
 // nobody. It takes no --auto and no --hold-for.
 func TestPeerIntakeCommand(t *testing.T) {
+	t.Parallel()
 	st, _, _ := beadYard(t)
 	for _, actor := range []string{"yardmaster", "web-1-new"} {
 		refusedAs(t, st, actor, "only the operator (jo) may say where a peer's beads go; this is "+actor,
@@ -232,6 +234,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 // peer show lists each on its line, and --depot --none removes one.
 // Removing one is anyone's, as removing all is.
 func TestPeerIntakeRemoveOne(t *testing.T) {
+	t.Parallel()
 	st, _, _ := beadYard(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	if err := st.PutDepot(context.Background(), store.Depot{Name: "api", Base: "origin/main"}, "jo"); err != nil {
@@ -263,6 +266,7 @@ func TestPeerIntakeRemoveOne(t *testing.T) {
 // the stage it arrived in. A member of that stage's group moves it on, and
 // nobody else; no crew member has a release setting.
 func TestBeadFromAPeerInTheCommands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
@@ -337,6 +341,7 @@ func TestBeadFromAPeerInTheCommands(t *testing.T) {
 // stage names its members, and a bead that is there says so, with when the
 // yard was last heard from, in bead show, its JSON and peer show.
 func TestBeadAtAPeerInTheCommands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -486,6 +491,7 @@ func TestGroupFormKeepsAPeerGroup(t *testing.T) {
 // its handle and how it went back, and one that was closed here, with who
 // closed it and why. A bead under another handle says neither.
 func TestBeadThatComesAgainInTheCommands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")

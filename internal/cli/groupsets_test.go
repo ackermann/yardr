@@ -11,6 +11,7 @@ import (
 // of it failed. group add asks the runner before it stores anything, and
 // says how the string is written.
 func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	for _, c := range []struct {
 		want string
@@ -63,6 +64,7 @@ func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
 // group list prints a config as --set takes it back, so the command "true"
 // and the boolean true, which both printed as cmd=true, can be told apart.
 func TestGroupListPrintsConfigAsSetTakesIt(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`, "--set", "dir=/srv/a b")
 	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--set", "notify=true", "--set", "max_age=3")

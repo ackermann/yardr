@@ -57,6 +57,7 @@ func waitingYard(t *testing.T) (store.API, context.Context) {
 // dep list prints the stages a staged edge names, and a plain edge exactly
 // as before.
 func TestDepListPrintsStages(t *testing.T) {
+	t.Parallel()
 	st, _ := waitingYard(t)
 	a := &app{st: st, actor: "me"}
 
@@ -85,6 +86,7 @@ func TestDepListPrintsStages(t *testing.T) {
 // bead show gains blocked-by lines for the edges holding the bead, with
 // the stages they name; an edge that holds nothing prints no line.
 func TestBeadShowPrintsBlockedBy(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	a := &app{st: st, actor: "me"}
 	show := func(id string) string {
@@ -127,6 +129,7 @@ func TestBeadShowPrintsBlockedBy(t *testing.T) {
 // prime's BLOCKED BY carries the conditions, and its Edges print them as
 // dep list does; a plain blocker reads exactly as before.
 func TestPrimeBlockedByCarriesConditions(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	a := &app{st: st, actor: "me"}
 	prime := func(id string) string {
@@ -161,6 +164,7 @@ func TestPrimeBlockedByCarriesConditions(t *testing.T) {
 // words; a held bead and a journal never wait. ready without the flag is
 // the table it always was.
 func TestReadyWaitingListsWhy(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-4", Title: "journal", Type: store.TypeJournal, Depot: "yard", Stage: "new"}, "me"); err != nil {
 		t.Fatal(err)
@@ -224,6 +228,7 @@ func TestReadyWaitingListsWhy(t *testing.T) {
 // bead matched an any-depot label route (priority 1) rather than its
 // depot's own (priority 0), and the label route's group was at its limit.
 func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -297,6 +302,7 @@ func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
 // A bead behind a paused group names the pause instead of a count: there
 // are no slots to count against.
 func TestReadyWaitingNamesAPausedGroup(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
@@ -334,6 +340,7 @@ func TestReadyWaitingNamesAPausedGroup(t *testing.T) {
 // shows that too, in the same line, from the stored event: nothing is
 // asked of the provider.
 func TestReadyWaitingShowsTheStoredQuotaInTheSameLine(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
@@ -379,6 +386,7 @@ func TestReadyWaitingShowsTheStoredQuotaInTheSameLine(t *testing.T) {
 
 // ready --waiting --json carries the holding edges with their stages.
 func TestReadyWaitingJSON(t *testing.T) {
+	t.Parallel()
 	st, _ := waitingYard(t)
 	j := &app{st: st, actor: "me", json: true}
 

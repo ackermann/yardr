@@ -20,6 +20,7 @@ import (
 // the pack's flow with the pack's groups routed to its stages (flow show
 // --svg), and the file go generate keeps under docs/flows.
 func TestFlowDrawThreeWaysOneDrawing(t *testing.T) {
+	t.Parallel()
 	want, err := os.ReadFile("../../docs/flows/starter.svg")
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +84,7 @@ func TestFlowDrawThreeWaysOneDrawing(t *testing.T) {
 // --flow picks among a depot's or a pack's flows, by name or by bead type,
 // and a name that is none of them is refused with the ones there are.
 func TestFlowDrawPicksAFlow(t *testing.T) {
+	t.Parallel()
 	out, err := run(t, (&app{}).flowCmd(), "draw", "../../packs/dir", "--flow", "train")
 	if err != nil || !strings.Contains(out, "<title>Flow train</title>") {
 		t.Errorf("flow draw packs/dir --flow train: %v\n%.200s", err, out)
@@ -146,6 +148,7 @@ func TestFlowDrawPicksAFlow(t *testing.T) {
 // track, each stage a section of it, the signals unlit outlines. Without
 // --svg it is refused, as --flow is.
 func TestFlowDrawMini(t *testing.T) {
+	t.Parallel()
 	fromPack, err := run(t, (&app{}).flowCmd(), "draw", "starter", "--mini")
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +227,7 @@ func TestFlowDrawHelpNamesEveryEmbeddedPack(t *testing.T) {
 // a server.
 func TestFlowDrawWithoutAYard(t *testing.T) {
 	newHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	want, err := os.ReadFile("../../docs/flows/starter.svg")
 	if err != nil {
 		t.Fatal(err)

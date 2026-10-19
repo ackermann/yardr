@@ -18,6 +18,7 @@ import (
 // out, and what it wrote reads as a pack; a second export into the same
 // directory is refused.
 func TestPackExport(t *testing.T) {
+	t.Parallel()
 	// Its own yard, with no operator: the export restores {{operator}}
 	// where the import filled the default. packApp names one. The import
 	// runs as the crew member it seats, whose own subscriptions it writes.
@@ -30,7 +31,7 @@ func TestPackExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "boss", cfg: &config.Config{Home: t.TempDir()}}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -87,6 +88,7 @@ func TestPackExport(t *testing.T) {
 
 // The help says in plain words what is written and what never is.
 func TestPackExportHelp(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	out, err := run(t, a.packCmd(), "export", "--help")
 	if err != nil {

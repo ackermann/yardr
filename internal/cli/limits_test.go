@@ -69,6 +69,7 @@ func kimiAnswer() string {
 // its windows; --json has the report. A kind nothing lists, and a command
 // that fails, are "not known" with why, and exit 1.
 func TestLimitsOfAKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	file, asked := limitsStandIn(t, kimiAnswer())
@@ -275,6 +276,7 @@ esac`)
 // target beside the used figure, and one burned past it is marked over
 // target; --json carries the share.
 func TestLimitsShowsTheTarget(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	in := func(d time.Duration) string { return time.Now().Add(d).UTC().Format(time.RFC3339) }
@@ -327,6 +329,7 @@ func TestLimitsShowsTheTarget(t *testing.T) {
 // table lists the kind; a provider no source names is not known, and a kind
 // resolving to nothing stays unmapped.
 func TestLimitsOfTheProvidersInUse(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
@@ -478,6 +481,7 @@ func machineAnswer() string {
 // each with its windows and their targets; with its name it asks for it
 // alone. --json carries the sources under sources.
 func TestLimitsListsASourceThatAnswersForItself(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
@@ -559,6 +563,7 @@ func TestLimitsListsASourceThatAnswersForItself(t *testing.T) {
 // An explicit provider is still a known use when no source has a limits key:
 // list it as unknown, while kinds with no provider remain unmapped.
 func TestLimitsProviderWithoutAnySource(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo", json: true}
@@ -593,6 +598,7 @@ func TestLimitsProviderWithoutAnySource(t *testing.T) {
 // /limits answers what `yardr limits` answers with no kind named, beside
 // the yard's head.
 func TestLimitsRouteAnswersTheCommand(t *testing.T) {
+	t.Parallel()
 	routeOf := func(t *testing.T, st store.API) map[string]any {
 		t.Helper()
 		srv, err := web.NewServer(st, t.TempDir(), nil)
@@ -690,6 +696,7 @@ func timeless(v any) {
 // A source that says limits is shown and listed with its command and
 // kinds, and yardr source check asks for each kind the file lists.
 func TestSourceWithLimitsShownAndChecked(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	file, asked := limitsStandIn(t, `[ "$1" = moonshot ] || { echo "aiquokka: $1: not logged in" >&2; exit 1; }; `+kimiAnswer())
@@ -743,6 +750,7 @@ func TestSourceWithLimitsShownAndChecked(t *testing.T) {
 // A source that answers for itself is shown and listed with its command,
 // and yardr source check asks it once, for the source.
 func TestSourceThatAnswersForItselfShownAndChecked(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	file, asked := selfStandIn(t, machineAnswer())
@@ -783,6 +791,7 @@ func TestSourceThatAnswersForItselfShownAndChecked(t *testing.T) {
 
 // doctor says of a source that answers for itself, and --try asks it.
 func TestDoctorLimitsPartAsksASourceThatAnswersForItself(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	cfg := &config.Config{Home: t.TempDir()}
@@ -811,6 +820,7 @@ func TestDoctorLimitsPartAsksASourceThatAnswersForItself(t *testing.T) {
 // there, a kind in use that nothing lists and a provider setting no source
 // answers for, and asks no provider: that is --try's, once per provider.
 func TestDoctorLimitsPart(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
@@ -868,6 +878,7 @@ func TestDoctorLimitsPart(t *testing.T) {
 // docs/integrations.md gives it as the example: what a reader copies from
 // the page is what is added here.
 func TestAiquokkaFileOfTheDocs(t *testing.T) {
+	t.Parallel()
 	text, err := os.ReadFile("testdata/aiquokka.yaml")
 	if err != nil {
 		t.Fatal(err)

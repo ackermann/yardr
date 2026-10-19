@@ -41,8 +41,9 @@ func ownPack(t *testing.T, from, name string) string {
 // unset. Nothing of yardr's goes into a checkout, and nothing into a
 // directory.
 func TestDepotInitUsesTheDefaultPack(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	// The command's error stream, where depot init says the pack is the
 	// setting's; every init run below shares the buffer.
 	var errs bytes.Buffer
@@ -159,8 +160,9 @@ func TestDefaultPackSetting(t *testing.T) {
 // refused as --pack would be, after the line that says it is the setting's,
 // and writes nothing.
 func TestDepotInitDefaultPackThatDoesNotFit(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	// The command's error stream, where depot init says the pack is the
 	// setting's.
 	var errs bytes.Buffer
@@ -211,8 +213,9 @@ func TestDepotInitDefaultPackThatDoesNotFit(t *testing.T) {
 // one yardmaster that pack's role, and the plan says so, with both paths,
 // before anything is written.
 func TestSecondPackShowsTheYardmastersPromptChange(t *testing.T) {
+	t.Parallel()
 	a, _ := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if out, err := run(t, a.depotCmd(), append([]string{"init", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -257,6 +260,7 @@ func TestSecondPackShowsTheYardmastersPromptChange(t *testing.T) {
 // set up from the pack then finds the role as it would write it, and the
 // yardmaster's prompt does not change.
 func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -294,7 +298,7 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	out, err = run(t, a.rootCmd(), "--json", "depot", "init", "web", "--yes", "--crew", "yardmaster=boss",
 		"--bind", "builders=claude", "--bind", "reviewers=claude", "--members", "backlog=", "--members", "decisions=Jo")
 	var got struct {
@@ -319,6 +323,7 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 // A default pack with no crew member called yardmaster gets the yard none:
 // init makes the yard, says so, and installs nothing.
 func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()

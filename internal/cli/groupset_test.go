@@ -25,6 +25,7 @@ func group(t *testing.T, st store.API, name string) *store.Group {
 // group add writes the whole group, so one key changed with it cost the
 // group every --set that was not retyped.
 func TestGroupSetKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--limit", "2", "--set", "kind=claude",
 		"--set", "model=opus", "--set", `args=["--permission-mode","auto"]`, "--set", "idle=10m")
@@ -79,6 +80,7 @@ func TestGroupSetKeepsTheRest(t *testing.T) {
 // --members replaces the list of a manual group and is refused on another,
 // as group add refuses it; a group's subscriptions are kept.
 func TestGroupSetMembers(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "approvers", "--runner", "manual", "--members", "jo", "--set", "notify=true")
 	if out := mustAs(t, st, "jo", "group", "set", "approvers", "--members", "jo,ada"); out != "group approvers saved\n  --members: jo -> jo,ada\n" {
@@ -95,6 +97,7 @@ func TestGroupSetMembers(t *testing.T) {
 }
 
 func TestGroupSetRefuses(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--limit", "2", "--set", `cmd="true"`, "--set", "dir=/srv")
 	was := group(t, st, "tick")
@@ -123,6 +126,7 @@ func TestGroupSetRefuses(t *testing.T) {
 // in group list and group show; setting it back resumes. group add refuses
 // --limit 0, for a new name and an existing one: 0 is set, not written whole.
 func TestGroupLimitZeroPauses(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--limit", "2", "--set", `cmd="true"`)
 	if out := mustAs(t, st, "jo", "group", "set", "tick", "--limit", "0"); out != "group tick saved\n  --limit: 2 -> 0\n" {
@@ -149,6 +153,7 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 // group show prints one group: what group list has of it, a config key to a
 // line, and the routes that send it work.
 func TestGroupShow(t *testing.T) {
+	t.Parallel()
 	// The key named like a secret is one no code reads, so it is from a
 	// yard set up before the store refused such a key.
 	path := filepath.Join(t.TempDir(), "yard.db")
@@ -205,6 +210,7 @@ func TestGroupShow(t *testing.T) {
 // is of the class attention, so bare yardr subscribe lists it among the
 // kinds nobody hears once nobody hears the class (yardr-bygh).
 func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "backlog", "--runner", "manual")
 	if out := mustAs(t, st, "jo", "group", "set", "backlog", "wait=1d"); out != "group backlog saved\n  wait: (not set) -> 1d\n" {
@@ -230,6 +236,7 @@ func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
 // command gets what it needs to act outside the yard from a file, not from
 // cmd, which is in the store.
 func TestGroupSetExecEnvFile(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "deployers", "--runner", "exec", "--set", "cmd=make deploy")
 	out := mustAs(t, st, "jo", "group", "set", "deployers", "env_file=/srv/deploy.env")

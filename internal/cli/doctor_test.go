@@ -102,7 +102,7 @@ func wantText(t *testing.T, out string, lines ...string) {
 // no server. Without a terminal too, where any other command is refused.
 func TestDoctorEmptyHome(t *testing.T) {
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "grok": toolFails})
 	// A run of its own each time, in an environment naming the home.
 	newApp := func() *app {

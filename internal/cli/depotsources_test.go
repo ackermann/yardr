@@ -81,6 +81,7 @@ func wantLines(t *testing.T, out string, want ...string) {
 // A depot governed by its repository alone: every flow, stage file and role
 // is the depot's, at the base commit, and nothing is shadowed.
 func TestDepotSourcesRepositoryAlone(t *testing.T) {
+	t.Parallel()
 	a, _, sha := sourcesYard(t)
 	out, err := run(t, a.depotSourcesCmd(), "web")
 	if err != nil {
@@ -105,8 +106,9 @@ func TestDepotSourcesRepositoryAlone(t *testing.T) {
 // of the depot's files, and each such file is named where it is shadowed: the
 // flow file and the type's, the stage files, the roles.
 func TestDepotSourcesAppliedPack(t *testing.T) {
+	t.Parallel()
 	a, home, _ := sourcesYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -159,8 +161,9 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 // yard's, is the pack's either way. Clearing the pointer gives the flow
 // back to the repository, and the line says the pack's is still there.
 func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
+	t.Parallel()
 	a, home, sha := sourcesYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--depot-roles"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -201,6 +204,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 // the home's; a prompt under the home's roles is the home's, and shadows the
 // depot's role of the name when it is named by its path.
 func TestDepotSourcesStoreFlowAndHomeRole(t *testing.T) {
+	t.Parallel()
 	a, home, _ := sourcesYard(t)
 	ctx := context.Background()
 	if err := a.st.SetFlowPointer(ctx, "web", "", "code", "me"); err != nil {
@@ -252,6 +256,7 @@ func TestDepotSourcesStoreFlowAndHomeRole(t *testing.T) {
 }
 
 func TestDepotSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
+	t.Parallel()
 	a, _, _ := sourcesYard(t)
 	ctx := context.Background()
 	for _, name := range []string{"web-specialists", "yard-general", "yard-unlisted"} {
@@ -317,6 +322,7 @@ func rulesJSON(t *testing.T, out string) depotSource {
 // carries the same. A dir depot's file is read from its directory, at no
 // commit.
 func TestDepotSourcesRules(t *testing.T) {
+	t.Parallel()
 	a, repo, _, git, write := stageYard(t)
 	ctx := context.Background()
 

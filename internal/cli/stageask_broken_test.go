@@ -87,6 +87,7 @@ changes: The bead goes back for changes.
 // bad_template reason, and review list marks the bead with it instead of
 // its move actions.
 func TestBrokenTemplateShowsWhereAskWouldStand(t *testing.T) {
+	t.Parallel()
 	a, _, commit := brokenAskYard(t, brokenAskGood)
 	ctx := context.Background()
 	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")

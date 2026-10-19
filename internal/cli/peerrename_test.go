@@ -14,6 +14,7 @@ import (
 // that could mail the peer still can, under the new name only, and the
 // mail from before and after reads back as one conversation.
 func TestPeerRenameCommand(t *testing.T) {
+	t.Parallel()
 	north, south, east := newCLIYard(t, "north"), newCLIYard(t, "south"), newCLIYard(t, "east")
 	cliEnv(t, north, south, east)
 	ctx := context.Background()
@@ -180,6 +181,7 @@ func TestPeerRenameHelpNamesNoReleaseSetting(t *testing.T) {
 // A ping that waits for its pong while the peer is renamed takes the pong
 // that comes under the new name.
 func TestPingFollowsARename(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	ctx := context.Background()

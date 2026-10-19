@@ -22,6 +22,7 @@ func answerYard(t *testing.T) (store.API, context.Context, string) {
 // The asker's inbox reads the answer in words: first pick, changed pick,
 // Later, Decline, you decide. An asker answering its own ask hears nothing.
 func TestInboxReadsAnswers(t *testing.T) {
+	t.Parallel()
 	st, _, id := answerYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -107,6 +108,7 @@ func TestInboxReadsAnswers(t *testing.T) {
 
 // Prime renders a replaced pick with its history.
 func TestPrimeShowsReplacedPick(t *testing.T) {
+	t.Parallel()
 	st, _, id := answerYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}

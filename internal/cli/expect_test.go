@@ -14,6 +14,7 @@ import (
 // pane): once the bead has moved on to a session that owns it now, a kept
 // or orphaned agent's done, advance or close is refused and changes nothing.
 func TestBeadMovesCarryTheSession(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, "/tmp/yard")
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
@@ -81,6 +82,7 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 // follow-up the agent filed) is checked as the actor's, like a person at a
 // shell, except that one owned by a live session is refused.
 func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, "/tmp/yard")
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)

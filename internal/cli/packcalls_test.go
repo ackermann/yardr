@@ -89,7 +89,7 @@ func deskPack(t *testing.T) (dir string, asked func() int) {
 func deskYard(t *testing.T, dir string) *app {
 	t.Helper()
 	a := openApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -128,8 +128,9 @@ func callRecord(t *testing.T, a *app) map[string]map[string]bool {
 // since nobody can make one before the operator set the credential's file.
 // The plan and the result say so, with the command.
 func TestPackApplyAsksNothingAboutCallsOfASourceWithoutItsCredential(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir, _ := deskPack(t)
 	out, err := run(t, a.packCmd(), append([]string{"check", dir, "--depot", "web"}, deskFlags[:2]...)...)
 	if err != nil {
@@ -287,6 +288,7 @@ func TestPackApplyAsksTheOperatorAboutCalls(t *testing.T) {
 // it names and says no to what it leaves out of that group's or crew
 // member's calls of the source; :none says no to all of them.
 func TestPackApplyCallsFlag(t *testing.T) {
+	t.Parallel()
 	dir, _ := deskPack(t)
 	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)
 
@@ -390,6 +392,7 @@ func TestPackApplyOnlyTheOperatorGrantsCalls(t *testing.T) {
 // A pack whose declaration adds a read call to the one the yard has says in
 // its plan who gets the call through a grant of read given before.
 func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
+	t.Parallel()
 	dir, _ := deskPack(t)
 	a := deskYard(t, dir)
 	if _, err := a.st.AddUser(context.Background(), "ada", "me"); err != nil {
@@ -428,12 +431,13 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 // a source whose last answered call the service refused. It sends nothing
 // unless --try, which makes each source's check call.
 func TestDoctorSources(t *testing.T) {
+	t.Parallel()
 	dir, requests := deskPack(t)
 	a := openApp(t)
 	if err := a.st.DeleteSource(context.Background(), "linear", "me"); err != nil {
 		t.Fatal(err)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	cfg := &config.Config{Home: a.cfg.Home}
 	part := func(try bool) optionalPart {
@@ -568,12 +572,13 @@ func TestDoctorSources(t *testing.T) {
 // granted when a crew member holds its key: only its check call wants the
 // source's own file. The grants note stays.
 func TestDoctorOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
+	t.Parallel()
 	dir, _ := deskPack(t)
 	a := openApp(t)
 	if err := a.st.DeleteSource(context.Background(), "linear", "me"); err != nil {
 		t.Fatal(err)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)

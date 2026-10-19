@@ -97,8 +97,7 @@ func newAppYard(t *testing.T) *appYard {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GITHUB_APP_ID", "4242")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", y.keyFile)
-	t.Setenv("YARDR_CREW", "yardmaster")
-	y.a = &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}
+	y.a = &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}, env: testEnv(t, "", "YARDR_CREW=yardmaster")}
 	return y
 }
 
@@ -240,7 +239,7 @@ func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 
 	// The operator's own shell is refused the same way: no YARDR_CREW,
 	// acting as themselves, gh logged in and all.
-	t.Setenv("YARDR_CREW", "")
+	y.a.env["YARDR_CREW"] = ""
 	y.a.actor = "jo"
 	if _, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--crew", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN is not set") {

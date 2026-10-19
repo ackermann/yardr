@@ -20,9 +20,10 @@ import (
 // A file over the yard's limit and a missing file are refused with nothing
 // written, as are --ack with --file and a note without words.
 func TestBeadNoteFile(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
 	if err != nil {
@@ -97,9 +98,10 @@ func TestBeadNoteFile(t *testing.T) {
 // .html and an SVG file go as files, since what the bytes are is what
 // counts.
 func TestBeadNotePage(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
 	if err != nil {
@@ -156,9 +158,10 @@ func TestBeadNotePage(t *testing.T) {
 // line starting with the mark, naming the blob the yard keeps, while
 // the forged words stand unmarked.
 func TestBeadNoteFilesLineNotForgeable(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
 	if err != nil {
@@ -195,6 +198,7 @@ func TestBeadNoteFilesLineNotForgeable(t *testing.T) {
 // either: they stand in the output the notes stand in, bead show and
 // prime, and are shown without the mark, their words intact.
 func TestBeadBodyCannotForgeAFilesLine(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	ctx := context.Background()
@@ -237,6 +241,7 @@ func TestBeadBodyCannotForgeAFilesLine(t *testing.T) {
 // whose text holds a second author line reads as one note. Escape
 // sequences in either reach no terminal; the words stay.
 func TestBeadBodyCannotForgeNotes(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	ctx := context.Background()

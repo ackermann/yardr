@@ -14,6 +14,7 @@ import (
 // name: an answer to <name>@<peer> would reach that other yard. The mail
 // the yard of the name sends is shown under it.
 func TestInboxMailFromRemovedPeer(t *testing.T) {
+	t.Parallel()
 	a, b, c := newCLIYard(t, "a"), newCLIYard(t, "b"), newCLIYard(t, "c")
 	ctx := context.Background()
 	invite := func(y *cliYard) string {

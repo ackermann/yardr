@@ -115,6 +115,7 @@ func streamUses(file string, src []byte) ([]streamUse, error) {
 //
 // but those streamKept lists. The first has no exception.
 func TestCommandsWriteOnlyToTheirWriters(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +165,7 @@ func TestCommandsWriteOnlyToTheirWriters(t *testing.T) {
 // The gate reads syntax: what it refuses it finds in code however fmt and
 // os are named, and what it passes it passes in comments and strings.
 func TestStreamUsesReadTheSyntax(t *testing.T) {
+	t.Parallel()
 	src := `package x
 
 import (
@@ -201,6 +203,7 @@ func f(w io.Writer) {
 }
 
 func TestStreamUsesRejectDotImports(t *testing.T) {
+	t.Parallel()
 	for _, src := range []string{
 		`package x; import . "fmt"; func f() { Println("hello") }`,
 		`package x; import . "os"; var _ = Stdout`,

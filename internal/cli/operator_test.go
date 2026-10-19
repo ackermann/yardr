@@ -82,10 +82,11 @@ func TestOnboardingAsksTheStyle(t *testing.T) {
 			map[string]string{styleSetting: "report", noteSetting: "I review every merge"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			newHome(t)
+			home := newHome(t)
 			stubServices(t, "darwin")
 			stubWeb(t)
 			st := storetest.New(t)
+			testYard(t, st, home)
 			out, keys := onboardTo(t, st, tc.answers)
 			if !slices.Equal(keys[:min(2, len(keys))], []string{"style", "about"}) {
 				t.Fatalf("asked %q\n%s", keys, out)

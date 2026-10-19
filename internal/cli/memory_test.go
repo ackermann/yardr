@@ -13,6 +13,7 @@ import (
 // The prime tells a crew member how to use the yard's memory and
 // journal: what goes where, when to read, and whose memory is home.
 func TestPrimeTeachesMemoryAndJournal(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	for _, want := range []string{
@@ -39,6 +40,7 @@ func TestPrimeTeachesMemoryAndJournal(t *testing.T) {
 // With more memories than the cap, the prime prints the cap, newest
 // first, and the line about the rest.
 func TestPrimePrintsCappedMemories(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	for i := 0; i < store.PrimeMemories+2; i++ {
@@ -61,6 +63,7 @@ func TestPrimePrintsCappedMemories(t *testing.T) {
 // The prime's omitted-entries line points at a command that reads them:
 // prime --bead, whose notes are the journal whole.
 func TestPrimeOmittedJournalPointsAtPrimeBead(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	if err := st.Journal(ctx, "yardmaster", store.NoteHandoff, "handoff", "yardmaster"); err != nil {
@@ -80,6 +83,7 @@ func TestPrimeOmittedJournalPointsAtPrimeBead(t *testing.T) {
 // yardr recall <words> finds journal entries too: the journal read
 // back. Without a query it lists memories alone, as before.
 func TestRecallFindsJournalEntries(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"

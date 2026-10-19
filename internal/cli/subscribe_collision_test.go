@@ -14,6 +14,7 @@ import (
 // them; when both do it refuses naming both, and --crew or --group says
 // which (yardr-f0ez).
 func TestUnsubscribeSharedName(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
@@ -76,6 +77,7 @@ func TestUnsubscribeSharedName(t *testing.T) {
 // Subscribing a name a crew member and a manual group share subscribes the
 // crew member; --group subscribes the group.
 func TestSubscribeSharedNameFlags(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
@@ -121,6 +123,7 @@ func TestSubscribeSharedNameFlags(t *testing.T) {
 // Source rm prints cleanup commands that work under a shared name: one
 // with each flag when a crew member and a manual group both subscribe.
 func TestSourceRmSharedNameCommands(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}

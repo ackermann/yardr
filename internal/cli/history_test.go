@@ -19,6 +19,7 @@ import (
 // (when, who, what), and under an update of the body its diff; --json has
 // the same as the bead's page of the web view has it (yardr-pekm).
 func TestBeadHistory(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\n"}, "me")
@@ -76,6 +77,7 @@ jo             noted: hung today
 // A line about an update names what the event kept of the fields' old
 // values and does not write them out: yardr events stays a line an event.
 func TestEventLineNamesWhatWas(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\nOn two hinges.\n"}, "me")
@@ -103,6 +105,7 @@ func TestEventLineNamesWhatWas(t *testing.T) {
 
 // A crew member's inbox line about an update is one line too.
 func TestInboxLineNamesWhatWas(t *testing.T) {
+	t.Parallel()
 	bead := "yard-1"
 	e := store.Event{Seq: 7, Bead: &bead, Kind: "updated", Actor: "jo",
 		Data: map[string]any{"body": true, "was": map[string]any{"body": "Hang it.\nOn two hinges.\n"}}}
@@ -119,6 +122,7 @@ func TestInboxLineNamesWhatWas(t *testing.T) {
 // time, combinable with --bead and -n. --since without -n returns
 // everything in the window; otherwise the newest 50.
 func TestEventsSinceAndKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {

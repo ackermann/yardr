@@ -35,13 +35,10 @@ func environMap(environ []string) map[string]string {
 }
 
 // getenv is the run's value of key, a full key ("YARDR_ACTOR", "USER").
-// A run with no environment of its own (a test's app, a direct subcommand
-// call) reads the process's; one with an environment reads it alone, and a
-// key it lacks is unset, not the process's.
+// A run with no environment of its own reads nothing: Execute seeds the
+// map at the process's edge, and tests construct it (testApp); a key its
+// map lacks is unset.
 func (a *app) getenv(key string) string {
-	if a.env == nil {
-		return os.Getenv(key)
-	}
 	return a.env[key]
 }
 

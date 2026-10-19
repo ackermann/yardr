@@ -34,6 +34,7 @@ func crewSecretYard(t *testing.T) (*store.Store, string, string) {
 // --secret gives it into the crew member's file and says when it takes
 // effect. --env narrows the ask to some of the credential's variables.
 func TestBeadAskAndAnswerACrewMembersCredential(t *testing.T) {
+	t.Parallel()
 	st, id, file := crewSecretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}

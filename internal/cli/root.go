@@ -44,7 +44,8 @@ type app struct {
 	homeDir string
 	// env is the run's environment by full key, less the process facts
 	// (see environ): what names its yard, who acts, and what its children
-	// start with. Nil reads the process's (see getenv).
+	// start with. Nil reads nothing (see getenv): Execute seeds it, and
+	// tests construct it.
 	env map[string]string
 	cfg *config.Config
 	st  store.API

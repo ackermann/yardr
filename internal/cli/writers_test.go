@@ -31,6 +31,7 @@ func writerRun(t *testing.T, c *cobra.Command, args ...string) (stdout, stderr s
 // runs one with buffers of its own and reads each stream from its buffer.
 // An empty err list pins that the command warns of nothing.
 func TestLongTailCommandsWriteToTheirCommandWriters(t *testing.T) {
+	t.Parallel()
 	bare := func(t *testing.T) *app {
 		t.Helper()
 		return &app{st: storetest.New(t), actor: "me"}
@@ -179,6 +180,7 @@ func TestLongTailCommandsWriteToTheirCommandWriters(t *testing.T) {
 // A peer show prints the peer to its command's writer: the yards are
 // linked first, then the show runs with buffers of its own.
 func TestPeerShowWritesToItsCommandWriter(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	south.a.env = testEnv(t, south.home)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -191,6 +193,7 @@ func TestPeerShowWritesToItsCommandWriter(t *testing.T) {
 }
 
 func TestOTelNoCollectorWarnsOnItsCommandErrorWriter(t *testing.T) {
+	t.Parallel()
 	stdout, stderr := writerRun(t, testApp(t, nil, newHomeDir(t)).otelCmd(), "export")
 	if stdout != "" {
 		t.Errorf("stdout = %q, want no output", stdout)
@@ -203,6 +206,7 @@ func TestOTelNoCollectorWarnsOnItsCommandErrorWriter(t *testing.T) {
 // The long tail's print helpers write to the writer they are given, pinned
 // at the function.
 func TestLongTailHelpersWriteToTheirWriter(t *testing.T) {
+	t.Parallel()
 	t.Run("printLogin", func(t *testing.T) {
 		var buf bytes.Buffer
 		printLogin(&buf, []loginUnit{{Part: "herdr", Manager: "launchd", Name: "dev.yardr.herdr", Result: "installed", Loaded: true,

@@ -178,6 +178,7 @@ func airyKey(t *testing.T) string {
 // yardr bead answer --approve runs it and prints the command, the yard's
 // sentence, who approved and what the command printed.
 func TestBeadAskRunAndApprove(t *testing.T) {
+	t.Parallel()
 	key := airyKey(t)
 	y, b := runYardCLI(t, "mac", key)
 	ask := func(who, command string, more ...string) (string, error) {
@@ -269,6 +270,7 @@ func runCLI(a *app) map[string]*cobra.Command {
 // is created only from a dropped delivery and is checked in the store's
 // claim tests; this test checks its help instead of fabricating an address.
 func TestRunListIsTheCLIs(t *testing.T) {
+	t.Parallel()
 	key := airyKey(t)
 	addedFile := filepath.Join(t.TempDir(), "added.yaml")
 	if err := os.WriteFile(addedFile, []byte("name: added\nbase: https://added.example.com/v1\ncredential: { env: ADDED_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
@@ -580,6 +582,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 // bead answer --secret, bead answer --approve. The secret stands in
 // the hook's file alone.
 func TestBeadAskHookSetup(t *testing.T) {
+	t.Parallel()
 	key := airyKey(t)
 	y, b := runYardCLI(t, "hooks", key)
 	ctx := context.Background()
@@ -653,6 +656,7 @@ func TestBeadAskHookSetup(t *testing.T) {
 }
 
 func TestReadHookKeysDigitLeadingName(t *testing.T) {
+	t.Parallel()
 	const key, value = "_3JIRA_SIGNING_SECRET", "digit-leading-hook-secret"
 	got, err := readHookKeys(&store.AskSecret{Hook: "3jira", Env: []string{key}}, strings.NewReader(key+"="+value+"\n"), nil)
 	if err != nil || got[key] != value {
@@ -665,6 +669,7 @@ func TestReadHookKeysDigitLeadingName(t *testing.T) {
 // approval adds the source, and one naming commands is recorded to be
 // carried out.
 func TestBeadAskRunSourceAdd(t *testing.T) {
+	t.Parallel()
 	key := airyKey(t)
 	y, b := runYardCLI(t, "mac", key)
 	dir := t.TempDir()
@@ -733,6 +738,7 @@ func TestBeadAskRunSourceAdd(t *testing.T) {
 }
 
 func TestSourceAddCarriedReadBounds(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	commaPath := filepath.Join(dir, "bad,name.yaml")
 	if err := os.WriteFile(commaPath, []byte("name: skipped\nbase: https://skipped.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
@@ -767,6 +773,7 @@ func TestSourceAddCarriedReadBounds(t *testing.T) {
 // the server's own pack, shown by prime, and the approval is recorded
 // to be carried out.
 func TestBeadAskRunPackApply(t *testing.T) {
+	t.Parallel()
 	key := airyKey(t)
 	y, b := runYardCLI(t, "mac", key)
 	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {

@@ -15,6 +15,7 @@ import (
 // a link trusts as them, each line saying how that mail went, to the user
 // and to the crew member alike. The address alone is still its own.
 func TestMailWithHasTheTrustedName(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	must := func(err error) {

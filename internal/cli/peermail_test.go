@@ -14,6 +14,7 @@ import (
 // --set peers on crew add follows the rules of open_threads, and names
 // only yards this one is linked with.
 func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
@@ -93,6 +94,7 @@ func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
 // daemons carry it, and the other yard's inbox and prime show it as from
 // <name>@<peer>, marked as from another yard.
 func TestMailToAPeersCrew(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	ctx := context.Background()
@@ -216,6 +218,7 @@ func carry(t *testing.T, yards ...*cliYard) {
 // peer in an hour, and yardr peer show prints it: the default with how it
 // is set, and what is set with the files that follow it.
 func TestPeerAllowMailLimit(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))

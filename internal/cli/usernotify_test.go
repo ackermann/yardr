@@ -21,6 +21,7 @@ import (
 // the user's env file and the yard's token from the source's. Neither is
 // in anything a command prints, in an event or in a record.
 func TestUserSetAndSourceCheckUser(t *testing.T) {
+	t.Parallel()
 	const token, address = "tok-7d10-not-to-be-seen", "u9f2k4xq71ab03cd55ef8gh2ij6kl9"
 	status := 200
 	var got []map[string]any
@@ -198,6 +199,7 @@ func TestUserSetAndSourceCheckUser(t *testing.T) {
 // ended, and yardr doctor notes a user whose last one was not taken, until
 // a later one is.
 func TestUserShowAndDoctorSayTheLastPush(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -272,6 +274,7 @@ func TestUserShowAndDoctorSayTheLastPush(t *testing.T) {
 // yardr user list shows where each user is told outside the yard: the
 // source, or - for a user told nowhere.
 func TestUserListShowsTold(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
 		t.Fatal(err)

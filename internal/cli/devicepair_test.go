@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -31,7 +30,7 @@ func devicePairYard(t *testing.T) (st store.API, own *store.Store, addr string) 
 	st = userYardOn(t, api)
 	srv := httptest.NewServer(rpc.NewUserServer(own, func(context.Context) string { return "south" }, nil).Handler())
 	t.Cleanup(srv.Close)
-	said(t, &config.Config{Home: os.Getenv("YARDR_HOME")}, hooks.Listener{Addr: strings.TrimPrefix(srv.URL, "http://"), From: hooks.FromSetting})
+	said(t, &config.Config{Home: yardEnv(t, st)["YARDR_HOME"]}, hooks.Listener{Addr: strings.TrimPrefix(srv.URL, "http://"), From: hooks.FromSetting})
 	return st, own, srv.URL
 }
 
@@ -57,6 +56,7 @@ func redeemCode(t *testing.T, addr, code string) (int, rpc.Paired) {
 // address with the code is given it, and is then a device as device add
 // makes one. --end ends a pairing, and the code with it.
 func TestDevicePairCommand(t *testing.T) {
+	t.Parallel()
 	st, own, addr := devicePairYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "user", "add", "ada")
@@ -135,6 +135,7 @@ func TestDevicePairCommand(t *testing.T) {
 // '#' and the code, and nothing else: read back module by module, the
 // picture is the QR code of exactly that.
 func TestDevicePairQR(t *testing.T) {
+	t.Parallel()
 	st, _, _ := devicePairYard(t)
 	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone", "--url", "https://mac.example.net", "--qr")
 	m := devicePairShown.FindStringSubmatch(out)
@@ -195,8 +196,9 @@ func TestDevicePairQR(t *testing.T) {
 // A device needs an address to call: a yard without a listener opens no
 // pairing, and one that listens on every address says to give --url.
 func TestDevicePairNeedsAnAddress(t *testing.T) {
+	t.Parallel()
 	st, own, _ := devicePairYard(t)
-	cfg := &config.Config{Home: os.Getenv("YARDR_HOME")}
+	cfg := &config.Config{Home: yardEnv(t, st)["YARDR_HOME"]}
 	said(t, cfg, hooks.Listener{Addr: ":8790", From: hooks.FromSetting})
 	refusedAs(t, st, "jo", "the listener's address (:8790) is none to give a device: say where the device reaches this yard with --url", "user", "device", "pair", "jo", "phone")
 	said(t, cfg, hooks.Listener{})

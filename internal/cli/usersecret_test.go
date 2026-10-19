@@ -47,6 +47,7 @@ func userSecretYard(t *testing.T) (*store.Store, string, string) {
 // user's file and names the check that tries it as them. Without --env a
 // minted credential asks for its mint's inputs alone.
 func TestBeadAskAndAnswerAUsersCredential(t *testing.T) {
+	t.Parallel()
 	st, id, file := userSecretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -173,6 +174,7 @@ func TestBeadAskAndAnswerAUsersCredential(t *testing.T) {
 // other lines kept. The user gives their own, or the operator does it for
 // them; a user the yard has not is refused before anything is typed.
 func TestSourceKeyAs(t *testing.T) {
+	t.Parallel()
 	st, _, file := userSecretYard(t)
 	me := &app{st: st, actor: "mckean"}
 	ada := &app{st: st, actor: "ada"}
@@ -246,6 +248,7 @@ func TestSourceKeyAs(t *testing.T) {
 // yardr user show names the sources that hold a credential of the user.
 // Neither prints a value.
 func TestSourceShowAndUserShowSayAUsersCredential(t *testing.T) {
+	t.Parallel()
 	st, _, file := userSecretYard(t)
 	me := &app{st: st, actor: "mckean"}
 	ada := &app{st: st, actor: "ada"}

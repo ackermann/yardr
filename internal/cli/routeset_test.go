@@ -14,6 +14,7 @@ import (
 // priority and the note. The route keeps its id, and what changed is
 // said line by line, as group set says it. --json carries the route.
 func TestRouteSetRetunesAndKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--label", "difficulty:3",
@@ -76,6 +77,7 @@ func TestRouteSetRetunesAndKeepsTheRest(t *testing.T) {
 // route's identity, which route set refuses with the remove-and-add
 // spelling; and a set that names nothing to change says what it takes.
 func TestRouteSetRefusesIdentityChanges(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
@@ -120,6 +122,7 @@ func TestRouteSetRefusesIdentityChanges(t *testing.T) {
 // set does, and logs nothing; an empty --else drops the further groups
 // and an empty --note drops the note.
 func TestRouteSetUnchangedAndDropped(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a", "--else", "b", "--note", "lined")
@@ -158,6 +161,7 @@ func TestRouteSetUnchangedAndDropped(t *testing.T) {
 // refused as an add is, naming the standing route with the guidance for
 // a set.
 func TestRouteSetRefusesATie(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	low, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a")

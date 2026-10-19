@@ -14,6 +14,7 @@ import (
 // and the NOTE column carries what the priority and the chain cannot,
 // in words and in --json.
 func TestRouteAddTakesNoteAndListPrintsScopeAndNote(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
@@ -79,6 +80,7 @@ func TestRouteAddTakesNoteAndListPrintsScopeAndNote(t *testing.T) {
 // that sets nothing aside names nothing, and a depot that is not there
 // fails as depot show does.
 func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
@@ -172,6 +174,7 @@ func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
 // it is the depot's own or a yard default, and the set-aside defaults
 // with the own route that sets each aside.
 func TestRouteListDepotJson(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
@@ -218,6 +221,7 @@ func TestRouteListDepotJson(t *testing.T) {
 // break or an escape in it starts no line of its own and moves no
 // cursor, in the list and in what route set says it changed to.
 func TestRouteNotePrintsOnOneLine(t *testing.T) {
+	t.Parallel()
 	a, _, _ := quotaCLI(t)
 	forged := "first line\nforged row\x1b(0`"
 	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a", "--note", forged)

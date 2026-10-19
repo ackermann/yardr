@@ -9,8 +9,9 @@ import (
 // Applying the linear pack adds the source it declares; running it twice
 // changes nothing.
 func TestPackApplyLinearAddsTheDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	out, err := run(t, a.packCmd(), "apply", "linear", "--yes")
 	if err != nil {

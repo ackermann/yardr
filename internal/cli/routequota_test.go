@@ -56,6 +56,7 @@ func quotaCLI(t *testing.T) (a *app, st store.API, ran func() bool) {
 // route add takes a condition after @ and further groups with --else, and
 // route list prints the groups in order with their conditions.
 func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a@Weekly<80,5h<90", "--else", "b")
@@ -134,6 +135,7 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 // margin, and route list prints it as written; a malformed right side is
 // refused with a message that names both forms.
 func TestRouteAddTakesATargetCondition(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a@Weekly<target+10", "--else", "b")
@@ -171,6 +173,7 @@ func TestRouteAddTakesATargetCondition(t *testing.T) {
 // and one exec group gated on a source alone; route list prints them as
 // written. wait ends the route, so nothing warns of it.
 func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
@@ -240,6 +243,7 @@ func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
 // the member check answer for a route with one manual group as they did.
 // None of them runs the limits command.
 func TestViewsNameARoutesGroupsInOrder(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	must := func(err error) {

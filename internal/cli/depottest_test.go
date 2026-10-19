@@ -13,6 +13,7 @@ import (
 // it, in text and in JSON, the depot_updated event carries it, and depot add
 // without the flag drops it, as it drops --check.
 func TestDepotAddTest(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -74,6 +75,7 @@ func TestDepotAddTest(t *testing.T) {
 // for a depot with none. bead show, which is not about to work the bead,
 // does not.
 func TestPrimeSaysTheDepotsTest(t *testing.T) {
+	t.Parallel()
 	a, repo, _, _, _ := stageYard(t)
 	ctx := context.Background()
 	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Depot: "web"}, "me")

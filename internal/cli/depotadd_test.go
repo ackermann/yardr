@@ -17,6 +17,7 @@ import (
 // depot add takes a checkout for a git depot and any other directory for a
 // dir depot, unless --kind says which; show and list name the kind.
 func TestDepotAddDetectsKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
@@ -75,6 +76,7 @@ func TestDepotAddDetectsKind(t *testing.T) {
 // no longer once it is advanced to a stage the flow has. So is one that
 // pins a flow the depot does not otherwise follow.
 func TestFlowShowReportsStrandedBeads(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo := t.TempDir()

@@ -20,6 +20,7 @@ import (
 // queue. --no-reach takes it back, which anyone may, and an answer that
 // arrives afterwards is refused and marked there as no longer asked.
 func TestAskFollowsReach(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	ctx := context.Background()
 	north.a.env = testEnv(t, north.home)

@@ -51,6 +51,7 @@ func linearHook(t *testing.T, a *app) store.Hook {
 // grants it, and the import does not grant it. A second apply changes
 // nothing and logs pack_unchanged.
 func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
+	t.Parallel()
 	a := mapApp(t, "linear")
 	ctx := context.Background()
 	const grant = "crew member boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set boss set_state=linear\n"
@@ -119,6 +120,7 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 // hook and says which to add. After yardr hook add, the next apply sets the
 // map on it.
 func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
+	t.Parallel()
 	a := mapApp(t)
 	ctx := context.Background()
 	out := applyStarter(t, a)
@@ -157,6 +159,7 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 // crew member's own session has the import set the map: anyone else gets the
 // refusal yardr hook add --as gives and the rest of the pack.
 func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
+	t.Parallel()
 	a := mapApp(t, "linear")
 	ctx := context.Background()
 	// Boss already hears what the pack says: its subscriptions would fail
@@ -218,6 +221,7 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 
 // A hook with another map gets the pack's, and the plan shows both.
 func TestPackApplyShowsTheMapItReplaces(t *testing.T) {
+	t.Parallel()
 	a := mapApp(t, "linear")
 	ctx := context.Background()
 	if _, err := a.st.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/yard/secret", As: "boss", Map: map[string]string{"task:review": "done"}}, "me"); err != nil {

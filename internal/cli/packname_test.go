@@ -30,6 +30,7 @@ func afterFirstLine(t *testing.T, out, wantIn string) string {
 // The starter pack is in the binary: named, it gives the plan its directory
 // in the checkout gives.
 func TestPackCheckByNameIsTheEmbeddedPack(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	byName, err := run(t, a.packCmd(), "check", "starter", "--depot", "web")
 	if err != nil {
@@ -116,8 +117,9 @@ func TestPackHelpNamesEveryEmbeddedPack(t *testing.T) {
 // embedded file has no mode, and records where it came from: embedded, and
 // the build, with no commit of a directory.
 func TestPackApplyTheEmbeddedPack(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	args := append([]string{"apply", "starter", "--depot", "web", "--yes"}, starterFlags...)
 	if out, err := run(t, a.packCmd(), args...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -154,8 +156,9 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 // agent's sandbox. It leaves the depot's own flow as it is: its flows are
 // for the types issue and pr.
 func TestPackApplyTheContributorsPack(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	flags := []string{"--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "crew:yardmaster=claude", "--bind", "builders=claude", "--bind", "reviewers=claude",
 		"--members", "backlog=", "--members", "decisions=", "--members", "outside="}
@@ -199,7 +202,7 @@ func TestPackApplyTheContributorsPack(t *testing.T) {
 // directory is gone the error names it.
 func TestPackByNameOfAnImport(t *testing.T) {
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := filepath.Join(t.TempDir(), "kept")
 	if err := os.CopyFS(dir, os.DirFS("../../packs/starter")); err != nil {
 		t.Fatal(err)

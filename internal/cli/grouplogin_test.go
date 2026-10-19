@@ -16,6 +16,7 @@ import (
 // folder writes its address, and anything else — no folder, no login, no
 // file — reads as none.
 func TestLoginFolderAccount(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, content string) string {
 		t.Helper()
@@ -139,6 +140,7 @@ func loginFolder(t *testing.T, account string) (login, env string) {
 // folder_login. Where the folder names none, or the group declares none,
 // the line stands as it did.
 func TestGroupShowPrintsFolderLogin(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
@@ -200,6 +202,9 @@ func TestDoctorNamesForeignFolderLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := storetest.New(t)
+	// The runs' own short home: the user's is a long temp dir under
+	// which no socket fits, and the process names no yard.
+	testYard(t, st, newHomeDir(t))
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
 		t.Fatal(err)

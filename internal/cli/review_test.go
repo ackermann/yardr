@@ -51,6 +51,7 @@ func reviewYard(t *testing.T, depotPath string) (store.API, context.Context) {
 }
 
 func TestReviewQueue(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, "/tmp/yard")
 	create := func(title, stage string) store.Bead {
 		t.Helper()
@@ -117,6 +118,7 @@ func TestReviewQueue(t *testing.T) {
 }
 
 func TestReviewActions(t *testing.T) {
+	t.Parallel()
 	f, err := store.ParseFlow(reviewFlow)
 	if err != nil {
 		t.Fatal(err)
@@ -196,6 +198,7 @@ func TestReviewActions(t *testing.T) {
 }
 
 func TestDiffStat(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -258,6 +261,7 @@ func TestDiffStatDirDepot(t *testing.T) {
 // Off a terminal yardr review lists the queue instead of opening a form that
 // nobody can answer.
 func TestReviewListsWhenNotATerminal(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, t.TempDir())
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way", Depot: "yard", Stage: "decide"}, "me")
 	if err != nil {
@@ -271,6 +275,7 @@ func TestReviewListsWhenNotATerminal(t *testing.T) {
 }
 
 func TestReviewListsEmptyQueueWhenNotATerminal(t *testing.T) {
+	t.Parallel()
 	st, _ := reviewYard(t, t.TempDir())
 	a := &app{st: st, actor: "mckean"}
 	out, err := run(t, a.reviewCmd())
@@ -283,6 +288,7 @@ func TestReviewListsEmptyQueueWhenNotATerminal(t *testing.T) {
 // break in it folds into the bead's own row, as letters only. Escape
 // sequences reach no terminal; the words stay.
 func TestReviewListTitleCannotForgeARow(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, t.TempDir())
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way\x1b[2K\nforged row", Depot: "yard", Stage: "decide"}, "me")
 	if err != nil {

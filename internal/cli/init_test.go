@@ -84,6 +84,7 @@ func packRole(t *testing.T, name, rel, operator, yardmaster string) []byte {
 }
 
 func TestInitHarnessClaude(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -201,6 +202,7 @@ func TestInitHarnessClaude(t *testing.T) {
 // unless the flags say otherwise, and says so; --harness is required only to
 // create a yard. The hearer, which no flag names, is kept as stored.
 func TestInitAgainKeepsSettings(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := testApp(t, st, newHomeDir(t), "USER=kim")
@@ -289,6 +291,7 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 // own. Init names it as who the terminal acts as, not as the operator it
 // proposes: a crew member is refused there as at `settings set`.
 func TestInitNamesTheFirstOperatorAsItsCaller(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr"}, "me"); err != nil {
@@ -433,6 +436,7 @@ func typeName(t *testing.T, get func(string) string, name string) (was string, r
 // (yardr-cj66). It says so in place, with how the other name is acted as,
 // and takes that name once YARDR_ACTOR is set to it.
 func TestYourNameIsWhoCommandsActAs(t *testing.T) {
+	t.Parallel()
 	// The environment of a run that starts from the process's, as a person's
 	// does; the process's own is left as it is.
 	env := environMap(os.Environ())
@@ -538,6 +542,7 @@ func TestInitWithoutLoginName(t *testing.T) {
 
 // A harness without unattended flags gets none, and the summary says so.
 func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	out, err := run(t, testApp(t, st, newHomeDir(t)).rootCmd(), "init", "--harness", "gemini")
 	if err != nil {
@@ -597,8 +602,9 @@ func TestShellQuote(t *testing.T) {
 // With no terminal, a first run prints how to initialize and exits 2,
 // creating nothing; the commands that never need a yard still run.
 func TestFirstRunWithoutTerminal(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	var errs bytes.Buffer
 	// A run of its own each time, in an environment naming the home.
 	newApp := func() *app {
@@ -630,6 +636,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 // A store already in use without the setting (a yard from before the
 // onboarding) is set up too (yard-w6np).
 func TestInitialized(t *testing.T) {
+	t.Parallel()
 	cfg, err := testApp(t, nil, newHomeDir(t)).config()
 	if err != nil {
 		t.Fatal(err)
@@ -684,8 +691,9 @@ func TestInitialized(t *testing.T) {
 // without a terminal: its commands run and bare yardr is help. Only an
 // empty store refuses (yard-w6np: an upgrade locked ~/.yardr out).
 func TestOldYardIsNotOnboarded(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	st := storetest.New(t)
 	testYard(t, st, home)
@@ -706,7 +714,8 @@ func TestOldYardIsNotOnboarded(t *testing.T) {
 // The escape hatch is never behind the check it unlocks: settings works on a
 // store the check calls not set up, and setting default_kind sets it up.
 func TestSettingsWithoutYard(t *testing.T) {
-	setInteractive(t, false)
+	t.Parallel()
+	requireNonInteractive(t)
 	st := storetest.New(t)
 	testYard(t, st, newHomeDir(t))
 	if _, err := run(t, appOn(st).rootCmd(), "settings", "set", "default_kind", "codex"); err != nil {
@@ -721,7 +730,7 @@ func TestSettingsWithoutYard(t *testing.T) {
 // terminal: after it replaced itself into a build with the onboarding check
 // it was refused and ended (yard-w6np).
 func TestDaemonWithoutYard(t *testing.T) {
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	// herdr is not running in an empty config dir: the daemon only warns.
 	xdg, err := os.MkdirTemp("", "yw")
 	if err != nil {
@@ -795,8 +804,9 @@ func TestBareYardr(t *testing.T) {
 
 // With no terminal, a store nobody set up refuses like a home with none.
 func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	_, err := run(t, testApp(t, storetest.New(t), home).rootCmd(), "bead", "list")
 	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), hereAt(home, "yardr init --harness")) {
 		t.Fatalf("err = %v (exit %d)", err, exitCode(err))
@@ -877,6 +887,7 @@ func TestHarnessOptions(t *testing.T) {
 
 // group add and crew add without --set kind take the default_kind.
 func TestDefaultKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
@@ -932,6 +943,17 @@ func setInteractive(t *testing.T, v bool) {
 	t.Cleanup(func() { interactive = old })
 }
 
+// requireNonInteractive fails the test on a terminal: the test needs
+// none, and under go test there is none to have (the runner captures the
+// test binary's output, so interactive is false). Unlike setInteractive
+// it stubs nothing, so the test may run beside others.
+func requireNonInteractive(t *testing.T) {
+	t.Helper()
+	if interactive() {
+		t.Fatal("this test needs no terminal, but stdout is one: run it under go test")
+	}
+}
+
 func stubAsk(t *testing.T, fn func(...huh.Field) error) {
 	old := ask
 	ask = fn
@@ -956,6 +978,7 @@ func stubLookPath(t *testing.T, found ...string) {
 // prints written: a caller that reads the object into a type takes a list
 // there, and null is none.
 func TestInitJSONKeepsNoSettingAsAnEmptyList(t *testing.T) {
+	t.Parallel()
 	a := testApp(t, storetest.New(t), newHomeDir(t))
 	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--json")

@@ -42,8 +42,9 @@ var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=c
 // two people groups, so no bead there is unrouted (yardr-bv0x). Nothing is
 // written into the directory, and it gets no test command.
 func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
+	t.Parallel()
 	a, invoices := dirYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	args := append([]string{"init", "invoices", "--pack", "dir", "--yes"}, dirFlags...)
 	out, err := run(t, a.depotCmd(), args...)
@@ -209,8 +210,9 @@ func mustRead(t *testing.T, path string) []byte {
 // built, reviewed, sent back, asked about, and done, which closes them. No
 // stage lands anything.
 func TestDirPackFlowsWalk(t *testing.T) {
+	t.Parallel()
 	a, _ := dirYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if out, err := run(t, a.depotCmd(), append([]string{"init", "invoices", "--pack", "dir", "--yes"}, dirFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -262,8 +264,9 @@ func TestDirPackFlowsWalk(t *testing.T) {
 // group, so the plan noted four stages routed to nobody and every bead
 // waiting there was reported as unrouted (yardr-bv0x).
 func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
+	t.Parallel()
 	a, _ := dirYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	for _, g := range []store.Group{
 		{Name: "backlog", Runner: "manual", Limit: 4},
@@ -331,8 +334,9 @@ func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
 // nothing and its flow lands nothing, which is no way to work a repository.
 // The pack's kind decides, which a pack of the operator's own may say too.
 func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
@@ -392,8 +396,9 @@ func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
 // written, saying what the pack declares, and one that declares none goes
 // into a depot of either kind (yardr-vzb0).
 func TestDepotInitGoesByThePacksDeclaredKind(t *testing.T) {
+	t.Parallel()
 	a, repo := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {

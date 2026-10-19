@@ -14,7 +14,7 @@ import (
 // home with no yard and no terminal, and creates nothing there (yardr-arys).
 func TestVersionFlagPrintsWhatVersionDoes(t *testing.T) {
 	user := noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ask := func(args ...string) string {
 		t.Helper()
 		out, code := executeOut(&app{}, args...)

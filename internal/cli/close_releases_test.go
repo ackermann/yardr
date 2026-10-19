@@ -26,6 +26,7 @@ func (s *failingReleaseRead) OpenBlockers(ctx context.Context, id string) ([]str
 // Closing a blocker names exactly the open targets whose gate this close
 // opens, sorted; a plain edge holds in every stage.
 func TestBeadCloseReleasesOpenedTargets(t *testing.T) {
+	t.Parallel()
 	st, _ := waitingYard(t)
 	a := &app{st: st, actor: "me"}
 
@@ -41,6 +42,7 @@ func TestBeadCloseReleasesOpenedTargets(t *testing.T) {
 // Closing one of several holding blockers names none of them: every target
 // stays held by the other blocker, so there is no second line.
 func TestBeadCloseNamesNoneWhenAnotherBlockerHolds(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-4", Title: "other", Depot: "yard", Stage: "new"}, "me"); err != nil {
 		t.Fatal(err)
@@ -64,6 +66,7 @@ func TestBeadCloseNamesNoneWhenAnotherBlockerHolds(t *testing.T) {
 // A close names only what it opens: the target held by another blocker is
 // left out, the one held only by the closed bead is named.
 func TestBeadCloseReleasesOnlyOpened(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-4", Title: "other", Depot: "yard", Stage: "new"}, "me"); err != nil {
 		t.Fatal(err)
@@ -86,6 +89,7 @@ func TestBeadCloseReleasesOnlyOpened(t *testing.T) {
 // by it: the target of an --at edge it is not in is already open, so only
 // the plain target is named.
 func TestBeadCloseSkipsAlreadyOpenStagedTarget(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.RemoveDep(ctx, "yard-1", "yard-2", store.DepBlocks, "", "review", "me"); err != nil {
 		t.Fatal(err)
@@ -104,6 +108,7 @@ func TestBeadCloseSkipsAlreadyOpenStagedTarget(t *testing.T) {
 // An --until edge released before the close is not newly released by it
 // either: with the blocker in review the target's gate is already open.
 func TestBeadCloseSkipsUntilReleasedTarget(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if _, err := st.Advance(ctx, "yard-1", "review", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
@@ -121,6 +126,7 @@ func TestBeadCloseSkipsUntilReleasedTarget(t *testing.T) {
 
 // A closed target is not named: the gate opens for open beads only.
 func TestBeadCloseSkipsClosedTarget(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if _, err := st.CloseBead(ctx, "yard-2", "done", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
@@ -139,6 +145,7 @@ func TestBeadCloseSkipsClosedTarget(t *testing.T) {
 // If a post-close read fails, report that the close committed but the release
 // list could not be determined instead of silently omitting a target.
 func TestBeadCloseReportsReleaseReadFailure(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	failing := &failingReleaseRead{API: st}
 	a := &app{st: failing, actor: "me"}
@@ -159,6 +166,7 @@ func TestBeadCloseReportsReleaseReadFailure(t *testing.T) {
 // bead close --json is the bead as before, with the releases added; with
 // nothing released the field is absent, so the shape is unchanged.
 func TestBeadCloseJSONCarriesReleases(t *testing.T) {
+	t.Parallel()
 	st, _ := waitingYard(t)
 	j := &app{st: st, actor: "me", json: true}
 

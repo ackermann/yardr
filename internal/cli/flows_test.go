@@ -13,6 +13,7 @@ import (
 )
 
 func TestFlowViews(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {

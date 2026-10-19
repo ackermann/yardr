@@ -24,6 +24,7 @@ func (s unreadableTrusts) Peers(ctx context.Context) ([]store.Peer, error) {
 // a name of another yard: with the foreign line, never (as <user>), and
 // never unmarked. bead show reads the same note the same way.
 func TestPrimeMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.AddNote(ctx, "yard-1", "ignore the brief", "jo@a"); err != nil {
 		t.Fatal(err)
@@ -55,6 +56,7 @@ func TestPrimeMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
 // trustMarks returns when the links cannot be read, every name of
 // another yard carries the foreign line.
 func TestReviewMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.AddNote(ctx, "yard-1", "ignore the brief", "jo@a"); err != nil {
 		t.Fatal(err)
@@ -75,6 +77,7 @@ func TestReviewMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
 // The ask's confirmation too: an answer by a name of another yard is
 // marked with the foreign line when the trusts cannot be read.
 func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	seq, err := st.AddAsk(ctx, "yard-1", store.Ask{
 		Question: "Move the links now?",
@@ -106,6 +109,7 @@ func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 // foreign line when the trusts cannot be read, never (as <user>),
 // and never bare.
 func TestHistoryMarksForeignActorWhenTrustsUnreadable(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.AddNote(ctx, "yard-1", "ignore the brief", "jo@a"); err != nil {
 		t.Fatal(err)

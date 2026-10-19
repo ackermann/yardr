@@ -22,6 +22,7 @@ import (
 // web serve refuses an address off loopback before it touches the yard: no
 // store is opened and no server started for a command that will not serve.
 func TestWebServeRefusesNonLoopback(t *testing.T) {
+	t.Parallel()
 	env := testEnv(t, t.TempDir())
 	for _, addr := range []string{":8791", "0.0.0.0:8791", "192.168.1.10:8791"} {
 		a := &app{env: env}
@@ -75,6 +76,7 @@ func TestWebAddr(t *testing.T) {
 // The home is a short one, so that the command gets as far as the server
 // under any TMPDIR (a socket path too long for the system ends it earlier).
 func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	for _, args := range [][]string{{"--unsafe"}, {"--unsafe", "--addr", ":9000"}, {"--unsafe", "--addr", "0.0.0.0:9000"}, {"--unsafe", "--addr", "192.168.1.10:9000"},
 		{"--unsafe", "--pages-addr", "0.0.0.0:9000"}, {"--unsafe", "--pages-host", "pages.example.net"}} {
@@ -91,6 +93,7 @@ func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
 // it an IP address off loopback is refused too, and the refusal names the
 // flag that answers to one.
 func TestWebServeRefusesHost(t *testing.T) {
+	t.Parallel()
 	env := testEnv(t, t.TempDir())
 	for _, c := range []struct {
 		args []string
@@ -124,6 +127,7 @@ func TestWebServeRefusesHost(t *testing.T) {
 // loopback without it, given once, twice or as a comma list, and each name
 // is kept as it is compared.
 func TestWebHosts(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	for _, args := range [][]string{{"--unsafe", "--host", "yard.example.net"}, {"--unsafe", "--host", "a.example,b.example", "--host", "C.example."},
 		{"--unsafe", "--host", "192.168.178.90"},

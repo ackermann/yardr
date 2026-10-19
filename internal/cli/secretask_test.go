@@ -84,6 +84,7 @@ func dyingClient(t *testing.T, st *store.Store, method string) store.API {
 // lines from a pipe, as source key does, and prints who gave which names
 // and the file, never a value.
 func TestBeadAskAndAnswerASecret(t *testing.T) {
+	t.Parallel()
 	st, id, file := secretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -189,6 +190,7 @@ func TestBeadAskAndAnswerASecret(t *testing.T) {
 // bead ask --secret is refused by the yard in each case it lists, and
 // --env goes with --secret alone.
 func TestBeadAskSecretRefusals(t *testing.T) {
+	t.Parallel()
 	st, id, _ := secretYard(t)
 	a := &app{st: st, actor: "yardmaster"}
 	for name, c := range map[string]struct {
@@ -218,6 +220,7 @@ func TestBeadAskSecretRefusals(t *testing.T) {
 // given. An answer of that name is taken, and the exact-names refusal
 // still holds for what is asked: the token is no name of the ask.
 func TestBeadAskSecretMintedSource(t *testing.T) {
+	t.Parallel()
 	st, id, adaFile := userSecretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -257,6 +260,7 @@ func TestBeadAskSecretMintedSource(t *testing.T) {
 // bead ask --secret for names the source marks as no secret stores the ask
 // unconcealed, with concealed false; a mixed or secret one concealed.
 func TestBeadAskSecretConcealed(t *testing.T) {
+	t.Parallel()
 	st, id, _ := secretYard(t)
 	const mixedDecl = `name: gog
 base: https://gog.example.com
@@ -315,6 +319,7 @@ calls:
 // words every client says of one, never the transport's error and never
 // the value.
 func TestBeadAnswerSecretWithoutAnAnswer(t *testing.T) {
+	t.Parallel()
 	st, id, _ := secretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	if _, err := run(t, yard.beadCmd(), "ask", id, "The API key for the CRM", "--secret", "crm", "--env", "CRM_TOKEN",
@@ -336,6 +341,7 @@ func TestBeadAnswerSecretWithoutAnAnswer(t *testing.T) {
 // on a pipe, and prints who gave which names and the login, never a value.
 // With no login waiting the answer is refused naming that.
 func TestBeadAskAndAnswerALoginInput(t *testing.T) {
+	t.Parallel()
 	st, id, _ := secretYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}

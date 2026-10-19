@@ -15,6 +15,7 @@ import (
 // depot's session_blocked and not another's, and bare yardr subscribe shows
 // it as one row (yardr-03fj).
 func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "crew", "add", "clerk", "--set", "kind=claude", "--on", "held")
@@ -103,6 +104,7 @@ func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
 // nothing, so a label that has one is still one value. A bead takes one
 // value, since its subscription ends when it closes.
 func TestSubscribeWhereValueIsWhole(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "subscribe", "yardmaster", "yardr", "--where", "label=ui,api", "--where", "label=a|b", "--where", "label=line1\nline2")

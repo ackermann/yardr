@@ -119,7 +119,7 @@ func declaredThreadYard(t *testing.T) (*app, store.API, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &app{st: st, actor: "me", cfg: &config.Config{Home: home}}, st, strconv.FormatUint(seq, 10), dir
+	return &app{st: st, actor: "me", cfg: &config.Config{Home: home}, env: testEnv(t, "")}, st, strconv.FormatUint(seq, 10), dir
 }
 
 func lastStdin(t *testing.T, dir, cmd string) map[string]any {
@@ -153,7 +153,7 @@ func stdinRuns(t *testing.T, dir, cmd string) int {
 func TestReplyDeclaredSource(t *testing.T) {
 	a, _, seq, dir := declaredThreadYard(t)
 	t.Setenv("ACME_TOKEN", "tok-1")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 
 	out, err := run(t, a.replyCmd(), seq, "answer")
 	if err != nil {
@@ -206,7 +206,7 @@ func TestReplyDeclaredSourceMinted(t *testing.T) {
 	}
 	t.Setenv("ACME_APP_ID", "app-1")
 	t.Setenv("ACME_APP_KEY", "keys/app.pem")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 
 	out, err := run(t, a.replyCmd(), seq, "answer")
 	if err != nil {
@@ -236,6 +236,7 @@ func TestReplyDeclaredSourceMinted(t *testing.T) {
 
 // yardr crew show names the minted way where the declaration names a mint.
 func TestCrewShowDeclaredSourceMinted(t *testing.T) {
+	t.Parallel()
 	a, st, _, _ := declaredThreadYard(t)
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "acme.yaml", acmeMintedCLI, "me"); err != nil {
@@ -283,7 +284,7 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 	a, st, _, dir := declaredThreadYard(t)
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-1")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 
 	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "open_threads=acme"); err != nil {
 		t.Fatal(err)
@@ -333,7 +334,7 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 func TestThreadStateDeclaredSource(t *testing.T) {
 	a, _, seq, dir := declaredThreadYard(t)
 	t.Setenv("ACME_TOKEN", "tok-1")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 
 	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "set_state=acme"); err != nil {
 		t.Fatal(err)
@@ -400,6 +401,7 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 // yardr link links a bead to a declared source's issue: by its URL, or by
 // the seq of a delivery from its thread.
 func TestLinkDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a, st, seq, _ := declaredThreadYard(t)
 	ctx := context.Background()
 
@@ -437,6 +439,7 @@ func TestLinkDeclaredSource(t *testing.T) {
 // A hook on a declared source maps bead stages to its states, refused
 // where the source has no status for the word.
 func TestHookMapDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a, st, _, _ := declaredThreadYard(t)
 	ctx := context.Background()
 	f := filepath.Join(t.TempDir(), "s")
@@ -474,6 +477,7 @@ func TestHookMapDeclaredSource(t *testing.T) {
 // crew show says what the crew member may do in a declared source, and its
 // credential there: the one variable the file names.
 func TestCrewShowDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a, st, _, _ := declaredThreadYard(t)
 	ctx := context.Background()
 	env := filepath.Join(t.TempDir(), "yardmaster.env")
@@ -505,7 +509,7 @@ func TestThreadOpenAssign(t *testing.T) {
 	a, st, _, dir := declaredThreadYard(t)
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-1")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "open_threads=acme"); err != nil {
 		t.Fatal(err)
 	}

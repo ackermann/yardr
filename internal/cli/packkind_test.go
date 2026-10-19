@@ -66,6 +66,7 @@ func kindPack(t *testing.T) string {
 // plan names each command, its file and the file's sha256, and installs no
 // roles or scripts.
 func TestPackCheckSourcePackNeedsNoDepot(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	dir := kindPack(t)
 	out, err := run(t, a.packCmd(), "check", dir)
@@ -92,6 +93,7 @@ func TestPackCheckSourcePackNeedsNoDepot(t *testing.T) {
 
 // A pack of kind source refuses --depot, and any other pack requires it.
 func TestPackCheckHoldsDepotToThePack(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	if out, err := run(t, a.packCmd(), "check", kindPack(t), "--depot", "web"); err == nil ||
 		!strings.Contains(err.Error(), "pack acme-pack is of kind source: it is imported into the yard, not into a depot (drop --depot)") {
@@ -111,8 +113,9 @@ func TestPackCheckHoldsDepotToThePack(t *testing.T) {
 // source is added, its commands' files copied, and pack list shows the
 // import into the yard.
 func TestPackApplySourcePack(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := kindPack(t)
 	out, err := run(t, a.packCmd(), "apply", dir, "--yes")
 	if err != nil {
@@ -141,6 +144,7 @@ func TestPackApplySourcePack(t *testing.T) {
 // Adding is the operator's: run by anyone else, the import adds no source,
 // and copies no file.
 func TestPackApplySourcePackByAnotherSessionAddsNoSource(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	a.actor = "web-builder-1"
 	dir := kindPack(t)
@@ -169,6 +173,7 @@ func TestPackApplySourcePackByAnotherSessionAddsNoSource(t *testing.T) {
 // as optional, in the plan and in the output; the import goes through
 // without them, and no step calls the source "missing" or "skipped".
 func TestPackApplyShowsAnUnusedSourceOnceAsOptional(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	dir := t.TempDir()
 	for name, text := range map[string]string{
@@ -208,7 +213,7 @@ sources:
 	if strings.Contains(out, "missing") || strings.Contains(out, "skipped") {
 		t.Fatalf("the plan calls the source missing or skipped:\n%s", out)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	out, err = run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes", "--crew", "mate=boss", "--bind", "builders=claude")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)

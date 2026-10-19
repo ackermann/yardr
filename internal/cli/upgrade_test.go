@@ -29,7 +29,12 @@ func upgradeYard(t *testing.T) (string, store.API, func() *app) {
 	t.Helper()
 	home := newHome(t)
 	st := storetest.New(t)
-	return home, st, func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	return home, st, func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 }
 
 // stubServer has upgradeDescribe answer (or not) as a server of rev would.
@@ -199,7 +204,7 @@ func TestUpgradeCheckServerDown(t *testing.T) {
 func TestUpgradeCheckNoYard(t *testing.T) {
 	home := newHome(t)
 	errs := captureStderr(t)
-	out, code := executeOut(&app{stderr: errs}, "upgrade", "--check")
+	out, code := executeOut(&app{stderr: errs, env: testEnv(t, home)}, "upgrade", "--check")
 	if code != 2 || out != "" {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}

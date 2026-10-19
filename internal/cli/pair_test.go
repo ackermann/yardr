@@ -156,7 +156,7 @@ var checkLine = regexp.MustCompile(`check  (\d{3} \d{3})`)
 // owed, and the pairing stands.
 func TestPeerPair(t *testing.T) {
 	north, laptop := pairYards(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	errs := bothStderr(t)
 	out, hostErr, callErr := pairBoth(t, north, laptop, errs, []string{"--yes", "--timeout", "50ms"}, withCode("--yes"))
 	if hostErr != nil || callErr != nil {
@@ -232,7 +232,7 @@ func TestPeerPairExposesFromFlag(t *testing.T) {
 	if _, err := north.peer(t, "pair", "--url", north.srv.URL, "--expose", "missing"); err == nil || !strings.Contains(err.Error(), "--expose missing is not a crew member or user") {
 		t.Fatalf("invalid --expose: %v", err)
 	}
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	out, hostErr, callErr := pairBoth(t, north, laptop, bothStderr(t), []string{"--yes", "--timeout", "50ms", "--expose", "yardmaster"}, withCode("--yes"))
 	if hostErr != nil || callErr != nil {
 		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
@@ -549,7 +549,7 @@ func TestPeerPairCallNotAnswered(t *testing.T) {
 // such word.
 func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 	north, laptop := pairYards(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	errs := bothStderr(t)
 	listens := strings.TrimPrefix(north.srv.URL, "http://")
 	_, port, _ := net.SplitHostPort(listens)
@@ -626,7 +626,7 @@ func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
 // with the way out; one that listens on every address needs --url.
 func TestPeerPairNeedsAListener(t *testing.T) {
 	_, laptop := pairYards(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	_, err := laptop.peer(t, "pair", "--yes")
 	if err == nil {
 		t.Fatal("a pairing was opened on a yard without a listener")

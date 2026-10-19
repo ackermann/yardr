@@ -12,6 +12,7 @@ import (
 // yardr mail --with and yardr inbox, and a reaction to a crew member's own
 // mail lands in that crew member's inbox. --clear takes it away.
 func TestReactCommand(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "yardmaster", "mail", "jo", "the shed is painted")

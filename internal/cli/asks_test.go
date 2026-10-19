@@ -39,6 +39,7 @@ func askArgs(id string) []string {
 // own option last and the recommendation marked; --to defaults to the
 // operator.
 func TestBeadAsk(t *testing.T) {
+	t.Parallel()
 	st, _, id := askYard(t)
 	a := &app{st: st, actor: "yardmaster"}
 
@@ -89,6 +90,7 @@ func TestBeadAsk(t *testing.T) {
 // bead ask refuses an ask with no context, an option with no consequence,
 // and an option the writer called You decide.
 func TestBeadAskRefusals(t *testing.T) {
+	t.Parallel()
 	st, _, id := askYard(t)
 	a := &app{st: st, actor: "yardmaster"}
 
@@ -117,6 +119,7 @@ func TestBeadAskRefusals(t *testing.T) {
 // bead answer records the pick with the words; words alone on an ask with
 // options are refused with where they go.
 func TestBeadAnswer(t *testing.T) {
+	t.Parallel()
 	st, _, id := askYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -176,6 +179,7 @@ func TestBeadAnswer(t *testing.T) {
 // --later puts the ask aside, --decline ends it, and words close an ask
 // with no options; the combinations that mean nothing are refused.
 func TestBeadAnswerLaterDeclineWords(t *testing.T) {
+	t.Parallel()
 	st, _, id := askYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -228,6 +232,7 @@ func TestBeadAnswerLaterDeclineWords(t *testing.T) {
 // prime --bead shows asks as numbered text with their state, answers
 // folded into them, and no raw JSON anywhere.
 func TestPrimeShowsAsks(t *testing.T) {
+	t.Parallel()
 	st, _, id := askYard(t)
 	yard := &app{st: st, actor: "yardmaster"}
 	me := &app{st: st, actor: "mckean"}
@@ -266,6 +271,7 @@ func TestPrimeShowsAsks(t *testing.T) {
 // review shows a bead's asks as numbered text when it prints the bead;
 // its queue is untouched: beads in manual stages by bead age.
 func TestReviewShowsAsks(t *testing.T) {
+	t.Parallel()
 	st, ctx := reviewYard(t, "/tmp/yard")
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "decide this", Depot: "yard", Stage: "decide"}, "yardmaster")
 	if err != nil {
@@ -296,6 +302,7 @@ func TestReviewShowsAsks(t *testing.T) {
 // go, and prints both; -b, --label, --depot and --stage fill and place the
 // bead as bead create does.
 func TestBeadAskNew(t *testing.T) {
+	t.Parallel()
 	st, ctx, id := askYard(t)
 	a := &app{st: st, actor: "yardmaster"}
 
@@ -380,6 +387,7 @@ func TestBeadAskNew(t *testing.T) {
 // answer it. Anyone but the asker and the operator is refused, and so is a
 // pick afterwards, in words. --help says it.
 func TestBeadAskTakeBack(t *testing.T) {
+	t.Parallel()
 	st, ctx, id := askYard(t)
 	asker := &app{st: st, actor: "yardmaster"}
 	if _, err := run(t, asker.beadCmd(), askArgs(id)...); err != nil {

@@ -17,6 +17,7 @@ import (
 // kind of the class reaches no one while someone hears the class; when
 // nobody does any more, each kind nobody has is listed again (yardr-qcm2).
 func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	// init made the yardmaster, with the default --on.

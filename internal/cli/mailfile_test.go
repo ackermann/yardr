@@ -22,6 +22,7 @@ import (
 // mail without one. A file over the yard's limit is refused with nothing
 // stored and nothing sent, and so is a file for another yard.
 func TestMailFile(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -94,6 +95,7 @@ func TestMailFile(t *testing.T) {
 
 // The CLI refuses an over-limit mail or note before uploading its files.
 func TestFileCountLimitsBeforePut(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	report := filepath.Join(t.TempDir(), "report.pdf")
@@ -128,6 +130,7 @@ func TestFileCountLimitsBeforePut(t *testing.T) {
 // shows it under the mail's words. Prose named .html goes as a file,
 // since what the bytes are is what counts.
 func TestMailPage(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -166,6 +169,7 @@ func TestMailPage(t *testing.T) {
 // line reads "1 file: <path> (report.pdf)": a file carries the path's
 // base name, because its bytes say nothing a person can read.
 func TestMailPDFFilesLine(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -191,6 +195,7 @@ func TestMailPDFFilesLine(t *testing.T) {
 // link carries file out and the peer's yardr understands it. Where either
 // does not hold it is refused at once: no image is put and nothing queued.
 func TestMailFileToAPeer(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -260,6 +265,7 @@ func TestMailFileToAPeer(t *testing.T) {
 // is refused before anything is put; over this yard's own cap it is
 // refused naming the page, and nothing is queued.
 func TestMailPageToAPeer(t *testing.T) {
+	t.Parallel()
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -334,6 +340,7 @@ func TestMailPageToAPeer(t *testing.T) {
 // naming the blob the yard keeps, while the forged words stand unmarked.
 // The sent confirmation names the file on a marked line of its own too.
 func TestMailFilesLineNotForgeable(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	home := yardEnv(t, st)["YARDR_HOME"]
@@ -388,6 +395,7 @@ func TestMailFilesLineNotForgeable(t *testing.T) {
 // mail is shown with its files, so only the yard's files line starts
 // with it.
 func TestMailTextCannotForgeAFilesLine(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
@@ -415,6 +423,7 @@ func TestMailTextCannotForgeAFilesLine(t *testing.T) {
 // reads as letters: its sequences are no more than the letters after
 // their escapes, so no line of it shows as the yard's files line.
 func TestMailTextCannotDrawTheFilesMark(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	// ESC ( 0 switches to the terminal's drawing letters, where "`" is

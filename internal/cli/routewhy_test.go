@@ -19,6 +19,7 @@ const weeklyReason = "Claude's Weekly window is 83% used, the route asks under 8
 // which groups it passed over, names the group that held the bead in the
 // stage before, and says nothing of a route that had no choice to make.
 func TestBeadShowSaysWhyABeadWentWhereItWent(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	// Room for the three beads a takes below.
@@ -108,6 +109,7 @@ func TestBeadShowSaysWhyABeadWentWhereItWent(t *testing.T) {
 // A bead that waits because no group's condition holds shows what it waits
 // for and until when, from its quota_wait event, until a group has it.
 func TestBeadShowSaysWhatAWaitingBeadWaitsFor(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	r, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80"}, "me")
@@ -166,6 +168,7 @@ func TestBeadShowSaysWhatAWaitingBeadWaitsFor(t *testing.T) {
 // route add warns of a further group with no condition that burns the
 // provider of a conditioned group before it, and adds the route.
 func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "machine.yaml", "name: machine\nlimits:\n  command: [/bin/true]\n", "me"); err != nil {
@@ -229,6 +232,7 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 // different logins, warns of nothing, while two groups on one file warn as
 // before.
 func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	for _, g := range []store.Group{
@@ -380,6 +384,7 @@ func TestDoctorNotesARouteWhoseConditionNamesNoSuchSource(t *testing.T) {
 // default_kind, as its sessions do, in route add's warning and doctor's
 // note alike. (yardr-j6f0: both took it for the runner's own default.)
 func TestRouteWarningsTakeAGroupWithoutAKindForTheYardsDefaultKind(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	cfg := &config.Config{Home: t.TempDir()}

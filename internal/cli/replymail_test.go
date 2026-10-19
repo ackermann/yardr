@@ -50,6 +50,7 @@ func mailSeq(t *testing.T, st store.API) string {
 // TestReplyToLocalMail answers a user's mail with yardr reply: the reply
 // is mail to that user, as yardr mail would send it, and to nobody else.
 func TestReplyToLocalMail(t *testing.T) {
+	t.Parallel()
 	a, st := replyMailYard(t)
 	ctx := context.Background()
 	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
@@ -92,6 +93,7 @@ func TestReplyToLocalMail(t *testing.T) {
 // TestReplyLongMail answers a user's mail with a text over one mail's
 // size: the reply is numbered mails to that user, as yardr mail sends it.
 func TestReplyLongMail(t *testing.T) {
+	t.Parallel()
 	a, st := replyMailYard(t)
 	ctx := context.Background()
 	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
@@ -129,6 +131,7 @@ func TestReplyLongMail(t *testing.T) {
 // TestReplyToPeerMail answers mail from another yard with yardr reply: the
 // reply is queued for <from>@<peer>, and no local mail is sent.
 func TestReplyToPeerMail(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
@@ -201,6 +204,7 @@ func TestReplyToPeerMail(t *testing.T) {
 // TestReplyToPeerMailRefused is refused as yardr mail is when the crew
 // member may not write to the peer.
 func TestReplyToPeerMailRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
@@ -245,6 +249,7 @@ func TestReplyToPeerMailRefused(t *testing.T) {
 // delivery nor mail, naming what a reply answers; --to is for hook
 // deliveries only.
 func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
+	t.Parallel()
 	a, st, seqs, _ := replyYard(t)
 	// The crew the run answers as; the refusal comes before any source
 	// call, so no credential is set.
@@ -269,6 +274,7 @@ func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
 // TestReplyRefusesMailOutsideTheCrewInbox prevents a seq from another
 // recipient's mail from being treated as mail to this crew member.
 func TestReplyRefusesMailOutsideTheCrewInbox(t *testing.T) {
+	t.Parallel()
 	a, st := replyMailYard(t)
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Dir: t.TempDir()}, "jo"); err != nil {
@@ -293,6 +299,7 @@ func TestReplyRefusesMailOutsideTheCrewInbox(t *testing.T) {
 // TestReplyHelp says both uses: a hook delivery in its source, and mail
 // to the crew member by mail to its sender.
 func TestReplyHelp(t *testing.T) {
+	t.Parallel()
 	a, _ := replyMailYard(t)
 	help, err := run(t, a.rootCmd(), "reply", "--help")
 	if err != nil {

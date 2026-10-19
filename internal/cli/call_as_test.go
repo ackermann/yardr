@@ -18,6 +18,7 @@ import (
 // grant as them; --list prints each as its command, and prime --crew names
 // them the same way. The credential is in nothing printed.
 func TestCallAs(t *testing.T) {
+	t.Parallel()
 	const token = "tok-51aa-not-to-be-seen"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -96,6 +97,7 @@ calls:
 // the source's check call as them, saying so; without the names it names
 // the card that gives them. The credential is in nothing printed.
 func TestSourceCheckAs(t *testing.T) {
+	t.Parallel()
 	const token = "tok-52bb-not-to-be-seen"
 	var auth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -16,6 +16,7 @@ import (
 // read, and bead show says how each note stands with its session, so the
 // one who wrote it sees whether it was read.
 func TestBeadNoteAck(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"); err != nil {
@@ -126,6 +127,7 @@ func TestBeadNoteAck(t *testing.T) {
 // note to it is unread, and the refusal shows the note; after the ack the
 // same done passes. From outside any session the same done is not refused.
 func TestBeadDoneRefusedWhileNoteUnread(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {

@@ -51,6 +51,7 @@ func presetYard(t *testing.T, decl string) (*app, *app) {
 // yardr source grant --preset grants the preset's calls of the source,
 // from the embedded pack that declares it, each as if by name.
 func TestSourceGrantPreset(t *testing.T) {
+	t.Parallel()
 	jo, _ := presetYard(t, presetMail)
 	out, err := run(t, jo.sourceCmd(), "grant", "google-mail", "--preset", "drafts", "--group", "builders", "--crew", "yardmaster")
 	if err != nil {
@@ -73,6 +74,7 @@ func TestSourceGrantPreset(t *testing.T) {
 // --preset with --as is the named user's alone to give, as any as
 // grant: the operator is refused it, and the user gives it.
 func TestSourceGrantPresetAs(t *testing.T) {
+	t.Parallel()
 	jo, ada := presetYard(t, presetMail)
 	if _, err := run(t, jo.sourceCmd(), "grant", "google-mail", "--preset", "drafts", "--crew", "yardmaster", "--as", "ada"); err == nil ||
 		!strings.Contains(err.Error(), "preset drafts of pack google-mail: granting a call of a source as ada is ada's to give, and nobody else's") {
@@ -88,6 +90,7 @@ func TestSourceGrantPresetAs(t *testing.T) {
 // the yard's declaration has not, and read or a call beside --preset
 // are each refused.
 func TestSourceGrantPresetRefusals(t *testing.T) {
+	t.Parallel()
 	jo, _ := presetYard(t, presetMail)
 	for _, c := range []struct{ args, want []string }{
 		{[]string{"grant", "google-mail", "--preset", "nosuch", "--crew", "yardmaster"},

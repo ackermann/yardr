@@ -92,6 +92,7 @@ func ignoreSender(t *testing.T, own *store.Store, sender string) {
 // the rest of the source. A source with no identity hearing ignores
 // nothing, and removing is the operator's.
 func TestSourceIgnore(t *testing.T) {
+	t.Parallel()
 	a, st, own := ignoreYard(t)
 	ctx := context.Background()
 	if out, err := run(t, a.sourceCmd(), "ignore", "talk"); err != nil || out != "talk: no sender is ignored\n" {

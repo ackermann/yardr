@@ -18,6 +18,7 @@ import (
 // names the hook and thread commands with their files, and the apply
 // stores the keys and copies the files.
 func TestPackApplySlackCarriesDeclarationAndScripts(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	srcEnv := envFile(t, "SLACK_BOT_TOKEN=tok-not-to-be-seen\n", 0o600)
@@ -121,6 +122,7 @@ func TestPackApplySlackCarriesDeclarationAndScripts(t *testing.T) {
 // stand-in; fields the answer carries beyond the selection are shown
 // nowhere, and the credential is in neither output.
 func TestSourceCheckSlackPrintsSelectedFields(t *testing.T) {
+	t.Parallel()
 	const token = "xoxb-not-to-be-seen"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/auth.test" {

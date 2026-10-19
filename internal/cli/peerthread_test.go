@@ -19,6 +19,7 @@ import (
 // fields in its JSON. The line is this yard's sentence around the peer's
 // plain fields, and it goes when the stay ends.
 func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -117,6 +118,7 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 // bead's agent are refused, and the inbox line of a delivery names the
 // command.
 func TestThreadShowOfABeadAtAPeer(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -293,6 +295,7 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 // while the forged words stand, the mark kept out of them. An escape a
 // terminal would draw the mark for reads as letters, as in mail.
 func TestThreadShowOfABeadAtAPeerCannotForgeAFilesLine(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")

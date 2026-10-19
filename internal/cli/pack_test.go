@@ -38,6 +38,7 @@ func packApp(t *testing.T) *app {
 }
 
 func TestPackCheckPrintsThePlan(t *testing.T) {
+	t.Parallel()
 	// Its own yard, with no operator: the plan fills {{operator}} with
 	// the default, and check writes nothing. packApp names one.
 	st := storetest.New(t)
@@ -95,6 +96,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 // An invalid pack exits non-zero, each mistake with file, line and key,
 // and the store is not even asked.
 func TestPackCheckInvalidPackFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	text := "name: bad\nflows:\n  default:\n    stages:\n      new: { group: nobody, on: { done: new } }\nkind: svn\n"
 	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(text), 0o644); err != nil {
@@ -145,8 +147,9 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 // stops with the 'no yard' line where its plan needs the yard. A pack given
 // by name needs the yard from the start. No store is made, no server started.
 func TestPackCheckDirWithoutAYard(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	bad := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bad, "pack.yaml"), []byte("name: bad\nkind: svn\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -184,6 +187,7 @@ func TestPackCheckDirWithoutAYard(t *testing.T) {
 
 // A plan the import would refuse is printed whole, then fails the check.
 func TestPackCheckRefusedPlanFails(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
@@ -209,8 +213,9 @@ var starterFlags = []string{"--crew", "yardmaster=boss", "--bind", "builders=cla
 // to a line, never a default, and nothing is changed. With the answers
 // but no --yes it still does not apply.
 func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	unchanged := func() {
 		t.Helper()
@@ -266,8 +271,9 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 // missing flags, each as a line to paste, and exits non-zero. As data it
 // is the same list under missing.
 func TestPackApplyWithoutATerminalPrintsOnlyTheMissingFlags(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	args := []string{"apply", "../../packs/starter", "--depot", "web", "--yes",
 		"--crew", "yardmaster=boss", "--bind", "builders=claude",
 		"--bind", "crew:yardmaster=claude", "--members", "decisions=ann,boss"}
@@ -296,8 +302,9 @@ func TestPackApplyWithoutATerminalPrintsOnlyTheMissingFlags(t *testing.T) {
 // terminal; the same command again changes nothing; pack list shows the
 // record.
 func TestPackApplyWithFlags(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)
 	out, err := run(t, a.packCmd(), args...)
@@ -487,8 +494,9 @@ func TestPackApplyAsksPermissionsInATerminal(t *testing.T) {
 // no unattended arguments for gets none and the same warning. An existing
 // group keeps its arguments whatever the flags say.
 func TestPackApplyPresets(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	if err := a.st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 1,
 		Config: map[string]any{"kind": "claude", "args": []any{"--mine"}}}, "me"); err != nil {
@@ -565,8 +573,9 @@ var errDeclined = errors.New("declined")
 
 // A refused import prints the plan and why, exits 1, and changes nothing.
 func TestPackApplyRefused(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -583,8 +592,9 @@ func TestPackApplyRefused(t *testing.T) {
 // What the pack has dropped is listed by check and by apply, and removed
 // by apply --prune.
 func TestPackApplyPrune(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := t.TempDir()
 	if err := os.CopyFS(dir, os.DirFS("../../packs/starter")); err != nil {
 		t.Fatal(err)
@@ -634,8 +644,9 @@ func TestPackApplyPrune(t *testing.T) {
 // chosen, a later apply without the flag repeats it, and --pack-roles, the
 // default now, says so and undoes it.
 func TestPackApplyRolesChoice(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	depotDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(depotDir, ".yardr", "roles"), 0o755); err != nil {
@@ -691,6 +702,7 @@ func TestPackApplyRolesChoice(t *testing.T) {
 // default now; the plan on stdout stays the plan alone, and under --json
 // the value stays the plan's.
 func TestPackRolesWarnsOnItsErrorStream(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	want := "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --depot-roles\n"
 	for _, asJSON := range []bool{false, true} {
@@ -767,6 +779,7 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 // pack check refuses a pack whose role has a placeholder no import fills,
 // naming the file and the line.
 func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.CopyFS(dir, os.DirFS("../../packs/starter")); err != nil {
 		t.Fatal(err)

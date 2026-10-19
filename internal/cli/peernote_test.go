@@ -19,6 +19,7 @@ import (
 // that yard. Each refusal comes before anything is queued, and --to is not
 // for it.
 func TestReplyOnABeadAtAPeer(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -163,6 +164,7 @@ func TestReplyOnABeadAtAPeer(t *testing.T) {
 // show and the prime say that the bead is back there, why, and how a member
 // moves it on.
 func TestNoteFromAPeerInTheCommands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	f, err := store.ParseFlow("arrived -> work on done\nwork -> returned on done\nreturned terminal\n")

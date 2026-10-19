@@ -33,6 +33,7 @@ func TestShowNumbers(t *testing.T) {
 }
 
 func TestHookDeliveryLine(t *testing.T) {
+	t.Parallel()
 	e := store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"source": "linear", "type": "comment", "action": "create",
 		"actor":  map[string]any{"id": "u1", "name": "Jane"},
@@ -51,6 +52,7 @@ func TestHookDeliveryLine(t *testing.T) {
 // A reaction to a crew member's own mail lands in its inbox as one line,
 // on the writer the inbox is printed to.
 func TestReactionInboxLine(t *testing.T) {
+	t.Parallel()
 	e := store.Event{Seq: 7, Kind: "reaction", Actor: "jo", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"emoji": "👍", "preview": "the shed is painted", "seq": float64(5),
 	}}
@@ -68,6 +70,7 @@ func TestReactionInboxLine(t *testing.T) {
 // unmapped sender kept under allow. A delivery with no speaker renders
 // as it always has (TestHookDeliveryLine).
 func TestHookDeliveryLineFromSpeaker(t *testing.T) {
+	t.Parallel()
 	base := func(speaker string) store.Event {
 		return store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 			"source": "slack", "type": "message", "action": "create",
@@ -102,6 +105,7 @@ func TestHookDeliveryLineFromSpeaker(t *testing.T) {
 }
 
 func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
+	t.Parallel()
 	e := store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"source": "linear", "type": "comment", "action": "create",
 		"thread": map[string]any{"title": "Retries\r\n\x1b[2K"}, "url": "https://x/\rhidden\x1b[2K",
@@ -122,6 +126,7 @@ func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
 }
 
 func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
+	t.Parallel()
 	id := "t1\r    something else\x1b[2K"
 	title := "Retries\r\n\x1b[2K"
 	url := "https://x/\rhidden\x1b[2K"
@@ -152,6 +157,7 @@ func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
 }
 
 func TestEventLogPrintsPrintableNestedThreadFields(t *testing.T) {
+	t.Parallel()
 	e := store.Event{Seq: 9, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"thread": map[string]any{"id": "t1\r    something else\x1b[2K", "title": "Retries\r\n\x1b[2K", "url": "https://x/\rhidden\x1b[2K"},
 	}}
@@ -171,6 +177,7 @@ func TestEventLogPrintsPrintableNestedThreadFields(t *testing.T) {
 // The inbox row of a harness's error begins with its reason and the line the
 // harness printed, before the rest of what the event carries.
 func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
+	t.Parallel()
 	bead := "yardr-hk53"
 	e := store.Event{Seq: 14, Kind: "session_harness_error", Actor: "yard", Bead: &bead,
 		At: time.Date(2026, 10, 6, 3, 5, 0, 0, time.Local), Data: map[string]any{
@@ -191,6 +198,7 @@ func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
 // is the last of the event's fields by name, so the question the agent
 // waits on stands under the row, as the pane shows it.
 func TestBlockedLineEndsWithThePane(t *testing.T) {
+	t.Parallel()
 	bead := "yardr-cdmr"
 	e := store.Event{Seq: 16, Kind: "session_blocked", Actor: "yard", Bead: &bead,
 		At: time.Date(2026, 10, 6, 21, 5, 0, 0, time.Local), Data: map[string]any{
@@ -210,6 +218,7 @@ func TestBlockedLineEndsWithThePane(t *testing.T) {
 // The inbox row of a refused move begins with why, the command the agent
 // ran and the yard's answer to it.
 func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
+	t.Parallel()
 	bead := "yardr-87dd"
 	e := store.Event{Seq: 15, Kind: store.MoveRefused, Actor: "yard", Bead: &bead,
 		At: time.Date(2026, 10, 6, 9, 5, 0, 0, time.Local), Data: map[string]any{
@@ -231,6 +240,7 @@ func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
 // after the command returned, such a listing blocked the command in its
 // write until go test's timeout (yardr-bbyz).
 func TestRunReturnsOutputLargerThanAPipe(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	const total = 205

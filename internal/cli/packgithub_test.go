@@ -9,8 +9,9 @@ import (
 // Applying the github pack adds the source it declares; running it twice
 // changes nothing.
 func TestPackApplyGithubAddsTheDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	out, err := run(t, a.packCmd(), "apply", "github", "--yes")
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 // The check at the end of the run sees a process a test started and left
 // running, with the directory it runs in, and none once it has ended.
 func TestLeftBehindNamesARunningChild(t *testing.T) {
+	t.Parallel()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,7 @@ func TestLeftBehindNamesARunningChild(t *testing.T) {
 // suite again (and, in it, a server that nothing stops): it ends at once and
 // says what it is.
 func TestTheTestBinaryIsNotYardr(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command(os.Args[0], "server", "run")
 	cmd.Env = append(os.Environ(), "YARDR_HOME="+newHomeDir(t))
 	done := make(chan struct{})
@@ -99,13 +101,16 @@ func TestTheTestBinaryIsNotYardr(t *testing.T) {
 // test that failed everywhere else from three runs (yardr-j4vm). This test
 // names no home: it has the one TestMain left it.
 func TestNoCommandReachesTheMachinesYard(t *testing.T) {
-	// Where a test that clears the variables ends up: nothing is there.
+	// Where a test that clears the variables ends up: no yard is there.
+	// Resolving a home creates its directory (config.Load), so the
+	// directory itself may stand from another test's run; the store is
+	// what a yard is.
 	user, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(config.DefaultHome(user)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("the default home %s of these tests: %v, want none: TestMain gives them a user's home with no yard", config.DefaultHome(user), err)
+	if _, err := os.Stat(filepath.Join(config.DefaultHome(user), "yard.db")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the default home %s of these tests: %v, want no yard: TestMain gives them a user's home with none", config.DefaultHome(user), err)
 	}
 
 	// A server answers at the user's default home, here a user of the
@@ -132,7 +137,10 @@ func TestNoCommandReachesTheMachinesYard(t *testing.T) {
 			t.Fatal("server did not come up")
 		}
 	}
-	a := &app{actor: "me"}
+	// The run inherits the test process's environment, as a run of yardr
+	// inherits its own: YARDR_HOME names TestMain's yardless home, which
+	// is what keeps this command off the live default home below.
+	a := &app{actor: "me", env: environMap(os.Environ())}
 	if _, err := run(t, a.beadCmd(), "list"); !errors.Is(err, errNoServer) {
 		t.Fatalf("bead list with no store and no flag: %v, want %v: it reached a yard of the machine", err, errNoServer)
 	}

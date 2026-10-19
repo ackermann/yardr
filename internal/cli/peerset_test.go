@@ -16,6 +16,7 @@ import (
 // pull. Only the operator may, and a URL that yardr peer add would not
 // take is refused with its reason.
 func TestPeerSetURL(t *testing.T) {
+	t.Parallel()
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
 	cliEnv(t, north, laptop)
 	ctx := context.Background()
@@ -136,6 +137,7 @@ func TestPeerSetURL(t *testing.T) {
 // What waits for a peer when its URL changes still waits, and the command
 // says how many and how they go now.
 func TestPeerSetURLSaysWhatWaits(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	north.must(t, "add", "south", strings.TrimSpace(south.must(t, "invite")))

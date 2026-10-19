@@ -15,6 +15,7 @@ import (
 // the setting, else init's default name. A yard with several crew members
 // and no setting does not guess among them.
 func TestYardmasterOf(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if got := yardmasterOf(ctx, st); got != "yardmaster" {

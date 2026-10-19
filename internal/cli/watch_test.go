@@ -19,6 +19,7 @@ import (
 // reader at its first event (yardr-pj1h). One event's data holds a newline,
 // which the compact encoding escapes onto the line.
 func TestWatchJSONOneEventPerLine(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\nOn two hinges.\n"}, "me")
@@ -115,6 +116,7 @@ wait:
 
 // The help of watch says how --json prints: one event per line.
 func TestWatchHelpSaysOneEventPerLine(t *testing.T) {
+	t.Parallel()
 	cmd := (&app{}).watchCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)

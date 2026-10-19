@@ -41,7 +41,7 @@ func TestSecondDaemonRefused(t *testing.T) {
 	// hanging, and the error below says why the test failed.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := &app{st: storetest.New(t), actor: "me", env: testEnv(t, home)}
 	cmd := a.daemonCmd()
 	cmd.SetArgs(nil)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
@@ -80,6 +80,7 @@ func TestDaemonLockWaits(t *testing.T) {
 // it for the new image, and runner children never inherit (and so never
 // keep) it.
 func TestDaemonLockClosedOnExec(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "daemon.lock")
 	unlock, err := lockDaemon(path, 0)
 	if err != nil {
@@ -115,6 +116,7 @@ func TestDaemonLockClosedOnExec(t *testing.T) {
 // bead show --json carries the revision, and --revision makes update, hold
 // and the moves compare-and-swap on it.
 func TestBeadRevisionFlag(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
@@ -153,6 +155,7 @@ func TestBeadRevisionFlag(t *testing.T) {
 }
 
 func TestCrewRemoveStaleRevisionDoesNotDelete(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	r, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")

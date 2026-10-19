@@ -32,6 +32,7 @@ func (f *deviceSettingsFailure) AddDevice(context.Context, string, string, strin
 // If a precondition needed for the output fails, device add must fail before
 // creating a device whose one-time token it cannot show.
 func TestDeviceAddReadsSettingsBeforeCreating(t *testing.T) {
+	t.Parallel()
 	failure := &deviceSettingsFailure{API: userYard(t)}
 	if out, err := as(t, failure, "jo", "user", "device", "add", "jo", "phone"); err == nil || !strings.Contains(err.Error(), "settings unavailable") {
 		t.Fatalf("device add = %v\n%s", err, out)
@@ -45,6 +46,7 @@ func TestDeviceAddReadsSettingsBeforeCreating(t *testing.T) {
 // have the device and never the token; rm ends it. Only the operator adds
 // one, and the operator and the user remove one.
 func TestDeviceCommands(t *testing.T) {
+	t.Parallel()
 	_, own := storetest.NewOwned(t)
 	st := userYardOn(t, own)
 	ctx := context.Background()
@@ -143,6 +145,7 @@ func (a agedDevices) Devices(context.Context, string) ([]store.Device, error) { 
 // yardr doctor notes a device that has not been used for 30 days, and one
 // that never was 30 days after it was added; it says nothing of one in use.
 func TestDoctorNotesAnUnusedDevice(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	now := time.Now()
 	added := now.Add(-40 * 24 * time.Hour)

@@ -14,6 +14,7 @@ import (
 // a bead made with no label and no priority, a bead's own queue the route's
 // for that bead.
 func TestRouteAddTakesSeveralLabelsAndABeadPriority(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	must := func(err error) {

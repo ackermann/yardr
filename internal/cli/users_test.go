@@ -23,13 +23,10 @@ func userYard(t *testing.T) store.API {
 // userYardOn is userYard on the store st.
 func userYardOn(t *testing.T, st store.API) store.API {
 	t.Helper()
-	// The process's home stays while other files' tests read the yard's
-	// home from the process; a test with an environment of its own takes
-	// it from yardEnv, which snapshots the process's as it is at the
-	// call. The session variables need no blanking per test: TestMain
-	// unsets them, which reads the same as blank.
-	newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	// The yard's home is the runs' own (testYard), not the process's, and
+	// no tool is stubbed: the commands under test reach lookPath nowhere,
+	// so the callers may run beside others.
+	testYard(t, st, newHomeDir(t))
 	if out, err := as(t, st, "jo", "init", "--harness", "claude", "--operator", "jo"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
@@ -75,6 +72,7 @@ func refusedAs(t *testing.T, st store.API, actor, want string, args ...string) {
 // removes users, never their own, and crew members and users share their
 // names.
 func TestUserCommands(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	if out := mustAs(t, st, "jo", "user", "list"); !strings.Contains(out, "jo") || !strings.Contains(out, "operator") {
@@ -284,6 +282,7 @@ func TestLoginNameNobodyHas(t *testing.T) {
 // yardr mail --with prints a conversation from either side, oldest first,
 // with the read state; --json and --after are what a view reads it with.
 func TestMailWith(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	env := yardEnv(t, st)
 	for _, m := range [][3]string{{"jo", "yardmaster", "deploys are frozen"}, {"yardmaster", "jo", "until when?"}, {"jo", "yardmaster", "friday"}} {
@@ -362,6 +361,7 @@ func TestMailWith(t *testing.T) {
 // Nothing nudges a person: yardr doctor and bare yardr say what waits for
 // the user who runs them, and nothing to anyone else.
 func TestUnreadMailIsSaid(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "user", "add", "ada")
@@ -453,6 +453,7 @@ func (o operatorNamed) Settings(ctx context.Context) (map[string]string, error) 
 // a group who is neither user nor crew member, which stays allowed, and a
 // crew member who has the operator's name.
 func TestDoctorNotesNames(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	out, err := as(t, st, "jo", "doctor")
 	if !errors.Is(err, errCheckFailed) || strings.Contains(out, "  names  ") {

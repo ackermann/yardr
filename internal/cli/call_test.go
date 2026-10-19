@@ -33,6 +33,7 @@ calls:
 // group and a crew member, whose grants show where each is printed; a crew
 // member without one is refused. The credential is in nothing printed.
 func TestCall(t *testing.T) {
+	t.Parallel()
 	const token = "tok-77aa-not-to-be-seen"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -181,6 +182,7 @@ calls:
 // which the env file must set. --note writes the answer on the bead of the
 // session that calls, and is refused for a caller that works none.
 func TestCallUpdate(t *testing.T) {
+	t.Parallel()
 	const read, write = "tok-11aa-not-to-be-seen", "tok-22bb-not-to-be-seen"
 	crm := &standin.Server{CRMToken: read, CRMUpdateToken: write}
 	srv := httptest.NewServer(crm.Handler())

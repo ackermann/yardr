@@ -13,6 +13,7 @@ import (
 // in text and in JSON alike. It consults neither go nor the disk then, so
 // this holds on any machine.
 func TestDiskKeepOff(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.DiskKeepGBSetting, "0", "me"); err != nil {

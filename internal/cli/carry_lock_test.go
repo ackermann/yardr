@@ -78,6 +78,7 @@ func runAdd(a *app, file string) chan error {
 // those files too, never leaving the copies behind (yardr-bht9 3.5,
 // the sixth critique on yardr-bht9).
 func TestSourceRmLockBeforeRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, home, a := carryLockYard(t)
 	if _, err := st.PutSource(ctx, "crm.yaml", crmFreeDecl, "mckean"); err != nil {
@@ -118,6 +119,7 @@ func TestSourceRmLockBeforeRead(t *testing.T) {
 // A terminal rm whose lock is held waits, and completes whole when
 // it lets go: source and copies go together.
 func TestSourceRmWaitsOnApplyLock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, home, a := carryLockYard(t)
 	if _, err := st.PutSource(ctx, "crm.yaml", crmCommandsDecl, "mckean"); err != nil {
@@ -154,6 +156,7 @@ func TestSourceRmWaitsOnApplyLock(t *testing.T) {
 // out may give a commands-free source command files that the add must
 // remove when it replaces the source.
 func TestSourceAddReadsStandingCopiesUnderApplyLock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, home, a := carryLockYard(t)
 	yardEnv(t, st)["YARDR_HOME"] = home

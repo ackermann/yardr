@@ -15,6 +15,7 @@ import (
 // will be told, as a note does; a label patch, and the session's own
 // edit, say nothing of the kind.
 func TestBeadUpdateTells(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"); err != nil {

@@ -57,9 +57,9 @@ func captureStderr(t *testing.T) *bytes.Buffer {
 // starts no server: the first-run check, which connects, is skipped for it.
 func TestCompactWithoutAServer(t *testing.T) {
 	cfg := yardWithoutServer(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	errs := captureStderr(t)
-	out, code := executeOut(&app{stderr: errs}, "store", "compact")
+	out, code := executeOut(&app{stderr: errs, env: testEnv(t, cfg.Home)}, "store", "compact")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}
@@ -88,7 +88,7 @@ func TestCompactWithoutAServer(t *testing.T) {
 // and leaves the store as it is.
 func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
 	cfg := yardWithoutServer(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- server.Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
@@ -107,7 +107,7 @@ func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
 	}
 
 	errs := captureStderr(t)
-	_, code := executeOut(&app{stderr: errs}, "store", "compact")
+	_, code := executeOut(&app{stderr: errs, env: testEnv(t, cfg.Home)}, "store", "compact")
 	if code != 1 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}
@@ -140,6 +140,7 @@ func (p prunedStore) Prune(context.Context, store.Retention, string) (*store.Pru
 
 // yardr store prune says what went of each link, as counts.
 func TestStorePrunePrintsWhatWentOfEachPeer(t *testing.T) {
+	t.Parallel()
 	a := &app{actor: "jo", st: prunedStore{res: store.PruneResult{Events: 4, Peers: map[string]store.PeerPruned{
 		"north": {Seen: 12, Failed: 1},
 		"alps":  {Seen: 3},

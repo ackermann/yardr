@@ -21,6 +21,7 @@ import (
 // find the bead by it, link add, rm and move refuse it, peer rename renames
 // the filter, and doctor notes a filter that names a yard no longer linked.
 func TestPeerSourceCommands(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -195,6 +196,7 @@ func TestPeerSourceCommands(t *testing.T) {
 
 // The yard that works the bead prints the row the other way.
 func TestPeerSourceRowOfABeadThatCame(t *testing.T) {
+	t.Parallel()
 	st, own, key := beadYard(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")

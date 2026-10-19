@@ -16,6 +16,7 @@ import (
 // member's prime says what the mark means. Mail from any other name of the
 // same yard is a stranger's, as before.
 func TestPeerAllowTrust(t *testing.T) {
+	t.Parallel()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	cliEnv(t, north, south)
 	ctx := context.Background()
@@ -134,6 +135,7 @@ func TestDoctorTrustOfSomeoneGone(t *testing.T) {
 // and the allow help says so: it once said mail and nothing else, after
 // the marks had grown to answers (the trial of yardr-7ed6).
 func TestPeerAllowTrustHelpNamesAnswers(t *testing.T) {
+	t.Parallel()
 	north := newCLIYard(t, "north")
 	cliEnv(t, north)
 	wantText(t, north.must(t, "allow", "--help"),

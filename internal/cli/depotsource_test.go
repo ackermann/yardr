@@ -16,7 +16,7 @@ import (
 func packedYard(t *testing.T) (a *app, home, sha string) {
 	t.Helper()
 	a, home, sha = sourcesYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -74,6 +74,7 @@ func refusedSince(t *testing.T, a *app, before string, args []string, want ...st
 // command prints the line depot sources then shows, says when the pack's
 // record would undo it, and a second time changes nothing.
 func TestDepotSourceRoleOfAGroup(t *testing.T) {
+	t.Parallel()
 	a, home, sha := packedYard(t)
 	copied := filepath.Join(config.At(home).PackRoles("starter"), "builder.md")
 	depots := "role web-builders depot (.yardr/roles/builder.md@" + sha + ") pack starter has a copy"
@@ -113,6 +114,7 @@ func TestDepotSourceRoleOfAGroup(t *testing.T) {
 // A crew member reads a path as it is, so its depot's role is the file in the
 // depot's checkout: refused while there is none, then listed as the depot's.
 func TestDepotSourceRoleOfACrew(t *testing.T) {
+	t.Parallel()
 	a, home, _ := packedYard(t)
 	depot, err := a.st.GetDepot(context.Background(), "web")
 	if err != nil {
@@ -144,8 +146,9 @@ func TestDepotSourceRoleOfACrew(t *testing.T) {
 // Under an import given --depot-roles, a group switched to the pack's role is
 // told that the next import switches it back.
 func TestDepotSourceRoleAgainstTheRecord(t *testing.T) {
+	t.Parallel()
 	a, _, _ := sourcesYard(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--depot-roles"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -162,6 +165,7 @@ func TestDepotSourceRoleAgainstTheRecord(t *testing.T) {
 // exist: no pack imported, a pack without the role, a depot without the file,
 // a name that is no role of the depot, a prompt that names no role.
 func TestDepotSourceRoleRefusals(t *testing.T) {
+	t.Parallel()
 	a, home, _ := sourcesYard(t)
 	ctx := context.Background()
 	before := refused(t, a, []string{"web", "role", "web-builders", "pack"}, "no pack is imported into depot web")
@@ -186,7 +190,7 @@ func TestDepotSourceRoleRefusals(t *testing.T) {
 	before = refused(t, a, []string{"web", "role", "web-planners", "depot"}, "depot web has no .yardr/roles/planner.md on its base main")
 	refusedSince(t, a, before, []string{"web", "role", "web-plain", "depot"}, "names no role")
 
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -196,6 +200,7 @@ func TestDepotSourceRoleRefusals(t *testing.T) {
 // The depot's flow switches to the repository's and back to the pack's, whole:
 // the stage files come with it, and the output says so.
 func TestDepotSourceFlow(t *testing.T) {
+	t.Parallel()
 	a, home, sha := packedYard(t)
 	out, err := run(t, a.depotSourceCmd(), "web", "flow", "depot")
 	if err != nil {
@@ -235,6 +240,7 @@ func TestDepotSourceFlow(t *testing.T) {
 // and back to the depot's type file. Switching the depot's flow names the type
 // that stays where it is.
 func TestDepotSourceFlowOfAType(t *testing.T) {
+	t.Parallel()
 	a, _, sha := sourcesYard(t)
 	ctx := context.Background()
 	// An import that pointed decisions at a flow of its own.
@@ -274,6 +280,7 @@ func TestDepotSourceFlowOfAType(t *testing.T) {
 // without the flow file) and when the store refuses the pointer for an open
 // bead in a stage the new flow lacks.
 func TestDepotSourceFlowRefusals(t *testing.T) {
+	t.Parallel()
 	a, _, _ := sourcesYard(t)
 	ctx := context.Background()
 	before := refused(t, a, []string{"web", "flow", "pack"}, "no pack is imported into depot web")
@@ -284,7 +291,7 @@ func TestDepotSourceFlowRefusals(t *testing.T) {
 		t.Errorf("a depot without a flow file: %v", err)
 	}
 
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}

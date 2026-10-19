@@ -99,7 +99,7 @@ func leadStandIn(t *testing.T) *ledLogin {
 func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogin {
 	t.Helper()
 	noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	stub(t, &tryHarnessCall, realTry)
 	l := &ledLogin{t: t, dir: fakeTools(t, map[string]string{"claude": script}), lines: make(chan string, 16), exit: make(chan int, 1)}
 	in, answers := io.Pipe()
@@ -424,7 +424,7 @@ func TestHarnessLoginTimesOut(t *testing.T) {
 // person runs in a terminal, and starts nothing.
 func TestHarnessLoginWithoutARecipe(t *testing.T) {
 	noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := fakeTools(t, map[string]string{"claude": loginStandIn})
 	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
@@ -458,7 +458,7 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 // kind by that needs a terminal once to log in.
 func TestHarnessLoginRecipeShown(t *testing.T) {
 	home := newHomeDir(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "kimi": "echo 1.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
@@ -571,7 +571,7 @@ func TestHarnessLoginGroupRefusals(t *testing.T) {
 	}
 	a := &app{st: st, actor: "me"}
 	noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := fakeTools(t, map[string]string{"claude": loginStandIn})
 	ask := func(args ...string) (string, error) {
 		t.Helper()

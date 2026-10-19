@@ -19,6 +19,7 @@ import (
 // file printed, without its `summary:` line; --json carries the same map.
 // A store flow's lines come from the stage files in the yard's home.
 func TestPrimeShowsTheFlowMap(t *testing.T) {
+	t.Parallel()
 	a, repo, home, git, write := stageYard(t)
 	ctx := context.Background()
 	write(repo, map[string]string{
@@ -196,6 +197,7 @@ func (*briefRunner) Stop(context.Context, map[string]any) error          { retur
 // come from the home. The text is prime's for the same bead. A bead no
 // flow governs gets the brief it always got.
 func TestBriefCarriesPrimesFlowMap(t *testing.T) {
+	t.Parallel()
 	a, repo, home, git, write := stageYard(t)
 	ctx := context.Background()
 	write(repo, map[string]string{

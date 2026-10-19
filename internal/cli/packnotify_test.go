@@ -22,6 +22,7 @@ import (
 // apply, and yardr user list shows the user told through the source, with
 // nothing still open and no secret in anything printed.
 func TestPackApplyNotifySetsSourceAndUser(t *testing.T) {
+	t.Parallel()
 	const secret, address = "tok-not-to-be-seen", "u9f2k4xq71ab03cd55ef8gh2ij6kl9"
 	a := openApp(t)
 	ctx := context.Background()
@@ -104,6 +105,7 @@ func TestPackApplyNotifySetsSourceAndUser(t *testing.T) {
 // will mint with them, even though SetSource's write response has no
 // computed command of its own.
 func TestPackApplySourceEnvReportsPackMint(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	env := envFile(t, "GOOGLE_ACCOUNT=op@example.com\n", 0o600)
 
@@ -123,6 +125,7 @@ func TestPackApplySourceEnvReportsPackMint(t *testing.T) {
 // The telegram pack applies the same way: the source with the token in
 // its path, and the user told through it.
 func TestPackApplyNotifyTelegram(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	srcEnv := envFile(t, "TELEGRAM_BOT_TOKEN=tok-not-to-be-seen\n", 0o600)
 	userEnv := envFile(t, "TELEGRAM_CHAT_ID=987654321\n", 0o600)
@@ -171,6 +174,7 @@ func TestPackApplyNotifyTelegram(t *testing.T) {
 // names the hook and thread commands with their files, and the apply
 // stores the keys and copies the files.
 func TestPackApplyTelegramCarriesHookThreadHear(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	srcEnv := envFile(t, "TELEGRAM_BOT_TOKEN=tok-not-to-be-seen\n", 0o600)
@@ -251,6 +255,7 @@ func TestPackApplyTelegramCarriesHookThreadHear(t *testing.T) {
 // in the path as it is, the chat id and the one text in the body. The
 // stand-in stands in for the service; nothing here reaches it.
 func TestTelegramPackDeclarationSends(t *testing.T) {
+	t.Parallel()
 	const cred, chat = "110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw", "987654321"
 	var uri string
 	var body map[string]any
@@ -322,6 +327,7 @@ func TestTelegramPackDeclarationSends(t *testing.T) {
 // A flag the import cannot honor fails it before anything is written: the
 // source is not added, and no user is set.
 func TestPackApplyNotifyRefusesBeforeWriting(t *testing.T) {
+	t.Parallel()
 	dir, _ := widgetPack(t, "https://widget.example.com")
 	for _, tc := range []struct {
 		name string
@@ -372,6 +378,7 @@ func TestPackApplyNotifyRefusesBeforeWriting(t *testing.T) {
 // the operator's: run by anyone else the import does the rest and sets
 // neither.
 func TestPackApplyNotifyByAnother(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	if _, err := run(t, a.userCmd(), "add", "ada"); err != nil {
 		t.Fatal(err)
@@ -428,6 +435,7 @@ func TestPackApplyNotifyByAnother(t *testing.T) {
 // Each flag stands on its own: what one set is said, and what is still
 // open is said fresh, with the commands that are owed.
 func TestPackApplyNotifyPartial(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	srcEnv := envFile(t, "PUSHOVER_TOKEN=x\n", 0o600)
 	out, err := run(t, a.packCmd(), "apply", "pushover", "--yes", "--source-env", "pushover="+srcEnv)
@@ -462,6 +470,7 @@ func TestPackApplyNotifyPartial(t *testing.T) {
 // yardr source key and yardr user key. After them the pack has nothing
 // open, and no key is in anything printed.
 func TestPackApplyNotifyThenTheTwoKeys(t *testing.T) {
+	t.Parallel()
 	const secret, address = "tok-not-to-be-seen", "u9f2k4xq71ab03cd55ef8gh2ij6kl9"
 	a := openApp(t)
 	out, err := run(t, a.packCmd(), "apply", "pushover", "--yes", "--notify", "me=pushover")

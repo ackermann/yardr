@@ -12,6 +12,7 @@ import (
 // it beside the other filters. A route without the flag takes the
 // operator's alone; any takes every originator's.
 func TestRouteAddTakesOriginator(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -91,6 +92,7 @@ func TestRouteAddTakesOriginator(t *testing.T) {
 // group first, and doctor warns on a login_for group with no env_file —
 // exempting login_for for the operator.
 func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
+	t.Parallel()
 	a, st, _ := quotaCLI(t)
 	ctx := context.Background()
 	errs := captureStderr(t)

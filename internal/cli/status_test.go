@@ -31,7 +31,12 @@ func statusYard(t *testing.T, rev string) (string, store.API, func() *app) {
 	home := newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +142,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, code := executeOut(&app{}, "status")
+	out, code := executeOut(&app{env: testEnv(t, home)}, "status")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -157,7 +162,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	}
 
 	var raw map[string]json.RawMessage
-	js, code := executeOut(&app{}, "status", "--json")
+	js, code := executeOut(&app{env: testEnv(t, home)}, "status", "--json")
 	if err := json.Unmarshal([]byte(js), &raw); err != nil || code != 0 {
 		t.Fatalf("exit %d, %v:\n%s", code, err, js)
 	}
@@ -228,7 +233,7 @@ func TestStatusBackupsWhenServerIsStopped(t *testing.T) {
 		return nil, errors.New("no server in this test")
 	})
 
-	out, code := executeOut(&app{}, "status")
+	out, code := executeOut(&app{env: testEnv(t, home)}, "status")
 	if code != 0 {
 		t.Errorf("status exit = %d", code)
 	}
@@ -574,7 +579,7 @@ func TestStatusNoYard(t *testing.T) {
 			return nil
 		})
 		errs := captureStderr(t)
-		out, code := executeOut(&app{stderr: errs}, "status")
+		out, code := executeOut(&app{stderr: errs, env: testEnv(t, home)}, "status")
 		if code != 2 || out != "" {
 			t.Fatalf("terminal %v: exit %d:\n%s", terminal, code, out)
 		}
@@ -586,7 +591,7 @@ func TestStatusNoYard(t *testing.T) {
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("status created the home directory")
 	}
-	out, code := executeOut(&app{}, "status", "--json")
+	out, code := executeOut(&app{env: testEnv(t, home)}, "status", "--json")
 	if code != 2 || !strings.Contains(out, "no yard in "+home+" yet") {
 		t.Fatalf("json: exit %d:\n%s", code, out)
 	}
@@ -600,7 +605,7 @@ func TestStatusNoYard(t *testing.T) {
 // YARDR_HOME names.
 func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
 	variable := newHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	home := filepath.Join(filepath.Dir(variable), "nothere")
 	errs := captureStderr(t)
 	out, code := executeOut(&app{stderr: errs, env: environMap(os.Environ())}, "status", "--home", home)
@@ -623,7 +628,7 @@ func TestStatusUnreachableServer(t *testing.T) {
 	announce(t, home, "127.0.0.1:9000", false, "")
 	// It answers on its socket, and nothing it is asked comes back.
 	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
-	out, err := run(t, (&app{st: brokenStore{storetest.New(t)}, actor: "me"}).rootCmd(), "status")
+	out, err := run(t, (&app{st: brokenStore{storetest.New(t)}, actor: "me", env: testEnv(t, home)}).rootCmd(), "status")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}

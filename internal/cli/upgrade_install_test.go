@@ -251,6 +251,7 @@ func TestUpgradeLockRefusesSecond(t *testing.T) {
 
 // Doctor faults on the marker with the server down, and is quiet without one.
 func TestDoctorUpgradeFailed(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)

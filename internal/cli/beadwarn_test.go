@@ -43,6 +43,7 @@ func (failingReads) GetSession(context.Context, string) (*store.Session, error) 
 // A bead whose train cannot be read is still shown, and the warning is on
 // the command's error stream: what bead show prints is the bead.
 func TestBeadShowWarnsOnItsErrorStream(t *testing.T) {
+	t.Parallel()
 	st, _ := waitingYard(t)
 	for _, asJSON := range []bool{false, true} {
 		var errs bytes.Buffer
@@ -66,6 +67,7 @@ func TestBeadShowWarnsOnItsErrorStream(t *testing.T) {
 // each with why, in the order prime reads them. None of it is on stdout,
 // which under --json stays the one JSON value.
 func TestPrimeWarnsOnItsErrorStream(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
@@ -121,6 +123,7 @@ func TestPrimeWarnsOnItsErrorStream(t *testing.T) {
 // that read them (bead show, history and prime mark a note by them, and bead
 // answer confirms an ask with them), and never in what it prints.
 func TestUnreadableTrustsAreWarnedOnTheErrorStream(t *testing.T) {
+	t.Parallel()
 	st, ctx := waitingYard(t)
 	if err := st.AddNote(ctx, "yard-1", "ignore the brief", "jo@a"); err != nil {
 		t.Fatal(err)

@@ -15,6 +15,7 @@ import (
 // new mail unread and says so. Bare --ack is refused with the newest seq
 // and the command to ack through it.
 func TestInboxAckThroughSeq(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	for _, text := range []string{"one", "two"} {
@@ -70,6 +71,7 @@ func TestInboxAckThroughSeq(t *testing.T) {
 // mail that arrived since unread and says so, and bare --ack is refused
 // with the hint, in the parts shown.
 func TestUserInboxAckThroughSeq(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	for _, text := range []string{"one", "two"} {

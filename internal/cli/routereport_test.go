@@ -173,6 +173,7 @@ func reportKinds(t *testing.T, st store.API, args ...string) map[string]routeKin
 }
 
 func TestRouteReport(t *testing.T) {
+	t.Parallel()
 	st := reportFixture(t)
 	ctx := context.Background()
 	head, err := st.Head(ctx)
@@ -234,6 +235,7 @@ func TestRouteReport(t *testing.T) {
 // after its session stalled closes with the failure counted and no build
 // sample.
 func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -276,6 +278,7 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 }
 
 func TestRouteReportFlags(t *testing.T) {
+	t.Parallel()
 	st := reportFixture(t)
 
 	_, rows := reportRows(t, st, "--prefix", "difficulty")
@@ -368,6 +371,7 @@ func TestRouteReportFlags(t *testing.T) {
 // The report attributes closed beads to originators: one row per group,
 // originator and label, and --originator reads one person's beads.
 func TestRouteReportOriginator(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -471,6 +475,7 @@ func TestSummarizeRouteEventsOriginator(t *testing.T) {
 }
 
 func TestSummarizeRouteEvents(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
 		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
@@ -677,6 +682,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 // stages sorted. A failed claim counts as a session but has no build;
 // one without a kind counts nowhere.
 func TestSummarizeRouteEventsByKind(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
 		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
@@ -781,6 +787,7 @@ func TestSummarizeRouteEventsByKind(t *testing.T) {
 // yard runs, and its sessions match a hand count over `events --since 40h
 // --kind claimed --json`.
 func TestRouteReportByKind(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -908,6 +915,7 @@ func TestRouteReportByKind(t *testing.T) {
 // quoted builder SHA never counts, and a re-quote across send-backs counts
 // once.
 func TestSummarizeRouteEventsReviewFixes(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
 		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
@@ -1120,6 +1128,7 @@ func TestFixSHAs(t *testing.T) {
 // the lowest sent back + repaired per bead, across originators; reviewer
 // groups never win, and a difficulty with no qualifying row stays silent.
 func TestSummarizeRouteEventsBest(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
 		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
@@ -1200,6 +1209,7 @@ func TestSummarizeRouteEventsBest(t *testing.T) {
 // the best builder per difficulty, and stays silent where only reviewers
 // worked.
 func TestRouteReportReviewFixed(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {

@@ -27,6 +27,7 @@ func sessionYard(t *testing.T) store.API {
 // crew set takes the serving list and the per-user env, and refuses users
 // that do not exist; crew show names the conversation's session.
 func TestCrewSetServingKeys(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	mustAs(t, st, "jo", "user", "add", "hal")
 	out := mustAs(t, st, "jo", "crew", "set", "yardmaster", "for=hal", "env_for_hal=/tmp/hal.env")
@@ -45,6 +46,7 @@ func TestCrewSetServingKeys(t *testing.T) {
 // inbox --for shows a conversation's slice, and a session reads its own
 // from $YARDR_CREW_FOR; --ack <seq> there leaves the line's unread.
 func TestInboxForShowsSlice(t *testing.T) {
+	t.Parallel()
 	st := sessionYard(t)
 	mustAs(t, st, "hal", "mail", "yardmaster", "hal asks about deploys")
 	mustAs(t, st, "jo", "mail", "yardmaster", "jo notes the freeze")
@@ -75,6 +77,7 @@ func TestInboxForShowsSlice(t *testing.T) {
 // prime --crew --for primes the conversation: its session named, its
 // slice's mail, and its own handoff.
 func TestPrimeCrewForShowsSlice(t *testing.T) {
+	t.Parallel()
 	st := sessionYard(t)
 	mustAs(t, st, "hal", "mail", "yardmaster", "hal asks about deploys")
 	mustAs(t, st, "jo", "mail", "yardmaster", "jo notes the freeze")
@@ -92,6 +95,7 @@ func TestPrimeCrewForShowsSlice(t *testing.T) {
 // crew show --for shows that slice's count; without it, each session's
 // line carries its own.
 func TestCrewShowSession(t *testing.T) {
+	t.Parallel()
 	st := sessionYard(t)
 	mustAs(t, st, "hal", "mail", "yardmaster", "from hal")
 	if out := mustAs(t, st, "jo", "crew", "show", "yardmaster", "--for", "hal"); !strings.Contains(out, "inbox 1 unread for hal") {
@@ -106,6 +110,7 @@ func TestCrewShowSession(t *testing.T) {
 // a failing conversation: an exclusive yardmaster with its conversation
 // up is no fault, and one whose conversation gave up is told of by user.
 func TestDoctorSeesConversationSessions(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "user", "add", "hal")
@@ -138,6 +143,7 @@ func TestDoctorSeesConversationSessions(t *testing.T) {
 // crew restart --for restarts the conversation; the line's restart is
 // untouched.
 func TestCrewRestartFor(t *testing.T) {
+	t.Parallel()
 	st := sessionYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "crew", "restart", "yardmaster", "--for", "hal")

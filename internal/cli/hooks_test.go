@@ -17,6 +17,7 @@ import (
 // hook add takes a declared source with a hook key, github among them, and
 // its help lists the secrets by source.
 func TestHookAddGitHub(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
 	declareGitHubPack(t, st, "", "", "me")
@@ -47,6 +48,7 @@ func TestHookAddGitHub(t *testing.T) {
 // env_file of that mode is; 0600 is saved. (yardr-7730: it used to be saved
 // with a warning.)
 func TestHookAddRefusesSecretFileOpenToOthers(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
 	f := filepath.Join(t.TempDir(), "t.secret")
@@ -89,6 +91,7 @@ func TestHookAddRefusesSecretFileOpenToOthers(t *testing.T) {
 // hook list shows a hook the receiver has blocked, and why; adding the hook
 // again starts it unblocked, and no client can save one as blocked.
 func TestHookListShowsBlocked(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	a := &app{st: st, actor: "me"}
 	ctx := context.Background()
@@ -122,6 +125,7 @@ func TestHookListShowsBlocked(t *testing.T) {
 // it the hook stores unknown, with each word that word, and a word for
 // a source with no identity hearing is refused with nothing saved.
 func TestHookAddUnknown(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
 	ctx := context.Background()
@@ -229,9 +233,10 @@ func TestHookAddMap(t *testing.T) {
 	if _, err := add("acme", "acme"); err != nil {
 		t.Fatal(err)
 	}
-	// The yard runs on the process (stateYard names the credential
-	// variables there), so the crew blank stays there with them.
-	t.Setenv("YARDR_CREW", "")
+	// The credential variables stay on the process (stateYard names
+	// them there, where the credential reader finds them); the crew
+	// blank is the run's own.
+	a.env["YARDR_CREW"] = ""
 	a.actor = "yard-10-new"
 	if _, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||
 		!strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new") {
@@ -304,6 +309,7 @@ func TestHookAddMap(t *testing.T) {
 // a delivery, and doctor says so of a hook whose last one was refused: its
 // source reaches the yard and is turned away.
 func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	a := &app{st: st, actor: "me"}
 	ctx := context.Background()
@@ -390,6 +396,7 @@ func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
 // outcome no bead of the yard's depots could report, under the depot's own
 // flow or one it has for a type. show prints the table.
 func TestHookAddSays(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
 	declareGitHubPack(t, st, "", "", "me")
@@ -494,6 +501,7 @@ func TestHookAddSays(t *testing.T) {
 // no such stage a bead can be made in, and one that names no depot when no
 // depot of the yard could take it. show prints the table.
 func TestHookAddMakes(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
 	declareGitHubPack(t, st, "", "", "me")

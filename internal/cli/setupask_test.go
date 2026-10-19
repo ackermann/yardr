@@ -67,6 +67,7 @@ func (e *fakeNoPackCLI) Error() string {
 // how to approve; yardr bead answer <n> --secret approves it with the
 // account typed unseen.
 func TestBeadAskSetupAndAnswer(t *testing.T) {
+	t.Parallel()
 	y, b := setupYardCLI(t)
 	out, err := y.as(t, "yardmaster", "ask", b.ID, "Set up clipphone for the yardmaster?",
 		"--setup", "clipphone", "--crew", "yardmaster",
@@ -103,6 +104,7 @@ func TestBeadAskSetupAndAnswer(t *testing.T) {
 // A setup ask is refused for the combinations it takes none of, for no
 // grantee, and for a pack the binary does not embed.
 func TestBeadAskSetupRefusals(t *testing.T) {
+	t.Parallel()
 	y, b := setupYardCLI(t)
 	for name, tc := range map[string]struct {
 		args []string
@@ -134,6 +136,7 @@ func TestBeadAskSetupRefusals(t *testing.T) {
 // needs its pick, and a pick with --secret on any other ask is refused
 // as it always was.
 func TestBeadAnswerSetupRefusals(t *testing.T) {
+	t.Parallel()
 	y, b := setupYardCLI(t)
 	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Set up clipphone?", "--setup", "clipphone",
 		"--crew", "yardmaster", "--context", "The yardmaster rings the person."); err != nil {
@@ -164,6 +167,7 @@ func TestBeadAnswerSetupRefusals(t *testing.T) {
 // yardr bead answer <n> --account takes a listed candidate's account
 // instead of typing one: the preset picked and who took which source.
 func TestBeadAnswerSetupAccount(t *testing.T) {
+	t.Parallel()
 	y, b := setupYardCLI(t)
 	ctx := context.Background()
 	const other = `name: clipphone2
@@ -227,6 +231,7 @@ calls:
 // A drift card whose file holds every name is kept with a bare preset
 // pick: no --secret, no --account.
 func TestBeadAnswerSetupKeep(t *testing.T) {
+	t.Parallel()
 	y, b := setupYardCLI(t)
 	ctx := context.Background()
 	if _, err := y.st.PutSource(ctx, "clipphone.yaml", cliSetupDecl, "jo"); err != nil {

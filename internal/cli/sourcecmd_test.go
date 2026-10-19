@@ -21,6 +21,7 @@ import (
 )
 
 func TestSourceParamLineDefault(t *testing.T) {
+	t.Parallel()
 	got := paramLine(source.Param{Name: "notify", Type: "bool", Optional: true, Default: json.RawMessage("false")})
 	if got != "notify  bool  default false" {
 		t.Fatalf("paramLine = %q, want the typed default", got)
@@ -28,6 +29,7 @@ func TestSourceParamLineDefault(t *testing.T) {
 }
 
 func TestSourceOutputUsesCommandWriter(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
@@ -57,6 +59,7 @@ func TestSourceOutputUsesCommandWriter(t *testing.T) {
 // is added, shown, listed and removed, and nothing is sent: it names no
 // check call.
 func TestSourceAddShowRemove(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	out, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml")
@@ -129,6 +132,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 // member holds, says the file is not set and nothing needs it — not the
 // command that sets it. Only its check call wants the source's own file.
 func TestSourceShowEnvFileACrewMemberHolds(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
@@ -151,6 +155,7 @@ func TestSourceShowEnvFileACrewMemberHolds(t *testing.T) {
 }
 
 func TestSourceShowKeepsEnvFileNeedForNotifiedUser(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
@@ -179,6 +184,7 @@ func TestSourceShowKeepsEnvFileNeedForNotifiedUser(t *testing.T) {
 // line names the envelope field and the address, and that anything else is
 // dropped after verification.
 func TestSourceShowHearEveryToldUser(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	text, _ := os.ReadFile("testdata/pushover.yaml")
@@ -217,6 +223,7 @@ func envFile(t *testing.T, text string, mode os.FileMode) string {
 // A file that is refused is refused with its line and key, and nothing is
 // kept: here the credential in a path.
 func TestSourceAddRefuses(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	text, _ := os.ReadFile("testdata/pushover.yaml")
@@ -245,6 +252,7 @@ calls:
 // loopback and reports its status. The credential is read from the env_file
 // for it and is in nothing the command prints and in no event.
 func TestSourceCheck(t *testing.T) {
+	t.Parallel()
 	const token = "tok-9c41-not-to-be-seen"
 	status, location, hits, auth := 200, "", 0, ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +365,7 @@ calls:
 // status, and a check call with no selection prints exactly what it
 // prints without one. The credential is in neither output.
 func TestSourceCheckSelectedAnswer(t *testing.T) {
+	t.Parallel()
 	const token = "tok-9c41-not-to-be-seen"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -424,6 +433,7 @@ func TestSourceCheckSelectedAnswer(t *testing.T) {
 // without one: the credential and the status lines, and no answer under
 // either output.
 func TestSourceCheckWithoutSelectPrintsAsBefore(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"id":"app-1"}`)
@@ -481,6 +491,7 @@ calls:
 // yardr source set. The token is in nothing the command prints and in no
 // event.
 func TestSourceCheckMinted(t *testing.T) {
+	t.Parallel()
 	const token = "tok-mint-9c41-not-to-be-seen"
 	status, hits, auth := 200, 0, ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -625,6 +636,7 @@ func TestSourceCheckMinted(t *testing.T) {
 // minted token is never named as in the file, and a user with a file that
 // sets nothing for the source is not counted.
 func TestSourceListCredentialColumn(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	ctx := context.Background()
@@ -688,6 +700,7 @@ calls:
 // Show prints a link's pull shape and repos pattern, when the source
 // declares them.
 func TestSourceShowPullAndRepos(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	_, err := st.PutSource(context.Background(), "forge.yaml", "name: forge\nbase: https://forge.test\n"+
@@ -719,6 +732,7 @@ func TestSourceShowPullAndRepos(t *testing.T) {
 // Show prints the events key's run and head types and its look-back
 // commands, when the source declares them.
 func TestSourceShowEvents(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "jo"}
 	_, err := st.PutSource(context.Background(), "forge.yaml", "name: forge\nbase: https://forge.test\n"+
@@ -750,6 +764,7 @@ func TestSourceShowEvents(t *testing.T) {
 // runnable by check without being run, and removed with the source; an
 // absolute program is the operator's own.
 func TestSourceCommandFiles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	st := storetest.New(t)
 	a := testApp(t, st, home)
@@ -856,6 +871,7 @@ func TestSourceCommandFiles(t *testing.T) {
 // file line. Check says of the build whether its program can be run,
 // running none.
 func TestSourceShowBuiltCall(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	st := storetest.New(t)
 	a := testApp(t, st, home)

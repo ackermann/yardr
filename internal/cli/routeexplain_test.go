@@ -36,6 +36,7 @@ func explainStrp(s string) *string { return &s }
 // own before default, id — the routes considered that do not match and
 // why, and that no default is set aside for the stage.
 func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	fast, hard := "fast", "hard"
 	add := func(r store.Route) *store.Route {
@@ -109,6 +110,7 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 // default, by specificity; a plain bead of the depot takes the default,
 // and so does a pull-request bead of a depot with no own route.
 func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	def, err := st.AddRoute(ctx, store.Route{Stage: "review", Group: "a"}, "me")
 	if err != nil {
@@ -178,6 +180,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 // default is set aside with its setter, named as route list --depot
 // names it; another depot keeps the default.
 func TestRouteExplainSetAsideDefault(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	def, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a"}, "me")
 	if err != nil {
@@ -231,6 +234,7 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 // claim-time sentence; bead show after the claim agrees with what the
 // explain said before it, naming the same route.
 func TestRouteExplainConditionedWinnerAndBeadShowAgrees(t *testing.T) {
+	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
@@ -292,6 +296,7 @@ func TestRouteExplainConditionedWinnerAndBeadShowAgrees(t *testing.T) {
 // run, on the winning route's own condition, the command succeeds, the
 // command never runs, and the event log stands still.
 func TestRouteExplainAsksNoProvider(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -351,6 +356,7 @@ func TestRouteExplainAsksNoProvider(t *testing.T) {
 // winner as its unpinned twin; the pin is named beside the answer it
 // does not change.
 func TestRouteExplainPinChangesNothing(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	f, err := store.ParseFlow("new -> review\n")
 	if err != nil {
@@ -409,6 +415,7 @@ func TestRouteExplainPinChangesNothing(t *testing.T) {
 // effective route is considered with why it misses, and no quota line
 // follows. A bead that is not there fails as bead show does.
 func TestRouteExplainBeadWithNoRoute(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	if _, err := st.AddUser(ctx, "hal", "me"); err != nil {
 		t.Fatal(err)
@@ -462,6 +469,7 @@ func TestRouteExplainBeadWithNoRoute(t *testing.T) {
 // A bead with no depot is explained against the yard defaults alone:
 // another depot's own routes stand nowhere, and none is set aside.
 func TestRouteExplainBeadWithNoDepot(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	def, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a"}, "me")
 	if err != nil {
@@ -500,6 +508,7 @@ func TestRouteExplainBeadWithNoDepot(t *testing.T) {
 // leg, the winner, the misses with why, the set-aside defaults and the
 // winning chain; the winner is MatchRoute's for every bead tried.
 func TestRouteExplainJSON(t *testing.T) {
+	t.Parallel()
 	a, st, ctx := explainYard(t)
 	r1, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a", Priority: 5}, "me")
 	if err != nil {
@@ -605,6 +614,7 @@ func TestRouteExplainJSON(t *testing.T) {
 // and nothing where the route matches: no reason exactly where Matches
 // holds.
 func TestMissReasonNamesTheFirstFailingFilter(t *testing.T) {
+	t.Parallel()
 	urgent := 0
 	web := store.Bead{Stage: "new", Type: "task", Depot: explainStrp("web"), Priority: store.DefaultPriority}
 	for _, tc := range []struct {

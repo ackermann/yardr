@@ -61,6 +61,7 @@ func userKeyFrom(t *testing.T, a *app, stdin string, args ...string) (string, er
 // yard's, yardr user key for the person's own, then notify and one test
 // message, which the stand-in gets with both. Neither value is printed.
 func TestUserKeyThenNotifyThenCheck(t *testing.T) {
+	t.Parallel()
 	const token, address = "tok-7d10-not-to-be-seen", "u9f2k4xq71ab03cd55ef8gh2ij6kl9"
 	var got []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +143,7 @@ func TestUserKeyThenNotifyThenCheck(t *testing.T) {
 }
 
 func TestUserKeyEmptyInputForNotifyingSourceWithoutCredential(t *testing.T) {
+	t.Parallel()
 	st, _, _ := addressYard(t, "https://example.invalid")
 	const declaration = `name: address
 about: A test address source.
@@ -177,6 +179,7 @@ notify:
 // own address in the source, and bead answer --secret gives it into the
 // user's file and names the command that tells them through the source.
 func TestBeadAskAndAnswerAUsersAddress(t *testing.T) {
+	t.Parallel()
 	st, id, home := addressYard(t, "https://api.pushover.net/1")
 	yard, ada, bob := &app{st: st, actor: "yardmaster"}, &app{st: st, actor: "ada"}, &app{st: st, actor: "bob"}
 	file := filepath.Join(home, "users", "ada.env")
@@ -254,6 +257,7 @@ func TestBeadAskAndAnswerAUsersAddress(t *testing.T) {
 // A server that dies during the giving: user key says the words every
 // client says of one, never the transport's error and never the value.
 func TestUserKeyWithoutAnAnswer(t *testing.T) {
+	t.Parallel()
 	st, _, _ := addressYard(t, "https://example.invalid")
 	a := &app{st: dyingClient(t, st.(*store.Store), "KeyUser"), actor: "ada"}
 	out, err := userKeyFrom(t, a, "PUSHOVER_USER=u9f2k4xq71ab03cd55ef8gh2ij6kl9\n", "ada", "pushover")

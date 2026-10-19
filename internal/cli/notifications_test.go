@@ -15,6 +15,7 @@ import (
 // Subscribing to what is already there says so and names what was asked for,
 // not the last subscription of the list, which is another one (yardr-kk3a).
 func TestSubscribeAlreadyThere(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=wagon"); out != "jo subscribed: yardr all type=wagon\n" {
 		t.Fatalf("first: %q", out)
@@ -54,6 +55,7 @@ func notedBead(t *testing.T, st store.API) (note func(string), id string) {
 // subscribe and unsubscribe alike. yardr user show lists what a user
 // subscribes to.
 func TestUserSubscribes(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	declareGitHubPack(t, st, "", "", "jo")
 	ctx := context.Background()
@@ -128,6 +130,7 @@ func TestUserSubscribes(t *testing.T) {
 // marks read what is through the seq in the parts shown and nothing of
 // the other.
 func TestUserInboxParts(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	if out := mustAs(t, st, "jo", "inbox"); out != "Mail: none\n\nNotifications: none\n" {
@@ -242,6 +245,7 @@ func TestUserInboxParts(t *testing.T) {
 // Bare yardr counts the mail as mail, and says the notifications after it
 // by their number.
 func TestBareYardrSaysNotifications(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "jo", "user", "add", "ada")

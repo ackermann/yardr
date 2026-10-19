@@ -18,10 +18,11 @@ import (
 // asker was told "unrouted" seconds after asking (yardr-c9z6); in a yard
 // with no flow there is no route at all.
 func TestBeadAskNewIsNotUnrouted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	starter := func(t *testing.T) *app {
 		a, _ := packYard(t, nil)
-		setInteractive(t, false)
+		requireNonInteractive(t)
 		args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
 		if out, err := run(t, a.depotCmd(), args...); err != nil {
 			t.Fatalf("%v\n%s", err, out)

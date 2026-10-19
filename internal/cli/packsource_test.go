@@ -84,6 +84,7 @@ func TestThePushoverPageHasTheTestedDeclaration(t *testing.T) {
 // yard must still be told, and imported by the operator: yardr source show
 // then prints the source, and the next plan says what is there.
 func TestPackApplyAddsTheDeclaredSource(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	dir := pushoverPack(t)
@@ -187,6 +188,7 @@ calls:
 // A pack that declares a mint and brings no command for it asks for the
 // env_file and then the mint_command; a second apply keeps the operator's.
 func TestPackApplyKeepsMintCommand(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	dir, decl := widgetPack(t, "https://widget.example.com")
@@ -244,6 +246,7 @@ func TestPackApplyKeepsMintCommand(t *testing.T) {
 // Doctor says of a mint without its command that no call can be made, and
 // --try mints for the check call.
 func TestDoctorSourcesMint(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer tok-doctor-mint" {
 			w.WriteHeader(401)
@@ -299,6 +302,7 @@ func TestDoctorSourcesMint(t *testing.T) {
 // is shown with no env_file to set: the plan says nothing of it, and the
 // result names nothing next for it. What still lacks is still said.
 func TestPackOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	boss, err := a.st.GetCrew(ctx, "boss")
@@ -340,6 +344,7 @@ func TestPackOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
 // Adding a source is the operator's. Run by anyone else the import says so
 // in the plan and the result, adds none, and does the rest.
 func TestPackApplyByAnotherSessionAddsNoSource(t *testing.T) {
+	t.Parallel()
 	a := openApp(t)
 	ctx := context.Background()
 	dir := pushoverPack(t)

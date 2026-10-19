@@ -71,6 +71,7 @@ func sameDefinition(t *testing.T, got, want *store.CrewMember, but ...string) {
 // granting one permission took crew add with the whole definition
 // retyped), and says what it changed.
 func TestCrewSetKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	st, was := clerkYard(t)
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
@@ -142,6 +143,7 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 // crew member a source or a peer it was not allowed is the operator's, and
 // everything else is anyone's.
 func TestCrewSetIsTheOperatorsForPermissions(t *testing.T) {
+	t.Parallel()
 	st, was := clerkYard(t)
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
@@ -300,6 +302,7 @@ func (m *movingStore) PutCrew(ctx context.Context, def store.CrewMember, actor s
 // set, not refused and not overwritten blind; with --revision the caller
 // asked for the refusal.
 func TestCrewSetReadsAgainWhenTheCrewMoved(t *testing.T) {
+	t.Parallel()
 	st, was := clerkYard(t)
 	m := &movingStore{API: st}
 	if out := mustAs(t, m, "jo", "crew", "set", "clerk", "model=sonnet"); m.moved != 1 || !strings.Contains(out, "  model: opus -> sonnet\n") {
@@ -323,6 +326,7 @@ func TestCrewSetReadsAgainWhenTheCrewMoved(t *testing.T) {
 // (yardr-d0ps). crew add and crew set ask the runner before they store
 // anything, as group add does, and say how the string is written.
 func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
+	t.Parallel()
 	st, was := clerkYard(t)
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
@@ -386,6 +390,7 @@ func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
 // printed. What the store refuses is a write that adds or changes such a
 // key (yardr-3wt9).
 func TestCrewKeepsAKeyNothingReadsAndNeverPrintsIt(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	old, err := store.Open(path)
 	if err != nil {
@@ -422,6 +427,7 @@ func TestCrewKeepsAKeyNothingReadsAndNeverPrintsIt(t *testing.T) {
 // refuses what is none; crew show prints the threshold and the last
 // reading.
 func TestCrewSetContextHandoff(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	out := mustAs(t, st, "jo", "crew", "set", "yardmaster", "--context-handoff", "80")

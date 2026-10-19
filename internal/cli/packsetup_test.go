@@ -40,6 +40,7 @@ const setupMark = "setup notes of pack acme-pack, from SETUP.md (from the pack, 
 // pack check prints a pack's setup notes after the plan, under the line
 // saying they are the pack's words.
 func TestPackCheckPrintsSetupNotes(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	out, err := run(t, a.packCmd(), "check", setupPack(t))
 	if err != nil {
@@ -55,6 +56,7 @@ func TestPackCheckPrintsSetupNotes(t *testing.T) {
 
 // A pack without the key prints nothing more than today.
 func TestPackCheckWithoutSetupPrintsNothingMore(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	out, err := run(t, a.packCmd(), "check", kindPack(t))
 	if err != nil {
@@ -68,8 +70,9 @@ func TestPackCheckWithoutSetupPrintsNothingMore(t *testing.T) {
 // pack apply prints the notes once, after what it did, and records that
 // the pack carries them; a pack without the key records none.
 func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	out, err := run(t, a.packCmd(), "apply", setupPack(t), "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -95,7 +98,7 @@ func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
 		t.Fatalf("records = %+v, want one with setup notes", recs)
 	}
 	plain := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	if out, err := run(t, plain.packCmd(), "apply", kindPack(t), "--yes"); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -111,8 +114,9 @@ func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
 // An apply that changed nothing names the command that prints the notes,
 // and not the text: an earlier apply printed it.
 func TestPackApplyUnchangedNamesSetupNotesByCommand(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	dir := setupPack(t)
 	if out, err := run(t, a.packCmd(), "apply", dir, "--yes"); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -135,6 +139,7 @@ func TestPackApplyUnchangedNamesSetupNotesByCommand(t *testing.T) {
 // pack show prints a pack's setup notes later; a pack without any says so.
 // The embedded linear pack carries its own.
 func TestPackShowPrintsSetupNotes(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	out, err := run(t, a.packCmd(), "show", setupPack(t))
 	if err != nil {
@@ -165,6 +170,7 @@ func TestPackShowPrintsSetupNotes(t *testing.T) {
 // its yard or depot by the command that prints them, each pack once — and
 // no pack without any. Not the text itself: the record carries none.
 func TestPrimeNamesSetupNotesByTheCommandThatPrintsThem(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "jo"); err != nil {

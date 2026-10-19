@@ -27,6 +27,7 @@ func serveStarter(t *testing.T) *httptest.Server {
 // it when the command runs, and an import records the URL, which pack list
 // prints as the source and the pack's name reads again.
 func TestPackAtURL(t *testing.T) {
+	t.Parallel()
 	srv := serveStarter(t)
 	base := srv.URL + "/starter/"
 	ctx := context.Background()

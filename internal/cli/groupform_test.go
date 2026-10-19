@@ -82,6 +82,7 @@ func TestDescribe(t *testing.T) {
 }
 
 func TestGroupFormKeepsAPause(t *testing.T) {
+	t.Parallel()
 	g := store.Group{Name: "builders", Runner: "herdr", Limit: 0, Config: map[string]any{"kind": "claude"}}
 	a := answersFrom(g)
 	if a.Limit != "0" {

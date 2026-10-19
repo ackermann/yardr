@@ -107,7 +107,7 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 		"old": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",
 			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, URL: "https://acme.test/issue/ACME-1-retries#comment-c2"}),
 	}
-	return &app{st: st, actor: "yard-10-new", cfg: &config.Config{Home: home}}, st, seqs, dir
+	return &app{st: st, actor: "yard-10-new", cfg: &config.Config{Home: home}, env: testEnv(t, "")}, st, seqs, dir
 }
 
 func replyKeys(t *testing.T, dir string) []string {
@@ -135,7 +135,7 @@ func TestReply(t *testing.T) {
 	a, st, seqs, dir := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 
 	out, err := run(t, a.replyCmd(), seqs["acme"], "Filed as yard-k3f9.")
 	if err != nil {
@@ -199,7 +199,7 @@ func TestReplyRetryDoesNotPostTwice(t *testing.T) {
 	a, st, seqs, dir := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	replied := func() int {
 		t.Helper()
 		evs, err := st.EventsSince(ctx, 0, 0)
@@ -275,7 +275,7 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	a, st, seqs, dir := replyYard(t) // acting as yard-10-new, a bead's agent
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -308,12 +308,12 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	// YARDR_ACTOR, and acts as it. That its pane is its own session
 	// whatever actor a command there names is the store's to know
 	// (TestSpeakingAsACrewMember).
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	a.actor = "yardmaster"
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "y"); err != nil {
 		t.Fatalf("its own session: %v", err)
 	}
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "z", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("acting as the crew member: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 func TestReplyPlacement(t *testing.T) {
 	a, _, seqs, dir := replyYard(t)
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	for _, c := range []struct {
 		event string
 		want  any
@@ -359,7 +359,7 @@ func TestReplyRefusals(t *testing.T) {
 	a, st, seqs, dir := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	head, _ := st.Head(ctx)
 
 	for _, c := range []struct {
@@ -392,12 +392,12 @@ func TestReplyRefusals(t *testing.T) {
 	}
 	// Nor without a crew member to reply as.
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "x"); err == nil || !strings.Contains(err.Error(), "--crew is required") {
 		t.Errorf("no crew member: %v", err)
 	}
 	// What the source refuses is the error, and nothing is recorded.
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
 	t.Setenv("ACME_TOKEN", "tok-other")
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "x"); err == nil || !strings.Contains(err.Error(), "Authentication required") {
 		t.Errorf("refused by the source: %v", err)

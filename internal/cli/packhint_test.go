@@ -18,6 +18,7 @@ import (
 // brings it: every refusal names `yardr pack apply <name>`. A source no
 // pack carries gets no such line, and neither does one the yard has.
 func TestMissingSourceNamesItsPack(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	a := testApp(t, st, "", "YARDR_CREW=yardmaster")

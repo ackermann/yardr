@@ -38,6 +38,7 @@ func TestPagesFlagsDefault(t *testing.T) {
 // web serve refuses a sandbox address off loopback before it touches the
 // yard, naming the flag that gave it.
 func TestWebServeRefusesPagesAddr(t *testing.T) {
+	t.Parallel()
 	env := testEnv(t, t.TempDir())
 	for _, addr := range []string{":8789", "0.0.0.0:8789", "192.168.1.10:8789"} {
 		a := &app{env: env}
@@ -54,6 +55,7 @@ func TestWebServeRefusesPagesAddr(t *testing.T) {
 // web serve refuses a public name that is no host name before it touches
 // the yard, naming the flag that gave it.
 func TestWebServeRefusesPagesHost(t *testing.T) {
+	t.Parallel()
 	env := testEnv(t, t.TempDir())
 	for _, c := range []struct {
 		host string
@@ -107,7 +109,11 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 	t.Setenv("YARDR_WEB_PAGES_HOST", "")
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	// The runs' own environment, shared so a value set below reaches
+	// every run; the setting variables are set on the process too,
+	// where the setting reader finds them.
+	runEnv := testEnv(t, home)
+	a := func() *app { return &app{st: st, actor: "me", env: runEnv} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -163,15 +169,19 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 	// The environment overrides the stored settings, and what it
 	// resolves to is refused before anything is started.
 	t.Setenv("YARDR_WEB_PAGES_ADDR", "192.168.1.5:9100")
+	runEnv["YARDR_WEB_PAGES_ADDR"] = "192.168.1.5:9100"
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "never listen off loopback") {
 		t.Fatalf("web start under non-loopback YARDR_WEB_PAGES_ADDR = %v", err)
 	}
 	t.Setenv("YARDR_WEB_PAGES_ADDR", "")
+	runEnv["YARDR_WEB_PAGES_ADDR"] = ""
 	t.Setenv("YARDR_WEB_PAGES_HOST", "*")
+	runEnv["YARDR_WEB_PAGES_HOST"] = "*"
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "--pages-host") {
 		t.Fatalf("web start under YARDR_WEB_PAGES_HOST=* = %v", err)
 	}
 	t.Setenv("YARDR_WEB_PAGES_HOST", "")
+	runEnv["YARDR_WEB_PAGES_HOST"] = ""
 }
 
 // settings set refuses for web_pages_addr what --pages-addr refuses,

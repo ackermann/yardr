@@ -26,7 +26,11 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 	t.Setenv("YARDR_BDP_ADDR", "")
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	// The runs' own environment, shared so a value set below reaches
+	// every run; the setting variables are set on the process too,
+	// where the setting reader finds them.
+	runEnv := testEnv(t, home)
+	a := func() *app { return &app{st: st, actor: "me", env: runEnv} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +96,7 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 		// overrides both; an install records the effective address too.
 		env := "YARDR_" + strings.ToUpper(c.key)
 		t.Setenv(env, c.env)
+		runEnv[env] = c.env
 		starts(nil, c.env)
 		starts([]string{"--addr", "127.0.0.1:9400"}, "127.0.0.1:9400")
 		installs(nil, c.env)
@@ -99,6 +104,7 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 			t.Fatalf("settings get %s under %s = %q, %v", c.key, env, got, err)
 		}
 		t.Setenv(env, "")
+		runEnv[env] = ""
 		installs(nil, c.set)
 		if _, err := run(t, a().rootCmd(), c.kind, "uninstall"); err != nil {
 			t.Fatal(err)
@@ -116,9 +122,13 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 // settings set refuses for web_addr what --addr refuses, in the sentence
 // the flag gives (web.CheckAddr), and what is no address for bdp_addr.
 func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
-	newHome(t)
+	home := newHome(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	// The runs' own environment, shared so a value set below reaches
+	// every run; the setting variables are set on the process too,
+	// where the setting reader finds them.
+	env := testEnv(t, home)
+	a := func() *app { return &app{st: st, actor: "me", env: env} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -141,10 +151,12 @@ func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 		}
 	}
 	t.Setenv("YARDR_WEB_ADDR", "192.168.1.5:9100")
+	env["YARDR_WEB_ADDR"] = "192.168.1.5:9100"
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "never listen off loopback") {
 		t.Fatalf("web start under non-loopback YARDR_WEB_ADDR = %v", err)
 	}
 	t.Setenv("YARDR_WEB_ADDR", "")
+	env["YARDR_WEB_ADDR"] = ""
 	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", "nowhere"); err == nil || !strings.Contains(err.Error(), `BDP address "nowhere": want host:port`) {
 		t.Errorf("settings set bdp_addr nowhere = %v", err)
 	}

@@ -59,6 +59,7 @@ func etaYard(t *testing.T, flowText, seedTo string, routes ...store.Route) (stor
 }
 
 func TestBeadShowPrintsEstimate(t *testing.T) {
+	t.Parallel()
 	st, b := etaYard(t, "new -> review on done\nreview terminal\n", "review",
 		store.Route{Stage: "new", Group: "builders"}, store.Route{Stage: "review", Group: "builders"})
 	a := &app{st: st, actor: "me"}
@@ -74,6 +75,7 @@ func TestBeadShowPrintsEstimate(t *testing.T) {
 }
 
 func TestBeadShowEstimateJSON(t *testing.T) {
+	t.Parallel()
 	st, b := etaYard(t, "new -> review on done\nreview terminal\n", "review",
 		store.Route{Stage: "new", Group: "builders"}, store.Route{Stage: "review", Group: "builders"})
 	j := &app{st: st, actor: "me", json: true}
@@ -113,6 +115,7 @@ func TestBeadShowEstimateJSON(t *testing.T) {
 }
 
 func TestBeadShowNamesManualFuture(t *testing.T) {
+	t.Parallel()
 	st, b := etaYard(t, "new -> approved on done\n", "approved",
 		store.Route{Stage: "new", Group: "builders"}, store.Route{Stage: "approved", Group: "people"})
 	a := &app{st: st, actor: "me"}
@@ -127,6 +130,7 @@ func TestBeadShowNamesManualFuture(t *testing.T) {
 }
 
 func TestBeadShowOmitsEstimate(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "the bead", Stage: "new"}, "me")
@@ -170,6 +174,7 @@ func TestBeadShowOmitsEstimate(t *testing.T) {
 }
 
 func TestPrimeBeadShowsEstimate(t *testing.T) {
+	t.Parallel()
 	st, b := etaYard(t, "new -> review on done\nreview terminal\n", "review",
 		store.Route{Stage: "new", Group: "builders"}, store.Route{Stage: "review", Group: "builders"})
 	a := &app{st: st, actor: "me"}

@@ -52,7 +52,7 @@ func doctorHomeOf(t *testing.T, a *app, args ...string) string {
 // The home is --home, then YARDR_HOME, then ~/.yardr.
 func TestHomeFlagOrder(t *testing.T) {
 	user := noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"git": toolAnswers})
 	flag, variable := filepath.Join(user, "flag"), filepath.Join(user, "variable")
 
@@ -80,7 +80,7 @@ func TestHomeFlagOrder(t *testing.T) {
 // process's own YARDR_HOME is left as it was.
 func TestHomeFlagReachesChildren(t *testing.T) {
 	user := noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"git": toolAnswers})
 	variable := filepath.Join(user, "variable")
 	t.Setenv("YARDR_HOME", variable)
@@ -183,7 +183,7 @@ func TestHomeFlagOnboards(t *testing.T) {
 // home, and with neither flag nor variable for the default one.
 func TestHomeFlagInTheRefusal(t *testing.T) {
 	user := noHome(t)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	var errs bytes.Buffer
 	home := filepath.Join(user, "my yard")
 
@@ -266,6 +266,7 @@ func said(t *testing.T, cfg *config.Config, l hooks.Listener) {
 // setting it says when the server takes it, with the home in the command
 // and with the variable where the running server has one.
 func TestSettingHookAddr(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	st := storetest.New(t)

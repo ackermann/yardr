@@ -37,6 +37,7 @@ func (s *routeIDs) DeleteRoute(_ context.Context, id, _ string) error {
 // there for done, so a mistyped id used to print nothing and exit 0
 // (yardr-fsqg).
 func TestRouteRmResolvesTheIdTyped(t *testing.T) {
+	t.Parallel()
 	routes := []store.Route{
 		{ID: "k3f9m2aaaaaaaaaaaaaa", Stage: "new", Group: "builders"},
 		{ID: "k3f9m2bbbbbbbbbbbbbb", Stage: "review", Group: "reviewers"},
@@ -81,6 +82,7 @@ func TestRouteRmResolvesTheIdTyped(t *testing.T) {
 // has. The start now removes its route and no other, and an id no route
 // has changes nothing.
 func TestRouteRmRemovesTheRouteNamed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	if err := st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Members: []string{"jo"}}, "me"); err != nil {
@@ -126,6 +128,7 @@ func TestRouteRmRemovesTheRouteNamed(t *testing.T) {
 // something not found. flow rm and crew rm always did; group rm and route
 // rm took it for done, and now refuse it too.
 func TestRmRefusesWhatIsNotThere(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}

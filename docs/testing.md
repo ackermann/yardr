@@ -37,9 +37,10 @@ variable, is not judged and still owes the budget.
 
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for
-the rest. That binds the three volume debts -- internal/cli, internal/dispatch
-and internal/store -- whose fix beads parallelize them following the
-assembly train-yard shape (temp homes, no shared state). Packages under
+the rest. That binds the volume debts -- internal/dispatch and internal/store,
+whose fix beads parallelize them following the assembly train-yard shape
+(temp homes, no shared state); internal/cli was the third until yardr-ab6t
+threaded its output and environment through its commands. Packages under
 budget comply until they breach it, and the budget is their backstop then.
 
 R4. One plain race leg per sha, in builder and review stages only. A stage

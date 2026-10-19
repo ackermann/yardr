@@ -14,6 +14,7 @@ import (
 // once nothing needs it, the depot leaves depot list, route list and flow list
 // together with its routes and flow pointers.
 func TestDepotRm(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {

@@ -38,6 +38,7 @@ func sharedGroups(t *testing.T, a *app) []store.Group {
 // of the yard takes it, with the flag; --group answers it, and the plan
 // then takes the yard's group instead of creating the depot's.
 func TestPackCheckGroupFlag(t *testing.T) {
+	t.Parallel()
 	a := packApp(t)
 	sharedGroups(t, a)
 	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss")
@@ -96,8 +97,9 @@ func TestPackCheckGroupFlag(t *testing.T) {
 // terminal and without the flag a new group is the depot's own, as it was
 // before an import could ask: the question is no missing answer.
 func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
+	t.Parallel()
 	a, _ := packYard(t, nil)
-	setInteractive(t, false)
+	requireNonInteractive(t)
 	ctx := context.Background()
 	before := sharedGroups(t, a)
 	args := []string{"init", "web", "--pack", "starter", "--yes", "--crew", "yardmaster=boss", "--bind", "crew:yardmaster=claude",

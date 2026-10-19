@@ -160,8 +160,7 @@ func stateYard(t *testing.T, allowed, ghBase string) (*app, store.API, *store.St
 	// The token alone: an App in the environment goes before it, and
 	// TestMain leaves none.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
-	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}, st, own, dir
+	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}, env: testEnv(t, "", "YARDR_CREW=yardmaster")}, st, own, dir
 }
 
 // acmeStatus is the status acme's state command last left.
@@ -281,7 +280,7 @@ func TestThreadStateAcme(t *testing.T) {
 	// --json prints the event's fields, and whether anything changed. The
 	// operator speaks as the crew member: the event names who did.
 	a.json, a.actor = true, "jo"
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	for _, c := range []struct {
 		state, status string
 		was           string
@@ -485,7 +484,7 @@ func TestThreadStateRefusals(t *testing.T) {
 	refused("crew member ghost", "--source", "github", "Acme/webapp#7", "done", "--crew", "ghost")
 
 	// A bead's agent, or another crew member, naming it with --crew.
-	t.Setenv("YARDR_CREW", "")
+	a.env["YARDR_CREW"] = ""
 	a.actor = "yard-10-new"
 	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
 		"--source", "github", "Acme/webapp#7", "done", "--crew", "yardmaster")

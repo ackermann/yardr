@@ -44,6 +44,7 @@ func matrixYard(t *testing.T) (text string, m subMatrix) {
 // counted, a row one of them has is marked once, and a kind a crew member
 // has both ways says so (yardr-a3s2).
 func TestSubscribeMatrix(t *testing.T) {
+	t.Parallel()
 	text, m := matrixYard(t)
 	row := func(sub string) subRow {
 		t.Helper()
@@ -123,6 +124,7 @@ func TestSubscribeMatrix(t *testing.T) {
 // replaces the list, so a crew member given two kinds lost the rest. A kind
 // someone has as a subscription instead is not among them (yardr-a3s2).
 func TestSubscribeMatrixReachesNoOne(t *testing.T) {
+	t.Parallel()
 	text, m := matrixYard(t)
 	var want []string
 	for _, k := range store.AttentionKinds {
@@ -142,6 +144,7 @@ func TestSubscribeMatrixReachesNoOne(t *testing.T) {
 // A subscription typed without its subscriber is refused, not answered with
 // the view as if it had been made.
 func TestSubscribeBareTakesNoFlags(t *testing.T) {
+	t.Parallel()
 	st := userYard(t)
 	for _, args := range [][]string{{"--done"}, {"--source", "yardr"}, {"--where", "kind=held"}, {"--scope", "all"}, {"--crew"}, {"--group"}} {
 		refusedAs(t, st, "jo", "name who subscribes", append([]string{"subscribe"}, args...)...)

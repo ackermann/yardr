@@ -15,6 +15,7 @@ import (
 // and says how many; past the most mails one text is sent as it is refused,
 // naming the file it goes as instead.
 func TestMailLong(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
 	ctx := context.Background()
