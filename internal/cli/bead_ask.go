@@ -509,8 +509,8 @@ what the person asked does, and this is the asker's own.`,
 				if err := st.TakeBackAsk(c.Context(), id, seq, args[2], a.who()); err != nil {
 					return err
 				}
-				return a.out(map[string]any{"bead": id, "ask": seq, "state": askState(c.Context(), st, id, seq)},
-					func() { printAsk(c.Context(), st, id, seq) })
+				return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": seq, "state": askState(c.Context(), st, id, seq)},
+					func(w io.Writer) { printAsk(c.Context(), st, id, seq) })
 			}
 			question := args[len(args)-1]
 			var b *store.Bead
@@ -644,7 +644,7 @@ what the person asked does, and this is the asker's own.`,
 					out["also"] = also
 				}
 			}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				if run != nil {
 					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
 					if askNew {
@@ -890,7 +890,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				if err != nil {
 					return err
 				}
-				return a.out(done, func() {
+				return a.out(c.OutOrStdout(), done, func(w io.Writer) {
 					ran := store.AskRan{Argv: done.Argv}
 					fmt.Printf("ask %d, asked by %s: %s\n", done.Ask, done.Asker, ran.Command())
 					for _, does := range done.Does {
@@ -939,7 +939,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 			if err := st.AddAnswer(c.Context(), id, ans, a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func(w io.Writer) {
 				printAsk(c.Context(), st, id, askSeq)
 			})
 		},
@@ -1130,7 +1130,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if err != nil {
 			return secretErr(err)
 		}
-		return a.out(keyed, func() {
+		return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 			fmt.Printf("%s gave %s · it is set in %s\n", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
 		})
 	}
@@ -1143,7 +1143,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if err != nil {
 			return secretErr(err)
 		}
-		return a.out(keyed, func() {
+		return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 			fmt.Printf("%s gave %s · it went to the waiting login %s, and is kept nowhere\n", a.who(), strings.Join(keyed.Given, " and "), keyed.Login)
 		})
 	}
@@ -1163,7 +1163,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	if err != nil {
 		return secretErr(err)
 	}
-	return a.out(keyed, func() {
+	return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 		line := fmt.Sprintf("%s gave %s · it is set in %s", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
 		if keyed.Missing != "" {
 			line += " · " + keyed.Missing
@@ -1233,7 +1233,7 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	if err != nil {
 		return secretErr(err)
 	}
-	return a.out(done, func() {
+	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
 		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
 		fmt.Printf("%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
 		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
@@ -1271,7 +1271,7 @@ func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq
 	if err != nil {
 		return secretErr(err)
 	}
-	return a.out(done, func() {
+	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
 		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
 		fmt.Printf("%s took %s\n", a.who(), done.Account)
 		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
@@ -1309,7 +1309,7 @@ func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq ui
 	if err != nil {
 		return secretErr(err)
 	}
-	return a.out(done, func() {
+	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
 		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
 		fmt.Printf("%s kept the standing account\n", a.who())
 		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)

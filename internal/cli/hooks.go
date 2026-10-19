@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
@@ -137,7 +138,7 @@ of its inbox.`,
 			if err != nil {
 				return err
 			}
-			return a.out(saved, func() {
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
 				fmt.Printf("hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
 				if len(saved.Map) > 0 {
 					fmt.Printf("moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
@@ -220,7 +221,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 				}
 				out = append(out, one)
 			}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				rows := [][]string{}
 				for _, h := range hs {
 					state := "ok"
@@ -243,7 +244,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 					}
 					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state, accepted, refused, moves})
 				}
-				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tLAST ACCEPTED\tLAST REFUSED\tMOVES ISSUES", rows)
+				table(os.Stdout, "NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tLAST ACCEPTED\tLAST REFUSED\tMOVES ISSUES", rows)
 			})
 		},
 	}
@@ -258,7 +259,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 			if err := st.DeleteHook(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"hook": args[0], "rm": "ok"}, func() { fmt.Printf("%s: removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"hook": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Printf("%s: removed\n", args[0]) })
 		},
 	}
 
@@ -273,7 +274,7 @@ the last error when a try failed (see yardr hook add).`,
 		RunE: func(c *cobra.Command, args []string) error {
 			seq, err := strconv.ParseUint(args[0], 10, 64)
 			if err != nil {
-				return a.showHook(c.Context(), args[0])
+				return a.showHook(c.OutOrStdout(), c.Context(), args[0])
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -287,7 +288,7 @@ the last error when a try failed (see yardr hook add).`,
 			if json.Valid(raw) {
 				payload = json.RawMessage(raw)
 			}
-			return a.out(map[string]any{"seq": seq, "payload": payload}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "payload": payload}, func(w io.Writer) {
 				var pretty bytes.Buffer
 				if json.Indent(&pretty, raw, "", "  ") == nil {
 					raw = pretty.Bytes()
@@ -548,7 +549,7 @@ func mapLines(m map[string]string) []string {
 
 // showHook prints the hook's definition and the issue moves it has still to
 // make.
-func (a *app) showHook(ctx context.Context, name string) error {
+func (a *app) showHook(w io.Writer, ctx context.Context, name string) error {
 	st, err := a.store(ctx)
 	if err != nil {
 		return err
@@ -567,7 +568,7 @@ func (a *app) showHook(ctx context.Context, name string) error {
 			moves = append(moves, m)
 		}
 	}
-	return a.out(map[string]any{"hook": h, "issue_moves": moves}, func() {
+	return a.out(w, map[string]any{"hook": h, "issue_moves": moves}, func(w io.Writer) {
 		fmt.Printf("%s  %s  POST /hooks/%s\n", h.Name, h.Source, h.Name)
 		fmt.Printf("  secret file %s\n", h.SecretFile)
 		if h.Blocked != "" {

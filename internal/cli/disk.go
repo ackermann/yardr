@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/diskkeep"
 )
 
@@ -42,7 +43,7 @@ exits 1 when anything past the rotation failed.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, func() {
+			if err := a.out(c.OutOrStdout(), rep, func(w io.Writer) {
 				for _, line := range rep.Lines() {
 					fmt.Println(line)
 				}

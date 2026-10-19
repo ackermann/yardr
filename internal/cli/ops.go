@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"io"
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
@@ -56,7 +57,7 @@ func (a *app) serverCmd() *cobra.Command {
 			if _, err := connect(c.Context(), cfg); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func() {
+			return a.out(c.OutOrStdout(), map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func(w io.Writer) {
 				fmt.Printf("yardr server running (store %s)\n", cfg.DBPath())
 			})
 		},
@@ -77,7 +78,7 @@ func (a *app) serverCmd() *cobra.Command {
 				return err
 			}
 			ok := server.Running(c.Context(), cfg)
-			return a.out(map[string]any{"store": cfg.DBPath(), "running": ok}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"store": cfg.DBPath(), "running": ok}, func(w io.Writer) {
 				fmt.Printf("%s running=%v\n", cfg.DBPath(), ok)
 			})
 		},
@@ -288,7 +289,7 @@ changes an existing depot's path, base or test command.`,
 				if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 					return err
 				}
-				return a.out(r, func() {
+				return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 					fmt.Printf("depot %s → %s (dir: no git, no base)\n", r.Name, r.Path)
 					if r.Test != "" {
 						fmt.Printf("test: %s\n", r.Test)
@@ -312,7 +313,7 @@ changes an existing depot's path, base or test command.`,
 			if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 				return err
 			}
-			return a.out(r, func() {
+			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 				fmt.Printf("depot %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
 				if r.Test != "" {
 					fmt.Printf("test: %s\n", r.Test)
@@ -335,7 +336,7 @@ changes an existing depot's path, base or test command.`,
 			if err != nil {
 				return err
 			}
-			return a.out(r, func() {
+			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 				fmt.Printf("depot %s\n", r.Name)
 				fmt.Printf("  path:  %s\n", r.Path)
 				fmt.Printf("  kind:  %s\n", r.Kind)
@@ -362,12 +363,12 @@ changes an existing depot's path, base or test command.`,
 			if err != nil {
 				return err
 			}
-			return a.out(rs, func() {
+			return a.out(c.OutOrStdout(), rs, func(w io.Writer) {
 				rows := [][]string{}
 				for _, r := range rs {
 					rows = append(rows, []string{r.Name, r.Kind, r.Path, or(r.Base, "-"), depotFlow(c.Context(), st, r.Name)})
 				}
-				table("NAME\tKIND\tPATH\tBASE\tFLOW", rows)
+				table(os.Stdout, "NAME\tKIND\tPATH\tBASE\tFLOW", rows)
 			})
 		},
 	}
@@ -439,7 +440,7 @@ names is refused too: clear the setting first (yardr settings set upgrade_from "
 			if err != nil {
 				return err
 			}
-			return a.out(r, func() {
+			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 				ptrs := make([]string, 0, len(r.FlowPointers))
 				for _, p := range r.FlowPointers {
 					ptrs = append(ptrs, p.String())
@@ -559,7 +560,7 @@ yardmaster):
 			if err != nil {
 				return err
 			}
-			return a.out(saved, func() { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
@@ -583,7 +584,7 @@ yardmaster):
 				return err
 			}
 			words := grantWords(c.Context(), st)
-			return a.out(gs, func() {
+			return a.out(c.OutOrStdout(), gs, func(w io.Writer) {
 				rows := [][]string{}
 				for _, g := range gs {
 					// What the group's sessions may call of the declared
@@ -598,7 +599,7 @@ yardmaster):
 					}
 					rows = append(rows, []string{g.Name, g.Runner, limit, or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
 				}
-				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
+				table(os.Stdout, "NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
 			})
 		},
 	}
@@ -619,7 +620,7 @@ yardmaster):
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"group": args[0], "released": n}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"group": args[0], "released": n}, func(w io.Writer) {
 				if n > 0 {
 					fmt.Printf("deleted group %s; ended its %d live session(s) and released their beads for routing\n", args[0], n)
 				}
@@ -671,7 +672,7 @@ yardmaster):
 				return err
 			}
 			operator := settings[store.OperatorSetting]
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				fmt.Printf("%s  %s\n", g.Name, describe(*g))
 				if h, ok := agents.Lookup(kind); ok && len(h.Flags.Always) > 0 {
 					fmt.Printf("  harness %s always: %s\n", kind, strings.Join(h.Flags.Always, " "))
@@ -788,7 +789,7 @@ named like a secret (token, secret, password, key) is not printed.`,
 				return bareSetHint(err)
 			}
 			changes := groupChanges(ch.Was, ch.Is)
-			return a.out(ch.Is, func() {
+			return a.out(c.OutOrStdout(), ch.Is, func(w io.Writer) {
 				if len(changes) == 0 {
 					fmt.Printf("group %s unchanged: it is set so already\n", name)
 					return
@@ -988,7 +989,7 @@ cannot: why this route ranks as it does. route list prints it.`,
 			for _, w := range routeWarnings(c.Context(), st, *saved) {
 				fmt.Fprintf(stderr, "warning: route %s: %s\n", saved.ID, w)
 			}
-			return a.out(saved, func() { fmt.Println(saved.ID) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Println(saved.ID) })
 		},
 	}
 	f := add.Flags()
@@ -1027,7 +1028,7 @@ the defaults it sets aside named underneath.`,
 			}
 			dispatch.SortRoutes(rs)
 			if !c.Flags().Changed("depot") {
-				return a.out(rs, func() {
+				return a.out(c.OutOrStdout(), rs, func(w io.Writer) {
 					rows := make([][]string, 0, len(rs))
 					for _, r := range rs {
 						scope := "default"
@@ -1036,7 +1037,7 @@ the defaults it sets aside named underneath.`,
 						}
 						rows = append(rows, routeRow(r, scope, operator))
 					}
-					table("ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+					table(os.Stdout, "ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
 				})
 			}
 			// As depot show fails for a depot that is not there.
@@ -1057,12 +1058,12 @@ the defaults it sets aside named underneath.`,
 				}
 				marked = append(marked, markedRoute{Route: r, Effective: mark})
 			}
-			return a.out(map[string]any{"routes": marked, "set_aside": aside}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"routes": marked, "set_aside": aside}, func(w io.Writer) {
 				rows := make([][]string, 0, len(marked))
 				for _, m := range marked {
 					rows = append(rows, routeRow(m.Route, m.Effective, operator))
 				}
-				table("ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+				table(os.Stdout, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
 				saySetAside(listDepot, aside, operator)
 			})
 		},
@@ -1107,7 +1108,7 @@ sessions end; only new claims follow the remaining routes.`,
 					claimed = append(claimed, s.Bead)
 				}
 			}
-			return a.out(map[string]any{"route": r.ID, "claimed": claimed}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"route": r.ID, "claimed": claimed}, func(w io.Writer) {
 				if len(claimed) > 0 {
 					fmt.Printf("%d bead(s) in %s already claimed by %s keep it until their sessions end: %s\n",
 						len(claimed), r.Stage, strings.Join(append([]string{r.Worker()}, r.Further()...), " or "), strings.Join(claimed, " "))
@@ -1297,7 +1298,7 @@ group until its session ends; the next claim takes the new chain.`,
 				fmt.Fprintf(stderr, "warning: route %s: %s\n", ch.Is.ID, w)
 			}
 			changes := routeChanges(ch.Was, ch.Is)
-			return a.out(ch.Is, func() {
+			return a.out(c.OutOrStdout(), ch.Is, func(w io.Writer) {
 				if len(changes) == 0 {
 					fmt.Printf("route %s unchanged: it is set so already\n", args[0])
 					return
@@ -1403,7 +1404,7 @@ fewer, and --all every session there is, which is what a script wants.
 			cut.say(len(ss), "sessions")
 			listed := dispatch.Listed(ss)
 			now := time.Now()
-			return a.out(listed, func() {
+			return a.out(c.OutOrStdout(), listed, func(w io.Writer) {
 				rows := [][]string{}
 				for _, s := range listed {
 					// Which runner owns it, and what it is running there.
@@ -1416,7 +1417,7 @@ fewer, and --all every session there is, which is what a script wants.
 					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.Originator, s.Login, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
-				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tLOGIN\tSTATE\tRUNNER\tSTARTED", rows)
+				table(os.Stdout, "ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tLOGIN\tSTATE\tRUNNER\tSTARTED", rows)
 				for _, s := range listed {
 					if s.ResetWait != nil {
 						fmt.Println(resetWaitLine(*s.ResetWait, s.Session, now))
@@ -1503,7 +1504,7 @@ back from now (7d, 40h, 30m) or an RFC3339 time. Without -n the newest
 				if err != nil {
 					return err
 				}
-				return a.out(evs, func() {
+				return a.out(c.OutOrStdout(), evs, func(w io.Writer) {
 					for _, e := range evs {
 						printEvent(e)
 					}
@@ -1552,7 +1553,7 @@ back from now (7d, 40h, 30m) or an RFC3339 time. Without -n the newest
 			if n > 0 && len(evs) > n {
 				evs = evs[len(evs)-n:]
 			}
-			return a.out(evs, func() {
+			return a.out(c.OutOrStdout(), evs, func(w io.Writer) {
 				for _, e := range evs {
 					printEvent(e)
 				}

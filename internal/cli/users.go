@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/notify"
 	"yardr.dev/yardr/internal/store"
@@ -56,7 +57,7 @@ by a token: yardr user device.`}
 			if err != nil {
 				return err
 			}
-			return a.out(u, func() { fmt.Printf("user %s added\n", u.Name) })
+			return a.out(c.OutOrStdout(), u, func(w io.Writer) { fmt.Printf("user %s added\n", u.Name) })
 		},
 	}
 	list := &cobra.Command{
@@ -80,7 +81,7 @@ by a token: yardr user device.`}
 			for i := range views {
 				views[i].Told = told(c.Context(), st, &views[i].User)
 			}
-			return a.out(views, func() {
+			return a.out(c.OutOrStdout(), views, func(w io.Writer) {
 				rows := [][]string{}
 				for _, v := range views {
 					role := "-"
@@ -89,7 +90,7 @@ by a token: yardr user device.`}
 					}
 					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
 				}
-				table("NAME\tROLE\tUNREAD\tTOLD", rows)
+				table(os.Stdout, "NAME\tROLE\tUNREAD\tTOLD", rows)
 				printPeerParties(store.PeerParties(ps))
 			})
 		},
@@ -127,7 +128,7 @@ everything either way.`,
 			if v.Devices, err = st.Devices(c.Context(), v.Name); err != nil {
 				return err
 			}
-			return a.out(v, func() {
+			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
 				fmt.Print(v.Name)
 				if v.Operator {
 					fmt.Print("  the yard's operator")
@@ -175,7 +176,7 @@ everything either way.`,
 			if err := st.DeleteUser(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"removed": args[0]}, func() { fmt.Printf("user %s removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"removed": args[0]}, func(w io.Writer) { fmt.Printf("user %s removed\n", args[0]) })
 		},
 	}
 	set := &cobra.Command{
@@ -267,7 +268,7 @@ the source. notify= drops what was still to be told.`,
 				return err
 			}
 			state := told(c.Context(), st, saved)
-			return a.out(map[string]any{"user": saved, "told": state}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"user": saved, "told": state}, func(w io.Writer) {
 				fmt.Printf("user %s: told outside the yard: %s\n", saved.Name, or(state, "nowhere"))
 				if saved.Notify != "" && saved.EnvFile != "" {
 					fmt.Printf("next: yardr source check %s --user %s sends one test message\n", saved.Notify, saved.Name)
@@ -336,7 +337,7 @@ again, and it ends as one giving that worked.`,
 			if err != nil {
 				return secretErr(err)
 			}
-			return a.out(keyed, func() {
+			return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 				fmt.Printf("user %s: %s\n", keyed.User, keyed.State)
 				fmt.Println("next: " + keyed.Next)
 			})
@@ -477,7 +478,7 @@ func printPeerParties(parties []store.PeerParty) {
 		rows = append(rows, []string{e.Address(), is, takesMail(e), or(e.Role, "-")})
 	}
 	fmt.Println()
-	table("OF A LINKED YARD\tIS\tMAIL\tROLE", rows)
+	table(os.Stdout, "OF A LINKED YARD\tIS\tMAIL\tROLE", rows)
 }
 
 // takesMail is whether mail from this yard reaches e, and whose grant is
@@ -571,7 +572,7 @@ type userBox struct {
 // unread and the latest read, under the part's name and unread count. With
 // ack what is through the seq is marked read, in the parts shown only:
 // each part has a cursor of its own.
-func (a *app) userInbox(ctx context.Context, st store.API, name string, limit int, ack bool, through uint64, mail, notes bool) error {
+func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name string, limit int, ack bool, through uint64, mail, notes bool) error {
 	var box userBox
 	var err error
 	if mail {
@@ -656,7 +657,7 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 			acked["notifications"] = box.Notifications.Unread - newer["notifications"]
 		}
 	}
-	return a.out(box, func() {
+	return a.out(w, box, func(w io.Writer) {
 		if mail {
 			fmt.Println(partHead("Mail", len(box.Mail), box.Unread))
 			for _, l := range box.Mail {
@@ -753,7 +754,7 @@ func notifications(n int) string {
 // conversation is yardr mail --with: the mail between who acts and the
 // other party, oldest first. For a user that is also the mail of the names
 // trusted as them; --with <name>@<peer> is that address alone.
-func (a *app) conversation(ctx context.Context, st store.API, with string, after uint64) error {
+func (a *app) conversation(w io.Writer, ctx context.Context, st store.API, with string, after uint64) error {
 	// The other has to be a party of the yard, or a crew member of a yard it
 	// is linked with, or a typo reads as a conversation nobody has had yet.
 	// Whether that yard has the crew member is not this one's to know.
@@ -776,7 +777,7 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 	if err != nil {
 		return err
 	}
-	return a.out(letters, func() {
+	return a.out(w, letters, func(w io.Writer) {
 		if len(letters) == 0 {
 			if after > 0 {
 				fmt.Printf("no mail between %s and %s after %d\n", me, with, after)

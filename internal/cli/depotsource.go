@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/pack"
@@ -83,7 +84,7 @@ pack apply sets them again; the output says when that undoes the switch.`,
 			if err != nil {
 				return err
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				sourceTable(res.Lines)
 				if !res.Changed {
 					fmt.Println("unchanged: it already came from there")

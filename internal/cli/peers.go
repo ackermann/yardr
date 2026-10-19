@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	peerscripts "yardr.dev/yardr/contrib/peer"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
@@ -80,7 +81,7 @@ every time.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"key": yardkey.Public(k), "file": cfg.PeerKey(), "made": made}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"key": yardkey.Public(k), "file": cfg.PeerKey(), "made": made}, func(w io.Writer) {
 				fmt.Println(yardkey.Public(k))
 			})
 		},
@@ -113,7 +114,7 @@ trust to be yours: whoever swaps the key in it is who they link with.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"invite": inv.String(), "name": inv.Name, "key": inv.Key, "url": inv.URL}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"invite": inv.String(), "name": inv.Name, "key": inv.Key, "url": inv.URL}, func(w io.Writer) {
 				fmt.Println(inv.String())
 				if listening, text := receiver(ctx, cfg, st); inv.URL != "" && !listening {
 					fmt.Fprintln(stderr, "note: nothing reaches this yard at that URL yet: "+text)
@@ -153,7 +154,7 @@ remove the peer first to replace it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(p, func() {
+			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				yardr := yardrAt(cfg.Home)
 				fmt.Printf("peer %s added (it calls itself %s)\n", p.Name, p.Calls)
 				if p.URL == "" {
@@ -176,7 +177,7 @@ remove the peer first to replace it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ps, func() {
+			return a.out(c.OutOrStdout(), ps, func(w io.Writer) {
 				rows := [][]string{}
 				for _, p := range ps {
 					out := fmt.Sprint(p.Waiting)
@@ -185,7 +186,7 @@ remove the peer first to replace it.`,
 					}
 					rows = append(rows, []string{p.Name, or(p.URL, "- (it calls)"), or(strings.Join(p.Send, ","), "-"), or(strings.Join(p.Receive, ","), "-"), out})
 				}
-				table("NAME\tURL\tSEND\tRECEIVE\tWAITING", rows)
+				table(os.Stdout, "NAME\tURL\tSEND\tRECEIVE\tWAITING", rows)
 			})
 		},
 	}
@@ -233,7 +234,7 @@ remove the peer first to replace it.`,
 				}
 				rows = append(rows, r)
 			}
-			return a.out(map[string]any{"peer": p, "listening": listening, "incoming": in, "waiting": rows}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"peer": p, "listening": listening, "incoming": in, "waiting": rows}, func(w io.Writer) {
 				fmt.Printf("%s  (it calls itself %s)\n", p.Name, or(p.Calls, "-"))
 				for _, w := range p.Was {
 					fmt.Printf("  was      %s until %s\n", w.Name, w.At.Local().Format("2006-01-02 15:04"))
@@ -309,7 +310,7 @@ open one is still worked or closed here, and nothing is returned for it.`,
 			if err := st.DeletePeer(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"peer": args[0], "rm": "ok"}, func() { fmt.Printf("%s: removed\n", args[0]) })
+			return a.out(c.OutOrStdout(), map[string]string{"peer": args[0], "rm": "ok"}, func(w io.Writer) { fmt.Printf("%s: removed\n", args[0]) })
 		},
 	}
 
@@ -359,7 +360,7 @@ already.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"peer": p, "from": args[0], "crew": may}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"peer": p, "from": args[0], "crew": may}, func(w io.Writer) {
 				fmt.Printf("peer %s is %s now: its crew are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
 				if p.Waiting > 0 {
 					fmt.Printf("%d messages that waited for it still wait, and are delivered\n", p.Waiting)
@@ -411,7 +412,7 @@ the peer has already.`,
 			if err != nil {
 				return err
 			}
-			return a.out(p, func() {
+			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				if p.URL == "" {
 					fmt.Printf("peer %s is never called now: it calls this yard and asks for what waits here\n", p.Name)
 					if p.Waiting > 0 {
@@ -601,7 +602,7 @@ what came in the hour.`,
 					stay = append(stay, line)
 				}
 			}
-			return a.out(p, func() {
+			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				fmt.Printf("peer %s: send %s; receive %s; expose %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody"))
 				if note := exposeNote(*p); note != "" {
 					fmt.Println(note)
@@ -655,7 +656,7 @@ both yards must allow ping both ways.`,
 			if err != nil {
 				return err
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				fmt.Printf("pong from %s in %s: the ping went by %s, the pong came by %s\n", res.Peer, res.Took.Round(time.Millisecond), res.Out, res.Back)
 			})
 		},
@@ -742,7 +743,7 @@ the flow does not resolve for it.`,
 				if err != nil {
 					return err
 				}
-				return a.out(p, func() {
+				return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 					fmt.Printf("peer %s: removed the intake for depot %s\n", p.Name, in.Depot)
 					for _, line := range untoldLines(*p) {
 						fmt.Println(line)
@@ -757,7 +758,7 @@ the flow does not resolve for it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(p, func() {
+			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				if len(p.Intakes) == 0 {
 					fmt.Printf("peer %s: no intake; a bead it sends is refused\n", p.Name)
 					return

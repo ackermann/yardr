@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/dispatch"
@@ -102,7 +103,7 @@ Rules are not switched: writing the file adopts it, deleting it removes it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(lines, func() { sourceTable(lines) })
+			return a.out(c.OutOrStdout(), lines, func(w io.Writer) { sourceTable(lines) })
 		},
 	}
 }
@@ -126,7 +127,7 @@ func sourceTable(lines []depotSource) {
 		}
 		rows = append(rows, row)
 	}
-	table("KIND\tNAME\tSOURCE", rows)
+	table(os.Stdout, "KIND\tNAME\tSOURCE", rows)
 }
 
 // where says the line's source the way the listing prints it.

@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
+	"os"
 	"yardr.dev/yardr/internal/agents"
 )
 
@@ -33,13 +35,13 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use: "list", Short: "The kinds yardr has a file for, and what each file says", Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return a.out(map[string]any{"harnesses": agents.Harnesses}, func() {
+		RunE: func(c *cobra.Command, _ []string) error {
+			return a.out(c.OutOrStdout(), map[string]any{"harnesses": agents.Harnesses}, func(w io.Writer) {
 				var rows [][]string
 				for _, h := range agents.Harnesses {
 					rows = append(rows, []string{h.Kind, h.Label, fmt.Sprintf("v%d", h.Version), strings.Join(harnessKnown(h), ", ")})
 				}
-				table("KIND\tHARNESS\tFILE\tYARDR KNOWS", rows)
+				table(os.Stdout, "KIND\tHARNESS\tFILE\tYARDR KNOWS", rows)
 				var none []string
 				for _, k := range agents.Kinds() {
 					if _, ok := agents.Lookup(k); !ok {
@@ -55,7 +57,7 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 		Use: "show <kind>", Short: "Everything a kind's file says, as yardr reads it", Args: cobra.ExactArgs(1),
 		Example: `  yardr harness show codex
   yardr harness show kimi --json | jq -r '.errors[].pattern'`,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(c *cobra.Command, args []string) error {
 			h, ok := agents.Lookup(args[0])
 			if !ok {
 				if !agents.IsKind(args[0]) {
@@ -63,7 +65,7 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 				}
 				h.Kind = args[0]
 			}
-			return a.out(h, func() { printHarness(h, ok) })
+			return a.out(c.OutOrStdout(), h, func(w io.Writer) { printHarness(h, ok) })
 		},
 	})
 	cmd.AddCommand(a.harnessLoginCmd())
@@ -226,7 +228,7 @@ func printHarness(h agents.Harness, has bool) {
 		rows = append(rows, []string{"  " + e.Reason, e.Pattern})
 	}
 	if len(rows) > 0 {
-		table("  REASON\tPATTERN", rows)
+		table(os.Stdout, "  REASON\tPATTERN", rows)
 	}
 	if len(h.Dialogs) > 0 {
 		fmt.Println("\nDialogs it draws in place of its input: told of at once (nudge_held), never answered")
@@ -234,7 +236,7 @@ func printHarness(h agents.Harness, has bool) {
 		for _, d := range h.Dialogs {
 			rows = append(rows, []string{"  " + d.Dialog, d.Pattern})
 		}
-		table("  DIALOG\tPATTERN", rows)
+		table(os.Stdout, "  DIALOG\tPATTERN", rows)
 	}
 	if len(h.Login) > 0 {
 		fmt.Println("\nLogin screen, drawn in place of its input: told of at once (nudge_held), never typed into")

@@ -512,7 +512,7 @@ env_file; what the new file changes of its calls is printed.`,
 				changes = append(changes, w)
 			}
 			changes = append(changes, stillGranted(before, d, grants)...)
-			return a.out(map[string]any{"source": saved, "declaration": d, "changes": changes}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"source": saved, "declaration": d, "changes": changes}, func(w io.Writer) {
 				if len(d.Calls) == 0 {
 					fmt.Printf("source %s saved: no call, its limits command alone\n", d.Name)
 				} else {
@@ -566,7 +566,7 @@ env_file; what the new file changes of its calls is printed.`,
 			if err != nil {
 				return err
 			}
-			return a.out(srcs, func() {
+			return a.out(c.OutOrStdout(), srcs, func(w io.Writer) {
 				rows := [][]string{}
 				for _, src := range srcs {
 					d, err := src.Declaration()
@@ -607,7 +607,7 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 					rows = append(rows, []string{d.Name, or(d.Base, "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
-				table("NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
+				table(os.Stdout, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
 		},
 	}
@@ -689,7 +689,7 @@ credential in it whether their file sets that. The value is never printed.
 				}
 				out["as"] = as
 			}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
 					fmt.Printf("  %s\n", d.About)
@@ -871,11 +871,11 @@ credential in it whether their file sets that. The value is never printed.
 					return err
 				}
 			}
-			return a.out(map[string]any{
+			return a.out(c.OutOrStdout(), map[string]any{
 				"source": args[0], "rm": "ok",
 				"subscriptions": left.subscriptions, "participations": left.participations,
 				"remove_subscriptions": left.unsubscribe, "remove_participations": left.unfollow,
-			}, func() {
+			}, func(w io.Writer) {
 				fmt.Printf("%s: removed; %s and %s still name this source.\n", args[0], countPhrase(left.subscriptions, "subscription", "subscriptions"), countPhrase(left.participations, "participation", "participations"))
 				if len(left.unsubscribe) > 0 {
 					fmt.Println("  Remove subscriptions with:")
@@ -935,12 +935,12 @@ identity hearing, which ignores nothing.`,
 					return err
 				}
 				ignored := sortedIgnored(src.Ignored)
-				return a.out(map[string]any{"source": args[0], "ignored": ignored}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"source": args[0], "ignored": ignored}, func(w io.Writer) {
 					fmt.Printf("%s: %s is no longer ignored\n", args[0], rm)
 				})
 			}
 			ignored := sortedIgnored(src.Ignored)
-			return a.out(map[string]any{"source": args[0], "ignored": ignored}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"source": args[0], "ignored": ignored}, func(w io.Writer) {
 				if len(ignored) == 0 {
 					fmt.Printf("%s: no sender is ignored\n", args[0])
 					return
@@ -1057,7 +1057,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 			if key != store.SourceEnvFile && key != store.SourceMintCommand {
 				state = saved.LimitsLine()
 			}
-			return a.out(saved, func() { fmt.Printf("source %s: %s\n", saved.Name, state) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("source %s: %s\n", saved.Name, state) })
 		},
 	}
 
@@ -1145,7 +1145,7 @@ again, and it ends as one giving that worked.`,
 				if err != nil {
 					return secretErr(err)
 				}
-				return a.out(keyed, func() {
+				return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 					fmt.Printf("%s gave %s · it is set in %s · %s\n", keyed.As, strings.Join(keyed.Given, " and "), keyed.File, keyed.Next)
 				})
 			}
@@ -1153,7 +1153,7 @@ again, and it ends as one giving that worked.`,
 			if err != nil {
 				return secretErr(err)
 			}
-			return a.out(keyed, func() {
+			return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 				if keyed.Missing == "" {
 					fmt.Printf("source %s: %s\n", d.Name, keyed.State)
 					return
@@ -1251,7 +1251,7 @@ group is granted.`,
 					saved = append(saved, s)
 				}
 				words := grantWords(c.Context(), st)
-				return a.out(saved, func() {
+				return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
 					for _, s := range saved {
 						fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
 					}
@@ -1266,7 +1266,7 @@ group is granted.`,
 				saved = append(saved, s)
 			}
 			words := grantWords(c.Context(), st)
-			return a.out(saved, func() {
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
 				for _, s := range saved {
 					fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
 				}
@@ -1300,7 +1300,7 @@ may revoke.`,
 				left = append(left, s)
 			}
 			words := grantWords(c.Context(), st)
-			return a.out(left, func() {
+			return a.out(c.OutOrStdout(), left, func(w io.Writer) {
 				for _, s := range left {
 					fmt.Printf("%s may call %s: %s\n", s.Holder(), args[0], or(words(*s), "nothing"))
 				}
@@ -1366,7 +1366,7 @@ process for it. Nothing of the request is written anywhere.`,
 				return errors.New("--user tells through the source, and --as reads a user's credential: one of the two")
 			}
 			if checkUser != "" {
-				return a.checkTells(c.Context(), st, args[0], checkUser)
+				return a.checkTells(c.OutOrStdout(), c.Context(), st, args[0], checkUser)
 			}
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
@@ -1486,7 +1486,7 @@ process for it. Nothing of the request is written anywhere.`,
 				}
 			}
 			if d.Limits == nil {
-				if err := a.out(out, func() { said(); sayCmds() }); err != nil {
+				if err := a.out(c.OutOrStdout(), out, func(w io.Writer) { said(); sayCmds() }); err != nil {
 					return err
 				}
 				if !cmdsOK {
@@ -1496,7 +1496,7 @@ process for it. Nothing of the request is written anywhere.`,
 			}
 			asked, ok := checkLimits(c.Context(), limits.Answerer{Source: d.Name, Limits: d.Limits, Home: home})
 			out["limits"] = asked
-			if err := a.out(out, func() {
+			if err := a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				said()
 				sayCmds()
 				for _, l := range checkLines(asked, time.Now()) {
@@ -1521,7 +1521,7 @@ process for it. Nothing of the request is written anywhere.`,
 
 // checkTells is yardr source check <name> --user <user>: one message to
 // the user through the source, which says that it is a test.
-func (a *app) checkTells(ctx context.Context, st store.API, name, user string) error {
+func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, user string) error {
 	u, err := st.GetUser(ctx, user)
 	if err != nil {
 		return err
@@ -1544,7 +1544,7 @@ func (a *app) checkTells(ctx context.Context, st store.API, name, user string) e
 	if !sent.OK() {
 		return fmt.Errorf("source %s: telling %s was answered %d: nothing reached them", name, u.Name, sent.Status)
 	}
-	return a.out(sent, func() {
+	return a.out(w, sent, func(w io.Writer) {
 		fmt.Printf("%s: told %s: %d in %dms\n", name, u.Name, sent.Status, sent.Took.Milliseconds())
 		if u.Notify != name {
 			fmt.Printf("next: yardr user set %s %s=%s\n", u.Name, store.UserNotify, name)

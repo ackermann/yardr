@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
+	"os"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -209,12 +211,12 @@ func (a *app) identityOf(kind, long, example string, of func(context.Context, st
 			if err != nil {
 				return err
 			}
-			return a.out(ids, func() {
+			return a.out(c.OutOrStdout(), ids, func(w io.Writer) {
 				rows := [][]string{}
 				for _, src := range sortedKeys(ids) {
 					rows = append(rows, []string{src, or(ids[src].ID, "-"), or(ids[src].Key, "-")})
 				}
-				table("SOURCE\tID\tKEY", rows)
+				table(os.Stdout, "SOURCE\tID\tKEY", rows)
 			})
 		},
 	}
@@ -669,7 +671,7 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 		return err
 	}
 	m := subscriptionMatrix(crew, users, groups)
-	return a.out(m, func() {
+	return a.out(c.OutOrStdout(), m, func(w io.Writer) {
 		header := []string{"SUBSCRIPTION", "REACHES"}
 		for _, col := range m.Subscribers {
 			header = append(header, col.String())
@@ -682,7 +684,7 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 			}
 			rows = append(rows, cells)
 		}
-		table(strings.Join(header, "\t"), rows)
+		table(os.Stdout, strings.Join(header, "\t"), rows)
 		for _, col := range m.Subscribers {
 			if col.Kind == "group" {
 				fmt.Printf("%s reaches: %s\n", col, or(strings.Join(col.Reaches, ", "), "no crew member"))
@@ -739,7 +741,7 @@ func (a *app) showSubscriptions(c *cobra.Command, st store.API, name, kind strin
 	if err != nil {
 		return err
 	}
-	return a.out(subs, func() { text(subs, r) })
+	return a.out(c.OutOrStdout(), subs, func(w io.Writer) { text(subs, r) })
 }
 
 func (a *app) unsubscribeCmd() *cobra.Command {
@@ -784,7 +786,7 @@ do, the command refuses naming both, and --crew or --group says which.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"subscriber": args[0], "removed": n}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"subscriber": args[0], "removed": n}, func(w io.Writer) {
 				fmt.Printf("%s: %d subscription(s) removed\n", args[0], n)
 			})
 		},
@@ -937,7 +939,7 @@ member takes part in.`,
 			if err := st.FollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func(w io.Writer) {
 				fmt.Printf("%s follows %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
@@ -957,7 +959,7 @@ member takes part in.`,
 			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func(w io.Writer) {
 				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, printable(args[1]))
 			})
 		},
@@ -979,13 +981,13 @@ member takes part in.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ps, func() {
+			return a.out(c.OutOrStdout(), ps, func(w io.Writer) {
 				rows := [][]string{}
 				for _, p := range ps {
 					rows = append(rows, []string{p.Source, printable(p.Thread), p.How, p.Since.Local().Format("01-02 15:04"),
 						printable(or(p.Title, "-"))})
 				}
-				table("SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
+				table(os.Stdout, "SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
 			})
 		},
 	}
@@ -1070,7 +1072,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 			if err := st.AddSubscription(c.Context(), name, sub, a.who()); err != nil {
 				return err
 			}
-			return a.out(sub, func() { fmt.Printf("%s watches %s: %s\n", name, b.ID, sub) })
+			return a.out(c.OutOrStdout(), sub, func(w io.Writer) { fmt.Printf("%s watches %s: %s\n", name, b.ID, sub) })
 		},
 	}
 	f := watch.Flags()
@@ -1098,7 +1100,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"subscriber": name, "bead": args[0], "removed": n}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"subscriber": name, "bead": args[0], "removed": n}, func(w io.Writer) {
 				fmt.Printf("%s: %d watch(es) on %s removed\n", name, n, args[0])
 			})
 		},

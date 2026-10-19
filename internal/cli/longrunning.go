@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/server"
@@ -659,7 +660,7 @@ are handed on to it.`, line, k.logName(), k.Name),
 			if addr != "" {
 				res["address"], res["url"] = addr, webURL(addr)
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				if addr != "" {
 					fmt.Printf("The %s: %s\n\n", k.What, webURL(addr))
 				}
@@ -692,7 +693,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 			if len(run) != 0 {
 				res["pid"] = run[0].PID
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				if len(run) == 0 {
 					fmt.Printf("no %s is running on the yard in %s\n", k.What, cfg.Home)
 					return
@@ -719,7 +720,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 			if len(run) != 0 {
 				res["pid"] = run[0].PID
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				for _, r := range run {
 					fmt.Printf("%-8s running (pid %d)%s\n", k.Name, r.PID, at(r.Addr))
 				}
@@ -785,7 +786,7 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			}
 			res.Address = k.addr(c.Flags())
 			res.Warnings = append(res.Warnings, warn...)
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				res.print()
 				if k.Name == svcDaemon {
 					// The daemon is one of three things a reboot stops;
@@ -812,7 +813,7 @@ One started any other way is not the service's and is left running.
 			if err != nil {
 				return err
 			}
-			return a.uninstall(c.Context(), cfg, k.Name, fileOnly)
+			return a.uninstall(c.OutOrStdout(), c.Context(), cfg, k.Name, fileOnly)
 		},
 	}
 	for _, c := range []*cobra.Command{v.install, v.uninstall} {

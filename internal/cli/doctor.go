@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -244,7 +245,7 @@ every line.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, rep.print); err != nil {
+			if err := a.out(c.OutOrStdout(), rep, rep.print); err != nil {
 				return err
 			}
 			if len(rep.Faults) > 0 {
@@ -976,7 +977,7 @@ func printLines(lines []docLine) {
 
 // print is the report for a person. docs/doctor.md lists every line it can
 // print; a line added here is added there.
-func (r *doctorReport) print() {
+func (r *doctorReport) print(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.Yard {
 		fmt.Printf("yardr doctor: the yard in %s\n", r.Home)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -88,7 +89,7 @@ The file does not shrink until it is compacted (yardr store compact).`,
 			if err != nil {
 				return err
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				fmt.Printf("pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
 				if res.Blobs > 0 {
 					fmt.Printf("  %d images no mail names any more\n", res.Blobs)
@@ -134,7 +135,7 @@ complete.`,
 			} else if err != nil {
 				return err
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				fmt.Printf("%s: %d -> %d bytes\n", cfg.DBPath(), res.Before, res.After)
 			})
 		},
@@ -168,7 +169,7 @@ yard.db.`,
 			if err != nil {
 				return err
 			}
-			return a.out(res, func() {
+			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				fmt.Printf("%s: %d bytes, events up to %d\n", res.Path, res.Bytes, res.Head)
 			})
 		},

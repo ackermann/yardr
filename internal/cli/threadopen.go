@@ -139,8 +139,8 @@ of the thread.`,
 			if assign != "" && !already {
 				res["assigned"] = assign
 			}
-			return a.out(res,
-				func() {
+			return a.out(c.OutOrStdout(), res,
+				func(w io.Writer) {
 					if already {
 						fmt.Fprintf(c.ErrOrStderr(), "already opened as %s; not opened again\n", printable(t.URL))
 					}

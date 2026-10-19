@@ -169,7 +169,7 @@ docs/upgrade.md says every line.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, rep.print); err != nil {
+			if err := a.out(c.OutOrStdout(), rep, rep.print); err != nil {
 				return err
 			}
 			if !rep.OK {
@@ -571,7 +571,7 @@ func dialAddr(addr string) string {
 }
 
 // print is the report for a person: one line per check.
-func (r *upgradeCheckReport) print() {
+func (r *upgradeCheckReport) print(w io.Writer) {
 	fmt.Printf("%-9s  %s: %s\n", "server", r.Server.Verdict, r.Server.Detail)
 	fmt.Printf("%-9s  %s: %s\n", "daemon", r.Daemon.Verdict, r.Daemon.Detail)
 	fmt.Printf("%-9s  %s: %s\n", "views", r.Views.Verdict, r.Views.Detail)

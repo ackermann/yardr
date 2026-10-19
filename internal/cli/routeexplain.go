@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -63,7 +64,7 @@ asks no provider.`,
 				return err
 			}
 			exp := explainBeadRouting(*b, rs, operator)
-			return a.out(exp, func() { printRouteExplanation(exp, operator) })
+			return a.out(c.OutOrStdout(), exp, func(w io.Writer) { printRouteExplanation(exp, operator) })
 		},
 	}
 	return cmd

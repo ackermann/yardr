@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -75,7 +76,7 @@ var restartServer = func(ctx context.Context, cfg *config.Config) error {
 // pairForm links this yard with another as a form. An operator who leaves
 // it, or says no to the check, has saved nothing, and is told so: that is
 // no failure of the command.
-func (a *app) pairForm(ctx context.Context, cfg *config.Config, st store.API) error {
+func (a *app) pairForm(w io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
 	// Ctrl+C while the form waits for the other yard ends the pairing, as
 	// it does for the command.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -98,9 +99,9 @@ func (a *app) pairForm(ctx context.Context, cfg *config.Config, st store.API) er
 	for err == nil && way != "" {
 		opt := pairOpts{timeout: pairFormPing, form: &pairChoice{}}
 		if way == pairShow {
-			way, err = a.formShow(ctx, cfg, st, opt)
+			way, err = a.formShow(w, ctx, cfg, st, opt)
 		} else {
-			way, err = "", a.formEnter(ctx, cfg, st, opt)
+			way, err = "", a.formEnter(w, ctx, cfg, st, opt)
 		}
 	}
 	switch {
@@ -117,7 +118,7 @@ func (a *app) pairForm(ctx context.Context, cfg *config.Config, st store.API) er
 // formShow is the way of the yard that shows the code: it is called, so it
 // is first made sure that it can be. It returns the way to go on with when
 // the operator chose the other one.
-func (a *app) formShow(ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) (string, error) {
+func (a *app) formShow(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) (string, error) {
 	for {
 		can, why := callable(ctx, cfg, st)
 		if can {
@@ -132,7 +133,7 @@ func (a *app) formShow(ctx context.Context, cfg *config.Config, st store.API, op
 	if opt.url, err = formURL(cfg); err != nil {
 		return "", err
 	}
-	return "", a.pairHost(ctx, cfg, st, opt)
+	return "", a.pairHost(w, ctx, cfg, st, opt)
 }
 
 // callable reports whether another yard can call this one: the server says
@@ -287,7 +288,7 @@ func showCode(addr, code string, expires time.Time) {
 // formEnter is the way of the yard that calls: it asks for the address and
 // the code the other screen shows, and asks again after a call that got no
 // pairing (a wrong code, no yard at the address).
-func (a *app) formEnter(ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
+func (a *app) formEnter(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
 	fmt.Print("\nOn the other yard, its operator runs `yardr peer pair` and picks \"Show a code\". Their screen\n" +
 		"then shows a code and an address.\n\n")
 	var addr, code string
@@ -310,7 +311,7 @@ func (a *app) formEnter(ctx context.Context, cfg *config.Config, st store.API, o
 			return err
 		}
 		fmt.Println("\nCalling the other yard.")
-		err := a.pairJoin(ctx, cfg, st, strings.TrimSpace(addr), code, opt)
+		err := a.pairJoin(w, ctx, cfg, st, strings.TrimSpace(addr), code, opt)
 		var no notCalled
 		if !errors.As(err, &no) {
 			return err

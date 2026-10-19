@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/pack"
 )
 
@@ -86,7 +87,7 @@ read back as yardr pack check reads a pack, and the verdict is printed.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ex, func() { printExported(ex) })
+			return a.out(c.OutOrStdout(), ex, func(w io.Writer) { printExported(ex) })
 		},
 	}
 	c.Flags().StringVar(&o.Depot, "depot", "", "the depot whose way of working is written")

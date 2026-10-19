@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -101,7 +102,7 @@ it prints the steps and the command for the next one.`,
 			}
 			next := nextStep(steps)
 			forms := !a.json && interactive() && !agentSession()
-			if err := a.out(setupReport{Home: cfg.Home, Steps: steps, Next: next}, func() {
+			if err := a.out(c.OutOrStdout(), setupReport{Home: cfg.Home, Steps: steps, Next: next}, func(w io.Writer) {
 				fmt.Printf("The setup of the yard in %s\n\n", cfg.Home)
 				printSteps(steps)
 				if next != nil && !forms {

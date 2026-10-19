@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
@@ -133,7 +134,7 @@ yard's bead.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ch, func() {
+			return a.out(c.OutOrStdout(), ch, func(w io.Writer) {
 				fmt.Printf("%s -%s-> %s (%s)", ch.Link.Bead, ch.Link.Kind, printable(ch.Link.URL), ch.Link.Source)
 				// The bead had the other kind of link to this issue, and has
 				// one link per issue.
@@ -163,7 +164,7 @@ yard's bead.`,
 			if err := st.RemoveLink(c.Context(), args[0], nl.URL, a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"removed": "ok", "url": nl.URL}, func() {})
+			return a.out(c.OutOrStdout(), map[string]string{"removed": "ok", "url": nl.URL}, func(w io.Writer) {})
 		},
 	}
 
@@ -193,7 +194,7 @@ yard's bead.`,
 				if rows := b.PeerLinks(); len(rows) > 0 {
 					ls = append(rows, ls...)
 				}
-				return a.out(ls, func() {
+				return a.out(c.OutOrStdout(), ls, func(w io.Writer) {
 					for _, l := range ls {
 						fmt.Println(linkLine(l))
 					}
@@ -210,7 +211,7 @@ yard's bead.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ls, func() {
+			return a.out(c.OutOrStdout(), ls, func(w io.Writer) {
 				for _, l := range ls {
 					fmt.Printf("%s  %s\n", l.Bead, linkLine(l))
 				}
@@ -253,7 +254,7 @@ refuses the whole move. Undo it by moving back.`,
 				if err != nil {
 					return err
 				}
-				return a.out(map[string]any{"from_source": fromSource, "to_source": toSource, "moved": n}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"from_source": fromSource, "to_source": toSource, "moved": n}, func(w io.Writer) {
 					fmt.Printf("moved %d links from %s to %s\n", n, fromSource, toSource)
 				})
 			}
@@ -271,7 +272,7 @@ refuses the whole move. Undo it by moving back.`,
 			if err != nil {
 				return err
 			}
-			return a.out(ch, func() {
+			return a.out(c.OutOrStdout(), ch, func(w io.Writer) {
 				fmt.Printf("%s -%s-> %s (%s), moved from %s, which keeps a %s link\n",
 					ch.Link.Bead, ch.Link.Kind, ch.Link.URL, ch.Link.Source, ch.From, store.LinkRelates)
 			})

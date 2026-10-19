@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,7 +196,7 @@ is, else 1.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, rep.print); err != nil {
+			if err := a.out(c.OutOrStdout(), rep, rep.print); err != nil {
 				return err
 			}
 			if !rep.Uninstalled && !rep.Confirm {
@@ -737,7 +738,7 @@ func (l leftThing) label() string {
 	return leftNames[l.Kind]
 }
 
-func (r *uninstallReport) print() {
+func (r *uninstallReport) print(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.Yard {
 		r.Down.lines()

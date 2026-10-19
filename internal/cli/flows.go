@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/flowdraw"
 	"yardr.dev/yardr/internal/pack"
@@ -86,7 +87,7 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 			if err != nil {
 				return err
 			}
-			return a.out(saved, func() { fmt.Printf("flow %s: %d stages\n", saved.Name, len(saved.Stages)) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("flow %s: %d stages\n", saved.Name, len(saved.Stages)) })
 		},
 	}
 	set.Flags().StringVarP(&file, "file", "f", "", "flow file (- reads stdin)")
@@ -136,16 +137,16 @@ flow file or a pack with no yard.`,
 				return fmt.Errorf("--mini shapes the drawing --svg draws: without --svg every flow is shown")
 			}
 			if _, err := st.GetDepot(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
-				return a.showNamedFlow(c.Context(), st, args[0])
+				return a.showNamedFlow(c.OutOrStdout(), c.Context(), st, args[0])
 			}
 			views, err := flowViews(c.Context(), st, args[0], a.home())
 			if err != nil {
 				return err
 			}
 			if len(views) == 0 {
-				return a.out(views, func() { fmt.Printf("depot %s has no flow: beads may move to any stage\n", args[0]) })
+				return a.out(c.OutOrStdout(), views, func(w io.Writer) { fmt.Printf("depot %s has no flow: beads may move to any stage\n", args[0]) })
 			}
-			return a.out(views, func() {
+			return a.out(c.OutOrStdout(), views, func(w io.Writer) {
 				for i, v := range views {
 					if i > 0 {
 						fmt.Println()
@@ -174,7 +175,7 @@ flow file or a pack with no yard.`,
 						}
 						rows = append(rows, []string{s.Stage, or(strings.Join(append([]string{s.Group}, s.Else...), " else "), "-"), members, strconv.Itoa(s.Open), file, next})
 					}
-					table("STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
+					table(os.Stdout, "STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
 					for _, w := range v.Warnings {
 						fmt.Printf("warning: %s\n", w)
 					}
@@ -196,12 +197,12 @@ flow file or a pack with no yard.`,
 			if err != nil {
 				return err
 			}
-			return a.out(rows, func() {
+			return a.out(c.OutOrStdout(), rows, func(w io.Writer) {
 				var out [][]string
 				for _, r := range rows {
 					out = append(out, []string{r.Name, r.Source, strconv.Itoa(r.Stages), or(strings.Join(r.Governs, ", "), "-")})
 				}
-				table("NAME\tSOURCE\tSTAGES\tGOVERNS", out)
+				table(os.Stdout, "NAME\tSOURCE\tSTAGES\tGOVERNS", out)
 			})
 		},
 	}
@@ -406,7 +407,7 @@ func fileDiagram(arg, which string) (*flowdraw.Diagram, error) {
 
 // showNamedFlow prints a named flow from the store and the depots and types
 // pointing at it.
-func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) error {
+func (a *app) showNamedFlow(w io.Writer, ctx context.Context, st store.API, name string) error {
 	f, err := st.GetFlow(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("%s is neither a depot nor a named flow: %w", name, store.ErrNotFound)
@@ -451,7 +452,7 @@ func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) erro
 	if len(broken) > 0 {
 		v["broken_stage_files"] = broken
 	}
-	return a.out(v, func() {
+	return a.out(w, v, func(w io.Writer) {
 		var with []string
 		for _, s := range f.Stages {
 			if have[s] != "" {

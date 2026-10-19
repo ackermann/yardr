@@ -23,8 +23,15 @@ import (
 )
 
 type app struct {
-	json  bool
-	actor string
+	json bool
+	// stdout and stderr are the presets rootCmd applies to cobra with
+	// SetOut and SetErr. Commands write to their cobra command at run
+	// time (c.OutOrStdout, c.ErrOrStderr); these exist only for what
+	// runs before a command does, and for tests to preset. Nil means
+	// the process's streams.
+	stdout io.Writer
+	stderr io.Writer
+	actor  string
 	// actingAs is the actor resolved once by PersistentPreRunE, so a later
 	// lookup cannot time out and silently change this run's attribution.
 	actingAs    string
@@ -66,9 +73,9 @@ func execute(a *app, args []string) int {
 	}
 	if err != nil && !errors.Is(err, errCheckFailed) { // a red check has reported itself
 		if a.json {
-			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+			_ = json.NewEncoder(root.OutOrStdout()).Encode(map[string]string{"error": err.Error()})
 		} else {
-			fmt.Fprintln(stderr, "yardr:", err)
+			fmt.Fprintln(root.ErrOrStderr(), "yardr:", err)
 		}
 	}
 	return exitCode(err)
@@ -86,7 +93,7 @@ func (a *app) rootCmd() *cobra.Command {
 		// firstRun), help otherwise.
 		RunE: func(c *cobra.Command, _ []string) error {
 			if showVersion {
-				return a.printVersion()
+				return a.printVersion(c.OutOrStdout())
 			}
 			if a.onboarded {
 				return nil
@@ -134,6 +141,17 @@ func (a *app) rootCmd() *cobra.Command {
 		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(), a.callCmd(), a.limitsCmd(), a.harnessCmd(),
 		a.peerCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
 		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.statusCmd(), a.upgradeCmd(), a.upCmd(), a.downCmd(), a.uninstallCmd(), a.setupCmd(), a.otelCmd(), a.diskCmd(), a.versionCmd())
+	if a.stdout != nil {
+		root.SetOut(a.stdout)
+	}
+	if a.stderr != nil {
+		root.SetErr(a.stderr)
+	} else {
+		// Until B3 deletes the package's stderr, the root's error
+		// writer is that global, which tests replace; execute's
+		// error then reaches their buffer through the root.
+		root.SetErr(stderr)
+	}
 	return root
 }
 
@@ -146,13 +164,13 @@ func (a *app) versionCmd() *cobra.Command {
 		Long: `Print which build of yardr this is: the release and its revision for a
 build from a release archive ("v1.2.3 (abcdef123456)"), the revision alone
 for a go install, "unknown" for a build that carries neither.`,
-		RunE: func(*cobra.Command, []string) error { return a.printVersion() },
+		RunE: func(c *cobra.Command, _ []string) error { return a.printVersion(c.OutOrStdout()) },
 	}
 }
 
 // printVersion is yardr version, and yardr --version.
-func (a *app) printVersion() error {
-	return a.out(map[string]string{"version": version.Tag(), "revision": version.Current()}, func() {
+func (a *app) printVersion(w io.Writer) error {
+	return a.out(w, map[string]string{"version": version.Tag(), "revision": version.Current()}, func(w io.Writer) {
 		fmt.Println(version.Describe())
 	})
 }
@@ -265,24 +283,24 @@ func (a *app) store(ctx context.Context) (store.API, error) {
 	return a.st, nil
 }
 
-// out prints v as JSON, or calls text for humans.
-func (a *app) out(v any, text func()) error {
+// out prints v as JSON to w, or calls text for humans with the same w.
+func (a *app) out(w io.Writer, v any, text func(w io.Writer)) error {
 	if a.json {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(v)
 	}
-	text()
+	text(w)
 	return nil
 }
 
-func table(header string, rows [][]string) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, header)
+func table(w io.Writer, header string, rows [][]string) {
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, header)
 	for _, r := range rows {
-		fmt.Fprintln(w, strings.Join(r, "\t"))
+		fmt.Fprintln(tw, strings.Join(r, "\t"))
 	}
-	w.Flush()
+	tw.Flush()
 }
 
 func deref(p *string) string {

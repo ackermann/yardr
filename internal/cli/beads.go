@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
@@ -103,8 +104,8 @@ func writerAskLine(w store.WriterAsk) string {
 		w.Bead, w.Ask, store.OneLine(w.To), store.OneLine(w.Question), w.State, age(w.Since))
 }
 
-func (a *app) printBead(b *store.Bead) error {
-	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil, nil, nil)
+func (a *app) printBead(w io.Writer, b *store.Bead) error {
+	return a.printBeadFlow(w, b, "", nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
@@ -128,8 +129,8 @@ func printLinks(ls []store.Link) {
 // for, where the route had a choice to make. waited, when given, is the
 // group it waits for behind a full group. est, when given, is the
 // bead's ETA and late mark, each printed when it has anything to say.
-func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
-	return a.out(b, func() {
+func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
+	return a.out(w, b, func(w io.Writer) {
 		// The title, the body and the reason it closed are a writer's
 		// words, and stand in the output its notes stand in. The title
 		// and the reason are one line each, as letters only, so neither
@@ -497,7 +498,7 @@ same as the eta and late objects, absent likewise.`,
 				if est != nil {
 					etaObj, lateObj = est.ETA, est.Late
 				}
-				return a.out(struct {
+				return a.out(c.OutOrStdout(), struct {
 					*store.Bead
 					*store.Family
 					*store.Discovery
@@ -514,7 +515,7 @@ same as the eta and late objects, absent likewise.`,
 				}{b, fam, disc, train, links, notes, routed, etaObj, lateObj}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, waited, est, links...); err != nil {
+			if err := a.printBeadFlow(c.OutOrStdout(), b, "", next, err, fam, disc, holding, routed, waited, est, links...); err != nil {
 				return err
 			}
 			// An author from another yard says whose word the note is, as
@@ -549,7 +550,7 @@ kept the previous values says that the body changed, without a diff.`,
 			if err != nil {
 				return err
 			}
-			return a.out(h, func() {
+			return a.out(c.OutOrStdout(), h, func(w io.Writer) {
 				// An actor from another yard says whose word the event is,
 				// as a note's author does; with no grants when the trusts
 				// cannot be read.
@@ -610,7 +611,7 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 				if err != nil {
 					return err
 				}
-				return a.out(asks, func() {
+				return a.out(c.OutOrStdout(), asks, func(w io.Writer) {
 					for _, w := range asks {
 						fmt.Printf("- %s\n", writerAskLine(w))
 					}
@@ -624,7 +625,7 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 				return err
 			}
 			cut.say(len(bs), "beads")
-			return a.out(bs, func() { table(beadHeader, beadRows(bs)) })
+			return a.out(c.OutOrStdout(), bs, func(w io.Writer) { table(os.Stdout, beadHeader, beadRows(bs)) })
 		},
 	}
 	lf2 := list.Flags()
@@ -701,7 +702,7 @@ func (a *app) readyCmd() *cobra.Command {
 						}
 					}
 				}
-				return a.out(ds, func() {
+				return a.out(c.OutOrStdout(), ds, func(w io.Writer) {
 					for _, d := range ds {
 						fmt.Printf("%s  %s\n", d.To, waitingLine(d))
 					}
@@ -714,7 +715,7 @@ func (a *app) readyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(bs, func() { table(beadHeader, beadRows(bs)) })
+			return a.out(c.OutOrStdout(), bs, func(w io.Writer) { table(os.Stdout, beadHeader, beadRows(bs)) })
 		},
 	}
 	cmd.Flags().BoolVar(&waiting, "waiting", false, "list the beads that wait instead: one line per holding edge with why, then the ready beads behind a full group")
@@ -746,7 +747,7 @@ func (a *app) depCmd() *cobra.Command {
 				return err
 			}
 			d := store.Dep{From: from.ID, To: to.ID, Kind: kind, At: at, Until: until}
-			return a.out(d, func() {
+			return a.out(c.OutOrStdout(), d, func(w io.Writer) {
 				fmt.Println(depLine(d))
 				// The store pairs a parent edge with the child blocking its
 				// train; say so, since it changes when the train is ready.
@@ -797,7 +798,7 @@ one would block again once reopened. Other kinds are never refused for it.`
 			if err := st.RemoveDep(c.Context(), args[0], args[1], rmKind, rmAt, rmUntil, a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"removed": "ok"}, func() {})
+			return a.out(c.OutOrStdout(), map[string]string{"removed": "ok"}, func(w io.Writer) {})
 		},
 	}
 	rm.Flags().StringVarP(&rmKind, "kind", "k", "blocks", "edge kind")
@@ -816,7 +817,7 @@ one would block again once reopened. Other kinds are never refused for it.`
 			if err != nil {
 				return err
 			}
-			return a.out(ds, func() {
+			return a.out(c.OutOrStdout(), ds, func(w io.Writer) {
 				for _, d := range ds {
 					fmt.Println(depLine(d))
 				}
@@ -842,7 +843,7 @@ func (a *app) primeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return a.primeCrew(c.Context(), st, member, crewSession(forUser))
+				return a.primeCrew(c.OutOrStdout(), c.Context(), st, member, crewSession(forUser))
 			}
 			if id == "" {
 				id = a.identity().bead
@@ -960,8 +961,8 @@ func (a *app) primeCmd() *cobra.Command {
 					v["pull"] = map[string]string{"url": pull, "head": pullHead}
 				}
 			}
-			return a.out(v, func() {
-				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil, nil, est)
+			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
+				_ = a.printBeadFlow(w, b, test, next, flowErr, fam, disc, nil, nil, nil, est)
 				if pullHead != "" {
 					fmt.Printf("\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}

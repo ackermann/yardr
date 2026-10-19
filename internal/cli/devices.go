@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
+	"os"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -63,7 +65,7 @@ printed with the token, to hand both over together.`,
 				*store.NewDevice
 				URL string `json:"url,omitempty"`
 			}{d, url}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				fmt.Printf("device %s of %s. Its token, shown once:\n\n  %s\n\n", d.Name, d.User, d.Token)
 				if url != "" {
 					fmt.Printf("Give it to the device with this yard's address: %s\n", url)
@@ -93,7 +95,7 @@ printed with the token, to hand both over together.`,
 			if err != nil {
 				return err
 			}
-			return a.out(devices, func() {
+			return a.out(c.OutOrStdout(), devices, func(w io.Writer) {
 				if len(devices) == 0 {
 					if user != "" {
 						fmt.Printf("%s has no device (yardr user device add %s <device>)\n", user, user)
@@ -106,7 +108,7 @@ printed with the token, to hand both over together.`,
 				for _, d := range devices {
 					rows = append(rows, []string{d.User, d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d)})
 				}
-				table("USER\tDEVICE\tADDED\tLAST USED", rows)
+				table(os.Stdout, "USER\tDEVICE\tADDED\tLAST USED", rows)
 			})
 		},
 	}
@@ -121,7 +123,7 @@ printed with the token, to hand both over together.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"removed": d}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"removed": d}, func(w io.Writer) {
 				fmt.Printf("device %s of %s removed: its token is refused from now on, and the streams it held are closed\n", d.Name, d.User)
 			})
 		},

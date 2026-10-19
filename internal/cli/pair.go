@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pairing"
@@ -124,10 +125,10 @@ prints two documents, the code at once and the result at the end.`,
 				if err := st.PairClose(ctx, p.ID, a.who()); err != nil {
 					return err
 				}
-				return a.out(map[string]string{"pairing": "ended"}, func() { fmt.Println("the pairing is ended: its code is good for nothing") })
+				return a.out(c.OutOrStdout(), map[string]string{"pairing": "ended"}, func(w io.Writer) { fmt.Println("the pairing is ended: its code is good for nothing") })
 			}
 			if len(args) == 0 && !pairFlagged(c) && !a.json && interactive() && !agentSession() {
-				return a.pairForm(ctx, cfg, st)
+				return a.pairForm(c.OutOrStdout(), ctx, cfg, st)
 			}
 			if !opt.yes && (a.json || !interactive()) {
 				return errors.New("a pairing asks its operator to compare a check, and there is no terminal to ask in (or --json was given): --yes confirms the check without asking, and prints it")
@@ -137,12 +138,12 @@ prints two documents, the code at once and the result at the end.`,
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			if len(args) == 0 {
-				return a.pairHost(ctx, cfg, st, opt)
+				return a.pairHost(c.OutOrStdout(), ctx, cfg, st, opt)
 			}
 			if opt.url != "" {
 				return errors.New("--url is where the yard that opens the pairing is reached; the one that calls gives the address it calls")
 			}
-			return a.pairJoin(ctx, cfg, st, args[0], args[1], opt)
+			return a.pairJoin(c.OutOrStdout(), ctx, cfg, st, args[0], args[1], opt)
 		},
 	}
 	cmd.Flags().StringVar(&opt.name, "name", "", "the name to save the other yard under (default: the name it gives itself)")
@@ -293,7 +294,7 @@ func behindLoopback(cfg *config.Config, addr string) string {
 
 // pairHost opens a pairing on this yard, shows its code and waits: for the
 // other yard to call, for the two operators, and for the ping.
-func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
+func (a *app) pairHost(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
 	yardr := yardrAt(cfg.Home)
 	if listening, text := receiver(ctx, cfg, st); !listening {
 		return fmt.Errorf("this yard has no listener, so the other yard cannot call it: %s\n"+
@@ -356,7 +357,7 @@ func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, op
 	if err != nil {
 		return err
 	}
-	return a.pairDone(ctx, cfg, st, paired{Role: "host", Peer: peer, Check: p.Check}, opt)
+	return a.pairDone(w, ctx, cfg, st, paired{Role: "host", Peer: peer, Check: p.Check}, opt)
 }
 
 // pairHosted follows the host's pairing until it is done, asking the
@@ -455,7 +456,7 @@ func pairAddress(s string) (string, error) {
 var pairHTTP = &http.Client{Timeout: 30 * time.Second}
 
 // pairJoin calls the yard at address with the code its operator read out.
-func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, address, code string, opt pairOpts) error {
+func (a *app) pairJoin(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, address, code string, opt pairOpts) error {
 	addr, err := pairAddress(address)
 	if err != nil {
 		return err
@@ -573,7 +574,7 @@ func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, ad
 	if err != nil {
 		return fmt.Errorf("%s has saved this yard, and this yard could not save it: %w\nRemove this yard there (yardr peer rm) and pair again", peer.Name, err)
 	}
-	return a.pairDone(ctx, cfg, st, paired{Role: "joiner", Peer: saved, Check: called.Check()}, opt)
+	return a.pairDone(w, ctx, cfg, st, paired{Role: "joiner", Peer: saved, Check: called.Check()}, opt)
 }
 
 // hostSaidNo says why the yard that was called ended the pairing, and logs
@@ -668,7 +669,7 @@ func clipText(s string) string {
 // pairDone says what a pairing ended with, and proves the link with a
 // ping. The peer is saved whatever the ping does: no pong is said, with
 // what is known of why, and is no failure of the pairing.
-func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, res paired, opt pairOpts) error {
+func (a *app) pairDone(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, res paired, opt pairOpts) error {
 	if opt.form != nil {
 		return a.formDone(ctx, cfg, st, res.Peer, opt)
 	}
@@ -690,7 +691,7 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 	} else {
 		res.Ping = got
 	}
-	return a.out(res, func() {
+	return a.out(w, res, func(w io.Writer) {
 		if res.Ping != nil {
 			fmt.Printf("pong from %s in %s: the ping went by %s, the pong came by %s\n", p.Name, res.Ping.Took.Round(time.Millisecond), res.Ping.Out, res.Ping.Back)
 		} else {

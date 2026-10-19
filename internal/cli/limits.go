@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
@@ -218,7 +219,7 @@ window and resets_at, or the reason under limits_unknown.`,
 						self.Env = env
 						own := []sourceLimits{askSource(ctx, self)}
 						own[0].Group = group
-						if err := a.out(map[string]any{"limits": []kindLimits{}, "sources": own, "unmapped": []string{}}, func() {
+						if err := a.out(c.OutOrStdout(), map[string]any{"limits": []kindLimits{}, "sources": own, "unmapped": []string{}}, func(w io.Writer) {
 							now := time.Now()
 							for _, l := range own[0].lines(now) {
 								fmt.Println(l)
@@ -236,7 +237,7 @@ window and resets_at, or the reason under limits_unknown.`,
 					return askKind(ctx, st, cfg.Home, kind, env)
 				}, args[0])}
 				asked[0].Group = group
-				if err := a.out(map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func() {
+				if err := a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func(w io.Writer) {
 					now := time.Now()
 					for _, k := range asked {
 						for _, l := range k.lines(now) {
@@ -261,7 +262,7 @@ window and resets_at, or the reason under limits_unknown.`,
 					return askKindFor(ctx, st, cfg.Home, kind, provider, env)
 				}, kind)}
 				asked[0].Group = group
-				if err := a.out(map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func() {
+				if err := a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": []sourceLimits{}, "unmapped": []string{}}, func(w io.Writer) {
 					now := time.Now()
 					for _, k := range asked {
 						for _, l := range k.lines(now) {
@@ -296,7 +297,7 @@ window and resets_at, or the reason under limits_unknown.`,
 				}
 			}
 			if len(as) == 0 && len(groups) == 0 {
-				return a.out(map[string]any{"limits": []providerLimits{}, "sources": []sourceLimits{}, "unmapped": unmapped}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"limits": []providerLimits{}, "sources": []sourceLimits{}, "unmapped": unmapped}, func(w io.Writer) {
 					fmt.Println("No source of this yard says limits: nothing is known, and nothing was asked.")
 					fmt.Println("A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
 				})
@@ -310,12 +311,12 @@ window and resets_at, or the reason under limits_unknown.`,
 				own = append(own, askSource(ctx, a))
 			}
 			if len(asked) == 0 && len(own) == 0 {
-				return a.out(map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func(w io.Writer) {
 					fmt.Printf("Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (%s).\n", answeredKinds(as))
 					fmt.Println("yardr limits <kind> asks for one.")
 				})
 			}
-			if err := a.out(map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func() {
+			if err := a.out(c.OutOrStdout(), map[string]any{"limits": asked, "sources": own, "unmapped": unmapped}, func(w io.Writer) {
 				now := time.Now()
 				for _, p := range asked {
 					for _, l := range p.lines(now) {

@@ -238,9 +238,9 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 					return fmt.Errorf("posted %s, but could not record it: %w", printable(m.URL), err)
 				}
 			}
-			return a.out(map[string]any{"seq": seq, "crew": name, "source": env.Source, "thread": env.Thread.ID,
+			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "crew": name, "source": env.Source, "thread": env.Thread.ID,
 				"url": m.URL, "message": m.ID, "repeated": already},
-				func() {
+				func(w io.Writer) {
 					if already {
 						fmt.Fprintf(c.ErrOrStderr(), "already posted as %s; not posted again\n", printable(m.URL))
 					}
@@ -304,7 +304,7 @@ func (a *app) replyPeer(c *cobra.Command, st store.API, bead, crew string, text 
 		on = n.Theirs + "@" + n.Peer
 	}
 	queued := map[string]any{"source": store.SourcePeer, "bead": n.Bead, "peer": n.Peer, "theirs": n.Theirs, "by": who, "id": n.ID, "sent": "queued"}
-	return a.out(queued, func() {
+	return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
 		fmt.Printf("note for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", on, n.Peer)
 	})
 }
@@ -344,7 +344,7 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 			return err
 		}
 		queued := map[string]any{"seq": seq, "crew": name, "to": from, "peer": peer, "id": m.ID, "sent": "queued"}
-		return a.out(queued, func() {
+		return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
 			fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
 		})
 	}
@@ -363,7 +363,7 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 	if mails > 1 {
 		out["mails"] = mails
 	}
-	return a.out(out, func() {
+	return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 		if mails > 1 {
 			fmt.Printf("%d mails sent to %s\n", mails, from)
 		} else {
@@ -436,9 +436,9 @@ peers setting, a person needs nothing, and a bead's agent is refused.`,
 			// A bead, or a delivery of the source peer about one: the thread
 			// is the bead of another yard, asked for over the link.
 			if _, err := strconv.ParseUint(args[0], 10, 64); err != nil {
-				return a.peerThread(ctx, st, args[0], timeout)
+				return a.peerThread(c.OutOrStdout(), ctx, st, args[0], timeout)
 			} else if _, env, err := hookEnvelope(ctx, st, args[0]); err == nil && env.Source == store.SourcePeer {
-				return a.peerThread(ctx, st, env.Thread.ID, timeout)
+				return a.peerThread(c.OutOrStdout(), ctx, st, env.Thread.ID, timeout)
 			}
 			seq, env, r, err := hookEvent(ctx, st, a.home(), args[0])
 			if err != nil {
@@ -455,7 +455,7 @@ peers setting, a person needs nothing, and a bead's agent is refused.`,
 			if ms == nil {
 				ms = []hooks.Message{}
 			}
-			return a.out(map[string]any{"seq": seq, "source": env.Source, "thread": env.Thread, "message": env.Message, "messages": ms}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "source": env.Source, "thread": env.Thread, "message": env.Message, "messages": ms}, func(w io.Writer) {
 				fmt.Printf("%s thread %s", env.Source, printable(env.Thread.ID))
 				if env.Thread.Title != "" {
 					fmt.Printf(" %q", printable(env.Thread.Title))
@@ -494,7 +494,7 @@ peers setting, a person needs nothing, and a bead's agent is refused.`,
 // answers. The answer replaces the one copy this yard keeps, and that copy
 // is what is printed: the new one, or when none came in time the last one,
 // with a sentence saying so.
-func (a *app) peerThread(ctx context.Context, st store.API, bead string, timeout time.Duration) error {
+func (a *app) peerThread(w io.Writer, ctx context.Context, st store.API, bead string, timeout time.Duration) error {
 	// From before the question is queued, so an answer that is quick is not
 	// missed.
 	head, err := st.Head(ctx)
@@ -550,8 +550,8 @@ waiting:
 				unanswered, got.Bead, yardrAt(a.home()), got.Peer)
 		}
 	}
-	return a.out(map[string]any{"source": store.SourcePeer, "bead": got.Bead, "title": got.Title, "peer": got.Peer, "id": asked.ID,
-		"answered": fresh, "heard_at": got.HeardAt, "answer": ans}, func() {
+	return a.out(w, map[string]any{"source": store.SourcePeer, "bead": got.Bead, "title": got.Title, "peer": got.Peer, "id": asked.ID,
+		"answered": fresh, "heard_at": got.HeardAt, "answer": ans}, func(w io.Writer) {
 		if !fresh {
 			fmt.Printf("%s. What it said last, %s:\n", unanswered, ans.At.Local().Format("01-02 15:04"))
 		}

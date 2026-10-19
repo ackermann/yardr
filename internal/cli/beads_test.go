@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -25,9 +27,21 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	// binary was started.
 	c.SetArgs(append([]string{}, args...))
 	c.SilenceUsage, c.SilenceErrors = true, true
+	// The command's own buffers beside the legacy pipe: a migrated
+	// command's output is wholly in the buffer, an unmigrated one's
+	// wholly in the pipe, so either lands green. A writer the test
+	// preset (SetOut or SetErr before run) is left alone, so a test
+	// that asserts warnings on its own error buffer keeps working.
+	var outBuf, errBuf bytes.Buffer
+	if c.OutOrStdout() == os.Stdout {
+		c.SetOut(&outBuf)
+	}
+	if c.ErrOrStderr() == os.Stderr {
+		c.SetErr(&errBuf)
+	}
 	var err error
-	out := capture(t, func() { err = c.Execute() })
-	return out, err
+	piped := capture(t, func() { err = c.Execute() })
+	return outBuf.String() + piped, err
 }
 
 // bead update refuses a pin naming no flow, rather than store it and fail

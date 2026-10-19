@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
@@ -383,7 +384,7 @@ about what a setup takes, marked as the pack's, not checked by yardr. --json pri
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) }); err != nil {
+			if err := a.out(c.OutOrStdout(), plan, func(w io.Writer) { printPlan(plan, nil, nil, nil, nil, true) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -547,11 +548,11 @@ after pack check. The import is recorded (yardr pack list). See docs/packs.md.
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			imp, err := a.planImport(c.Context(), "pack apply", args[0], &af, "", nil)
+			imp, err := a.planImport(c.OutOrStdout(), c.Context(), "pack apply", args[0], &af, "", nil)
 			if imp == nil || err != nil {
 				return err
 			}
-			return imp.apply(c.Context(), a, nil, nil)
+			return imp.apply(c.OutOrStdout(), c.Context(), a, nil, nil)
 		},
 	}
 	af.register(apply, "is")
@@ -579,7 +580,7 @@ file order, each with the calls it grants of each source.
 				return err
 			}
 			if p.Setup == "" && len(p.Presets) == 0 {
-				return a.out(map[string]any{"pack": p.Name}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"pack": p.Name}, func(w io.Writer) {
 					fmt.Printf("pack %s carries no setup notes\n", p.Name)
 				})
 			}
@@ -590,7 +591,7 @@ file order, each with the calls it grants of each source.
 			if len(p.Presets) > 0 {
 				v["presets"] = p.Presets
 			}
-			return a.out(v, func() {
+			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
 				if p.Setup == "" {
 					fmt.Printf("pack %s carries no setup notes\n", p.Name)
 				} else {
@@ -615,7 +616,7 @@ file order, each with the calls it grants of each source.
 			if err != nil {
 				return err
 			}
-			return a.out(recs, func() {
+			return a.out(c.OutOrStdout(), recs, func(w io.Writer) {
 				if len(recs) == 0 {
 					fmt.Println("no pack is imported (yardr pack apply <dir> --depot <depot>)")
 				}
@@ -670,7 +671,7 @@ type plannedImport struct {
 // means the operator left a form or said no, and nothing is to be written.
 // fits, when cmd has one, refuses a pack before anything of its plan is
 // shown: depot init's, for a pack written for the other kind of depot.
-func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
+func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
 	// Without fits (pack apply, not depot init), --depot is held to the
 	// pack: depot init's depot is its argument, and fits refuses the pack.
 	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags, nil, fits == nil)
@@ -718,7 +719,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		// line, so the command is run again with them.
 		if missing := plan.Missing(answers); len(missing) > 0 {
 			flags := flagsFor(plan, missing)
-			if err := a.out(map[string]any{"error": cmd + " cannot ask without a terminal", "missing": flags}, func() {
+			if err := a.out(w, map[string]any{"error": cmd + " cannot ask without a terminal", "missing": flags}, func(w io.Writer) {
 				for _, flag := range flags {
 					fmt.Println(flag)
 				}
@@ -730,7 +731,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if len(plan.Refused) > 0 {
-		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) })
+		_ = a.out(w, plan, func(w io.Writer) { printPlan(plan, nil, nil, nil, nil, true) })
 		return nil, errCheckFailed
 	}
 	// What --source-env and --notify set for the sources the plan
@@ -855,7 +856,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 // apply writes a planned import and says what it did. extra is what the
 // command wrote besides, added to --json's output; after prints it, below
 // the import's result.
-func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
+func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra map[string]any, after func()) error {
 	// The apply lock (config.ApplyLock), from the import's final check
 	// through its last write: its questions were asked and its import
 	// confirmed in planImport, before this. The server's carrying out
@@ -871,7 +872,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		if res != nil {
 			v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 			maps.Copy(v, extra)
-			if oerr := a.out(v, func() {
+			if oerr := a.out(w, v, func(w io.Writer) {
 				printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 				if after != nil {
 					after()
@@ -896,7 +897,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res,
 			"folds": res.Folds, "sets": i.sets}
 		maps.Copy(v, extra)
-		if oerr := a.out(v, func() {
+		if oerr := a.out(w, v, func(w io.Writer) {
 			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 			for _, f := range res.Folds {
 				printFold(f)

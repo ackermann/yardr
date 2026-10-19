@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"slices"
@@ -240,7 +241,7 @@ none and is not listed until it is started again.`,
 			if err != nil {
 				return err
 			}
-			return a.out(rep, rep.print)
+			return a.out(c.OutOrStdout(), rep, rep.print)
 		},
 	}
 }
@@ -589,7 +590,7 @@ func byGroup(counts map[string]int) (int, string) {
 
 // print is the report for a person: one block, the parts' names in a
 // column of their own.
-func (r *statusReport) print() {
+func (r *statusReport) print(w io.Writer) {
 	for _, p := range r.parts() {
 		name := p.name
 		for _, l := range p.lines {

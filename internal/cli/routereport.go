@@ -13,6 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
+	"os"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -751,7 +753,7 @@ them: the eta line of yardr bead show (docs/line.md).`,
 			if err != nil {
 				return err
 			}
-			return a.out(rep, func() {
+			return a.out(c.OutOrStdout(), rep, func(w io.Writer) {
 				if rep.From == nil {
 					fmt.Println("the event log holds no events")
 					return
@@ -769,7 +771,7 @@ them: the eta line of yardr bead show (docs/line.md).`,
 						strconv.FormatFloat(r.SecFixed, 'f', 1, 64),
 						strconv.Itoa(r.Failed), median}
 				}
-				table("GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
+				table(os.Stdout, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
 				for _, b := range rep.best {
 					fmt.Printf("best %s: %s at %s sent back + repaired per bead (%d beads)\n",
 						b.label, b.group, strconv.FormatFloat(b.perBead, 'f', 1, 64), b.beads)
@@ -790,7 +792,7 @@ them: the eta line of yardr bead show (docs/line.md).`,
 					}
 					kinds[i] = []string{r.Kind, strconv.Itoa(r.Sessions), hours, median, stages}
 				}
-				table("KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
+				table(os.Stdout, "KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
 			})
 		},
 	}

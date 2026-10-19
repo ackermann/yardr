@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -242,7 +243,7 @@ too when a service could not be installed.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, rep.print); err != nil {
+			if err := a.out(c.OutOrStdout(), rep, rep.print); err != nil {
 				return err
 			}
 			if !rep.Up || loginFailed(rep.Login) {
@@ -484,7 +485,7 @@ func (a *app) upHerdr(ctx context.Context, cfg *config.Config, login bool) (p ya
 	return p, l
 }
 
-func (r *upReport) print() {
+func (r *upReport) print(w io.Writer) {
 	for _, p := range r.Parts {
 		switch {
 		case p.Error != "" || p.Started:
@@ -684,7 +685,7 @@ that could not be stopped).`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(rep, rep.print); err != nil {
+			if err := a.out(c.OutOrStdout(), rep, rep.print); err != nil {
 				return err
 			}
 			if !rep.Down && !rep.Confirm || loginFailed(rep.Login) {
@@ -1181,7 +1182,7 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 	g.Stopped = true
 }
 
-func (r *downReport) print() {
+func (r *downReport) print(w io.Writer) {
 	r.lines()
 	if !r.Down {
 		fmt.Printf("\nThe yard in %s is not down: see NOT above.\n", r.Home)

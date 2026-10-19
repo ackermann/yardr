@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"io"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -277,7 +278,7 @@ names no outcomes).`,
 				return err
 			}
 			if a.json {
-				return a.out(items, nil)
+				return a.out(c.OutOrStdout(), items, nil)
 			}
 			// The form needs a terminal; piped or scripted, list instead of
 			// failing on a prompt nobody can answer.
@@ -300,7 +301,7 @@ names no outcomes).`,
 			if err != nil {
 				return err
 			}
-			return a.out(items, func() { printReviewList(items) })
+			return a.out(c.OutOrStdout(), items, func(w io.Writer) { printReviewList(items) })
 		},
 	}
 	cmd.PersistentFlags().StringSliceVarP(&only, "group", "g", nil, "only these manual groups' beads")
@@ -333,7 +334,7 @@ func printReviewList(items []reviewItem) {
 		rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
 			nextCol, store.OneLine(it.Bead.Title)})
 	}
-	table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
+	table(os.Stdout, "ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
 }
 
 // age is how long ago t was, coarsely.

@@ -110,7 +110,7 @@ update marked (update).`,
 				if err != nil {
 					return err
 				}
-				return a.out(may, func() {
+				return a.out(c.OutOrStdout(), may, func(w io.Writer) {
 					switch {
 					case may.Refused != "":
 						fmt.Printf("%s may make no call: %s\n", may.Caller, may.Refused)

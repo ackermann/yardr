@@ -12,6 +12,7 @@ import (
 	"golang.org/x/term"
 	"rsc.io/qr"
 
+	"io"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
@@ -131,7 +132,7 @@ a person.`,
 				} else if err != nil {
 					return err
 				}
-				return a.out(map[string]any{"pairing": "ended", "user": p.User, "device": p.Device}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"pairing": "ended", "user": p.User, "device": p.Device}, func(w io.Writer) {
 					fmt.Printf("the pairing for the device %s of %s is ended: its code is good for nothing\n", p.Device, p.User)
 				})
 			}
@@ -171,7 +172,7 @@ a person.`,
 				}
 			}
 			yardr := yardrAt(cfg.Home)
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				fmt.Printf("Pairing is open for %s, until %s, for the device %s of %s. Give the device this yard's address and the code:\n\n"+
 					"  address  %s\n  code     %s\n\n",
 					short(pairing.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, out.Address, out.Code)

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"io"
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
@@ -267,7 +268,7 @@ func (a *app) onboard(c *cobra.Command) error {
 			return nil
 		}
 		// Bare yardr on a yard: help, unless its onboarding is to finish.
-		return a.resume(c.Context(), cfg)
+		return a.resume(c.OutOrStdout(), c.Context(), cfg)
 	}
 	if !interactive() {
 		return notInitialized{cfg.Home}
@@ -290,14 +291,14 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	a.onboarded = true
-	return a.goOn(c.Context(), cfg, res, opts)
+	return a.goOn(c.OutOrStdout(), c.Context(), cfg, res, opts)
 }
 
 // goOn is the onboarding after the yard is created: the summary, the start
 // when asked for, and once the yardmaster is up the services and the hand-off.
 // When the yardmaster is not up it says how the onboarding is taken up again.
-func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
-	if err := a.report(ctx, cfg, res, opts); err != nil {
+func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
+	if err := a.report(w, ctx, cfg, res, opts); err != nil {
 		return err
 	}
 	if res.Start == nil || a.json {
@@ -333,7 +334,7 @@ func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opt
 //
 // It goes by the yard as it is, not by a record of the earlier run: a yard
 // made by yardr init and never started is taken up the same way.
-func (a *app) resume(ctx context.Context, cfg *config.Config) error {
+func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error {
 	if a.json || !interactive() || agentSession() {
 		return nil
 	}
@@ -403,13 +404,13 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	return a.goOn(ctx, cfg, res, opts)
+	return a.goOn(w, ctx, cfg, res, opts)
 }
 
 // report prints what init did and, when asked to, starts the yard in between:
 // the summary first, so the wait for the yardmaster has something above it,
 // then how the start ended. As JSON it is one object, at the end.
-func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
+func (a *app) report(w io.Writer, ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
 	if !a.json && !(o.resumed && res.YardmasterKept && len(res.Found) == 0) {
 		// An onboarding taken up on a yard that lacked nothing has said
 		// what is there (resume); the summary would say it again.
@@ -442,7 +443,7 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 		}
 		res.Daemon = config.DaemonRunning(cfg.DaemonLock())
 	}
-	return a.out(res, res.printNext)
+	return a.out(w, res, res.printNext)
 }
 
 // initOptions are the answers of the onboarding, from its form or from
@@ -904,7 +905,7 @@ func (r *initResult) printYard() {
 
 // printNext is the way from the yard to the yardmaster: how the start ended
 // when init started the yard, else how to start it.
-func (r *initResult) printNext() {
+func (r *initResult) printNext(w io.Writer) {
 	yardr := yardrAt(r.Home)
 	if r.NoYardmaster {
 		fmt.Printf("Start the daemon in a terminal pane of its own: %s daemon. The steps from here to a first bead: %s setup\n", yardr, yardr)
@@ -1191,7 +1192,7 @@ Unattended flags per harness:
 			if err != nil {
 				return err
 			}
-			if err := a.report(c.Context(), cfg, res, o); err != nil {
+			if err := a.report(c.OutOrStdout(), c.Context(), cfg, res, o); err != nil {
 				return err
 			}
 			if res.Start != nil && !res.Start.Running {
@@ -1418,7 +1419,7 @@ error; --json has where it is from.`,
 			}
 			rows := settingRows(cfg.Home, all)
 			if len(args) == 0 {
-				return a.out(rows, func() {
+				return a.out(c.OutOrStdout(), rows, func(w io.Writer) {
 					lines := [][]string{}
 					for _, r := range rows {
 						help := "nothing reads it. Remove it: yardr settings set " + r.Key + ` ""`
@@ -1427,7 +1428,7 @@ error; --json has where it is from.`,
 						}
 						lines = append(lines, []string{r.Key, or(r.Value, "-"), or(r.From, "-"), help})
 					}
-					table("KEY\tVALUE\tFROM\tMEANING", lines)
+					table(os.Stdout, "KEY\tVALUE\tFROM\tMEANING", lines)
 				})
 			}
 			i := slices.IndexFunc(rows, func(r settingRow) bool { return r.Key == args[0] })
@@ -1437,7 +1438,7 @@ error; --json has where it is from.`,
 			if rows[i].From == "" {
 				return fmt.Errorf("%s is not set: %w", args[0], store.ErrNotFound)
 			}
-			return a.out(rows[i], func() { fmt.Println(rows[i].Value) })
+			return a.out(c.OutOrStdout(), rows[i], func(w io.Writer) { fmt.Println(rows[i].Value) })
 		},
 	}
 	set := &cobra.Command{
@@ -1460,7 +1461,7 @@ error; --json has where it is from.`,
 			if err := st.SetSetting(c.Context(), args[0], args[1], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]string{args[0]: args[1]}, func() {
+			return a.out(c.OutOrStdout(), map[string]string{args[0]: args[1]}, func(w io.Writer) {
 				fmt.Printf("%s = %s\n", args[0], or(args[1], "(unset)"))
 				k := addrSettingOf(args[0])
 				if args[0] != hooks.FromSetting && k == nil {

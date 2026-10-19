@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -73,7 +74,7 @@ and takes no text and no --file.`,
 				if err != nil {
 					return err
 				}
-				return a.out(map[string]any{"bead": id, "note": n.Seq, "acked": "ok"}, func() {
+				return a.out(c.OutOrStdout(), map[string]any{"bead": id, "note": n.Seq, "acked": "ok"}, func(w io.Writer) {
 					fmt.Printf("note %d on %s acked\n", n.Seq, id)
 				})
 			}
@@ -107,7 +108,7 @@ and takes no text and no --file.`,
 			if len(refs) > 0 {
 				out["files"] = refs
 			}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				said := fmt.Sprintf("note %d on %s", n.Seq, id)
 				if n.Notify != "" {
 					said += fmt.Sprintf(" (session %s will be told)", n.Notify)

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"io"
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
@@ -196,7 +197,7 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
-			return a.out(r, func() {
+			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 				fmt.Printf("crew member %s saved; journal %s\n", r.Name, r.Journal)
 				if len(changes) > 0 {
 					fmt.Println(changeLines(changes))
@@ -226,7 +227,7 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
-			return a.out(rs, func() {
+			return a.out(c.OutOrStdout(), rs, func(w io.Writer) {
 				rows := [][]string{}
 				for _, r := range rs {
 					up := "-"
@@ -248,7 +249,7 @@ for its links (yardr peer list).`,
 					}
 					rows = append(rows, []string{r.Name, state, up, crewAgent(r), r.Journal})
 				}
-				table("NAME\tSTATE\tUP\tAGENT\tJOURNAL", rows)
+				table(os.Stdout, "NAME\tSTATE\tUP\tAGENT\tJOURNAL", rows)
 			})
 		},
 	}
@@ -311,7 +312,7 @@ for its links (yardr peer list).`,
 				out["credentials"] = creds
 			}
 			words := grantWords(c.Context(), st)
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, crewAgent(*r), r.Dir)
 				if f := startFailures(*r, time.Now()); f != "" {
 					fmt.Printf("  %s", f)
@@ -419,7 +420,7 @@ for its links (yardr peer list).`,
 				if err := fn(c.Context(), st, args[0]); err != nil {
 					return err
 				}
-				return a.out(map[string]string{"crew": args[0], use: "ok"}, func() { fmt.Printf("%s: %s\n", args[0], use) })
+				return a.out(c.OutOrStdout(), map[string]string{"crew": args[0], use: "ok"}, func(w io.Writer) { fmt.Printf("%s: %s\n", args[0], use) })
 			}}
 	}
 	// rev is --revision: the crew member's revision as the caller last read
@@ -462,7 +463,7 @@ for its links (yardr peer list).`,
 				if err := st.Journal(c.Context(), args[0], kind, text, a.who()); err != nil {
 					return err
 				}
-				return a.out(map[string]string{"crew": args[0], "written": kind}, func() {
+				return a.out(c.OutOrStdout(), map[string]string{"crew": args[0], "written": kind}, func(w io.Writer) {
 					if kind == store.NoteHandoff {
 						fmt.Println("handoff written; yardr starts a fresh session from it once this one is idle")
 					}
@@ -587,7 +588,7 @@ yardr crew restart <name>, or --for <user> for a conversation session.`,
 					return bareSetHint(err)
 				}
 			}
-			return a.out(r, func() {
+			return a.out(c.OutOrStdout(), r, func(w io.Writer) {
 				if len(changes) == 0 {
 					fmt.Printf("crew member %s unchanged: it is set so already\n", name)
 					return
@@ -1112,7 +1113,7 @@ yardr doctor and bare yardr say what waits.`,
 					return fmt.Errorf("--crew is required (or set YARDR_CREW): %s is no user, who would read their own (yardr user list)", a.who())
 				}
 				// Neither flag is both parts, as both flags are.
-				return a.userInbox(c.Context(), st, u.Name, limit, ack, through, mail || !notes, notes || !mail)
+				return a.userInbox(c.OutOrStdout(), c.Context(), st, u.Name, limit, ack, through, mail || !notes, notes || !mail)
 			}
 			if mail || notes {
 				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a crew member's has one")
@@ -1154,7 +1155,7 @@ yardr doctor and bare yardr say what waits.`,
 				newer = after.Total
 				acked = page.Total - newer
 			}
-			return a.out(page, func() {
+			return a.out(c.OutOrStdout(), page, func(w io.Writer) {
 				if page.Total == 0 {
 					fmt.Println("inbox empty")
 					return
@@ -1327,7 +1328,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				return err
 			}
 			if with != "" {
-				return a.conversation(ctx, st, with, after)
+				return a.conversation(c.OutOrStdout(), ctx, st, with, after)
 			}
 			text := ""
 			if len(args) > 1 {
@@ -1372,7 +1373,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				if len(refs) > 0 {
 					sent["files"] = refs
 				}
-				return a.out(sent, func() {
+				return a.out(c.OutOrStdout(), sent, func(w io.Writer) {
 					if mails > 1 {
 						fmt.Printf("%d mails sent to %s\n", mails, to)
 					} else {
@@ -1395,7 +1396,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			if len(refs) > 0 {
 				queued["files"] = refs
 			}
-			return a.out(queued, func() {
+			return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
 				fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", to, peer, peer)
 				if line := store.NoteFilesLine(a.mailHome(), refs); line != "" {
 					fmt.Println(line)
@@ -1487,7 +1488,7 @@ func (a *app) rememberCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(b, func() { fmt.Println(b.ID) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Println(b.ID) })
 		},
 	}
 	cmd.Flags().StringVarP(&m.Body, "body", "b", "", "the memory (- reads stdin)")
@@ -1529,7 +1530,7 @@ first and in full: the journal read back.`,
 					return err
 				}
 			}
-			return a.out(map[string]any{"memories": ms, "journal": hits}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"memories": ms, "journal": hits}, func(w io.Writer) {
 				rows := [][]string{}
 				for _, m := range ms {
 					exp := "-"
@@ -1538,7 +1539,7 @@ first and in full: the journal read back.`,
 					}
 					rows = append(rows, []string{m.ID, m.Scope, exp, m.Title})
 				}
-				table("ID\tSCOPE\tEXPIRES\tTITLE", rows)
+				table(os.Stdout, "ID\tSCOPE\tEXPIRES\tTITLE", rows)
 				if len(hits) > 0 {
 					fmt.Printf("\nJournal entries matching %q:\n", q)
 					for _, h := range hits {
@@ -1583,7 +1584,7 @@ func parseSince(s string) (time.Time, error) {
 }
 
 // primeCrew prints what a fresh crew member session starts from.
-func (a *app) primeCrew(ctx context.Context, st store.API, name, user string) error {
+func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, user string) error {
 	p, err := st.CrewPrimeFor(ctx, name, user)
 	if err != nil {
 		return err
@@ -1656,7 +1657,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name, user string) er
 	for _, packName := range setup {
 		notes += fmt.Sprintf("- A setup starts with the pack's notes, its author's words on what it takes: yardr pack show %s\n", packName)
 	}
-	return a.out(v, func() {
+	return a.out(w, v, func(w io.Writer) {
 		fmt.Printf("# yardr crew member: %s\n\n", name)
 		fmt.Printf("You are `%s`, an always-on crew member of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
 		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)

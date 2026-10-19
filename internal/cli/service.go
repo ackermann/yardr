@@ -22,6 +22,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 
+	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -561,7 +562,7 @@ func removeUnit(ctx context.Context, cfg *config.Config, kind string, fileOnly b
 }
 
 // uninstall is removeUnit as yardr <kind> uninstall says it.
-func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fileOnly bool) error {
+func (a *app) uninstall(w io.Writer, ctx context.Context, cfg *config.Config, kind string, fileOnly bool) error {
 	u, res, err := removeUnit(ctx, cfg, kind, fileOnly)
 	if err != nil {
 		return err
@@ -570,11 +571,11 @@ func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fi
 	manager, name, path := u.Manager, u.Name, u.Path
 	yardr := yardrAt(cfg.Home)
 	if !res.Removed {
-		return a.out(res, func() {
+		return a.out(w, res, func(w io.Writer) {
 			fmt.Printf("No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
 		})
 	}
-	return a.out(res, func() {
+	return a.out(w, res, func(w io.Writer) {
 		fmt.Printf("removed %s\n", path)
 		switch {
 		case fileOnly:
@@ -831,7 +832,7 @@ func (a *app) offerLink(ctx context.Context, cfg *config.Config) error {
 			"Later: %s peer pair", yardr)).Value(&link)); err != nil || !link {
 		return err
 	}
-	if err := a.pairForm(ctx, cfg, st); err != nil {
+	if err := a.pairForm(os.Stdout, ctx, cfg, st); err != nil {
 		fmt.Printf("yardr: %v\nThe yard runs without it; `%s peer pair` tries again.\n", err, yardr)
 	}
 	return nil

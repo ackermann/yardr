@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -80,7 +81,7 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(b, func() { fmt.Println(b.ID) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Println(b.ID) })
 		},
 	}
 	f := create.Flags()
@@ -158,7 +159,7 @@ priority, metadata, type, depot, originator) tells nothing.`,
 			if err != nil {
 				return err
 			}
-			if err := a.printBead(b); err != nil {
+			if err := a.printBead(c.OutOrStdout(), b); err != nil {
 				return err
 			}
 			if !a.json && b.Notify != "" {

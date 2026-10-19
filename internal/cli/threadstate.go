@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"io"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
@@ -161,7 +162,7 @@ as none of what it does there does: that takes its identity in the source
 					out[k] = v
 				}
 			}
-			return a.out(out, func() {
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				if res.Instead != "" {
 					fmt.Printf("%s has no %s status here: %s instead\n", source, state, res.Instead)
 				}
