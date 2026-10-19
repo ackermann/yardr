@@ -74,16 +74,17 @@ yard if it differs.
    yardr, the operator's, and is the one piece of plumbing no command
    carries.
 6. **The signing secret and the hook, then the events in the browser.**
-   The secret goes in a file, mode 0600, which the hook names, as a
-   Linear signing secret does. A new file takes its mode from the
-   shell's umask, so narrow it first: with the usual 022 the secret is
-   readable by others until the chmod. Each command below is one thing
-   to type, in a block of its own.
+   The secret goes in a file, mode 0600, which the hook names. A new
+   file takes its mode from the shell's umask, so narrow it first. The
+   secret is never a command's word: that line would stay in the
+   shell's history. Each command below is one thing to type, in a block
+   of its own; run the second, type or paste the secret blind and press
+   Enter:
    ```sh
    umask 077
    ```
    ```sh
-   printf '%s' '<the signing secret from step 1>' > ~/.yardr/slack.secret
+   IFS= read -rs v && printf '%s' "$v" > ~/.yardr/slack.secret; unset v
    ```
    ```sh
    chmod 600 ~/.yardr/slack.secret

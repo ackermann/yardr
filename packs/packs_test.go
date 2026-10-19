@@ -1295,6 +1295,14 @@ func TestSlackPack(t *testing.T) {
 	if n := strings.Count(six, "message.mpim"); n != 1 {
 		t.Errorf("the setup's step 6 names message.mpim %d times, want once, in its refusal", n)
 	}
+	// The signing secret is pasted blind, as a Linear signing secret is:
+	// never a command's word, which would stay in the shell's history.
+	if !strings.Contains(six, `IFS= read -rs v && printf '%s' "$v" > ~/.yardr/slack.secret; unset v`) {
+		t.Errorf("the setup's step 6 does not take the signing secret blind:\n%s", six)
+	}
+	if strings.Contains(six, "printf '%s' '<") {
+		t.Errorf("the setup's step 6 makes the signing secret a command's word:\n%s", six)
+	}
 }
 
 // What the contributors pack is for is in its texts: the reviewer of a pull
