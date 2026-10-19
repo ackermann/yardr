@@ -1029,6 +1029,19 @@ func TestTelegramPack(t *testing.T) {
 	if au, _ := sbody["allowed_updates"].([]any); len(au) != 1 || au[0] != "message" {
 		t.Fatalf("setwebhook allowed_updates = %v", sbody["allowed_updates"])
 	}
+	// The check call reads what Telegram holds of the webhook, which the
+	// quiet check judges a chat hook's health by instead of its silence:
+	// a read without parameters, as a check must be.
+	if d.Check != "webhookinfo" {
+		t.Fatalf("check = %q, want webhookinfo", d.Check)
+	}
+	wc, ok := d.Call("webhookinfo")
+	if !ok || wc.Kind != source.Read || wc.Request.Method != "GET" || wc.Request.Path != "/bot{credential}/getWebhookInfo" {
+		t.Fatalf("webhookinfo call = %+v", wc)
+	}
+	if len(wc.Params) != 0 {
+		t.Fatalf("webhookinfo params = %+v, want none", wc.Params)
+	}
 	// Its setup notes: the bot and its token, one message to it, the
 	// apply, the token given to the yard by a command or on a card, the
 	// chat id claimed on a card from a message to the bot (given by

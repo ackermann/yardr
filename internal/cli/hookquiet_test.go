@@ -11,6 +11,7 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 // quietYard is a yard with a hook that delivered three times just now, one
@@ -145,6 +146,64 @@ func TestHookListShowsQuiet(t *testing.T) {
 		default:
 			if r.Quiet != nil {
 				t.Fatalf("%s's json quiet = %+v, want none", r.Name, r.Quiet)
+			}
+		}
+	}
+}
+
+// Doctor and hook list judge a hook that hears a person's chat back as the
+// daemon does: hours of silence are no quiet there. The webhook's health
+// is the daemon's probe to tell of, as a hook_quiet event.
+func TestChatHookIsNotQuietBySilence(t *testing.T) {
+	st, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	raw, err := packs.FS.ReadFile("telegram/telegram.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "telegram.yaml", string(raw), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutHook(ctx, store.Hook{Name: "telegram", Source: "telegram", SecretFile: "/x"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, _, err := own.RecordHook(ctx, "telegram", map[string]any{"source": "telegram"}, []byte("{}"), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().Add(7 * time.Hour)
+	stub(t, &hookNow, func() time.Time { return now })
+	out, err := run(t, (&app{st: st, actor: "me"}).hookCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "telegram ") && strings.Contains(l, "quiet:") {
+			t.Fatalf("hook list judges a silent chat hook quiet:\n%s", out)
+		}
+	}
+	out, err = run(t, (&app{st: st, actor: "me", json: true}).hookCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []hookRow
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("hook list --json: %v\n%s", err, out)
+	}
+	if len(rows) != 1 || rows[0].Quiet != nil {
+		t.Fatalf("telegram's json quiet = %+v, want none", rows)
+	}
+	parts, err := optionalParts(ctx, &config.Config{Home: t.TempDir()}, st, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range parts {
+		if p.Key == "hooks" {
+			for _, n := range p.Notes {
+				if strings.Contains(n, "quiet") {
+					t.Fatalf("doctor's hooks notes judge a silent chat hook quiet: %q", n)
+				}
 			}
 		}
 	}

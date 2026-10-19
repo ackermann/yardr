@@ -8,6 +8,7 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 // The usual gap is three times the median interval between the hook's
@@ -111,6 +112,44 @@ func TestQuietGaps(t *testing.T) {
 	}
 	if quiet, err := store.QuietGaps(ctx, s, hs, time.Now()); err != nil || len(quiet) != 0 {
 		t.Fatalf("just delivered: quiet = %v, %v", quiet, err)
+	}
+	quiet, err := store.QuietGaps(ctx, s, hs, time.Now().Add(7*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quiet) != 1 || quiet["linear"] != time.Hour {
+		t.Fatalf("seven hours later: quiet = %v, want linear with the floor", quiet)
+	}
+}
+
+// QuietGaps leaves out a hook whose source hears a person's chat back (a
+// hear key matched by address, as telegram's): hours of silence are no
+// break there. A hook of a machine source (linear hears by identity) is
+// judged by its gap as before.
+func TestQuietGapsSkipsChatHook(t *testing.T) {
+	t.Parallel()
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	for _, name := range []string{"telegram", "linear"} {
+		raw, err := packs.FS.ReadFile(name + "/" + name + ".yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PutSource(ctx, name+".yaml", string(raw), "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PutHook(ctx, store.Hook{Name: name, Source: name, SecretFile: "/x"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 3; i++ {
+			if _, _, err := own.RecordHook(ctx, name, map[string]any{"source": name}, []byte("{}"), nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	hs, err := s.Hooks(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
 	quiet, err := store.QuietGaps(ctx, s, hs, time.Now().Add(7*time.Hour))
 	if err != nil {

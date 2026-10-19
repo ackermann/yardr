@@ -3,12 +3,20 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 type failHookEventsOnce struct {
@@ -179,6 +187,147 @@ func TestQuietHooksTellEachOnce(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	if n := len(quiets()); n != 2 {
 		t.Fatalf("hook_quiet logged %d times an hour later, want the 2", n)
+	}
+}
+
+// A hook that hears a person's chat back raises no hook_quiet for hours of
+// silence while the source holds a healthy webhook; a broken one is told
+// of once per spell, with why instead of a gap. The source is telegram at
+// a stand-in, whose getWebhookInfo the probe reads with the source's
+// credential. An old failure, an answer that says nothing usable, and one
+// the probe never gets tell nothing.
+func TestQuietChatHookProbesWebhook(t *testing.T) {
+	t.Parallel()
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	const token = "test-token"
+	var body string
+	status := 200
+	probed := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed++
+		if r.URL.Path != "/bot"+token+"/getWebhookInfo" {
+			t.Errorf("probed %s, want the check call with the source's credential in its path", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(status)
+		io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	raw, err := packs.FS.ReadFile("telegram/telegram.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(raw), "base: https://api.telegram.org", "base: "+srv.URL, 1)
+	if _, err := s.PutSource(ctx, "telegram.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(t.TempDir(), "telegram.env")
+	must(t, os.WriteFile(env, []byte("TELEGRAM_BOT_TOKEN="+token+"\n"), 0o600))
+	if _, err := s.SetSource(ctx, "telegram", store.SourceEnvFile, env, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutHook(ctx, store.Hook{Name: "telegram", Source: "telegram", SecretFile: "/x"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	deliver := func() {
+		t.Helper()
+		if _, _, err := own.RecordHook(ctx, "telegram", map[string]any{"source": "telegram"}, []byte("{}"), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		deliver()
+	}
+	quiets := func() []store.Event {
+		t.Helper()
+		evs, err := s.EventsOfKind(ctx, store.HookQuiet, 10)
+		must(t, err)
+		return evs
+	}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{}, PromptSettle: -1, PromptWait: -1}
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	pass := func() {
+		t.Helper()
+		now = now.Add(dispatch.HookQuietEvery + time.Minute)
+		must(t, d.Reconcile(ctx))
+	}
+
+	// Hours of silence with a healthy webhook: nothing, though the probe
+	// went out.
+	url := "https://yard.example.com/hooks/telegram"
+	body = `{"ok":true,"result":{"url":"` + url + `","pending_update_count":0}}`
+	pass()
+	if n := len(quiets()); n != 0 {
+		t.Fatalf("hook_quiet logged %d times for hours of silence with a healthy webhook, want 0", n)
+	}
+	if probed == 0 {
+		t.Fatal("the webhook was never probed")
+	}
+
+	// No webhook set at the source: told once, with why, and not again on
+	// the next pass.
+	body = `{"ok":true,"result":{"url":"","pending_update_count":0}}`
+	pass()
+	evs := quiets()
+	if len(evs) != 1 {
+		t.Fatalf("hook_quiet logged %d times with no webhook set, want 1", len(evs))
+	}
+	e := evs[0]
+	h, _ := s.GetHook(ctx, "telegram")
+	last, err := time.Parse(time.RFC3339, e.Data["last"].(string))
+	if err != nil || last.Sub(*h.Accepted).Abs() > time.Minute ||
+		e.Data["hook"] != "telegram" || e.Data["source"] != "telegram" ||
+		e.Data["reason"] != "no webhook is set at the source" || e.Actor != "yard" || e.Bead != nil {
+		t.Fatalf("hook_quiet = %+v, %v; want hook, source, last and reason, by the yard, about no bead", e.Data, err)
+	}
+	if _, has := e.Data["gap"]; has {
+		t.Fatalf("a chat hook's hook_quiet carries a gap: %+v", e.Data)
+	}
+	pass()
+	if n := len(quiets()); n != 1 {
+		t.Fatalf("hook_quiet logged %d times an hour later, want the 1", n)
+	}
+
+	// A delivery ends the spell; a failure since it tells anew, with what
+	// waits behind it.
+	deliver()
+	h, _ = s.GetHook(ctx, "telegram")
+	failed := h.Accepted.Add(time.Hour).Unix()
+	body = fmt.Sprintf(`{"ok":true,"result":{"url":"%s","pending_update_count":3,"last_error_date":%d,"last_error_message":"Connection timed out"}}`, url, failed)
+	pass()
+	evs = quiets()
+	if len(evs) != 2 {
+		t.Fatalf("hook_quiet logged %d times with deliveries failing, want 2", len(evs))
+	}
+	want := "the source's deliveries fail: Connection timed out (last failed " +
+		time.Unix(failed, 0).UTC().Format(time.RFC3339) + ", 3 pending)"
+	if evs[1].Data["reason"] != want {
+		t.Fatalf("hook_quiet reason = %q, want %q", evs[1].Data["reason"], want)
+	}
+
+	// A failure from before the last delivery is no break; neither is an
+	// answer that says nothing usable, nor one the probe never gets.
+	deliver()
+	h, _ = s.GetHook(ctx, "telegram")
+	old := h.Accepted.Add(-time.Hour).Unix()
+	for name, answer := range map[string]string{
+		"an old failure":       fmt.Sprintf(`{"ok":true,"result":{"url":"%s","pending_update_count":0,"last_error_date":%d,"last_error_message":"gone now"}}`, url, old),
+		"no result":            `{"ok":true}`,
+		"a result of no shape": `{"ok":true,"result":"up"}`,
+	} {
+		body = answer
+		pass()
+		if n := len(quiets()); n != 2 {
+			t.Fatalf("hook_quiet logged %d times for %s, want the 2", n, name)
+		}
+	}
+	status = http.StatusInternalServerError
+	pass()
+	if n := len(quiets()); n != 2 {
+		t.Fatalf("hook_quiet logged %d times when the probe got no answer, want the 2", n)
 	}
 }
 

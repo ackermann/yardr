@@ -184,7 +184,10 @@ receiver takes its deliveries (STATE), and when it last accepted and last
 refused one. A hook that used to deliver and has delivered nothing for
 longer than its usual gap (the median interval between its accepted
 deliveries over the last week, times three, with a floor of an hour) reads
-quiet there instead of ok, with how long nothing came and the gap.
+quiet there instead of ok, with how long nothing came and the gap. A hook
+that hears a person's chat back is never quiet by silence: the daemon
+tells of its broken webhook as a hook_quiet event instead
+(docs/subscriptions.md).
 
 LAST REFUSED is the time and the reason of the hook's last hook_rejected
 event: unauthorized (no signature, a wrong one, or a timestamp too old),

@@ -76,6 +76,15 @@ func (h *Hear) ByIdentity() bool { return h != nil && h.By == HearByIdentity }
 // HearsByIdentity reports whether the declaration hears by identity.
 func (d *Declaration) HearsByIdentity() bool { return d != nil && d.Hear.ByIdentity() }
 
+// HearsChat reports whether the source hears a person's chat back: a hear
+// key matched by address, as telegram's, rather than by identity (a machine
+// source's speakers) or no hear key (every delivery kept). Such a hook has
+// no steady rhythm to time silence by, so the quiet check judges its
+// webhook's health instead of its gap.
+func (d *Declaration) HearsChat() bool {
+	return d != nil && d.Hear != nil && !d.Hear.ByIdentity()
+}
+
 // ClaimAddress is the address a delivery from no known user may claim:
 // the envelope field that holds it and the variable it is written under
 // in a user's env file. It is the hear key's field with the notify

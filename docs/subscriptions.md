@@ -845,24 +845,40 @@ no default.
 
 ### A quiet hook
 
-A hook that used to deliver and has delivered nothing for longer than its
-usual gap is quiet: the webhook is off at the source, or cannot reach this
-yard. The gap is the hook's own history: the median interval between its
-accepted deliveries over the last week, times three, with a floor of an
-hour. `yardr hook list` reads `quiet` in STATE for such a hook instead of
+Which hooks are judged how: a machine source's hook by its silence, a
+person's chat by its webhook's health. A hook that used to deliver and has
+delivered nothing for longer than its usual gap is quiet: the webhook is
+off at the source, or cannot reach this yard. The gap is the hook's own
+history: the median interval between its accepted deliveries over the last
+week, times three, with a floor of an hour. That timing suits a machine
+source (linear, github), whose deliveries come steadily. A hook that hears
+a person's chat back (its source's declaration hears by address, as
+telegram's) is never quiet by silence: a chat has no steady rhythm, so
+hours of nothing from it are no break. The daemon asks the source what it
+holds of the webhook instead, once an hour: its check call, as `yardr
+source check` makes it. No webhook set there is broken, as is a delivery
+that failed since the hook last accepted one; either is quiet, whatever
+the silence, and anything else, or no usable answer, is not.
+
+`yardr hook list` reads `quiet` in STATE for a quiet hook instead of
 `ok`, with how long nothing came and the gap, and `yardr doctor` notes it
 on its hooks line, with a probe of the yard's own listener: one that
 answers leaves the break between the source and the yard (the webhook, or
 the proxy in front of the yard), and one that does not answer is the
-break. A hook that never delivered, one that is blocked, and one whose
-last delivery was refused are not judged quiet: the source reaches the
-yard in the last two, and the hook's own line already says so.
+break. A chat hook is never quiet by silence there either; its break
+arrives as the event below. A hook that never delivered, one that is
+blocked, and one whose last delivery was refused are not judged quiet:
+the source reaches the yard in the last two, and the hook's own line
+already says so. So is a chat hook whose source names no check call:
+there is no liveness to ask after.
 
 A quiet hook is also a `hook_quiet` event, about no bead, carrying `hook`,
-`source`, `last` (when it last accepted a delivery) and `gap`:
+`source` and `last` (when it last accepted a delivery), with `gap` for a
+silenced machine source and `reason` for a chat hook's broken webhook:
 
 ```
 yardr events          # … hook_quiet  yard  gap=1h hook=linear last=2026-10-14T09:12:00Z source=linear
+yardr events          # … hook_quiet  yard  hook=telegram last=2026-10-17T19:02:00Z reason="no webhook is set at the source" source=telegram
 ```
 
 The daemon logs it once per quiet spell, not on every pass: a delivery

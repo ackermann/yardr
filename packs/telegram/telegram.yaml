@@ -3,6 +3,10 @@
 # path and the chat's id in the body. The notify key makes it a source a
 # user can be told through (yardr user set <name> notify=telegram); the
 # hook key hears the operator's chat back, answered with yardr reply.
+# The check call reads what Telegram holds of the webhook
+# (getWebhookInfo): its url, its pending_update_count, and the last
+# failed delivery's date and message, which say a broken webhook from a
+# quiet person, whose chat has no steady rhythm to time silence by.
 #
 # Checked against core.telegram.org/bots/api on 12 October 2026: queries
 # are https://api.telegram.org/bot<token>/METHOD_NAME; sendMessage takes
@@ -46,6 +50,13 @@ calls:
       method: POST
       path: /bot{credential}/setWebhook
       body: { url: "{url}", secret_token: "{secret_token}", allowed_updates: ["message"] }
+  webhookinfo:
+    kind: read
+    about: What Telegram holds of the webhook (getWebhookInfo)
+    request:
+      method: GET
+      path: /bot{credential}/getWebhookInfo
+check: webhookinfo
 notify:
   call: message
   address: { param: chat, env: TELEGRAM_CHAT_ID }   # the person's own chat id, read from the user's env_file

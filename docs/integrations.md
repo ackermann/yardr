@@ -754,7 +754,9 @@ yardr source rm pushover
   checked against its pattern, length or enum values when the file is read.
 - **Who calls one**: `yardr source check`, `yardr doctor --try` (the same
   check call, of every source), the daemon for a source a user
-  names as their notify, and the server for `yardr call`, a call by a
+  names as their notify and for the webhook of a hook that hears a
+  person's chat back ([subscriptions.md](subscriptions.md#a-quiet-hook)),
+  and the server for `yardr call`, a call by a
   session or a crew member the operator granted it
   ([below](#a-call-by-a-session-or-a-crew-member)). A limits command is run
   by `yardr limits`, `yardr source check` and `yardr doctor --try`, by the
