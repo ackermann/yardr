@@ -76,7 +76,9 @@ func TestCallAs(t *testing.T) {
 	if _, err = run(t, yardmaster.callCmd(), "--list", "--as", "ada"); err == nil || !strings.Contains(err.Error(), "--as is for a call, and --list makes none") {
 		t.Fatalf("call --list --as = %v", err)
 	}
-	if out, err = run(t, yardmaster.callCmd(), "--list"); err != nil || out != "crew member yardmaster may call:\n  yardr call crm customer --as ada id=<string>   Look a customer up by id\n  yardr call crm gone --as ada\n" {
+	// Ordered: the whole listing, across the helper's writer and the
+	// command's direct sites (see runOrdered).
+	if out, err = runOrdered(t, yardmaster.callCmd(), "--list"); err != nil || out != "crew member yardmaster may call:\n  yardr call crm customer --as ada id=<string>   Look a customer up by id\n  yardr call crm gone --as ada\n" {
 		t.Fatalf("call --list = %q, %v", out, err)
 	}
 	if out, err = run(t, yardmaster.primeCmd(), "--crew", "yardmaster"); err != nil ||

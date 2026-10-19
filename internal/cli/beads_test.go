@@ -44,6 +44,22 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	return outBuf.String() + piped, err
 }
 
+// runOrdered executes c with args against the process stdout, returning
+// what it printed in the order production prints it. run returns the
+// command's buffer before the legacy pipe, which misorders a command
+// whose converted helpers write to one and whose direct sites still
+// print to the other; an assertion of order across that split drives
+// the command here instead, until the direct sites take the writer too
+// and run sees one stream again. Deleted with capture.
+func runOrdered(t *testing.T, c *cobra.Command, args ...string) (string, error) {
+	t.Helper()
+	c.SetArgs(append([]string{}, args...))
+	c.SilenceUsage, c.SilenceErrors = true, true
+	var err error
+	out := capture(t, func() { err = c.Execute() })
+	return out, err
+}
+
 type runWriterFunc func([]byte) (int, error)
 
 func (f runWriterFunc) Write(p []byte) (int, error) { return f(p) }
@@ -879,7 +895,9 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	}
 	a := &app{st: st, actor: "me"}
 
-	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	// Ordered: the notes stand after the body, across the helper's
+	// writer and the command's direct sites (see runOrdered).
+	out, err := runOrdered(t, a.beadCmd(), "show", "yd-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1086,7 +1104,9 @@ func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	// Ordered: the author lines are counted past the body's, across the
+	// helper's writer and the command's direct sites (see runOrdered).
+	out, err := runOrdered(t, a.beadCmd(), "show", "yd-1")
 	if err != nil {
 		t.Fatal(err)
 	}

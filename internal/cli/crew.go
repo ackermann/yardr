@@ -1743,7 +1743,7 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 			slices.Sort(kinds)
 			fmt.Printf("%s\n\nMost recent:\n", strings.Join(kinds, ", "))
 			for _, e := range p.Recent {
-				printEvent(e)
+				printEvent(w, e)
 			}
 			fmt.Println()
 		}

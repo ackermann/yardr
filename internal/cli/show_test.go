@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -101,9 +102,11 @@ func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
 	title := "Retries\r\n\x1b[2K"
 	url := "https://x/\rhidden\x1b[2K"
 	wants := []string{"thread=t1?    something else?[2K", "title=Retries???[2K", "url=https://x/?hidden?[2K"}
-	check := func(name string, print func()) {
+	check := func(name string, print func(w io.Writer)) {
 		t.Helper()
-		got := capture(t, print)
+		var buf bytes.Buffer
+		print(&buf)
+		got := buf.String()
 		if strings.Count(got, "\n") != 1 || strings.ContainsAny(got, "\r\x1b") {
 			t.Fatalf("%s printed a control character or split a row: %q", name, got)
 		}
@@ -117,8 +120,12 @@ func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
 	e := store.Event{Seq: 8, Kind: "thread_state", Actor: "ann", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"thread": id, "title": title, "url": url,
 	}}
-	check("event log", func() { printEvent(e) })
-	check("inbox journal", func() { printBeadDelivery(e, "ann") })
+	check("event log", func(w io.Writer) { printEvent(w, e) })
+	check("inbox journal", func(w io.Writer) {
+		// printBeadDelivery takes its writer with the inbox family;
+		// until then its bytes are captured off the pipe.
+		_, _ = io.WriteString(w, capture(t, func() { printBeadDelivery(e, "ann") }))
+	})
 	if e.Data["thread"] != id || e.Data["title"] != title || e.Data["url"] != url {
 		t.Fatalf("printing changed event data: %+v", e.Data)
 	}
@@ -128,7 +135,9 @@ func TestEventLogPrintsPrintableNestedThreadFields(t *testing.T) {
 	e := store.Event{Seq: 9, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"thread": map[string]any{"id": "t1\r    something else\x1b[2K", "title": "Retries\r\n\x1b[2K", "url": "https://x/\rhidden\x1b[2K"},
 	}}
-	got := capture(t, func() { printEvent(e) })
+	var buf bytes.Buffer
+	printEvent(&buf, e)
+	got := buf.String()
 	if strings.Count(got, "\n") != 1 || strings.ContainsAny(got, "\r\x1b") {
 		t.Fatalf("event log printed a control character or split a row: %q", got)
 	}

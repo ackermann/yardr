@@ -1454,12 +1454,12 @@ func resetWaitLine(w dispatch.ResetWaiting, s store.Session, now time.Time) stri
 		s.Group, model, when, s.ID, s.Bead, window)
 }
 
-func printEvent(e store.Event) {
+func printEvent(w io.Writer, e store.Event) {
 	data := ""
 	if len(e.Data) > 0 {
 		data = fmtConfig(printableThreadFields(store.Brief(e.Data)))
 	}
-	fmt.Printf("%6d %s  %-8s %-14s %-12s %s\n", e.Seq, e.At.Local().Format("01-02 15:04:05"), deref(e.Bead), e.Kind, e.Actor, data)
+	fmt.Fprintf(w, "%6d %s  %-8s %-14s %-12s %s\n", e.Seq, e.At.Local().Format("01-02 15:04:05"), deref(e.Bead), e.Kind, e.Actor, data)
 }
 
 func (a *app) eventsCmd() *cobra.Command {
@@ -1506,7 +1506,7 @@ back from now (7d, 40h, 30m) or an RFC3339 time. Without -n the newest
 				}
 				return a.out(c.OutOrStdout(), evs, func(w io.Writer) {
 					for _, e := range evs {
-						printEvent(e)
+						printEvent(w, e)
 					}
 				})
 			}
@@ -1555,7 +1555,7 @@ back from now (7d, 40h, 30m) or an RFC3339 time. Without -n the newest
 			}
 			return a.out(c.OutOrStdout(), evs, func(w io.Writer) {
 				for _, e := range evs {
-					printEvent(e)
+					printEvent(w, e)
 				}
 			})
 		},
@@ -1605,7 +1605,7 @@ continues from the last event it printed. With --json, one event per line.`,
 				if enc != nil {
 					_ = enc.Encode(e)
 				} else {
-					printEvent(e)
+					printEvent(c.OutOrStdout(), e)
 				}
 			}, nil)
 			return nil

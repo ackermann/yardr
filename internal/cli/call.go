@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -118,7 +117,7 @@ update marked (update).`,
 						fmt.Printf("%s is granted no call of a source (the operator grants one: yardr source grant)\n", may.Caller)
 					default:
 						fmt.Printf("%s may call:\n", may.Caller)
-						printCallables(os.Stdout, "  ", may.Calls)
+						printCallables(w, "  ", may.Calls)
 					}
 				})
 			}
