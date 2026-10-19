@@ -156,6 +156,69 @@ func TestLoadHome(t *testing.T) {
 	}
 }
 
+// LoadWith, LoadReadOnlyWith and ActorWith resolve from a lookup instead
+// of the process: two maps name two homes and two actors, one actor by
+// YARDR_ACTOR and the other by USER, without touching the process
+// environment. LoadWith still creates the home it resolves.
+func TestWithResolvesFromMaps(t *testing.T) {
+	// A short directory: the socket path must fit MaxSocket.
+	base, err := os.MkdirTemp("", "ycw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	homes := []string{filepath.Join(base, "h1"), filepath.Join(base, "h2")}
+	maps := []map[string]string{
+		{"YARDR_HOME": homes[0], "YARDR_ACTOR": "ada", "YARDR_WEB_ADDR": "127.0.0.1:9101"},
+		{"YARDR_HOME": homes[1], "USER": "kloni", "YARDR_BDP_ADDR": "127.0.0.1:9102"},
+	}
+	for i, m := range maps {
+		short := func(name string) string { return m[prefix+name] }
+		c, err := LoadWith(short)
+		if err != nil || c.Home != homes[i] {
+			t.Fatalf("map %d: LoadWith = %+v, %v; want %s", i, c, err, homes[i])
+		}
+		if st, err := os.Stat(homes[i]); err != nil || !st.IsDir() {
+			t.Fatalf("map %d: the resolved home was not created: %v", i, err)
+		}
+		full := func(key string) string { return m[key] }
+		got, err := ActorWith(full)
+		if err != nil {
+			t.Fatalf("map %d: ActorWith: %v", i, err)
+		}
+		want := []string{"ada", "kloni"}[i]
+		if got != want {
+			t.Fatalf("map %d: ActorWith = %q, want %q", i, got, want)
+		}
+	}
+	if c, err := LoadWith(func(name string) string { return maps[0][prefix+name] }); err != nil || c.WebAddr != "127.0.0.1:9101" {
+		t.Fatalf("address override from the map: %+v, %v", c, err)
+	}
+	if c, err := LoadWith(func(name string) string { return maps[1][prefix+name] }); err != nil || c.BDPAddr != "127.0.0.1:9102" {
+		t.Fatalf("address override from the map: %+v, %v", c, err)
+	}
+}
+
+// LoadReadOnlyWith resolves two homes from two maps and, as
+// LoadReadOnly, creates neither.
+func TestLoadReadOnlyWithCreatesNothing(t *testing.T) {
+	base, err := os.MkdirTemp("", "ycr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	for i, home := range []string{filepath.Join(base, "r1"), filepath.Join(base, "r2")} {
+		m := map[string]string{"YARDR_HOME": home}
+		c, err := LoadReadOnlyWith(func(name string) string { return m[prefix+name] })
+		if err != nil || c.Home != home {
+			t.Fatalf("map %d: LoadReadOnlyWith = %+v, %v; want %s", i, c, err, home)
+		}
+		if _, err := os.Stat(home); err == nil {
+			t.Fatalf("map %d: the read-only home was created", i)
+		}
+	}
+}
+
 // LoadReadOnly resolves the home as Load does but creates nothing, neither
 // a named home nor the default one: for commands that must leave a home
 // with no yard as they found it.

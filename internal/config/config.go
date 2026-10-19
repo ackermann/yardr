@@ -128,8 +128,16 @@ const MaxSocket = 100
 // environment and runs somewhere else, where a relative YARDR_HOME=y1
 // would name a different directory, or none, and exit 2 on the first
 // command.
-func Load() (*Config, error) {
-	c, err := LoadReadOnly()
+func Load() (*Config, error) { return LoadWith(Getenv) }
+
+// LoadWith resolves the home as Load does, from get's YARDR_* values
+// instead of the process's: get is a lookup in the shape of Getenv,
+// called with short names ("HOME", "WEB_ADDR"). Only those reads move
+// to the lookup; the default home and a relative home's resolution
+// stay on the process's user home and directory. Load is this with the
+// process lookup, sharing the one body.
+func LoadWith(get func(string) string) (*Config, error) {
+	c, err := LoadReadOnlyWith(get)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +153,13 @@ func Load() (*Config, error) {
 // read-only, and server status, which only asks whether the server
 // answers). A home whose socket path would not fit a unix socket is
 // refused, as by Load.
-func LoadReadOnly() (*Config, error) {
-	home := Getenv("HOME")
+func LoadReadOnly() (*Config, error) { return LoadReadOnlyWith(Getenv) }
+
+// LoadReadOnlyWith resolves the home as LoadReadOnly does, from get's
+// YARDR_* values instead of the process's, and creates nothing, as
+// LoadReadOnly creates nothing.
+func LoadReadOnlyWith(get func(string) string) (*Config, error) {
+	home := get("HOME")
 	if home == "" {
 		h, err := os.UserHomeDir()
 		if err != nil {
@@ -158,8 +171,8 @@ func LoadReadOnly() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR"), WebAddr: Getenv("WEB_ADDR"), BDPAddr: Getenv("BDP_ADDR"),
-		WebPagesAddr: Getenv("WEB_PAGES_ADDR"), WebPagesHost: Getenv("WEB_PAGES_HOST")}
+	c := &Config{Home: home, HookAddr: get("HOOK_ADDR"), WebAddr: get("WEB_ADDR"), BDPAddr: get("BDP_ADDR"),
+		WebPagesAddr: get("WEB_PAGES_ADDR"), WebPagesHost: get("WEB_PAGES_HOST")}
 	if n := len(c.Socket()); n > MaxSocket {
 		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
 			"allows %d; give --home (or YARDR_HOME) a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
@@ -419,11 +432,18 @@ func LookupUsername(lookup func() (*user.User, error)) (string, error) {
 // OS: the lookup runs only when neither names one. It fails when the
 // lookup does not answer in time, with how to name one, instead of
 // hanging; a lookup that answers with no user is "unknown", as before.
-func Actor() (string, error) {
-	if a := Getenv("ACTOR"); a != "" {
+func Actor() (string, error) { return ActorWith(os.Getenv) }
+
+// ActorWith names who is acting as Actor does, from get's values
+// instead of the process's: get is a lookup in the shape of os.Getenv,
+// called with full keys ("YARDR_ACTOR", "USER"), since one of the two
+// reads is not a YARDR_* variable. The OS lookup and its timeout stay
+// as they are: a named actor never reaches them.
+func ActorWith(get func(string) string) (string, error) {
+	if a := get(prefix + "ACTOR"); a != "" {
 		return a, nil
 	}
-	if u := os.Getenv("USER"); u != "" {
+	if u := get("USER"); u != "" {
 		return u, nil
 	}
 	name, err := LookupUsername(currentUser)
