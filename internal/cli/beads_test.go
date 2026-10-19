@@ -33,15 +33,39 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	// preset (SetOut or SetErr before run) is left alone, so a test
 	// that asserts warnings on its own error buffer keeps working.
 	var outBuf, errBuf bytes.Buffer
-	if c.OutOrStdout() == os.Stdout {
+	if out, ok := c.OutOrStdout().(*os.File); ok && out == os.Stdout {
 		c.SetOut(&outBuf)
 	}
-	if c.ErrOrStderr() == os.Stderr {
+	if errStream, ok := c.ErrOrStderr().(*os.File); ok && errStream == os.Stderr {
 		c.SetErr(&errBuf)
 	}
 	var err error
 	piped := capture(t, func() { err = c.Execute() })
 	return outBuf.String() + piped, err
+}
+
+type runWriterFunc func([]byte) (int, error)
+
+func (f runWriterFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestRunPreservesUncomparablePresetWriter(t *testing.T) {
+	var got bytes.Buffer
+	c := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
+		_, err := fmt.Fprintln(c.OutOrStdout(), "preset")
+		return err
+	}}
+	c.SetOut(runWriterFunc(func(p []byte) (int, error) { return got.Write(p) }))
+
+	out, err := run(t, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Errorf("run captured preset output %q, want none", out)
+	}
+	if got.String() != "preset\n" {
+		t.Errorf("preset writer got %q, want %q", got.String(), "preset\n")
+	}
 }
 
 // bead update refuses a pin naming no flow, rather than store it and fail
