@@ -158,8 +158,16 @@ What you do:
   `--run`: `yardr bead ask <id> "<question>" --run "<command>"`, one
   command in an ask, with why it is wanted in the context; they approve it
   among their decisions, and the yard runs exactly what the card shows.
-  A source an embedded pack brings (`pack apply <name>` with no flag), a
-  new source a file declares (`source add <file>`, if its command programs
+  A source a pack brings is proposed with `bead ask --setup`, one card
+  for the apply, the account and the grants: `yardr bead ask <id>
+  "<question>" --setup <pack> --crew <name> --recommend <n> --why
+  "<why>"`, with the grantee, a recommended preset and why it fits
+  them. A grantee who comes later gets one preset grant card: `yardr
+  bead ask <id> "<question>" --run "source grant <source> --preset
+  <name> --crew <name>"`. A pack `--setup` refuses (past 40 lines,
+  sources under different credentials, no presets) goes as the
+  per-step cards instead: the pack, the account, then the grants.
+  A new source a file declares (`source add <file>`, if its command programs
   are relative and its card fits), and a depot pack's re-apply to the one
   depot that holds it where its plan asks nothing (`pack apply <name>`) are
   proposed this way: one command in an ask, with why it is wanted in the
@@ -173,7 +181,7 @@ What you do:
   source card over its limits, `env_file` and `mint_command`, `source key`
   and `source rm`, a pack that is not embedded (a directory, URL or earlier
   import's record), any flag of `pack apply`, an embedded pack whose card is
-  over 40 lines (Google), a pack
+  over 40 lines, a pack
   held by more than one depot, a depot pack's first install, and a plan that
   asks, is refused, or would overwrite an edited file.
   The yard checks whether the asker can run it and whether it is the

@@ -14,36 +14,46 @@ once in `docs/google.md`.
    back 403. The shared login instructions in `docs/google.md` show
    how to check and add the `calendar` service while keeping the
    other applied packs' scopes.
-2. **The pack.** It declares the source and nothing else. Have a crew
-   member ask for it, and approve its card, in footplate or in
-   `yardr chat` (`ctrl+o`); a person applies the packs they want,
-   one card each:
+2. **The setup card.** One card carries the pack's whole setup: the
+   pack, the account and the grants. Have a crew member ask for it,
+   and approve it, in footplate or in `yardr chat` (`ctrl+o`); a
+   person sets up the packs they want, one card each:
    ```sh
-   yardr bead ask <bead> "Add the Calendar source?" --run "pack apply google-calendar" --context "The pack declares the google-calendar source and nothing else; the card carries its declaration whole."
+   yardr bead ask <bead> "Set up Calendar for the yardmaster?" --setup google-calendar --crew yardmaster --recommend 1 --why "reading is the job; creating can follow" --context "The yardmaster lists and reads calendar events to work beads."
    ```
-   By hand it is the operator's to type:
+   The card shows the declaration whole with its mint, the account
+   to type or take (step 3), and one option per preset (step 5).
+   By hand it is the operator's to type, step by step, starting
+   with the pack:
    ```sh
    yardr pack apply google-calendar
    # applied pack google-calendar to the yard: 1 created, 0 changed, 0 unchanged
    # source google-calendar is declared: 5 calls under https://www.googleapis.com (yardr source show google-calendar)
    ```
-3. **The account.** Give the yard's Google account for
-   `google-calendar`, one card, as described in `docs/google.md`
-   (step 3).
+3. **The account.** The yard's Google account for
+   `google-calendar` is answered on the setup card, as described in
+   `docs/google.md` (step 3): typed unseen on the first pack, then
+   picked.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-calendar`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
    `docs/google.md`.
 5. **The grants.** A pack of kind source asks none at import, so what
-   a crew member may call is granted now: `read` for every read call,
-   each update by its name. Plain, a crew member asks and the operator
-   approves — one card per grant. For a crew member called
-   `yardmaster`:
+   a crew member may call is picked on the setup card as one preset.
+   The pack's presets, as `yardr pack show google-calendar` prints
+   them numbered:
+   1. `read`: every read call — events and calendars listed and read —
+      and it covers any read call the source is later given; changes
+      nothing.
+   2. `create`: every read call, and `create`: timed events on the
+      yard's calendar; no invitations go out.
+   3. `everything`: every read call, `create` and `edit`: events
+      created, and edited changing only the fields it names; no
+      invitations go out.
+   A grantee who comes later gets one preset grant card:
    ```sh
-   yardr bead ask <bead> "Let the yardmaster read Calendar" --run "source grant google-calendar read --crew yardmaster" --context "The yardmaster lists and reads calendar events to work beads; the card names each call it covers."
-   yardr bead ask <bead> "Let the yardmaster create Calendar events" --run "source grant google-calendar create --crew yardmaster" --context "Timed events on the yard's calendar; no invitations go out."
-   yardr bead ask <bead> "Let the yardmaster edit Calendar events" --run "source grant google-calendar edit --crew yardmaster" --context "Changes only the fields it names; no invitations go out."
+   yardr bead ask <bead> "Let the reviewers read Calendar" --run "source grant google-calendar --preset read --group reviewers" --context "The reviewers list and read calendar events to check a bead's work; the card names each call it covers."
    ```
    By hand they are the operator's to type:
    ```sh

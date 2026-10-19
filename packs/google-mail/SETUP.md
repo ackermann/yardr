@@ -13,35 +13,47 @@ the four google packs' shared setup, said once in `docs/google.md`.
    come back 403. The shared login instructions in `docs/google.md`
    show how to check and add the `gmail` service while keeping the
    other applied packs' scopes.
-2. **The pack.** It declares the source and nothing else. Have a crew
-   member ask for it, and approve its card, in footplate or in
-   `yardr chat` (`ctrl+o`); a person applies the packs they want,
-   one card each:
+2. **The setup card.** One card carries the pack's whole setup: the
+   pack, the account and the grants. Have a crew member ask for it,
+   and approve it, in footplate or in `yardr chat` (`ctrl+o`); a
+   person sets up the packs they want, one card each:
    ```sh
-   yardr bead ask <bead> "Add the Gmail source?" --run "pack apply google-mail" --context "The pack declares the google-mail source and nothing else; the card carries its declaration whole."
+   yardr bead ask <bead> "Set up Gmail for the yardmaster?" --setup google-mail --crew yardmaster --recommend 1 --why "reading is the job; drafts can follow" --context "The yardmaster reads mail to work beads; drafts only, the person sends."
    ```
-   By hand it is the operator's to type:
+   The card shows the declaration whole with its mint, the account
+   to type or take (step 3), and one option per preset (step 5).
+   By hand it is the operator's to type, step by step, starting
+   with the pack:
    ```sh
    yardr pack apply google-mail
    # applied pack google-mail to the yard: 1 created, 0 changed, 0 unchanged
    # source google-mail is declared: 6 calls under https://gmail.googleapis.com (yardr source show google-mail)
    ```
-3. **The account.** Give the yard's Google account for `google-mail`,
-   one card, as described in `docs/google.md` (step 3).
+3. **The account.** The yard's Google account for `google-mail` is
+   answered on the setup card, as described in `docs/google.md`
+   (step 3): typed unseen on the first pack, then picked.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-mail`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
    `docs/google.md`.
 5. **The grants.** A pack of kind source asks none at import, so what
-   a crew member may call is granted now: `read` for every read call,
-   each update by its name. Plain, a crew member asks and the operator
-   approves — one card per grant. For a crew member called
-   `yardmaster`:
+   a crew member may call is picked on the setup card as one preset.
+   The pack's presets, as `yardr pack show google-mail` prints them
+   numbered:
+   1. `read`: every read call — mail searched and read, threads read,
+      drafts listed — and it covers any read call the source is later
+      given; writes nothing.
+   2. `drafts`: every read call, and `draft`: drafts written, the
+      person pressing send in Gmail.
+   3. `everything`: every read call, `draft`, and `draft_edit`:
+      drafts written and edited, the person pressing send in Gmail.
+   A grant on `draft_edit` is a separate grant from `draft`: one
+   covers writing a new draft, the other replacing a draft that is
+   there, and neither covers the other.
+   A grantee who comes later gets one preset grant card:
    ```sh
-   yardr bead ask <bead> "Let the yardmaster read Gmail" --run "source grant google-mail read --crew yardmaster" --context "The yardmaster reads mail to work beads; the card names each call it covers."
-   yardr bead ask <bead> "Let the yardmaster draft Gmail" --run "source grant google-mail draft --crew yardmaster" --context "Drafts only; the person presses send in Gmail."
-   yardr bead ask <bead> "Let the yardmaster edit Gmail drafts" --run "source grant google-mail draft_edit --crew yardmaster" --context "Editing drafts only, a separate grant from draft; the person presses send in Gmail."
+   yardr bead ask <bead> "Let the reviewers read Gmail" --run "source grant google-mail --preset read --group reviewers" --context "The reviewers read mail to check a bead's threads; the card names each call it covers."
    ```
    By hand they are the operator's to type:
    ```sh
@@ -49,9 +61,6 @@ the four google packs' shared setup, said once in `docs/google.md`.
    yardr source grant google-mail draft --crew yardmaster
    yardr source grant google-mail draft_edit --crew yardmaster
    ```
-   A grant on `draft_edit` is a separate grant from `draft`: one
-   covers writing a new draft, the other replacing a draft that is
-   there, and neither covers the other.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `docs/google.md` ("Calling as a user"), one card per grant, with

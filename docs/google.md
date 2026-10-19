@@ -30,12 +30,14 @@ yard's account up first, then one person's, ada's; the operator's own
 is a second person of the same shape, kept apart from the yard's
 even where it is the same address.
 
-Everything a crew member asks for — a user added, the pack, an
-account's name, a grant plain or `as` — is a card, answered in
-footplate or in `yardr chat` (`ctrl+o`). What stays in the terminal
-is what cannot be a card: a login in a browser (step 1), and the
-operator trying what they set up (steps 6 and 7). The mint (step 4)
-comes with the pack.
+Everything a crew member asks for — a user added, a pack's whole
+setup, a grant plain or `as` — is a card, answered in
+footplate or in `yardr chat` (`ctrl+o`). Setting a pack up is one
+card per pack: the apply, the account and the grants together
+(`bead ask --setup`), the address typed once, then picked. What
+stays in the terminal is what cannot be a card: a login in a
+browser (step 1), and the operator trying what they set up (steps
+6 and 7). The mint (step 4) comes with the pack.
 
 ## Step 0. The person is a user
 
@@ -116,11 +118,15 @@ another: the address is typed once, then picked. Run only the cards
 for the packs the yard uses:
 
 ```sh
-yardr bead ask <bead> "Set up Gmail for the crew?" --setup google-mail --crew <name> --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "Set up Drive for the crew?" --setup google-drive --crew <name> --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "Set up Docs and Slides for the crew?" --setup google-docs --crew <name> --context "The address step 1 showed: the address alone, no token."
-yardr bead ask <bead> "Set up Calendar for the crew?" --setup google-calendar --crew <name> --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Gmail for the crew?" --setup google-mail --crew <name> --recommend 1 --why "reading is the job; drafts can follow" --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Drive for the crew?" --setup google-drive --crew <name> --recommend 1 --why "reading is the job; making and sharing can follow" --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Docs and Slides for the crew?" --setup google-docs --crew <name> --recommend 1 --why "reading is the job; appending can follow" --context "The address step 1 showed: the address alone, no token."
+yardr bead ask <bead> "Set up Calendar for the crew?" --setup google-calendar --crew <name> --recommend 1 --why "reading is the job; creating can follow" --context "The address step 1 showed: the address alone, no token."
 ```
+
+Each names the grantee and recommends a preset with why, as any
+setup ask does; the numbers count the pack's presets as `yardr pack
+show` prints them, which each pack's own step 5 says.
 
 The second card reads `the account GOOGLE_ACCOUNT: already given
 for google-mail (GOOGLE_ACCOUNT=…, in
@@ -229,10 +235,13 @@ kept in memory alone.
 
 Which program runs with a person's login stays the operator's:
 
-- A pack that later brings another `google-mint` is a change like
-  any other of a pack: its plan and its card show the copy's old and
-  new sha256 with the diff, and nothing is copied until the operator
-  approves it (or types `yardr pack apply` and says yes).
+- A pack that later brings another `google-mint` is one card again:
+  a setup ask on the applied pack (`yardr bead ask <bead> "Take the
+  new <pack>?" --setup <pack> --crew <name>`) shows the copy's old
+  and new sha256 with the diff beside the account as it stands and
+  each preset held and new, and nothing is copied until the operator
+  approves it (or types `yardr pack apply` and says yes)
+  ([chat.md](chat.md#setting-up-a-packs-sources)).
 - A mint the operator sets by hand wins over the pack's, and
   applying the pack again keeps it:
 

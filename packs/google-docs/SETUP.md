@@ -15,39 +15,51 @@ google packs' shared setup, said once in `docs/google.md`.
    come back 403. The shared login instructions in `docs/google.md`
    show how to check and add the `docs,slides` services while keeping
    the other applied packs' scopes.
-2. **The pack.** It declares the two sources and nothing else. Have a
-   crew member ask for it, and approve its card, in footplate or in
-   `yardr chat` (`ctrl+o`); a person applies the packs they want,
-   one card each:
+2. **The setup card.** One card carries the pack's whole setup: the
+   pack, the account and the grants. Have a crew member ask for it,
+   and approve it, in footplate or in `yardr chat` (`ctrl+o`); a
+   person sets up the packs they want, one card each:
    ```sh
-   yardr bead ask <bead> "Add the Docs and Slides sources?" --run "pack apply google-docs" --context "The pack declares the google-docs and google-slides sources and nothing else; the card carries their declarations whole."
+   yardr bead ask <bead> "Set up Docs and Slides for the yardmaster?" --setup google-docs --crew yardmaster --recommend 1 --why "reading is the job; appending can follow" --context "The yardmaster reads docs and decks to work beads."
    ```
-   By hand it is the operator's to type:
+   The card shows both declarations whole with their mint, the
+   account to type or take (step 3), and one option per preset
+   (step 5).
+   By hand it is the operator's to type, step by step, starting
+   with the pack:
    ```sh
    yardr pack apply google-docs
    # applied pack google-docs to the yard: 2 created, 0 changed, 0 unchanged
    # source google-docs is declared: 3 calls under https://docs.googleapis.com (yardr source show google-docs)
    # source google-slides is declared: 2 calls under https://slides.googleapis.com (yardr source show google-slides)
    ```
-3. **The account.** Give the yard's Google account for `google-docs`
-   and `google-slides`, one card each, as described in
-   `docs/google.md` (step 3).
+3. **The account.** The yard's Google account for `google-docs`
+   and `google-slides` is answered on the setup card, as described
+   in `docs/google.md` (step 3): typed unseen on the first pack,
+   then picked, one typed value serving both sources.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-docs` and `google-slides`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
    `docs/google.md`.
 5. **The grants.** A pack of kind source asks none at import, so what
-   a crew member may call is granted now: `read` for every read call,
-   each update by its name. Plain, a crew member asks and the operator
-   approves — one card per grant. For a crew member called
-   `yardmaster`:
+   a crew member may call is picked on the setup card as one preset.
+   The pack's presets, as `yardr pack show google-docs` prints them
+   numbered, grant both sources together:
+   1. `read`: every read call of `google-docs` and `google-slides`,
+      and it covers any read call either source is later given;
+      changes nothing.
+   2. `append`: every read call of both, `write` on `google-docs`
+      and `slide` on `google-slides`: paragraphs appended at the end
+      of a doc, each with its style, and slides appended to a deck,
+      with title and body; replaces nothing.
+   3. `everything`: what `append` grants, and `replace` on
+      `google-docs`: text replaced in place, more than one match
+      refused unless the call passes all=true.
+   A grantee who comes later gets one preset grant card per source:
    ```sh
-   yardr bead ask <bead> "Let the yardmaster read Docs" --run "source grant google-docs read --crew yardmaster" --context "The yardmaster reads docs to work beads; the card names each call it covers."
-   yardr bead ask <bead> "Let the yardmaster read Slides" --run "source grant google-slides read --crew yardmaster" --context "The yardmaster reads decks to work beads; the card names each call it covers."
-   yardr bead ask <bead> "Let the yardmaster append to Docs" --run "source grant google-docs write --crew yardmaster" --context "Paragraphs appended at the end of a doc, each with its style."
-   yardr bead ask <bead> "Let the yardmaster replace text in Docs" --run "source grant google-docs replace --crew yardmaster" --context "Text replaced in place; more than one match is refused unless the call passes all=true."
-   yardr bead ask <bead> "Let the yardmaster append slides" --run "source grant google-slides slide --crew yardmaster" --context "Slides appended to a deck, with title and body."
+   yardr bead ask <bead> "Let the reviewers read Docs" --run "source grant google-docs --preset read --group reviewers" --context "The reviewers read docs to check a bead's work; the card names each call it covers."
+   yardr bead ask <bead> "Let the reviewers read Slides" --run "source grant google-slides --preset read --group reviewers" --context "The reviewers read decks to check a bead's work; the card names each call it covers."
    ```
    By hand they are the operator's to type:
    ```sh

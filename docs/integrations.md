@@ -763,7 +763,11 @@ yardr source rm pushover
   <source> read|<call>|--preset <preset> --group <group>|--crew <crew member>`, and
   `yardr source add <file>` for a new source, whose ask carries the
   declaration and each command file it names so the card shows the whole
-  declaration ([below](#a-call-by-a-session-or-a-crew-member)). Every
+  declaration ([below](#a-call-by-a-session-or-a-crew-member)). Where an
+  embedded pack brings the source, a crew member proposes the whole setup
+  as one card instead (`yardr bead ask <id> "<question>" --setup <pack>
+  --crew <crew member>`, [chat.md](chat.md#setting-up-a-packs-sources)):
+  the apply, the account and the preset grants together. Every
   other command of a source stays the operator's to type in a terminal:
   a replacement by `source add`, `source set env_file=` and
   `mint_command=`, `source key` (a key is asked for with a secret ask)
