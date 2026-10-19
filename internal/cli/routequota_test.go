@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -21,8 +22,14 @@ import (
 func routeErr(t *testing.T, a *app, errs io.Writer, args ...string) (string, error) {
 	t.Helper()
 	c := a.routeCmd()
+	var stdout bytes.Buffer
+	c.SetOut(&stdout)
 	c.SetErr(errs)
-	return run(t, c, args...)
+	escaped, err := run(t, c, args...)
+	if escaped != "" {
+		t.Fatalf("yardr route %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
+	}
+	return stdout.String(), err
 }
 
 func quotaCLI(t *testing.T) (a *app, st store.API, ran func() bool) {

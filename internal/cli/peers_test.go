@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -58,12 +59,17 @@ func (y *cliYard) peer(t *testing.T, args ...string) (string, error) {
 func (y *cliYard) mustErr(t *testing.T, errs io.Writer, args ...string) string {
 	t.Helper()
 	c := y.a.peerCmd()
+	var stdout bytes.Buffer
+	c.SetOut(&stdout)
 	c.SetErr(errs)
-	out, err := run(t, c, args...)
+	escaped, err := run(t, c, args...)
 	if err != nil {
-		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, stdout.String())
 	}
-	return out
+	if escaped != "" {
+		t.Fatalf("peer %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
+	}
+	return stdout.String()
 }
 
 func (y *cliYard) must(t *testing.T, args ...string) string {

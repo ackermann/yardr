@@ -197,6 +197,20 @@ func TestPeerShowWritesToItsCommandWriter(t *testing.T) {
 	wantText(t, stdout, "south  (it calls itself south)", "has not said what it understands")
 }
 
+func TestOTelNoCollectorWarnsOnItsCommandErrorWriter(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+
+	stdout, stderr := writerRun(t, (&app{}).otelCmd(), "export")
+	if stdout != "" {
+		t.Errorf("stdout = %q, want no output", stdout)
+	}
+	if stderr != "yardr otel export: no collector: set OTEL_EXPORTER_OTLP_ENDPOINT or give --endpoint; nothing is exported\n" {
+		t.Errorf("stderr = %q", stderr)
+	}
+}
+
 // The long tail's print helpers write to the writer they are given, pinned
 // at the function.
 func TestLongTailHelpersWriteToTheirWriter(t *testing.T) {

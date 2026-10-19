@@ -64,11 +64,17 @@ func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
 // mustAsErr is mustAs with the run's error stream in errs.
 func mustAsErr(t *testing.T, st store.API, actor string, errs io.Writer, args ...string) string {
 	t.Helper()
-	out, err := run(t, (&app{st: st, stderr: errs}).rootCmd(), append(args, "--actor", actor)...)
+	var stdout bytes.Buffer
+	c := (&app{st: st, stderr: errs}).rootCmd()
+	c.SetOut(&stdout)
+	escaped, err := run(t, c, append(args, "--actor", actor)...)
 	if err != nil {
-		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, out)
+		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, stdout.String())
 	}
-	return out
+	if escaped != "" {
+		t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
+	}
+	return stdout.String()
 }
 
 func refusedAs(t *testing.T, st store.API, actor, want string, args ...string) {
