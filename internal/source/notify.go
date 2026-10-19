@@ -77,9 +77,9 @@ func (h *Hear) ByIdentity() bool { return h != nil && h.By == HearByIdentity }
 func (d *Declaration) HearsByIdentity() bool { return d != nil && d.Hear.ByIdentity() }
 
 // HearsChat reports whether the source hears a person's chat back: a hear
-// key matched by address, as telegram's, rather than by identity (a machine
-// source's speakers) or no hear key (every delivery kept). Such a hook has
-// no steady rhythm to time silence by, so the quiet check judges its
+// key matched by address, rather than by identity (a machine source's
+// speakers) or no hear key (every delivery kept). Such a hook has no
+// steady rhythm to time silence by, so the quiet check judges its
 // webhook's health instead of its gap.
 func (d *Declaration) HearsChat() bool {
 	return d != nil && d.Hear != nil && !d.Hear.ByIdentity()

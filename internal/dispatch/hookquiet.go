@@ -168,12 +168,14 @@ func (d *Dispatcher) webhookBroken(ctx context.Context, h store.Hook) (broken st
 	return webhookBreak(res.Answer, *h.Accepted), true
 }
 
-// webhookBreak judges what the source holds of a chat hook's webhook: a
-// Telegram getWebhookInfo answer, the declaration's check call. It returns
-// why the webhook is broken, "" when it is healthy or the answer says
-// nothing usable. No webhook set at the source is broken, whatever the
-// silence; a delivery that failed since the hook last accepted one is the
-// break the silence hides, with how many updates wait behind it.
+// webhookBreak judges what the source holds of a chat hook's webhook: the
+// declaration's check call answered as a webhook's status, with the url it
+// sends to, the updates that wait, and when its last delivery failed and
+// why. It returns why the webhook is broken, "" when it is healthy or the
+// answer says nothing usable. No webhook set at the source is broken,
+// whatever the silence; a delivery that failed since the hook last
+// accepted one is the break the silence hides, with how many updates wait
+// behind it.
 func webhookBreak(answer json.RawMessage, accepted time.Time) string {
 	var info struct {
 		Result json.RawMessage `json:"result"`
