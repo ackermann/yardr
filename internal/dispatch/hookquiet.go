@@ -187,7 +187,6 @@ func webhookBreak(answer json.RawMessage, accepted time.Time) string {
 		URL     string `json:"url"`
 		Pending int    `json:"pending_update_count"`
 		ErrorAt int64  `json:"last_error_date"`
-		Error   string `json:"last_error_message"`
 	}
 	if err := json.Unmarshal(info.Result, &held); err != nil {
 		return ""
@@ -195,12 +194,13 @@ func webhookBreak(answer json.RawMessage, accepted time.Time) string {
 	if held.URL == "" {
 		return "no webhook is set at the source"
 	}
-	if held.ErrorAt > 0 && time.Unix(held.ErrorAt, 0).After(accepted) {
+	// The source reports error dates in whole seconds. Include the accepted
+	// delivery's second so an error later in that same second is not missed.
+	if held.ErrorAt > 0 && held.ErrorAt >= accepted.Unix() {
 		failed := time.Unix(held.ErrorAt, 0).UTC().Format(time.RFC3339)
-		if held.Error == "" {
-			return fmt.Sprintf("the source's deliveries fail: last failed %s, %d pending", failed, held.Pending)
-		}
-		return fmt.Sprintf("the source's deliveries fail: %s (last failed %s, %d pending)", held.Error, failed, held.Pending)
+		// last_error_message is service text. It is unnecessary for this
+		// diagnosis and may repeat a credential or contain log control text.
+		return fmt.Sprintf("the source's deliveries fail (last failed %s, %d pending)", failed, held.Pending)
 	}
 	return ""
 }

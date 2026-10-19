@@ -292,20 +292,24 @@ func TestQuietChatHookProbesWebhook(t *testing.T) {
 	}
 
 	// A delivery ends the spell; a failure since it tells anew, with what
-	// waits behind it.
+	// waits behind it. The service reports whole seconds, so an error in
+	// the same second as the accepted delivery is treated as possibly later.
 	deliver()
 	h, _ = s.GetHook(ctx, "telegram")
-	failed := h.Accepted.Add(time.Hour).Unix()
-	body = fmt.Sprintf(`{"ok":true,"result":{"url":"%s","pending_update_count":3,"last_error_date":%d,"last_error_message":"Connection timed out"}}`, url, failed)
+	failed := h.Accepted.Unix()
+	body = fmt.Sprintf(`{"ok":true,"result":{"url":"%s","pending_update_count":3,"last_error_date":%d,"last_error_message":"Connection timed out; TELEGRAM_BOT_TOKEN=never-log-me"}}`, url, failed)
 	pass()
 	evs = quiets()
 	if len(evs) != 2 {
 		t.Fatalf("hook_quiet logged %d times with deliveries failing, want 2", len(evs))
 	}
-	want := "the source's deliveries fail: Connection timed out (last failed " +
+	want := "the source's deliveries fail (last failed " +
 		time.Unix(failed, 0).UTC().Format(time.RFC3339) + ", 3 pending)"
 	if evs[1].Data["reason"] != want {
 		t.Fatalf("hook_quiet reason = %q, want %q", evs[1].Data["reason"], want)
+	}
+	if strings.Contains(evs[1].Data["reason"].(string), "never-log-me") {
+		t.Fatalf("hook_quiet copied the source's error message: %+v", evs[1].Data)
 	}
 
 	// A failure from before the last delivery is no break; neither is an
