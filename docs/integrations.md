@@ -1903,7 +1903,10 @@ What the command does, in order: it reads the source's own env file as
 a call would and reports the credential — the names set and missing,
 and with a mint whether a mint command is set; it mints where the file
 sets the mint's names and makes the check call with the credential, and
-fails unless the service answers 2xx; it says of every command the file
+fails unless the service answers 2xx; where the check call names
+`answer.select` it prints each selected top-level field the answer
+carries, one per line under the status line, and with `--json` carries
+the same object under `answer`; it says of every command the file
 names beside the check call — thread's, hook's, events', and each
 call's build — whether its
 program is there and can be run, and fails when one cannot, running

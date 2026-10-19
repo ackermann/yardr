@@ -1,0 +1,95 @@
+#!/bin/bash
+# thread: what the yard does in a Slack thread: reply, posted, read. One
+# JSON object on stdin, one on stdout, as the thread key of the declaration
+# says. SLACK_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base, are
+# in the environment. Needs curl and jq.
+#
+# The thread a delivery carries is <channel>:<parent ts>, and every
+# command reads the channel and the thread back from it: the one bot
+# token carries the history scope for each kind of conversation, so a
+# channel, a group-direct-message and a direct-message thread are read
+# with the very token replies are posted with. chat.postMessage takes no
+# idempotency key, so posted answers what there is to find, nothing, and
+# a reply retried after a lost answer posts twice.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+
+: "${SLACK_BOT_TOKEN:?SLACK_BOT_TOKEN is not set}"
+: "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+
+# call <method> <body as JSON>: the whole answer. The token goes to curl
+# as a config line on its stdin, written by the shell itself: an argument
+# can be read by every process on the machine while curl runs.
+call() {
+  printf 'header = "Authorization: Bearer %s"\n' "$SLACK_BOT_TOKEN" \
+    | curl -sS --fail-with-body -K - "$YARDR_SOURCE_BASE/$1" \
+    -H 'Content-Type: application/json' \
+    -d "$2"
+}
+
+# ok: whether the answer on stdin is a success; if not, Slack's reason on
+# stderr. Slack answers ok:false with its reason under error where the
+# bot may not do what was asked (not_in_channel, missing_scope): that is
+# a refusal, never an empty thread.
+ok() {
+  local page; page=$(cat)
+  jq -e '.ok == true' >/dev/null <<<"$page" \
+    || { jq -r '"slack \(.error // "refused the call")"' >&2 <<<"$page"; return 1; }
+}
+
+case "$1" in
+reply) # chat.postMessage in the thread: the channel and the thread_ts
+  # are the thread's, or the parent's where the core found another
+  # message to answer under (--to). The parent and the key go nowhere
+  # else: the service takes no idempotency key.
+  thread=$(arg thread)
+  parent=$(arg parent)
+  body=$(arg body)
+  [ -n "$thread" ] || { echo "thread.reply was handed no thread" >&2; exit 1; }
+  [ -n "$body" ] || { echo "thread.reply was handed no body" >&2; exit 1; }
+  channel=${thread%%:*}; ts=${thread#*:}
+  [ -n "$channel" ] && [ -n "$ts" ] && [ "$channel" != "$thread" ] \
+    || { echo "thread.reply was handed no channel and thread: $thread" >&2; exit 1; }
+  [ -n "$parent" ] || parent=$ts
+  out=$(call chat.postMessage "$(jq -n -c --arg c "$channel" --arg t "$body" --arg p "$parent" \
+    '{channel: $c, text: $t, thread_ts: $p}')") || {
+    code=$?
+    err=$(jq -r '.error // empty' <<<"$out" 2>/dev/null)
+    echo "chat.postMessage to channel $channel failed${err:+: slack $err} (curl exit $code)" >&2
+    exit 1
+  }
+  ok <<<"$out" || exit 1
+  jq -c '{id: (.ts // "")} | if .id == "" then error("chat.postMessage answered no ts") else . end' <<<"$out" ;;
+posted) # {} always: without an idempotency key there is nothing to find
+  printf '%s' '{}' ;;
+read) # conversations.replies for the thread's parent, every page: each
+  # answer holds at most 1000 messages, and the thread is the pages
+  # joined oldest first. A message's parent is its thread's, its own ts
+  # where it is the thread's first.
+  thread=$(arg thread)
+  [ -n "$thread" ] || { echo "thread.read was handed no thread" >&2; exit 1; }
+  channel=${thread%%:*}; ts=${thread#*:}
+  [ -n "$channel" ] && [ -n "$ts" ] && [ "$channel" != "$thread" ] \
+    || { echo "thread.read was handed no channel and thread: $thread" >&2; exit 1; }
+  cursor=""; all='[]'
+  while :; do
+    page=$(call conversations.replies "$(jq -n -c --arg c "$channel" --arg t "$ts" --arg cur "$cursor" \
+      '{channel: $c, ts: $t} + (if $cur != "" then {cursor: $cur} else {} end)')") || {
+      code=$?
+      err=$(jq -r '.error // empty' <<<"$page" 2>/dev/null)
+      echo "conversations.replies for channel $channel failed${err:+: slack $err} (curl exit $code)" >&2
+      exit 1
+    }
+    ok <<<"$page" || exit 1
+    all=$(jq -c --argjson a "$all" '$a + (.messages // [])' <<<"$page")
+    [ "$(jq -r '.has_more // false' <<<"$page")" = true ] || break
+    cursor=$(jq -r '.response_metadata.next_cursor // ""' <<<"$page")
+    [ -n "$cursor" ] || break
+  done
+  jq -c '{messages: [$all[] | {id: (.ts // ""), parent: (.thread_ts // .ts // ""),
+    author: {id: (.user // .bot_id // "")},
+    at: ((.ts // "0" | split(".")[0] | tonumber) | gmtime | strftime("%Y-%m-%dT%H:%M:%SZ")),
+    body: (.text // "")}]}' --argjson all "$all" <<<null ;;
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac

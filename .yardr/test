@@ -1143,6 +1143,7 @@ packs/contributors/            contrib/assembly
 packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
+packs/slack/                   internal/hooks
 packs/template/                internal/pack packs
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/test                    .

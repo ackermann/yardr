@@ -1,0 +1,98 @@
+# Slack as a declared source: the mentions of a bot in a workspace and
+# its one-to-one direct messages, heard through the Events API and
+# answered in their threads. The design is
+# docs/design/2026-10-17-yardr-pcxd-slack.md; section 3.1 is this file.
+#
+# Checked against api.slack.com on 17 October 2026: the API is HTTPS JSON
+# at https://slack.com/api/<method> with the bot's token (xoxb-...) as
+# Authorization: Bearer; auth.test answers the bot's own ids (user_id,
+# team_id, bot_id); chat.postMessage with channel, text and thread_ts
+# answers in a thread, answering the posted ts; conversations.replies
+# with channel and a parent ts lists the parent and its replies oldest
+# first, cursor-paginated with has_more and response_metadata.next_cursor.
+# The yard subscribes to two bot events only, app_mention and message.im
+# (SETUP.md step 6), so a group direct message is heard on a mention
+# alone, by its app_mention, and message.mpim is never subscribed.
+#
+# There is no notify key in a first version: the wish is to write to the
+# yard, not to be told by it. There is no hear key yet either: hearing
+# is by who speaks, matched against yardr user identity --source slack,
+# which the core learns in a later bead with the hear.by key; until then
+# every verified delivery is kept, as for a source with no hear key.
+# There is no link or thread.state: a Slack thread has no status, and a
+# channel message is no bead's link.
+name: slack
+about: Mentions and direct messages in a Slack workspace, answered in their threads.
+base: https://slack.com/api
+credential:
+  env: SLACK_BOT_TOKEN            # the bot's token: the name, never the value
+  header: "Authorization: Bearer {credential}"
+calls:
+  whoami:                         # yardr source check slack: whose token this is
+    kind: read
+    about: Who the bot token acts as (auth.test)
+    request: { method: POST, path: /auth.test }
+    answer: { select: [user_id, team_id, bot_id] }
+  post:
+    kind: update
+    about: One top-level message to a channel (chat.postMessage); threaded answers go by thread.reply
+    params:
+      channel: { type: string, pattern: "^[CDG][A-Z0-9]+$" }
+      text:    { type: string, max: 4000 }
+    request:
+      method: POST
+      path: /chat.postMessage
+      body: { channel: "{channel}", text: "{text}" }
+check: whoami
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the signing secret is
+  # handed to no command, and an unverified body reaches none. Slack signs
+  # the version, the timestamp and the body together over the literal
+  # basestring v0:<timestamp>:<raw body>, with the timestamp in its own
+  # header; a request more than five minutes from the receiver's clock is
+  # refused. A retry repeats the event's own id, not the bytes alone.
+  verify:
+    scheme: hmac-sha256
+    signed: "v0:{timestamp}:{body}"
+    signature: { header: X-Slack-Signature, encoding: hex, prefix: "v0=" }
+    delivery:  { body: event_id }
+    timestamp: { header: X-Slack-Request-Timestamp, unit: s, window: 5m }
+  bodies: repeat
+
+  # The url_verification handshake is answered by the receiver after
+  # verification, before normalize: a verified body whose type is
+  # url_verification is answered at once with its challenge, and records
+  # nothing. An unsigned challenge is refused as any bad signature is.
+  challenge: { body: type, value: url_verification, answer: challenge }
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself.
+  normalize: [slack/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label. room is
+  # dm for a one-to-one direct message and channel for everything else,
+  # a channel of either kind and a group direct message alike, since no
+  # mark in an app_mention reliably tells a group from a channel; it has
+  # no group word, and none is promised.
+  keys: [channel, team, sender, room]
+
+# ---- what the yard does in its threads ------------------------------------
+# One command per thing, each handed its object on stdin and the
+# credential under SLACK_BOT_TOKEN, with YARDR_SOURCE_BASE from base
+# above. The thread a delivery carries is <channel>:<parent ts>, and
+# every command reads the channel and the thread back from it: the one
+# bot token carries the history scope for each kind of conversation, so
+# channel, group-direct-message and direct-message threads are read back
+# with the very token replies are posted with, and no second credential
+# is asked for, given or handed to any command. The shapes are in
+# docs/integrations.md. chat.postMessage takes no idempotency key, so
+# posted answers what there is to find: nothing.
+
+thread:
+  reply:  [slack/thread, reply]      # in  {thread, parent, body, key}      out {id}
+  posted: [slack/thread, posted]     # in  {thread, key}                    out {} always
+  read:   [slack/thread, read]       # in  {thread}                         out {messages: [...]}

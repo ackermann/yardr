@@ -69,6 +69,13 @@ source key telegram` and `yardr user key <user> telegram`. (An apply
 with files you keep yourself still does it in one: `--source-env
 telegram=<file> --notify <user>=telegram,<file>`.)
 
+One more, [`packs/slack`](../packs/slack), named `slack`, is for no
+depot either: it is Slack itself as an integration, imported into the
+yard. It declares the source `slack`, with the commands that verify and
+read the Events API deliveries the setup subscribes to and that answer
+in their threads, and the app manifest the operator creates the Slack
+app from ([An integration pack](#an-integration-pack-kind-source)).
+
 | pack | for | flows | a depot's default |
 |---|---|---|---|
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
@@ -83,6 +90,7 @@ telegram=<file> --notify <user>=telegram,<file>`.)
 | `google-calendar` | Calendar itself, in the yard: events listed, read, created and edited without invitations | none: `kind: source` | of none: `yardr pack apply google-calendar` |
 | `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
+| `slack` | mentions and direct messages in a Slack workspace, answered in their threads, in the yard | none: `kind: source` | of none: `yardr pack apply slack` |
 
 ```
 packs/starter/

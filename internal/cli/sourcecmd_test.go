@@ -312,6 +312,136 @@ func TestSourceCheck(t *testing.T) {
 	}
 }
 
+const checkedSelectedSource = `name: crm
+base: BASE/api
+credential: { env: CRM_TOKEN, header: "Authorization: Bearer {credential}" }
+check: ping
+calls:
+  ping:
+    kind: read
+    request: { method: GET, path: /me }
+    answer: { select: [name, count, flag, obj, list, missing] }
+`
+
+// source check shows the check call's selected top-level fields, one per
+// line under the status line: a string as it is, a number or a boolean
+// as its JSON, an object or a list as compact JSON. With --json the same
+// selected object is carried under answer. A selected field the answer
+// does not carry prints no line, the check still succeeding on its
+// status, and a check call with no selection prints exactly what it
+// prints without one. The credential is in neither output.
+func TestSourceCheckSelectedAnswer(t *testing.T) {
+	const token = "tok-9c41-not-to-be-seen"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"name":"ada","count":3,"flag":true,"obj":{"a":1},"list":[1,"x"],"extra":"dropped"}`)
+	}))
+	defer srv.Close()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	file := filepath.Join(t.TempDir(), "crm.yaml")
+	if err := os.WriteFile(file, []byte(strings.Replace(checkedSelectedSource, "BASE", srv.URL, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "CRM_TOKEN="+token+"\n", 0o600)
+	if _, err := run(t, a.sourceCmd(), "set", "crm", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, a.sourceCmd(), "check", "crm")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"crm: check call ping (GET /me): 200 in ",
+		"crm: name: ada\n",
+		"crm: count: 3\n",
+		"crm: flag: true\n",
+		"crm: obj: {\"a\":1}\n",
+		"crm: list: [1,\"x\"]\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("source check lacks %q:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{token, "missing", "extra", "dropped"} {
+		if strings.Contains(out, not) {
+			t.Errorf("source check shows %q:\n%s", not, out)
+		}
+	}
+
+	a.json = true
+	out, err = run(t, a.sourceCmd(), "check", "crm")
+	a.json = false
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var got struct {
+		Answer map[string]any `json:"answer"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("source check --json is no JSON: %v\n%s", err, out)
+	}
+	raw, _ := json.Marshal(got.Answer)
+	if string(raw) != `{"count":3,"flag":true,"list":[1,"x"],"name":"ada","obj":{"a":1}}` {
+		t.Errorf("answer = %s", raw)
+	}
+	if strings.Contains(out, token) {
+		t.Errorf("source check --json shows the credential:\n%s", out)
+	}
+}
+
+// A check call with no answer.select prints exactly what it prints
+// without one: the credential and the status lines, and no answer under
+// either output.
+func TestSourceCheckWithoutSelectPrintsAsBefore(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"app-1"}`)
+	}))
+	defer srv.Close()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	file := filepath.Join(t.TempDir(), "crm.yaml")
+	if err := os.WriteFile(file, []byte(strings.Replace(checkedSource, "BASE", srv.URL, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "CRM_TOKEN=tok\n", 0o600)
+	if _, err := run(t, a.sourceCmd(), "set", "crm", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, a.sourceCmd(), "check", "crm")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "crm: credential: ") ||
+		!strings.HasPrefix(lines[1], "crm: check call ping (GET /me): 200 in ") {
+		t.Errorf("source check prints %d lines:\n%s", len(lines), out)
+	}
+
+	a.json = true
+	out, err = run(t, a.sourceCmd(), "check", "crm")
+	a.json = false
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("source check --json is no JSON: %v\n%s", err, out)
+	}
+	if _, ok := got["answer"]; ok {
+		t.Errorf("source check --json carries an answer with no selection:\n%s", out)
+	}
+}
+
 const checkedMintedSource = `name: crm
 base: BASE/api
 credential: { env: CRM_TOKEN, mint: [CRM_APP_ID, CRM_APP_KEY], header: "Authorization: Bearer {credential}" }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1244,7 +1245,11 @@ may revoke.`,
 		Short: "See that a source's credential is set up, make its check call, and ask its limits command",
 		Long: `Reads the source's env_file as a call would, and makes the one call its
 declaration names as check: a read call without parameters. Prints the
-status the service answered with, and fails on anything but a success. A
+status the service answered with, and fails on anything but a success.
+Where the check call names answer.select, a successful check also prints
+each selected top-level field the answer carries, one per line under the
+status line (and carries the same object under answer with --json); a
+field the answer does not carry prints no line. A
 source whose file names no check call is sent nothing: its credential is
 looked at and that is all. Where the file names a mint (credential.mint),
 the token is minted first, with the source's mint_command, and the line says
@@ -1351,9 +1356,34 @@ process for it. Nothing of the request is written anywhere.`,
 				if !res.OK() {
 					return fmt.Errorf("source %s: the check call %s (%s)%s was answered %d%s", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, statusHint(res.Status, d))
 				}
+				// The check call's selection is what setup may read: a
+				// successful check shows the selected top-level fields the
+				// answer carries, one per line under the status line, and
+				// carries the same selected answer under answer with --json.
+				// A selected field the answer does not carry prints no line;
+				// the check succeeds or fails on the status alone, as without
+				// a selection, and no other call's answer is ever shown.
+				var selected []string
+				if len(call.Answer.Select) > 0 && len(res.Answer) > 0 {
+					var anyJSON any
+					if json.Unmarshal(res.Answer, &anyJSON) == nil {
+						out["answer"] = anyJSON
+					}
+					var obj map[string]json.RawMessage
+					if json.Unmarshal(res.Answer, &obj) == nil {
+						for _, name := range call.Answer.Select {
+							if raw, ok := obj[name]; ok {
+								selected = append(selected, name+": "+checkField(raw))
+							}
+						}
+					}
+				}
 				said = func() {
 					fmt.Printf("%s: credential: %s\n", d.Name, state)
 					fmt.Printf("%s: check call %s (%s)%s: %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, res.Took.Milliseconds(), res.Bytes)
+					for _, line := range selected {
+						fmt.Printf("%s: %s\n", d.Name, line)
+					}
 				}
 			}
 			// Of each command the file names, whether its program is there
@@ -1529,6 +1559,17 @@ func checkCommands(d *source.Declaration, home string) (cmds []commandCheck, ok 
 		cmds = append(cmds, cmd)
 	}
 	return cmds, ok
+}
+
+// checkField renders one selected field of a check call's answer for
+// its line: a string as it is, a number or a boolean as its JSON, and an
+// object or a list as compact JSON, as the answer already holds it.
+func checkField(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // statusHint says what a status of a check call most likely means.

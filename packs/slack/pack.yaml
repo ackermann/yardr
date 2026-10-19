@@ -1,0 +1,18 @@
+# Slack as a pack of kind source: the integration, imported into the
+# yard and into no depot. What Slack is here: the mentions of a bot in a
+# workspace and its one-to-one direct messages, heard through the Events
+# API and answered in their threads with yardr reply.
+#
+#   yardr pack apply slack
+#
+# The source is named slack: yardr knows Slack as this pack alone.
+# app-manifest.yaml is the Slack app as one document, for the operator to
+# paste where Slack creates an app from a manifest; it is no declaration
+# and yardr never reads it.
+name: slack
+kind: source
+setup: SETUP.md
+
+sources:
+  slack:
+    declaration: slack.yaml

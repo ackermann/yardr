@@ -14,10 +14,12 @@ import (
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the twelve yardr carries. A file the
+// is the name it is found by, and they are the thirteen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -43,8 +45,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "pushover", packs.Starter, "telegram"}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, pushover, starter and telegram", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "pushover", "slack", packs.Starter, "telegram"}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, pushover, slack, starter and telegram", names)
 	}
 }
 
@@ -1096,6 +1098,199 @@ func TestTelegramPack(t *testing.T) {
 		if !strings.Contains(p.SetupText, want) || !strings.Contains(p.SetupText, "| curl -K -") {
 			t.Errorf("setup notes do not give %s its address on curl's stdin", call)
 		}
+	}
+}
+
+// The slack pack is Slack as an integration: of kind source, one
+// declared source with the hook key that hears the Events API deliveries
+// the setup subscribes to and the thread commands that answer in their
+// threads. The source is named slack. The app manifest beside the
+// declaration names the bot user and only the bot scopes, and no event
+// subscriptions and no Request URL, so it validates as the app is
+// created; the two bot events are subscribed in the setup's step 6.
+func TestSlackPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, "slack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "slack" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	d := p.Declared[0].Declaration
+	var commands []string
+	for _, c := range d.Commands() {
+		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
+	}
+	if want := []string{"thread.reply slack/thread reply", "thread.posted slack/thread posted",
+		"thread.read slack/thread read", "hook.normalize slack/normalize"}; !slices.Equal(commands, want) {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+	if c := d.Credential; c == nil || c.Env != "SLACK_BOT_TOKEN" || c.Header != "Authorization: Bearer {credential}" {
+		t.Fatalf("credential = %+v", c)
+	}
+	if d.Check != "whoami" {
+		t.Fatalf("check = %q, want whoami", d.Check)
+	}
+	whoami, ok := d.Call("whoami")
+	if !ok || !reflect.DeepEqual(whoami.Answer.Select, []string{"user_id", "team_id", "bot_id"}) {
+		t.Fatalf("whoami select = %+v", whoami)
+	}
+	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookScheme || h.Verify.Signed != "v0:{timestamp}:{body}" ||
+		h.Verify.Delivery.Body != "event_id" || h.Bodies != source.BodiesRepeat || h.Challenge == nil ||
+		!reflect.DeepEqual(h.Keys, []string{"channel", "team", "sender", "room"}) {
+		t.Fatalf("hook = %+v", d.Hook)
+	}
+	if d.Notify != nil || d.Hear != nil || d.Link != nil {
+		t.Fatalf("the pack declares a notify, hear or link key: a first version answers mentions and direct messages, nothing else")
+	}
+	// The manifest names the bot user and only the six bot scopes, and
+	// carries no events: no event_subscriptions and no Request URL
+	// anywhere in the document, so the app is created from it before its
+	// hook address exists. mpim:history is among the scopes as a reading
+	// scope; that nothing is heard by it is the setup's step 6 below,
+	// which never subscribes message.mpim.
+	manifest, err := fs.ReadFile(packs.FS, "slack/app-manifest.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(manifest, &doc); err != nil {
+		t.Fatalf("app-manifest.yaml is no YAML: %v", err)
+	}
+	at := func(path ...string) (any, bool) {
+		var v any = doc
+		for _, k := range path {
+			m, ok := v.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			v, ok = m[k]
+			if !ok {
+				return nil, false
+			}
+		}
+		return v, true
+	}
+	bot, ok := at("bot_user", "display_name")
+	if !ok || bot == "" {
+		t.Errorf("the manifest names no bot user: %v", doc["bot_user"])
+	}
+	scopes, ok := at("oauth_config", "scopes")
+	if !ok {
+		t.Fatalf("the manifest names no scopes: %s", manifest)
+	}
+	scopesMap, ok := scopes.(map[string]any)
+	if !ok {
+		t.Fatalf("the manifest's scopes are no mapping: %v", scopes)
+	}
+	var botScopes []string
+	for k, v := range scopesMap {
+		if k != "bot" {
+			t.Errorf("the manifest names %s scopes: only the bot's", k)
+			continue
+		}
+		list, ok := v.([]any)
+		if !ok {
+			t.Fatalf("the manifest's bot scopes are no list: %v", v)
+		}
+		for _, s := range list {
+			name, ok := s.(string)
+			if !ok {
+				t.Fatalf("the manifest's bot scopes hold no string: %v", s)
+			}
+			botScopes = append(botScopes, name)
+		}
+	}
+	if want := []string{"app_mentions:read", "channels:history", "groups:history", "im:history", "mpim:history", "chat:write"}; !slices.Equal(botScopes, want) {
+		t.Errorf("the manifest's bot scopes = %q, want %q", botScopes, want)
+	}
+	var forbidden []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, child := range v {
+				if k == "event_subscriptions" || k == "request_url" {
+					forbidden = append(forbidden, k)
+				}
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(doc)
+	if len(forbidden) > 0 {
+		t.Errorf("the manifest carries %q: the events are subscribed in the setup's step 6, once the hook stands", forbidden)
+	}
+	// Its setup notes: the app from the manifest in a browser, the apply,
+	// the bot token given to the yard by a command, whose token it is read
+	// from source check, the public hook address, the signing secret and
+	// the hook with the two bot events subscribed in the browser, the
+	// bot's identity, the yardmaster's credential, and the subscription
+	// with the invitation. The terminal way throughout; the card steps
+	// land separately.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"api.slack.com/apps",
+		"packs/slack/app-manifest.yaml",
+		"carries no event subscriptions and no Request URL",
+		"`mpim:history` in particular is a reading\n   scope only",
+		"no\n   `message.mpim` event is ever subscribed",
+		"yardr pack apply slack\n",
+		"yardr source key slack ",
+		"SLACK_BOT_TOKEN",
+		"yardr source check slack\n",
+		"slack: check call whoami (POST /auth.test): 200 in …ms, … bytes",
+		"slack: user_id: U…",
+		"slack: team_id: T…",
+		"slack: bot_id: B…",
+		"no `user_id` line",
+		"setup stops",
+		"yardr settings set hook_public_url https://<his host>/hooks",
+		"umask 077",
+		"yardr hook add slack --source slack --secret-file",
+		"yardr crew identity yardmaster --source slack --id <user_id from step 4>",
+		"yardr crew show yardmaster",
+		"yardr crew restart yardmaster",
+		"yardr subscribe yardmaster slack --scope mentions --where type=message",
+		"yardr subscribe yardmaster slack --scope all --where type=message --where room=dm",
+		"/invite @<bot>",
+		"posts twice",
+		"fails with\nSlack's reason",
+		"reply\n--to` stands with `thread show`",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	// Step 6 is the place the two bot events are subscribed: its list
+	// names exactly app_mention and message.im, and its one naming of
+	// message.mpim says never.
+	start, end := strings.Index(p.SetupText, "\n6. "), strings.Index(p.SetupText, "\n7. ")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("the setup has no steps 6 and 7 to cut step 6 between")
+	}
+	six := p.SetupText[start:end]
+	if !strings.Contains(six, "```text\n   app_mention\n   message.im\n   ```") {
+		t.Errorf("the setup's step 6 names no two-event list of app_mention and message.im")
+	}
+	if !strings.Contains(six, "Never subscribe `message.mpim`") {
+		t.Errorf("the setup's step 6 never refuses message.mpim")
+	}
+	if n := strings.Count(six, "message.mpim"); n != 1 {
+		t.Errorf("the setup's step 6 names message.mpim %d times, want once, in its refusal", n)
 	}
 }
 

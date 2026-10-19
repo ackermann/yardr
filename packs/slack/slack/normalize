@@ -1,0 +1,48 @@
+#!/bin/sh
+# A verified Slack Events API body to the yard's envelope: stdin
+# {"headers":{…},"body":{…}}, stdout the envelope. Needs jq.
+# internal/hooks feeds it the Events API bodies its tests recorded and
+# compares the envelopes with the design's (sections 3.1 and 3.6 of
+# docs/design/2026-10-17-yardr-pcxd-slack.md).
+#
+# Every body gets an envelope, an unknown event too: the yard subscribes
+# to app_mention and message.im alone (SETUP.md step 6), so anything else
+# is answered as type event and matches no subscription, and a non-zero
+# exit would be answered 400, which the service retries. Nothing of the
+# body is ever printed to stderr.
+exec jq -c '
+def obj: if type == "object" then . else {} end;
+def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. The jq
+# POSIX space class includes the Unicode spaces split by Go strings.Fields.
+def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+def ordered: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
+# mentions is the envelope'"'"'s shape for this source: the member ids a
+# text mentions as <@U…>, once each, in order, exactly as written: ids
+# match exactly. A |label some surfaces add is not part of the id, and
+# channel (<#C…>) and link (<http…>) references mention nobody.
+def mentions($text):
+  ([$text | scan("<@([A-Z][A-Z0-9]+)(\\|[^>]+)?>") | .[0]] | ordered);
+
+(.body | if type == "object" then . else error("slack event is not an object") end) as $b
+| (($b.event | obj) | if (.type | type) == "string" then . else null end) as $e
+| if $e != null and ($e.type == "app_mention" or $e.type == "message") then
+    ($e.channel // "") as $channel
+    | ($e.thread_ts // $e.ts // "") as $parent
+    | (($e.text // "") | if type == "string" then . else "" end) as $raw
+    | (if $raw != "" then $raw
+       elif (($e.files // []) | length) > 0 then "[file]"
+       else "[message]" end) as $text
+    | {source: "slack", type: "message", action: "create",
+       actor: {id: str($e.user // $e.bot_id)},
+       thread: {id: "\($channel):\($parent)"},
+       text: ($text | trunc), mentions: mentions($raw),
+       message: str($e.ts), parent: str($parent),
+       fields: {channel: [$channel], team: [str($b.team_id // $e.team)],
+                sender: [str($e.user // $e.bot_id)],
+                room: [(if $e.channel_type == "im" or ($channel | startswith("D")) then "dm" else "channel" end)]}}
+  else
+    {source: "slack", type: "event", actor: {}, thread: {}, mentions: []}
+    | if $e != null and (($e.user | type) == "string") then . + {fields: {sender: [$e.user]}} else . end
+  end
+'

@@ -24,7 +24,7 @@ import (
 // service that tells a user outside the yard, a declaration with the
 // notify key that sends and no commands.
 //
-//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram
+//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is
