@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
@@ -895,9 +896,7 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	}
 	a := &app{st: st, actor: "me"}
 
-	// Ordered: the notes stand after the body, across the helper's
-	// writer and the command's direct sites (see runOrdered).
-	out, err := runOrdered(t, a.beadCmd(), "show", "yd-1")
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1104,9 +1103,7 @@ func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	// Ordered: the author lines are counted past the body's, across the
-	// helper's writer and the command's direct sites (see runOrdered).
-	out, err := runOrdered(t, a.beadCmd(), "show", "yd-1")
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1155,5 +1152,24 @@ func TestBeadListTitleCannotForgeARow(t *testing.T) {
 	}
 	if strings.Contains(out, "\x1b") {
 		t.Errorf("an escape reaches the terminal:\n%s", out)
+	}
+}
+
+// A held bead is marked in the header line, and the late mark of its
+// estimate stands under the eta line: both are printed on the writer
+// printBeadFlow is given, with no store to read them from.
+func TestPrintBeadFlowMarksAHeldBeadAndItsLateStage(t *testing.T) {
+	var buf bytes.Buffer
+	b := &store.Bead{ID: "yd-1", Title: "the shed", Type: "task", Stage: "new", Status: "open", Hold: true}
+	est := &eta.Result{
+		ETA:  &eta.ETA{Line: "eta usual 2m–5m (new ~3m)"},
+		Late: &eta.Late{Line: "late: new has run 9m, usually 5m at most"},
+	}
+	if err := (&app{}).printBeadFlow(&buf, b, "", nil, nil, nil, nil, nil, nil, nil, est); err != nil {
+		t.Fatal(err)
+	}
+	want := "yd-1  the shed\n  type task · stage new · open · P0 · HELD\n  eta usual 2m–5m (new ~3m)\n  late: new has run 9m, usually 5m at most\n"
+	if buf.String() != want {
+		t.Errorf("got  %q\nwant %q", buf.String(), want)
 	}
 }

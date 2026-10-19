@@ -1401,7 +1401,7 @@ fewer, and --all every session there is, which is what a script wants.
 			if err != nil {
 				return err
 			}
-			cut.say(len(ss), "sessions")
+			cut.say(c.ErrOrStderr(), len(ss), "sessions")
 			listed := dispatch.Listed(ss)
 			now := time.Now()
 			return a.out(c.OutOrStdout(), listed, func(w io.Writer) {

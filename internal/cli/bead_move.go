@@ -34,7 +34,7 @@ func (a *app) newBeadAdvanceCmd(rev *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Printf("%s → %s\n", b.ID, b.Stage) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Fprintf(w, "%s → %s\n", b.ID, b.Stage) })
 		},
 	}
 	advance.Flags().StringVar(&to, "to", "", "next stage")
@@ -68,7 +68,7 @@ refusal shows each unread note and how to ack it.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Printf("%s → %s\n", b.ID, b.Stage) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Fprintf(w, "%s → %s\n", b.ID, b.Stage) })
 		},
 	}
 	done.Flags().StringVar(&outcome, "outcome", store.DefaultOutcome, "how the work ended, one of the stage's outcomes")
@@ -150,9 +150,9 @@ func (a *app) newBeadCloseCmd(rev *string) *cobra.Command {
 				*store.Bead
 				Releases []string `json:"releases,omitempty"`
 			}{b, releases}, func(w io.Writer) {
-				fmt.Printf("%s closed\n", b.ID)
+				fmt.Fprintf(w, "%s closed\n", b.ID)
 				if len(releases) > 0 {
-					fmt.Printf("releases %s\n", strings.Join(releases, ", "))
+					fmt.Fprintf(w, "releases %s\n", strings.Join(releases, ", "))
 				}
 			})
 		},
@@ -175,7 +175,7 @@ func (a *app) beadSimpleCmd(use, short string, fn func(c *cobra.Command, st stor
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Printf("%s %s\n", b.ID, use) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Fprintf(w, "%s %s\n", b.ID, use) })
 		},
 	}
 }

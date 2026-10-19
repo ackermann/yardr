@@ -75,7 +75,7 @@ and takes no text and no --file.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), map[string]any{"bead": id, "note": n.Seq, "acked": "ok"}, func(w io.Writer) {
-					fmt.Printf("note %d on %s acked\n", n.Seq, id)
+					fmt.Fprintf(w, "note %d on %s acked\n", n.Seq, id)
 				})
 			}
 			text := args[1]
@@ -113,7 +113,7 @@ and takes no text and no --file.`,
 				if n.Notify != "" {
 					said += fmt.Sprintf(" (session %s will be told)", n.Notify)
 				}
-				fmt.Println(store.WithFiles(said, a.mailHome(), refs))
+				fmt.Fprintln(w, store.WithFiles(said, a.mailHome(), refs))
 			})
 		},
 	}

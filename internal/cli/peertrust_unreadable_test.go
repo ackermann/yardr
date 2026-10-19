@@ -88,14 +88,17 @@ func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 	if err := st.AddAnswer(ctx, "yard-1", store.Answer{Ask: seq, Option: 1, Words: "tonight"}, "jo@a"); err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	printAsk(&buf, ctx, unreadableTrusts{st}, "yard-1", seq)
+	var buf, warned bytes.Buffer
+	printAsk(&buf, &warned, ctx, unreadableTrusts{st}, "yard-1", seq)
 	out := buf.String()
 	if !strings.Contains(out, "jo@a ("+store.OutsideMail+")") {
 		t.Fatalf("the confirmation marks no foreign answer when the trusts cannot be read:\n%s", out)
 	}
 	if strings.Contains(out, "jo@a (as ") {
 		t.Fatalf("the confirmation trusts a name whose trusts it could not read:\n%s", out)
+	}
+	if warned.String() != "warning: links cannot be read\n" {
+		t.Fatalf("the confirmation warned %q, want the links' on the writer it was given", warned.String())
 	}
 }
 

@@ -356,7 +356,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 		fmt.Println("nothing waiting on you")
 		return nil
 	}
-	as := trustMarks(ctx, st)
+	as := trustMarks(os.Stderr, ctx, st)
 	for i, it := range items {
 		b := it.Bead
 		notes, err := st.Notes(ctx, b.ID)

@@ -510,7 +510,7 @@ what the person asked does, and this is the asker's own.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": seq, "state": askState(c.Context(), st, id, seq)},
-					func(w io.Writer) { printAsk(w, c.Context(), st, id, seq) })
+					func(w io.Writer) { printAsk(w, c.ErrOrStderr(), c.Context(), st, id, seq) })
 			}
 			question := args[len(args)-1]
 			var b *store.Bead
@@ -650,7 +650,7 @@ what the person asked does, and this is the asker's own.`,
 					if askNew {
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
-					fmt.Printf("%s for %s: to approve, %s\n", on, who, run.Command())
+					fmt.Fprintf(w, "%s for %s: to approve, %s\n", on, who, run.Command())
 					return
 				}
 				if secret != nil {
@@ -659,26 +659,26 @@ what the person asked does, and this is the asker's own.`,
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
 					if secret.Hook != "" {
-						fmt.Printf("%s for %s: a secret, the signing secret for the hook %s (POST /hooks/%s)\n", on, who, secret.Hook, secret.Hook)
+						fmt.Fprintf(w, "%s for %s: a secret, the signing secret for the hook %s (POST /hooks/%s)\n", on, who, secret.Hook, secret.Hook)
 						return
 					}
 					if secret.Login != "" {
-						fmt.Printf("%s for %s: a secret, %s for the waiting login %s\n", on, who, secret.Names(), secret.Login)
+						fmt.Fprintf(w, "%s for %s: a secret, %s for the waiting login %s\n", on, who, secret.Names(), secret.Login)
 						return
 					}
 					if secret.User != "" {
-						fmt.Printf("%s for %s: a secret, %s, %s's own address in the source %s\n", on, who, secret.Names(), secret.User, secret.Source)
+						fmt.Fprintf(w, "%s for %s: a secret, %s, %s's own address in the source %s\n", on, who, secret.Names(), secret.User, secret.Source)
 						return
 					}
 					if secret.Crew != "" {
-						fmt.Printf("%s for %s: a secret, %s, for crew member %s in the source %s\n", on, who, secret.Names(), secret.Crew, secret.Source)
+						fmt.Fprintf(w, "%s for %s: a secret, %s, for crew member %s in the source %s\n", on, who, secret.Names(), secret.Crew, secret.Source)
 						return
 					}
 					if secret.As != "" {
-						fmt.Printf("%s for %s: a secret, %s of the source %s, as %s\n", on, who, secret.Names(), secret.Source, secret.As)
+						fmt.Fprintf(w, "%s for %s: a secret, %s of the source %s, as %s\n", on, who, secret.Names(), secret.Source, secret.As)
 						return
 					}
-					fmt.Printf("%s for %s: a secret, %s of the source %s\n", on, who, secret.Names(), secret.Source)
+					fmt.Fprintf(w, "%s for %s: a secret, %s of the source %s\n", on, who, secret.Names(), secret.Source)
 					return
 				}
 				if setup != nil {
@@ -686,20 +686,20 @@ what the person asked does, and this is the asker's own.`,
 					if askNew {
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
-					fmt.Printf("%s for %s: to approve, yardr bead answer %s %d <preset> --secret\n", on, who, b.ID, seq)
+					fmt.Fprintf(w, "%s for %s: to approve, yardr bead answer %s %d <preset> --secret\n", on, who, b.ID, seq)
 					return
 				}
-				printAsk(w, c.Context(), st, b.ID, seq)
+				printAsk(w, c.ErrOrStderr(), c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
-					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
+					fmt.Fprintf(w, "ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
 				}
 				switch {
 				case askNew && len(also) > 0:
-					fmt.Printf("%s created; ask %d on it for %s; also queued for %s\n", b.ID, seq, who, strings.Join(also, ", "))
+					fmt.Fprintf(w, "%s created; ask %d on it for %s; also queued for %s\n", b.ID, seq, who, strings.Join(also, ", "))
 				case askNew:
-					fmt.Printf("%s created; ask %d on it for %s\n", b.ID, seq, who)
+					fmt.Fprintf(w, "%s created; ask %d on it for %s\n", b.ID, seq, who)
 				case len(also) > 0:
-					fmt.Printf("ask %d on %s for %s; also queued for %s\n", seq, b.ID, who, strings.Join(also, ", "))
+					fmt.Fprintf(w, "ask %d on %s for %s; also queued for %s\n", seq, b.ID, who, strings.Join(also, ", "))
 				}
 			})
 		},
@@ -892,11 +892,11 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				}
 				return a.out(c.OutOrStdout(), done, func(w io.Writer) {
 					ran := store.AskRan{Argv: done.Argv}
-					fmt.Printf("ask %d, asked by %s: %s\n", done.Ask, done.Asker, ran.Command())
+					fmt.Fprintf(w, "ask %d, asked by %s: %s\n", done.Ask, done.Asker, ran.Command())
 					for _, does := range done.Does {
-						fmt.Println(does)
+						fmt.Fprintln(w, does)
 					}
-					fmt.Printf("%s approved it, and the yard ran it:\n%s\n", a.who(), done.Result)
+					fmt.Fprintf(w, "%s approved it, and the yard ran it:\n%s\n", a.who(), done.Result)
 				})
 			}
 			ans := store.Answer{Ask: askSeq}
@@ -940,7 +940,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func(w io.Writer) {
-				printAsk(w, c.Context(), st, id, askSeq)
+				printAsk(w, c.ErrOrStderr(), c.Context(), st, id, askSeq)
 			})
 		},
 	}
@@ -1131,7 +1131,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 			return secretErr(err)
 		}
 		return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
-			fmt.Printf("%s gave %s · it is set in %s\n", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
+			fmt.Fprintf(w, "%s gave %s · it is set in %s\n", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
 		})
 	}
 	if secret.Login != "" {
@@ -1144,7 +1144,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 			return secretErr(err)
 		}
 		return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
-			fmt.Printf("%s gave %s · it went to the waiting login %s, and is kept nowhere\n", a.who(), strings.Join(keyed.Given, " and "), keyed.Login)
+			fmt.Fprintf(w, "%s gave %s · it went to the waiting login %s, and is kept nowhere\n", a.who(), strings.Join(keyed.Given, " and "), keyed.Login)
 		})
 	}
 	src, err := st.GetSource(c.Context(), secret.Source)
@@ -1168,9 +1168,9 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if keyed.Missing != "" {
 			line += " · " + keyed.Missing
 		}
-		fmt.Println(line)
+		fmt.Fprintln(w, line)
 		if keyed.Next != "" {
-			fmt.Println("next: " + keyed.Next)
+			fmt.Fprintln(w, "next: "+keyed.Next)
 		}
 	})
 }
@@ -1234,9 +1234,9 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 		return secretErr(err)
 	}
 	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Printf("%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
-		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
+		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Fprintf(w, "%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
+		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
 	})
 }
 
@@ -1272,9 +1272,9 @@ func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq
 		return secretErr(err)
 	}
 	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Printf("%s took %s\n", a.who(), done.Account)
-		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
+		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Fprintf(w, "%s took %s\n", a.who(), done.Account)
+		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
 	})
 }
 
@@ -1310,9 +1310,9 @@ func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq ui
 		return secretErr(err)
 	}
 	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Printf("ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Printf("%s kept the standing account\n", a.who())
-		fmt.Printf("%s approved it: %s\n", a.who(), done.Result)
+		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
+		fmt.Fprintf(w, "%s kept the standing account\n", a.who())
+		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
 	})
 }
 
@@ -1404,7 +1404,10 @@ func readHookKeys(secret *store.AskSecret, in io.Reader, typed func(prompt strin
 	return values, nil
 }
 
-func printAsk(w io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
+// printAsk prints the ask seq of the bead id on w, as the confirmation of
+// the command that put or answered it. warn is where it says that the
+// yard's links could not be read (see trustMarks).
+func printAsk(w, warn io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
 	if _, _, foreign := strings.Cut(id, "@"); foreign {
 		printForeignAsk(w, ctx, st, id, seq)
 		return
@@ -1414,7 +1417,7 @@ func printAsk(w io.Writer, ctx context.Context, st store.API, id string, seq uin
 		fmt.Fprintf(w, "ask %d on %s\n", seq, id)
 		return
 	}
-	as := trustMarks(ctx, st)
+	as := trustMarks(warn, ctx, st)
 	if as == nil {
 		as = map[string]string{}
 	}

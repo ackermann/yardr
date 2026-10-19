@@ -81,7 +81,7 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Println(b.ID) })
+			return a.out(c.OutOrStdout(), b, func(w io.Writer) { fmt.Fprintln(w, b.ID) })
 		},
 	}
 	f := create.Flags()
@@ -163,7 +163,7 @@ priority, metadata, type, depot, originator) tells nothing.`,
 				return err
 			}
 			if !a.json && b.Notify != "" {
-				fmt.Printf("(session %s will be told)\n", b.Notify)
+				fmt.Fprintf(c.OutOrStdout(), "(session %s will be told)\n", b.Notify)
 			}
 			return nil
 		},

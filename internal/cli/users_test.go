@@ -51,23 +51,6 @@ func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
 	return out
 }
 
-// asOrdered and mustAsOrdered are as and mustAs against the process
-// stdout, for order assertions across a converted helper and direct
-// sites (see runOrdered).
-func asOrdered(t *testing.T, st store.API, actor string, args ...string) (string, error) {
-	t.Helper()
-	return runOrdered(t, (&app{st: st}).rootCmd(), append(args, "--actor", actor)...)
-}
-
-func mustAsOrdered(t *testing.T, st store.API, actor string, args ...string) string {
-	t.Helper()
-	out, err := asOrdered(t, st, actor, args...)
-	if err != nil {
-		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, out)
-	}
-	return out
-}
-
 func refusedAs(t *testing.T, st store.API, actor, want string, args ...string) {
 	t.Helper()
 	if out, err := as(t, st, actor, args...); err == nil || !strings.Contains(err.Error(), want) {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"strconv"
 	"strings"
@@ -11,12 +12,11 @@ import (
 )
 
 // rows runs a listing and returns how many rows its table has, and what it
-// said on stderr.
+// said on its error stream.
 func rows(t *testing.T, st store.API, args ...string) (int, string) {
 	t.Helper()
-	said := captureStderr(t)
-	said.Reset()
-	out, err := run(t, (&app{st: st}).rootCmd(), args...)
+	var said bytes.Buffer
+	out, err := run(t, (&app{st: st, stderr: &said}).rootCmd(), args...)
 	if err != nil {
 		t.Fatalf("%v: %v\n%s", args, err, out)
 	}
