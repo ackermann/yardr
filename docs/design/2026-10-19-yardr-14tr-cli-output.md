@@ -169,8 +169,9 @@ and the start/stop seams `spawnDaemon`, `spawn`, `signalStop`,
 `focusAgent`, `paneTail` and kin (`start.go`, `longrunning.go`). Test
 helpers assign them with restoration: `stubLookPath` and `setInteractive`
 and `stubAsk` (`init_test.go:911`-`934`), `fakeTools` (`doctor_test.go:43`,
-which instead prepends a directory of stand-in tools to `PATH` by
-`t.Setenv`), and `stubServices` (`service_test.go:57`, which replaces
+which writes stand-in tools into a directory of its own and replaces
+the package's `lookPath` with a function that finds those and nothing
+else; it does not touch `PATH`), and `stubServices` (`service_test.go:57`, which replaces
 the service seams and the OS it reports). Note 6084 classed the tests
 doing this kind of choreography -- mid-test environment sequences,
 interactive and `runChat` paths, `lookPath` and service stubs, stderr
@@ -229,9 +230,9 @@ yardr-14tr  Design: cli commands write to an output ...
 
 What changes is who supplies the bytes' destination and the run's
 config when a test drives the same command in-process. Two decisions
-carry the whole design; both are put as open questions in section 5
-with their alternatives, and the text below describes the recommended
-option in each case (Q1 for the writer, Q2 for the environment).
+carry the whole design; both were put as open questions in section 5
+with their alternatives and answered with the recommended option, which
+the text below describes (Q1 for the writer, Q2 for the environment).
 
 ### 3.1 The writer: cobra at run time, the app as its preset
 
@@ -312,8 +313,9 @@ run-time source and the app as its preset. Q1 prices the alternatives.
 The run's environment becomes a value on the app, in the shape the
 runner already builds for panes. Concretely:
 
-- `app` gains `env map[string]string`, the run's whole environment by
-  full key (`YARDR_HOME`, `YARDR_ACTOR`, `USER`, `HOME`, ...).
+- `app` gains `env map[string]string`, the run's environment by full
+  key (`YARDR_HOME`, `YARDR_ACTOR`, `USER`, `HERDR_ENV`, ...), less
+  the process facts named below, which the map never carries.
   `Execute` seeds it from `os.Environ()` once, at the process's edge;
   tests construct the map they mean. Two lookups read it:
   `a.getenv(key)` for full keys and a yardr lookup in the shape of
@@ -331,6 +333,10 @@ runner already builds for panes. Concretely:
   still made absolute against the process's working directory, for
   the reasons given below, where this section says what the map does
   not carry.
+  `config.ActorWith(get)` does the same for `config.Actor`
+  (`config.go:422`), which reads `YARDR_ACTOR` and then `USER` from
+  the process today and is where `resolveActor` (`root.go:194`) and
+  `init` (`init.go:970`, `:1046`) end up.
   `(*app).config()` resolves `a.cfg` once from `a.env` (through
   `LoadWith`) and the 36 `config.Load` call sites in commands use it.
   The `--home` flag stops mutating the process: `PersistentPreRunE`
@@ -340,66 +346,143 @@ runner already builds for panes. Concretely:
   itself stays for the non-CLI callers that still need it.
 - What a run starts gets the run's environment explicitly, which the
   child builders already accept: the daemon, server and service
-  environments are built from `a.environ()` (the map rendered as
-  `KEY=VALUE`, with the resolved home applied) where today they are
+  environments are built from `a.environ()` where today they are
   built from `os.Environ()` -- `daemonEnv`, `server.ServerEnv` and
   `serviceEnv` already take that slice as their first argument
   (`home_test.go:93`), so the behaviour `--home` guarantees a child
   ("a child with the command's environment", `TestHomeFlagReachesChildren`)
   is kept by construction rather than by a mutated global.
-- The map does not carry the user's home or the working directory.
-  Both stay facts of the process, and no yardr helper reads them from
-  `a.env`. Too many readers sit below the CLI to thread them without
-  changing other packages' path APIs, which the bead leaves out. For
-  the user's home: `config.IsDefaultHome` (`config.go:173`, called
-  through `yardrAt`, `init.go:196`, at about a hundred sites),
-  `config.ExpandPath` (`envfile.go:41`, at `users.go:241`,
-  `sourcecmd.go:1007`, `packnotify.go:84` and `:118`,
-  `grouplogin.go:114`), `LoadReadOnly`'s default, four direct
-  `os.UserHomeDir` calls (`crew.go:999` in `absDir`,
-  `depotsources.go:166` in `tilde`, `grouplogin.go:103`,
-  `updown.go:120`) and the `userHomeDir` seam (`doctor.go:177`, read
-  at ten sites). For the working directory: the three `os.Getwd`
-  sites (`identity.go:55`, `crew.go:1997`, `guide.go:437`), nine
-  `filepath.Abs` calls in `internal/cli`, `filepath.Abs` in
-  `config.UseHome`, `LoadReadOnly` and `ExpandPath`, `pack.LoadDir`
-  (`internal/pack/pack.go:263`, reached from `resolvePack`,
-  `pack.go:130`), and every relative path a command opens or hands to
-  a subprocess that inherits its directory. Each would need a base
-  passed in, and that change would reach into `internal/config` and
-  `internal/pack`.
-  In a test binary both values are constant, so parallel tests can
-  read them safely. `TestMain` sets `HOME` once, before any test runs
-  (`main_test.go:96`). Go refuses `t.Setenv` and `t.Chdir` in a test
-  that calls `t.Parallel`, and it starts parallel tests only after the
-  sequential ones have finished (section 3.3). So every parallel test
-  reads the same `HOME` and the same directory, the package's own. A
-  real run seeds `a.env` from the process, so its map and its helpers
-  name the same `HOME`. To keep a test from building a run whose map
-  and helpers disagree, `testApp` refuses a map holding `HOME` with
-  `t.Fatal`.
-  What this costs is a named set of tests that stay serial. Sixteen
-  test functions set the user's home, through `noHome`
-  (`home_test.go:28`; 12 calls in `harnesslogin_test.go`,
-  `harness_test.go`, `home_test.go` and `version_test.go`) or a direct
-  `t.Setenv("HOME", ...)` (`grouplogin_test.go`, `init_test.go:554`,
-  `main_guard_test.go:114`). The 44 `stubServices` callers and the
-  seven `userHomeDir` stubs are already serial as service seams.
-  Seven test functions call `t.Chdir` directly and keep it, because
-  they test resolution against the directory:
-  `TestHomeFlagReachesChildren` (a relative `--home y1/`,
-  `home_test.go:80`), the two in `packname_test.go` (`./starter` at
-  `:70`, a name from elsewhere at `:212`), `TestDefaultPackSetting`
-  (`defaultpack_test.go:126`) and three in `identity_test.go`, which
-  stand in a session's worktree. The other three `t.Chdir` sites are
-  in yard helpers (`beadYard`, `peerbeads_test.go:28`;
-  `replyMailYard`, `replymail_test.go:24`; `userYardOn`,
-  `users_test.go:31`, together reaching about 40 tests). They move
-  only so that `worktreeIdentity` (`identity.go:50`) does not find the
-  test package's own worktree. That check reads the directory only
-  when the run names a bead, and these helpers' maps name none, so
-  their `t.Chdir` is deleted rather than kept, and their tests join
-  the parallel set.
+  `a.environ()` renders the map as `KEY=VALUE`, with the resolved home
+  applied, and adds the process facts of the next point as the
+  process holds them at the moment it renders, not as they were when
+  `Execute` seeded the map. That is how `up`'s `PATH` reaches what it
+  starts. `herdrProgram` (`updown.go:147`-`168`) appends the login
+  shell's directories to the process `PATH` when only that shell finds
+  herdr, and `useLoginPATH` (`login.go:240`-`250`) puts the login
+  shell's `PATH` first for `up --login`. Both keep calling
+  `os.Setenv("PATH", ...)`, because every reader of `PATH` they serve
+  reads the process: `lookPath` (`exec.LookPath`), `exec.Command`'s own
+  lookup, `spawnHerdr`'s environment (`updown.go:112`-`115`), the
+  login service's `PATH` line (`login.go:124`) and `internal/source`'s
+  command environment (`command.go:101`). Both run before `up` starts
+  herdr, the server or the daemon, and `a.environ()` is called when
+  each child is built, so each child gets the merged `PATH`. A
+  snapshot of `PATH` in the map would lose those directories; that is
+  why `PATH` is a process fact and not a map entry.
+- The map does not carry the process facts: the values that a package
+  below the CLI reads from the process itself, or that a command sets
+  on the process for those readers. Threading them would change those
+  packages' APIs, which the bead leaves out. They are:
+  - the user's home (`HOME`): `config.IsDefaultHome` (`config.go:173`,
+    called through `yardrAt`, `init.go:196`, at about a hundred sites),
+    `config.ExpandPath` (`envfile.go:41`, at `users.go:241`,
+    `sourcecmd.go:1007`, `packnotify.go:84` and `:118`,
+    `grouplogin.go:114`), `LoadReadOnly`'s default, four direct
+    `os.UserHomeDir` calls (`crew.go:999` in `absDir`,
+    `depotsources.go:166` in `tilde`, `grouplogin.go:103`,
+    `updown.go:120`) and the `userHomeDir` seam (`doctor.go:177`, read
+    at ten sites);
+  - the working directory: the three `os.Getwd` sites
+    (`identity.go:55`, `crew.go:1997`, `guide.go:437`), nine
+    `filepath.Abs` calls in `internal/cli`, `filepath.Abs` in
+    `config.UseHome`, `LoadReadOnly` and `ExpandPath`, `pack.LoadDir`
+    (`internal/pack/pack.go:263`, reached from `resolvePack`,
+    `pack.go:130`), and every relative path a command opens or hands
+    to a subprocess that inherits its directory;
+  - `PATH`, for the readers listed in the point above, and `TMPDIR`,
+    read by `os.TempDir`;
+  - herdr's session variables, `HERDR_SOCKET_PATH`, `HERDR_SESSION`,
+    `XDG_CONFIG_HOME` and `XDG_STATE_HOME`: `internal/runner` resolves
+    the herdr session from them (`herdr_session.go:89`, `:144`, `:149`;
+    `herdr_events.go:27`);
+  - declared-source credentials and logins, such as `GITHUB_TOKEN`,
+    `GITHUB_APP_ID` or a declaration's own `ACME_TOKEN`:
+    `hooks.Declared.Credential` reads them with `os.Getenv`
+    (`internal/hooks/reply.go:185`), and `internal/limits` hands a
+    limits command the process environment (`limits.go:345`);
+  - the setting variables (`YARDR_WEB_ADDR`, `YARDR_BDP_ADDR`,
+    `YARDR_HOOK_ADDR`, `YARDR_WEB_AS`, `YARDR_WEB_PAGES_ADDR`,
+    `YARDR_WEB_PAGES_HOST`, `YARDR_UPGRADE_RESTORE`) as
+    `store.Setting.Effective` reads them (`internal/store/settings.go:470`,
+    called from `init.go:1275`, `upgrade_install.go:417`, `web.go:160`
+    and `:448`). They are the one exception to "never carries": the
+    map also holds them, for the CLI's own reads through `LoadWith`,
+    while `Effective` keeps reading the process. `TestMain` keeps the
+    two in agreement for parallel tests by blanking them in the
+    process, and a test that sets one to a value stays serial.
+  In a test binary these values are constant while parallel tests
+  run. Go refuses `t.Setenv` and `t.Chdir` in a test that calls
+  `t.Parallel`, and it starts parallel tests only after the sequential
+  ones have finished (section 3.3). `TestMain` already sets `HOME` once
+  (`main_test.go:96`); it also blanks the setting variables once, which
+  `newHome` does per test today (`init_test.go:51`-`52`). So every
+  parallel test reads the same process facts, and the setting
+  variables are unset in both its map and its process. A real run
+  seeds `a.env` from the process, so its map and its helpers agree. To
+  keep a test from building a run whose map and helpers disagree,
+  `testApp` fails the test (`t.Fatal`) when its map holds `HOME`,
+  `PATH`, `TMPDIR` or a herdr session variable. Credential names are
+  open-ended and cannot be listed there, but a misplaced one fails
+  loudly rather than flakily: a parallel test that puts a credential
+  in its map, where `Declared.Credential` reads the process, finds it
+  unset every time and fails the same way on every run.
+  What this costs is a named set of tests that stay serial, because
+  they set a process fact. By test function, at the base of this
+  revision:
+  - `HOME`, 16: through `noHome` (`home_test.go:28`; 12 calls in
+    `harnesslogin_test.go`, `harness_test.go`, `home_test.go` and
+    `version_test.go`) or a direct `t.Setenv("HOME", ...)`
+    (`grouplogin_test.go`, `init_test.go:554`,
+    `main_guard_test.go:114`).
+  - The working directory, 7, which keep `t.Chdir` because they test
+    resolution against the directory: `TestHomeFlagReachesChildren`
+    (a relative `--home y1/`, `home_test.go:80`), the two in
+    `packname_test.go` (`./starter` at `:70`, a name from elsewhere at
+    `:212`), `TestDefaultPackSetting` (`defaultpack_test.go:126`) and
+    three in `identity_test.go`, which stand in a session's worktree.
+  - `PATH`, 4: `TestUpWithoutHerdr` and
+    `TestUpFindsHerdrWithTheLoginShell` (`updown_test.go:562`, `:595`),
+    `TestUseLoginPATH` (`login_test.go:543`) and
+    `TestCrewWithoutGitHubCredentialIsRefused`
+    (`githubapp_test.go:193`, a stand-in `gh` first on `PATH`).
+  - `TMPDIR`, 1: `TestDoctorTry` (`doctor_test.go:1071`).
+  - herdr's session variables, 6: `TestDaemonServiceReachesTheHerdrSessionSet`
+    and the callers of `otherShell` (`herdrsession_test.go:32`-`34`,
+    `:157`), `TestDaemonWithoutYard` (`init_test.go:712`-`714`),
+    `TestSecondDaemonRefused` (`lock_test.go:31`-`32`) and
+    `TestHerdrLoginRejectsUnsafeSessionName` (`login_test.go:184`).
+  - Credentials and logins, about 29: six in `declaredthread_test.go`,
+    six in `reply_test.go`, `TestCrewAnswersWithAProvidersCredential`
+    (`envcommand_test.go`), `TestLimitsGroupReadsTheGroupsLogin`
+    (`limits_test.go:161`), `TestThreadOpenRefusals`,
+    `TestThreadStateRefusals`, and the callers of the yard helpers that
+    set them: `newAppYard` (`githubapp_test.go:97`-`100`, 3 callers),
+    `openYard` (`threadopen_test.go:173`-`176`, 4) and `stateYard`
+    (`threadstate_test.go:159`-`162`, 6).
+  - The setting variables set to a value, 6:
+    `TestAddrSettingsAreCheckedAsTheFlag`,
+    `TestSettingsGetPrintsTheValueInEffect`,
+    `TestStartAndInstallTakeThePagesFlags`, `TestUpgradeRestoreOn`,
+    `TestWebServeAsTakesFlagEnvAndSetting` and
+    `TestWebServeJWTRefusals`.
+  - `stubServices` (`service_test.go:57`-`70`) sets `PATH`, `HOME`,
+    `HERDR_SOCKET_PATH`, `HERDR_SESSION` and `XDG_CONFIG_HOME` as well
+    as the service seams. Its 42 callers are already serial as service
+    seam tests (section 3.3), and this is a second reason. So are the
+    seven `userHomeDir` stubs.
+  That is about 69 test functions beyond the 42 `stubServices` callers,
+  some of them also in note 6084's serial-essential class. The counts
+  are by test function and helper caller at the base of this revision;
+  B6 recounts them at its own base, and S7's hygiene data lists them by
+  name.
+  The other three `t.Chdir` sites are in yard helpers (`beadYard`,
+  `peerbeads_test.go:28`; `replyMailYard`, `replymail_test.go:24`;
+  `userYardOn`, `users_test.go:31`, together reaching about 40 tests).
+  They move only so that `worktreeIdentity` (`identity.go:50`) does not
+  find the test package's own worktree. That check reads the directory
+  only when the run names a bead, and these helpers' maps name none, so
+  their `t.Chdir` is deleted rather than kept, and their tests join the
+  parallel set.
 - Test homes stop touching the process. `newHome` keeps its directory
   work (a fresh short directory, `shortDir` and the socket-length
   reason it exists) and returns the home; a new constructor beside it
@@ -409,11 +492,14 @@ runner already builds for panes. Concretely:
   `newHome` sets today. During the move the old `t.Setenv` form and the
   new map form coexist per file: a file's tests use one or the other,
   never both, and the file joins the parallel set only in the second
-  form. `noGitHubCredential` and `newAsker` get the same treatment:
-  values that were `t.Setenv`s become entries in the map the test
-  hands its app. `noHome` keeps its process form, because what it sets
+  form. `newAsker` gets the same treatment: values that were
+  `t.Setenv`s become entries in the map the test hands its app.
+  `noGitHubCredential` (`main_test.go:279`) only blanks the GitHub
+  credential variables, which are a process fact, so its blanks move
+  into `TestMain`, once, beside the setting variables, and the helper
+  is deleted. `noHome` keeps its process form, because what it sets
   is the user's home, which the map does not carry, and its tests stay
-  serial.
+  serial; so does every other setting of a process fact listed above.
 
 This is `config.Env`'s lesson applied inward: the runner never lets a
 pane read the daemon's process environment for the values that name
@@ -426,17 +512,17 @@ Parallelism is claimed per test, not per package, and one class of
 tests stays sequential by rule. A test may carry `t.Parallel` only
 when it neither assigns a package variable nor calls a helper that
 does, in its file's migrated form (writer in a buffer, environment in
-its app's map, `HOME` and the working directory left as the process
+its app's map, the process facts of section 3.2 left as the process
 has them). These stay global, and
 the tests that stub them stay serial:
 
 | Seam | Why it stays global and its tests serial |
 |---|---|
 | `interactive`, `ask` (huh), `runChat` (bubbletea) | They own the terminal: one keyboard, one screen, real descriptors. Parallel forms would interleave on hardware, not on a writer this design can hand them. |
-| `lookPath` (`init.go:218`) | One lookup table for the machine's `PATH`; `fakeTools` makes the same point by rewriting `PATH` itself. Moving it onto the app is possible (Q3) but buys only its own tests, which are few and already fast. |
+| `lookPath` (`init.go:218`) | One package variable, which `stubLookPath` and `fakeTools` (`doctor_test.go:43`-`57`) replace with a function that finds only a test's stand-in tools; neither rewrites `PATH`. A test that replaces it must run alone, because every parallel test would see its replacement. Moving it onto the app is possible (Q3) but buys only its own tests, which are few and already fast. |
 | `connect`, `spawnDaemon`, `spawn`, `focusAgent`, `paneTail` and kin | They start or address real processes, servers and herdr panes -- the isolated-yard cases of the brief, serial for the same reason a port is. |
 | Service seams (`serviceDir`, `serviceCtl`, `serverRunning`, `loginService`, `webService`, `userHomeDir`) | They describe this machine's service manager and user's home. `stubServices` replaces the set as one gesture; per-app copies would multiply that gesture across every doctor test. |
-| The user's home and the working directory (`HOME`, `os.Getwd`) | Read below the CLI by `config` and `pack` path helpers (section 3.2). They are constant while parallel tests run, because Go refuses `t.Setenv` and `t.Chdir` in a parallel test. The 16 tests that set `HOME` and the 7 that test resolution against a directory stay serial. |
+| The process facts (`HOME`, the working directory, `PATH`, `TMPDIR`, herdr's session variables, declared credentials, the setting variables as `store` reads them) | Read below the CLI by `config`, `pack`, `runner`, `hooks`, `limits`, `source` and `store`, or set on the process by `up` for those readers (section 3.2). They are constant while parallel tests run, because Go refuses `t.Setenv` and `t.Chdir` in a parallel test. The tests that set one stay serial; section 3.2 names them. |
 | Terminal facts (`term.IsTerminal` on the real descriptors) | Not a seam at all: a read-only fact about the process, safe to read in parallel, never stubbed per test. |
 
 The safety rule that makes this sound is Go's own scheduling: tests
@@ -492,30 +578,37 @@ the slices that finish each thread, not before.
   writer argument, and no `os.Stdout` outside the terminal checks and
   child wiring named in section 3.3, may remain in non-test files.
 - **S5, environment plumbing.** `config.LoadWith`, `(*app).config()`,
-  `a.env` with its two lookups, `--home` recorded in the map instead
-  of `UseHome` (made absolute against the process's directory, as
-  today), and child environments built from `a.environ()`. The user's
-  home and the working directory stay process reads (section 3.2).
+  `config.ActorWith`, `a.env` with its two lookups, `--home` recorded
+  in the map instead of `UseHome` (made absolute against the process's
+  directory, as today), and child environments built from
+  `a.environ()`, which adds the process facts as the process holds
+  them when it renders, so `up`'s merged `PATH` reaches herdr, the
+  server and the daemon. The process facts stay process reads
+  (section 3.2).
   Fallback to the
   process environment is still in place, so every existing test
   passes unaltered; this slice proves itself by the tests that already
   assert the flag order and the child environment
-  (`TestHomeFlagOrder`, `TestHomeFlagReachesChildren`).
+  (`TestHomeFlagOrder`, `TestHomeFlagReachesChildren`), and by
+  `TestUpFindsHerdrWithTheLoginShell` extended to the daemon's
+  environment (B5b).
 - **S6, test homes become maps**, file group by file group in the same
-  groupings as S2/S3: `testApp` (which refuses a map holding `HOME`)
-  and the map forms of `newHome`, `noGitHubCredential` and `newAsker`;
-  the `t.Chdir` in `beadYard`, `replyMailYard` and `userYardOn` is
-  deleted. A file is finished when none of its tests calls `t.Setenv`
-  or `t.Chdir`, except the named serial tests of section 3.2 (the 16
-  that set `HOME`, `noHome`'s among them, and the 7 that keep
-  `t.Chdir`); the process fallback stays until the last file moves.
+  groupings as S2/S3: `testApp` (which refuses a map holding a process
+  fact it can name) and the map forms of `newHome` and
+  `newAsker`; `TestMain` blanks the setting variables and the GitHub
+  credential variables once, and `noGitHubCredential` is deleted; the `t.Chdir` in `beadYard`, `replyMailYard` and
+  `userYardOn` is deleted. A file is finished when none of its tests
+  calls `t.Setenv` or `t.Chdir`, except the named serial tests of
+  section 3.2, which set a process fact; the process fallback stays
+  until the last file moves.
 - **S7, parallelism, and the bridges come down.** Per finished file,
   `t.Parallel` is added to every test the section 3.3 rule allows; the
   fallback to the process environment in the env lookups is deleted
   (an app with no map in a test is a construction error the helpers
   make impossible); a hygiene test in the package (an AST walk in the
   shape of note 6084's classifier) fails when a parallel test reaches
-  `capture`-era helpers, `noHome` or a named stub helper (Go itself
+  `capture`-era helpers, `noHome`, a helper that sets a process fact
+  (section 3.2) or a named stub helper (Go itself
   refuses `t.Setenv` and `t.Chdir` there);
   and the allow-list row at `.yardr/test:689` is rewritten with the new
   measured number or deleted, as R1/R3 require. The serial remainder
@@ -545,8 +638,8 @@ ownership would cut across every command family, so the slices are
 put in sequence instead: S1, S2, S3, S4, then S5, S6, S7. Each slice
 starts from a base where the slice before it has landed, and no two
 slices are open on the same file at once. The one part of S5 outside
-`internal/cli`, `config.LoadWith` in `internal/config/config.go`,
-touches no file the output thread edits. It may land at any point
+`internal/cli`, `config.LoadWith` and `config.ActorWith` in
+`internal/config/config.go`, touches no file the output thread edits. It may land at any point
 before the rest of S5 (bead B5a in section 6).
 
 ### 3.5 The expected wall, with the numbers
@@ -560,23 +653,27 @@ concurrently. The wall after S7 is bounded by two blocks:
 - the serial-essential block of section 3.3 -- about 150 tests,
   measured at about 20.6 s under `-race` in note 6084, carried here
   unshrunk, because this design does not promise to convert it. The
-  23 tests that set `HOME` or keep `t.Chdir` (section 3.2) are mostly
-  of that class already (mid-test environment sequences); counted
-  as wholly extra at the 0.10 s mean, they add about 2.3 s;
-- the parallel block -- the remaining roughly 750 tests, about 55-60 s
+  about 69 tests that set a process fact (section 3.2, beyond the
+  `stubServices` callers already in that class) are partly of that
+  class already (mid-test environment sequences); counted as wholly
+  extra at the 0.10 s mean, they add about 7 s, for a serial block of
+  at most about 28 s;
+- the parallel block -- the remaining roughly 680 tests, about 50 s
   of the 77 s total -- spread across the machine's cores by
   `t.Parallel` (the test binary runs parallel tests up to
   `GOMAXPROCS`; this machine has 10 cores). That block's ideal is
-  about 6 s; its real floor is set by what the tests share underneath:
+  about 5 s; its real floor is set by what the tests share underneath:
   git subprocesses (30 test files shell to git), temp directories and
   bbolt files per test, and the race detector's own cost. The
   precedent in the same suite is store's parallel tests and the
   assembly train yards, which parallelise around the same machinery.
 
-Carried honestly, the expectation is an alone wall of about 25-35 s
-under `-race` (20 s serial block, overlapped with a parallel block
-that contends its way from 6 s ideal to roughly 10-15 s), against
-today's about 75 s quiet -- comfortably under R1's 60 s with the
+Carried honestly, the expectation is an alone wall of about 30-45 s
+under `-race` (a serial block of 21-28 s, followed by a parallel block
+that contends its way from 5 s ideal to roughly 10-15 s; the two add,
+because Go starts the parallel tests only after the sequential ones
+have finished), against
+today's about 75 s quiet -- under R1's 60 s with the
 margin R1's loaded-recheck exists for, and no claim of more. In a full
 suite the package also stops setting every other package's wall from
 the serial side: it remains one of the larger packages but no longer
@@ -628,14 +725,20 @@ it as a product feature.
   already own (section 3.3). Their tests stay serial; making a form
   render into a buffer is a different design with a different user --
   a person at a keyboard -- in view.
-- **Threading the user's home and the working directory.** Every
-  helper that reads `HOME` or resolves a relative path would take a
-  base: `config.IsDefaultHome`, `ExpandPath`, `UseHome`,
-  `LoadReadOnly`, `pack.LoadDir`, and the CLI sites section 3.2 lists.
-  That is a change to `internal/config`'s and `internal/pack`'s path
-  APIs, which the bead leaves out, and it buys 23 tests about 2 s of
-  serial wall. The values stay process facts; `testApp`'s refusal of
-  `HOME` keeps a test from pretending otherwise.
+- **Threading the process facts.** Every helper that reads `HOME` or
+  resolves a relative path would take a base (`config.IsDefaultHome`,
+  `ExpandPath`, `UseHome`, `LoadReadOnly`, `pack.LoadDir`, and the CLI
+  sites section 3.2 lists); `internal/runner`'s herdr session lookup,
+  `hooks.Declared.Credential`, `internal/limits`' command environment
+  and `store.Setting.Effective` would each take a lookup; and `up`
+  would carry its merged `PATH` in a value instead of the process.
+  Those are changes to other packages' APIs, which the bead leaves
+  out, and together they buy about 69 tests about 7 s of serial wall.
+  The cheapest of them, should B7's measurement ask for one, is the
+  credentials: `hooks`' unexported `declaredCredential` already takes
+  a lookup (`internal/hooks/reply.go:159`), and the about 29
+  credential tests are the largest group. The values stay process
+  facts; `testApp`'s refusal keeps a test from pretending otherwise.
 - **Moving every seam onto the app.** `lookPath`, `connect`, the
   service and spawn seams could each become an `app` field, and Q3
   prices that. It is left out of the proposal because it converts
@@ -659,14 +762,16 @@ it as a product feature.
   in-process output has its own failure modes). The black-box suites
   already cover the binary as a binary.
 
-## 5. Open questions
+## 5. Open questions, answered
 
-Each question is the operator's to decide at the decide stage. The
-proposal above is written for the recommended option in each case;
-nothing else in this document decides them.
+Each question was the operator's to decide. mckean answered all five
+on 19 Oct 2026 through asks 7479-7483 on the bead, choosing the
+recommended option each time. The proposal above is written for those
+answers. The options are kept below as they were put, so a reader can
+see what was weighed.
 
 **Q1. Where does a command's writer live: the app's fields, cobra's
-`OutOrStdout`, or both as proposed?**
+`OutOrStdout`, or both as proposed?** Answered: (c), both (ask 7479).
 (a) App fields only (`a.stdout`/`a.stderr`, with `a.out` writing
 there): one home for every writer, but every `RunE` and helper must
 consult the app even when cobra already carries the same value, and
@@ -684,14 +789,15 @@ distinction users never see.
 (section 3.1): cobra's inherit-and-override does the work it already
 does, the app's fields exist only for what predates a command, and
 `printCallables(w, ...)` is the precedent both halves extend.
-**Recommendation: (c).** It is the smallest new mechanism -- no sync
+Recommended and chosen: (c). It is the smallest new mechanism -- no sync
 rule, no second help wire -- and it is the only option under which the
 existing test idiom (`cmd.SetOut(&buf)`, `watch_test.go:123`) is
 already correct.
 
 **Q2. How do config, home and cwd reach a command: an explicit
 environment map on the app (as proposed), or only a resolved
-`*config.Config`?**
+`*config.Config`?** Answered: (b), the environment map with
+`config.LoadWith` (ask 7480).
 (a) Only `*config.Config`, resolved once: the 36 `config.Load` sites
 collapse onto `a.cfg`, and `--home` becomes a field on it. But the
 actor, session, bead, crew and `--for` defaults, the blanked
@@ -703,21 +809,23 @@ single block in note 6084's count -- never parallelises.
 (b) The full environment map on the app (`a.env map[string]string`,
 section 3.2), with `config.LoadWith` resolving the `Config` from it:
 every yardr value a run reads comes from one value a test can
-construct (the user's home and the working directory stay process
-facts under either option, section 3.2), and
+construct (the process facts of section 3.2 -- the user's home, the
+working directory, `PATH` and the others read below the CLI -- stay
+on the process under either option), and
 children receive it through the builders that already take an
 environment slice. Cost: one new function in `internal/config` and a
 map at every test's app construction (hidden behind `testApp`), plus
 the discipline that a value not in the map is absent, not defaulted
 from the process -- which is the point, and also the migration's most
 likely source of a red slice if a reader is missed.
-**Recommendation: (b).** Option (a) solves the smaller half of the
+Recommended and chosen: (b). Option (a) solves the smaller half of the
 bead's question and leaves its stated goal -- tests running in
 parallel -- unmet for the tests that most need it.
 
 **Q3. Do the stubbed seams (`lookPath`, `connect`, the service and
 spawn seams) stay package-global with serial tests, as proposed, or
-move onto the app so their tests can parallelise too?**
+move onto the app so their tests can parallelise too?** Answered:
+they stay global and serial (ask 7481).
 Moving them is a field per seam and a constructor change at every
 stubbing test's app literal (503 `&app{` literals in the test files
 today, though only the stubbing files would change). What it buys is
@@ -725,8 +833,8 @@ the parallel conversion of the serial-essential class's stub-driven
 share -- part of the about 150 tests and 20.6 s carried in section
 3.5 -- at the price of the package's widest test-only diff, taken
 before the wall it would improve can be measured without it.
-**Recommendation: stay global and serial (section 3.3), and let S7's
-measured wall decide whether a follow-up bead moves any one seam.**
+Recommended and chosen: stay global and serial (section 3.3), and let
+S7's measured wall decide whether a follow-up bead moves any one seam.
 If the measured serial block, not the parallel block, is what keeps
 the package near 60 s on a quiet machine, that bead will know exactly
 which seam to move; taken now, the move is speculative in the sense
@@ -734,7 +842,12 @@ the yard's rules refuse.
 
 **Q4. Is an expected alone wall of about 25-35 s -- under R1's 60 s,
 but not near the parallel block's 6 s ideal -- the right promise for
-the build beads' done-when?**
+the build beads' done-when?** Answered: R1 as written gates, and the
+projection is reported, not gated (ask 7482). The question was put
+with the 25-35 s projection; the third critique round added the
+serial tests that set a process fact (section 3.2), and section 3.5
+now projects about 30-45 s. The answer does not depend on the
+projection, because the gate is R1's 60 s.
 The alternative promises are a tighter internal target (for example
 30 s alone, which would force Q3's seam move or the fat-test trims of
 yardr-cayh to be re-opened if contention runs high) or R1 as written
@@ -744,13 +857,13 @@ contingency work against machine load this design cannot control --
 the same package measured 75 s quiet and 151 s at load 21 on the same
 day (section 2.4) -- while R1's own loaded-recheck already names how
 a loaded run is judged.
-**Recommendation: R1 as written, with the 25-35 s projection reported
-as the measurement to beat, not as a gate.** If S7 lands above the
+Recommended and chosen: R1 as written, with section 3.5's projection
+reported as the measurement to beat, not as a gate. If S7 lands above the
 projection on a quiet machine, that is a finding for the re-measure,
 with the number attached.
 
 **Q5. Does the operator confirm that no rpc, web or chat reuse of
-command output is in scope?**
+command output is in scope?** Answered: none is in scope (ask 7483).
 Section 3.6 argues the shared level is `store.API` and that capturing
 command text into a page or a socket reply would be a new, worse API.
 If the operator instead wants a named consumer -- for example the web
@@ -758,7 +871,7 @@ view showing what a named command would print -- that consumer, its
 command and its format belong in this decision, because it would
 change S2/S3 from "thread the writer" to "stabilise the text as a
 contract", a materially larger promise.
-**Recommendation: confirm none in scope.** The beads below thread the
+Recommended and chosen: none in scope. The beads below thread the
 writer for tests and for stream discipline only, and no command's
 prose becomes a contract by landing them.
 
@@ -805,66 +918,88 @@ Where to look: the 52 non-test files by family -- bead/prime; crew,
 depot, group; pack, source; then the long tail (`peers.go`,
 `start.go`, `ops.go`, `init.go`, `guide.go`, `service.go`,
 `reply.go`). Done when: per family, its commands' output is captured
-by `run`'s buffer alone in its tests; after the last family, no
-non-test `fmt.Print` lacks a writer argument. Size: large, landing
+by `run`'s buffer alone in its tests, and no `fmt.Print*` without a
+writer argument and no raw `os.Stdout` remains in the family's files
+(the package-wide check is B4's). Size: large, landing
 as one small-to-medium bead per family (four beads). Depends on: B1,
 B2 (a family's helpers must already take the writer its bodies pass).
 
 **B4. The harness lets go of the process (S4).** Goal: `run` returns
 the command's buffer with no pipe; `capture` and the 64 KB pipe test
-are deleted; a grep gate in the bead's test run proves no non-test
-site names `os.Stdout` outside the terminal checks and child wiring
-of section 3.3. Where to look: `beads_test.go`, `show_test.go`
+are deleted; a grep gate in the package's tests proves no non-test
+`fmt.Print*` lacks a writer argument and no non-test site names
+`os.Stdout` outside the terminal checks and child wiring of section
+3.3. Where to look: `beads_test.go`, `show_test.go`
 (`TestCaptureOutputLargerThanThePipe` becomes a large-buffer
 assertion), `root.go`. Done when: `capture` has no callers and is
 gone; the package's tests still assert the same output; the gate is
 green. Size: small. Depends on: B3.
 
-**B5a. config.LoadWith (the internal/config part of S5).** Goal:
-`config.LoadWith(get)` resolves a `Config` from a lookup for its
-`YARDR_*` values, and `Load` becomes a call to it with the process
-lookup, sharing one body (the socket-length refusal and home creation
-included). The default home and a relative home's resolution stay on
-the process's user home and directory (section 3.2). Where
-to look: `internal/config/config.go` (`Load`, `Getenv`) and its
+**B5a. config.LoadWith and config.ActorWith (the internal/config
+part of S5).** Goal: `config.LoadWith(get)` resolves a `Config` from
+a lookup for its `YARDR_*` values, and `Load` becomes a call to it
+with the process lookup, sharing one body (the socket-length refusal
+and home creation included); `config.ActorWith(get)` does the same
+for `Actor`'s `YARDR_ACTOR` and `USER`, keeping its OS lookup and
+timeout. The default home and a relative home's resolution stay on
+the process's user home and directory (section 3.2). Where to look:
+`internal/config/config.go` (`Load`, `Getenv`, `Actor`) and its
 tests. Done when: a test in `internal/config` resolves two different
-homes from two maps without touching the process environment; every
-existing `Load` caller is unchanged; the gate is green. Size: small.
-Depends on: the Q2 decision. It edits no file in `internal/cli`, so
+homes and two different actors from two maps without touching the
+process environment; every existing `Load` and `Actor` caller is
+unchanged; the gate is green. Size: small. Depends on: nothing; Q2
+is answered. It edits no file in `internal/cli`, so
 it may land at any point before B5b, in parallel with B1-B4.
 
 **B5b. Environment plumbing in internal/cli (the rest of S5).** Goal:
 `app` carries `env` and `config()`; the 36 `config.Load`
-call sites use `a.config()`; `--home` is recorded in the run's map;
-children are started from `a.environ()`; the process fallback keeps
-every existing test true. Where to look: `internal/cli/root.go`
-(`PersistentPreRunE`, `store`), `internal/cli/identity.go`, the 15
-files that call `config.Load` and the 21 that read the environment
-(section 3.4 lists them), and the child builders (`daemonEnv`,
-`server.ServerEnv`, `serviceEnv`; `home_test.go`). Done when:
-`TestHomeFlagOrder` and `TestHomeFlagReachesChildren` pass against
-the threaded path (both stay serial: they set `HOME` through
+call sites use `a.config()`, and `resolveActor` and `init` use
+`config.ActorWith`; `--home` is recorded in the run's map; children
+are started from `a.environ()`, which adds the process facts of
+section 3.2 as the process holds them when it renders; the process
+fallback keeps every existing test true. Where to look:
+`internal/cli/root.go` (`PersistentPreRunE`, `store`,
+`resolveActor`), `internal/cli/identity.go`, the 15 files that call
+`config.Load` and the 21 that read the environment (section 3.4
+lists them), the child builders (`daemonEnv`, `server.ServerEnv`,
+`serviceEnv`; `home_test.go`), and `up`'s `PATH` merges
+(`herdrProgram`, `updown.go:147`-`168`; `useLoginPATH`,
+`login.go:240`-`250`), which keep setting the process `PATH`. Done
+when: `TestHomeFlagOrder` and `TestHomeFlagReachesChildren` pass
+against the threaded path (both stay serial: they set `HOME` through
 `noHome`, and the second keeps `t.Chdir` for its relative `--home`);
-no `--home` handling calls `os.Setenv`; the user-home and
-working-directory reads of section 3.2 are unchanged; the gate is
-green. Size: medium. Depends on: B4 and B5a. It edits root.go
+`TestUpFindsHerdrWithTheLoginShell` also asserts that the environment
+the daemon is started with (`daemonEnv` over `a.environ()`) holds the
+merged `PATH`, login-shell directories included, and a test of
+`up --login` asserts the same after `useLoginPATH`, both staying
+serial because they set `PATH`; no `--home` handling calls
+`os.Setenv`; the other process-fact reads of section 3.2 are
+unchanged; the gate is green. Size: medium. Depends on: B4 and B5a. It edits root.go
 after B1 does, and `ops.go`, `init.go`, `guide.go` and the other
 long-tail files after B3 has converted them, so it starts from a
 base where the whole output thread has landed.
 
 **B6. Test homes become environment maps (S6).** Goal: `testApp`
-(refusing a map holding `HOME`) and the map forms of `newHome`,
-`noGitHubCredential` and `newAsker` replace `t.Setenv` file group by
-file group, and the `t.Chdir` in the yard helpers `beadYard`,
-`replyMailYard` and `userYardOn` is deleted. `noHome`, the direct
-`HOME` settings and the seven direct `t.Chdir` tests keep their
-process form (section 3.2). Where to look:
+(refusing a map holding `HOME`, `PATH`, `TMPDIR` or a herdr session
+variable) and the map forms of `newHome` and `newAsker` replace
+`t.Setenv` file group by file group; `TestMain` blanks the setting
+variables and the GitHub credential variables once, in place of
+`newHome`'s and `noGitHubCredential`'s per-test blanks, and
+`noGitHubCredential` is deleted; and the `t.Chdir` in the yard helpers `beadYard`,
+`replyMailYard` and `userYardOn` is deleted. The tests section 3.2
+names as setting a process fact keep their process form: `noHome`
+and the direct `HOME` settings, the seven direct `t.Chdir` tests,
+the `PATH`, `TMPDIR` and herdr-session tests, the credential tests
+and their yard helpers (`newAppYard`, `openYard`, `stateYard`), the
+six setting-variable tests, and `stubServices`. Where to look:
 `init_test.go` (`newHome`, `shortDir`), `home_test.go` (`noHome`),
-`main_test.go` (`noGitHubCredential`), `askharness_test.go`
-(`newAsker`), then the 66 files holding `t.Setenv` sites, grouped as
-in B3. Done when: per file group, no test in it calls `t.Setenv` or
-`t.Chdir` except the 23 named in section 3.2; the groups' outputs and homes are asserted as before; the
-gate is green. Size: large, landing as one small-to-medium bead per
+`main_test.go` (`TestMain`, `noGitHubCredential`),
+`askharness_test.go` (`newAsker`), then the 66 files holding
+`t.Setenv` sites, grouped as in B3. Done when: per file group, every
+remaining `t.Setenv` or `t.Chdir` is in a test or helper on section
+3.2's list, recounted at the bead's base and written in its note; the
+groups' outputs and homes are asserted as before; the gate is
+green. Size: large, landing as one small-to-medium bead per
 file group. Depends on: B5b. Its test files are the ones B2 and B3
 already edited to drop `capture`, so it follows them as well.
 
