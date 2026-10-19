@@ -182,8 +182,6 @@ func TestServiceNameWithoutHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := filepath.Join(linked, "yard")
-	newHome(t)
-	t.Setenv("YARDR_HOME", home)
 	stubServices(t, "darwin")
 	// The home is not there: the service is written under its name all
 	// the same.
@@ -201,7 +199,8 @@ func TestServiceNameWithoutHome(t *testing.T) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "daemon", "uninstall")
 	if err != nil {
 		t.Fatal(err)
@@ -238,11 +237,16 @@ func TestServiceEnv(t *testing.T) {
 // doctor reports it; an install over it replaces it; uninstall unloads it
 // and removes the file, and nothing else.
 func TestDaemonInstallUninstall(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "darwin")
 	stubLookPath(t, "git", "herdr")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	rund := func(args ...string) (string, error) {
 		t.Helper()
 		return run(t, a().rootCmd(), args...)
@@ -281,7 +285,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		// where a login daemon has no access.
 		"Mind: claude is not on the PATH written into the service",
 		"Mind: depot notes (/Users/jo/Documents/notes) is in a folder macOS protects", "Full Disk Access (add /opt/yardr/bin/yardr)",
-		here("yardr daemon uninstall"))
+		hereAt(home, "yardr daemon uninstall"))
 	if strings.Contains(out, "herdr is not on the PATH") {
 		t.Errorf("herdr is on PATH:\n%s", out)
 	}
@@ -310,7 +314,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "removed "+file, "has stopped the daemon it ran", here("yardr init --start"))
+	wantText(t, out, "removed "+file, "has stopped the daemon it ran", hereAt(home, "yardr init --start"))
 	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) || m.loaded[label] {
 		t.Fatalf("still there: %v, loaded %v", err, m.loaded)
 	}
@@ -321,7 +325,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		t.Fatalf("left in %s: %v", dir, left)
 	}
 	out, _ = rund("doctor")
-	wantText(t, out, "not configured  login service: ", here("yardr daemon install starts it at login"))
+	wantText(t, out, "not configured  login service: ", hereAt(home, "yardr daemon install starts it at login"))
 	if strings.Contains(out, "macOS protects") {
 		t.Errorf("no service, and still the note:\n%s", out)
 	}
@@ -337,18 +341,28 @@ func TestDaemonInstallUninstall(t *testing.T) {
 // herdrLoginLine is the line doctor prints for the login service of herdr's
 // server on the test's home.
 func herdrLoginLine() string {
-	return herdrLoginPart(&config.Config{Home: config.Getenv("HOME")}).line()
+	return herdrLoginLineAt(config.Getenv("HOME"))
+}
+
+// herdrLoginLineAt is herdrLoginLine for the yard in home.
+func herdrLoginLineAt(home string) string {
+	return herdrLoginPart(&config.Config{Home: home}).line()
 }
 
 // yardr daemon install ends with the same one line doctor prints for
 // herdr's server, after its own output; yardr web install says nothing of
 // it, and --json stays one object.
 func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	stubServices(t, "darwin")
 	stubLookPath(t, "git", "herdr")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -356,15 +370,15 @@ func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, herdrLoginLine(), "herdr's server does not start at login", here("yardr up --login"), "Keep it running after a reboot")
-	if strings.Index(out, herdrLoginLine()) < strings.Index(out, "To remove it") {
+	wantText(t, out, herdrLoginLineAt(home), "herdr's server does not start at login", hereAt(home, "yardr up --login"), "Keep it running after a reboot")
+	if strings.Index(out, herdrLoginLineAt(home)) < strings.Index(out, "To remove it") {
 		t.Errorf("the herdr line comes before the install's own output:\n%s", out)
 	}
 	out, err = run(t, a().rootCmd(), "web", "install")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, herdrLoginLine()) || strings.Contains(out, "herdr's server") {
+	if strings.Contains(out, herdrLoginLineAt(home)) || strings.Contains(out, "herdr's server") {
 		t.Errorf("the web view's install names herdr:\n%s", out)
 	}
 	out, err = run(t, a().rootCmd(), "daemon", "install", "--json")
@@ -379,9 +393,10 @@ func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
 
 // --file-only writes and removes the file and leaves the manager alone.
 func TestDaemonInstallFileOnly(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "linux")
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "daemon", "install", "--file-only")
 	if err != nil {
 		t.Fatal(err)
@@ -409,10 +424,11 @@ func TestDaemonInstallFileOnly(t *testing.T) {
 
 // On Linux the unit is loaded with systemctl, and taken out with it.
 func TestDaemonInstallSystemd(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	_, m := stubServices(t, "linux")
 	stubLookPath(t, "git", "herdr", "systemctl")
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "daemon", "install")
 	if err != nil {
 		t.Fatal(err)
@@ -443,9 +459,9 @@ func TestDaemonInstallSystemd(t *testing.T) {
 // A system yardr knows no service manager of: it says so and how to run the
 // daemon by hand, and writes nothing.
 func TestServiceNotSupported(t *testing.T) {
-	newHome(t)
 	dir, m := stubServices(t, "freebsd")
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), newHomeDir(t))
+	a.actor = "me"
 	for _, args := range [][]string{{"daemon", "install"}, {"daemon", "uninstall"}} {
 		_, err := run(t, a.rootCmd(), args...)
 		if err == nil || !strings.Contains(err.Error(), "a login service is not supported on freebsd") ||
@@ -485,9 +501,10 @@ func holdDaemon(t *testing.T, home string) *[]int {
 // yardr daemon stop stops the daemon that holds the lock and waits for it;
 // with none running it says so. status reports the pid.
 func TestDaemonStopAndStatus(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	stubServices(t, "darwin")
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "daemon", "stop")
 	if err != nil || !strings.Contains(out, "no daemon is running") {
 		t.Fatalf("%v\n%s", err, out)
@@ -505,7 +522,7 @@ func TestDaemonStopAndStatus(t *testing.T) {
 		t.Fatalf("%v %v\n%s", err, jerr, out)
 	}
 	out, err = run(t, a.rootCmd(), "daemon", "status")
-	if err != nil || !strings.Contains(out, "service  "+here("not installed (yardr daemon install)")) {
+	if err != nil || !strings.Contains(out, "service  "+hereAt(home, "not installed (yardr daemon install)")) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	out, err = run(t, a.rootCmd(), "daemon", "stop")
@@ -517,13 +534,14 @@ func TestDaemonStopAndStatus(t *testing.T) {
 // An install stops the daemon that runs before the service's is started:
 // the yard has one, and the service's would end on the other's lock.
 func TestDaemonInstallStopsTheRunningDaemon(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	_, m := stubServices(t, "darwin")
 	pids := holdDaemon(t, home)
 	stopped := -1
 	signal := signalStop
 	stub(t, &signalStop, func(pid int) error { stopped = len(m.calls); return signal(pid) })
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "daemon", "install")
 	if err != nil {
 		t.Fatal(err)
@@ -546,10 +564,15 @@ func TestDaemonInstallStopsTheRunningDaemon(t *testing.T) {
 // refused and there is no --unsafe, and the file names the address, which
 // doctor then reports.
 func TestWebInstall(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "darwin")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +611,7 @@ func TestWebInstall(t *testing.T) {
 		t.Fatalf("left: %v", left)
 	}
 	out, _ = run(t, a().rootCmd(), "doctor")
-	wantText(t, out, "not configured  web view: ", here("yardr web install keeps it running from login on"))
+	wantText(t, out, "not configured  web view: ", hereAt(home, "yardr web install keeps it running from login on"))
 
 	// The same from a systemd unit.
 	stub(t, &goos, "linux")
@@ -608,9 +631,14 @@ func TestWebInstall(t *testing.T) {
 // written, and an address off loopback is refused with the loopback line
 // whatever --host says.
 func TestWebInstallHost(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -672,9 +700,13 @@ func TestWebInstallHost(t *testing.T) {
 // writes them, and refuses what serve would on loopback before anything is
 // started.
 func TestWebStartHost(t *testing.T) {
-	newHome(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, newHomeDir(t))
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -717,9 +749,14 @@ func TestWebStartHost(t *testing.T) {
 // yardr web install --as writes the user into the service, and the view
 // it starts acts as them.
 func TestWebInstallAs(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -746,9 +783,13 @@ func TestWebInstallAs(t *testing.T) {
 
 // yardr web start --as hands the user on to yardr web serve.
 func TestWebStartAs(t *testing.T) {
-	newHome(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, newHomeDir(t))
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -786,9 +827,14 @@ func stubWeb(t *testing.T) *[]string {
 // an address something listens on already is not started on, and one off
 // loopback is refused.
 func TestWebStart(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -855,17 +901,20 @@ func onboardTo(t *testing.T, st store.API, answers map[string]any) (string, []st
 // The onboarding asks both once the yard runs, each starting at no: left at
 // that, nothing is installed, loaded or started.
 func TestOnboardingAsksForTheServices(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "darwin")
 	started := stubWeb(t)
-	out, keys := onboardTo(t, storetest.New(t), nil)
+	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
+	out, keys := onboardTo(t, st, nil)
 	if !slices.Equal(keys, []string{"style", "about", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 || len(m.calls) != 0 || len(*started) != 0 {
 		t.Fatalf("written %v, asked %q, started %v", left, m.calls, *started)
 	}
-	if strings.Contains(out, here("yardr daemon install")) || strings.Contains(out, "The web view") {
+	if strings.Contains(out, hereAt(home, "yardr daemon install")) || strings.Contains(out, "The web view") {
 		t.Errorf("output:\n%s", out)
 	}
 }
@@ -873,10 +922,13 @@ func TestOnboardingAsksForTheServices(t *testing.T) {
 // Yes to the daemon at login installs the service; yes to the web view and
 // no to "and at login?" starts it for now and prints its address.
 func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "darwin")
 	started := stubWeb(t)
-	out, keys := onboardTo(t, storetest.New(t), map[string]any{"login": true, "web": true})
+	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
+	out, keys := onboardTo(t, st, map[string]any{"login": true, "web": true})
 	if !slices.Equal(keys, []string{"style", "about", "try", "login", "web", "web_login", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
@@ -887,14 +939,14 @@ func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
 	if left, _ := os.ReadDir(dir); len(left) != 1 || !slices.Equal(*started, []string{"127.0.0.1:8791"}) {
 		t.Fatalf("written %v, started %v", left, *started)
 	}
-	wantText(t, out, here("yardr daemon install"), "launchd has started the daemon and starts it at every login",
-		here("yardr web start"), "The web view: http://127.0.0.1:8791/", "yardmaster is running, in herdr")
+	wantText(t, out, hereAt(home, "yardr daemon install"), "launchd has started the daemon and starts it at every login",
+		hereAt(home, "yardr web start"), "The web view: http://127.0.0.1:8791/", "yardmaster is running, in herdr")
 }
 
 // Yes to "and at login?" installs the web view as a service instead, which
 // starts it: it is not started a second time.
 func TestOnboardingInstallsTheWebView(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, m := stubServices(t, "linux")
 	stubLookPath(t, "claude", "git", "herdr", "systemctl")
 	started := stubWeb(t)
@@ -902,10 +954,12 @@ func TestOnboardingInstallsTheWebView(t *testing.T) {
 	f := &former{t: t, answers: map[string]any{"web": true, "web_login": true}, goes: []string{goYardmaster}}
 	stubAsk(t, f.ask)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -913,16 +967,18 @@ func TestOnboardingInstallsTheWebView(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, name)); err != nil || !m.loaded[name] || len(*started) != 0 {
 		t.Fatalf("%v, loaded %v, started %v\n%s", err, m.loaded, *started, out)
 	}
-	wantText(t, out, here("yardr web install"), "The web view: http://127.0.0.1:8791/")
+	wantText(t, out, hereAt(home, "yardr web install"), "The web view: http://127.0.0.1:8791/")
 }
 
 // Where yardr writes no service, the login questions are not asked; the web
 // view is still offered, for now. A start that fails does not end the
 // onboarding.
 func TestOnboardingWithoutAServiceManager(t *testing.T) {
-	newHome(t)
+	st := storetest.New(t)
 	stubServices(t, "freebsd")
-	out, keys := onboardTo(t, storetest.New(t), map[string]any{"web": true})
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, newHomeDir(t), "USER="+os.Getenv("USER"))
+	out, keys := onboardTo(t, st, map[string]any{"web": true})
 	if !slices.Equal(keys, []string{"style", "about", "try", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}

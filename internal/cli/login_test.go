@@ -27,6 +27,10 @@ type loginRig struct {
 	herdrStarts *int
 	unlocks     map[string]func()
 	web         bool
+	// home is the yard the rig stops the daemon of, when the test runs
+	// down --login with an environment of its own; "" reads the
+	// process's.
+	home string
 }
 
 func stubLogin(t *testing.T, system string, herdrStarts *int) *loginRig {
@@ -42,9 +46,22 @@ func stubLogin(t *testing.T, system string, herdrStarts *int) *loginRig {
 	return r
 }
 
+// at names the yard the rig stops the daemon of: the home of a down
+// --login the test runs with an environment of its own, in place of the
+// process's.
+func (r *loginRig) at(home string) { r.home = home }
+
+// yard is the home the rig stops the daemon of.
+func (r *loginRig) yard() string {
+	if r.home != "" {
+		return r.home
+	}
+	return os.Getenv("YARDR_HOME")
+}
+
 // unlock ends the daemon of the yard the test is in.
 func (r *loginRig) unlock() {
-	home := os.Getenv("YARDR_HOME")
+	home := r.yard()
 	if u := r.unlocks[home]; u != nil {
 		u()
 		delete(r.unlocks, home)
@@ -65,7 +82,7 @@ func (r *loginRig) use(t *testing.T) {
 		case starts && strings.Contains(line, "herdr"):
 			*r.herdrStarts++
 		case starts && strings.Contains(line, "daemon"):
-			home := os.Getenv("YARDR_HOME")
+			home := r.yard()
 			u, lerr := lockDaemon((&config.Config{Home: home}).DaemonLock(), 0)
 			if lerr != nil {
 				t.Errorf("the service's daemon found the lock held: %v", lerr)
@@ -409,10 +426,18 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 				t.Fatalf("herdr's service is gone while the first yard needs it: %v", err)
 			}
 
-			// The first yard is the last.
-			t.Setenv("YARDR_HOME", homeA)
+			// The first yard is the last. Its downs name its home in an
+			// environment of their own, and the rig stops the daemon
+			// of that yard: the process's still names the second
+			// yard's.
+			rig.at(homeA)
+			downA := func() *app {
+				x := a(true)
+				x.env = testEnv(t, homeA)
+				return x
+			}
 			calls = len(m.calls)
-			out, err = run(t, a(true).rootCmd(), "down", "--login", "--json")
+			out, err = run(t, downA().rootCmd(), "down", "--login", "--json")
 			var down downReport
 			if jerr := json.Unmarshal([]byte(out), &down); err != nil || jerr != nil {
 				t.Fatalf("down --login --json in the first yard: %v %v\n%s", err, jerr, out)
@@ -438,7 +463,7 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 
 			// Once more: nothing is there, and that is no failure.
 			down = downReport{}
-			out, err = run(t, a(true).rootCmd(), "down", "--login", "--json")
+			out, err = run(t, downA().rootCmd(), "down", "--login", "--json")
 			if jerr := json.Unmarshal([]byte(out), &down); err != nil || jerr != nil {
 				t.Fatalf("a second down --login: %v %v\n%s", err, jerr, out)
 			}

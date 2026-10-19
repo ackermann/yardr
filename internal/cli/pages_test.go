@@ -38,9 +38,9 @@ func TestPagesFlagsDefault(t *testing.T) {
 // web serve refuses a sandbox address off loopback before it touches the
 // yard, naming the flag that gave it.
 func TestWebServeRefusesPagesAddr(t *testing.T) {
-	t.Setenv("YARDR_HOME", t.TempDir())
+	env := testEnv(t, t.TempDir())
 	for _, addr := range []string{":8789", "0.0.0.0:8789", "192.168.1.10:8789"} {
-		a := &app{}
+		a := &app{env: env}
 		_, err := run(t, a.webCmd(), "serve", "--pages-addr", addr)
 		if err == nil || !strings.Contains(err.Error(), "--pages-addr") || !strings.Contains(err.Error(), "refused") {
 			t.Errorf("--pages-addr %s: %v, want a refusal that names the flag", addr, err)
@@ -54,7 +54,7 @@ func TestWebServeRefusesPagesAddr(t *testing.T) {
 // web serve refuses a public name that is no host name before it touches
 // the yard, naming the flag that gave it.
 func TestWebServeRefusesPagesHost(t *testing.T) {
-	t.Setenv("YARDR_HOME", t.TempDir())
+	env := testEnv(t, t.TempDir())
 	for _, c := range []struct {
 		host string
 		want string
@@ -64,7 +64,7 @@ func TestWebServeRefusesPagesHost(t *testing.T) {
 		{"a.example:8789", "without a scheme or a port"},
 		{"not a name", "no host name"},
 	} {
-		a := &app{}
+		a := &app{env: env}
 		_, err := run(t, a.webCmd(), "serve", "--pages-host", c.host)
 		if err == nil || !strings.Contains(err.Error(), "--pages-host") || !strings.Contains(err.Error(), "refused") || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--pages-host %q: %v, want a refusal that says %q", c.host, err, c.want)
@@ -77,9 +77,8 @@ func TestWebServeRefusesPagesHost(t *testing.T) {
 
 // A failed sandbox listener must release the view listener it bound first.
 func TestWebServeClosesViewIfPagesAddrIsInUse(t *testing.T) {
+	// The setting variables are blank in the process already (TestMain).
 	home, st, _ := statusYard(t, "abcdef123456")
-	t.Setenv("YARDR_WEB_ADDR", "")
-	t.Setenv("YARDR_WEB_PAGES_ADDR", "")
 	pages, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -179,9 +178,14 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 // in the sentence the flag gives, and for web_pages_host what
 // --pages-host refuses; a start refuses the same before anything runs.
 func TestPagesSettingsAreCheckedAsTheFlags(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -225,10 +229,8 @@ func TestPagesSettingsAreCheckedAsTheFlags(t *testing.T) {
 // bytes only under the scripted policy, no yard route, and the view's
 // Host rules.
 func TestServeTakesThePagesSetting(t *testing.T) {
+	// The setting variables are blank in the process already (TestMain).
 	home, st, _ := statusYard(t, "abcdef123456")
-	t.Setenv("YARDR_WEB_AS", "")
-	t.Setenv("YARDR_WEB_PAGES_ADDR", "")
-	t.Setenv("YARDR_WEB_PAGES_HOST", "")
 	cfg := &config.Config{Home: home}
 	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
 	settingAddr := freeAddr(t)

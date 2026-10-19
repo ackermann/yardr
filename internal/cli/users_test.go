@@ -23,11 +23,13 @@ func userYard(t *testing.T) store.API {
 // userYardOn is userYard on the store st.
 func userYardOn(t *testing.T, st store.API) store.API {
 	t.Helper()
+	// The process's home stays while other files' tests read the yard's
+	// home from the process; a test with an environment of its own takes
+	// it from yardEnv, which snapshots the process's as it is at the
+	// call. The session variables need no blanking per test: TestMain
+	// unsets them, which reads the same as blank.
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
 	if out, err := as(t, st, "jo", "init", "--harness", "claude", "--operator", "jo"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
@@ -132,10 +134,11 @@ func TestUserCommands(t *testing.T) {
 // Each user reads their own mail with yardr inbox, and --ack <seq> marks it read.
 func TestMailAUser(t *testing.T) {
 	st := userYard(t)
+	env := yardEnv(t, st)
 	mustAs(t, st, "jo", "user", "add", "ada")
 
 	mustAs(t, st, "jo", "mail", "yardmaster", "deploys are frozen")
-	t.Setenv("YARDR_CREW", "yardmaster")
+	env["YARDR_CREW"] = "yardmaster"
 	if out := mustAs(t, st, "yardmaster", "mail", "jo", "noted, until when?"); out != "mail sent to jo\n" {
 		t.Fatalf("mail to a user: %q", out)
 	}
@@ -144,21 +147,24 @@ func TestMailAUser(t *testing.T) {
 	if out := mustAs(t, st, "yardmaster", "inbox"); !strings.Contains(out, "mail from jo: deploys are frozen") || strings.Contains(out, "welcome") {
 		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
-	t.Setenv("YARDR_CREW", "")
+	env["YARDR_CREW"] = ""
 	mustAs(t, st, "ada", "mail", "jo", "from one user to another")
 
 	// A bead's agent is told where its word to a person goes. Its mail to
 	// a crew member is taken as before. This is not in a bead's worktree,
-	// whose session a command there acts as (see identity).
+	// whose session a command there acts as (see identity): the run names
+	// a bead, so the worktree is read, and the package's own directory is
+	// a session worktree with a session.json of its own. The chdir stays,
+	// as the identity control's does.
 	t.Chdir(t.TempDir())
-	t.Setenv("YARDR_BEAD", "yard-10")
-	t.Setenv("YARDR_SESSION", "s1")
+	env["YARDR_BEAD"] = "yard-10"
+	env["YARDR_SESSION"] = "s1"
 	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {
 		refusedAs(t, st, "yard-10-new", want, "mail", "jo", "may I?")
 	}
 	mustAs(t, st, "yard-10-new", "mail", "yardmaster", "yard-10: the tests are red on main")
-	t.Setenv("YARDR_BEAD", "")
-	t.Setenv("YARDR_SESSION", "")
+	env["YARDR_BEAD"] = ""
+	env["YARDR_SESSION"] = ""
 	refusedAs(t, st, "jo", "not found", "mail", "nobody", "hi")
 
 	// Each user's inbox holds their own mail only.
@@ -215,10 +221,11 @@ func TestMailAUser(t *testing.T) {
 // act as one (yardr-sang).
 func TestLoginNameNobodyHas(t *testing.T) {
 	st, opened := chatYard(t)
-	t.Setenv("USER", "kloni")
+	env := yardEnv(t, st)
+	env["USER"] = "kloni"
 	login := func(args ...string) (string, error) {
 		t.Helper()
-		return run(t, (&app{st: st}).rootCmd(), args...)
+		return run(t, (&app{st: st, env: env}).rootCmd(), args...)
 	}
 	line := "kloni (from $USER) is neither a user nor a crew member of this yard; its users are jo. " +
 		"Act as one: --actor jo or export YARDR_ACTOR=jo"
@@ -252,24 +259,24 @@ func TestLoginNameNobodyHas(t *testing.T) {
 		t.Fatalf("jo's inbox:\n%s", out)
 	}
 	refusedAs(t, st, "pat", "pat is no user", "inbox")
-	t.Setenv("USER", "yardmaster")
+	env["USER"] = "yardmaster"
 	if out, err := login("inbox"); err == nil || !strings.Contains(err.Error(), "yardmaster is no user") ||
 		strings.Contains(err.Error(), "from $USER") {
 		t.Errorf("a crew member's login: %q, %v", out, err)
 	}
-	t.Setenv("USER", "jo")
+	env["USER"] = "jo"
 	if out, err := login("inbox"); err != nil || !strings.Contains(out, "Mail:") {
 		t.Errorf("a user's login: %q, %v", out, err)
 	}
-	t.Setenv("USER", "kloni")
-	t.Setenv("YARDR_ACTOR", "kloni")
+	env["USER"] = "kloni"
+	env["YARDR_ACTOR"] = "kloni"
 	if out, err := login("inbox"); err == nil || !strings.Contains(err.Error(), "kloni is no user") ||
 		strings.Contains(err.Error(), "from $USER") {
 		t.Errorf("YARDR_ACTOR=kloni: %q, %v", out, err)
 	}
-	t.Setenv("YARDR_ACTOR", "")
-	t.Setenv("USER", "")
-	if err := (&app{}).unknownLogin(context.Background(), st); err != nil {
+	env["YARDR_ACTOR"] = ""
+	env["USER"] = ""
+	if err := (&app{env: env}).unknownLogin(context.Background(), st); err != nil {
 		t.Errorf("without USER, OS user fallback: %v, want no login-specific message", err)
 	}
 }
@@ -278,17 +285,18 @@ func TestLoginNameNobodyHas(t *testing.T) {
 // with the read state; --json and --after are what a view reads it with.
 func TestMailWith(t *testing.T) {
 	st := userYard(t)
+	env := yardEnv(t, st)
 	for _, m := range [][3]string{{"jo", "yardmaster", "deploys are frozen"}, {"yardmaster", "jo", "until when?"}, {"jo", "yardmaster", "friday"}} {
 		mustAs(t, st, m[0], "mail", m[1], m[2])
 	}
 	// The yardmaster acknowledges the first mail, jo theirs.
-	t.Setenv("YARDR_CREW", "yardmaster")
+	env["YARDR_CREW"] = "yardmaster"
 	crewBox, err := st.InboxFor(context.Background(), "yardmaster", "", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack", fmt.Sprint(crewBox.Events[0].Seq))
-	t.Setenv("YARDR_CREW", "")
+	env["YARDR_CREW"] = ""
 	mailBox, err := st.UserInbox(context.Background(), "jo", 1)
 	if err != nil {
 		t.Fatal(err)

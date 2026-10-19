@@ -206,14 +206,13 @@ func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 // The session the run acts as goes with every call over the socket, so a
 // call made before its session is on record is refused as its session's.
 func TestStoreSendsTheRunsSession(t *testing.T) {
-	newHome(t)
-	t.Setenv("YARDR_SESSION", "s1")
+	a := testApp(t, nil, newHomeDir(t), "YARDR_SESSION=s1")
 	old := connect
 	connect = func(context.Context, *config.Config) (store.API, error) {
 		return rpc.NewClient(filepath.Join(t.TempDir(), "s")), nil
 	}
 	t.Cleanup(func() { connect = old })
-	st, err := (&app{}).store(context.Background())
+	st, err := a.store(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +226,7 @@ func TestStoreSendsTheRunsSession(t *testing.T) {
 // Re-resolving it in who() could time out on a later OS lookup and silently
 // attribute an operation to "unknown" after the command had passed pre-run.
 func TestPreRunActorIsStableForTheCommand(t *testing.T) {
-	t.Setenv("YARDR_ACTOR", "")
-	t.Setenv("YARDR_SESSION", "")
-	t.Setenv("YARDR_BEAD", "")
-	t.Setenv("USER", "first")
-	a := &app{}
+	a := &app{env: testEnv(t, "", "YARDR_ACTOR=", "YARDR_SESSION=", "YARDR_BEAD=", "USER=first")}
 	root := a.rootCmd()
 	if err := root.Flags().Set("version", "true"); err != nil {
 		t.Fatal(err)
@@ -240,7 +235,7 @@ func TestPreRunActorIsStableForTheCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("USER", "second")
+	a.env["USER"] = "second"
 	if got := a.who(); got != "first" {
 		t.Fatalf("who() after pre-run = %q, want the actor resolved at pre-run", got)
 	}

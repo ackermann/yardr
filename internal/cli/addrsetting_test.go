@@ -169,8 +169,8 @@ func freeAddr(t *testing.T) string {
 // web and BDP serve take the setting, environment or flag in precedence
 // order, listen on it, and report the address in status.
 func TestServeTakesTheAddrSetting(t *testing.T) {
+	// YARDR_WEB_AS is blank in the process already (TestMain).
 	home, st, _ := statusYard(t, "abcdef123456")
-	t.Setenv("YARDR_WEB_AS", "")
 	cfg := &config.Config{Home: home}
 	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
 	for _, c := range []struct{ kind, key string }{{svcWeb, store.WebAddrSetting}, {svcBDP, store.BDPAddrSetting}} {

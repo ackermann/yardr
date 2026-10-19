@@ -22,9 +22,9 @@ import (
 // web serve refuses an address off loopback before it touches the yard: no
 // store is opened and no server started for a command that will not serve.
 func TestWebServeRefusesNonLoopback(t *testing.T) {
-	t.Setenv("YARDR_HOME", t.TempDir())
+	env := testEnv(t, t.TempDir())
 	for _, addr := range []string{":8791", "0.0.0.0:8791", "192.168.1.10:8791"} {
-		a := &app{}
+		a := &app{env: env}
 		_, err := run(t, a.webCmd(), "serve", "--addr", addr)
 		if err == nil || !strings.Contains(err.Error(), "refused") || !strings.Contains(err.Error(), "no authentication") {
 			t.Errorf("--addr %s: %v, want a refusal that says why", addr, err)
@@ -75,10 +75,10 @@ func TestWebAddr(t *testing.T) {
 // The home is a short one, so that the command gets as far as the server
 // under any TMPDIR (a socket path too long for the system ends it earlier).
 func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	for _, args := range [][]string{{"--unsafe"}, {"--unsafe", "--addr", ":9000"}, {"--unsafe", "--addr", "0.0.0.0:9000"}, {"--unsafe", "--addr", "192.168.1.10:9000"},
 		{"--unsafe", "--pages-addr", "0.0.0.0:9000"}, {"--unsafe", "--pages-host", "pages.example.net"}} {
-		a := &app{}
+		a := testApp(t, nil, home)
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
 		if !errors.Is(err, errNoServer) {
 			t.Errorf("%v: %v, want the store's error", args, err)
@@ -91,7 +91,7 @@ func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
 // it an IP address off loopback is refused too, and the refusal names the
 // flag that answers to one.
 func TestWebServeRefusesHost(t *testing.T) {
-	t.Setenv("YARDR_HOME", t.TempDir())
+	env := testEnv(t, t.TempDir())
 	for _, c := range []struct {
 		args []string
 		want string
@@ -109,7 +109,7 @@ func TestWebServeRefusesHost(t *testing.T) {
 		{[]string{"--unsafe", "--host", "a.example,,b.example"}, "no name"},
 		{[]string{"--unsafe", "--host", "a.example", "--host", "b.example:8791"}, "without a scheme or a port"},
 	} {
-		a := &app{}
+		a := &app{env: env}
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, c.args...)...)
 		if err == nil || !strings.Contains(err.Error(), "--host") || !strings.Contains(err.Error(), "refused") || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want a refusal that says %q", c.args, err, c.want)
@@ -124,11 +124,11 @@ func TestWebServeRefusesHost(t *testing.T) {
 // loopback without it, given once, twice or as a comma list, and each name
 // is kept as it is compared.
 func TestWebHosts(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	for _, args := range [][]string{{"--unsafe", "--host", "yard.example.net"}, {"--unsafe", "--host", "a.example,b.example", "--host", "C.example."},
 		{"--unsafe", "--host", "192.168.178.90"},
 		{"--host", "yard.example.net"}, {"--host", "a.example,b.example", "--host", "C.example.", "--addr", "127.0.0.1:9000"}, {"--host", "127.0.0.1"}} {
-		a := &app{}
+		a := testApp(t, nil, home)
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
 		if !errors.Is(err, errNoServer) {
 			t.Errorf("%v: %v, want the store's error", args, err)
@@ -242,9 +242,9 @@ func TestWebServeAsTakesFlagEnvAndSetting(t *testing.T) {
 // A view whose user came from web_as is said to act as them: the resolved
 // user is in the web record, so yardr status and doctor say "acts as".
 func TestStatusAndDoctorSayActsAsFromSetting(t *testing.T) {
+	// YARDR_WEB_AS is blank in the process already (TestMain).
 	home, st, a := statusYard(t, "abcdef123456")
 	ctx := context.Background()
-	t.Setenv("YARDR_WEB_AS", "")
 	if err := st.SetSetting(ctx, store.WebAsSetting, "Jo", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -388,9 +388,9 @@ func TestWebServeJWTRefusals(t *testing.T) {
 // In JWT mode with keys that fetch, serve starts and records the view; an
 // explicitly empty --as stands aside for the mode, as it does for web_as.
 func TestWebServeJWTModeServes(t *testing.T) {
+	// YARDR_WEB_AS is blank in the process already (TestMain).
 	home, st, _ := statusYard(t, "abcdef123456")
 	ctx := context.Background()
-	t.Setenv("YARDR_WEB_AS", "")
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -481,9 +481,9 @@ func jwtTestJWKS(t *testing.T) string {
 // A view in JWT mode records whose tokens it verifies, and no acting user:
 // yardr status and doctor say "jwt from" in place of "acts as".
 func TestStatusAndDoctorSayJWTFrom(t *testing.T) {
+	// YARDR_WEB_AS is blank in the process already (TestMain).
 	home, st, a := statusYard(t, "abcdef123456")
 	ctx := context.Background()
-	t.Setenv("YARDR_WEB_AS", "")
 	for k, v := range map[string]string{
 		store.WebJWTIssuerSetting:   "https://team.example.net",
 		store.WebJWTAudienceSetting: "aud-tag",
