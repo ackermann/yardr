@@ -1122,7 +1122,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		return err
 	}
 	if secret.Hook != "" {
-		values, err := readHookKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+		values, err := readHookKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()))
 		if err != nil {
 			return err
 		}
@@ -1135,7 +1135,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		})
 	}
 	if secret.Login != "" {
-		values, err := readLoginKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+		values, err := readLoginKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()))
 		if err != nil {
 			return err
 		}
@@ -1155,7 +1155,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	if err != nil {
 		return err
 	}
-	values, err := readKeys(d, secret.Env, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
+	values, err := readKeys(d, secret.Env, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), "")
 	if err != nil {
 		return err
 	}
@@ -1225,7 +1225,7 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	if len(setup.Missing) > 0 {
 		names = setup.Missing
 	}
-	values, err := readKeys(d, names, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
+	values, err := readKeys(d, names, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), "")
 	if err != nil {
 		return err
 	}

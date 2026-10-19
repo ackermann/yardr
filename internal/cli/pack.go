@@ -104,11 +104,11 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 // loadPack reads the pack arg names (resolvePack). With --json an invalid
 // pack's mistakes are printed as data, and the error is the exit code alone:
 // Execute adds nothing to what a red check has printed.
-func (a *app) loadPack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
+func (a *app) loadPack(w io.Writer, ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
 	p, err := resolvePack(ctx, st, arg, depot)
 	var errs pack.Errors
 	if a.json && errors.As(err, &errs) {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(map[string]any{"error": "the pack is not valid", "errors": errs})
 		return nil, errCheckFailed
@@ -208,11 +208,11 @@ func packDir(arg string) bool {
 // no yard there to ask. A name is the yard's to resolve. yard, when given,
 // runs before the yard is first reached for: pack check, which the first-run
 // check lets through for the directory's sake, makes that check there.
-func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func() error, validate bool) (store.API, *config.Config, *pack.Pack, error) {
+func (a *app) openPack(w, warn io.Writer, ctx context.Context, arg string, f *packFlags, yard func() error, validate bool) (store.API, *config.Config, *pack.Pack, error) {
 	var p *pack.Pack
 	if packDir(arg) {
 		var err error
-		if p, err = a.loadPack(ctx, nil, arg, f.opts.Depot); err != nil {
+		if p, err = a.loadPack(w, ctx, nil, arg, f.opts.Depot); err != nil {
 			return nil, nil, nil, err
 		}
 		// Before the yard is asked anything: a directory pack is fully
@@ -228,12 +228,12 @@ func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func(
 			return nil, nil, nil, err
 		}
 	}
-	st, cfg, err := a.packOptions(ctx, f)
+	st, cfg, err := a.packOptions(warn, ctx, f)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	if p == nil {
-		if p, err = a.loadPack(ctx, st, arg, f.opts.Depot); err != nil {
+		if p, err = a.loadPack(w, ctx, st, arg, f.opts.Depot); err != nil {
 			return nil, nil, nil, err
 		}
 		if validate {
@@ -253,10 +253,10 @@ func fromEmbedded(source string) bool {
 
 // packOptions completes f's options for this yard and returns its store
 // and configuration.
-func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config.Config, error) {
+func (a *app) packOptions(warn io.Writer, ctx context.Context, f *packFlags) (store.API, *config.Config, error) {
 	if f.opts.PackRoles {
-		// To stderr: --json's output stays the plan alone.
-		fmt.Fprintln(os.Stderr, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --depot-roles")
+		// To the error stream: --json's output stays the plan alone.
+		fmt.Fprintln(warn, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --depot-roles")
 	}
 	f.opts.Crew = map[string]string{}
 	for _, kv := range f.crew {
@@ -376,7 +376,7 @@ about what a setup takes, marked as the pack's, not checked by yardr. --json pri
 		RunE: func(c *cobra.Command, args []string) error {
 			// The first-run check, which pack check is let through
 			// (noOnboarding), once a directory pack has been read.
-			st, _, p, err := a.openPack(c.Context(), args[0], &cf, func() error { return a.onboard(c) }, true)
+			st, _, p, err := a.openPack(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), args[0], &cf, func() error { return a.onboard(c) }, true)
 			if err != nil {
 				return err
 			}
@@ -548,7 +548,7 @@ after pack check. The import is recorded (yardr pack list). See docs/packs.md.
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			imp, err := a.planImport(c.OutOrStdout(), c.Context(), "pack apply", args[0], &af, "", nil)
+			imp, err := a.planImport(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), "pack apply", args[0], &af, "", nil)
 			if imp == nil || err != nil {
 				return err
 			}
@@ -575,13 +575,13 @@ file order, each with the calls it grants of each source.
 		RunE: func(c *cobra.Command, args []string) error {
 			// As check: a directory pack is read before the yard is
 			// asked anything, and a name is the yard's to resolve.
-			_, _, p, err := a.openPack(c.Context(), args[0], &sf, func() error { return a.onboard(c) }, false)
+			_, _, p, err := a.openPack(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), args[0], &sf, func() error { return a.onboard(c) }, false)
 			if err != nil {
 				return err
 			}
 			if p.Setup == "" && len(p.Presets) == 0 {
 				return a.out(c.OutOrStdout(), map[string]any{"pack": p.Name}, func(w io.Writer) {
-					fmt.Printf("pack %s carries no setup notes\n", p.Name)
+					fmt.Fprintf(w, "pack %s carries no setup notes\n", p.Name)
 				})
 			}
 			v := map[string]any{"pack": p.Name}
@@ -593,12 +593,12 @@ file order, each with the calls it grants of each source.
 			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
 				if p.Setup == "" {
-					fmt.Printf("pack %s carries no setup notes\n", p.Name)
+					fmt.Fprintf(w, "pack %s carries no setup notes\n", p.Name)
 				} else {
 					printSetup(w, p.Name, p.Setup, p.SetupText)
 				}
 				if len(p.Presets) > 0 {
-					fmt.Println()
+					fmt.Fprintln(w)
 					printPresets(w, p)
 				}
 			})
@@ -618,11 +618,11 @@ file order, each with the calls it grants of each source.
 			}
 			return a.out(c.OutOrStdout(), recs, func(w io.Writer) {
 				if len(recs) == 0 {
-					fmt.Println("no pack is imported (yardr pack apply <dir> --depot <depot>)")
+					fmt.Fprintln(w, "no pack is imported (yardr pack apply <dir> --depot <depot>)")
 				}
 				for i, r := range recs {
 					if i > 0 {
-						fmt.Println()
+						fmt.Fprintln(w)
 					}
 					printRecord(w, r)
 				}
@@ -671,10 +671,10 @@ type plannedImport struct {
 // means the operator left a form or said no, and nothing is to be written.
 // fits, when cmd has one, refuses a pack before anything of its plan is
 // shown: depot init's, for a pack written for the other kind of depot.
-func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
+func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
 	// Without fits (pack apply, not depot init), --depot is held to the
 	// pack: depot init's depot is its argument, and fits refuses the pack.
-	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags, nil, fits == nil)
+	st, cfg, p, err := a.openPack(w, warn, ctx, arg, &f.packFlags, nil, fits == nil)
 	if err != nil {
 		return nil, err
 	}
@@ -699,7 +699,7 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 	})
 	if len(shape) > 0 && asking {
 		if err := a.askShape(ctx, st, p, plan, shape, &f.opts); err != nil {
-			return nil, cancelled(err)
+			return nil, cancelled(w, err)
 		}
 		if plan, err = pack.Build(ctx, st, p, f.opts); err != nil {
 			return nil, err
@@ -721,7 +721,7 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 			flags := flagsFor(plan, missing)
 			if err := a.out(w, map[string]any{"error": cmd + " cannot ask without a terminal", "missing": flags}, func(w io.Writer) {
 				for _, flag := range flags {
-					fmt.Println(flag)
+					fmt.Fprintln(w, flag)
 				}
 			}); err != nil {
 				return nil, err
@@ -806,9 +806,9 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 	// Without a terminal nothing is missing here: that failed above,
 	// before the plan. In a terminal what is still open is asked.
 	if missing := plan.Missing(answers); len(missing) > 0 {
-		fmt.Println()
+		fmt.Fprintln(w)
 		if err := a.askAnswers(ctx, st, plan, answers); err != nil {
-			return nil, cancelled(err)
+			return nil, cancelled(w, err)
 		}
 	}
 	todo := 0
@@ -834,21 +834,21 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 			desc += " Also written: " + also + "."
 		}
 		if err := ask(huh.NewConfirm().Title(title).Description(desc).Value(&ok)); err != nil {
-			return nil, cancelled(err)
+			return nil, cancelled(w, err)
 		}
 		if !ok {
-			fmt.Println("not applied")
+			fmt.Fprintln(w, "not applied")
 			return nil, nil
 		}
 	}
 	if err := open.ask(); err != nil {
-		return nil, cancelled(err)
+		return nil, cancelled(w, err)
 	}
 	if err := calls.ask(); err != nil {
-		return nil, cancelled(err)
+		return nil, cancelled(w, err)
 	}
 	if err := expose.ask(); err != nil {
-		return nil, cancelled(err)
+		return nil, cancelled(w, err)
 	}
 	return &plannedImport{st: st, plan: plan, pack: p, opts: f.opts, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, envs: envs, tos: tos, prune: f.prune, yes: f.yes}, nil
 }
@@ -949,9 +949,9 @@ func notDone(stageMaps, sources map[string]string) map[string]string {
 }
 
 // cancelled turns a form the user left into a plain ending.
-func cancelled(err error) error {
+func cancelled(w io.Writer, err error) error {
 	if errors.Is(err, huh.ErrUserAborted) {
-		fmt.Println("cancelled; nothing was changed")
+		fmt.Fprintln(w, "cancelled; nothing was changed")
 		return nil
 	}
 	return err

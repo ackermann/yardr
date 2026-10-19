@@ -110,16 +110,17 @@ func secretErr(err error) error {
 
 // typedUnseen reads one value from the terminal in is, with nothing shown
 // as it is typed; nil when in is no terminal, which readKeys then reads as
-// NAME=value lines.
-func typedUnseen(in io.Reader) func(prompt string) (string, error) {
+// NAME=value lines. The prompt goes to the command's error stream, so what
+// the command prints stays the result alone.
+func typedUnseen(in io.Reader, warn io.Writer) func(prompt string) (string, error) {
 	f, ok := in.(*os.File)
 	if !ok || !term.IsTerminal(int(f.Fd())) {
 		return nil
 	}
 	return func(prompt string) (string, error) {
-		fmt.Fprint(stderr, prompt)
+		fmt.Fprint(warn, prompt)
 		b, err := term.ReadPassword(int(f.Fd()))
-		fmt.Fprintln(stderr)
+		fmt.Fprintln(warn)
 		return string(b), err
 	}
 }
@@ -514,23 +515,23 @@ env_file; what the new file changes of its calls is printed.`,
 			changes = append(changes, stillGranted(before, d, grants)...)
 			return a.out(c.OutOrStdout(), map[string]any{"source": saved, "declaration": d, "changes": changes}, func(w io.Writer) {
 				if len(d.Calls) == 0 {
-					fmt.Printf("source %s saved: no call, its limits command alone\n", d.Name)
+					fmt.Fprintf(w, "source %s saved: no call, its limits command alone\n", d.Name)
 				} else {
-					fmt.Printf("source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Base)
+					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Base)
 				}
 				for _, l := range changes {
-					fmt.Println("  " + l)
+					fmt.Fprintln(w, "  "+l)
 				}
 				if d.Notify != nil {
-					fmt.Println("  " + notifyLine(d))
+					fmt.Fprintln(w, "  "+notifyLine(d))
 				}
 				if d.Limits != nil {
-					fmt.Println("  " + limitsLine(d))
+					fmt.Fprintln(w, "  "+limitsLine(d))
 					asks := "it asks for each of those kinds"
 					if d.Limits.Self() {
 						asks = "it asks the source for itself"
 					}
-					fmt.Printf("next: yardr source check %s (%s)\n", d.Name, asks)
+					fmt.Fprintf(w, "next: yardr source check %s (%s)\n", d.Name, asks)
 				}
 				var copied []string
 				for _, f := range d.CommandFiles(cfg.Home) {
@@ -539,13 +540,13 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 				}
 				if len(copied) > 0 {
-					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(cfg.Home, "sources", d.Name), strings.Join(copied, ", "))
+					fmt.Fprintf(w, "  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(cfg.Home, "sources", d.Name), strings.Join(copied, ", "))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
 					// Source add is the operator's, refused from an agent's pane,
 					// so this names the operator's ways alone: the command that
 					// writes the file first, then the file they keep themselves.
-					fmt.Printf("next: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves\n", d.Name, d.Credential.Names(), d.Name)
+					fmt.Fprintf(w, "next: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves\n", d.Name, d.Credential.Names(), d.Name)
 				}
 			})
 		},
@@ -607,7 +608,7 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 					rows = append(rows, []string{d.Name, or(d.Base, "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
-				table(os.Stdout, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
+				table(w, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
 		},
 	}
@@ -690,64 +691,64 @@ credential in it whether their file sets that. The value is never printed.
 				out["as"] = as
 			}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
+				fmt.Fprintf(w, "%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
-					fmt.Printf("  %s\n", d.About)
+					fmt.Fprintf(w, "  %s\n", d.About)
 				}
-				fmt.Printf("  credential: %s\n", state)
+				fmt.Fprintf(w, "  credential: %s\n", state)
 				if d.Credential.Minted() {
-					fmt.Println("  " + mintLine(d, src, files[source.MintCommandKey]))
+					fmt.Fprintln(w, "  "+mintLine(d, src, files[source.MintCommandKey]))
 				}
 				for _, u := range users {
 					if astate, ok := as[u.Name]; ok {
-						fmt.Printf("  credential as %s: %s\n", u.Name, astate)
+						fmt.Fprintf(w, "  credential as %s: %s\n", u.Name, astate)
 					}
 				}
 				switch {
 				case d.Check != "":
-					fmt.Printf("  check: the call %s (yardr source check %s)\n", d.Check, d.Name)
+					fmt.Fprintf(w, "  check: the call %s (yardr source check %s)\n", d.Check, d.Name)
 				case len(d.Calls) > 0:
-					fmt.Println("  check: the file names no call for it")
+					fmt.Fprintln(w, "  check: the file names no call for it")
 				}
 				for _, call := range d.Calls {
 					line := fmt.Sprintf("  call %s  %s  %s", call.Name, call.Kind, call.Request.Line())
 					if call.About != "" {
 						line += "  " + call.About
 					}
-					fmt.Println(line)
+					fmt.Fprintln(w, line)
 					for _, p := range call.Params {
-						fmt.Println("    " + paramLine(p))
+						fmt.Fprintln(w, "    "+paramLine(p))
 					}
 					if len(call.Build) > 0 {
-						fmt.Printf("    build: %s\n", strings.Join(call.Build, " "))
-						fmt.Println("    " + commandFileLine(files["call."+call.Name+".build"]))
+						fmt.Fprintf(w, "    build: %s\n", strings.Join(call.Build, " "))
+						fmt.Fprintln(w, "    "+commandFileLine(files["call."+call.Name+".build"]))
 					}
 					if len(call.Answer.Select) > 0 {
-						fmt.Printf("    answers %s\n", strings.Join(call.Answer.Select, ", "))
+						fmt.Fprintf(w, "    answers %s\n", strings.Join(call.Answer.Select, ", "))
 					}
 					if who := grantedCall(grants, &call); len(who) > 0 {
-						fmt.Printf("    may be called by %s\n", strings.Join(who, ", "))
+						fmt.Fprintf(w, "    may be called by %s\n", strings.Join(who, ", "))
 					}
 				}
 				if len(d.Calls) > 0 {
-					fmt.Printf("  calls: %d an hour for each caller, %d of them updates at most\n", src.CallLimit(), src.UpdateLimit())
+					fmt.Fprintf(w, "  calls: %d an hour for each caller, %d of them updates at most\n", src.CallLimit(), src.UpdateLimit())
 				}
 				if d.Idempotency != "" {
-					fmt.Printf("  updates: each is sent with a key in the header %s, the same when it is tried again\n", d.Idempotency)
+					fmt.Fprintf(w, "  updates: each is sent with a key in the header %s, the same when it is tried again\n", d.Idempotency)
 				}
 				if d.Notify != nil {
-					fmt.Println("  " + notifyLine(d))
+					fmt.Fprintln(w, "  "+notifyLine(d))
 				} else {
-					fmt.Println("  notify: the file has no notify key, so no user is told through it")
+					fmt.Fprintln(w, "  notify: the file has no notify key, so no user is told through it")
 				}
 				if d.Limits != nil {
-					fmt.Println("  " + limitsLine(d))
-					fmt.Printf("    command: %s\n", strings.Join(d.Limits.Command, " "))
+					fmt.Fprintln(w, "  "+limitsLine(d))
+					fmt.Fprintf(w, "    command: %s\n", strings.Join(d.Limits.Command, " "))
 					if f, ok := files["limits.command"]; ok {
-						fmt.Println("    " + commandFileLine(f))
+						fmt.Fprintln(w, "    "+commandFileLine(f))
 					}
 					for _, kind := range d.Limits.KindNames() {
-						fmt.Printf("    kind %s is asked as %s\n", kind, d.Limits.Kinds[kind])
+						fmt.Fprintf(w, "    kind %s is asked as %s\n", kind, d.Limits.Kinds[kind])
 					}
 				}
 				if d.Thread != nil {
@@ -755,71 +756,71 @@ credential in it whether their file sets that. The value is never printed.
 						if !strings.HasPrefix(cmd.Key, "thread.") {
 							continue
 						}
-						fmt.Printf("  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
-						fmt.Println("    " + commandFileLine(files[cmd.Key]))
+						fmt.Fprintf(w, "  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
+						fmt.Fprintln(w, "    "+commandFileLine(files[cmd.Key]))
 					}
 					if d.Thread.Place != "" {
-						fmt.Printf("  thread.place: %s\n", d.Thread.Place)
+						fmt.Fprintf(w, "  thread.place: %s\n", d.Thread.Place)
 					}
 					if len(d.Thread.States) > 0 {
-						fmt.Printf("  thread.states: %s\n", strings.Join(d.Thread.States, ", "))
+						fmt.Fprintf(w, "  thread.states: %s\n", strings.Join(d.Thread.States, ", "))
 					}
 					if d.Thread.Labels {
-						fmt.Printf("  thread.labels: label:<name> adds one, never removes\n")
+						fmt.Fprintf(w, "  thread.labels: label:<name> adds one, never removes\n")
 					}
 					if d.Thread.Assignee != "" {
-						fmt.Printf("  thread.assignee: open takes one, by a person's %s there\n", d.Thread.Assignee)
+						fmt.Fprintf(w, "  thread.assignee: open takes one, by a person's %s there\n", d.Thread.Assignee)
 					}
 				}
 				if d.Link != nil {
-					fmt.Printf("  link: issues of %s (%s)\n", d.Link.Host, d.Link.Issue)
-					fmt.Printf("    fixed: %s\n", d.Link.Fixed)
-					fmt.Printf("    thread: %s\n", d.Link.Thread)
+					fmt.Fprintf(w, "  link: issues of %s (%s)\n", d.Link.Host, d.Link.Issue)
+					fmt.Fprintf(w, "    fixed: %s\n", d.Link.Fixed)
+					fmt.Fprintf(w, "    thread: %s\n", d.Link.Thread)
 					if d.Link.Fold != "" {
-						fmt.Printf("    fold: %s\n", d.Link.Fold)
+						fmt.Fprintf(w, "    fold: %s\n", d.Link.Fold)
 					}
 					if d.Link.Pull != nil {
-						fmt.Printf("    pull: %s (%s)\n", d.Link.Pull.Fixed, d.Link.Pull.Issue)
-						fmt.Printf("    pull thread: %s\n", d.Link.Pull.Thread)
+						fmt.Fprintf(w, "    pull: %s (%s)\n", d.Link.Pull.Fixed, d.Link.Pull.Issue)
+						fmt.Fprintf(w, "    pull thread: %s\n", d.Link.Pull.Thread)
 					}
 					if d.Link.Repos != "" {
-						fmt.Printf("    repos: %s\n", d.Link.Repos)
+						fmt.Fprintf(w, "    repos: %s\n", d.Link.Repos)
 					}
 				}
 				if d.Identity != nil {
-					fmt.Printf("  identity: keys fold %s\n", d.Identity.Fold)
+					fmt.Fprintf(w, "  identity: keys fold %s\n", d.Identity.Fold)
 				}
 				if d.Hook != nil {
-					fmt.Printf("  command hook.normalize: %s\n", strings.Join(d.Hook.Normalize, " "))
-					fmt.Println("    " + commandFileLine(files["hook.normalize"]))
-					fmt.Printf("  hook.verify: %s of the body in %s\n", d.Hook.Verify.Scheme, d.Hook.Verify.Signature.Header)
-					fmt.Printf("  hook.bodies: %s\n", d.Hook.Bodies)
+					fmt.Fprintf(w, "  command hook.normalize: %s\n", strings.Join(d.Hook.Normalize, " "))
+					fmt.Fprintln(w, "    "+commandFileLine(files["hook.normalize"]))
+					fmt.Fprintf(w, "  hook.verify: %s of the body in %s\n", d.Hook.Verify.Scheme, d.Hook.Verify.Signature.Header)
+					fmt.Fprintf(w, "  hook.bodies: %s\n", d.Hook.Bodies)
 					if len(d.Hook.Keys) > 0 {
-						fmt.Printf("  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
+						fmt.Fprintf(w, "  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
 					}
 				}
 				if d.Hear != nil {
-					fmt.Println("  " + hearLine(d))
+					fmt.Fprintln(w, "  "+hearLine(d))
 				}
 				if d.HearsByIdentity() {
-					fmt.Println("  " + ignoredLine(d.Name, src.Ignored))
+					fmt.Fprintln(w, "  "+ignoredLine(d.Name, src.Ignored))
 				}
 				if d.Events != nil {
 					for _, cmd := range d.Commands() {
 						if !strings.HasPrefix(cmd.Key, "events.") {
 							continue
 						}
-						fmt.Printf("  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
-						fmt.Println("    " + commandFileLine(files[cmd.Key]))
+						fmt.Fprintf(w, "  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
+						fmt.Fprintln(w, "    "+commandFileLine(files[cmd.Key]))
 					}
 					if len(d.Events.Runs) > 0 {
-						fmt.Printf("  events.runs: %s\n", strings.Join(d.Events.Runs, ", "))
+						fmt.Fprintf(w, "  events.runs: %s\n", strings.Join(d.Events.Runs, ", "))
 					}
 					if len(d.Events.HeadFrom) > 0 {
-						fmt.Printf("  events.head_from: %s\n", strings.Join(d.Events.HeadFrom, ", "))
+						fmt.Fprintf(w, "  events.head_from: %s\n", strings.Join(d.Events.HeadFrom, ", "))
 					}
 				}
-				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
+				fmt.Fprintf(w, "  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
 		},
 	}
@@ -876,17 +877,17 @@ credential in it whether their file sets that. The value is never printed.
 				"subscriptions": left.subscriptions, "participations": left.participations,
 				"remove_subscriptions": left.unsubscribe, "remove_participations": left.unfollow,
 			}, func(w io.Writer) {
-				fmt.Printf("%s: removed; %s and %s still name this source.\n", args[0], countPhrase(left.subscriptions, "subscription", "subscriptions"), countPhrase(left.participations, "participation", "participations"))
+				fmt.Fprintf(w, "%s: removed; %s and %s still name this source.\n", args[0], countPhrase(left.subscriptions, "subscription", "subscriptions"), countPhrase(left.participations, "participation", "participations"))
 				if len(left.unsubscribe) > 0 {
-					fmt.Println("  Remove subscriptions with:")
+					fmt.Fprintln(w, "  Remove subscriptions with:")
 					for _, command := range left.unsubscribe {
-						fmt.Printf("    %s\n", printable(command))
+						fmt.Fprintf(w, "    %s\n", printable(command))
 					}
 				}
 				if len(left.unfollow) > 0 {
-					fmt.Println("  Remove participations with:")
+					fmt.Fprintln(w, "  Remove participations with:")
 					for _, command := range left.unfollow {
-						fmt.Printf("    %s\n", printable(command))
+						fmt.Fprintf(w, "    %s\n", printable(command))
 					}
 				}
 			})
@@ -936,17 +937,17 @@ identity hearing, which ignores nothing.`,
 				}
 				ignored := sortedIgnored(src.Ignored)
 				return a.out(c.OutOrStdout(), map[string]any{"source": args[0], "ignored": ignored}, func(w io.Writer) {
-					fmt.Printf("%s: %s is no longer ignored\n", args[0], rm)
+					fmt.Fprintf(w, "%s: %s is no longer ignored\n", args[0], rm)
 				})
 			}
 			ignored := sortedIgnored(src.Ignored)
 			return a.out(c.OutOrStdout(), map[string]any{"source": args[0], "ignored": ignored}, func(w io.Writer) {
 				if len(ignored) == 0 {
-					fmt.Printf("%s: no sender is ignored\n", args[0])
+					fmt.Fprintf(w, "%s: no sender is ignored\n", args[0])
 					return
 				}
 				for _, id := range ignored {
-					fmt.Println(id)
+					fmt.Fprintln(w, id)
 				}
 			})
 		},
@@ -1057,7 +1058,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 			if key != store.SourceEnvFile && key != store.SourceMintCommand {
 				state = saved.LimitsLine()
 			}
-			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Printf("source %s: %s\n", saved.Name, state) })
+			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Fprintf(w, "source %s: %s\n", saved.Name, state) })
 		},
 	}
 
@@ -1136,7 +1137,7 @@ again, and it ends as one giving that worked.`,
 					return fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
 				}
 			}
-			values, err := readKeys(d, args[1:], c.InOrStdin(), typedUnseen(c.InOrStdin()), keyAs)
+			values, err := readKeys(d, args[1:], c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), keyAs)
 			if err != nil {
 				return err
 			}
@@ -1146,7 +1147,7 @@ again, and it ends as one giving that worked.`,
 					return secretErr(err)
 				}
 				return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
-					fmt.Printf("%s gave %s · it is set in %s · %s\n", keyed.As, strings.Join(keyed.Given, " and "), keyed.File, keyed.Next)
+					fmt.Fprintf(w, "%s gave %s · it is set in %s · %s\n", keyed.As, strings.Join(keyed.Given, " and "), keyed.File, keyed.Next)
 				})
 			}
 			keyed, err := st.KeySource(c.Context(), d.Name, values, a.who())
@@ -1155,14 +1156,14 @@ again, and it ends as one giving that worked.`,
 			}
 			return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
 				if keyed.Missing == "" {
-					fmt.Printf("source %s: %s\n", d.Name, keyed.State)
+					fmt.Fprintf(w, "source %s: %s\n", d.Name, keyed.State)
 					return
 				}
 				state := keyed.Missing
 				if keyed.State != "" {
 					state = keyed.State + "; " + state
 				}
-				fmt.Printf("source %s: %s written to %s; %s\n", d.Name, strings.Join(keyed.Given, " and "), keyed.File, state)
+				fmt.Fprintf(w, "source %s: %s written to %s; %s\n", d.Name, strings.Join(keyed.Given, " and "), keyed.File, state)
 			})
 		},
 	}
@@ -1253,7 +1254,7 @@ group is granted.`,
 				words := grantWords(c.Context(), st)
 				return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
 					for _, s := range saved {
-						fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
+						fmt.Fprintf(w, "%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
 					}
 				})
 			}
@@ -1268,7 +1269,7 @@ group is granted.`,
 			words := grantWords(c.Context(), st)
 			return a.out(c.OutOrStdout(), saved, func(w io.Writer) {
 				for _, s := range saved {
-					fmt.Printf("%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
+					fmt.Fprintf(w, "%s may call %s: %s\n", s.Holder(), s.Source, words(*s))
 				}
 			})
 		},
@@ -1302,7 +1303,7 @@ may revoke.`,
 			words := grantWords(c.Context(), st)
 			return a.out(c.OutOrStdout(), left, func(w io.Writer) {
 				for _, s := range left {
-					fmt.Printf("%s may call %s: %s\n", s.Holder(), args[0], or(words(*s), "nothing"))
+					fmt.Fprintf(w, "%s may call %s: %s\n", s.Holder(), args[0], or(words(*s), "nothing"))
 				}
 			})
 		},
@@ -1408,13 +1409,13 @@ process for it. Nothing of the request is written anywhere.`,
 			}
 			// said is the part on the calls, for a person; the commands and
 			// limits follow it.
-			said := func() {}
+			said := func(io.Writer) {}
 			switch {
 			case len(d.Calls) == 0:
 			case d.Check == "":
-				said = func() {
-					fmt.Printf("%s: credential: %s\n", d.Name, state)
-					fmt.Printf("%s: its file names no check call (check: <a read call without parameters>), so nothing was sent%s\n", d.Name, saidAs)
+				said = func(w io.Writer) {
+					fmt.Fprintf(w, "%s: credential: %s\n", d.Name, state)
+					fmt.Fprintf(w, "%s: its file names no check call (check: <a read call without parameters>), so nothing was sent%s\n", d.Name, saidAs)
 				}
 			default:
 				cred, mstate, err := readOf(c.Context())
@@ -1453,11 +1454,11 @@ process for it. Nothing of the request is written anywhere.`,
 						}
 					}
 				}
-				said = func() {
-					fmt.Printf("%s: credential: %s\n", d.Name, state)
-					fmt.Printf("%s: check call %s (%s)%s: %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, res.Took.Milliseconds(), res.Bytes)
+				said = func(w io.Writer) {
+					fmt.Fprintf(w, "%s: credential: %s\n", d.Name, state)
+					fmt.Fprintf(w, "%s: check call %s (%s)%s: %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, res.Took.Milliseconds(), res.Bytes)
 					for _, line := range selected {
-						fmt.Printf("%s: %s\n", d.Name, line)
+						fmt.Fprintf(w, "%s: %s\n", d.Name, line)
 					}
 				}
 			}
@@ -1476,17 +1477,17 @@ process for it. Nothing of the request is written anywhere.`,
 				cmds, cmdsOK = checkCommands(d, home)
 				out["commands"] = cmds
 			}
-			sayCmds := func() {
+			sayCmds := func(w io.Writer) {
 				for _, cmd := range cmds {
 					if cmd.Error != "" {
-						fmt.Printf("%s: %s\n", d.Name, cmd.Error)
+						fmt.Fprintf(w, "%s: %s\n", d.Name, cmd.Error)
 					} else {
-						fmt.Printf("%s: command %s (%s): can be run\n", d.Name, cmd.Key, strings.Join(cmd.Argv, " "))
+						fmt.Fprintf(w, "%s: command %s (%s): can be run\n", d.Name, cmd.Key, strings.Join(cmd.Argv, " "))
 					}
 				}
 			}
 			if d.Limits == nil {
-				if err := a.out(c.OutOrStdout(), out, func(w io.Writer) { said(); sayCmds() }); err != nil {
+				if err := a.out(c.OutOrStdout(), out, func(w io.Writer) { said(w); sayCmds(w) }); err != nil {
 					return err
 				}
 				if !cmdsOK {
@@ -1497,10 +1498,10 @@ process for it. Nothing of the request is written anywhere.`,
 			asked, ok := checkLimits(c.Context(), limits.Answerer{Source: d.Name, Limits: d.Limits, Home: home})
 			out["limits"] = asked
 			if err := a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				said()
-				sayCmds()
+				said(w)
+				sayCmds(w)
 				for _, l := range checkLines(asked, time.Now()) {
-					fmt.Printf("%s: limits: %s\n", d.Name, l)
+					fmt.Fprintf(w, "%s: limits: %s\n", d.Name, l)
 				}
 			}); err != nil {
 				return err
@@ -1545,9 +1546,9 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 		return fmt.Errorf("source %s: telling %s was answered %d: nothing reached them", name, u.Name, sent.Status)
 	}
 	return a.out(w, sent, func(w io.Writer) {
-		fmt.Printf("%s: told %s: %d in %dms\n", name, u.Name, sent.Status, sent.Took.Milliseconds())
+		fmt.Fprintf(w, "%s: told %s: %d in %dms\n", name, u.Name, sent.Status, sent.Took.Milliseconds())
 		if u.Notify != name {
-			fmt.Printf("next: yardr user set %s %s=%s\n", u.Name, store.UserNotify, name)
+			fmt.Fprintf(w, "next: yardr user set %s %s=%s\n", u.Name, store.UserNotify, name)
 		}
 	})
 }

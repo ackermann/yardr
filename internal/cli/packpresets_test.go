@@ -48,9 +48,7 @@ func TestPackShowPrintsPresets(t *testing.T) {
 	a := packApp(t)
 	dir := setupPack(t)
 	addPresets(t, dir)
-	// Ordered: the presets stand after the setup notes, across the
-	// helper's writer and the command's direct sites (see runOrdered).
-	out, err := runOrdered(t, a.packCmd(), "show", dir)
+	out, err := run(t, a.packCmd(), "show", dir)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -90,9 +88,7 @@ func TestPackShowPresetsWithoutNotes(t *testing.T) {
 	a := packApp(t)
 	dir := kindPack(t)
 	addPresets(t, dir)
-	// Ordered: the presets stand after the no-notes line, across the
-	// helper's writer and the command's direct sites (see runOrdered).
-	out, err := runOrdered(t, a.packCmd(), "show", dir)
+	out, err := run(t, a.packCmd(), "show", dir)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}

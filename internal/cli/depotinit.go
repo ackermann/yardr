@@ -93,7 +93,7 @@ depot. See docs/packs.md and docs/dir-depots.md.`,
 					fmt.Fprintf(c.ErrOrStderr(), "pack %s: the yard's %s setting\n", packArg, defaultPackSetting)
 				}
 			}
-			return a.depotInitPack(c.OutOrStdout(), c.Context(), *depot, packArg, &imp)
+			return a.depotInitPack(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), *depot, packArg, &imp)
 		},
 	}
 	cmd.Flags().StringVar(&packArg, "pack", "", "the pack to set the depot up from: a directory, a pack's URL, or the name of an imported or embedded pack (default: the yard's default_pack setting, else starter, and dir for a dir depot)")
@@ -134,7 +134,7 @@ type testResult struct {
 // pack apply makes. Nothing goes into the checkout: the roles, the flow and
 // its stage files are the pack's, under the yard's home. A dir depot gets
 // no guess: what would test a folder of documents is not told by its files.
-func (a *app) depotInitPack(w io.Writer, ctx context.Context, depot store.Depot, arg string, f *importFlags) error {
+func (a *app) depotInitPack(w, warn io.Writer, ctx context.Context, depot store.Depot, arg string, f *importFlags) error {
 	res := &testResult{Depot: depot.Name, Kind: depot.Kind, Path: depot.Path, Base: depot.Base, Test: depot.Test}
 	var guess, also string
 	if !depot.IsDir() && depot.Test == "" {
@@ -143,7 +143,7 @@ func (a *app) depotInitPack(w io.Writer, ctx context.Context, depot store.Depot,
 		}
 	}
 	f.opts.Depot = depot.Name
-	imp, err := a.planImport(w, ctx, "depot init", arg, f, also, func(p *pack.Pack) error { return packFits(p, depot) })
+	imp, err := a.planImport(w, warn, ctx, "depot init", arg, f, also, func(p *pack.Pack) error { return packFits(p, depot) })
 	if imp == nil || err != nil {
 		return err
 	}

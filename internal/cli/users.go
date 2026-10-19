@@ -329,7 +329,7 @@ again, and it ends as one giving that worked.`,
 			if d.Notify == nil {
 				return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", d.Name, args[0])
 			}
-			values, err := readKeys(d, []string{d.Notify.AddressEnv}, c.InOrStdin(), typedUnseen(c.InOrStdin()), "")
+			values, err := readKeys(d, []string{d.Notify.AddressEnv}, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), "")
 			if err != nil {
 				return err
 			}

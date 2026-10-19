@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -682,6 +683,30 @@ func TestPackApplyRolesChoice(t *testing.T) {
 	}
 	if _, err = run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--pack-roles", "--depot-roles"); err == nil {
 		t.Fatal("--pack-roles with --depot-roles was accepted")
+	}
+}
+
+// --pack-roles says on the command's error stream that the flag is the
+// default now; the plan on stdout stays the plan alone, and under --json
+// the value stays the plan's.
+func TestPackRolesWarnsOnItsErrorStream(t *testing.T) {
+	a := packApp(t)
+	want := "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --depot-roles\n"
+	for _, asJSON := range []bool{false, true} {
+		a.json = asJSON
+		var errs bytes.Buffer
+		c := a.packCmd()
+		c.SetErr(&errs)
+		out, err := run(t, c, "check", "../../packs/starter", "--depot", "web", "--pack-roles")
+		if err != nil {
+			t.Fatalf("check --pack-roles (json %v): %v\n%s", asJSON, err, out)
+		}
+		if errs.String() != want {
+			t.Errorf("check --pack-roles (json %v) warned %q, want %q", asJSON, errs.String(), want)
+		}
+		if strings.Contains(out, "--pack-roles") {
+			t.Errorf("check --pack-roles (json %v) says so on stdout:\n%s", asJSON, out)
+		}
 	}
 }
 
