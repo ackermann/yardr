@@ -466,6 +466,7 @@ var selfArg = map[string]string{
 	"UserAsks":             "name",
 	"Mail":                 "actor",
 	"MailPeer":             "actor",
+	"React":                "actor",
 	"AnswerAsk":            "actor",
 	"DeferAsk":             "actor",
 	"DeclineAsk":           "actor",

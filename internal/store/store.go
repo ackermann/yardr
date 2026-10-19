@@ -465,13 +465,19 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 }
 
 // inboxOf lists whom e is addressed to: whom mail is for (a crew member, or a
-// user), and the crew a subscription delivered it to. What reaches an inbox through a
+// user), whom a reaction tells (the other party to its mail), and the crew
+// a subscription delivered it to. What reaches an inbox through a
 // crew member's --on kinds is found through events_by_kind instead, since
 // those are checked when the inbox is read.
 func inboxOf(e Event) []string {
 	var out []string
 	if to := mailReceiver(e); to != "" {
 		out = append(out, to)
+	}
+	if e.Kind == "reaction" {
+		if to, _ := e.Data["to"].(string); to != "" && !slices.Contains(out, to) {
+			out = append(out, to)
+		}
 	}
 	d, _ := e.Data["deliveries"].(map[string]any)
 	for name := range d {

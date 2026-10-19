@@ -78,6 +78,9 @@ func sentLetter(prefix string) []field {
 		{prefix + "to", "string", "the receiver, as `from`"},
 		{prefix + "text", "string", "the mail"},
 		{prefix + "read", "bool", letterRead},
+		{prefix + "reactions", "array?", "the parties' emoji on the mail, by who put them, as [`React`](#react) put them; absent on mail without any"},
+		{prefix + "reactions[].from", "string", "who put it: the sender or the receiver"},
+		{prefix + "reactions[].emoji", "string", "which of 👍 👎 ❤️ 🎉 👀 ✅ it is"},
 		{prefix + "as", "string?", "on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers)"},
 		{prefix + "via", "string?", "the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine"},
 		{prefix + "files", "array?", "the files the mail carries, each an image, a page or a file, in the order it was sent with them; absent on mail without any"},
@@ -319,6 +322,16 @@ var apiCalls = []apiCall{
 			{"at", "time", "when it was queued"},
 		},
 		after: "Where it stands afterwards is `delivery` in the conversation.",
+	},
+	{
+		method: "React",
+		says:   "Puts the party's reaction on the mail `seq`: one of 👍 👎 ❤️ 🎉 👀 ✅, or `\"\"` to take it away. Only the letter's sender or receiver may react, and only mail its sender wrote takes one. One party holds one reaction: a new one replaces the old one. It answers nothing; the reaction is then a `reaction` event in the stream, and `reactions` on the letter in [`UserInbox`](#userinbox) and [`Conversation`](#conversation).",
+		args: []field{
+			{"seq", "number", "the seq of the mail's event"},
+			{"emoji", "string", "one of 👍 👎 ❤️ 🎉 👀 ✅; `\"\"` takes the party's reaction away"},
+			{"actor", "string", "who reacts: the user's name"},
+		},
+		requests: []string{`{"seq":%d,"emoji":"🎉","actor":"jo"}`},
 	},
 	{
 		method: "Conversation",
@@ -732,6 +745,19 @@ var apiEvents = []apiEvent{
 		},
 	},
 	{
+		title: "A reaction on mail: `reaction`",
+		says:  "A party to a letter put an emoji on it, or took theirs away. Read the conversation with the other party again then: `reactions` on the letter of `data.seq` is what it now holds.",
+		is:    kindOf("reaction"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`reaction`"},
+			{"actor", "string", "who reacted"},
+			{"at", "time", "when"},
+			{"data.seq", "number", "the seq of the mail's event"},
+			{"data.emoji", "string", "which of 👍 👎 ❤️ 🎉 👀 ✅ it is; `\"\"` when the reaction was taken away"},
+		},
+	},
+	{
 		title: "A crew member's status: `crew_status`",
 		says:  "The daemon saw a crew member's session do something else than before. Any other event whose kind begins `crew_` says that a session started, stopped or failed, or that the list changed, and carries less than what changed: read `Crew` again on it.",
 		is:    kindOf("crew_status"),
@@ -864,6 +890,10 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
 	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", store.BlobFile{Hash: shed.Hash, Name: "shed.png"}))
+	// Jo reacts to the mail, so the letters the doc shows carry reactions.
+	joBox, err := st.UserInbox(ctx, "jo", 1)
+	must(err)
+	must(st.React(ctx, joBox.Mail[0].Seq, "👍", "jo"))
 
 	// Jo hears of the shed alone from here on: the decisions below are
 	// asked and answered on other beads, and would otherwise stand in
@@ -1360,6 +1390,10 @@ func runAPI(t *testing.T, network bool) *apiRun {
 				body = fmt.Sprintf(body, apiSetupAsk)
 			} else if c.method == "TakeBackAsk" {
 				body = fmt.Sprintf(body, apiTakeBack)
+			} else if c.method == "React" {
+				// The first mail of the inbox read above.
+				seqs, _ := at(run.replies["UserInbox"][0], "mail[].seq")
+				body = fmt.Sprintf(body, mustInt(t, seqs[0]))
 			} else if strings.Contains(body, "%d") {
 				// An acknowledgement goes through the newest of what was read.
 				from := map[string]string{"AckUserInbox": "UserInbox", "AckUserNotifications": "UserNotifications"}[c.method]
@@ -1439,8 +1473,8 @@ func TestCallsAreTheDocs(t *testing.T) {
 	// there was a second list, and a device of the operator the three calls
 	// of OperatorCalls besides: a call is added to either on purpose, here
 	// too.
-	if len(Calls) != 24 || len(OperatorCalls) != 3 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 24 and 3", len(Calls), len(OperatorCalls))
+	if len(Calls) != 25 || len(OperatorCalls) != 3 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 25 and 3", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {

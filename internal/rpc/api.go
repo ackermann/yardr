@@ -38,6 +38,7 @@ var Calls = map[string][]string{
 	"PutBlob":              {"data"},
 	"Mail":                 {"to", "text", "actor", "files"},
 	"MailPeer":             {"to", "peer", "text", "actor", "files"},
+	"React":                {"seq", "emoji", "actor"},
 	"Peers":                {},
 	"Crew":                 {},
 	"GetCrew":              {"name"},

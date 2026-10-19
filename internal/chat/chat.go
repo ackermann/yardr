@@ -1012,6 +1012,9 @@ func (m *Model) event(e store.Event) tea.Cmd {
 	switch {
 	case e.Kind == "mail":
 		return m.mail(e)
+	case e.Kind == "reaction":
+		m.react(e)
+		return nil
 	case e.Kind == "noted":
 		return m.loadAsks()
 	case e.Kind == "mail_read":
@@ -1104,6 +1107,33 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// react takes a reaction event: the target letter's reactions gain the
+// reactor's emoji, or lose it on a clear. The letter is in one row; the
+// others are left as they are.
+func (m *Model) react(e store.Event) {
+	target := number(e.Data["seq"])
+	emoji, _ := e.Data["emoji"].(string)
+	for _, c := range m.convo {
+		for i := range c {
+			if c[i].Seq != target {
+				continue
+			}
+			var kept []store.Reaction
+			for _, r := range c[i].Reactions {
+				if r.From != e.Actor {
+					kept = append(kept, r)
+				}
+			}
+			if emoji != "" {
+				kept = append(kept, store.Reaction{From: e.Actor, Emoji: emoji})
+				slices.SortFunc(kept, func(a, b store.Reaction) int { return strings.Compare(a.From, b.From) })
+			}
+			c[i].Reactions = kept
+		}
+	}
+	m.clamp()
 }
 
 // listed takes the crew as read at head. A status the stream told

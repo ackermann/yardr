@@ -858,10 +858,74 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobF
 	})
 }
 
-// forCrew reports whether e belongs in r's inbox: mail to it, a hook
-// or bead event its subscriptions delivered to it when logged, or a kind
-// it hears of through --on, never its own actions nor yardr telling of
-// itself (aboutItself). --on works as implicit
+// AllowedReactions are the emoji a party to a letter may put on it.
+var AllowedReactions = []string{"👍", "👎", "❤️", "🎉", "👀", "✅"}
+
+// React puts the party's reaction on the mail seq: one of AllowedReactions,
+// or "" to take it away. Only the letter's sender or receiver may react, and
+// only mail its sender wrote takes one: a timer's letter, another kind's
+// event or an unknown seq is refused. One party holds one reaction: a new one
+// replaces the old one, and the last event wins. From a session's or a crew
+// member's pane the reaction is recorded as that session's actor or that crew
+// member, whatever actor says; from anywhere else, as given (paneAuthor).
+func (s *Store) React(ctx context.Context, seq uint64, emoji, actor string) error {
+	if emoji != "" && !slices.Contains(AllowedReactions, emoji) {
+		return fmt.Errorf("reaction %q: use one of %s", emoji, strings.Join(AllowedReactions, " "))
+	}
+	return s.writeVia(ctx, func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
+		var e Event
+		if ok, err := get(w.Tx, bEvents, seqKey(seq), &e); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("mail %d: %w", seq, ErrNotFound)
+		} else if e.Kind != "mail" {
+			return fmt.Errorf("event %d is a %s event, not mail: only mail takes reactions", seq, e.Kind)
+		}
+		if timerOf(e) != "" {
+			return fmt.Errorf("mail %d is a timer's letter, which takes no reactions", seq)
+		}
+		from, to := e.Actor, mailReceiver(e)
+		if peer, _ := e.Data["to_peer"].(string); peer != "" {
+			// Mail that left for a linked yard: the receiver is the address
+			// it went to, and only its sender, here, may react.
+			if name, _ := e.Data["to"].(string); name != "" {
+				to = name + "@" + peer
+			}
+		}
+		if actor != from && actor != to {
+			return fmt.Errorf("mail %d is between %s and %s, and %s is neither: only its sender or receiver may react",
+				seq, from, to, or(actor, "nobody"))
+		}
+		other := to
+		if actor == to {
+			other = from
+		}
+		text, _ := e.Data["text"].(string)
+		return w.event("", "reaction", actor, map[string]any{
+			"seq": seq, "emoji": emoji, "to": other, "preview": reactionPreview(text),
+		})
+	})
+}
+
+// reactionPreview is the target's first words for the crew inbox line: its
+// whitespace folded, at most 80 characters.
+func reactionPreview(text string) string {
+	s := strings.Join(strings.Fields(text), " ")
+	if r := []rune(s); len(r) > 80 {
+		return string(r[:80])
+	}
+	return s
+}
+
+// forCrew reports whether e belongs in r's inbox: mail to it, a reaction to
+// its own mail, a hook or bead event its subscriptions delivered to it when
+// logged, or a kind it hears of through --on, never its own actions nor
+// yardr telling of itself (aboutItself). --on works as implicit
 // "yardr all kind=<k>" subscriptions, checked when the inbox is read, and
 // also covers events not about a bead. A word of --on may be a class
 // (KindAttention): what it holds is looked up here, each time.
@@ -872,6 +936,13 @@ func forCrew(r *CrewMember, e Event) bool {
 	switch e.Kind {
 	case "mail":
 		return mailTo(e) == r.Name
+	case "reaction":
+		// A clear takes the reaction away; it tells no inbox.
+		if emoji, _ := e.Data["emoji"].(string); emoji == "" {
+			return false
+		}
+		to, _ := e.Data["to"].(string)
+		return to == r.Name
 	case "hook":
 		return Reason(e, r.Name) != ""
 	}
@@ -1026,7 +1097,9 @@ func forSlice(r *CrewMember, user string, e Event) bool {
 		return false
 	}
 	switch {
-	case e.Kind == "mail":
+	case e.Kind == "mail", e.Kind == "reaction":
+		// A reaction from a user with a conversation is read in that
+		// slice, as its mail is.
 		who := ""
 		if r.sliced(e.Actor) {
 			who = e.Actor

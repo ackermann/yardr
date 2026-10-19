@@ -677,6 +677,7 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 				if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
 					fmt.Printf("    %s\n", line)
 				}
+				printReactions(l)
 			}
 			partFoot(rest["mail"], acked["mail"], ack, newer["mail"])
 		}
@@ -810,8 +811,16 @@ func (a *app) conversation(w io.Writer, ctx context.Context, st store.API, with 
 			if line := store.NoteFilesLine(a.mailHome(), l.Files); line != "" {
 				fmt.Printf("    %s\n", line)
 			}
+			printReactions(l)
 		}
 	})
+}
+
+// printReactions prints the letter's reactions under it, one a line.
+func printReactions(l store.Letter) {
+	for _, r := range l.Reactions {
+		fmt.Printf("  %s %s\n", store.Letters(r.Emoji), store.Letters(r.From))
+	}
 }
 
 // mailState is what waits for the user a command acts as.

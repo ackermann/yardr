@@ -168,6 +168,7 @@ type API interface {
 	MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error
 	Journal(ctx context.Context, name, kind, text, actor string) error
 	Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error
+	React(ctx context.Context, seq uint64, emoji, actor string) error
 	PutBlob(ctx context.Context, data []byte) (*BlobRef, error)
 	Inbox(ctx context.Context, name string, limit int) (*InboxPage, error)
 	AckInbox(ctx context.Context, name string, through uint64) error

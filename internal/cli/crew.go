@@ -1223,6 +1223,20 @@ func printInboxEvent(e store.Event, member, home string) {
 		if line := store.NoteFilesLine(home, store.MailFiles(e)); line != "" {
 			fmt.Printf("    %s\n", line)
 		}
+	case "reaction":
+		// The reactor, the emoji and the target's first words are writers'
+		// words, shown without the mark.
+		emoji, _ := e.Data["emoji"].(string)
+		preview, _ := e.Data["preview"].(string)
+		var target uint64
+		switch n := e.Data["seq"].(type) {
+		case float64:
+			target = uint64(n)
+		case uint64:
+			target = n
+		}
+		fmt.Printf("%6d %s  %s by %s on your mail %d: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"),
+			store.Letters(emoji), store.Letters(e.Actor), target, store.Letters(preview))
 	case "hook":
 		printHookDelivery(e, member)
 	case "timer":

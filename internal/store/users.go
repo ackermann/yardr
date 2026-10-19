@@ -77,6 +77,13 @@ type User struct {
 	Pushed   []time.Time `json:"pushed,omitempty"`
 }
 
+// Reaction is one party's emoji on a letter: who put it and which of
+// AllowedReactions it is.
+type Reaction struct {
+	From  string `json:"from"`
+	Emoji string `json:"emoji"`
+}
+
 // Letter is one mail as a conversation and a user's inbox show it.
 type Letter struct {
 	Seq  uint64    `json:"seq"`
@@ -88,6 +95,9 @@ type Letter struct {
 	// Mail to a party that is gone was never read as far as the store
 	// knows.
 	Read bool `json:"read"`
+	// Reactions are the parties' emoji on the mail, by who put them; absent
+	// on mail without any.
+	Reactions []Reaction `json:"reactions,omitempty"`
 	// Timer is the id of the timer the yard sent it for, "" for mail its
 	// sender wrote: the text then begins "timer:".
 	Timer string `json:"timer,omitempty"`
@@ -742,10 +752,83 @@ func mailKeys(tx *bolt.Tx, name string, after uint64) []string {
 }
 
 // readers answers whether a mail's receiver acknowledged it, reading each
-// crew member or user once.
+// crew member or user once, and what reactions its parties put on it,
+// reading the reaction events once.
 type readers struct {
-	tx      *bolt.Tx
-	cursors map[string]uint64
+	tx            *bolt.Tx
+	cursors       map[string]uint64
+	reactions     map[uint64][]Reaction
+	reactionsDone bool
+}
+
+// reactionsFor are the reactions on the mail seq: the last event wins per
+// party, and a clear leaves none. The reaction events are read once, on the
+// first letter asked of.
+func (rd *readers) reactionsFor(seq uint64) ([]Reaction, error) {
+	if !rd.reactionsDone {
+		m, err := allReactions(rd.tx)
+		if err != nil {
+			return nil, err
+		}
+		rd.reactions, rd.reactionsDone = m, true
+	}
+	return rd.reactions[seq], nil
+}
+
+// allReactions are the reactions the log holds, by the seq of the mail they
+// are on: one party's latest emoji, or none after a clear. The events arrive
+// in seq order, so each overwrites the one before it.
+func allReactions(tx *bolt.Tx) (map[uint64][]Reaction, error) {
+	last := map[uint64]map[string]string{}
+	c := tx.Bucket(bEventsKd).Cursor()
+	prefix := []byte(join("reaction", ""))
+	for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		var e Event
+		if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+			return nil, err
+		} else if !ok {
+			continue
+		}
+		target, ok := reactionTarget(e)
+		if !ok {
+			continue
+		}
+		emoji, _ := e.Data["emoji"].(string)
+		if last[target] == nil {
+			last[target] = map[string]string{}
+		}
+		last[target][e.Actor] = emoji
+	}
+	out := map[uint64][]Reaction{}
+	for target, byFrom := range last {
+		for from, emoji := range byFrom {
+			if emoji == "" {
+				continue
+			}
+			out[target] = append(out[target], Reaction{From: from, Emoji: emoji})
+		}
+		slices.SortFunc(out[target], func(a, b Reaction) int { return strings.Compare(a.From, b.From) })
+		if len(out[target]) == 0 {
+			delete(out, target)
+		}
+	}
+	return out, nil
+}
+
+// reactionTarget is the seq of the mail the reaction event e is on. A number
+// of the log reads back as a float64; the write holds the seq it was given.
+func reactionTarget(e Event) (uint64, bool) {
+	switch n := e.Data["seq"].(type) {
+	case float64:
+		return uint64(n), n >= 0 && n == float64(uint64(n))
+	case uint64:
+		return n, true
+	case int:
+		return uint64(n), n >= 0
+	case int64:
+		return uint64(n), n >= 0
+	}
+	return 0, false
 }
 
 func (rd *readers) letter(e Event) (Letter, error) {
@@ -790,7 +873,11 @@ func (rd *readers) letter(e Event) (Letter, error) {
 		rd.cursors[key] = cursor
 	}
 	text, _ := e.Data["text"].(string)
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: MailFiles(e)}, nil
+	reactions, err := rd.reactionsFor(e.Seq)
+	if err != nil {
+		return Letter{}, err
+	}
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Reactions: reactions, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: MailFiles(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,
@@ -1086,7 +1173,13 @@ func (h *history) letter(e Event, rd *readers) (Letter, bool, error) {
 			}
 			h.sent[p.Name] = s
 		}
-		return h.sent[p.Name].letter(e, to+"@"+p.Name), true, nil
+		l := h.sent[p.Name].letter(e, to+"@"+p.Name)
+		reactions, err := rd.reactionsFor(e.Seq)
+		if err != nil {
+			return Letter{}, false, err
+		}
+		l.Reactions = reactions
+		return l, true, nil
 	}
 	came, _ := e.Data["from_peer"].(string)
 	from, _ := e.Data["from"].(string)

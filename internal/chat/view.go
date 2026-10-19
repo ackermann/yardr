@@ -274,6 +274,10 @@ func (m *Model) lines(w int) []string {
 		if files := store.NoteFilesLine(m.opt.Home, l.Files); files != "" {
 			out = append(out, wrap(files, w, "  ", look.faint)...)
 		}
+		// The parties' reactions, one a line.
+		for _, r := range l.Reactions {
+			out = append(out, wrap(store.Letters(r.Emoji)+" "+store.Letters(r.From), w, "  ", look.faint)...)
+		}
 		if l.From != m.opt.Me {
 			continue
 		}

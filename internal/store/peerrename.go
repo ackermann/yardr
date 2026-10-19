@@ -395,7 +395,13 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64, limit int, bef
 		from, _ := e.Data["from"].(string)
 		switch {
 		case left != "" && e.Actor == me && to == member && ps.now(left, e.Seq) == name:
-			return sent.letter(e, with), true, nil
+			l := sent.letter(e, with)
+			reactions, err := rd.reactionsFor(e.Seq)
+			if err != nil {
+				return Letter{}, false, err
+			}
+			l.Reactions = reactions
+			return l, true, nil
 		case came != "" && to == me && from == member && ps.now(came, e.Seq) == name:
 			l, err := rd.letter(e)
 			l.From = with
