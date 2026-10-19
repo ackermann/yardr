@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/storetest"
 )
 
 // A fresh yard's yardmaster still primes with its First run section: the
@@ -32,17 +31,7 @@ func TestPrimeCrewKeepsFirstRunWhileSetupTodo(t *testing.T) {
 // where its First run section was: the section is read at every start
 // of every session, and a set-up yard has no use for it.
 func TestPrimeCrewReplacesFirstRunWhenSetupComplete(t *testing.T) {
-	// As userYard but without its chdir: gitDepot reads testdata by
-	// path, which a chdir away from the package leaves behind.
-	newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
-	st := storetest.New(t)
-	if out, err := run(t, (&app{st: st, actor: "jo"}).rootCmd(), "init", "--harness", "claude", "--operator", "jo"); err != nil {
-		t.Fatalf("init: %v\n%s", err, out)
-	}
+	st := userYard(t)
 	ctx := context.Background()
 	fresh := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 

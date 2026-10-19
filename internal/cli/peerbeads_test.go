@@ -25,7 +25,6 @@ func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
 	}
-	t.Chdir(t.TempDir())
 	st, own = storetest.NewOwned(t)
 	mustAs(t, st, "jo", "init", "--harness", "claude", "--operator", "jo")
 	ctx := context.Background()

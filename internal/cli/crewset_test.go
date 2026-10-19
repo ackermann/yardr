@@ -215,11 +215,12 @@ func TestCrewAddOnAnExistingCrew(t *testing.T) {
 	// An agent's pane is a terminal, and nobody answers there: refused too.
 	setInteractive(t, true)
 	stubAsk(t, func(...huh.Field) error { t.Error("asked in an agent's session"); return nil })
-	t.Setenv("YARDR_CREW", "clerk")
+	env := yardEnv(t, st)
+	env["YARDR_CREW"] = "clerk"
 	if _, err := as(t, st, "jo", "crew", "add", "clerk"); err == nil || !strings.Contains(err.Error(), "--replace") {
 		t.Fatalf("in an agent's session: %v", err)
 	}
-	t.Setenv("YARDR_CREW", "")
+	env["YARDR_CREW"] = ""
 
 	// In a terminal it shows the same list and asks; no is the default.
 	var shown string

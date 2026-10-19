@@ -751,9 +751,9 @@ func TestSourceShowEvents(t *testing.T) {
 // absolute program is the operator's own.
 func TestSourceCommandFiles(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("YARDR_HOME", home)
 	st := storetest.New(t)
-	a := &app{st: st, actor: "jo"}
+	a := testApp(t, st, home)
+	a.actor = "jo"
 	dir := t.TempDir()
 	// own is the operator's own program: there, and not copied.
 	own := filepath.Join(dir, "own")
@@ -857,9 +857,9 @@ func TestSourceCommandFiles(t *testing.T) {
 // running none.
 func TestSourceShowBuiltCall(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("YARDR_HOME", home)
 	st := storetest.New(t)
-	a := &app{st: st, actor: "jo"}
+	a := testApp(t, st, home)
+	a.actor = "jo"
 	dir := t.TempDir()
 	decl := "name: docs\nbase: https://docs.googleapis.com\ncredential: { env: DOCS_TOKEN }\ncalls:\n" +
 		"  write:\n    kind: update\n    params:\n      docId: { type: string, max: 200 }\n" +

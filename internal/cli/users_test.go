@@ -28,8 +28,6 @@ func userYardOn(t *testing.T, st store.API) store.API {
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
 	}
-	// Not in a bead's worktree, whose session a command there acts as.
-	t.Chdir(t.TempDir())
 	if out, err := as(t, st, "jo", "init", "--harness", "claude", "--operator", "jo"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
@@ -40,7 +38,7 @@ func userYardOn(t *testing.T, st store.API) store.API {
 // root command's --actor is what a run of yardr goes by.
 func as(t *testing.T, st store.API, actor string, args ...string) (string, error) {
 	t.Helper()
-	return run(t, (&app{st: st}).rootCmd(), append(args, "--actor", actor)...)
+	return run(t, appOn(st).rootCmd(), append(args, "--actor", actor)...)
 }
 
 func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
@@ -55,7 +53,9 @@ func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
 // mustAsErr is mustAs with the run's error stream in errs.
 func mustAsErr(t *testing.T, st store.API, actor string, errs io.Writer, args ...string) string {
 	t.Helper()
-	out, err := run(t, (&app{st: st, stderr: errs}).rootCmd(), append(args, "--actor", actor)...)
+	a := appOn(st)
+	a.stderr = errs
+	out, err := run(t, a.rootCmd(), append(args, "--actor", actor)...)
 	if err != nil {
 		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, out)
 	}
@@ -148,7 +148,9 @@ func TestMailAUser(t *testing.T) {
 	mustAs(t, st, "ada", "mail", "jo", "from one user to another")
 
 	// A bead's agent is told where its word to a person goes. Its mail to
-	// a crew member is taken as before.
+	// a crew member is taken as before. This is not in a bead's worktree,
+	// whose session a command there acts as (see identity).
+	t.Chdir(t.TempDir())
 	t.Setenv("YARDR_BEAD", "yard-10")
 	t.Setenv("YARDR_SESSION", "s1")
 	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {

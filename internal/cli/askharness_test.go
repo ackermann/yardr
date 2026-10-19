@@ -14,7 +14,6 @@ import (
 
 	"github.com/charmbracelet/huh"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -33,12 +32,15 @@ const notLoggedIn = "Not logged in · Please run /login"
 // asker is a terminal on a fresh home whose claude is the stand-in: it
 // answers a one-shot call with "ok", or fails it with notLoggedIn while the
 // file fails exists, and records every call. The form's questions are
-// answered by f; the daemon, once started, brings the yardmaster up.
+// answered by f; the daemon, once started, brings the yardmaster up. Its runs
+// are in env, which a test changes in place of the process's.
 type asker struct {
 	t       *testing.T
 	st      store.API
 	f       *former
 	dir     string // holds bin/claude, agents.log and print-fails
+	home    string
+	env     map[string]string
 	started *int
 	chats   *[]string
 }
@@ -72,8 +74,11 @@ func newAsker(t *testing.T, f *former) *asker {
 	if err := os.Link(standIn.bin, claude); err != nil {
 		t.Fatal(err)
 	}
-	newHome(t)
+	a.home = newHomeDir(t)
+	// The operator is the login name init takes from the process ($USER, see
+	// defaultOperator); the run acts as it too.
 	actAsOperator(t)
+	a.env = testEnv(t, a.home, "HERDR_ENV=", "USER="+os.Getenv("USER"))
 	setInteractive(t, true)
 	stub(t, &lookPath, func(name string) (string, error) {
 		switch name {
@@ -88,13 +93,16 @@ func newAsker(t *testing.T, f *former) *asker {
 	stubServices(t, "darwin")
 	stubWeb(t)
 	stubFocus(t)
-	t.Setenv("HERDR_ENV", "")
 	stubAsk(t, f.ask)
 	a.started = stubStart(t, a.st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	a.chats = stubChat(t)
 	return a
 }
+
+// app is a run of yardr on the asker's yard, in its environment: a new one
+// for each command, as each run of yardr is.
+func (a *asker) app() *app { return &app{st: a.st, env: a.env} }
 
 // fails makes the stand-in's one-shot call fail as a harness without a
 // login does, and login makes it answer again.
@@ -117,7 +125,7 @@ func (a *asker) calls() int {
 // up of one that did not start.
 func (a *asker) onboard() string {
 	a.t.Helper()
-	out, err := run(a.t, (&app{st: a.st}).rootCmd())
+	out, err := run(a.t, a.app().rootCmd())
 	if err != nil {
 		a.t.Fatalf("%v\n%s", err, out)
 	}
@@ -208,9 +216,9 @@ func TestOnboardingStopsBeforeTheYardmaster(t *testing.T) {
 	stopped := func(a *asker, out string, calls int) {
 		t.Helper()
 		wantText(t, out, "\nStopped before yardmaster was started. The yard is there, and nothing runs on it.\n"+
-			"Once claude answers (`"+here("yardr doctor --try")+"` asks it again, for a model call), this starts the yard\n"+
-			"and waits for yardmaster:\n\n  "+here("yardr init --start")+"\n\n"+
-			here("yardr")+" in a terminal does the same and goes on from here. `"+here("yardr setup")+"` takes the rest of\n"+
+			"Once claude answers (`"+hereAt(a.home, "yardr doctor --try")+"` asks it again, for a model call), this starts the yard\n"+
+			"and waits for yardmaster:\n\n  "+hereAt(a.home, "yardr init --start")+"\n\n"+
+			hereAt(a.home, "yardr")+" in a terminal does the same and goes on from here. `"+hereAt(a.home, "yardr setup")+"` takes the rest of\n"+
 			"the setup as forms, with yardmaster or without.\n")
 		if strings.Contains(out, "\n\n\nStopped") {
 			t.Errorf("two blank lines above the stop:\n%s", out)
@@ -264,7 +272,7 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		out, err := run(t, (&app{st: a.st}).rootCmd(), append([]string{"init", "--harness", "claude", "--start"}, args...)...)
+		out, err := run(t, a.app().rootCmd(), append([]string{"init", "--harness", "claude", "--start"}, args...)...)
 		if err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
@@ -274,9 +282,9 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 	wantText(t, start(), "yardmaster is running, in herdr")
 	setInteractive(t, true)
 	wantText(t, start("--json"), `"running": true`)
-	t.Setenv("YARDR_SESSION", "s1")
+	a.env["YARDR_SESSION"] = "s1"
 	wantText(t, start(), "yardmaster is running, in herdr")
-	t.Setenv("YARDR_SESSION", "")
+	a.env["YARDR_SESSION"] = ""
 	if a.calls() != 0 || len(keysOf(a.f)) != 0 {
 		t.Fatalf("%d calls, asked %q where no form runs", a.calls(), keysOf(a.f))
 	}
@@ -296,7 +304,7 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 	start := func(a *asker, harness string) {
 		t.Helper()
-		out, _ := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", harness, "--start", "--wait", "30ms")
+		out, _ := run(t, a.app().rootCmd(), "init", "--harness", harness, "--start", "--wait", "30ms")
 		if a.calls() != 0 || slices.Contains(keysOf(a.f), "try") || strings.Contains(out, "Asking") {
 			t.Fatalf("%d calls, asked %q\n%s", a.calls(), keysOf(a.f), out)
 		}
@@ -322,7 +330,7 @@ func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 	})
 	t.Run("the yardmaster is stopped", func(t *testing.T) {
 		a := newAsker(t, &former{answers: map[string]any{"try": true}})
-		if _, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		if _, err := run(t, a.app().rootCmd(), "init", "--harness", "claude"); err != nil {
 			t.Fatal(err)
 		}
 		if err := a.st.SetCrewEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
@@ -332,7 +340,7 @@ func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 	})
 	t.Run("a daemon runs", func(t *testing.T) {
 		a := newAsker(t, &former{answers: map[string]any{"try": true}})
-		cfg, err := config.Load()
+		cfg, err := a.app().config()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -405,7 +413,7 @@ func TestInitStartMakesOneCallAfterAFailure(t *testing.T) {
 	// Without a terminal: no question, and the failure ends with what the
 	// call came to, after one call.
 	silent()
-	out, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	out, err := run(t, a.app().rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 	if err == nil {
 		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
 	}
@@ -423,7 +431,7 @@ func TestInitStartMakesOneCallAfterAFailure(t *testing.T) {
 	if err := a.st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start")
+	out, err = run(t, a.app().rootCmd(), "init", "--harness", "claude", "--start")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -439,7 +447,7 @@ func TestInitStartMakesOneCallAfterAFailure(t *testing.T) {
 	if err := a.st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms", "--json")
+	out, err = run(t, a.app().rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms", "--json")
 	if err == nil {
 		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
 	}
@@ -460,7 +468,7 @@ func TestInitStartTriesOnceMoreAfterAFailure(t *testing.T) {
 	handle[store.PendingPrompt] = "the first prompt"
 	stubStart(t, a.st, handle)
 	stubPane(t, loginPane)
-	out, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	out, err := run(t, a.app().rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 	if err == nil {
 		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
 	}

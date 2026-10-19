@@ -839,7 +839,7 @@ func onboardTo(t *testing.T, st store.API, answers map[string]any) (string, []st
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatal(err)
 	}

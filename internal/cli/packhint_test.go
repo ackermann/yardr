@@ -20,14 +20,14 @@ import (
 func TestMissingSourceNamesItsPack(t *testing.T) {
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}
+	a := testApp(t, st, "", "YARDR_CREW=yardmaster")
+	a.actor, a.cfg = "me", &config.Config{Home: t.TempDir()}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, "operator", "me", "me"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YARDR_CREW", "yardmaster")
 	secret := filepath.Join(t.TempDir(), "linear.secret")
 	if err := os.WriteFile(secret, []byte("s3cret-checksource-passes\n"), 0o600); err != nil {
 		t.Fatal(err)

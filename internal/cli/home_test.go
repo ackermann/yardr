@@ -266,11 +266,12 @@ func said(t *testing.T, cfg *config.Config, l hooks.Listener) {
 // setting it says when the server takes it, with the home in the command
 // and with the variable where the running server has one.
 func TestSettingHookAddr(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
+	a := testApp(t, st, home)
+	a.actor = "me"
 	for _, bad := range []string{"8790", "localhost", "127.0.0.1:http", "127.0.0.1:0", "127.0.0.1:70000", "http://127.0.0.1:8790"} {
 		if _, err := run(t, a.settingsCmd(), "set", "hook_addr", bad); err == nil || !strings.Contains(err.Error(), "127.0.0.1:8790") {
 			t.Errorf("hook_addr %s: %v", bad, err)
@@ -311,12 +312,17 @@ func TestSettingHookAddr(t *testing.T) {
 // yard has the address) it says so with the setting to change, for a yard
 // with no hook yet too.
 func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	st := storetest.New(t)
+	testYard(t, st, home)
 	ctx := context.Background()
-	a := func() *app { return &app{st: st, actor: "me"} }
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	declareGitHubPack(t, st, "", "", "me")
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)

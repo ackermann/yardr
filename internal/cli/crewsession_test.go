@@ -56,7 +56,8 @@ func TestInboxForShowsSlice(t *testing.T) {
 		t.Errorf("hal slice:\n%s", out)
 	}
 	refusedAs(t, st, "jo", "has no conversation session for ada", "inbox", "--crew", "yardmaster", "--for", "ada")
-	t.Setenv("YARDR_CREW_FOR", "hal")
+	env := yardEnv(t, st)
+	env["YARDR_CREW_FOR"] = "hal"
 	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "hal asks about deploys") {
 		t.Errorf("inbox with YARDR_CREW_FOR=hal:\n%s", out)
 	}
@@ -65,7 +66,7 @@ func TestInboxForShowsSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustAs(t, st, "jo", "inbox", "--crew", "yardmaster", "--for", "hal", "--ack", fmt.Sprint(halBox.Last))
-	t.Setenv("YARDR_CREW_FOR", "")
+	env["YARDR_CREW_FOR"] = ""
 	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "jo notes the freeze") {
 		t.Errorf("line inbox after hal's ack:\n%s", out)
 	}
@@ -112,7 +113,14 @@ func TestDoctorSeesConversationSessions(t *testing.T) {
 	if err := st.CrewStartedFor(ctx, "yardmaster", "hal", map[string]any{"agent": "y-hal"}); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := run(t, (&app{st: st, actor: "jo"}).rootCmd(), "doctor")
+	// A run of its own each time, on the yard's environment.
+	doctor := func() string {
+		a := appOn(st)
+		a.actor = "jo"
+		out, _ := run(t, a.rootCmd(), "doctor")
+		return out
+	}
+	out := doctor()
 	if !strings.Contains(out, "ok     yardmaster") || !strings.Contains(out, "yardmaster is running (herdr agent y-hal)") {
 		t.Errorf("doctor with the conversation up:\n%s", out)
 	}
@@ -121,7 +129,7 @@ func TestDoctorSeesConversationSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, _ = run(t, (&app{st: st, actor: "jo"}).rootCmd(), "doctor")
+	out = doctor()
 	if !strings.Contains(out, "yardmaster for hal is not running") || !strings.Contains(out, "crew start yardmaster") {
 		t.Errorf("doctor with the conversation failed:\n%s", out)
 	}

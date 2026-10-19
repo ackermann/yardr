@@ -157,8 +157,8 @@ func stateYard(t *testing.T, allowed, ghBase string) (*app, store.API, *store.St
 		}
 	}
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
-	// The token alone: an App in the environment goes before it.
-	noGitHubCredential(t)
+	// The token alone: an App in the environment goes before it, and
+	// TestMain leaves none.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
 	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}, st, own, dir

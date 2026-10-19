@@ -21,7 +21,6 @@ func replyMailYard(t *testing.T) (*app, store.API) {
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
 	}
-	t.Chdir(t.TempDir())
 	st, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {

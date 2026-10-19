@@ -40,17 +40,33 @@ func shortDir(t *testing.T, prefix string) string {
 }
 
 // here is a command as yardr prints it for the test's home: with --home in
-// it, since that home is not the default one.
+// it, since that home is not the default one. The home is the process's
+// YARDR_HOME (newHome); hereAt takes it from a test that gave its run its
+// own (testApp).
 func here(cmd string) string {
-	return strings.Replace(cmd, "yardr", yardrAt(config.Getenv("HOME")), 1)
+	return hereAt(config.Getenv("HOME"), cmd)
 }
 
-// newHome points YARDR_HOME at a fresh directory with no yard in it.
+// hereAt is here for the yard in home.
+func hereAt(home, cmd string) string {
+	return strings.Replace(cmd, "yardr", yardrAt(home), 1)
+}
+
+// newHomeDir is a fresh directory for a yard's home, with no yard in it. It
+// sets nothing on the process: testApp names the home to a run, newHome to
+// the process.
+func newHomeDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(shortDir(t, "yh"), "y")
+}
+
+// newHome points the process's YARDR_HOME at a fresh directory with no yard
+// in it, for a test whose commands read their environment from the process
+// (an app with no env of its own). The setting variables are blank in the
+// process already (TestMain).
 func newHome(t *testing.T) string {
 	t.Helper()
-	t.Setenv("YARDR_WEB_ADDR", "")
-	t.Setenv("YARDR_BDP_ADDR", "")
-	home := filepath.Join(shortDir(t, "yh"), "y")
+	home := newHomeDir(t)
 	t.Setenv("YARDR_HOME", home)
 	return home
 }
@@ -68,10 +84,11 @@ func packRole(t *testing.T, name, rel, operator, yardmaster string) []byte {
 }
 
 func TestInitHarnessClaude(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
+	a := testApp(t, st, home)
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo")
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +138,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatalf("settings = %v", got)
 	}
 	// The yardmaster takes it from here; the commands are in init --help.
-	for _, s := range []string{"harness    claude", "naming Jo", "roles      " + filepath.Dir(prompt) + " (pack starter, the yard's default)", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
+	for _, s := range []string{"harness    claude", "naming Jo", "roles      " + filepath.Dir(prompt) + " (pack starter, the yard's default)", hereAt(home, "yardr daemon"), "\n  " + hereAt(home, "yardr chat") + "\n  " + hereAt(home, "yardr setup") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
@@ -184,11 +201,10 @@ func TestInitHarnessClaude(t *testing.T) {
 // unless the flags say otherwise, and says so; --harness is required only to
 // create a yard. The hearer, which no flag names, is kept as stored.
 func TestInitAgainKeepsSettings(t *testing.T) {
-	newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
-	t.Setenv("USER", "kim")
+	a := testApp(t, st, newHomeDir(t), "USER=kim")
+	a.actor = "me"
 	if _, err := run(t, a.rootCmd(), "init"); err == nil || !strings.Contains(err.Error(), "--harness") {
 		t.Fatalf("init without --harness on a fresh home: %v", err)
 	}
@@ -273,14 +289,13 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 // own. Init names it as who the terminal acts as, not as the operator it
 // proposes: a crew member is refused there as at `settings set`.
 func TestInitNamesTheFirstOperatorAsItsCaller(t *testing.T) {
-	newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	head, _ := st.Head(ctx)
-	a := &app{st: st}
+	a := testApp(t, st, newHomeDir(t))
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss", "--actor", "boss"); err == nil ||
 		!strings.Contains(err.Error(), "only the operator may change a setting; this is the crew member boss") {
 		t.Fatalf("init --operator Jo as the crew member boss: %v", err)
@@ -303,9 +318,11 @@ func TestInitNamesTheFirstOperatorAsItsCaller(t *testing.T) {
 
 // Without --operator the role names the login user.
 func TestInitOperatorDefaultsToUser(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
+	// The login name is the process's: defaultOperator has no run to ask.
+	// The run acts as it, as it does on a person's machine.
 	t.Setenv("USER", "kim")
-	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, testApp(t, storetest.New(t), home, "USER=kim").rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")); !bytes.Contains(b, []byte("bring to kim")) {
@@ -391,14 +408,14 @@ func TestDefaultOperatorBlockedLookup(t *testing.T) {
 // typeName answers the form's "Your name" as keys would: the name typed over
 // what is there, then enter. It returns what the field then says in place,
 // nil when it took the name.
-func typeName(t *testing.T, name string) (was string, refused error) {
+func typeName(t *testing.T, get func(string) string, name string) (was string, refused error) {
 	t.Helper()
-	operator, err := config.Actor()
+	operator, err := config.ActorWith(get)
 	if err != nil {
 		t.Fatal(err)
 	}
 	was = operator
-	f := nameField(&operator, os.Getenv)
+	f := nameField(&operator, get)
 	f.WithKeyMap(huh.NewDefaultKeyMap())
 	f.Focus()
 	f.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
@@ -416,41 +433,45 @@ func typeName(t *testing.T, name string) (was string, refused error) {
 // (yardr-cj66). It says so in place, with how the other name is acted as,
 // and takes that name once YARDR_ACTOR is set to it.
 func TestYourNameIsWhoCommandsActAs(t *testing.T) {
+	// The environment of a run that starts from the process's, as a person's
+	// does; the process's own is left as it is.
+	env := environMap(os.Environ())
+	get := func(key string) string { return env[key] }
 	var name string
-	wantText(t, nameField(&name, os.Getenv).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
+	wantText(t, nameField(&name, get).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
 
-	login, err := config.Actor()
+	login, err := config.ActorWith(get)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !store.ValidUserName(login) || login == "chris" {
 		t.Skipf("the login name %q is no user's, or is the other name of this test", login)
 	}
-	if _, err := typeName(t, "chris"); err == nil ||
+	if _, err := typeName(t, get, "chris"); err == nil ||
 		err.Error() != "commands in this terminal act as "+login+"; keep it, or set YARDR_ACTOR=chris before yardr" {
 		t.Errorf("another name than the login name: %v", err)
 	}
-	if was, err := typeName(t, login); was != login || err != nil {
+	if was, err := typeName(t, get, login); was != login || err != nil {
 		t.Errorf("the login name: the form starts at %q, %v", was, err)
 	}
 
-	t.Setenv("YARDR_ACTOR", "chris")
-	if was, err := typeName(t, "chris"); was != "chris" || err != nil {
+	env["YARDR_ACTOR"] = "chris"
+	if was, err := typeName(t, get, "chris"); was != "chris" || err != nil {
 		t.Errorf("YARDR_ACTOR=chris: the form starts at %q, %v", was, err)
 	}
-	if _, err := typeName(t, login); err == nil ||
+	if _, err := typeName(t, get, login); err == nil ||
 		err.Error() != "commands in this terminal act as chris; keep it, or set YARDR_ACTOR="+login+" before yardr" {
 		t.Errorf("YARDR_ACTOR=chris, the login name: %v", err)
 	}
 	// No name a user may have is none to set YARDR_ACTOR to.
 	for _, bad := range []string{"", "chris scott", `CORP\chris`} {
-		if _, err := typeName(t, bad); err == nil || strings.Contains(err.Error(), "YARDR_ACTOR") {
+		if _, err := typeName(t, get, bad); err == nil || strings.Contains(err.Error(), "YARDR_ACTOR") {
 			t.Errorf("%q: %v", bad, err)
 		}
 	}
 	// A login name no user may have cannot be kept.
-	t.Setenv("YARDR_ACTOR", `CORP\chris`)
-	if _, err := typeName(t, "chris"); err == nil ||
+	env["YARDR_ACTOR"] = `CORP\chris`
+	if _, err := typeName(t, get, "chris"); err == nil ||
 		err.Error() != `commands in this terminal act as CORP\chris, which no user can be called: set YARDR_ACTOR=chris before yardr` {
 		t.Errorf("a login name that is no user name: %v", err)
 	}
@@ -460,13 +481,11 @@ func TestYourNameIsWhoCommandsActAs(t *testing.T) {
 // the login name is, and its last question opens the chat: who runs it is a
 // user of the yard it made.
 func TestOnboardingAsYardrActor(t *testing.T) {
-	newHome(t)
 	stubServices(t, "darwin")
 	stubWeb(t)
 	chats := stubChat(t)
-	t.Setenv("USER", "someone")
-	t.Setenv("YARDR_ACTOR", "chris")
 	st := storetest.New(t)
+	testYard(t, st, newHomeDir(t), "USER=someone", "YARDR_ACTOR=chris")
 	out, _ := onboardTo(t, st, nil)
 	ctx := context.Background()
 	if all, _ := st.Settings(ctx); all["operator"] != "chris" {
@@ -484,11 +503,12 @@ func TestOnboardingAsYardrActor(t *testing.T) {
 // makes the yard, with the operator "operator": a user, whom the roles and
 // a prime name, and as whom one may act.
 func TestInitWithoutLoginName(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	noLogin(t)
 	st := storetest.New(t)
+	testYard(t, st, home)
 	ctx := context.Background()
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--about", "reads mail at noon"); err != nil {
+	if _, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude", "--about", "reads mail at noon"); err != nil {
 		t.Fatalf("init without a login name: %v", err)
 	}
 	if all, _ := st.Settings(ctx); all["operator"] != "operator" {
@@ -511,16 +531,15 @@ func TestInitWithoutLoginName(t *testing.T) {
 		t.Errorf("acting as operator: %q, %v, %v", name, is, err)
 	}
 	// Again, as after an upgrade: the setting is kept, nothing fails.
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init"); err != nil {
+	if _, err := run(t, appOn(st).rootCmd(), "init"); err != nil {
 		t.Fatalf("init again: %v", err)
 	}
 }
 
 // A harness without unattended flags gets none, and the summary says so.
 func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
-	newHome(t)
 	st := storetest.New(t)
-	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "gemini")
+	out, err := run(t, testApp(t, st, newHomeDir(t)).rootCmd(), "init", "--harness", "gemini")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,8 +555,8 @@ func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 // A yard outside the default home gets --home <home> in every
 // command its summary prints, and the default home gets none (yard-0wys).
 func TestInitSummaryNamesTheHome(t *testing.T) {
-	home := newHome(t)
-	out, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "gemini")
+	home := newHomeDir(t)
+	out, err := run(t, testApp(t, storetest.New(t), home).rootCmd(), "init", "--harness", "gemini")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,8 +571,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 	// The default home, named with a trailing slash: neither flag nor variable.
 	user := shortDir(t, "yu")
 	t.Setenv("HOME", user)
-	t.Setenv("YARDR_HOME", filepath.Join(user, ".yardr")+"/")
-	out, err = run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "gemini")
+	out, err = run(t, testApp(t, storetest.New(t), filepath.Join(user, ".yardr")+"/").rootCmd(), "init", "--harness", "gemini")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,11 +597,17 @@ func TestShellQuote(t *testing.T) {
 // With no terminal, a first run prints how to initialize and exits 2,
 // creating nothing; the commands that never need a yard still run.
 func TestFirstRunWithoutTerminal(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
 	var errs bytes.Buffer
+	// A run of its own each time, in an environment naming the home.
+	newApp := func() *app {
+		a := testApp(t, nil, home)
+		a.stderr = &errs
+		return a
+	}
 
-	if code := execute(&app{stderr: &errs}, []string{"bead", "list"}); code != 2 {
+	if code := execute(newApp(), []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d", code)
 	}
 	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "`yardr --home "+home+" init --harness") {
@@ -594,7 +618,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	}
 	errs.Reset()
 	for _, args := range [][]string{{"help"}, {"init", "--help"}, {"server", "--help"}} {
-		_, code := executeOut(&app{stderr: &errs}, args...)
+		_, code := executeOut(newApp(), args...)
 		if code != 0 {
 			t.Errorf("%v: exit %d: %s", args, code, errs.String())
 		}
@@ -606,8 +630,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 // A store already in use without the setting (a yard from before the
 // onboarding) is set up too (yard-w6np).
 func TestInitialized(t *testing.T) {
-	newHome(t)
-	cfg, err := config.Load()
+	cfg, err := testApp(t, nil, newHomeDir(t)).config()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,20 +684,21 @@ func TestInitialized(t *testing.T) {
 // without a terminal: its commands run and bare yardr is help. Only an
 // empty store refuses (yard-w6np: an upgrade locked ~/.yardr out).
 func TestOldYardIsNotOnboarded(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
 	ctx := context.Background()
 	st := storetest.New(t)
+	testYard(t, st, home)
 	if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, (&app{st: st}).rootCmd(), "session", "list"); err != nil {
+	if _, err := run(t, appOn(st).rootCmd(), "session", "list"); err != nil {
 		t.Fatalf("session list: %v", err)
 	}
-	if out, err := run(t, (&app{st: st}).rootCmd()); err != nil || !strings.Contains(out, "Usage:") {
+	if out, err := run(t, appOn(st).rootCmd()); err != nil || !strings.Contains(out, "Usage:") {
 		t.Fatalf("bare yardr: %v\n%s", err, out)
 	}
-	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "session", "list"); exitCode(err) != 2 {
+	if _, err := run(t, testApp(t, storetest.New(t), home).rootCmd(), "session", "list"); exitCode(err) != 2 {
 		t.Fatalf("empty store: %v", err)
 	}
 }
@@ -682,13 +706,13 @@ func TestOldYardIsNotOnboarded(t *testing.T) {
 // The escape hatch is never behind the check it unlocks: settings works on a
 // store the check calls not set up, and setting default_kind sets it up.
 func TestSettingsWithoutYard(t *testing.T) {
-	newHome(t)
 	setInteractive(t, false)
 	st := storetest.New(t)
-	if _, err := run(t, (&app{st: st}).rootCmd(), "settings", "set", "default_kind", "codex"); err != nil {
+	testYard(t, st, newHomeDir(t))
+	if _, err := run(t, appOn(st).rootCmd(), "settings", "set", "default_kind", "codex"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, (&app{st: st}).rootCmd(), "session", "list"); err != nil {
+	if _, err := run(t, appOn(st).rootCmd(), "session", "list"); err != nil {
 		t.Fatalf("after settings set: %v", err)
 	}
 }
@@ -697,7 +721,6 @@ func TestSettingsWithoutYard(t *testing.T) {
 // terminal: after it replaced itself into a build with the onboarding check
 // it was refused and ended (yard-w6np).
 func TestDaemonWithoutYard(t *testing.T) {
-	newHome(t)
 	setInteractive(t, false)
 	// herdr is not running in an empty config dir: the daemon only warns.
 	xdg, err := os.MkdirTemp("", "yw")
@@ -709,11 +732,10 @@ func TestDaemonWithoutYard(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "s"))
 	t.Setenv("HERDR_SOCKET_PATH", "")
 
-	cfg, err := config.Load()
-	if err != nil {
+	a := testApp(t, storetest.New(t), newHomeDir(t))
+	if _, err := a.config(); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: storetest.New(t), cfg: cfg}
 	root := a.rootCmd()
 	root.SetArgs([]string{"daemon", "--interval", "50ms"})
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -729,7 +751,7 @@ func TestDaemonWithoutYard(t *testing.T) {
 // onboarding; on a set-up home whose yard runs, and with --help anywhere, it
 // is help.
 func TestBareYardr(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	asked := 0
@@ -738,17 +760,18 @@ func TestBareYardr(t *testing.T) {
 
 	// --help on a home that would onboard: help, nothing asked.
 	st := storetest.New(t)
+	testYard(t, st, home)
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 	for _, h := range []string{"--help", "-h"} {
-		out, err := run(t, (&app{st: st}).rootCmd(), h)
+		out, err := run(t, appOn(st).rootCmd(), h)
 		if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {
 			t.Fatalf("%s: asked %d, %v\n%s", h, asked, err, out)
 		}
 	}
 
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +787,7 @@ func TestBareYardr(t *testing.T) {
 	// The daemon the onboarding started runs.
 	holdDaemon(t, home)
 	asked = 0
-	out, err = run(t, (&app{st: st}).rootCmd())
+	out, err = run(t, appOn(st).rootCmd())
 	if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {
 		t.Fatalf("set-up home: asked %d, %v\n%s", asked, err, out)
 	}
@@ -772,10 +795,10 @@ func TestBareYardr(t *testing.T) {
 
 // With no terminal, a store nobody set up refuses like a home with none.
 func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
-	_, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "bead", "list")
-	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), here("yardr init --harness")) {
+	_, err := run(t, testApp(t, storetest.New(t), home).rootCmd(), "bead", "list")
+	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), hereAt(home, "yardr init --harness")) {
 		t.Fatalf("err = %v (exit %d)", err, exitCode(err))
 	}
 }
@@ -783,7 +806,7 @@ func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
 // The onboarding form, answered with its defaults, creates the yard on the
 // first installed harness and then runs the command asked for.
 func TestOnboardingForm(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, true)
 	stubLookPath(t, "codex", "git", "herdr")
 	asked := 0
@@ -794,7 +817,7 @@ func TestOnboardingForm(t *testing.T) {
 	stubFocus(t)
 	ctx := context.Background()
 
-	out, err := run(t, (&app{st: st}).rootCmd(), "crew", "list")
+	out, err := run(t, testApp(t, st, home).rootCmd(), "crew", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,12 +841,11 @@ func TestOnboardingForm(t *testing.T) {
 }
 
 func TestOnboardingCancelled(t *testing.T) {
-	newHome(t)
 	setInteractive(t, true)
 	stubLookPath(t)
 	stubAsk(t, func(...huh.Field) error { return huh.ErrUserAborted })
 	st := storetest.New(t)
-	_, err := run(t, (&app{st: st}).rootCmd(), "bead", "list")
+	_, err := run(t, testApp(t, st, newHomeDir(t)).rootCmd(), "bead", "list")
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("err = %v", err)
 	}
@@ -934,8 +956,8 @@ func stubLookPath(t *testing.T, found ...string) {
 // prints written: a caller that reads the object into a type takes a list
 // there, and null is none.
 func TestInitJSONKeepsNoSettingAsAnEmptyList(t *testing.T) {
-	newHome(t)
-	a := &app{st: storetest.New(t), actor: "me"}
+	a := testApp(t, storetest.New(t), newHomeDir(t))
+	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--json")
 	if err != nil {
 		t.Fatal(err)

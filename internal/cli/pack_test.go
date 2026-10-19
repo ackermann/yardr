@@ -102,8 +102,8 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	}
 	// No store, and a home with no yard in it: reaching for one fails, where
 	// the home of whoever runs the tests may have a server to answer.
-	t.Setenv("YARDR_HOME", t.TempDir())
-	a := &app{actor: "me"}
+	a := testApp(t, nil, t.TempDir())
+	a.actor = "me"
 	_, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err = %v (exit %d), want exit 1", err, exitCode(err))
@@ -145,7 +145,7 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 // stops with the 'no yard' line where its plan needs the yard. A pack given
 // by name needs the yard from the start. No store is made, no server started.
 func TestPackCheckDirWithoutAYard(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
 	bad := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bad, "pack.yaml"), []byte("name: bad\nkind: svn\n"), 0o644); err != nil {
@@ -154,7 +154,9 @@ func TestPackCheckDirWithoutAYard(t *testing.T) {
 	check := func(pack string) (int, string) {
 		t.Helper()
 		errs := captureStderr(t)
-		_, code := executeOut(&app{stderr: errs}, "pack", "check", pack, "--depot", "web")
+		a := testApp(t, nil, home)
+		a.stderr = errs
+		_, code := executeOut(a, "pack", "check", pack, "--depot", "web")
 		return code, errs.String()
 	}
 	noYard := "no yard in " + home + " yet"
@@ -169,7 +171,7 @@ func TestPackCheckDirWithoutAYard(t *testing.T) {
 	if code, said = check("starter"); code != 2 || !strings.Contains(said, noYard) {
 		t.Errorf("a pack by name: exit %d, want 2 and the 'no yard' line:\n%s", code, said)
 	}
-	cfg, err := config.Load()
+	cfg, err := testApp(t, nil, home).config()
 	if err != nil {
 		t.Fatal(err)
 	}
