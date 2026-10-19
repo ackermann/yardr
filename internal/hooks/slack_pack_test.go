@@ -29,14 +29,17 @@ import (
 // The slack pack held to the design (docs/design/2026-10-17-yardr-pcxd-
 // slack.md, sections 3.1 and 3.6): the envelopes its normalize prints for
 // the Events API bodies recorded under testdata, and what its thread
-// commands post to the stand-in and answer. The fixtures are exactly the
-// events the setup subscribes to in its step 6 (an app_mention in a
-// channel, an app_mention in a group direct message, a one-to-one direct
-// message, a threaded reply among those, the bot's own message where
-// Slack sends one, a message with no plain text): there is no fixture
-// for an unmentioned channel message, an unmentioned group message or an
-// edit, since no subscription brings any of them to the yard in a first
-// version, and none pins room group, which no event can supply.
+// commands post to the stand-in and answer. The fixtures are the events
+// the setup subscribes to in its step 6 (an app_mention in a channel, an
+// app_mention in a group direct message, a one-to-one direct message, a
+// threaded reply among those, the bot's own message where Slack sends
+// one — with its user, and with only its bot id — a message with no
+// plain text) and what message.im carries beside new messages: an edit,
+// pinned as ignored, since an edit in a direct message reaches the yard
+// and must match no subscription. There is no fixture for an unmentioned
+// channel message or an unmentioned group message, since no subscription
+// brings either to the yard in a first version, and none pins room
+// group, which no event can supply.
 
 // slackParse is the pack's declaration as the yard would read it.
 func slackParse(t *testing.T) (*source.Declaration, string, string) {
@@ -153,8 +156,9 @@ func TestSlackPackDeclaration(t *testing.T) {
 // room fields. The group mention reads room channel like a channel
 // mention: no mark in an app_mention reliably tells a group from a
 // channel. The threaded reply carries its thread's parent, the bot's own
-// message names the bot as actor, and the message with no plain text is
-// noted as a file.
+// message names the bot as actor — by its user where Slack sends one,
+// by its bot id alone where the echo carries no user — and the message
+// with no plain text is noted as a file.
 func TestSlackPackNormalize(t *testing.T) {
 	ad, _ := slackDecl(t)
 	may := append(append([]string{}, store.WhereKeys...), ad.D.Hook.Keys...)
@@ -183,6 +187,9 @@ func TestSlackPackNormalize(t *testing.T) {
 		{"slack_bot_own_message.json", msg("U999BOT99", "D012AB3CD:1729157100.000400",
 			"1729157100.000400", "1729157100.000400", "Noted; I will post here when it lands.", []string{},
 			map[string][]string{"channel": {"D012AB3CD"}, "team": {"T012AB3CD"}, "sender": {"U999BOT99"}, "room": {"dm"}})},
+		{"slack_bot_own_message_bot_id_only.json", msg("B012AB3CD", "D012AB3CD:1729157100.000400",
+			"1729157100.000400", "1729157100.000400", "Noted; I will post here when it lands.", []string{},
+			map[string][]string{"channel": {"D012AB3CD"}, "team": {"T012AB3CD"}, "sender": {"B012AB3CD"}, "room": {"dm"}})},
 		{"slack_message_file.json", msg("U012AB3CD", "D012AB3CD:1729157200.000500",
 			"1729157200.000500", "1729157200.000500", "[file]", []string{},
 			map[string][]string{"channel": {"D012AB3CD"}, "team": {"T012AB3CD"}, "sender": {"U012AB3CD"}, "room": {"dm"}})},
@@ -219,7 +226,9 @@ func TestSlackPackNormalize(t *testing.T) {
 // app_mention in a D channel with no channel_type is a direct message by
 // its first letter, and a message with no plain text and no files is
 // noted as a message. An event the yard never subscribes to is answered
-// as type event and matches no subscription.
+// as type event and matches no subscription, as an edit or a delete in
+// a direct message is: both arrive through message.im, carrying no
+// top-level user or text, and are ignored rather than delivered.
 func TestSlackPackNormalizeNotes(t *testing.T) {
 	ad, _ := slackDecl(t)
 	event := func(ev string) []byte {
@@ -246,6 +255,10 @@ func TestSlackPackNormalizeNotes(t *testing.T) {
 		{"long text is cut", event(`{"type":"message","channel_type":"im","user":"U012AB3CD","text":"` + long + `","ts":"1729156800.000100","channel":"D012AB3CD"}`),
 			"message", "", []string{}, "dm", "D012AB3CD:1729156800.000100"}, // want computed below
 		{"an event never subscribed to", event(`{"type":"channel_created","channel":{"id":"C099NEWCH","name":"new"}}`),
+			"event", "", []string{}, "", ""},
+		{"an edit in a direct message", fixture(t, "slack_message_changed.json"),
+			"event", "", []string{}, "", ""},
+		{"a delete in a direct message", event(`{"type":"message","subtype":"message_deleted","hidden":true,"channel":"D012AB3CD","channel_type":"im","ts":"1729156960.000260","deleted_ts":"1729156900.000200","previous_message":{"type":"message","user":"U012AB3CD","text":"morning — did the shed land?","ts":"1729156900.000200"}}`),
 			"event", "", []string{}, "", ""},
 	} {
 		got, err := ad.Normalize(nil, tc.body)
@@ -308,7 +321,8 @@ func TestSlackPackNormalizeNeverPrintsBody(t *testing.T) {
 	bodies := map[string][]byte{}
 	for _, name := range []string{
 		"slack_app_mention_channel.json", "slack_app_mention_group.json", "slack_message_dm.json",
-		"slack_app_mention_thread.json", "slack_bot_own_message.json", "slack_message_file.json",
+		"slack_app_mention_thread.json", "slack_bot_own_message.json", "slack_bot_own_message_bot_id_only.json",
+		"slack_message_file.json", "slack_message_changed.json",
 	} {
 		bodies[name] = fixture(t, name)
 	}

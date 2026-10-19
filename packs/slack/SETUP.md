@@ -116,11 +116,15 @@ yard if it differs.
    events, so the subscriptions validate. This paste is a step Slack
    leaves no API for; it is in a browser, not a terminal, and the
    browser is the operator's.
-7. **The bot's identity, on a card.** With the `user_id` step 4
-   printed, so `@bot` is a mention of the yardmaster:
+7. **The bot's identity, on a card.** With the `user_id` and the
+   `bot_id` step 4 printed, so `@bot` is a mention of the yardmaster:
    ```sh
-   yardr bead ask <bead> "Whose mention the bot's is" --run "crew identity yardmaster --source slack --id <user_id from step 4>" --context "The user_id yardr source check slack printed in step 4."
+   yardr bead ask <bead> "Whose mention the bot's is" --run "crew identity yardmaster --source slack --id <user_id from step 4> --key <bot_id from step 4>" --context "The user_id and bot_id yardr source check slack printed in step 4."
    ```
+   The key is the bot id because the echo of the bot's own post may
+   carry only `bot_id`: with both set the yard drops its own posts
+   before hearing, under any Unknown word, and offers no mapping card
+   for them.
 8. **The yardmaster's own credential, for answering, on a card.**
    `yardr reply` speaks with the answering crew member's copy of the
    bot token:
@@ -183,5 +187,10 @@ idempotency key; `yardr thread show` on a delivery whose conversation
 the bot has left, or whose kind its token has no history scope for,
 fails with Slack's reason rather than showing an empty thread; and
 `yardr reply --to` stands with `thread show`, since it finds the
-message to answer under by listing the thread. The bot's own posts name
-it as actor where Slack sends them back, and never reach its inbox.
+message to answer under by listing the thread. Edits and deletes in
+direct messages arrive under `message.im` and are ignored, so a mention
+edited after it was heard stands as it was heard. The bot's own posts
+name it as actor where Slack sends them back, and never reach its
+inbox: a delivery whose sender is the crew member's `slack` identity,
+by its id or its key, is dropped before hearing, with no mapping card,
+under any Unknown word.

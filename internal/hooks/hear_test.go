@@ -755,6 +755,64 @@ func TestHearByIdentityHeldTwiceIsUnmapped(t *testing.T) {
 	}
 }
 
+// A delivery whose sender is a crew member's identity in the source is
+// the yard's own post coming back: dropped with no mapping card under
+// unknown, and never delivered under allow either, whether the echo
+// carries the member id or only the bot id the key holds. The yard
+// holds no ignore entry for either: the drop is the crew match, not
+// the ignore list. A mapped member's delivery beside it is heard.
+func TestHearByIdentityDropsCrewEcho(t *testing.T) {
+	ctx := context.Background()
+	for _, word := range []string{store.HookUnknownUnknown, store.HookUnknownAllow} {
+		r := identityDepot(t, word)
+		if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetIdentity(ctx, "ann", "talk", store.Identity{ID: "U012", Key: "B345"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		mapTalk(t, r, "ada", "U777")
+		if src, err := r.st.GetSource(ctx, "talk"); err != nil || len(src.Ignored) != 0 {
+			t.Fatalf("%s: ignored = %+v, %v, want no ignore entry", word, src, err)
+		}
+		r.now = time.Now()
+		// A mapped member is heard, as ever.
+		if code := r.talk(t, "U777", "a member's line"); code != http.StatusOK {
+			t.Fatalf("%s: mapped answered %d", word, code)
+		}
+		// The yard's own posts, by the member id and by the bot id
+		// alone, are dropped: answered 200, recorded nowhere.
+		for _, sender := range []string{"U012", "b345"} {
+			r.now = r.now.Add(time.Second)
+			if code := r.talk(t, sender, "the yard's own echo"); code != http.StatusOK {
+				t.Fatalf("%s: echo from %s answered %d", word, sender, code)
+			}
+		}
+		evs := r.hookEvents(t)
+		if len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
+			t.Fatalf("%s: hook events = %v, want the member's delivery alone", word, evs)
+		}
+		if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 0 {
+			t.Fatalf("%s: open asks = %v, %v, want no mapping card", word, q, err)
+		}
+		if got := r.rc.Rejected()["self"]; got != 2 {
+			t.Fatalf("%s: self count %d, want 2", word, got)
+		}
+		if got := r.rc.Rejected()["stranger"]; got != 0 {
+			t.Fatalf("%s: stranger count %d, want 0", word, got)
+		}
+	}
+}
+
 // A user whose address cannot be read hears nothing: the delivery is
 // dropped, never answered with an error the service would retry.
 func TestHearUnreadableAddressDrops(t *testing.T) {

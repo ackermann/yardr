@@ -10,6 +10,13 @@
 # is answered as type event and matches no subscription, and a non-zero
 # exit would be answered 400, which the service retries. Nothing of the
 # body is ever printed to stderr.
+#
+# Edits and deletes arrive through message.im as a message of subtype
+# message_changed or message_deleted, carrying no top-level user or text
+# (the edited message sits under message): they are answered as type
+# event like anything unsubscribed, so neither is delivered as a phantom
+# message nor offers a mapping card. A mention edited after it was heard
+# stands as it was heard.
 exec jq -c '
 def obj: if type == "object" then . else {} end;
 def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
@@ -26,7 +33,8 @@ def mentions($text):
 
 (.body | if type == "object" then . else error("slack event is not an object") end) as $b
 | (($b.event | obj) | if (.type | type) == "string" then . else null end) as $e
-| if $e != null and ($e.type == "app_mention" or $e.type == "message") then
+| if $e != null and ($e.type == "app_mention" or $e.type == "message")
+    and ($e.subtype != "message_changed" and $e.subtype != "message_deleted") then
     ($e.channel // "") as $channel
     | ($e.thread_ts // $e.ts // "") as $parent
     | (($e.text // "") | if type == "string" then . else "" end) as $raw

@@ -1913,12 +1913,15 @@ them whole):
   "…" --secret slack --for-crew yardmaster --context "…"`), and takes
   effect when it next starts, so restart it. Rotation rewrites both
   files.
-- **The identity** is the bot's `user_id`, read from `yardr source
-  check slack`, which prints the check call's selected fields: `yardr
-  bead ask <bead> "…" --run "crew identity yardmaster --source slack
-  --id <user_id>"`. With no `--key`: Slack mentions arrive as member
-  ids, and ids match exactly. A check that prints no `user_id` line
-  has not shown whose token it holds, and setup stops there.
+- **The identity** is the bot's `user_id` with its `bot_id` as the
+  key, both read from `yardr source check slack`, which prints the
+  check call's selected fields: `yardr bead ask <bead> "…" --run "crew
+  identity yardmaster --source slack --id <user_id> --key <bot_id>"`.
+  Mentions arrive as member ids, matched exactly; the key is what the
+  echo of the bot's own post may carry alone, and with both set the
+  yard drops its own posts before hearing, with no mapping card. A
+  check that prints no `user_id` line has not shown whose token it
+  holds, and setup stops there.
 - **The subscriptions** are the yardmaster's alone: `yardr subscribe
   yardmaster slack --scope mentions --where type=message`, and `yardr
   subscribe yardmaster slack --scope all --where type=message --where
@@ -1946,7 +1949,11 @@ them whole):
   outsider under `allow`, dropped with no card under `ignore`. Picking
   nobody on the card ignores that sender; `yardr source show slack`
   and `yardr source ignore slack` list the ignored ids, and `yardr
-  source ignore slack --rm <id>` hears them again.
+  source ignore slack --rm <id>` hears them again. A delivery whose
+  sender is a crew member's identity in the source is the yard's own
+  post coming back: dropped under any word, with no mapping card.
+  Edits and deletes in direct messages arrive under `message.im` and
+  are ignored.
 - **What a line weighs.** A mapped member's line is their word for
   conversation and filing, as their mail is, and never answers an ask;
   an outsider's is information, to be read and answered only. What the

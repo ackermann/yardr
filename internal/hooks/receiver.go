@@ -25,6 +25,7 @@ type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
 	GetSource(ctx context.Context, name string) (*store.Source, error)
 	Users(ctx context.Context) ([]store.User, error)
+	Crew(ctx context.Context) ([]store.CrewMember, error)
 	Settings(ctx context.Context) (map[string]string, error)
 	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
@@ -189,6 +190,16 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		if dec.D.Hear.ByIdentity() {
 			speaker, mapped := rc.speaker(r.Context(), dec.D, env)
 			switch {
+			case rc.ownMessage(r.Context(), dec.D, env):
+				// The yard's own post coming back, by a crew member's
+				// identity in this source: dropped under any Unknown
+				// word, and never a mapping card. The echo of a reply
+				// is not a stranger, so it is counted as the yard's
+				// own.
+				rc.count("self")
+				rc.refuse(h, name, "self", http.StatusOK)
+				writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+				return
 			case mapped:
 				stampSpeaker(env, speaker)
 			case rc.ignored(r.Context(), dec.D, env):
@@ -352,6 +363,33 @@ func (rc *Receiver) speaker(ctx context.Context, d *source.Declaration, env *Env
 		}
 	}
 	return "", false
+}
+
+// ownMessage reports whether the delivery's sender is who a crew member
+// is in this source (CrewMember.IsIn over every crew member, by its id
+// or its key): the yard's own post, sent back by the service. A crew
+// that cannot be read is not the yard's: the Unknown word then says
+// what happens, as any unmapped sender's does.
+func (rc *Receiver) ownMessage(ctx context.Context, d *source.Declaration, env *Envelope) bool {
+	values := env.Fields[d.Hear.Field]
+	if len(values) == 0 {
+		return false
+	}
+	crew, err := rc.st.Crew(ctx)
+	if err != nil {
+		return false
+	}
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		for _, r := range crew {
+			if r.IsIn(d.Name, v) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ignored reports whether the delivery's sender stands on the source's
