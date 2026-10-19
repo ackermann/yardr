@@ -219,6 +219,34 @@ func TestLoadReadOnlyWithCreatesNothing(t *testing.T) {
 	}
 }
 
+// LoadReadOnlyWith takes only YARDR_* values from get: an empty HOME
+// still defaults from the process's user home, and a relative HOME is
+// still resolved from its working directory.
+func TestLoadReadOnlyWithUsesProcessHomeAndDirectory(t *testing.T) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(string) string { return "" }
+	c, err := LoadReadOnlyWith(get)
+	want, absErr := filepath.Abs(DefaultHome(userHome))
+	if err != nil || absErr != nil || c.Home != want {
+		t.Fatalf("empty HOME: LoadReadOnlyWith = %+v, %v; want %s (abs: %v)", c, err, want, absErr)
+	}
+
+	relativeHome := "yardr-config-relative-home"
+	c, err = LoadReadOnlyWith(func(name string) string {
+		if name == "HOME" {
+			return relativeHome
+		}
+		return ""
+	})
+	want, absErr = filepath.Abs(relativeHome)
+	if err != nil || absErr != nil || c.Home != want {
+		t.Fatalf("relative HOME: LoadReadOnlyWith = %+v, %v; want %s (abs: %v)", c, err, want, absErr)
+	}
+}
+
 // LoadReadOnly resolves the home as Load does but creates nothing, neither
 // a named home nor the default one: for commands that must leave a home
 // with no yard as they found it.
