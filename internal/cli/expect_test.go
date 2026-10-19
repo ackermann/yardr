@@ -26,8 +26,10 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "yard-x-new"}
-	t.Setenv("YARDR_SESSION", builder.ID)
+	env := yardEnv(t, st)
+	a := appOn(st)
+	a.actor = "yard-x-new"
+	env["YARDR_SESSION"] = builder.ID
 	if _, err := run(t, a.beadCmd(), "advance", b.ID, "--to", "review"); err != nil {
 		t.Fatalf("the owning session's advance: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 
 	// Outside any session (Christopher at a shell) nothing is expected,
 	// except the revision when one is given.
-	t.Setenv("YARDR_SESSION", "")
+	env["YARDR_SESSION"] = ""
 	a.actor = "mckean"
 	for _, args := range [][]string{
 		{"release", b.ID, "--revision", "01OLD"},
@@ -95,8 +97,10 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &app{st: st, actor: "yard-a-new"}
-	t.Setenv("YARDR_SESSION", owner.ID)
+	env := yardEnv(t, st)
+	app := appOn(st)
+	app.actor = "yard-a-new"
+	env["YARDR_SESSION"] = owner.ID
 
 	if _, err := run(t, app.beadCmd(), "advance", b.ID, "--to", "review"); err != nil {
 		t.Fatalf("advance of an unowned bead from a's pane: %v", err)

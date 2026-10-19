@@ -311,7 +311,7 @@ func TestPeerPairWithoutATerminal(t *testing.T) {
 
 	for _, y := range []*cliYard{north, laptop} {
 		y.a.actor = "yardmaster"
-		t.Setenv("YARDR_CREW", "yardmaster")
+		y.a.env = testEnv(t, y.home, "YARDR_CREW=yardmaster")
 		args := []string{"pair", "--yes"}
 		if y == laptop {
 			args = []string{"pair", north.srv.URL, "K7QM-2XPD", "--yes"}
@@ -386,7 +386,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	t.Cleanup(func() { askCheck = old })
 	ctx := context.Background()
 	other := newCLIYard(t, "other")
-	t.Setenv("YARDR_HOME", other.home)
+	other.a.env = testEnv(t, other.home)
 	inv, err := invite(ctx, other.a.cfg, other.st, "")
 	if err != nil {
 		t.Fatal(err)

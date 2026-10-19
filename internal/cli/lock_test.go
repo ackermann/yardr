@@ -27,6 +27,7 @@ func TestSecondDaemonRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
+	// The daemon resolves its home and herdr session from the process.
 	t.Setenv("YARDR_HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("XDG_STATE_HOME", home)

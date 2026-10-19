@@ -69,7 +69,7 @@ func TestUpgradeInstallTarget(t *testing.T) {
 // Covered yards are the upgrading yard plus the login services whose
 // program is the install target; a yard on another binary is left out.
 func TestUpgradeCoveredYards(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	target := filepath.Join(t.TempDir(), "yardr")
 	other := filepath.Join(t.TempDir(), "other-yard")
 	third := filepath.Join(t.TempDir(), "third-yard")
@@ -251,7 +251,7 @@ func TestUpgradeLockRefusesSecond(t *testing.T) {
 
 // Doctor faults on the marker with the server down, and is quiet without one.
 func TestDoctorUpgradeFailed(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestUpgradeBeadsSince(t *testing.T) {
 func TestUpgradeRestartViews(t *testing.T) {
 	for _, system := range []string{"darwin", "linux"} {
 		t.Run(system, func(t *testing.T) {
-			home := newHome(t)
+			home := newHomeDir(t)
 			cfg := config.At(home)
 			// A view answering /health on the service's address.
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -429,7 +429,7 @@ func TestUpgradeRestartViews(t *testing.T) {
 	}
 	// With no service installed, nothing is restarted and the manager is
 	// not asked.
-	home := newHome(t)
+	home := newHomeDir(t)
 	stubServices(t, "darwin")
 	calls := 0
 	stub(t, &serviceCtl, func(context.Context, string, ...string) (string, error) {
@@ -447,7 +447,7 @@ func TestUpgradeRestartViews(t *testing.T) {
 // A restart the manager refuses fails, so the upgrade warns and the gate
 // fails the view on its old build.
 func TestUpgradeRestartViewsRefused(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := config.At(home)
 	dir, _ := stubServices(t, "linux")
 	stub(t, &serviceCtl, func(context.Context, string, ...string) (string, error) {

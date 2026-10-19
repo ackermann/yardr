@@ -24,6 +24,7 @@ func TestDaemonStopsWhenItsTestOwnerIsGone(t *testing.T) {
 	if st, err := peer.Describe(sleep.Process.Pid); err == nil {
 		begin = st.Start
 	}
+	// The daemon's watch reads the test-only owner from the process.
 	t.Setenv("YARDR_TEST_OWNER", fmt.Sprintf("%d %d", sleep.Process.Pid, begin))
 	_, ctx, logged := daemonHome(t)
 	sleep.Process.Kill()

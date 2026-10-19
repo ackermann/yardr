@@ -27,7 +27,9 @@ func TestBeadUpdateTells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "yardmaster"}
+	env := yardEnv(t, st)
+	a := appOn(st)
+	a.actor = "yardmaster"
 
 	out, err := run(t, a.beadCmd(), "update", "yd-1", "--body", "paint it red")
 	if err != nil {
@@ -49,7 +51,7 @@ func TestBeadUpdateTells(t *testing.T) {
 		t.Fatalf("a label patch says the session will be told:\n%s", out)
 	}
 
-	t.Setenv("YARDR_SESSION", sess.ID)
+	env["YARDR_SESSION"] = sess.ID
 	out, err = run(t, a.beadCmd(), "update", "yd-1", "--body", "paint it green")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +65,7 @@ func TestBeadUpdateTells(t *testing.T) {
 	}
 
 	a.json = true
-	t.Setenv("YARDR_SESSION", "")
+	env["YARDR_SESSION"] = ""
 	out, err = run(t, a.beadCmd(), "update", "yd-1", "--title", "the red shed")
 	if err != nil {
 		t.Fatal(err)

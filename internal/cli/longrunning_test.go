@@ -106,9 +106,14 @@ func running(t *testing.T, cfg *config.Config, k *longRunning, fields map[string
 // says so, with none running it says that, and a start after it answers at
 // the same address.
 func TestWebStop(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +130,7 @@ func TestWebStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "web      running (pid "+strconv.Itoa(os.Getpid())+") at http://127.0.0.1:8791/\n", "service  "+here("not installed (yardr web install)"))
+	wantText(t, out, "web      running (pid "+strconv.Itoa(os.Getpid())+") at http://127.0.0.1:8791/\n", "service  "+hereAt(home, "not installed (yardr web install)"))
 	out, err = run(t, a().rootCmd(), "web", "stop")
 	if err != nil || !slices.Equal(*pids, []int{os.Getpid()}) {
 		t.Fatalf("%v, signalled %v\n%s", err, *pids, out)
@@ -192,7 +197,7 @@ func TestDaemonStopLeavesAReusedPIDAlone(t *testing.T) {
 	if !peer.HaveStat() {
 		t.Skip("the OS reports no process start times")
 	}
-	cfg := &config.Config{Home: newHome(t)}
+	cfg := &config.Config{Home: newHomeDir(t)}
 	sleep := sleeper(t)
 	pid := sleep.Process.Pid
 	real, err := peer.Describe(pid)
@@ -222,7 +227,7 @@ func TestDaemonStopRefusesAPidItCannotVerify(t *testing.T) {
 	if !peer.HaveStat() {
 		t.Skip("without start times the pid is trusted, as before")
 	}
-	cfg := &config.Config{Home: newHome(t)}
+	cfg := &config.Config{Home: newHomeDir(t)}
 	sleep := sleeper(t)
 	pid := sleep.Process.Pid
 	holdLockWith(t, cfg.DaemonLock(), strconv.Itoa(pid)+"\n")
@@ -248,7 +253,7 @@ func TestRecordStopLeavesAReusedPIDAlone(t *testing.T) {
 	if !peer.HaveStat() {
 		t.Skip("the OS reports no process start times")
 	}
-	cfg := &config.Config{Home: newHome(t)}
+	cfg := &config.Config{Home: newHomeDir(t)}
 	k := kindOf(svcWeb)
 	sleep := sleeper(t)
 	pid := sleep.Process.Pid
@@ -280,7 +285,7 @@ func TestRecordStopRefusesAPidItCannotVerify(t *testing.T) {
 	if !peer.HaveStat() {
 		t.Skip("without start times the pid is trusted, as before")
 	}
-	cfg := &config.Config{Home: newHome(t)}
+	cfg := &config.Config{Home: newHomeDir(t)}
 	k := kindOf(svcBDP)
 	sleep := sleeper(t)
 	pid := sleep.Process.Pid
@@ -306,7 +311,7 @@ func TestRecordStopRefusesAPidItCannotVerify(t *testing.T) {
 // its own between the check and the signal. One refused with EPERM reached
 // nothing of ours either.
 func TestStopSkipsAPidGoneBeforeItsSignal(t *testing.T) {
-	cfg := &config.Config{Home: newHome(t)}
+	cfg := &config.Config{Home: newHomeDir(t)}
 	k := kindOf(svcBDP)
 	clear, err := k.announce(cfg, map[string]any{"addr": "127.0.0.1:8765"})
 	if err != nil {
@@ -323,7 +328,7 @@ func TestStopSkipsAPidGoneBeforeItsSignal(t *testing.T) {
 
 // A stop waits for what it signalled, and says which one did not end.
 func TestStopWaits(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	k := kindOf(svcBDP)
 	clear, err := k.announce(cfg, map[string]any{"addr": "127.0.0.1:8765"})
@@ -353,13 +358,20 @@ func TestStopWaits(t *testing.T) {
 // hands the flags given on to the command it runs, a server is up when it
 // listens and an export when it holds its record, and a stop ends each.
 func TestBDPAndOTelStartStop(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Home: home}
+	// otelCollector reads the process, so the collector's variables stay
+	// there: blank for the refusal, set for the direct call below.
 	for _, name := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
 		t.Setenv(name, "")
 	}
@@ -428,11 +440,17 @@ func TestBDPAndOTelStartStop(t *testing.T) {
 // yardr otel install writes a service that others cannot read: its
 // environment may hold the collector's credentials.
 func TestOTelInstall(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, _ := stubServices(t, "darwin")
-	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer t0ken")
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	env := testYard(t, st, home)
+	// The install writes the run's headers into the service's file.
+	env["OTEL_EXPORTER_OTLP_HEADERS"] = "Authorization=Bearer t0ken"
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}

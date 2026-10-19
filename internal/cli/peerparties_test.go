@@ -21,9 +21,9 @@ import (
 func TestUserListAndMailToThoseALinkedYardExposes(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
+	north.a.env = testEnv(t, north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
+	south.a.env = testEnv(t, south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)

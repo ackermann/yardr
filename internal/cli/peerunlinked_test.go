@@ -18,7 +18,7 @@ func TestInboxMailFromRemovedPeer(t *testing.T) {
 	ctx := context.Background()
 	invite := func(y *cliYard) string {
 		t.Helper()
-		t.Setenv("YARDR_HOME", y.home)
+		y.a.env = testEnv(t, y.home)
 		return strings.TrimSpace(y.must(t, "invite", "--url", y.srv.URL))
 	}
 	aInvite, bInvite, cInvite := invite(a), invite(b), invite(c)

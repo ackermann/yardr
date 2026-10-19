@@ -123,22 +123,18 @@ func (f *former) ask(fields ...huh.Field) error {
 // store and the repository.
 func setupYard(t *testing.T, f *former) (home string, st store.API, repo string) {
 	t.Helper()
-	home = newHome(t)
+	home = newHomeDir(t)
 	st = storetest.New(t)
 	// Commands run through the root resolve no struct actor: they act as
 	// the login. The setup's import subscribes the yard it makes, so it
 	// acts as the crew member the pack seats, as the yardmaster's own
 	// setup does; a user or the operator would be offered their own
 	// pages instead. Naming it here keeps the setup hermetic.
-	t.Setenv("YARDR_ACTOR", "yardmaster")
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+	testYard(t, st, home, "YARDR_ACTOR=yardmaster")
+	a := appOn(st)
+	a.actor = "me"
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
-	}
-	// The commit the form makes needs an author, and no signing.
-	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_SYSTEM": os.DevNull} {
-		t.Setenv(k, v)
 	}
 	repo = filepath.Join(shortDir(t, "repo"), "Web App")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
@@ -164,7 +160,15 @@ func setupYard(t *testing.T, f *former) (home string, st store.API, repo string)
 
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	// The commit a test makes needs an author, and no signing: named on
+	// the command's own environment, since a run's map does not reach
+	// what the test itself starts.
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}
@@ -174,7 +178,9 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 // setup runs yardr setup on st and returns what it printed.
 func setup(t *testing.T, st store.API, args ...string) string {
 	t.Helper()
-	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), append([]string{"setup"}, args...)...)
+	a := appOn(st)
+	a.actor = "me"
+	out, err := run(t, a.rootCmd(), append([]string{"setup"}, args...)...)
 	if err != nil {
 		t.Fatalf("yardr setup: %v\n%s", err, out)
 	}
@@ -500,6 +506,9 @@ func TestSetupTalkToTheYardmaster(t *testing.T) {
 	}
 	focused := stubFocus(t)
 	chats := stubChat(t)
+	// In herdr twice over: the run's map for the commands that read the
+	// run, and the process for openYardmaster, which reads it there.
+	yardEnv(t, st)["HERDR_ENV"] = "1"
 	t.Setenv("HERDR_ENV", "1")
 	out := setup(t, st, "--actor", "me")
 	wantText(t, out, "yardmaster is not running, so there is nobody to talk to yet.", "`yardr --home "+home+" doctor` says of it:",
@@ -551,10 +560,10 @@ func TestSetupTalkToTheYardmaster(t *testing.T) {
 // prints the steps and the command for the next one, and asks nothing.
 func TestSetupWithoutForms(t *testing.T) {
 	f := &former{}
-	_, st, _ := setupYard(t, f)
+	home, st, _ := setupYard(t, f)
 	check := func(out string) {
 		t.Helper()
-		wantText(t, out, "  todo   a depot: ", "Next step: a depot.", here("yardr depot add <depot> <path> --base <branch>"))
+		wantText(t, out, "  todo   a depot: ", "Next step: a depot.", hereAt(home, "yardr depot add <depot> <path> --base <branch>"))
 		if len(f.asked) != 0 || todo(t, st) != stepDepot {
 			t.Fatalf("asked %v", f.asked)
 		}
@@ -562,9 +571,10 @@ func TestSetupWithoutForms(t *testing.T) {
 	setInteractive(t, false)
 	check(setup(t, st))
 	setInteractive(t, true)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	env := yardEnv(t, st)
+	env["YARDR_CREW"] = "yardmaster"
 	check(setup(t, st))
-	t.Setenv("YARDR_CREW", "")
+	env["YARDR_CREW"] = ""
 
 	var rep setupReport
 	if err := json.Unmarshal([]byte(setup(t, st, "--json")), &rep); err != nil {
@@ -579,11 +589,14 @@ func TestSetupWithoutForms(t *testing.T) {
 // login as optional; before that it lists nothing of it, and never a todo
 // that would hold the setup open.
 func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
 	st := storetest.New(t)
+	testYard(t, st, home)
 	ctx := context.Background()
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+	a := appOn(st)
+	a.actor = "me"
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	if out := setup(t, st); strings.Contains(out, "Optional") || strings.Contains(out, "herdr's server") {
@@ -629,7 +642,7 @@ func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
 		t.Fatalf("next step = %q", got)
 	}
 	out := setup(t, st)
-	wantText(t, out, "\nOptional\n", herdrLoginLine())
+	wantText(t, out, "\nOptional\n", herdrLoginPart(&config.Config{Home: home}).line())
 	for _, not := range []string{"todo ", "Next step"} {
 		if strings.Contains(out, not) {
 			t.Errorf("the setup is held open by %q:\n%s", not, out)
@@ -649,7 +662,7 @@ func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
 // page of the setup. Run for yardr setup itself, the command asks no second
 // time.
 func TestOnboardingKeepsGoing(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
@@ -659,7 +672,7 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 	f := &former{t: t, goes: []string{goHere}, abort: func(fld huh.Field) bool { return fld.GetKey() == "path" }}
 	stubAsk(t, f.ask)
 
-	out, err := run(t, (&app{st: st}).rootCmd(), "setup")
+	out, err := run(t, testApp(t, st, home).rootCmd(), "setup")
 	if err != nil {
 		t.Fatal(err)
 	}

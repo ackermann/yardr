@@ -51,11 +51,16 @@ trust_level="trusted"
 // says nothing of one that is trusted or that no codex group works
 // (yardr-ecsn; footplate-rn6b sat on "Trust this folder?").
 func TestDoctorCodexTrust(t *testing.T) {
-	newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
 	st := storetest.New(t)
+	testYard(t, st, newHomeDir(t))
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
 	ctx := context.Background()
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	web := gitDepot(t, st)
@@ -78,6 +83,7 @@ func TestDoctorCodexTrust(t *testing.T) {
 	route("new", &api.Name, "reviewers")
 
 	codexHome := t.TempDir()
+	// Codex's config is read from the process's home for it.
 	t.Setenv("CODEX_HOME", codexHome)
 	file := filepath.Join(codexHome, "config.toml")
 	root := func(d store.Depot) string {
@@ -112,7 +118,7 @@ func TestDoctorCodexTrust(t *testing.T) {
 	}
 
 	// No config at all: the depot the codex group works, and not the other.
-	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	out, _ := run(t, a().rootCmd(), "doctor")
 	wantText(t, out, line(web), add(web))
 	if strings.Contains(out, "depot api (") {
 		t.Errorf("a depot no codex group works is noted:\n%s", out)
@@ -132,7 +138,7 @@ func TestDoctorCodexTrust(t *testing.T) {
 	if got := notes(); len(got) != 0 {
 		t.Fatalf("trusted: notes = %q", got)
 	}
-	if out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); strings.Contains(out, "codex       depot") {
+	if out, _ := run(t, a().rootCmd(), "doctor"); strings.Contains(out, "codex       depot") {
 		t.Errorf("a trusted depot is noted:\n%s", out)
 	}
 

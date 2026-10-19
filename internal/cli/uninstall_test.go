@@ -240,7 +240,11 @@ func TestUninstallLeavesAnotherYardsServices(t *testing.T) {
 		}
 	}
 
-	// A service for herdr's server that is the person's own.
+	// A service for herdr's server that is the person's own. The runs
+	// name their yard's home in their maps (upYard), but the login rig
+	// keys its daemon locks by the process's home, so the first yard's
+	// is restored for its uninstall: without it the rig never releases
+	// the first yard's lock and down reports the yard was not stopped.
 	t.Setenv("YARDR_HOME", homeA)
 	if err := os.WriteFile(herdrFile, []byte("<plist><string>/opt/herdr</string>\n<string>server</string></plist>\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -338,12 +342,12 @@ func asOperator(t *testing.T, st store.API) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YARDR_ACTOR", or(settings["operator"], defaultOperator()))
+	yardEnv(t, st)["YARDR_ACTOR"] = or(settings["operator"], defaultOperator())
 }
 
-func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneRunner, a func(json bool) *app, serverStops *int) {
+func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneRunner, a func(json bool) *app, serverStops *int, st store.API) {
 	t.Helper()
-	home, st, panes, _, a, serverStops := downYard(t, map[string]string{"yardmaster": "idle", "b": "idle"}, "b")
+	home, st, panes, _, a, serverStops = downYard(t, map[string]string{"yardmaster": "idle", "b": "idle"}, "b")
 	stubServices(t, "darwin")
 	asOperator(t, st)
 	for _, f := range []string{"yard.db", "daemon.log", "roles/yardmaster.md", "flows/default/flow.yaml"} {
@@ -372,7 +376,7 @@ func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneR
 	if err != nil {
 		t.Fatal(err)
 	}
-	return home, runner.YardName(home, settings), depot, panes, a, serverStops
+	return home, runner.YardName(home, settings), depot, panes, a, serverStops, st
 }
 
 // --purge deletes a person's yard, so no caller does it by a habit of
@@ -380,7 +384,7 @@ func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneR
 // with a wrong one, and with the right one alone, and each refusal stops
 // and deletes nothing. With both it stops the yard and deletes its home.
 func TestPurgeNeedsTheYardsName(t *testing.T) {
-	home, name, _, panes, a, serverStops := purgeYard(t)
+	home, name, _, panes, a, serverStops, _ := purgeYard(t)
 	for _, c := range []struct {
 		flags []string
 		want  string
@@ -416,7 +420,7 @@ func TestPurgeNeedsTheYardsName(t *testing.T) {
 // commit. The worktree without is removed as git removes one. The home
 // stays for what was kept, and the list says where that is.
 func TestPurgeDeletesTheHomeAndKeepsTheWork(t *testing.T) {
-	home, name, depot, panes, a, serverStops := purgeYard(t)
+	home, name, depot, panes, a, serverStops, _ := purgeYard(t)
 	dirty := filepath.Join(resolve(home), "worktrees", "cloned", "cloned-1")
 	clean := filepath.Join(resolve(home), "worktrees", "cloned", "cloned-2")
 	out, err := run(t, a(false).rootCmd(), "uninstall", "--purge="+name, "--yes", "--handoff-wait", "0")
@@ -479,7 +483,7 @@ func TestPurgeRemovesAHomeWithNothingKept(t *testing.T) {
 // In a terminal --purge names the directory and its beads and asks for the
 // yard's name: anything else leaves the yard as it is, the name deletes it.
 func TestPurgeAsksForTheYardsNameInATerminal(t *testing.T) {
-	home, name, _, panes, a, serverStops := purgeYard(t)
+	home, name, _, panes, a, serverStops, _ := purgeYard(t)
 	stub(t, &interactive, func() bool { return true })
 	typed := "yes"
 	stub(t, &ask, func(fields ...huh.Field) error {
@@ -543,7 +547,8 @@ func TestPurgeRefusesAHomeThatIsMoreThanAYard(t *testing.T) {
 // same, since a service carries its home in its name, and no server is
 // started to find that out. --purge deletes nothing there.
 func TestUninstallOnNoYard(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
+	a := testApp(t, nil, home)
 	// The directory is there, and no store in it.
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
@@ -557,7 +562,7 @@ func TestUninstallOnNoYard(t *testing.T) {
 		t.Error("connected to the store, which starts a server")
 		return nil, errNoServer
 	})
-	d, err := newUnit(os.Environ(), config.At(home), kindOf(svcDaemon), nil)
+	d, err := newUnit(a.environ(), config.At(home), kindOf(svcDaemon), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +572,7 @@ func TestUninstallOnNoYard(t *testing.T) {
 	if err := os.WriteFile(d.Path, []byte(d.render()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, (&app{}).rootCmd(), "uninstall", "--purge=y", "--yes")
+	out, err := run(t, a.rootCmd(), "uninstall", "--purge=y", "--yes")
 	if err != nil {
 		t.Fatalf("uninstall on no yard: %v\n%s", err, out)
 	}
@@ -596,7 +601,7 @@ func TestUninstallWhereThereIsNoLoginService(t *testing.T) {
 // anyone else, an agent in a pane with the yard's name and --yes, is
 // refused before anything is stopped.
 func TestPurgeIsTheOperators(t *testing.T) {
-	home, name, _, panes, a, serverStops := purgeYard(t)
+	home, name, _, panes, a, serverStops, _ := purgeYard(t)
 	for _, json := range []bool{false, true} {
 		out, err := run(t, a(json).rootCmd(), "uninstall", "--purge="+name, "--yes", "--handoff-wait", "0", "--actor", "web-1-new")
 		if err == nil || !strings.Contains(err.Error(), "may delete the yard's home; this is web-1-new. Nothing was stopped or deleted.") {
@@ -613,12 +618,12 @@ func TestPurgeIsTheOperators(t *testing.T) {
 // has its depot under is the same home: the depot in it is kept whole, not
 // taken for one that lies elsewhere and deleted with the rest.
 func TestPurgeKeepsADepotUnderAnotherSpellingOfTheHome(t *testing.T) {
-	home, name, depot, _, a, _ := purgeYard(t)
+	home, name, depot, _, a, _, st := purgeYard(t)
 	odd := filepath.Join(strings.ToUpper(filepath.Dir(home)), filepath.Base(home))
 	if _, err := os.Stat(odd); err != nil || odd == home {
 		t.Skip("this file system tells letter case apart")
 	}
-	t.Setenv("YARDR_HOME", odd)
+	yardEnv(t, st)["YARDR_HOME"] = odd
 	out, err := run(t, a(false).rootCmd(), "uninstall", "--purge="+name, "--yes", "--handoff-wait", "0")
 	if err != nil {
 		t.Fatalf("uninstall --purge: %v\n%s", err, out)

@@ -22,9 +22,9 @@ import (
 func TestAskFollowsReach(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
+	north.a.env = testEnv(t, north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
+	south.a.env = testEnv(t, south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)
@@ -114,7 +114,7 @@ func TestAskFollowsReach(t *testing.T) {
 	// A bead's agent asks the operator, by default: the copy goes too.
 	out := ask("yard-10-new")
 	wantText(t, out, "ask 2 · open · to jo · asked by yard-10-new", "ask 2 on "+b.ID+" for jo; also queued for jo@up-north\n")
-	j := &app{st: south.st, actor: "yardmaster", json: true, cfg: south.a.cfg}
+	j := &app{st: south.st, actor: "yardmaster", json: true, cfg: south.a.cfg, env: south.a.env}
 	js, err := run(t, j.beadCmd(), "ask", b.ID, "And the mirrors?", "--context", "They follow the links.")
 	if err != nil {
 		t.Fatal(err)

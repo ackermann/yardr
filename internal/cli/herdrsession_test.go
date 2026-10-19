@@ -41,18 +41,23 @@ func otherShell(t *testing.T) string {
 // whatever session the shell doctor is run in is. A session that is not
 // running is a fault that names it and how it is started.
 func TestDoctorNamesTheHerdrSession(t *testing.T) {
-	newHome(t)
 	dir := otherShell(t)
 	stub(t, &herdrServer, askHerdrServer)
 	st := storetest.New(t)
+	testYard(t, st, newHomeDir(t))
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	tools := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrBySocket, "claude": toolAnswers})
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	herdr := filepath.Join(tools, "herdr")
 	sock := func(name string) string { return filepath.Join(dir, "herdr", "sessions", name, "herdr.sock") }
 
-	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	out, err := run(t, a().rootCmd(), "doctor")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -60,10 +65,10 @@ func TestDoctorNamesTheHerdrSession(t *testing.T) {
 		"Start it: run herdr in a terminal",
 		"; session other, socket "+sock("other")+" (this shell's, since the yard's herdr_session setting is unset)")
 
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "settings", "set", "herdr_session", "gc"); err != nil {
+	if _, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "gc"); err != nil {
 		t.Fatal(err)
 	}
-	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	out, _ = run(t, a().rootCmd(), "doctor")
 	wantText(t, out, "ok     herdr       "+herdr+", its server is running; session gc, socket "+sock("gc")+" (the yard's herdr_session setting)")
 	rep, _ := doctorJSON(t, st)
 	for _, n := range rep.Machine {
@@ -75,10 +80,10 @@ func TestDoctorNamesTheHerdrSession(t *testing.T) {
 		}
 	}
 
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "settings", "set", "herdr_session", "nope"); err != nil {
+	if _, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "nope"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	out, err = run(t, a().rootCmd(), "doctor")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -151,13 +156,18 @@ func TestSettingsSetHerdrSessionWhileCrewRuns(t *testing.T) {
 // socket, and the daemon it starts, with the file's environment and no
 // more, reads the setting and is sent to that session.
 func TestDaemonServiceReachesTheHerdrSessionSet(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	dir, _ := stubServices(t, "darwin")
 	stubLookPath(t, "git", "herdr")
 	t.Setenv("HERDR_SESSION", "")
 	t.Cleanup(func() { runner.FollowSetting(nil); runner.UseSession("") })
 	st := storetest.New(t)
-	a := func() *app { return &app{st: st, actor: "me"} }
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}

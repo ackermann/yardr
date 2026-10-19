@@ -457,7 +457,7 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 // says of each harness whether its kind has one: what a program marks a
 // kind by that needs a terminal once to log in.
 func TestHarnessLoginRecipeShown(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, false)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "kimi": "echo 1.0\n"})
 	stub(t, &loginShell, func() string { return "" })
@@ -470,7 +470,7 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 	}
 
 	show := func(args ...string) string {
-		out, _ := executeOut(&app{}, append([]string{"harness", "show"}, args...)...)
+		out, _ := executeOut(testApp(t, nil, home), append([]string{"harness", "show"}, args...)...)
 		return out
 	}
 	var shown agents.Harness
@@ -493,7 +493,7 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 	if out := show("kimi"); strings.Contains(out, "Login led by a program") {
 		t.Errorf("show kimi names a login it has no recipe for:\n%s", out)
 	}
-	list, _ := executeOut(&app{}, "harness", "list")
+	list, _ := executeOut(testApp(t, nil, home), "harness", "list")
 	wantText(t, list, "a fetch for a Mac, a login a program leads\n")
 }
 
@@ -523,7 +523,8 @@ func TestHarnessLoginGroupLandsInGroupFolder(t *testing.T) {
 		Config: map[string]any{"kind": "claude", "env_file": env}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	// An ambient folder the group's env must win over.
+	// An ambient folder the group's env must win over. It stays on the
+	// process, where the ambient account is read from.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandInGroup,
 		"harness", "login", "claude", "--group", "hal-builders", "--json")

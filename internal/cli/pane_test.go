@@ -21,9 +21,10 @@ const loginPane = "Not logged in · Run /login"
 // blocked is a yard whose yardmaster's harness waits at a login: its session
 // runs, its first prompt is pending, its pane shows loginPane.
 type blocked struct {
-	t  *testing.T
-	st store.API
-	f  *former
+	t    *testing.T
+	st   store.API
+	home string
+	f    *former
 	// attached and focused are the agents herdr was asked to attach to and
 	// to bring to the front, and chats the views opened.
 	attached, focused, chats *[]string
@@ -38,15 +39,19 @@ type blocked struct {
 // yardmaster's pane?".
 func blockedYardmaster(t *testing.T, panes ...string) *blocked {
 	t.Helper()
-	newHome(t)
+	home := newHomeDir(t)
 	actAsOperator(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	stubServices(t, "darwin")
 	stubWeb(t)
+	// No herdr pane: the run's map carries none, and the process blank
+	// keeps openYardmaster, which reads it there, from the pane's own.
 	t.Setenv("HERDR_ENV", "")
 	stub(t, &pollEvery, 0)
-	b := &blocked{t: t, st: storetest.New(t), f: &former{t: t, panes: panes, goes: []string{goYardmaster}}}
+	st := storetest.New(t)
+	testYard(t, st, home)
+	b := &blocked{t: t, st: st, home: home, f: &former{t: t, panes: panes, goes: []string{goYardmaster}}}
 	stubAsk(t, b.f.ask)
 	handle := yardmasterHandle()
 	handle[store.PendingPrompt] = "You are the yardr crew member \"yardmaster\"."
@@ -76,7 +81,7 @@ func blockedYardmaster(t *testing.T, panes ...string) *blocked {
 // start runs yardr init --start with a wait a test can sit out.
 func (b *blocked) start(args ...string) (string, error) {
 	b.t.Helper()
-	return run(b.t, (&app{st: b.st}).rootCmd(), append([]string{"init", "--harness", "claude", "--start", "--wait", "30ms"}, args...)...)
+	return run(b.t, appOn(b.st).rootCmd(), append([]string{"init", "--harness", "claude", "--start", "--wait", "30ms"}, args...)...)
 }
 
 // asked is how often the pane was offered.
@@ -108,7 +113,7 @@ func TestInitStartOffersTheYardmastersPane(t *testing.T) {
 			"Leaving that way stops nothing: yardmaster keeps running, and this goes on.\n",
 		"\nBack from yardmaster's pane.\nWaiting for yardmaster to answer its first prompt (up to 30ms).\n",
 		"yardmaster is running, in herdr:", "herdr agent attach y-yardmaster",
-		"You left the chat; yardmaster keeps running. To come back: "+here("yardr chat")+"\n")
+		"You left the chat; yardmaster keeps running. To come back: "+hereAt(b.home, "yardr chat")+"\n")
 	if b.asked() != 1 || !slices.Equal(*b.attached, []string{"y-yardmaster"}) || len(*b.focused) != 0 ||
 		!slices.Equal(*b.chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("asked %d times, attached %v, focused %v, chats %v\n%s", b.asked(), *b.attached, *b.focused, *b.chats, out)
@@ -138,7 +143,7 @@ func TestInitStartAsksAgainWhileTheYardmasterIsBlocked(t *testing.T) {
 		t.Fatalf("asked %d times, attached %v, chats %v\n%s", b.asked(), *b.attached, *b.chats, out)
 	}
 	wantText(t, out, "What is known:\n  - claude was started in the pane but is not ready for its first prompt",
-		"How to go on:", "this waits for it again and prints where it is: "+here("yardr init --start"))
+		"How to go on:", "this waits for it again and prints where it is: "+hereAt(b.home, "yardr init --start"))
 	// The problem and the pane: before the first question and after each
 	// return, and not again under the last answer.
 	for _, s := range []string{"has not answered its first prompt within 30ms.", "The last lines of its pane:"} {
@@ -198,13 +203,16 @@ func TestInitStartAsksOnlyWhereTheChatOpens(t *testing.T) {
 		t.Fatalf("--no-chat: a blocked yardmaster is up\n%s", out)
 	}
 	wantText(t, out, attach)
-	t.Setenv("YARDR_SESSION", "s1")
+	env := yardEnv(t, b.st)
+	env["YARDR_SESSION"] = "s1"
 	if out, err = b.start(); err == nil {
 		t.Fatalf("an agent's session: a blocked yardmaster is up\n%s", out)
 	}
 	wantText(t, out, attach)
-	t.Setenv("YARDR_SESSION", "")
-	out, err = run(t, (&app{st: b.st, json: true}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms", "--json")
+	env["YARDR_SESSION"] = ""
+	aj := appOn(b.st)
+	aj.json = true
+	out, err = run(t, aj.rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms", "--json")
 	if err == nil || !strings.Contains(out, `"running": false`) || !strings.Contains(out, "herdr agent attach y-yardmaster") {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
@@ -219,6 +227,9 @@ func TestInitStartAsksOnlyWhereTheChatOpens(t *testing.T) {
 func TestInitStartInHerdrShowsThePane(t *testing.T) {
 	b := blockedYardmaster(t, paneOpen)
 	b.logsIn = true
+	// In herdr twice over: the run's map for the commands that read the
+	// run, and the process for openYardmaster, which reads it there.
+	yardEnv(t, b.st)["HERDR_ENV"] = "1"
 	t.Setenv("HERDR_ENV", "1")
 	out, err := b.start()
 	if err != nil {
@@ -265,7 +276,7 @@ func TestOnboardingOffersTheYardmastersPane(t *testing.T) {
 	b := blockedYardmaster(t, paneOpen)
 	b.logsIn = true
 	stub(t, &yardmasterWait, 30*time.Millisecond)
-	out, err := run(t, (&app{st: b.st}).rootCmd())
+	out, err := run(t, appOn(b.st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -278,7 +289,7 @@ func TestOnboardingOffersTheYardmastersPane(t *testing.T) {
 
 	later := blockedYardmaster(t)
 	stub(t, &yardmasterWait, 30*time.Millisecond)
-	out, err = run(t, (&app{st: later.st}).rootCmd())
+	out, err = run(t, appOn(later.st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -295,6 +306,8 @@ func TestSetupTalkToTheYardmasterOffersItsPane(t *testing.T) {
 	home, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
 	chats := stubChat(t)
+	// No herdr pane: the run's map carries none, and the process blank
+	// keeps openYardmaster, which reads it there, from the pane's own.
 	t.Setenv("HERDR_ENV", "")
 	stub(t, &pollEvery, 0)
 	stub(t, &yardmasterWait, 30*time.Millisecond)

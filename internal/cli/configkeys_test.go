@@ -17,7 +17,6 @@ import (
 // of the setting, was not shown. It prints the value in effect and where
 // that is from (yardr-3wt9).
 func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
-	t.Setenv("YARDR_HOOK_ADDR", "")
 	st := userYard(t)
 	row := func(out, key string) string {
 		t.Helper()
@@ -44,6 +43,7 @@ func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 	if got := row(mustAs(t, st, "jo", "settings", "get"), "hook_addr"); got != "hook_addr 127.0.0.1:9000 set" {
 		t.Errorf("set: %s", got)
 	}
+	// The value in effect is read from the process.
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:9001")
 	out = mustAs(t, st, "jo", "settings", "get")
 	if got := row(out, "hook_addr"); got != "hook_addr 127.0.0.1:9001 environment" {

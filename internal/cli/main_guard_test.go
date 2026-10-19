@@ -74,7 +74,7 @@ func TestLeftBehindNamesARunningChild(t *testing.T) {
 // says what it is.
 func TestTheTestBinaryIsNotYardr(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "server", "run")
-	cmd.Env = append(os.Environ(), "YARDR_HOME="+newHome(t))
+	cmd.Env = append(os.Environ(), "YARDR_HOME="+newHomeDir(t))
 	done := make(chan struct{})
 	var out []byte
 	var err error

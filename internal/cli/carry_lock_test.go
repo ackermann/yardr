@@ -44,8 +44,12 @@ func carryLockYard(t *testing.T) (*store.Store, string, *app) {
 	if err := st.SetSetting(ctx, store.OperatorSetting, "mckean", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YARDR_ACTOR", "mckean")
-	return st, home, &app{st: st, cfg: config.At(home), actor: "mckean"}
+	env := yardEnv(t, st)
+	env["YARDR_ACTOR"] = "mckean"
+	a := appOn(st)
+	a.cfg = config.At(home)
+	a.actor = "mckean"
+	return st, home, a
 }
 
 func runRm(a *app) chan error {
@@ -152,7 +156,7 @@ func TestSourceRmWaitsOnApplyLock(t *testing.T) {
 func TestSourceAddReadsStandingCopiesUnderApplyLock(t *testing.T) {
 	ctx := context.Background()
 	st, home, a := carryLockYard(t)
-	t.Setenv("YARDR_HOME", home)
+	yardEnv(t, st)["YARDR_HOME"] = home
 	if _, err := st.PutSource(ctx, "crm.yaml", crmFreeDecl, "mckean"); err != nil {
 		t.Fatal(err)
 	}

@@ -180,7 +180,7 @@ func TestLongTailCommandsWriteToTheirCommandWriters(t *testing.T) {
 // linked first, then the show runs with buffers of its own.
 func TestPeerShowWritesToItsCommandWriter(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	south.a.env = testEnv(t, south.home)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	stdout, stderr := writerRun(t, north.a.peerCmd(), "show", "south")
@@ -191,11 +191,7 @@ func TestPeerShowWritesToItsCommandWriter(t *testing.T) {
 }
 
 func TestOTelNoCollectorWarnsOnItsCommandErrorWriter(t *testing.T) {
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-
-	stdout, stderr := writerRun(t, (&app{}).otelCmd(), "export")
+	stdout, stderr := writerRun(t, testApp(t, nil, newHomeDir(t)).otelCmd(), "export")
 	if stdout != "" {
 		t.Errorf("stdout = %q, want no output", stdout)
 	}

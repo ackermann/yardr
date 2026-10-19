@@ -257,14 +257,14 @@ func TestSecondPackShowsTheYardmastersPromptChange(t *testing.T) {
 // set up from the pack then finds the role as it would write it, and the
 // yardmaster's prompt does not change.
 func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
 	// Commands run through the root act as the login, so the yard's
 	// operator is who the login would have to be. Naming it here keeps
 	// the test hermetic.
-	t.Setenv("YARDR_ACTOR", "Jo")
-	a := &app{st: st, actor: "me"}
+	a := testApp(t, st, home, "YARDR_ACTOR=Jo")
+	a.actor = "me"
 	own := ownPack(t, packs.Starter, "research")
 	if err := st.SetSetting(ctx, defaultPackSetting, own, "me"); err != nil {
 		t.Fatal(err)
@@ -319,10 +319,11 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 // A default pack with no crew member called yardmaster gets the yard none:
 // init makes the yard, says so, and installs nothing.
 func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
+	a := testApp(t, st, home)
+	a.actor = "me"
 	if err := st.SetSetting(ctx, defaultPackSetting, ownPack(t, packs.Dir, "ledgers"), "me"); err != nil {
 		t.Fatal(err)
 	}

@@ -229,6 +229,8 @@ func TestHookAddMap(t *testing.T) {
 	if _, err := add("acme", "acme"); err != nil {
 		t.Fatal(err)
 	}
+	// The yard runs on the process (stateYard names the credential
+	// variables there), so the crew blank stays there with them.
 	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
 	if _, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||

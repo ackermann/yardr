@@ -20,12 +20,9 @@ import (
 // which a bead from it is taken under.
 func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	t.Helper()
-	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
 	st, own = storetest.NewOwned(t)
+	testYard(t, st, newHomeDir(t))
 	mustAs(t, st, "jo", "init", "--harness", "claude", "--operator", "jo")
 	ctx := context.Background()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
@@ -120,7 +117,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 	// The depot is a repository, so it says how its beads' code goes back, and
 	// the script for that is in the home's scripts, as merge-local is after
 	// yardr setup. One that is there is kept.
-	script := filepath.Join(os.Getenv("YARDR_HOME"), "scripts", "return-branch")
+	script := filepath.Join(yardEnv(t, st)["YARDR_HOME"], "scripts", "return-branch")
 	if have, err := os.ReadFile(script); err != nil || !bytes.Equal(have, peerscripts.ReturnBranch) ||
 		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --depot web --group web/return") ||
 		!strings.Contains(out, "--set cmd='YARDR_PUSH=origin ") {

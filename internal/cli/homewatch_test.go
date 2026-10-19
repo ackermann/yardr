@@ -75,6 +75,7 @@ func TestWatchEvery(t *testing.T) {
 		{"malformed", "soon", 7 * time.Second, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// The daemon's watch reads the test-only tick from the process.
 			t.Setenv("YARDR_TEST_HOME_CHECK", tc.value)
 			logged := &syncBuffer{}
 			if every := watchEvery(slog.New(slog.NewTextHandler(logged, nil))); every != tc.want {
@@ -162,7 +163,7 @@ type daemonTrial struct {
 
 func daemonUp(t *testing.T) *daemonTrial {
 	t.Helper()
-	home := newHome(t)
+	home := newHomeDir(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	ctx := context.Background()
 	// The yard, as init leaves it, written to the home's store file before
@@ -170,15 +171,14 @@ func daemonUp(t *testing.T) *daemonTrial {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.At(home)
 	local, err := store.Open(cfg.DBPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, (&app{st: local, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+	initApp := testApp(t, local, home)
+	initApp.actor = "me"
+	if _, err := run(t, initApp.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		local.Close(ctx)
 		t.Fatal(err)
 	}
@@ -246,7 +246,9 @@ func daemonUp(t *testing.T) *daemonTrial {
 		defer nudgeMu.Unlock()
 		return slices.Clone(nudgeTexts)
 	}
-	app := &app{st: st, actor: "me"}
+	testYard(t, st, home)
+	app := appOn(st)
+	app.actor = "me"
 	app.cfg = cfg
 	// The daemon logs to os.Stderr: what it says is read back through a
 	// pipe, and os.Stderr is itself again before anything is asserted, so

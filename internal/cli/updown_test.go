@@ -87,7 +87,8 @@ func (p *paneRunner) Nudge(_ context.Context, h map[string]any, text string) err
 // and counts the stops of the yard's server.
 func downYard(t *testing.T, status map[string]string, beads ...string) (home string, st store.API, panes *paneRunner, ids map[string]string, a func(json bool) *app, serverStops *int) {
 	t.Helper()
-	home, st, plain := statusYard(t, "")
+	home, st, _ = statusYard(t, "")
+	testYard(t, st, home)
 	ctx := context.Background()
 	panes = &paneRunner{status: status, fail: map[string]bool{}}
 	stub(t, &yardRunners, func(string, store.API) map[string]dispatch.Runner {
@@ -114,7 +115,8 @@ func downYard(t *testing.T, status map[string]string, beads ...string) (home str
 		dispatched(t, st, b.ID, name)
 	}
 	return home, st, panes, ids, func(json bool) *app {
-		a := plain()
+		a := appOn(st)
+		a.actor = "me"
 		a.json = json
 		return a
 	}, serverStops
@@ -475,7 +477,8 @@ func TestDownStopsAStartThatWasUnderway(t *testing.T) {
 // holds the home's lock from then.
 func upYard(t *testing.T, herdrRuns bool) (home string, st store.API, a func(json bool) *app, herdrStarts, daemonStarts *int) {
 	t.Helper()
-	home, st, plain := statusYard(t, "")
+	home, st, _ = statusYard(t, "")
+	testYard(t, st, home)
 	stubLookPath(t, "claude", "git", "herdr")
 	herdrStarts, daemonStarts = new(int), new(int)
 	stub(t, &herdrServer, func(context.Context, string) serverCheck {
@@ -504,7 +507,8 @@ func upYard(t *testing.T, herdrRuns bool) (home string, st store.API, a func(jso
 		return os.Getpid(), nil, func() error { return nil }, nil
 	})
 	return home, st, func(json bool) *app {
-		a := plain()
+		a := appOn(st)
+		a.actor = "me"
 		a.json = json
 		return a
 	}, herdrStarts, daemonStarts
@@ -655,13 +659,13 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 // On a home with no yard up and down say so, start nothing and exit 2, as
 // yardr status does: a window calls them, and gets no onboarding.
 func TestUpAndDownOnNoYard(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	stub(t, &connect, func(context.Context, *config.Config) (store.API, error) {
 		t.Error("connected to the store, which starts a server")
 		return nil, errNoServer
 	})
 	for _, cmd := range []string{"up", "down"} {
-		out, err := run(t, (&app{}).rootCmd(), cmd)
+		out, err := run(t, testApp(t, nil, home).rootCmd(), cmd)
 		if !errors.As(err, new(notInitialized)) || exitCode(err) != 2 || !strings.Contains(err.Error(), home) {
 			t.Fatalf("yardr %s on no yard: %v\n%s", cmd, err, out)
 		}

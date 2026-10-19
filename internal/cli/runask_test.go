@@ -169,7 +169,7 @@ func (y *cliYard) as(t *testing.T, who string, args ...string) (string, error) {
 func airyKey(t *testing.T) string {
 	t.Helper()
 	other := newCLIYard(t, "airy")
-	t.Setenv("YARDR_HOME", other.home)
+	other.a.env = testEnv(t, other.home)
 	return strings.TrimSpace(other.must(t, "key"))
 }
 

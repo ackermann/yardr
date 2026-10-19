@@ -155,6 +155,7 @@ func TestLimitsGroupReadsTheGroupsLogin(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
+	// The ambient login the limits command hands its provider's process.
 	t.Setenv("QUOKKA_LOGIN", "operator")
 	file, _ := limitsStandIn(t, `case "$QUOKKA_LOGIN" in
 first) echo '{"provider":"Kimi","plan":"First","windows":[{"label":"Weekly","used_percent":10}]}';;

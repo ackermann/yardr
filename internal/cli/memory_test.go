@@ -82,7 +82,7 @@ func TestPrimeOmittedJournalPointsAtPrimeBead(t *testing.T) {
 func TestRecallFindsJournalEntries(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	if err := st.Journal(ctx, "yardmaster", store.NoteJournal, "deploys are frozen until Friday", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
