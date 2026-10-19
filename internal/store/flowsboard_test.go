@@ -530,3 +530,101 @@ func TestFlowsTerminal(t *testing.T) {
 		t.Errorf("terminal flags:\n got %v\nwant %v", terminal, want)
 	}
 }
+
+// TestFlowsSeats pins the seats each stage serves: a group routed at two
+// stages serves one shared yard-wide taken count on both; a stage no route
+// matches serves neither field, and a paused group's limit stands as 0.
+func TestFlowsSeats(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	y.flowDepot(t, "shop", "code", "new", "review", "done", "siding")
+	must(y.PutGroup(ctx, Group{Name: "mothballed", Runner: "herdr", Limit: 1}, "me"))
+	paused := 0
+	_, err := y.SetGroup(ctx, "mothballed", GroupEdit{Limit: &paused}, "me")
+	must(err)
+	_, err = y.AddRoute(ctx, Route{Stage: "review", Group: "builders"}, "me")
+	must(err)
+	_, err = y.AddRoute(ctx, Route{Stage: "done", Group: "mothballed"}, "me")
+	must(err)
+	// Siding is routed nowhere. Builders (limit 10) works new and review,
+	// with a live session at each; the mothballed group is paused, so its
+	// stage's bead stands unclaimed.
+	run := y.travel(t, "run", "shop", "new")
+	if _, err := y.Claim(ctx, run.ID, "builders", "new", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	again := y.travel(t, "again", "shop", "review")
+	if _, err := y.Claim(ctx, again.ID, "builders", "review", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	y.travel(t, "parked", "shop", "done")
+	y.travel(t, "adrift", "shop", "siding")
+	board, err := y.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages := map[string]FlowsStage{}
+	for _, d := range board.Depots {
+		if d.Name != "shop" {
+			continue
+		}
+		for _, f := range d.Flows {
+			for _, s := range f.Stages {
+				stages[s.Stage] = s
+			}
+		}
+	}
+	deref := func(p *int) (int, bool) {
+		if p == nil {
+			return 0, false
+		}
+		return *p, true
+	}
+	for _, st := range []string{"new", "review"} {
+		s := stages[st]
+		if s.Group != "builders" {
+			t.Errorf("%s group = %q, want builders", st, s.Group)
+		}
+		if got, ok := deref(s.Limit); !ok || got != 10 {
+			t.Errorf("%s limit = %d, %v, want 10, served", st, got, ok)
+		}
+		if got, ok := deref(s.Taken); !ok || got != 2 {
+			t.Errorf("%s taken = %d, %v, want 2, the one yard-wide count on both stages", st, got, ok)
+		}
+	}
+	done := stages["done"]
+	if done.Group != "mothballed" {
+		t.Errorf("done group = %q, want mothballed", done.Group)
+	}
+	if got, ok := deref(done.Limit); !ok || got != 0 {
+		t.Errorf("done limit = %d, %v, want 0, served: paused, not unrouted", got, ok)
+	}
+	if got, ok := deref(done.Taken); !ok || got != 0 {
+		t.Errorf("done taken = %d, %v, want 0, served", got, ok)
+	}
+	siding := stages["siding"]
+	if siding.Group != "" || siding.Limit != nil || siding.Taken != nil {
+		t.Errorf("siding serves group %q limit %v taken %v, want all absent", siding.Group, siding.Limit, siding.Taken)
+	}
+	raw, err := json.Marshal(siding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"limit":`) || strings.Contains(string(raw), `"taken":`) {
+		t.Errorf("siding serves seats in JSON: %s", raw)
+	}
+	raw, err = json.Marshal(done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"limit":0`) || !strings.Contains(string(raw), `"taken":0`) {
+		t.Errorf("done omits its zero seats from JSON: %s", raw)
+	}
+}

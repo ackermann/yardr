@@ -2725,6 +2725,8 @@ POST /call/Flows
                 "human": false,
                 "lamp": "none",
                 "terminal": false,
+                "limit": 5,
+                "taken": 0,
                 "beads": [
                   {
                     "bead": "yd-train",
@@ -2742,6 +2744,8 @@ POST /call/Flows
                 "human": true,
                 "lamp": "none",
                 "terminal": true,
+                "limit": 5,
+                "taken": 0,
                 "beads": []
               }
             ]
@@ -2794,6 +2798,8 @@ POST /call/Flows
 | `depots[].flows[].stages[].human` | bool | the group is a manual one |
 | `depots[].flows[].stages[].lamp` | string | `fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise |
 | `depots[].flows[].stages[].terminal` | bool | the stage closes the bead entering it |
+| `depots[].flows[].stages[].limit` | number, may be absent | the routed group's seat limit, `0` pausing the group; absent where no route matches |
+| `depots[].flows[].stages[].taken` | number, may be absent | how many of the routed group's seats live sessions hold across the whole yard, the same number on every stage routed to the group; absent where no route matches |
 | `depots[].flows[].stages[].beads[].bead` | string | the bead's handle |
 | `depots[].flows[].stages[].beads[].title` | string | the bead's title |
 | `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |

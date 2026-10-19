@@ -514,6 +514,8 @@ var apiCalls = []apiCall{
 			{"depots[].flows[].stages[].human", "bool", "the group is a manual one"},
 			{"depots[].flows[].stages[].lamp", "string", "`fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise"},
 			{"depots[].flows[].stages[].terminal", "bool", "the stage closes the bead entering it"},
+			{"depots[].flows[].stages[].limit", "number?", "the routed group's seat limit, `0` pausing the group; absent where no route matches"},
+			{"depots[].flows[].stages[].taken", "number?", "how many of the routed group's seats live sessions hold across the whole yard, the same number on every stage routed to the group; absent where no route matches"},
 		},
 			flowBead("depots[].flows[].stages[].beads[]."),
 			flowBead("depots[].elsewhere[]."),

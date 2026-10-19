@@ -73,8 +73,15 @@ type FlowsStage struct {
 	// Terminal is a stage that closes the bead entering it, as the web's
 	// stage says: a reader draws the buffer stop from this, never from the
 	// last place.
-	Terminal bool       `json:"terminal"`
-	Beads    []FlowBead `json:"beads"`
+	Terminal bool `json:"terminal"`
+	// Limit is the routed group's seat limit, 0 pausing the group; Taken
+	// is how many of the group's seats live sessions hold across the whole
+	// yard, the same number on every stage routed to the group. Both are
+	// absent where no route matches, so a reader can tell an unrouted
+	// stage from a paused one.
+	Limit *int       `json:"limit,omitempty"`
+	Taken *int       `json:"taken,omitempty"`
+	Beads []FlowBead `json:"beads"`
 }
 
 // FlowBead is one bead of the flows view: the bead with its Arrivals row.
@@ -135,6 +142,16 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 	if err != nil {
 		return nil, err
 	}
+	byGroup := make(map[string]Group, len(groups))
+	for _, g := range groups {
+		byGroup[g.Name] = g
+	}
+	// A taken seat is one live session of the group, wherever its bead
+	// stands, counted once: the same count the claim refuses against.
+	taken := map[string]int{}
+	for _, sess := range live {
+		taken[sess.Group]++
+	}
 	settings, err := s.Settings(ctx)
 	if err != nil {
 		return nil, err
@@ -186,8 +203,12 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 				probe := Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name, Priority: DefaultPriority}
 				if r := MatchRoute(routes, probe, operator); r != nil {
 					fs.Group = r.Worker()
-					if i := slices.IndexFunc(groups, func(g Group) bool { return g.Name == fs.Group }); i >= 0 && groups[i].Runner == "manual" {
-						fs.Human = true
+					if g, ok := byGroup[fs.Group]; ok {
+						if g.Runner == "manual" {
+							fs.Human = true
+						}
+						limit, n := g.Limit, taken[fs.Group]
+						fs.Limit, fs.Taken = &limit, &n
 					}
 				}
 				ff.Stages = append(ff.Stages, fs)
