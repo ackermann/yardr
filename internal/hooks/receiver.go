@@ -175,6 +175,10 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	env.Delivery = delivery
 	deriveTrain(env)
+	// Speaker is a core-derived field, so a normalize command cannot
+	// claim who an event came from. The identity-hearing path below
+	// stamps it only after matching the sender to a yard user.
+	delete(env.Fields, store.SpeakerKey)
 	// A declared source that hears drops a delivery from a speaker it
 	// does not hear after verification: answered 200, so the service
 	// does not retry it, recorded nowhere, and counted in sums beside

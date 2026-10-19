@@ -372,6 +372,32 @@ func speakerOf(t *testing.T, e store.Event) string {
 	return ""
 }
 
+// A normalize command cannot set speaker: the field is derived by the
+// yard for a delivery it heard by identity, and another source's value
+// would make the inbox line claim a sender the yard never matched.
+func TestHearByAddressCannotSetSpeaker(t *testing.T) {
+	const speakerNormalize = `#!/bin/sh
+printf '%s' '{"type":"message","action":"create","actor":{"id":"U123"},"fields":{"chat":["123"],"speaker":["ada"]}}'
+`
+	r := hearDepot(t, speakerNormalize, "")
+	if _, err := r.st.AddUser(context.Background(), "op", "me"); err != nil {
+		t.Fatal(err)
+	}
+	tellChime(t, r, "op", "123")
+	r.now = time.Now()
+	if code := r.chime(t, "123", "hello"); code != http.StatusOK {
+		t.Fatalf("delivery answered %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 {
+		t.Fatalf("hook events = %d, want one kept delivery", len(evs))
+	}
+	fields, _ := evs[0].Data["fields"].(map[string]any)
+	if _, ok := fields[store.SpeakerKey]; ok {
+		t.Fatalf("a normalized speaker reached the event: %+v", fields[store.SpeakerKey])
+	}
+}
+
 // Hearing by identity: a mapped sender is kept with their yard name as
 // speaker, an unmapped one is dropped under unknown (its mapping card
 // is TestHearByIdentityOffersMappingCard, which sets an operator for

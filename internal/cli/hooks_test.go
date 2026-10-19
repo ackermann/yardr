@@ -144,11 +144,14 @@ func TestHookAddUnknown(t *testing.T) {
 	if h, err := st.GetHook(ctx, "slackline"); err != nil || h.Unknown != store.HookUnknownUnknown {
 		t.Fatalf("hook without --unknown = %+v %v", h, err)
 	}
-	if _, err := run(t, a.hookCmd(), "add", "slackok", "--source", "slack", "--secret-file", f, "--unknown", "allow"); err != nil {
-		t.Fatal(err)
-	}
-	if h, err := st.GetHook(ctx, "slackok"); err != nil || h.Unknown != store.HookUnknownAllow {
-		t.Fatalf("hook with --unknown allow = %+v %v", h, err)
+	for _, word := range store.HookUnknowns {
+		name := "slack-" + word
+		if _, err := run(t, a.hookCmd(), "add", name, "--source", "slack", "--secret-file", f, "--unknown", word); err != nil {
+			t.Fatalf("hook add --unknown %s: %v", word, err)
+		}
+		if h, err := st.GetHook(ctx, name); err != nil || h.Unknown != word {
+			t.Fatalf("hook with --unknown %s = %+v %v", word, h, err)
+		}
 	}
 	if _, err := run(t, a.hookCmd(), "add", "tg", "--source", "telegram", "--secret-file", f, "--unknown", "allow"); err == nil ||
 		!strings.Contains(err.Error(), "for a source with no identity hearing") {

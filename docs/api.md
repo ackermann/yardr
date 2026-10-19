@@ -1768,6 +1768,10 @@ POST /call/UserAsks
 | `open[].question` | string | the question in one line, as a person would ask it |
 | `open[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `open[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `open[].identity` | object, may be absent | the sender a mapping ask asks the operator to identify; absent on any other ask |
+| `open[].identity.source` | string | the declared source the sender came from |
+| `open[].identity.sender` | string | the sender's id in that source |
+| `open[].identity.channel` | string, may be absent | the channel the message arrived in; absent when none was named |
 | `open[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
 | `open[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login ask |
 | `open[].secret.env` | array of string | the names to ask the person a value for |
@@ -1809,6 +1813,10 @@ POST /call/UserAsks
 | `decided[].question` | string | the question in one line, as a person would ask it |
 | `decided[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `decided[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `decided[].identity` | object, may be absent | the sender a mapping ask asked the operator to identify; absent on any other ask |
+| `decided[].identity.source` | string | the declared source the sender came from |
+| `decided[].identity.sender` | string | the sender's id in that source |
+| `decided[].identity.channel` | string, may be absent | the channel the message arrived in; absent when none was named |
 | `decided[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
 | `decided[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login ask |
 | `decided[].secret.env` | array of string | the names to ask the person a value for |
@@ -1858,7 +1866,7 @@ Read it again on every `noted` event: a question asked, answered, put aside, dec
 
 ### `Bead`
 
-One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.
+One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. A mapping ask also carries `identity` with the source, sender id and optional channel it asks the operator to map; its choices remain in `options`. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.
 
 | argument | type | |
 |---|---|---|

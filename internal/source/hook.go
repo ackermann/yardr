@@ -226,6 +226,10 @@ func (r *reader) hook(e entry) *Hook {
 					r.errf(f.v, f.path, "%q: a key is lowercase letters, digits and _, starting with a letter or digit (team)", s)
 					continue
 				}
+				if s == "speaker" {
+					r.errf(f.v, f.path, "speaker is derived by the yard for hearing by identity, so it is not a hook key")
+					continue
+				}
 				h.Keys = append(h.Keys, s)
 			}
 		case "register":
