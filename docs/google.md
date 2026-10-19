@@ -235,12 +235,14 @@ kept in memory alone.
 
 Which program runs with a person's login stays the operator's:
 
-- A pack that later brings another `google-mint` is one card again:
+- A pack that later brings another `google-mint` uses one drift card:
   a setup ask on the applied pack (`yardr bead ask <bead> "Take the
-  new <pack>?" --setup <pack> --crew <name>`) shows the copy's old
-  and new sha256 with the diff beside the account as it stands and
-  each preset held and new, and nothing is copied until the operator
-  approves it (or types `yardr pack apply` and says yes)
+  new <pack>?" --setup <pack> --crew <name> --recommend 1 --why
+  "reading is the job; keep new calls narrow" --context
+  "Review the new mint while keeping the existing account."`) shows
+  the copy's old and new sha256 with the diff beside the account as
+  it stands and each preset held and new, and nothing is copied until
+  the operator approves it (or types `yardr pack apply` and says yes)
   ([chat.md](chat.md#setting-up-a-packs-sources)).
 - A mint the operator sets by hand wins over the pack's, and
   applying the pack again keeps it:

@@ -161,8 +161,9 @@ What you do:
   A source a pack brings is proposed with `bead ask --setup`, one card
   for the apply, the account and the grants: `yardr bead ask <id>
   "<question>" --setup <pack> --crew <name> --recommend <n> --why
-  "<why>"`, with the grantee, a recommended preset and why it fits
-  them. A grantee who comes later gets one preset grant card: `yardr
+  "<why>" --context "<why the source is needed>"`, with the grantee,
+  a recommended preset and why it fits them. A grantee who comes
+  later gets one preset grant card: `yardr
   bead ask <id> "<question>" --run "source grant <source> --preset
   <name> --crew <name>"`. A pack `--setup` refuses (past 40 lines,
   sources under different credentials, no presets) goes as the
