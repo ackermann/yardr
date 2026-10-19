@@ -65,7 +65,7 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 				}
 				h.Kind = args[0]
 			}
-			return a.out(c.OutOrStdout(), h, func(w io.Writer) { printHarness(h, ok) })
+			return a.out(c.OutOrStdout(), h, func(w io.Writer) { printHarness(w, h, ok) })
 		},
 	})
 	cmd.AddCommand(a.harnessLoginCmd())
@@ -115,12 +115,12 @@ func envKeys(env []string) []string {
 
 // printHarness prints h as yardr harness show does; has is whether its kind
 // has a file.
-func printHarness(h agents.Harness, has bool) {
+func printHarness(w io.Writer, h agents.Harness, has bool) {
 	if !has {
-		fmt.Printf("%s: no harness file in this build of yardr.\n", h.Kind)
-		fmt.Println("herdr starts it and says whether it is idle, working, blocked or done. yardr knows no marks,")
-		fmt.Println("no error lines and no flags of it: its pane is read by the marks of no kind, an error of")
-		fmt.Println("its own shows as session_idle only, and it runs with the arguments its group gives.")
+		fmt.Fprintf(w, "%s: no harness file in this build of yardr.\n", h.Kind)
+		fmt.Fprintln(w, "herdr starts it and says whether it is idle, working, blocked or done. yardr knows no marks,")
+		fmt.Fprintln(w, "no error lines and no flags of it: its pane is read by the marks of no kind, an error of")
+		fmt.Fprintln(w, "its own shows as session_idle only, and it runs with the arguments its group gives.")
 		return
 	}
 	or := func(s, none string) string {
@@ -134,63 +134,63 @@ func printHarness(h agents.Harness, has bool) {
 	if h.Provider != "" {
 		head += ", by " + h.Provider
 	}
-	fmt.Printf("%s  (harnesses/%s.yaml, version %d)\n", head, h.Kind, h.Version)
+	fmt.Fprintf(w, "%s  (harnesses/%s.yaml, version %d)\n", head, h.Kind, h.Version)
 	if len(h.Aliases) > 0 {
-		fmt.Printf("  also asked for as: %s\n", strings.Join(h.Aliases, ", "))
+		fmt.Fprintf(w, "  also asked for as: %s\n", strings.Join(h.Aliases, ", "))
 	}
-	fmt.Printf("  get it: %s\n", agents.InstallHint(h.Kind))
+	fmt.Fprintf(w, "  get it: %s\n", agents.InstallHint(h.Kind))
 	if f := h.Fetch; f == nil {
-		fmt.Println("  on a Mac without a terminal: no way known, it is installed by hand")
+		fmt.Fprintln(w, "  on a Mac without a terminal: no way known, it is installed by hand")
 	} else {
 		how := "moved to " + f.Path
 		if len(f.Run) > 0 {
 			how = "run with `" + strings.Join(f.Run, " ") + "`, which puts it at " + f.Path
 		}
-		fmt.Printf("  on a Mac without a terminal: version %s is fetched, checked against its sha256 and %s\n", f.Version, how)
-		fmt.Printf("    (verified from %s on %s; --json has the addresses; yardr fetches nothing itself)\n", f.Verified.From, f.Verified.On)
+		fmt.Fprintf(w, "  on a Mac without a terminal: version %s is fetched, checked against its sha256 and %s\n", f.Version, how)
+		fmt.Fprintf(w, "    (verified from %s on %s; --json has the addresses; yardr fetches nothing itself)\n", f.Verified.From, f.Verified.On)
 	}
 	if h.Trust != nil {
-		fmt.Println("  trust: yardr answers its folder-trust dialog (unless the group or crew member says trust=false)")
+		fmt.Fprintln(w, "  trust: yardr answers its folder-trust dialog (unless the group or crew member says trust=false)")
 		if len(h.Trust.Env) > 0 {
-			fmt.Printf("  trust environment (automatic only): %s\n", strings.Join(envKeys(h.Trust.Env), ", "))
+			fmt.Fprintf(w, "  trust environment (automatic only): %s\n", strings.Join(envKeys(h.Trust.Env), ", "))
 		}
 	} else {
-		fmt.Println("  trust: yardr answers no dialog of it")
+		fmt.Fprintln(w, "  trust: yardr answers no dialog of it")
 	}
-	fmt.Println("\nMarks its pane is read by")
+	fmt.Fprintln(w, "\nMarks its pane is read by")
 	if m := h.Marks; m.Input == "" {
-		fmt.Println("  none known: its input is not told from what it printed")
+		fmt.Fprintln(w, "  none known: its input is not told from what it printed")
 	} else {
-		fmt.Printf("  input begins with:    %s\n", m.Input)
+		fmt.Fprintf(w, "  input begins with:    %s\n", m.Input)
 		if m.Edge != "" {
-			fmt.Printf("  after the box's edge: %s\n", m.Edge)
+			fmt.Fprintf(w, "  after the box's edge: %s\n", m.Edge)
 		}
-		fmt.Printf("  a message it took:    %s\n", or(m.Message, "no mark known"))
+		fmt.Fprintf(w, "  a message it took:    %s\n", or(m.Message, "no mark known"))
 		if m.Placeholder != "" {
-			fmt.Printf("  an empty input shows: %s\n", m.Placeholder)
+			fmt.Fprintf(w, "  an empty input shows: %s\n", m.Placeholder)
 		}
 	}
 	if h.Marks.Error != "" {
-		fmt.Printf("  before an error line: any of %s\n", h.Marks.Error)
+		fmt.Fprintf(w, "  before an error line: any of %s\n", h.Marks.Error)
 	}
-	fmt.Println("\nFlags")
-	fmt.Printf("  unattended: %s\n", args(h.Flags.Unattended))
-	fmt.Printf("  model flag: %s\n", or(h.Flags.Model, "--model (runner default)"))
+	fmt.Fprintln(w, "\nFlags")
+	fmt.Fprintf(w, "  unattended: %s\n", args(h.Flags.Unattended))
+	fmt.Fprintf(w, "  model flag: %s\n", or(h.Flags.Model, "--model (runner default)"))
 	if len(h.Flags.Always) > 0 {
-		fmt.Printf("  always:     %s\n", args(h.Flags.Always))
+		fmt.Fprintf(w, "  always:     %s\n", args(h.Flags.Always))
 	}
-	fmt.Printf("  version:    %s\n", args(h.Flags.Version))
+	fmt.Fprintf(w, "  version:    %s\n", args(h.Flags.Version))
 	if len(h.Flags.OneShot) > 0 {
-		fmt.Printf("  one shot:   %s <prompt>\n", args(h.Flags.OneShot))
+		fmt.Fprintf(w, "  one shot:   %s <prompt>\n", args(h.Flags.OneShot))
 	} else {
-		fmt.Println("  one shot:   none known")
+		fmt.Fprintln(w, "  one shot:   none known")
 	}
 	for _, p := range h.Flags.Permissions {
-		fmt.Printf("  permission %q: %s  (%s)\n", p.Label, args(p.Args), p.Note)
+		fmt.Fprintf(w, "  permission %q: %s  (%s)\n", p.Label, args(p.Args), p.Note)
 	}
-	fmt.Println("\nModels it offers")
+	fmt.Fprintln(w, "\nModels it offers")
 	if len(h.Offers) == 0 {
-		fmt.Println("  none named: --model takes any id")
+		fmt.Fprintln(w, "  none named: --model takes any id")
 	}
 	for _, o := range h.Offers {
 		line := "  " + o.Model
@@ -200,11 +200,11 @@ func printHarness(h agents.Harness, has bool) {
 		if o.Recommended != "" {
 			line += ", recommended for a " + o.Recommended
 		}
-		fmt.Println(line)
+		fmt.Fprintln(w, line)
 	}
-	fmt.Println("\nThe model its agent reports")
+	fmt.Fprintln(w, "\nThe model its agent reports")
 	if m := h.Model; m == nil {
-		fmt.Println("  no source known: nothing is recorded and nothing compared")
+		fmt.Fprintln(w, "  no source known: nothing is recorded and nothing compared")
 	} else {
 		dir := "~/" + m.Home
 		if m.HomeEnv != "" {
@@ -217,53 +217,53 @@ func printHarness(h agents.Harness, has bool) {
 				line = "first line whose " + m.TypeField + " is " + m.Type
 			}
 		}
-		fmt.Printf("  %s/%s: %s of the %s that names one\n", dir, m.Glob, m.Field, line)
+		fmt.Fprintf(w, "  %s/%s: %s of the %s that names one\n", dir, m.Glob, m.Field, line)
 	}
-	fmt.Println("\nError lines it stops on, in the order they are tried")
+	fmt.Fprintln(w, "\nError lines it stops on, in the order they are tried")
 	if len(h.Errors) == 0 {
-		fmt.Println("  none known: nothing is reported, and session_idle with its tail is what there is")
+		fmt.Fprintln(w, "  none known: nothing is reported, and session_idle with its tail is what there is")
 	}
 	var rows [][]string
 	for _, e := range h.Errors {
 		rows = append(rows, []string{"  " + e.Reason, e.Pattern})
 	}
 	if len(rows) > 0 {
-		table(os.Stdout, "  REASON\tPATTERN", rows)
+		table(w, "  REASON\tPATTERN", rows)
 	}
 	if len(h.Dialogs) > 0 {
-		fmt.Println("\nDialogs it draws in place of its input: told of at once (nudge_held), never answered")
+		fmt.Fprintln(w, "\nDialogs it draws in place of its input: told of at once (nudge_held), never answered")
 		rows = nil
 		for _, d := range h.Dialogs {
 			rows = append(rows, []string{"  " + d.Dialog, d.Pattern})
 		}
-		table(os.Stdout, "  DIALOG\tPATTERN", rows)
+		table(w, "  DIALOG\tPATTERN", rows)
 	}
 	if len(h.Login) > 0 {
-		fmt.Println("\nLogin screen, drawn in place of its input: told of at once (nudge_held), never typed into")
+		fmt.Fprintln(w, "\nLogin screen, drawn in place of its input: told of at once (nudge_held), never typed into")
 		for _, l := range h.Login {
-			fmt.Printf("  %s\n", l.Pattern)
+			fmt.Fprintf(w, "  %s\n", l.Pattern)
 		}
 	}
 	if r := h.LoginRecipe; r != nil {
-		fmt.Printf("\nLogin led by a program, with no terminal (yardr harness login %s --json)\n", h.Kind)
-		fmt.Printf("  the command: %s %s\n", agents.Executable(h.Kind), strings.Join(r.Argv, " "))
+		fmt.Fprintf(w, "\nLogin led by a program, with no terminal (yardr harness login %s --json)\n", h.Kind)
+		fmt.Fprintf(w, "  the command: %s %s\n", agents.Executable(h.Kind), strings.Join(r.Argv, " "))
 		for _, m := range r.Methods {
-			fmt.Printf("  method %q: %s\n", m.Label, strings.Join(m.Args, " "))
+			fmt.Fprintf(w, "  method %q: %s\n", m.Label, strings.Join(m.Args, " "))
 		}
-		fmt.Printf("  the page to sign in on: %s\n", r.OpenURL)
+		fmt.Fprintf(w, "  the page to sign in on: %s\n", r.OpenURL)
 		if r.Input != "" {
-			fmt.Printf("  where it takes input:   %s\n", r.Input)
+			fmt.Fprintf(w, "  where it takes input:   %s\n", r.Input)
 		}
-		fmt.Printf("  (read from %s on %s; it may stop matching when the harness prints something else)\n", r.Verified.From, r.Verified.On)
+		fmt.Fprintf(w, "  (read from %s on %s; it may stop matching when the harness prints something else)\n", r.Verified.From, r.Verified.On)
 	}
 	if len(h.Background) > 0 {
-		fmt.Println("\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")
+		fmt.Fprintln(w, "\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")
 		for _, b := range h.Background {
-			fmt.Printf("  %s\n", b.Pattern)
+			fmt.Fprintf(w, "  %s\n", b.Pattern)
 		}
 	}
 	if h.Hints.Reset != "" {
-		fmt.Println("\nWhat it adds to a hint of yardr's")
-		fmt.Printf("  reset (a prompt at a usage limit's reset that it has not taken): %s\n", h.Hints.Reset)
+		fmt.Fprintln(w, "\nWhat it adds to a hint of yardr's")
+		fmt.Fprintf(w, "  reset (a prompt at a usage limit's reset that it has not taken): %s\n", h.Hints.Reset)
 	}
 }

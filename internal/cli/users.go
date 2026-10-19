@@ -91,7 +91,7 @@ by a token: yardr user device.`}
 					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
 				}
 				table(os.Stdout, "NAME\tROLE\tUNREAD\tTOLD", rows)
-				printPeerParties(store.PeerParties(ps))
+				printPeerParties(w, store.PeerParties(ps))
 			})
 		},
 	}
@@ -162,7 +162,7 @@ everything either way.`,
 				for _, d := range v.Devices {
 					fmt.Printf("  device: %s, added %s, last used %s\n", d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d))
 				}
-				printTimers(v.Timers, v.Name, "  ")
+				printTimers(w, v.Timers, v.Name, "  ")
 			})
 		},
 	}
@@ -465,7 +465,7 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 // the users: the address mail to each goes to, whether they are a person
 // or a crew member there, whether mail reaches them, and the line their
 // yard gives of what they do. Nothing for none.
-func printPeerParties(parties []store.PeerParty) {
+func printPeerParties(w io.Writer, parties []store.PeerParty) {
 	if len(parties) == 0 {
 		return
 	}
@@ -477,8 +477,8 @@ func printPeerParties(parties []store.PeerParty) {
 		}
 		rows = append(rows, []string{e.Address(), is, takesMail(e), or(e.Role, "-")})
 	}
-	fmt.Println()
-	table(os.Stdout, "OF A LINKED YARD\tIS\tMAIL\tROLE", rows)
+	fmt.Fprintln(w)
+	table(w, "OF A LINKED YARD\tIS\tMAIL\tROLE", rows)
 }
 
 // takesMail is whether mail from this yard reaches e, and whose grant is

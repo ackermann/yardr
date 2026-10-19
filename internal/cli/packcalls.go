@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -191,63 +192,63 @@ func planAsksCalls(p *pack.Plan, said map[string]map[string]bool) []string {
 // printPlanCalls prints, for each request of the plan, what the pack asks
 // for and what an import does about each call. said are the answers given
 // already, by grantee and call.
-func printPlanCalls(p *pack.Plan, said map[string]map[string]bool) {
+func printPlanCalls(w io.Writer, p *pack.Plan, said map[string]map[string]bool) {
 	for _, c := range p.Calls {
-		fmt.Printf("\ncalls of source %s, for %s\n", c.Source, c.Grantee())
-		fmt.Printf("  the pack asks for %s\n", c.Words(c.Wants))
+		fmt.Fprintf(w, "\ncalls of source %s, for %s\n", c.Source, c.Grantee())
+		fmt.Fprintf(w, "  the pack asks for %s\n", c.Words(c.Wants))
 		row := func(what string, calls []string, detail string) {
 			if len(calls) > 0 {
-				fmt.Printf("  %-9s %s%s\n", what, c.Words(calls), detail)
+				fmt.Fprintf(w, "  %-9s %s%s\n", what, c.Words(calls), detail)
 			}
 		}
 		row("has", c.Has, ": it may already, and nothing is asked")
 		var yes, no, asked []string
-		for _, w := range c.Wants {
-			switch answer, done := said[c.Grantee().String()][pack.CallKey(c.Source, w)]; {
+		for _, word := range c.Wants {
+			switch answer, done := said[c.Grantee().String()][pack.CallKey(c.Source, word)]; {
 			case done && answer:
-				yes = append(yes, w)
+				yes = append(yes, word)
 			case done:
-				no = append(no, w)
-			case slices.Contains(c.Asks, w):
-				asked = append(asked, w)
+				no = append(no, word)
+			case slices.Contains(c.Asks, word):
+				asked = append(asked, word)
 			}
 		}
 		row("grants", yes, ": --calls says so")
 		row("declines", no, ": --calls leaves it out")
 		row("asks", asked, ": the operator is asked, and the answer without one is no")
-		row("declined", slices.DeleteFunc(slices.Clone(c.Declined), func(w string) bool { return slices.Contains(yes, w) }),
+		row("declined", slices.DeleteFunc(slices.Clone(c.Declined), func(word string) bool { return slices.Contains(yes, word) }),
 			": an earlier import was told no (--calls "+callsFlag(c)+"="+c.Source+":<call> grants it)")
 		row("lacks", c.Lacks, ": nothing is asked or granted")
 		for _, n := range c.Missing {
-			fmt.Printf("    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+			fmt.Fprintf(w, "    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
 }
 
 // printCallResult says what an import did about the calls a pack asks for:
 // each grant, each no on record, and what was neither asked nor granted.
-func printCallResult(plan *pack.Plan, res *pack.Result, calls *callAnswers) {
+func printCallResult(w io.Writer, plan *pack.Plan, res *pack.Result, calls *callAnswers) {
 	for _, g := range res.Calls {
 		c := plan.Calls[slices.IndexFunc(plan.Calls, func(c pack.Calls) bool { return c.Grantee() == g.Grantee && c.Source == g.Source })]
-		fmt.Printf("%s may now call %s of the source %s (yardr source show %s)\n", g.Grantee, c.Words(g.Calls), g.Source, g.Source)
+		fmt.Fprintf(w, "%s may now call %s of the source %s (yardr source show %s)\n", g.Grantee, c.Words(g.Calls), g.Source, g.Source)
 	}
 	// A no changes nothing in the yard, so it is said: it is on record.
 	for _, c := range plan.Calls {
 		var no []string
-		for _, w := range c.Wants {
-			if yes, done := calls.Answers[c.Grantee().String()][pack.CallKey(c.Source, w)]; done && !yes {
-				no = append(no, w)
+		for _, word := range c.Wants {
+			if yes, done := calls.Answers[c.Grantee().String()][pack.CallKey(c.Source, word)]; done && !yes {
+				no = append(no, word)
 			}
 		}
 		if len(no) > 0 {
-			fmt.Printf("%s was not let call %s of the source %s: the no is recorded and not asked again (--calls %s=%s:%s grants it after all)\n",
+			fmt.Fprintf(w, "%s was not let call %s of the source %s: the no is recorded and not asked again (--calls %s=%s:%s grants it after all)\n",
 				c.Grantee(), c.Words(no), c.Source, callsFlag(c), c.Source, strings.Join(no, ","))
 		}
 		if len(c.Lacks) > 0 {
-			fmt.Printf("nothing was asked about %s calling %s of the source %s: %s\n", c.Grantee(), c.Words(c.Lacks), c.Source, missing(c))
+			fmt.Fprintf(w, "nothing was asked about %s calling %s of the source %s: %s\n", c.Grantee(), c.Words(c.Lacks), c.Source, missing(c))
 		}
 	}
 	for _, n := range calls.Notes {
-		fmt.Println(n)
+		fmt.Fprintln(w, n)
 	}
 }

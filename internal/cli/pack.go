@@ -384,7 +384,7 @@ about what a setup takes, marked as the pack's, not checked by yardr. --json pri
 			if err != nil {
 				return err
 			}
-			if err := a.out(c.OutOrStdout(), plan, func(w io.Writer) { printPlan(plan, nil, nil, nil, nil, true) }); err != nil {
+			if err := a.out(c.OutOrStdout(), plan, func(w io.Writer) { printPlan(w, plan, nil, nil, nil, nil, true) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -595,11 +595,11 @@ file order, each with the calls it grants of each source.
 				if p.Setup == "" {
 					fmt.Printf("pack %s carries no setup notes\n", p.Name)
 				} else {
-					printSetup(p.Name, p.Setup, p.SetupText)
+					printSetup(w, p.Name, p.Setup, p.SetupText)
 				}
 				if len(p.Presets) > 0 {
 					fmt.Println()
-					printPresets(p)
+					printPresets(w, p)
 				}
 			})
 		},
@@ -624,7 +624,7 @@ file order, each with the calls it grants of each source.
 					if i > 0 {
 						fmt.Println()
 					}
-					printRecord(r)
+					printRecord(w, r)
 				}
 			})
 		},
@@ -731,7 +731,7 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 		}
 	}
 	if len(plan.Refused) > 0 {
-		_ = a.out(w, plan, func(w io.Writer) { printPlan(plan, nil, nil, nil, nil, true) })
+		_ = a.out(w, plan, func(w io.Writer) { printPlan(w, plan, nil, nil, nil, nil, true) })
 		return nil, errCheckFailed
 	}
 	// What --source-env and --notify set for the sources the plan
@@ -791,7 +791,7 @@ func (a *app) planImport(w io.Writer, ctx context.Context, cmd, arg string, f *i
 		}
 	}
 	if !a.json {
-		printPlan(plan, answers, open.Answers, calls.Answers, notDone(refused, sources), false)
+		printPlan(w, plan, answers, open.Answers, calls.Answers, notDone(refused, sources), false)
 	}
 	// A copy someone edited is not overwritten on a confirmation
 	// alone: the edit is lost for good, and its place is the pack.
@@ -873,7 +873,7 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 			v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 			maps.Copy(v, extra)
 			if oerr := a.out(w, v, func(w io.Writer) {
-				printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
+				printResult(w, i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 				if after != nil {
 					after()
 				}
@@ -898,9 +898,9 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 			"folds": res.Folds, "sets": i.sets}
 		maps.Copy(v, extra)
 		if oerr := a.out(w, v, func(w io.Writer) {
-			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
+			printResult(w, i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 			for _, f := range res.Folds {
-				printFold(f)
+				printFold(w, f)
 			}
 			if after != nil {
 				after()
@@ -914,7 +914,7 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 
 // printFold says what the apply folded from a -declared name into the
 // source the pack brings.
-func printFold(f pack.Fold) {
+func printFold(w io.Writer, f pack.Fold) {
 	var parts []string
 	if f.Links > 0 {
 		parts = append(parts, plural(f.Links, "link"))
@@ -930,7 +930,7 @@ func printFold(f pack.Fold) {
 			parts = append(parts, plural(c.n, c.word))
 		}
 	}
-	fmt.Printf("folded %s into %s: %s\n", f.From, f.To, strings.Join(parts, ", "))
+	fmt.Fprintf(w, "folded %s into %s: %s\n", f.From, f.To, strings.Join(parts, ", "))
 }
 
 // notDone is why this run leaves out a stage map or a declared source,
@@ -1367,42 +1367,42 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string, sets *notifySets) {
-	fmt.Println()
+func printResult(w io.Writer, plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string, sets *notifySets) {
+	fmt.Fprintln(w)
 	if res.Wrote() {
-		fmt.Printf("applied pack %s to %s: %d created, %d changed, %d unchanged", res.Pack, inDepot(res.Depot), res.Created, res.Changed, res.Unchanged)
+		fmt.Fprintf(w, "applied pack %s to %s: %d created, %d changed, %d unchanged", res.Pack, inDepot(res.Depot), res.Created, res.Changed, res.Unchanged)
 		if len(res.Pruned) > 0 {
-			fmt.Printf(", %d pruned", len(res.Pruned))
+			fmt.Fprintf(w, ", %d pruned", len(res.Pruned))
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	} else {
-		fmt.Printf("pack %s is already applied to %s: nothing changed\n", res.Pack, inDepot(res.Depot))
+		fmt.Fprintf(w, "pack %s is already applied to %s: nothing changed\n", res.Pack, inDepot(res.Depot))
 	}
 	for _, s := range res.Pruned {
-		fmt.Println("  pruned  " + s)
+		fmt.Fprintln(w, "  pruned  "+s)
 	}
 	if len(res.Left) > 0 {
 		hint := "yardr pack apply … --prune removes them"
 		if pruning {
 			hint = "held, or their removal failed"
 		}
-		fmt.Printf("no longer in the pack and left in the yard (%s):\n", hint)
+		fmt.Fprintf(w, "no longer in the pack and left in the yard (%s):\n", hint)
 		for _, s := range res.Left {
-			fmt.Println("  " + s)
+			fmt.Fprintln(w, "  "+s)
 		}
 	}
 	for _, e := range res.PruneErrors {
-		fmt.Println("  not removed: " + e)
+		fmt.Fprintln(w, "  not removed: "+e)
 	}
 	for _, o := range plan.Objects {
 		id := o.Kind + "." + o.Name + ".args"
 		if !slices.Contains(o.Asks, id) || strings.TrimSpace(answers[id]) != "" {
 			continue
 		}
-		fmt.Printf("%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", kindWord(o.Kind), o.Name, o.Kind)
+		fmt.Fprintf(w, "%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", kindWord(o.Kind), o.Name, o.Kind)
 	}
 	for _, g := range res.Granted {
-		fmt.Printf("crew member %s may now open threads in %s\n", g.CrewMember, strings.Join(g.Sources, ", "))
+		fmt.Fprintf(w, "crew member %s may now open threads in %s\n", g.CrewMember, strings.Join(g.Sources, ", "))
 	}
 	// A no changes nothing in the yard, so it is said: it is on record.
 	for _, name := range sortedKeys(open.Answers) {
@@ -1413,28 +1413,28 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			}
 		}
 		if len(no) > 0 {
-			fmt.Printf("crew member %s was not let open threads in %s: the no is recorded and not asked again (--open-threads %s=%s grants it after all)\n",
+			fmt.Fprintf(w, "crew member %s was not let open threads in %s: the no is recorded and not asked again (--open-threads %s=%s grants it after all)\n",
 				name, strings.Join(no, ", "), packName(plan.Crew, name), strings.Join(no, ","))
 		}
 	}
 	for _, n := range open.Notes {
-		fmt.Println(n)
+		fmt.Fprintln(w, n)
 	}
-	printExposed(res, expose)
+	printExposed(w, res, expose)
 	for _, m := range res.Mapped {
 		if m.As != "" {
-			fmt.Printf("hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
+			fmt.Fprintf(w, "hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
 		}
 		if len(m.Says) > 0 {
-			fmt.Printf("hook %s's events now say of a bead:\n", m.Hook)
+			fmt.Fprintf(w, "hook %s's events now say of a bead:\n", m.Hook)
 			for _, l := range store.SayLines(m.Says) {
-				fmt.Printf("  %s\n", l)
+				fmt.Fprintf(w, "  %s\n", l)
 			}
 		}
 		if len(m.Makes) > 0 {
-			fmt.Printf("hook %s's events now make a bead for a thread none tracks:\n", m.Hook)
+			fmt.Fprintf(w, "hook %s's events now make a bead for a thread none tracks:\n", m.Hook)
 			for _, l := range store.MakeLines(m.Makes) {
-				fmt.Printf("  %s\n", l)
+				fmt.Fprintf(w, "  %s\n", l)
 			}
 		}
 	}
@@ -1450,7 +1450,7 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			if owner == "the operator's" {
 				owner += " (set by hand with yardr hook add)"
 			}
-			fmt.Printf("note: --yes dropped hook %s's %s line %q (%s): the pack does not give it\n", m.Hook, d.Table, d.Line, owner)
+			fmt.Fprintf(w, "note: --yes dropped hook %s's %s line %q (%s): the pack does not give it\n", m.Hook, d.Table, d.Line, owner)
 		}
 	}
 	// What the import did not do for a stage map, each with who does it and
@@ -1470,19 +1470,19 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			subject = "what the events of " + m.Source + " say was"
 		}
 		if m.Skipped != "" {
-			fmt.Printf("%s skipped: %s\n", subject, m.Skipped)
+			fmt.Fprintf(w, "%s skipped: %s\n", subject, m.Skipped)
 			continue
 		}
 		if why := refused[m.Source]; why != "" {
-			fmt.Printf("%s not set on hook %s: %s. The rest of the import does not depend on it\n", subject, m.Hook, why)
+			fmt.Fprintf(w, "%s not set on hook %s: %s. The rest of the import does not depend on it\n", subject, m.Hook, why)
 		}
 		for _, what := range []string{"hook", "identity"} {
 			if detail := m.Missing(what); detail != "" {
-				fmt.Printf("%s not set: %s\n", subject, detail)
+				fmt.Fprintf(w, "%s not set: %s\n", subject, detail)
 			}
 		}
 		if detail := m.Missing(store.SetState); detail != "" {
-			fmt.Println("note: " + detail)
+			fmt.Fprintln(w, "note: "+detail)
 		}
 	}
 	// A declared source: what was added, what --source-env and --notify
@@ -1491,9 +1491,9 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 	for _, d := range plan.Declared {
 		switch {
 		case refused[d.Source] != "":
-			fmt.Printf("the source %s was not added: %s. The rest of the import does not depend on it\n", d.Source, refused[d.Source])
+			fmt.Fprintf(w, "the source %s was not added: %s. The rest of the import does not depend on it\n", d.Source, refused[d.Source])
 		case slices.Contains(res.Declared, d.Source):
-			fmt.Printf("source %s is declared: %s under %s (yardr source show %s)\n", d.Source, plural(len(d.Calls), "call"), d.Base, d.Source)
+			fmt.Fprintf(w, "source %s is declared: %s under %s (yardr source show %s)\n", d.Source, plural(len(d.Calls), "call"), d.Base, d.Source)
 		}
 		if refused[d.Source] == "" && slices.Contains(res.Declared, d.Source) {
 			var files []string
@@ -1503,15 +1503,15 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 				}
 			}
 			if len(files) > 0 {
-				fmt.Printf("  its commands' files are under %s, each mode 0700: %s\n", filepath.Join(plan.Home, "sources", d.Source), strings.Join(files, ", "))
+				fmt.Fprintf(w, "  its commands' files are under %s, each mode 0700: %s\n", filepath.Join(plan.Home, "sources", d.Source), strings.Join(files, ", "))
 			}
 		}
 		if sets != nil {
 			for _, line := range sets.Set[d.Source] {
-				fmt.Println(line)
+				fmt.Fprintln(w, line)
 			}
 			for _, line := range sets.Skip[d.Source] {
-				fmt.Println(line)
+				fmt.Fprintln(w, line)
 			}
 		}
 		if refused[d.Source] != "" {
@@ -1519,30 +1519,30 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		}
 		for _, n := range d.Needs {
 			if n.Status != "ok" {
-				fmt.Printf("next, for source %s: %s\n", d.Source, n.Detail)
+				fmt.Fprintf(w, "next, for source %s: %s\n", d.Source, n.Detail)
 			}
 		}
 	}
 	// After the sources: a call is granted of one the yard has.
-	printCallResult(plan, res, calls)
+	printCallResult(w, plan, res, calls)
 	for _, r := range res.Restart {
-		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
+		fmt.Fprintf(w, "crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
 	switch {
 	case plan.SetupFile == "":
 	case res.Wrote():
-		fmt.Println()
-		printSetup(plan.Pack, plan.SetupFile, plan.Setup)
+		fmt.Fprintln(w)
+		printSetup(w, plan.Pack, plan.SetupFile, plan.Setup)
 	default:
 		// Nothing changed: name the command that prints the notes,
 		// not the text.
-		fmt.Println()
-		fmt.Printf("pack %s has setup notes: yardr pack show %s prints them\n", plan.Pack, plan.Pack)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "pack %s has setup notes: yardr pack show %s prints them\n", plan.Pack, plan.Pack)
 	}
 }
 
-func printRecord(r store.PackImport) {
-	fmt.Printf("%s in %s  %s by %s\n", r.Pack, inDepot(r.Depot), r.At.Local().Format("2006-01-02 15:04"), r.By)
+func printRecord(w io.Writer, r store.PackImport) {
+	fmt.Fprintf(w, "%s in %s  %s by %s\n", r.Pack, inDepot(r.Depot), r.At.Local().Format("2006-01-02 15:04"), r.By)
 	src := r.Source
 	if r.Commit != "" {
 		src += " at " + r.Commit[:min(12, len(r.Commit))]
@@ -1550,9 +1550,9 @@ func printRecord(r store.PackImport) {
 			src += " with uncommitted changes"
 		}
 	}
-	fmt.Printf("  source     %s\n", src)
+	fmt.Fprintf(w, "  source     %s\n", src)
 	if r.Flow != "" {
-		fmt.Printf("  flow       %s (stored as %s)\n", r.Flow, pack.FlowName(r.Pack, r.Flow))
+		fmt.Fprintf(w, "  flow       %s (stored as %s)\n", r.Flow, pack.FlowName(r.Pack, r.Flow))
 	}
 	pairs := func(m map[string]string) string {
 		var out []string
@@ -1565,9 +1565,9 @@ func printRecord(r store.PackImport) {
 	if r.DepotRoles {
 		roles = "the depot's own where it has them (--depot-roles)"
 	}
-	fmt.Printf("  roles      %s\n", roles)
-	fmt.Printf("  groups     %s\n", pairs(r.Groups))
-	fmt.Printf("  crew       %s\n", pairs(r.Crew))
+	fmt.Fprintf(w, "  roles      %s\n", roles)
+	fmt.Fprintf(w, "  groups     %s\n", pairs(r.Groups))
+	fmt.Fprintf(w, "  crew       %s\n", pairs(r.Crew))
 	count := map[string]int{}
 	for _, o := range r.Objects {
 		count[o.Kind]++
@@ -1578,20 +1578,20 @@ func printRecord(r store.PackImport) {
 			parts = append(parts, fmt.Sprintf("%d %s", n, kind[1]))
 		}
 	}
-	fmt.Printf("  objects    %s\n", or(strings.Join(parts, ", "), "none"))
+	fmt.Fprintf(w, "  objects    %s\n", or(strings.Join(parts, ", "), "none"))
 	for _, name := range sortedKeys(r.OpenThreads) {
 		var said []string
 		for _, src := range sortedKeys(r.OpenThreads[name]) {
 			said = append(said, src+" "+map[bool]string{true: "yes", false: "no"}[r.OpenThreads[name][src]])
 		}
-		fmt.Printf("  may open   %s: %s\n", name, strings.Join(said, ", "))
+		fmt.Fprintf(w, "  may open   %s: %s\n", name, strings.Join(said, ", "))
 	}
 	for _, who := range sortedKeys(r.Calls) {
 		var said []string
 		for _, call := range sortedKeys(r.Calls[who]) {
 			said = append(said, call+" "+map[bool]string{true: "yes", false: "no"}[r.Calls[who][call]])
 		}
-		fmt.Printf("  may call   %s: %s\n", who, strings.Join(said, ", "))
+		fmt.Fprintf(w, "  may call   %s: %s\n", who, strings.Join(said, ", "))
 	}
 }
 
@@ -1627,24 +1627,24 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 // printSetup prints a pack's setup notes: its author's words about what a
 // setup takes, under a line saying they are the pack's and yardr did not
 // check them, as an answer from a source is marked as data.
-func printSetup(packName, file, text string) {
-	fmt.Printf("setup notes of pack %s, from %s (from the pack, not checked by yardr):\n", packName, file)
-	fmt.Println(strings.TrimSpace(text))
+func printSetup(w io.Writer, packName, file, text string) {
+	fmt.Fprintf(w, "setup notes of pack %s, from %s (from the pack, not checked by yardr):\n", packName, file)
+	fmt.Fprintln(w, strings.TrimSpace(text))
 }
 
 // printPresets prints a pack's presets numbered in file order, each with
 // the words it grants of each source as the file has them. The numbers
 // are what a setup ask counts when it offers the presets.
-func printPresets(p *pack.Pack) {
-	fmt.Printf("presets of pack %s (the pack's suggested grants, granted by the operator):\n", p.Name)
+func printPresets(w io.Writer, p *pack.Pack) {
+	fmt.Fprintf(w, "presets of pack %s (the pack's suggested grants, granted by the operator):\n", p.Name)
 	for i, pr := range p.Presets {
 		line := fmt.Sprintf("  %d. %s", i+1, pr.Name)
 		if pr.About != "" {
 			line += ": " + pr.About
 		}
-		fmt.Println(line)
+		fmt.Fprintln(w, line)
 		for _, g := range pr.Grants {
-			fmt.Printf("     %s: %s\n", g.Source, strings.Join(g.Calls, ", "))
+			fmt.Fprintf(w, "     %s: %s\n", g.Source, strings.Join(g.Calls, ", "))
 		}
 	}
 }
@@ -1658,20 +1658,20 @@ func printPresets(p *pack.Pack) {
 // the plan would set or a declared source it would add is left out by this
 // run. setup prints the pack's setup notes after the plan: check does, and
 // an import does not, whose result carries them.
-func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool, refused map[string]string, setup bool) {
+func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool, refused map[string]string, setup bool) {
 	kind := "of no kind"
 	if p.Kind != "" {
 		kind = "kind " + p.Kind
 	}
-	fmt.Printf("pack %s (%s), %s, into %s\n", p.Pack, p.Dir, kind, inDepot(p.Depot))
+	fmt.Fprintf(w, "pack %s (%s), %s, into %s\n", p.Pack, p.Dir, kind, inDepot(p.Depot))
 	if p.Kind != pack.KindSource {
-		fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
+		fmt.Fprintf(w, "its roles and scripts would be copied to %s\n", p.Install)
 	}
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
-		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
+		fmt.Fprintf(w, "its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
 	}
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Fill }) {
-		fmt.Printf("in its roles and stage files %s\n", fills(p.Fill))
+		fmt.Fprintf(w, "in its roles and stage files %s\n", fills(p.Fill))
 	}
 	count := map[string]int{}
 	label := map[string]string{pack.Create: "create", pack.Change: "change", pack.Unchanged: "unchanged", pack.NotInPack: "not in the pack", pack.Dropped: "no longer in it", pack.Takes: "takes"}
@@ -1682,7 +1682,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 				continue
 			}
 			if first {
-				fmt.Printf("\n%s\n", kind[1])
+				fmt.Fprintf(w, "\n%s\n", kind[1])
 				first = false
 			}
 			count[o.Action]++
@@ -1700,26 +1700,26 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			case o.Action == pack.Dropped:
 				line += " (an earlier import brought it; left alone unless --prune)"
 			}
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 			if o.Edited {
-				fmt.Printf("  %-15s    edited by hand since the last import: overwritten or removed only with --yes; the edit belongs in the pack's source\n", "")
+				fmt.Fprintf(w, "  %-15s    edited by hand since the last import: overwritten or removed only with --yes; the edit belongs in the pack's source\n", "")
 			}
 			for _, k := range o.Keeps {
-				fmt.Printf("  %-15s    kept: %s\n", "", k)
+				fmt.Fprintf(w, "  %-15s    kept: %s\n", "", k)
 			}
 			for _, s := range o.Shadows {
-				fmt.Printf("  %-15s    shadows %s\n", "", s)
+				fmt.Fprintf(w, "  %-15s    shadows %s\n", "", s)
 			}
 			for _, d := range o.Changes {
-				fmt.Printf("  %-15s    %s: %s -> %s\n", "", d.Field, planValue(d.Old), planValue(d.New))
+				fmt.Fprintf(w, "  %-15s    %s: %s -> %s\n", "", d.Field, planValue(d.Old), planValue(d.New))
 			}
 			for _, id := range o.Asks {
 				if v, ok := answers[id]; ok {
 					if line := answered(id, v); line != "" {
-						fmt.Printf("  %-15s    %s\n", "", line)
+						fmt.Fprintf(w, "  %-15s    %s\n", "", line)
 					}
 				} else {
-					fmt.Printf("  %-15s    asks: %s\n", "", id)
+					fmt.Fprintf(w, "  %-15s    asks: %s\n", "", id)
 				}
 			}
 		}
@@ -1741,13 +1741,13 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 	asks = append(asks, planAsksCalls(p, calls)...)
 	asks = append(asks, planAsksExpose(p)...)
 	if len(asks) > 0 {
-		fmt.Println("\nan import would ask")
+		fmt.Fprintln(w, "\nan import would ask")
 		for _, line := range asks {
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 		}
 	}
 	if len(p.Governs) > 0 {
-		fmt.Printf("\nflows governing depot %s afterwards\n", p.Depot)
+		fmt.Fprintf(w, "\nflows governing depot %s afterwards\n", p.Depot)
 		for _, g := range p.Governs {
 			who := "the depot's beads"
 			if g.Type != "" {
@@ -1757,7 +1757,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			if !g.InPack {
 				line += ", not from the pack"
 			}
-			fmt.Printf("%s; now: %s\n", line, or(g.Now, "none"))
+			fmt.Fprintf(w, "%s; now: %s\n", line, or(g.Now, "none"))
 		}
 	}
 	// A source the yard has nothing of is said once, as optional, below:
@@ -1770,17 +1770,17 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		if optional[s.Source] {
 			continue
 		}
-		fmt.Printf("\nsource %s, for crew member %s\n", s.Source, s.CrewMember)
+		fmt.Fprintf(w, "\nsource %s, for crew member %s\n", s.Source, s.CrewMember)
 		for _, n := range s.Needs {
-			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+			fmt.Fprintf(w, "  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
 	for _, ot := range p.OpenThreads {
-		fmt.Printf("\nopen threads, for crew member %s\n", ot.CrewMember)
-		fmt.Printf("  the pack asks for %s\n", strings.Join(ot.Wants, ", "))
+		fmt.Fprintf(w, "\nopen threads, for crew member %s\n", ot.CrewMember)
+		fmt.Fprintf(w, "  the pack asks for %s\n", strings.Join(ot.Wants, ", "))
 		row := func(what string, sources []string, detail string) {
 			if len(sources) > 0 {
-				fmt.Printf("  %-9s %s%s\n", what, strings.Join(sources, ", "), detail)
+				fmt.Fprintf(w, "  %-9s %s%s\n", what, strings.Join(sources, ", "), detail)
 			}
 		}
 		row("has", ot.Has, ": it may already, and nothing is asked")
@@ -1804,9 +1804,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			if optional[l.Source] {
 				continue
 			}
-			fmt.Printf("  the pack wants %s, this yard lacks %s: nothing is asked or granted\n", l.Source, lacking(ot, l.Source))
+			fmt.Fprintf(w, "  the pack wants %s, this yard lacks %s: nothing is asked or granted\n", l.Source, lacking(ot, l.Source))
 			for _, n := range l.Missing {
-				fmt.Printf("    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+				fmt.Fprintf(w, "    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 			}
 		}
 	}
@@ -1815,24 +1815,24 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			continue
 		}
 		if m.Pack != "" {
-			fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
-			fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
+			fmt.Fprintf(w, "\nstage map of source %s, as crew member %s\n", m.Source, m.As)
+			fmt.Fprintf(w, "  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
 		} else {
-			fmt.Printf("\nwhat the events of source %s say of a bead, and make\n", m.Source)
+			fmt.Fprintf(w, "\nwhat the events of source %s say of a bead, and make\n", m.Source)
 		}
 		for _, l := range store.SayLines(m.Says) {
-			fmt.Printf("  the pack says %s\n", l)
+			fmt.Fprintf(w, "  the pack says %s\n", l)
 		}
 		for _, l := range store.MakeLines(m.Makes) {
-			fmt.Printf("  the pack makes %s\n", l)
+			fmt.Fprintf(w, "  the pack makes %s\n", l)
 		}
 		switch {
 		case refused[m.Source] != "":
-			fmt.Printf("  not set on hook %s: %s\n", m.Hook, refused[m.Source])
+			fmt.Fprintf(w, "  not set on hook %s: %s\n", m.Hook, refused[m.Source])
 		case m.Skipped != "":
-			fmt.Printf("  skipped: %s\n", m.Skipped)
+			fmt.Fprintf(w, "  skipped: %s\n", m.Skipped)
 		case m.Action == pack.Create:
-			fmt.Printf("  would be set on hook %s, which has none\n", m.Hook)
+			fmt.Fprintf(w, "  would be set on hook %s, which has none\n", m.Hook)
 		case m.Action == pack.Change:
 			var was []string
 			if m.Pack != "" {
@@ -1844,87 +1844,87 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			if len(m.Makes) > 0 {
 				was = append(was, or(strings.Join(store.MakeLines(m.Was.Makes), "; "), "(makes nothing)"))
 			}
-			fmt.Printf("  would replace what hook %s has: %s\n", m.Hook, strings.Join(was, ", "))
+			fmt.Fprintf(w, "  would replace what hook %s has: %s\n", m.Hook, strings.Join(was, ", "))
 		case m.Action == pack.Unchanged:
-			fmt.Printf("  hook %s has it\n", m.Hook)
+			fmt.Fprintf(w, "  hook %s has it\n", m.Hook)
 		default:
-			fmt.Println("  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
+			fmt.Fprintln(w, "  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
 		}
 		for _, d := range m.Drops {
 			owner := d.Owner
 			if owner == "the operator's" {
 				owner += " (set by hand with yardr hook add)"
 			}
-			fmt.Printf("  would drop the hook's %s line %q (%s): the pack does not give it; --yes drops it\n", d.Table, d.Line, owner)
+			fmt.Fprintf(w, "  would drop the hook's %s line %q (%s): the pack does not give it; --yes drops it\n", d.Table, d.Line, owner)
 		}
 		for _, n := range m.Needs {
-			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+			fmt.Fprintf(w, "  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
 	if len(p.Optional) > 0 {
-		fmt.Println("\nsources the import goes through without (optional)")
+		fmt.Fprintln(w, "\nsources the import goes through without (optional)")
 		for _, o := range p.Optional {
-			fmt.Printf("  %-8s %-12s %s\n", "optional", o.Source, o.Detail)
+			fmt.Fprintf(w, "  %-8s %-12s %s\n", "optional", o.Source, o.Detail)
 		}
 	}
 	for _, d := range p.Declared {
-		fmt.Printf("\ndeclared source %s, from %s\n", d.Source, d.File)
-		fmt.Printf("  its calls go to %s: %s\n", d.Base, strings.Join(d.Calls, ", "))
+		fmt.Fprintf(w, "\ndeclared source %s, from %s\n", d.Source, d.File)
+		fmt.Fprintf(w, "  its calls go to %s: %s\n", d.Base, strings.Join(d.Calls, ", "))
 		for _, c := range d.Commands {
 			if c.SHA256 == "" {
-				fmt.Printf("  command %s: %s (the program is the operator's own, not copied)\n", c.Key, c.Program)
+				fmt.Fprintf(w, "  command %s: %s (the program is the operator's own, not copied)\n", c.Key, c.Program)
 			} else {
-				fmt.Printf("  command %s: %s, sha256 %s\n", c.Key, c.Program, c.SHA256)
+				fmt.Fprintf(w, "  command %s: %s, sha256 %s\n", c.Key, c.Program, c.SHA256)
 			}
 		}
 		switch {
 		case refused[d.Source] != "":
-			fmt.Printf("  not added: %s\n", refused[d.Source])
+			fmt.Fprintf(w, "  not added: %s\n", refused[d.Source])
 		case d.Action == pack.Create:
-			fmt.Println("  would be added to the yard's sources")
+			fmt.Fprintln(w, "  would be added to the yard's sources")
 		case d.Action == pack.Change:
-			fmt.Println("  would replace the declaration the yard has under that name, which keeps its env_file (what changes is under declared sources, above)")
+			fmt.Fprintln(w, "  would replace the declaration the yard has under that name, which keeps its env_file (what changes is under declared sources, above)")
 		default:
-			fmt.Println("  the yard has it")
+			fmt.Fprintln(w, "  the yard has it")
 		}
 		if r := d.Reaches; r != nil {
 			who := make([]string, len(r.Who))
 			for i, holder := range r.Who {
 				who[i] = holder.Holder()
 			}
-			fmt.Printf("  through their grant of %s, %s would then call: %s (nobody is asked: %s covers the read calls a later file adds; yardr source revoke %s %s takes it back)\n",
+			fmt.Fprintf(w, "  through their grant of %s, %s would then call: %s (nobody is asked: %s covers the read calls a later file adds; yardr source revoke %s %s takes it back)\n",
 				store.GrantRead, strings.Join(who, ", "), strings.Join(r.Calls, ", "), store.GrantRead, d.Source, store.GrantRead)
 		}
 		for _, n := range d.Needs {
-			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+			fmt.Fprintf(w, "  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
-	printPlanCalls(p, calls)
-	printPlanExpose(p)
+	printPlanCalls(w, p, calls)
+	printPlanExpose(w, p)
 	if len(p.Notes) > 0 {
-		fmt.Println("\nnotes")
+		fmt.Fprintln(w, "\nnotes")
 		for _, n := range p.Notes {
-			fmt.Println("  " + n)
+			fmt.Fprintln(w, "  "+n)
 		}
 	}
-	fmt.Printf("\n%d to create, %d to change, %d unchanged, %d not in the pack",
+	fmt.Fprintf(w, "\n%d to create, %d to change, %d unchanged, %d not in the pack",
 		count[pack.Create], count[pack.Change], count[pack.Unchanged], count[pack.NotInPack])
 	if n := count[pack.Dropped]; n > 0 {
-		fmt.Printf(", %d no longer in it", n)
+		fmt.Fprintf(w, ", %d no longer in it", n)
 	}
 	if n := count[pack.Takes]; n > 0 {
-		fmt.Printf(", %d of the yard's taken", n)
+		fmt.Fprintf(w, ", %d of the yard's taken", n)
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	if len(p.Refused) > 0 {
-		fmt.Println("\nan import would be refused")
+		fmt.Fprintln(w, "\nan import would be refused")
 		for _, r := range p.Refused {
-			fmt.Println("  " + r)
+			fmt.Fprintln(w, "  "+r)
 		}
 	}
 	if setup && p.SetupFile != "" {
-		fmt.Println()
-		printSetup(p.Pack, p.SetupFile, p.Setup)
+		fmt.Fprintln(w)
+		printSetup(w, p.Pack, p.SetupFile, p.Setup)
 	}
 }
 

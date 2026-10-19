@@ -400,7 +400,7 @@ for its links (yardr peer list).`,
 				for _, sub := range r.Subscriptions {
 					fmt.Printf("  subscribed: %s\n", sub)
 				}
-				printTimers(timers, r.Name, "  ")
+				printTimers(w, timers, r.Name, "  ")
 				fmt.Printf("  journal %s (%d entries)\n", r.Journal, len(notes))
 				for _, n := range notes[max(0, len(notes)-5):] {
 					fmt.Printf("    [%s %s %s] %s\n", n.At.Local().Format("01-02 15:04"), or(n.Kind, "note"), noteAuthor(n),

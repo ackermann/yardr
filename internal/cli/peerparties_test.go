@@ -42,7 +42,9 @@ func TestUserListAndMailToThoseALinkedYardExposes(t *testing.T) {
 		y.a.actor = who
 		defer func() { y.a.actor = "jo" }()
 		c := map[string]func() (string, error){
-			"user":  func() (string, error) { return run(t, y.a.userCmd(), args...) },
+			// Ordered: the linked yard's follow this yard's own, across
+			// the helper's writer and the command's direct sites (see runOrdered).
+			"user":  func() (string, error) { return runOrdered(t, y.a.userCmd(), args...) },
 			"mail":  func() (string, error) { return run(t, y.a.mailCmd(), args...) },
 			"inbox": func() (string, error) { return run(t, y.a.inboxCmd(), args...) },
 			"chat":  func() (string, error) { return run(t, y.a.chatCmd(), args...) },

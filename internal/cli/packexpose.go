@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -95,16 +96,16 @@ func planAsksExpose(p *pack.Plan) []string {
 
 // printPlanExpose prints, for each crew member the pack asks to have
 // exposed, where the yard's peers stand.
-func printPlanExpose(p *pack.Plan) {
+func printPlanExpose(w io.Writer, p *pack.Plan) {
 	for _, ex := range p.Expose {
-		fmt.Printf("\nexpose to peers, for crew member %s\n", ex.CrewMember)
+		fmt.Fprintf(w, "\nexpose to peers, for crew member %s\n", ex.CrewMember)
 		if len(ex.Keys) == 0 {
-			fmt.Println("  this yard is linked with no other: nothing is asked")
+			fmt.Fprintln(w, "  this yard is linked with no other: nothing is asked")
 			continue
 		}
 		row := func(what string, peers []string, detail string) {
 			if len(peers) > 0 {
-				fmt.Printf("  %-9s %s%s\n", what, strings.Join(peers, ", "), detail)
+				fmt.Fprintf(w, "  %-9s %s%s\n", what, strings.Join(peers, ", "), detail)
 			}
 		}
 		row("has", ex.Has, ": it is exposed there already, and nothing is asked")
@@ -114,9 +115,9 @@ func printPlanExpose(p *pack.Plan) {
 }
 
 // printExposed says what an import did about the plan's Expose.
-func printExposed(res *pack.Result, expose *exposeAnswers) {
+func printExposed(w io.Writer, res *pack.Result, expose *exposeAnswers) {
 	for _, e := range res.Exposed {
-		fmt.Printf("crew member %s is now exposed to %s: it sees it, and its mail reaches it where the link takes mail (yardr peer show <peer>)\n", e.CrewMember, strings.Join(e.Peers, ", "))
+		fmt.Fprintf(w, "crew member %s is now exposed to %s: it sees it, and its mail reaches it where the link takes mail (yardr peer show <peer>)\n", e.CrewMember, strings.Join(e.Peers, ", "))
 	}
 	// A no changes nothing in the yard, so it is said: it is on record.
 	for _, name := range sortedKeys(expose.Answers) {
@@ -127,11 +128,11 @@ func printExposed(res *pack.Result, expose *exposeAnswers) {
 			}
 		}
 		if len(no) > 0 {
-			fmt.Printf("crew member %s was not exposed to %s: the no is recorded and not asked again (yardr peer allow <peer> --expose %s exposes it after all)\n",
+			fmt.Fprintf(w, "crew member %s was not exposed to %s: the no is recorded and not asked again (yardr peer allow <peer> --expose %s exposes it after all)\n",
 				name, strings.Join(no, ", "), name)
 		}
 	}
 	for _, n := range expose.Notes {
-		fmt.Println(n)
+		fmt.Fprintln(w, n)
 	}
 }

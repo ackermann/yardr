@@ -266,9 +266,9 @@ func timerLine(t store.Timer, reader string, now time.Time) string {
 
 // printTimers lists name's live timers under indent, for the show
 // commands; nothing when there are none.
-func printTimers(ts []store.Timer, name, indent string) {
+func printTimers(w io.Writer, ts []store.Timer, name, indent string) {
 	now := time.Now()
 	for _, t := range ts {
-		fmt.Printf("%stimer %s %s\n", indent, t.ID, timerLine(t, name, now))
+		fmt.Fprintf(w, "%stimer %s %s\n", indent, t.ID, timerLine(t, name, now))
 	}
 }

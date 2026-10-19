@@ -510,7 +510,7 @@ what the person asked does, and this is the asker's own.`,
 					return err
 				}
 				return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": seq, "state": askState(c.Context(), st, id, seq)},
-					func(w io.Writer) { printAsk(c.Context(), st, id, seq) })
+					func(w io.Writer) { printAsk(w, c.Context(), st, id, seq) })
 			}
 			question := args[len(args)-1]
 			var b *store.Bead
@@ -689,7 +689,7 @@ what the person asked does, and this is the asker's own.`,
 					fmt.Printf("%s for %s: to approve, yardr bead answer %s %d <preset> --secret\n", on, who, b.ID, seq)
 					return
 				}
-				printAsk(c.Context(), st, b.ID, seq)
+				printAsk(w, c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
 				}
@@ -940,7 +940,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func(w io.Writer) {
-				printAsk(c.Context(), st, id, askSeq)
+				printAsk(w, c.Context(), st, id, askSeq)
 			})
 		},
 	}
@@ -1404,14 +1404,14 @@ func readHookKeys(secret *store.AskSecret, in io.Reader, typed func(prompt strin
 	return values, nil
 }
 
-func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
+func printAsk(w io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
 	if _, _, foreign := strings.Cut(id, "@"); foreign {
-		printForeignAsk(ctx, st, id, seq)
+		printForeignAsk(w, ctx, st, id, seq)
 		return
 	}
 	notes, err := st.Notes(ctx, id)
 	if err != nil {
-		fmt.Printf("ask %d on %s\n", seq, id)
+		fmt.Fprintf(w, "ask %d on %s\n", seq, id)
 		return
 	}
 	as := trustMarks(ctx, st)
@@ -1420,11 +1420,11 @@ func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 	}
 	for _, r := range store.ResolveAsks(notes, time.Now()) {
 		if r.Note.Seq == seq {
-			fmt.Println(strings.Join(r.LinesMarked(as), "\n"))
+			fmt.Fprintln(w, strings.Join(r.LinesMarked(as), "\n"))
 			return
 		}
 	}
-	fmt.Printf("ask %d on %s\n", seq, id)
+	fmt.Fprintf(w, "ask %d on %s\n", seq, id)
 }
 
 // printForeignAsk prints the ask seq of a bead@peer ref as the answer's
@@ -1434,20 +1434,20 @@ func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 // asker are the other yard's writer words, so each stands folded to one
 // line, as the local card's one-line slots do, and none starts a line of
 // its own.
-func printForeignAsk(ctx context.Context, st store.API, id string, seq uint64) {
+func printForeignAsk(w io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
 	v, err := st.Bead(ctx, id)
 	if err != nil {
-		fmt.Printf("ask %d on %s\n", seq, id)
+		fmt.Fprintf(w, "ask %d on %s\n", seq, id)
 		return
 	}
 	for _, a := range v.Asks {
 		if a.Ask == seq {
-			fmt.Printf("ask %d · %s · to %s · asked by %s\n%s\n",
+			fmt.Fprintf(w, "ask %d · %s · to %s · asked by %s\n%s\n",
 				a.Ask, a.State, store.OneLine(a.To), store.OneLine(a.Asker), store.OneLine(a.Question))
 			return
 		}
 	}
-	fmt.Printf("ask %d on %s\n", seq, id)
+	fmt.Fprintf(w, "ask %d on %s\n", seq, id)
 }
 
 // askState is the ask's state as words, "" when the bead cannot be read

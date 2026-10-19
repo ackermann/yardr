@@ -307,7 +307,7 @@ func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *in
 	if !res.Start.Running {
 		// No yardmaster, no chat: an empty view would wait for someone who is
 		// not there. What doctor says of the yard is what there is to read.
-		if err := a.doctorSays(ctx, cfg); err != nil {
+		if err := a.doctorSays(w, ctx, cfg); err != nil {
 			return err
 		}
 		fmt.Printf("\nOnce that is set right, run %s in this terminal again: it goes on from here.\n", yardrAt(cfg.Home))
@@ -320,7 +320,7 @@ func (a *app) goOn(w io.Writer, ctx context.Context, cfg *config.Config, res *in
 	} else if err != nil {
 		return err
 	}
-	return a.handOff(ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
+	return a.handOff(w, ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
 }
 
 // resume is bare yardr in a terminal on a yard whose onboarding did not reach
@@ -378,7 +378,7 @@ func (a *app) resume(w io.Writer, ctx context.Context, cfg *config.Config) error
 	}
 	yardr := yardrAt(cfg.Home)
 	fmt.Printf("The yard in %s has no depot yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
-	printLines(lines)
+	printLines(w, lines)
 	fmt.Println()
 	a.onboarded = true // from here on this run is the onboarding, not help
 	finish := true

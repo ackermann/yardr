@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -87,7 +88,9 @@ func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 	if err := st.AddAnswer(ctx, "yard-1", store.Answer{Ask: seq, Option: 1, Words: "tonight"}, "jo@a"); err != nil {
 		t.Fatal(err)
 	}
-	out := capture(t, func() { printAsk(ctx, unreadableTrusts{st}, "yard-1", seq) })
+	var buf bytes.Buffer
+	printAsk(&buf, ctx, unreadableTrusts{st}, "yard-1", seq)
+	out := buf.String()
 	if !strings.Contains(out, "jo@a ("+store.OutsideMail+")") {
 		t.Fatalf("the confirmation marks no foreign answer when the trusts cannot be read:\n%s", out)
 	}

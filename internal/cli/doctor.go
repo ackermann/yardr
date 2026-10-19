@@ -933,7 +933,7 @@ func silentYardmaster(yardmaster string) docLine {
 // doctorSays prints what yardr doctor says is wrong with the yard, for an
 // onboarding that could not get to the yardmaster: the report's FAULT lines and
 // the yardmaster's own line, as doctor prints them, and how to read the rest.
-func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
+func (a *app) doctorSays(w io.Writer, ctx context.Context, cfg *config.Config) error {
 	rep, err := a.doctor(ctx, cfg, false)
 	if err != nil {
 		return err
@@ -955,7 +955,7 @@ func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
 	}
 	yardr := yardrAt(cfg.Home)
 	fmt.Printf("\n`%s doctor` says of it:\n\n", yardr)
-	printLines(say)
+	printLines(w, say)
 	fmt.Printf("\n`%s doctor` prints the whole of it, and is how to tell when it is set right.\n", yardr)
 	return nil
 }
@@ -969,9 +969,9 @@ func (r *doctorReport) faults() {
 	}
 }
 
-func printLines(lines []docLine) {
+func printLines(w io.Writer, lines []docLine) {
 	for _, l := range lines {
-		fmt.Printf("  %-5s  %-10s  %s\n", l.tag, l.name, l.text)
+		fmt.Fprintf(w, "  %-5s  %-10s  %s\n", l.tag, l.name, l.text)
 	}
 }
 
@@ -986,14 +986,14 @@ func (r *doctorReport) print(w io.Writer) {
 			"for the onboarding. Nothing was created.\n", r.Home, yardr)
 	}
 	fmt.Println("\nNeeded on this machine")
-	printLines(r.machineLines())
+	printLines(w, r.machineLines())
 	if r.State != nil {
 		fmt.Println("\nThe yard")
-		printLines(r.State.lines(r.Home))
+		printLines(w, r.State.lines(r.Home))
 	}
 	if len(r.Steps) > 0 {
 		fmt.Println("\nSetup")
-		printSteps(r.Steps)
+		printSteps(w, r.Steps)
 	} else if len(r.Skipped) > 0 {
 		fmt.Printf("\nSetup\n  %-5s  skipped: %s\n", tagNote, skippedWhy)
 	}
@@ -1025,6 +1025,6 @@ func (r *doctorReport) print(w io.Writer) {
 	case r.Next == nil:
 		fmt.Println("The setup is complete.")
 	default:
-		printNextStep(r.Home, r.Next)
+		printNextStep(w, r.Home, r.Next)
 	}
 }

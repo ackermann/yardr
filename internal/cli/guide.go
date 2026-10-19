@@ -104,10 +104,10 @@ it prints the steps and the command for the next one.`,
 			forms := !a.json && interactive() && !agentSession()
 			if err := a.out(c.OutOrStdout(), setupReport{Home: cfg.Home, Steps: steps, Next: next}, func(w io.Writer) {
 				fmt.Printf("The setup of the yard in %s\n\n", cfg.Home)
-				printSteps(steps)
+				printSteps(w, steps)
 				if next != nil && !forms {
 					fmt.Println()
-					printNextStep(cfg.Home, next)
+					printNextStep(w, cfg.Home, next)
 				}
 				if next == nil {
 					// The first bead has merged: herdr's server at login is
@@ -119,7 +119,7 @@ it prints the steps and the command for the next one.`,
 			}); err != nil || !forms {
 				return err
 			}
-			return a.guide(c.Context(), cfg, st)
+			return a.guide(c.OutOrStdout(), c.Context(), cfg, st)
 		},
 	}
 	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "\"talk to the yardmaster\" prints where its pane is instead of opening yardr chat")
@@ -134,20 +134,20 @@ func agentSession() bool {
 }
 
 // printSteps prints the setup steps, each done or todo.
-func printSteps(steps []setupStep) {
+func printSteps(w io.Writer, steps []setupStep) {
 	for _, s := range steps {
 		tag := "todo"
 		if s.Done {
 			tag = "done"
 		}
-		fmt.Printf("  %-5s  %s: %s\n", tag, s.Title, s.Detail)
+		fmt.Fprintf(w, "  %-5s  %s: %s\n", tag, s.Title, s.Detail)
 	}
 }
 
 // printNextStep names the step the setup goes on with and its command. The
 // step is the store's; the home in front of its commands is the caller's.
-func printNextStep(home string, next *setupStep) {
-	fmt.Printf("Next step: %s.\n  %s\n", next.Title, strings.ReplaceAll(next.Next, "yardr ", yardrAt(home)+" "))
+func printNextStep(w io.Writer, home string, next *setupStep) {
+	fmt.Fprintf(w, "Next step: %s.\n  %s\n", next.Title, strings.ReplaceAll(next.Next, "yardr ", yardrAt(home)+" "))
 }
 
 // How to go on after a page.
@@ -165,7 +165,7 @@ const (
 // Talking to the yardmaster is yardr chat, opened here on the yardmaster
 // (toChat): the person is in the conversation in the window the form ran in.
 // Where no chat can open it is the yardmaster's pane, brought to the front.
-func (a *app) handOff(ctx context.Context, cfg *config.Config, yardmaster string, place *yardmasterPlace) error {
+func (a *app) handOff(w io.Writer, ctx context.Context, cfg *config.Config, yardmaster string, place *yardmasterPlace) error {
 	st, err := a.store(ctx)
 	if err != nil {
 		return err
@@ -196,7 +196,7 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, yardmaster string
 	case err != nil:
 		return err
 	case pick == goHere:
-		return a.guide(ctx, cfg, st)
+		return a.guide(w, ctx, cfg, st)
 	}
 	if a.chats() {
 		if opened, err := a.toChat(ctx, cfg, st, yardmaster); err != nil || opened {
@@ -237,7 +237,7 @@ func (g *guide) pages() map[string]page {
 // guide takes the steps not done one page at a time, asking after each how
 // to go on, until none is left, a page is left undone, or the person stops
 // or goes to the yardmaster.
-func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error {
+func (a *app) guide(w io.Writer, ctx context.Context, cfg *config.Config, st store.API) error {
 	g := &guide{a: a, cfg: cfg, st: st}
 	yardr := yardrAt(cfg.Home)
 	for {
@@ -292,7 +292,7 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		case err != nil:
 			return err
 		case pick == goYardmaster:
-			return g.toYardmaster(ctx)
+			return g.toYardmaster(w, ctx)
 		case g.pages()[after.Key] == nil:
 			return g.watch(ctx)
 		}
@@ -326,7 +326,7 @@ func (g *guide) yardmasterAt() string {
 // running is no one to talk to: it says what yardr doctor says of it, and
 // opens no empty chat. One whose session runs without an answer is offered as
 // its pane first.
-func (g *guide) toYardmaster(ctx context.Context) error {
+func (g *guide) toYardmaster(w io.Writer, ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
 	yardmaster := yardmasterOf(ctx, g.st)
 	r, err := g.st.GetCrew(ctx, yardmaster)
@@ -356,7 +356,7 @@ func (g *guide) toYardmaster(ctx context.Context) error {
 		if err != nil || !r.Live() {
 			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", yardmaster)
 		}
-		if err := g.a.doctorSays(ctx, g.cfg); err != nil {
+		if err := g.a.doctorSays(w, ctx, g.cfg); err != nil {
 			return err
 		}
 		fmt.Printf("\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", yardmaster, yardr)

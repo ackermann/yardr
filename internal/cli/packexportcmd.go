@@ -87,7 +87,7 @@ read back as yardr pack check reads a pack, and the verdict is printed.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), ex, func(w io.Writer) { printExported(ex) })
+			return a.out(c.OutOrStdout(), ex, func(w io.Writer) { printExported(w, ex) })
 		},
 	}
 	c.Flags().StringVar(&o.Depot, "depot", "", "the depot whose way of working is written")
@@ -96,42 +96,42 @@ read back as yardr pack check reads a pack, and the verdict is printed.`,
 	return c
 }
 
-func printExported(ex *pack.Exported) {
+func printExported(w io.Writer, ex *pack.Exported) {
 	kind := ""
 	if ex.Kind != "" {
 		kind = ", kind " + ex.Kind
 	}
-	fmt.Printf("pack %s%s, written to %s from depot %s\n", ex.Pack, kind, ex.Dir, ex.Depot)
-	fmt.Println("flows")
+	fmt.Fprintf(w, "pack %s%s, written to %s from depot %s\n", ex.Pack, kind, ex.Dir, ex.Depot)
+	fmt.Fprintln(w, "flows")
 	for _, f := range ex.Flows {
 		typ := ""
 		if f.Type != "" {
 			typ = "type " + f.Type + ", "
 		}
-		fmt.Printf("  %-16s %s%d stages, from %s\n", f.Name, typ, f.Stages, f.From)
+		fmt.Fprintf(w, "  %-16s %s%d stages, from %s\n", f.Name, typ, f.Stages, f.From)
 	}
 	if len(ex.Groups) > 0 {
-		fmt.Println("groups")
+		fmt.Fprintln(w, "groups")
 	}
 	for _, g := range ex.Groups {
-		fmt.Printf("  %-16s %-7s %s\n", g.Name, g.Kind, strings.TrimSpace(g.File+"  (the yard's "+g.Yard+")"))
+		fmt.Fprintf(w, "  %-16s %-7s %s\n", g.Name, g.Kind, strings.TrimSpace(g.File+"  (the yard's "+g.Yard+")"))
 	}
-	fmt.Println("files")
+	fmt.Fprintln(w, "files")
 	for _, f := range ex.Files {
-		fmt.Println("  " + f)
+		fmt.Fprintln(w, "  "+f)
 	}
 	if len(ex.Restored) > 0 {
-		fmt.Printf("{{operator}} stands where the yard's files said %s; read each line, a word that only equals the name was rewritten too\n", ex.Operator)
+		fmt.Fprintf(w, "{{operator}} stands where the yard's files said %s; read each line, a word that only equals the name was rewritten too\n", ex.Operator)
 		for _, p := range ex.Restored {
-			fmt.Printf("  %s:%d\n", p.File, p.Line)
+			fmt.Fprintf(w, "  %s:%d\n", p.File, p.Line)
 		}
 	}
 	if len(ex.Left) > 0 {
-		fmt.Println("left out")
+		fmt.Fprintln(w, "left out")
 		for _, l := range ex.Left {
-			fmt.Println("  " + l)
+			fmt.Fprintln(w, "  "+l)
 		}
 	}
-	fmt.Println("never written: beads, notes, mail, settings, the depot's own files beside its flows and roles, its test command, crew members, source definitions, hooks or permission grants (group calls are requests only)")
-	fmt.Printf("checked: %s reads back as a pack (yardr pack check %s --depot <depot> shows what importing it would change)\n", ex.Dir, ex.Dir)
+	fmt.Fprintln(w, "never written: beads, notes, mail, settings, the depot's own files beside its flows and roles, its test command, crew members, source definitions, hooks or permission grants (group calls are requests only)")
+	fmt.Fprintf(w, "checked: %s reads back as a pack (yardr pack check %s --depot <depot> shows what importing it would change)\n", ex.Dir, ex.Dir)
 }
