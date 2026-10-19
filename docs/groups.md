@@ -209,6 +209,12 @@ route's identity: changing them is removing one route and adding another
 (`yardr route rm <id>` and `yardr route add`), with the tie check and a
 new id honestly saying so.
 
+`yardr route rm <id>` takes the whole id, or its first characters when
+there are at least four of them and only one route's id begins with them,
+as a bead handle may be cut short. An id no route has is refused, and a
+start that fits several routes names them, so a mistyped id cannot pass for
+a removal.
+
 ## A route with further groups and quota conditions
 
 A route names the group that takes its beads. It may name further groups

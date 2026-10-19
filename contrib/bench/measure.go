@@ -64,10 +64,7 @@ func (b *bench) setup() error {
 	steps := [][]string{{"flow", "set", flowName, "-f", flow}}
 	for _, depot := range depots {
 		dir := filepath.Join(b.d, "h", depot)
-		if _, err := run("git", "init", "-q", dir); err != nil {
-			return err
-		}
-		if _, err := run("git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "start"); err != nil {
+		if err := initDepotRepo(dir); err != nil {
 			return err
 		}
 		steps = append(steps,
@@ -99,6 +96,17 @@ func (b *bench) setup() error {
 		}
 	}
 	return nil
+}
+
+// initDepotRepo makes a depot's repository: one empty commit, on main
+// whatever branch this machine's git starts a repository on, because depot
+// add --base main refuses a checkout that is on another.
+func initDepotRepo(dir string) error {
+	if _, err := run("git", "init", "-q", "-b", "main", dir); err != nil {
+		return err
+	}
+	_, err := run("git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "start")
+	return err
 }
 
 // stop stops what holds the store: the web view, the daemon, the server.

@@ -1486,8 +1486,11 @@ pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
 the operator to approve on a card: a pack of kind `source` (linear,
 github, pushover and telegram), or a pack of a depot kind
 re-applied to the one depot that holds it where its plan asks nothing.
-The Google source pack's card exceeds the 40-line limit, so apply it in a
-terminal.
+A card is read whole, so a pack whose card would run past 40 lines is
+refused, and the operator applies it in a terminal. Google is split into
+packs (`google-mail`, `google-drive`, `google-docs` and `google-calendar`)
+so that each applies by one card, and so does the re-apply of
+`google-docs` over an earlier import.
 The card is written by the yard's server from its own binary: it shows
 each declared source whole as a `source add` card does, what a source it
 would replace changes to with each command file's diff, and for a depot

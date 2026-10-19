@@ -609,6 +609,12 @@ yardmaster):
 			if err != nil {
 				return err
 			}
+			// The store counts deleting a group that is not there as done (pack
+			// apply prunes by name and may run again), so a mistyped name is
+			// refused here, as flow rm and crew rm refuse theirs.
+			if _, err := st.GetGroup(c.Context(), args[0]); err != nil {
+				return err
+			}
 			n, err := st.DeleteGroup(c.Context(), args[0], a.who())
 			if err != nil {
 				return err
@@ -1064,6 +1070,15 @@ the defaults it sets aside named underneath.`,
 	list.Flags().StringVarP(&listDepot, "depot", "d", "", "list this depot's effective routes: its own plus the defaults none sets aside")
 	rm := &cobra.Command{
 		Use: "rm <id>", Short: "Delete a route", Args: cobra.ExactArgs(1),
+		Long: `Deletes a route. <id> is the whole id, or its first characters when there
+are at least ` + fmt.Sprint(store.MinPrefix) + ` of them and only one route's id begins with them. An id
+no route has is refused, and a start that fits several routes names them, so
+a mistyped id cannot pass for a removal.
+
+Beads already claimed through the route keep its group until their
+sessions end; only new claims follow the remaining routes.`,
+		Example: `  yardr route rm 57h28dx9dx9cmydnrzj9
+  yardr route rm 57h2`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1073,14 +1088,13 @@ the defaults it sets aside named underneath.`,
 			if err != nil {
 				return err
 			}
-			if err := st.DeleteRoute(c.Context(), args[0], a.who()); err != nil {
+			r, err := routeByRef(rs, args[0])
+			if err != nil {
 				return err
 			}
-			i := slices.IndexFunc(rs, func(r store.Route) bool { return r.ID == args[0] })
-			if i < 0 {
-				return a.out(map[string]any{"route": args[0], "claimed": []string{}}, func() {})
+			if err := st.DeleteRoute(c.Context(), r.ID, a.who()); err != nil {
+				return err
 			}
-			r := rs[i]
 			// Beads already claimed through the route stay with its group until
 			// their sessions end; only new claims follow the remaining routes.
 			ss, err := st.Sessions(c.Context(), false)
@@ -1103,6 +1117,37 @@ the defaults it sets aside named underneath.`,
 	}
 	cmd.AddCommand(add, list, rm, a.routeSetCmd(), a.routeExplainCmd(), a.routeReportCmd())
 	return cmd
+}
+
+// routeByRef is the route ref names among routes: its whole id, or the
+// first characters of one id alone when there are at least store.MinPrefix
+// of them, as a bead handle may be cut short. route rm goes through it
+// because the store counts deleting a route that is not there as done (pack
+// apply prunes by id and may run again), so an id the operator mistyped or
+// cut short would otherwise print nothing and exit 0.
+func routeByRef(routes []store.Route, ref string) (store.Route, error) {
+	var starts []store.Route
+	for _, r := range routes {
+		if r.ID == ref {
+			return r, nil
+		}
+		if strings.HasPrefix(r.ID, ref) {
+			starts = append(starts, r)
+		}
+	}
+	switch {
+	case len(starts) == 0:
+		return store.Route{}, fmt.Errorf("no route %s: %w", ref, store.ErrNotFound)
+	case len(ref) < store.MinPrefix:
+		return store.Route{}, fmt.Errorf("route %s: give at least %d characters of its id, or all of it", ref, store.MinPrefix)
+	case len(starts) > 1:
+		ids := make([]string, len(starts))
+		for i, r := range starts {
+			ids[i] = r.ID
+		}
+		return store.Route{}, fmt.Errorf("route %s matches %d routes: %s; give more of its id", ref, len(ids), strings.Join(ids, ", "))
+	}
+	return starts[0], nil
 }
 
 // routeRow is one route of route list: the mark first (the scope, or own

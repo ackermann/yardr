@@ -84,7 +84,7 @@ the credential, the answer or the request.
 update marked (update).`,
 		Example: `  yardr call --list
   yardr call crm customer id=4711
-  yardr call crm customer id=4711 --json | jq .plan
+  yardr call crm customer id=4711 --json | jq .plan   # the answer alone, so jq reads the customer's plan
   yardr call crm customer id=4711 --note
   yardr call crm customer id=4711 --as ada
   yardr call crm note id=4711 text="asked for a copy of the invoice"`,

@@ -198,10 +198,11 @@ func TestPackApplyTelegramCard(t *testing.T) {
 	}
 }
 
-// Each google pack applies by one card: mail, drive, and docs with
-// slides each fit the card's line limit, where the one google pack's
-// 75 lines did not. The count per pack is pinned, so a declaration
-// that grows past the limit fails here and not at a person's card.
+// Each google pack applies by one card: mail, drive, docs with slides
+// and calendar each fit the card's line limit, where the one google
+// pack's 75 lines did not. The count per pack is pinned, so a
+// declaration that grows past the limit fails here and not at a
+// person's card.
 func TestPackApplyGoogleCardsFit(t *testing.T) {
 	ctx := context.Background()
 	st := packReaderYard(t)
@@ -224,6 +225,7 @@ func TestPackApplyGoogleCardsFit(t *testing.T) {
 		{"google-mail", []string{"google-mail"}, 25},
 		{"google-drive", []string{"google-drive"}, 29},
 		{"google-docs", []string{"google-docs", "google-slides"}, 36},
+		{"google-calendar", []string{"google-calendar"}, 23},
 	} {
 		t.Run(tc.pack, func(t *testing.T) {
 			seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "Add the " + tc.pack + " sources?", To: "mckean",
