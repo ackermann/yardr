@@ -659,6 +659,11 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 		if identityHearing && h.Unknown == "" {
 			h.Unknown = HookUnknownUnknown
 		}
+		if had && identityHearing && was.UnknownPolicy() != h.UnknownPolicy() {
+			if err := w.operatorOnly(ctx, actor, "change a hook's unmapped sender policy", Alone); err != nil {
+				return nil, err
+			}
+		}
 		keys := whereKeysTx(w.Tx, h.Source)
 		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
 			return nil, err

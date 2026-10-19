@@ -683,16 +683,19 @@ func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
 	}
 }
 
-// Adding a hook, or changing one's source or secret file, is the
-// operator's alone; what one says, makes, maps or acts as is anyone's to
-// change, recorded as the pane's actor from a pane, and a hook that acts
-// as a crew member still speaks as it.
+// Adding a hook, or changing its source, secret file or identity-hearing
+// policy, is the operator's alone; what one says, makes, maps or acts as
+// is anyone's to change, recorded as the pane's actor from a pane, and a
+// hook that acts as a crew member still speaks as it.
 func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	t.Parallel()
 	hookYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
 		t.Helper()
 		api, own := operatorYard(t)
 		ctx := context.Background()
+		if err := declareSlackSource(ctx, api); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := api.PutHook(ctx, store.Hook{Name: "h1", Source: "linear", SecretFile: "/tmp/h1.secret"}, "jo"); err != nil {
 			t.Fatal(err)
 		}
@@ -729,8 +732,33 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
 		t.Errorf("changing a hook's secret file as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
 	}
+	// The unknown sender policy decides whether unrecognized people may
+	// reach the yard, so only the operator may change it on an existing
+	// identity-hearing hook.
+	if _, err := api.PutHook(ctx, store.Hook{Name: "slack", Source: "slack", SecretFile: "/tmp/slack.secret"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	head, err = api.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.PutHook(ctx, store.Hook{Name: "slack", Source: "slack", SecretFile: "/tmp/slack.secret", Unknown: store.HookUnknownAllow}, "yardmaster"); err == nil ||
+		err.Error() != "only the operator (jo) may change a hook's unmapped sender policy; this is yardmaster" {
+		t.Errorf("changing the unmapped sender policy as yardmaster = %v", err)
+	}
+	if _, err := own.PutHook(ctx, store.Hook{Name: "slack", Source: "slack", SecretFile: "/tmp/slack.secret", Unknown: store.HookUnknownAllow}, "yardmaster"); err == nil {
+		t.Errorf("changing the unmapped sender policy as yardmaster through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Errorf("changing the unmapped sender policy as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
 	if now, _ := api.Head(ctx); now != head {
-		t.Fatalf("the refusals logged %d events", now-head)
+		t.Fatalf("the policy refusals logged %d events", now-head)
+	}
+	if _, err := api.PutHook(ctx, store.Hook{Name: "slack", Source: "slack", SecretFile: "/tmp/slack.secret", Unknown: store.HookUnknownAllow}, "jo"); err != nil {
+		t.Errorf("changing the unmapped sender policy as the operator = %v", err)
+	}
+	if h, _ := api.GetHook(ctx, "slack"); h.Unknown != store.HookUnknownAllow {
+		t.Errorf("the operator's policy change stored %q, want allow", h.Unknown)
 	}
 	if h, _ := api.GetHook(ctx, "h1"); h.Source != "linear" || h.SecretFile != "/tmp/h1.secret" {
 		t.Fatalf("the refused changes changed: %+v", h)
@@ -797,6 +825,15 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	if len(evs) == 0 || evs[len(evs)-1].Actor != "clerk" {
 		t.Fatalf("hook_added actors = %+v, want the last by clerk", evs)
 	}
+}
+
+func declareSlackSource(ctx context.Context, api store.API) error {
+	b, err := os.ReadFile("../../packs/slack/slack.yaml")
+	if err != nil {
+		return err
+	}
+	_, err = api.PutSource(ctx, "slack.yaml", string(b), "jo")
+	return err
 }
 
 // Changing an existing depot's path, test command or base is the
