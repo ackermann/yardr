@@ -125,6 +125,7 @@ func secretAsked(prefix string) []field {
 		{prefix + "secret.as", "string?", "the user whose own credential in the source is asked for; absent on any other secret ask"},
 		{prefix + "secret.login", "string?", "the waiting login the value goes to; absent on any other secret ask"},
 		{prefix + "secret.line", "string", "what the card says is asked for, in the yard's words"},
+		{prefix + "concealed", "bool?", "whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret; absent (concealed) on any other ask"},
 	}
 }
 
@@ -447,6 +448,7 @@ var apiCalls = []apiCall{
 			{"asks[].secret.as", "string?", "the user whose own credential in the source is asked for (`yardr bead ask --secret <source> --as <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.login", "string?", "the waiting login the value goes to (`yardr bead ask --secret-login <login>`): the reference the login's leader printed in its input need, handed the value and kept nowhere. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to. Show it as it is"},
+			{"asks[].concealed", "bool?", "whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
 			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
@@ -1102,6 +1104,18 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.GiveSecret(ctx, crm.ID, theirs("Your CRM token for updates", "crm", "CRM_UPDATE_TOKEN"), map[string]string{"CRM_UPDATE_TOKEN": "typed-in-the-fixture"}, "jo")
 	must(err)
 	apiSecretAsks[5] = theirs("Your CRM token", "crm", "CRM_TOKEN")
+
+	// And for a name the source marks as no secret, so the queue and the
+	// bead have concealed false to show, open and decided. Last again, for
+	// the seqs above.
+	_, err = st.PutSource(ctx, "gog.yaml", "name: gog\nbase: https://gog.example.com/api\n"+
+		"credential:\n  env: GOG_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n"+
+		"  mint:\n    - name: GOG_ACCOUNT\n      secret: false\n"+
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n", "jo")
+	must(err)
+	secret("The yard's account for gog", "gog", "GOG_ACCOUNT")
+	_, err = st.GiveSecret(ctx, crm.ID, secret("The yard's other account for gog", "gog", "GOG_ACCOUNT"), map[string]string{"GOG_ACCOUNT": "typed-in-the-fixture"}, "jo")
+	must(err)
 
 	// The flows view: a depot with a store flow, routes and groups, holding
 	// one bead on its first stage, and a depot whose flow file reads as no

@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 104,
+  "seq": 109,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,7 +254,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 105,
+  "seq": 110,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -320,7 +320,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 106,
+  "seq": 111,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -369,7 +369,7 @@ A bead closed, by an explicit close or by entering a terminal stage of its flow.
 
 ```json
 {
-  "seq": 90,
+  "seq": 95,
   "bead": "yd-sweep",
   "kind": "closed",
   "actor": "jo",
@@ -667,7 +667,7 @@ POST /call/Head
 {}
 
 {
-  "result": 101
+  "result": 106
 }
 ```
 
@@ -1073,7 +1073,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 102,
+      "seq": 107,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1081,7 +1081,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 103,
+      "seq": 108,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1107,7 +1107,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 102,
+      "seq": 107,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1115,7 +1115,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 103,
+      "seq": 108,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1142,7 +1142,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 104,
+      "seq": 109,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1462,6 +1462,21 @@ POST /call/UserAsks
         "bead_title": "Read the CRM",
         "topic": "",
         "ask": 41,
+        "question": "The yard's account for gog",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "secret": {
+          "source": "gog",
+          "env": ["GOG_ACCOUNT"],
+          "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+        },
+        "concealed": false
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 44,
         "question": "Set up the courier source?",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -1518,7 +1533,7 @@ POST /call/UserAsks
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
         "topic": "",
-        "ask": 42,
+        "ask": 45,
         "question": "Set up the courier source for the elders too?",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -1570,6 +1585,23 @@ POST /call/UserAsks
             }
           ]
         }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 42,
+        "question": "The yard's other account for gog",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "secret": {
+          "source": "gog",
+          "env": ["GOG_ACCOUNT"],
+          "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+        },
+        "concealed": false,
+        "given": ["GOG_ACCOUNT"]
       },
       {
         "bead": "yd-crm",
@@ -1776,6 +1808,7 @@ POST /call/UserAsks
 | `open[].secret.as` | string, may be absent | the user whose own credential in the source is asked for; absent on any other secret ask |
 | `open[].secret.login` | string, may be absent | the waiting login the value goes to; absent on any other secret ask |
 | `open[].secret.line` | string | what the card says is asked for, in the yard's words |
+| `open[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret; absent (concealed) on any other ask |
 | `open[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
 | `open[].run.argv` | array of string | the command in words, without the leading `yardr` |
 | `open[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
@@ -1817,6 +1850,7 @@ POST /call/UserAsks
 | `decided[].secret.as` | string, may be absent | the user whose own credential in the source is asked for; absent on any other secret ask |
 | `decided[].secret.login` | string, may be absent | the waiting login the value goes to; absent on any other secret ask |
 | `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
+| `decided[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret; absent (concealed) on any other ask |
 | `decided[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
 | `decided[].run.argv` | array of string | the command in words, without the leading `yardr` |
 | `decided[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
@@ -2352,6 +2386,39 @@ POST /call/Bead
         "to": "jo",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
+        "question": "The yard's account for gog",
+        "context": ["Create one at https://gog.example.com/account/api (read only)."],
+        "options": [],
+        "state": "open",
+        "secret": {
+          "source": "gog",
+          "env": ["GOG_ACCOUNT"],
+          "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+        },
+        "concealed": false
+      },
+      {
+        "ask": 42,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The yard's other account for gog",
+        "context": ["Create one at https://gog.example.com/account/api (read only)."],
+        "options": [],
+        "state": "answered",
+        "secret": {
+          "source": "gog",
+          "env": ["GOG_ACCOUNT"],
+          "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+        },
+        "concealed": false,
+        "given": ["GOG_ACCOUNT"]
+      },
+      {
+        "ask": 44,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
         "question": "Set up the courier source?",
         "context": ["The nightly run pages through it."],
         "options": [
@@ -2432,7 +2499,7 @@ POST /call/Bead
         }
       },
       {
-        "ask": 42,
+        "ask": 45,
         "to": "jo",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -2567,6 +2634,7 @@ POST /call/Bead
 | `asks[].secret.as` | string, may be absent | the user whose own credential in the source is asked for (`yardr bead ask --secret <source> --as <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.login` | string, may be absent | the waiting login the value goes to (`yardr bead ask --secret-login <login>`): the reference the login's leader printed in its input need, handed the value and kept nowhere. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to. Show it as it is |
+| `asks[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask and until it is given |
 | `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
@@ -3167,12 +3235,12 @@ Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies 
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":41,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":44,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}
 
 {
   "result": {
     "bead": "yd-crm",
-    "ask": 41,
+    "ask": 44,
     "asker": "yardmaster",
     "pack": "courier",
     "preset": "read",

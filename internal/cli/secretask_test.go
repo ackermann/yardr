@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -250,6 +251,63 @@ func TestBeadAskSecretMintedSource(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(file); string(b) != "GOOGLE_ACCOUNT=op@gmail.example.com\n" {
 		t.Fatalf("the file holds %q", b)
+	}
+}
+
+// bead ask --secret for names the source marks as no secret stores the ask
+// unconcealed, with concealed false; a mixed or secret one concealed.
+func TestBeadAskSecretConcealed(t *testing.T) {
+	st, id, _ := secretYard(t)
+	const mixedDecl = `name: gog
+base: https://gog.example.com
+credential:
+  env: GOG_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint:
+    - name: GOG_ACCOUNT
+      secret: false
+    - GOG_KEY
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if _, err := st.PutSource(context.Background(), "gog.yaml", mixedDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	yard := &app{st: st, actor: "yardmaster"}
+	ask := func(env ...string) uint64 {
+		t.Helper()
+		args := []string{"ask", id, "The account", "--secret", "gog", "--context", "Where to get it."}
+		for _, e := range env {
+			args = append(args, "--env", e)
+		}
+		out, err := run(t, yard.beadCmd(), args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seq uint64
+		if _, err := fmt.Sscanf(out, "ask %d ", &seq); err != nil {
+			t.Fatalf("ask printed %q: %v", out, err)
+		}
+		return seq
+	}
+	open := ask("GOG_ACCOUNT")
+	secret := ask("GOG_KEY")
+	mixed := ask("GOG_ACCOUNT", "GOG_KEY")
+	v, err := st.Bead(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySeq := map[uint64]store.BeadAsk{}
+	for _, a := range v.Asks {
+		bySeq[a.Ask] = a
+	}
+	if c := bySeq[open].Concealed; c == nil || *c {
+		t.Errorf("the not-secret ask is concealed: %+v", c)
+	}
+	for seq, name := range map[uint64]string{secret: "secret", mixed: "mixed"} {
+		if c := bySeq[seq].Concealed; c != nil {
+			t.Errorf("the %s ask is unconcealed: %+v", name, *c)
+		}
 	}
 }
 

@@ -14,7 +14,8 @@ import (
 
 // A secret ask is the one question the view answers itself (docs/chat.md):
 // SecretKey replaces the line to type in with a field that shows a dot for
-// each character, and enter gives what was typed to the yard's server
+// each character, or the characters where the ask is marked as no secret,
+// and enter gives what was typed to the yard's server
 // (GiveSecret), which writes it to the file the source's credential is read
 // from. What is typed is in that field and in the call, and in nothing the
 // view shows: not in the line for mail, not in a notice, not in an error.
@@ -147,7 +148,13 @@ func (m *Model) ask() tea.Cmd {
 	}
 	in := textinput.New()
 	in.Prompt = ""
+	// A value the source marks as no secret is typed in the clear; any
+	// other secret shows a dot per character. Absent is concealed, as an
+	// ask from before the field reads.
 	in.EchoMode = textinput.EchoPassword
+	if c := r.Ask.Secret.Concealed; c != nil && !*c {
+		in.EchoMode = textinput.EchoNormal
+	}
 	in.EchoCharacter = '•'
 	in.Cursor.Style = look.cursor
 	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source, login: r.Ask.Secret.Login, hook: r.Ask.Secret.Hook,
@@ -264,8 +271,8 @@ func (m *Model) saidLines(w int) []string {
 }
 
 // secretView is the field as the rows the line to type in has: the name
-// asked for and its source, a dot for each character typed, and under them
-// what the keys do.
+// asked for and its source, a dot for each character typed or the characters
+// where the ask is marked as no secret, and under them what the keys do.
 func (m *Model) secretView(w, rows int) string {
 	s := m.secret
 	out := []string{fit(look.prompt.Render(s.label())+s.in.View(), w),

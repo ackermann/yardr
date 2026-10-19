@@ -76,6 +76,11 @@ type AskSecret struct {
 	// others, and the answer goes to the user's env file. "" asks for
 	// the source's credential. Never set with User or Crew.
 	As string `json:"as,omitempty"`
+	// Concealed says whether the value is drawn hidden: false where the
+	// source marks every asked name as no secret, absent (concealed) on
+	// any other secret. It is kept on the ask because the views render an
+	// ask from its note alone, as Host is.
+	Concealed *bool `json:"concealed,omitempty"`
 }
 
 // Names are the variables asked for, in words.
@@ -140,6 +145,16 @@ func (a Ask) asked() *SecretAsked {
 	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Crew: a.Secret.Crew, As: a.Secret.As, Login: a.Secret.Login, Hook: a.Secret.Hook, Line: a.Secret.Line()}
 }
 
+// concealed is the ask's concealment as a client shows it: false where the
+// source marks every asked name as no secret, nil (concealed) for a
+// concealed secret and for an ask that asks for none.
+func (a Ask) concealed() *bool {
+	if a.Secret == nil {
+		return nil
+	}
+	return a.Secret.Concealed
+}
+
 // sourceHost is where the calls of the source d declares go: the scheme and
 // host of its base.
 func sourceHost(d *source.Declaration) string {
@@ -147,6 +162,18 @@ func sourceHost(d *source.Declaration) string {
 		return u.Scheme + "://" + u.Host
 	}
 	return d.Base
+}
+
+// concealedAsk is the ask's concealment for names of d: false where the
+// source marks every asked name as no secret, nil (concealed) otherwise. Nil
+// is what an ask from before the field stores, so an old and a concealed ask
+// read the same.
+func concealedAsk(d *source.Declaration, names []string) *bool {
+	if d.Credential.Concealed(names) {
+		return nil
+	}
+	f := false
+	return &f
 }
 
 // askedSecret checks the secret an ask for the user to asks for, and
@@ -234,7 +261,7 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	case to != operator:
 		return nil, fmt.Errorf("a secret is the operator's to give (%s): setting a source's credential is theirs alone, so %s cannot be asked for one", operator, to)
 	}
-	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d)}, nil
+	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d), Concealed: concealedAsk(d, env)}, nil
 }
 
 // hookSecretEnv is the one name a hook's signing secret is given under:
@@ -397,7 +424,7 @@ func (w *wtx) askedCrewSecret(d *source.Declaration, crew string, env []string, 
 	case to != operator:
 		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a crew member's credential is theirs alone, so %s cannot be asked for one", operator, to)
 	}
-	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), Crew: crew}, nil
+	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), Crew: crew, Concealed: concealedAsk(d, names)}, nil
 }
 
 // askedUserSecret checks an ask for the user's own credential in the
@@ -437,7 +464,7 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 		}
 		return nil, fmt.Errorf("%s: a call made as them reads it, so %s cannot be asked for it", whose, to)
 	}
-	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), As: user}, nil
+	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), As: user, Concealed: concealedAsk(d, names)}, nil
 }
 
 // GiveSecret answers the secret ask ask on the bead id with values, the

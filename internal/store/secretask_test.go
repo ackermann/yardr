@@ -136,6 +136,110 @@ func TestSecretAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
 	}
 }
 
+// A secret ask narrowed to names the source marks as no secret is asked in
+// the clear, with concealed false; a mixed or secret one is concealed. The
+// flag is kept on the ask, as the host is, and read with the bead and the
+// queue.
+func TestSecretAskConcealed(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := secretYard(t)
+	const mixedFile = `name: gog
+base: https://gog.example.com
+credential:
+  env: GOG_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint:
+    - name: GOG_ACCOUNT
+      secret: false
+    - GOG_KEY
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if _, err := y.PutSource(y.ctx, "gog.yaml", mixedFile, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	open := y.ask(t, secretAsk("gog", "GOG_ACCOUNT"), "yardmaster")
+	y.ask(t, secretAsk("gog", "GOG_KEY"), "yardmaster")
+	y.ask(t, secretAsk("gog", "GOG_ACCOUNT", "GOG_KEY"), "yardmaster")
+	y.ask(t, secretAsk("gog", "GOG_TOKEN"), "yardmaster")
+	asAsk := secretAsk("gog", "GOG_ACCOUNT")
+	asAsk.Secret.As = "ada"
+	asOpen := y.ask(t, asAsk, "yardmaster")
+	rs := y.resolved(t)
+	if len(rs) != 5 {
+		t.Fatalf("%d asks, want 5", len(rs))
+	}
+	concealed := func(r ResolvedAsk) *bool { return r.Ask.Secret.Concealed }
+	if c := concealed(rs[0]); c == nil || *c {
+		t.Errorf("the not-secret ask is concealed: %+v", c)
+	}
+	for i, r := range rs[1:4] {
+		if c := concealed(r); c != nil {
+			t.Errorf("ask %d is unconcealed: %+v", i+1, *c)
+		}
+	}
+	if c := concealed(rs[4]); c == nil || *c {
+		t.Errorf("the not-secret ask as ada is concealed: %+v", c)
+	}
+	// The flag is in the stored ask, as the host is: false on the
+	// unconcealed one, absent on a concealed one.
+	notes, err := y.Notes(y.ctx, y.bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := map[uint64]map[string]any{}
+	for _, n := range notes {
+		if n.Kind != NoteAsk {
+			continue
+		}
+		var a map[string]any
+		if err := json.Unmarshal([]byte(n.Text), &a); err != nil {
+			t.Fatal(err)
+		}
+		stored[n.Seq] = a["secret"].(map[string]any)
+	}
+	if got := stored[open]["concealed"]; got != false {
+		t.Errorf("the stored not-secret ask carries concealed %v, want false", got)
+	}
+	if _, ok := stored[open+1]["concealed"]; ok {
+		t.Errorf("the stored secret ask carries concealed %v, want absent", stored[open+1]["concealed"])
+	}
+	// Bead and UserAsks, as footplate reads them.
+	v, err := y.Bead(y.ctx, y.bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySeq := map[uint64]BeadAsk{}
+	for _, a := range v.Asks {
+		bySeq[a.Ask] = a
+	}
+	if c := bySeq[open].Concealed; c == nil || *c {
+		t.Errorf("Bead's not-secret ask is concealed: %+v", c)
+	}
+	if c := bySeq[open+1].Concealed; c != nil {
+		t.Errorf("Bead's secret ask is unconcealed: %+v", *c)
+	}
+	if c := bySeq[asOpen].Concealed; c == nil || *c {
+		t.Errorf("Bead's not-secret ask as ada is concealed: %+v", c)
+	}
+	q, err := y.UserAsks(y.ctx, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var qopen *OpenAsk
+	for i := range q.Open {
+		if q.Open[i].Ask == open {
+			qopen = &q.Open[i]
+		}
+	}
+	if qopen == nil {
+		t.Fatalf("the queue has no ask %d: %+v", open, q.Open)
+	}
+	if qopen.Concealed == nil || *qopen.Concealed {
+		t.Errorf("the queue's not-secret ask is concealed: %+v", qopen.Concealed)
+	}
+}
+
 func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
 
 // A secret ask is refused, and nothing is stored, in each case the design

@@ -479,7 +479,7 @@ func TestSourceCheckMinted(t *testing.T) {
 	if !strings.Contains(out, "next: yardr source key crm gives CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN, or yardr source set crm env_file=<file> names a file the operator keeps themselves") {
 		t.Fatalf("add: %q", out)
 	}
-	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "CRM_APP_ID, CRM_APP_KEY (minted), CRM_TOKEN in no env_file yet") {
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "CRM_APP_ID, CRM_APP_KEY in no env_file yet, token minted per call") {
 		t.Fatalf("list: %q %v", out, err)
 	}
 
@@ -591,6 +591,71 @@ func TestSourceCheckMinted(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"mint_command":"`+mint+`"`) {
 		t.Fatalf("source_set does not say which command: %s", raw)
+	}
+}
+
+// source list's credential column says what the file holds and what is
+// minted, plainly, and counts the users holding their own credential: a
+// minted token is never named as in the file, and a user with a file that
+// sets nothing for the source is not counted.
+func TestSourceListCredentialColumn(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	ctx := context.Background()
+	const staticDecl = `name: crm
+base: https://crm.example.com/api
+credential: { env: CRM_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	const mintedDecl = `name: gog
+base: https://gog.example.com
+credential: { env: GOG_TOKEN, mint: [GOG_ACCOUNT], header: "Authorization: Bearer {credential}" }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	for file, text := range map[string]string{"crm.yaml": staticDecl, "gog.yaml": mintedDecl} {
+		if _, err := st.PutSource(ctx, file, text, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	crmEnv := envFile(t, "CRM_TOKEN=tok-of-the-yard\n", 0o600)
+	gogEnv := envFile(t, "GOG_ACCOUNT=op@gog.example.com\n", 0o600)
+	if _, err := st.SetSource(ctx, "crm", "env_file", crmEnv, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "gog", "env_file", gogEnv, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"ada", "bob", "eve"} {
+		if _, err := st.AddUser(ctx, u, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adaEnv := envFile(t, "CRM_TOKEN=tok-of-ada\nGOG_ACCOUNT=ada@gog.example.com\n", 0o600)
+	bobEnv := envFile(t, "GOG_ACCOUNT=bob@gog.example.com\n", 0o600)
+	eveEnv := envFile(t, "OTHER=x\n", 0o600)
+	for user, file := range map[string]string{"ada": adaEnv, "bob": bobEnv, "eve": eveEnv} {
+		if _, err := st.SetUser(ctx, user, map[string]string{store.UserEnvFile: file}, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := run(t, a.sourceCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"CRM_TOKEN in " + crmEnv + " +1 user",
+		"GOG_ACCOUNT in " + gogEnv + ", token minted per call +2 users",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list lacks %q:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{"(minted)", "GOG_TOKEN in"} {
+		if strings.Contains(out, not) {
+			t.Errorf("list shows %q:\n%s", not, out)
+		}
 	}
 }
 

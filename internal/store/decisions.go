@@ -47,6 +47,10 @@ type OpenAsk struct {
 	// Secret is what a secret ask asks for, in the yard's words; absent on
 	// any other ask.
 	Secret *SecretAsked `json:"secret,omitempty"`
+	// Concealed says whether a secret ask's value is drawn hidden: false
+	// where the source marks every asked name as no secret, absent
+	// (concealed) on any other ask.
+	Concealed *bool `json:"concealed,omitempty"`
 	// Run is the command a run ask proposes, with the yard's words for
 	// what it changes; absent on any other ask.
 	Run *RunAsked `json:"run,omitempty"`
@@ -86,7 +90,11 @@ type DecidedAsk struct {
 	// given values for, which reads "gave <names>". Both absent on any
 	// other ask, and Given until it is given.
 	Secret *SecretAsked `json:"secret,omitempty"`
-	Given  []string     `json:"given,omitempty"`
+	// Concealed says whether a secret ask's value is drawn hidden: false
+	// where the source marks every asked name as no secret, absent
+	// (concealed) on any other ask.
+	Concealed *bool    `json:"concealed,omitempty"`
+	Given     []string `json:"given,omitempty"`
 	// Run is the command a run ask proposes; Ran is the command the yard
 	// ran when it was approved, with what it printed, which reads
 	// "approved, ran: <command>". Both absent on any other ask, and Ran
@@ -148,7 +156,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				q.Open = append(q.Open, OpenAsk{
 					Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 					Ask: r.Note.Seq, Question: r.Ask.Question,
-					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 				})
 				continue
 			}
@@ -156,7 +164,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 				Ask: r.Note.Seq, Question: r.Ask.Question,
 				Asker: r.Note.Author, Since: r.Note.At,
-				State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+				State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 			}
 			// An ask that is not open has the answer its state is from.
 			d.decidedBy(r)
@@ -374,7 +382,11 @@ type BeadAsk struct {
 	// Given are the names it was given values for, which reads "gave
 	// <names>". Both absent on any other ask, and Given until it is given.
 	Secret *SecretAsked `json:"secret,omitempty"`
-	Given  []string     `json:"given,omitempty"`
+	// Concealed says whether a secret ask's value is drawn hidden: false
+	// where the source marks every asked name as no secret, absent
+	// (concealed) on any other ask.
+	Concealed *bool    `json:"concealed,omitempty"`
+	Given     []string `json:"given,omitempty"`
 	// Run is the command a run ask proposes, in the yard's words: such an
 	// ask has no options and takes no words, and is approved by ApproveAsk.
 	// Ran is the command the yard ran when it was approved, with what it
@@ -449,7 +461,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		a := BeadAsk{
 			Ask: r.Note.Seq, To: r.Ask.To, Asker: r.Note.Author, Since: r.Note.At,
 			Question: r.Ask.Question, Context: r.Ask.Context, Options: r.Ask.Options,
-			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}

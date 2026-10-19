@@ -626,6 +626,78 @@ func TestParseCredentialMint(t *testing.T) {
 	}
 }
 
+// A mint input the file marks with secret false is no secret: an account's
+// address, asked in the clear. A secret ask for such names alone is
+// unconcealed; a mixed or secret one is concealed, and a static token
+// always is.
+func TestParseCredentialMintSecretFalse(t *testing.T) {
+	text := strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]",
+		"mint:\n    - CRM_APP_ID\n    - { name: CRM_APP_KEY, secret: false }", 1)
+	d, err := Parse("crm.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := d.Credential
+	if strings.Join(c.Mint, ",") != "CRM_APP_ID,CRM_APP_KEY" || strings.Join(c.NotSecret, ",") != "CRM_APP_KEY" {
+		t.Fatalf("credential = %+v", c)
+	}
+	for _, tc := range []struct {
+		names []string
+		want  bool
+	}{
+		{[]string{"CRM_APP_KEY"}, false},
+		{[]string{"CRM_APP_ID"}, true},
+		{[]string{"CRM_APP_ID", "CRM_APP_KEY"}, true},
+		{[]string{"CRM_TOKEN"}, true},
+		{nil, true},
+	} {
+		if got := c.Concealed(tc.names); got != tc.want {
+			t.Errorf("Concealed(%q) = %v, want %v", tc.names, got, tc.want)
+		}
+	}
+	if !((*Credential)(nil)).Concealed([]string{"CRM_APP_KEY"}) {
+		t.Fatal("a file with no credential unconceals")
+	}
+	// The block form the google packs use reads the same.
+	blocked := strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]",
+		"mint:\n    - name: CRM_APP_KEY\n      secret: false", 1)
+	blocked = strings.Replace(blocked, "mint:\n    - name: CRM_APP_KEY", "mint:\n    - CRM_APP_ID\n    - name: CRM_APP_KEY", 1)
+	bd, err := Parse("crm.yaml", []byte(blocked))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(bd.Credential.Mint, ",") != "CRM_APP_ID,CRM_APP_KEY" || strings.Join(bd.Credential.NotSecret, ",") != "CRM_APP_KEY" {
+		t.Fatalf("the block form reads as %+v", bd.Credential)
+	}
+	for name, tc := range map[string]struct{ text, want string }{
+		"no name": {
+			strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: [{ secret: false }]", 1),
+			"credential.mint: missing: the name the mint's input is under",
+		},
+		"secret no boolean": {
+			strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: [{ name: CRM_APP_KEY, secret: sometimes }]", 1),
+			"want true or false",
+		},
+		"unknown key": {
+			strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: [{ name: CRM_APP_KEY, secret: false, extra: 1 }]", 1),
+			"unknown key (known here: name, secret)",
+		},
+		"a name twice across forms": {
+			strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: [CRM_APP_ID, { name: CRM_APP_ID, secret: false }]", 1),
+			"credential.mint: CRM_APP_ID is listed twice",
+		},
+		"a value for a name": {
+			strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", `mint: [{ name: "s3cr3t value", secret: false }]`, 1),
+			`credential.mint: "s3cr3t value" is no name of a variable`,
+		},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
 // linearish is the declaration of the sketch (yardr-embp), with the name a
 // built-in source holds replaced: a command per thing the yard does in a
 // thread, the word its place is called, the states it has a status for, and

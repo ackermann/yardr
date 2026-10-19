@@ -352,6 +352,47 @@ func TestSecretOfTwoNames(t *testing.T) {
 	f.lack("first-value", "second-value")
 }
 
+// A value the source marks as no secret is typed in the clear: the field
+// shows the characters, not dots. Giving still writes the file and says the
+// names, never the value.
+func TestUnconcealedSecretIsTypedInTheClear(t *testing.T) {
+	st, bead := secretYard(t)
+	const gogFile = `name: gog
+base: https://gog.example.com
+credential:
+  env: GOG_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint:
+    - name: GOG_ACCOUNT
+      secret: false
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if _, err := st.PutSource(context.Background(), "gog.yaml", gogFile, me); err != nil {
+		t.Fatal(err)
+	}
+	secretAsk(t, st, bead, "gog")
+	v := withAsks(t, st, "chief", 120, 40)
+	f := &frames{v: v}
+	const value = "op@gog.example.com"
+	f.send(ctrlO())
+	v.shows("GOG_ACCOUNT for gog")
+	f.send(runes(value))
+	if !strings.Contains(v.screen(), "GOG_ACCOUNT for gog  "+value) {
+		t.Fatalf("the field shows no %q:\n%s", value, v.screen())
+	}
+	if strings.Contains(v.screen(), strings.Repeat("•", len(value))) {
+		t.Fatalf("the field shows dots for a value asked in the clear:\n%s", v.screen())
+	}
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	src, err := st.GetSource(context.Background(), "gog")
+	must(t, err)
+	if text, err := os.ReadFile(src.EnvFile); err != nil || string(text) != "GOG_ACCOUNT="+value+"\n" {
+		t.Fatalf("the file %q holds %q (%v)", src.EnvFile, text, err)
+	}
+	v.shows("ada gave GOG_ACCOUNT")
+}
+
 // A refusal of the yard is shown in its words and without the value, and
 // the field is closed.
 func TestSecretRefusedIsShownWithoutTheValue(t *testing.T) {

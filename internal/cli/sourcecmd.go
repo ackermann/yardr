@@ -562,6 +562,10 @@ env_file; what the new file changes of its calls is printed.`,
 			if err != nil {
 				return err
 			}
+			users, err := st.Users(c.Context())
+			if err != nil {
+				return err
+			}
 			return a.out(srcs, func() {
 				rows := [][]string{}
 				for _, src := range srcs {
@@ -576,11 +580,19 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 					cred := "-"
 					if d.Credential != nil {
-						cred = strings.Join(d.Credential.Envs(), ", ")
+						// What the file holds and what is minted, plainly: a
+						// minted token is never in the file, so the static
+						// name is not named as in it.
 						if d.Credential.Minted() {
-							cred = strings.Join(d.Credential.Mint, ", ") + " (minted), " + cred
+							cred = strings.Join(d.Credential.Mint, ", ") + " in " + or(src.EnvFile, "no env_file yet") + ", token minted per call"
+						} else {
+							cred = strings.Join(d.Credential.Envs(), ", ") + " in " + or(src.EnvFile, "no env_file yet")
 						}
-						cred += " in " + or(src.EnvFile, "no env_file yet")
+						if n := usersHolding(d, users); n == 1 {
+							cred += " +1 user"
+						} else if n > 1 {
+							cred += fmt.Sprintf(" +%d users", n)
+						}
 					}
 					notify := "-"
 					if d.Notify != nil {
@@ -1604,6 +1616,19 @@ func commandFileLine(f source.CommandFile) string {
 	default:
 		return "file " + f.Path + " sha256 " + f.SHA256
 	}
+}
+
+// usersHolding counts the users whose own file sets the credential a call
+// as them reads, as source show says it per user: UserCredentialState
+// without an error.
+func usersHolding(d *source.Declaration, users []store.User) int {
+	n := 0
+	for _, u := range users {
+		if _, err := d.UserCredentialState(u.Name, u.EnvFile); err == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // mintLine says which command mints the source's credential and why: the

@@ -132,6 +132,12 @@ type Credential struct {
 	// so a pack may bring them as it brings Env. Empty for a source whose
 	// credential is used as it is set.
 	Mint []string `json:"mint,omitempty"`
+	// NotSecret are the mint's inputs that are no secret (an account's
+	// address, not a key): a secret ask narrowed to these alone is asked
+	// in the clear, with concealed false. A name the file marks with
+	// secret false beside it; every other variable of the credential is a
+	// secret, and a static token always is.
+	NotSecret []string `json:"not_secret,omitempty"`
 	// MintCommand is the command the declaration brings to mint with: a
 	// program that is a file beside the declaration's, which the yard
 	// copies and hashes as it does every command's, and its arguments.
@@ -198,6 +204,21 @@ func (c *Credential) MintOrStatic() []string {
 		return append([]string{}, c.Mint...)
 	}
 	return c.Envs()
+}
+
+// Concealed reports whether a secret ask for names is drawn hidden: false
+// where every name is one the file marks as no secret, true for a mixed or
+// secret one. Nil-safe, for a file that names no credential.
+func (c *Credential) Concealed(names []string) bool {
+	if c == nil || len(names) == 0 {
+		return true
+	}
+	for _, n := range names {
+		if !slices.Contains(c.NotSecret, n) {
+			return true
+		}
+	}
+	return false
 }
 
 // Call is one request the yard may make of the source.
@@ -828,7 +849,7 @@ func (r *reader) credential(e entry) *Credential {
 			}
 		case "mint":
 			mint = &f
-			c.Mint = r.mintNames(f)
+			c.Mint, c.NotSecret = r.mintNames(f)
 		case "mint_command":
 			mintCommand = &f
 			c.MintCommand = r.command(f, "argument")
@@ -893,22 +914,68 @@ func (r *reader) credential(e entry) *Credential {
 
 // mintNames reads the names of the variables that together select a minted
 // credential: a list of one or more, each a name of a variable, never a
-// value. env stays required beside them: it is the variable the minted
-// token is handed under.
-func (r *reader) mintNames(e entry) []string {
+// value, or a name with secret false beside it where the input is no secret
+// (an account's address, asked in the clear). env stays required beside
+// them: it is the variable the minted token is handed under. It answers the
+// names and, among them, the ones marked as no secret.
+func (r *reader) mintNames(e entry) (mint, notSecret []string) {
 	if e.v.Kind == yaml.SequenceNode && len(e.v.Content) == 0 {
 		r.errf(e.v, e.path, "missing: the names of the variables that together select a minted credential")
-		return nil
+		return nil, nil
 	}
-	var out []string
-	for _, s := range r.strs(e.v, e.path) {
-		if !paramName.MatchString(s) {
-			r.errf(e.v, e.path, "%q is no name of a variable: these are the names the mint's inputs are under in the source's env file, never the values", s)
+	if e.v.Kind != yaml.SequenceNode {
+		r.errf(e.v, e.path, "want a list ([a, b]), got %s", describe(e.v))
+		return nil, nil
+	}
+	add := func(n *yaml.Node, name string, secret bool) {
+		if !paramName.MatchString(name) {
+			r.errf(n, e.path, "%q is no name of a variable: these are the names the mint's inputs are under in the source's env file, never the values", name)
+			return
+		}
+		if slices.Contains(mint, name) {
+			r.errf(n, e.path, "%s is listed twice", name)
+			return
+		}
+		mint = append(mint, name)
+		if !secret {
+			notSecret = append(notSecret, name)
+		}
+	}
+	for _, c := range e.v.Content {
+		if c.Kind == yaml.MappingNode {
+			var name string
+			var hasName bool
+			secret := true
+			for _, f := range r.entries(c, e.path, "name", "secret") {
+				switch f.key {
+				case "name":
+					hasName = true
+					if s, ok := r.str(f.v, f.path); ok {
+						name = s
+					}
+				case "secret":
+					if v, ok := r.boolean(f.v, f.path); ok {
+						secret = v
+					}
+				}
+			}
+			if !hasName {
+				r.errf(c, e.path, "missing: the name the mint's input is under in the source's env file")
+				continue
+			}
+			if name == "" {
+				continue
+			}
+			add(c, name, secret)
 			continue
 		}
-		out = append(out, s)
+		s, ok := r.str(c, e.path)
+		if !ok {
+			continue
+		}
+		add(c, s, true)
 	}
-	return out
+	return mint, notSecret
 }
 
 func (r *reader) call(e entry, credential, inPath bool) Call {

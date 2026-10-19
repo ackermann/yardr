@@ -37,7 +37,9 @@ base: https://www.googleapis.com
 credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
-  mint: [GOOGLE_ACCOUNT]
+  mint:
+    - name: GOOGLE_ACCOUNT
+      secret: false               # an address, asked in the clear
   mint_command: [google-mint]       # the file beside this one; the source's own mint_command wins
 check: files
 calls:
