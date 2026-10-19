@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -614,5 +615,36 @@ func TestHookAskUnknown(t *testing.T) {
 	y.refusedStale(t, runSeq, "its word was changed meanwhile")
 	if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != HookUnknownIgnore {
 		t.Fatalf("the hook after a stale approval = %+v, %v, want ignore kept", hook, err)
+	}
+}
+
+// A source that registers its hook itself takes another approval path:
+// it must still store the card's --unknown word when that path makes the
+// hook before calling the source.
+func TestHookAskUnknownRegisteredHook(t *testing.T) {
+	var hits []registerHit
+	status := http.StatusOK
+	y := registerYard(t, &hits, &status)
+	src, err := y.GetSource(y.ctx, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(src.Text, "calls:\n", "hear:\n  field: chat\n  by: identity\ncalls:\n", 1)
+	if text == src.Text {
+		t.Fatal("test source has no calls key before which to add identity hearing")
+	}
+	if _, err := y.PutSource(y.ctx, "bot.yaml", text, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, hookRunAsk("hook add bot --source bot --unknown allow"), "yardmaster")
+	if does := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown allow for an unmapped sender") {
+		t.Fatalf("the register card says:\n%s\nwant its unknown policy", does)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	hook, err := y.GetHook(y.ctx, "bot")
+	if err != nil || hook.UnknownPolicy() != HookUnknownAllow {
+		t.Fatalf("registered hook = %+v, %v; want unknown allow", hook, err)
 	}
 }

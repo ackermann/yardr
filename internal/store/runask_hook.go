@@ -510,7 +510,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
 	}
-	name, sourceName := hookAddOf(argv)
+	name, sourceName, unknownWord := hookAddParts(argv)
 	src, d, err := sourceIn(w.Tx, sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
@@ -589,7 +589,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 		}
 	}
 	if !had {
-		if _, err := w.putHook(ctx, Hook{Name: name, Source: sourceName, SecretFile: file}, actor, by, Askable); err != nil {
+		if _, err := w.putHook(ctx, Hook{Name: name, Source: sourceName, SecretFile: file, Unknown: unknownWord}, actor, by, Askable); err != nil {
 			return nil, err
 		}
 	}
