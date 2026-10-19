@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +87,7 @@ func TestPeerAllowTrust(t *testing.T) {
 	if inbox, err := run(t, south.a.inboxCmd(), "--mail"); err != nil || !strings.Contains(inbox, "mail from jo@up-north (as jo): a note to myself\n") {
 		t.Fatalf("the user's inbox = %q, %v", inbox, err)
 	}
-	prime := capture(t, func() { err = south.a.primeCrew(os.Stdout, ctx, south.st, "yardmaster", "") })
+	prime, err := south.prime(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}

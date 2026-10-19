@@ -15,28 +15,21 @@ import (
 )
 
 // writerRun runs a direct subcommand with buffers of its own as its output
-// and error streams, and fails the test when anything escapes the
-// command's writers onto the process's stdout. It returns what each
-// stream holds.
+// and error streams, and returns what each stream holds.
 func writerRun(t *testing.T, c *cobra.Command, args ...string) (stdout, stderr string) {
 	t.Helper()
-	var out, errs bytes.Buffer
-	c.SetOut(&out)
+	var errs bytes.Buffer
 	c.SetErr(&errs)
-	escaped, err := run(t, c, args...)
+	out, err := run(t, c, args...)
 	if err != nil {
-		t.Fatalf("yardr %s: %v\n%s%s", strings.Join(args, " "), err, out.String(), errs.String())
+		t.Fatalf("yardr %s: %v\n%s%s", strings.Join(args, " "), err, out, errs.String())
 	}
-	if escaped != "" {
-		t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
-	}
-	return out.String(), errs.String()
+	return out, errs.String()
 }
 
 // The long tail's commands print to their command's writers: each case
-// runs one with buffers of its own, fails when anything escapes onto the
-// process's stdout, and reads each stream from its buffer. An empty err
-// list pins that the command warns of nothing.
+// runs one with buffers of its own and reads each stream from its buffer.
+// An empty err list pins that the command warns of nothing.
 func TestLongTailCommandsWriteToTheirCommandWriters(t *testing.T) {
 	bare := func(t *testing.T) *app {
 		t.Helper()

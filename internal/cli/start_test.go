@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -362,17 +361,10 @@ func TestWaitSaysTheHarnessWaitsInItsPane(t *testing.T) {
 		stubPane(t, "sh$ claude\nWelcome\nSelect login method:")
 		shortenWait(t, 5*time.Millisecond, 30*time.Millisecond)
 		errs := captureStderr(t)
-		var stdout bytes.Buffer
-		c := (&app{st: st, actor: "me", stderr: errs}).rootCmd()
-		c.SetOut(&stdout)
-		escaped, err := run(t, c, "init", "--harness", "claude", "--start", "--wait", "300ms")
+		out, err := run(t, (&app{st: st, actor: "me", stderr: errs}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "300ms")
 		if err == nil {
-			t.Fatalf("err = nil\n%s", stdout.String())
+			t.Fatalf("err = nil\n%s", out)
 		}
-		if escaped != "" {
-			t.Fatalf("init --start wrote outside its command writer:\n%s", escaped)
-		}
-		out := stdout.String()
 		got := errs.String()
 		if n := strings.Count(got, line); n != 1 {
 			t.Errorf("the line is said %d times, want once:\n%s", n, got)

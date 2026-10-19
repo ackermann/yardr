@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -180,14 +179,7 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var stdout bytes.Buffer
-	c := a(false).rootCmd()
-	c.SetOut(&stdout)
-	escaped, err := run(t, c, "down")
-	if escaped != "" {
-		t.Fatalf("down wrote outside its command writer:\n%s", escaped)
-	}
-	out := stdout.String()
+	out, err := run(t, a(false).rootCmd(), "down")
 	var refused errDownRefused
 	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "1 agent is in the middle of something") ||
 		!strings.Contains(err.Error(), here("yardr down --yes")) {

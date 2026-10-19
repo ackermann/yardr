@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -227,32 +226,11 @@ func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
 	}
 }
 
-// capture returns what fn prints to stdout. The pipe is read while fn runs:
-// it holds 64 KB, and a write past that waits for a reader.
-func capture(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	read := make(chan []byte, 1)
-	go func() {
-		b, _ := io.ReadAll(r)
-		r.Close()
-		read <- b
-	}()
-	old := os.Stdout
-	os.Stdout = w
-	fn()
-	os.Stdout = old
-	w.Close()
-	return string(<-read)
-}
-
-// capture reads what fn prints while fn runs: read only once fn has
-// returned, a command printing more than the pipe holds (64 KB on macOS)
-// blocked in its write until go test's timeout (yardr-bbyz).
-func TestCaptureOutputLargerThanThePipe(t *testing.T) {
+// run keeps a command's output in a buffer, so a listing larger than a pipe
+// holds (64 KB on macOS) comes back whole. Through a pipe that was read only
+// after the command returned, such a listing blocked the command in its
+// write until go test's timeout (yardr-bbyz).
+func TestRunReturnsOutputLargerThanAPipe(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	const total = 205
@@ -270,9 +248,9 @@ func TestCaptureOutputLargerThanThePipe(t *testing.T) {
 	}
 	var beads []json.RawMessage
 	if err := json.Unmarshal([]byte(out), &beads); err != nil {
-		t.Fatalf("the captured listing is not the whole of it: %v", err)
+		t.Fatalf("the returned listing is not the whole of it: %v", err)
 	}
 	if len(beads) != total {
-		t.Errorf("captured %d beads, want %d", len(beads), total)
+		t.Errorf("returned %d beads, want %d", len(beads), total)
 	}
 }

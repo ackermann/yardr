@@ -20,7 +20,12 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// run executes c with args, returning its stdout and error.
+// run executes c with args, returning its stdout and error. A command left
+// on the process's streams writes to buffers of its own: what a test drives
+// never reaches the process's stdout or stderr. A writer the test preset
+// (SetOut or SetErr before run) is left alone, so a test that asserts
+// warnings on its own error buffer keeps working, and run returns no
+// stdout then.
 func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	t.Helper()
 	// Never nil: with no arguments set, cobra runs the binary's own
@@ -28,11 +33,6 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	// binary was started.
 	c.SetArgs(append([]string{}, args...))
 	c.SilenceUsage, c.SilenceErrors = true, true
-	// The command's own buffers beside the legacy pipe: a migrated
-	// command's output is wholly in the buffer, an unmigrated one's
-	// wholly in the pipe, so either lands green. A writer the test
-	// preset (SetOut or SetErr before run) is left alone, so a test
-	// that asserts warnings on its own error buffer keeps working.
 	var outBuf, errBuf bytes.Buffer
 	if out, ok := c.OutOrStdout().(*os.File); ok && out == os.Stdout {
 		c.SetOut(&outBuf)
@@ -40,25 +40,21 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	if errStream, ok := c.ErrOrStderr().(*os.File); ok && errStream == os.Stderr {
 		c.SetErr(&errBuf)
 	}
-	var err error
-	piped := capture(t, func() { err = c.Execute() })
-	return outBuf.String() + piped, err
+	err := c.Execute()
+	return outBuf.String(), err
 }
 
-// runOrdered executes c with args against the process stdout, returning
-// what it printed in the order production prints it. run returns the
-// command's buffer before the legacy pipe, which misorders a command
-// whose converted helpers write to one and whose direct sites still
-// print to the other; an assertion of order across that split drives
-// the command here instead, until the direct sites take the writer too
-// and run sees one stream again. Deleted with capture.
-func runOrdered(t *testing.T, c *cobra.Command, args ...string) (string, error) {
-	t.Helper()
-	c.SetArgs(append([]string{}, args...))
-	c.SilenceUsage, c.SilenceErrors = true, true
-	var err error
-	out := capture(t, func() { err = c.Execute() })
-	return out, err
+// executeOut runs args through execute, the entry of the whole program, on
+// a with its stdout in a buffer of its own, and returns what was printed
+// and the exit code. A stdout the test preset on a is left alone, as run
+// leaves a command's, and nothing is returned then.
+func executeOut(a *app, args ...string) (string, int) {
+	var out bytes.Buffer
+	if a.stdout == nil {
+		a.stdout = &out
+	}
+	code := execute(a, args)
+	return out.String(), code
 }
 
 type runWriterFunc func([]byte) (int, error)
@@ -82,6 +78,30 @@ func TestRunPreservesUncomparablePresetWriter(t *testing.T) {
 	}
 	if got.String() != "preset\n" {
 		t.Errorf("preset writer got %q, want %q", got.String(), "preset\n")
+	}
+}
+
+// run takes a command's output in a buffer and leaves the process's
+// streams as they are: no pipe stands in for os.Stdout while the command
+// runs, and what the command says on its error stream is not in what run
+// returns.
+func TestRunLeavesTheProcessStreamsAlone(t *testing.T) {
+	stdout, stderr := os.Stdout, os.Stderr
+	c := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
+		if os.Stdout != stdout || os.Stderr != stderr {
+			return errors.New("a process stream was swapped while the command ran")
+		}
+		fmt.Fprintln(c.OutOrStdout(), "to stdout")
+		fmt.Fprintln(c.ErrOrStderr(), "to stderr")
+		return nil
+	}}
+
+	out, err := run(t, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "to stdout\n" {
+		t.Errorf("run returned %q, want what the command wrote to its stdout alone", out)
 	}
 }
 

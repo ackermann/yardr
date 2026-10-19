@@ -17,8 +17,7 @@ func TestVersionFlagPrintsWhatVersionDoes(t *testing.T) {
 	setInteractive(t, false)
 	ask := func(args ...string) string {
 		t.Helper()
-		var code int
-		out := capture(t, func() { code = execute(&app{}, args) })
+		out, code := executeOut(&app{}, args...)
 		if code != 0 {
 			t.Fatalf("yardr %s: exit %d\n%s", strings.Join(args, " "), code, out)
 		}

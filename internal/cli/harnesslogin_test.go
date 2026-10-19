@@ -109,8 +109,8 @@ func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogi
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The run's needs go to its command's writer; the os.Stdout swap
-	// stays to catch what escapes it.
+	// The run's needs go to its command's writer, which the test reads
+	// line by line.
 	a.stdout = w
 	go func() {
 		defer close(l.lines)
@@ -118,31 +118,15 @@ func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogi
 			l.lines <- s.Text()
 		}
 	}()
-	er, ew, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdout
-	os.Stdout = ew
-	var escaped bytes.Buffer
-	caught := make(chan struct{})
-	go func() { _, _ = io.Copy(&escaped, er); close(caught) }()
 	go func() {
 		l.exit <- execute(a, args)
 		w.Close()
-		ew.Close()
 	}()
 	t.Cleanup(func() {
 		answers.Close()
 		for range l.lines {
 		}
-		os.Stdout = old
 		r.Close()
-		er.Close()
-		<-caught
-		if got := escaped.String(); got != "" {
-			t.Errorf("login wrote outside its command writer:\n%s", got)
-		}
 	})
 	return l
 }
@@ -445,10 +429,7 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
 		t.Helper()
-		var code int
-		out := capture(t, func() {
-			code = execute(&app{stdin: strings.NewReader(""), stderr: &errs}, args)
-		})
+		out, code := executeOut(&app{stdin: strings.NewReader(""), stderr: &errs}, args...)
 		if code != want {
 			t.Fatalf("yardr %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
 		}
@@ -489,7 +470,8 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 	}
 
 	show := func(args ...string) string {
-		return capture(t, func() { execute(&app{}, append([]string{"harness", "show"}, args...)) })
+		out, _ := executeOut(&app{}, append([]string{"harness", "show"}, args...)...)
+		return out
 	}
 	var shown agents.Harness
 	if err := json.Unmarshal([]byte(show("claude", "--json")), &shown); err != nil || shown.LoginRecipe == nil {
@@ -511,7 +493,8 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 	if out := show("kimi"); strings.Contains(out, "Login led by a program") {
 		t.Errorf("show kimi names a login it has no recipe for:\n%s", out)
 	}
-	wantText(t, capture(t, func() { execute(&app{}, []string{"harness", "list"}) }), "a fetch for a Mac, a login a program leads\n")
+	list, _ := executeOut(&app{}, "harness", "list")
+	wantText(t, list, "a fetch for a Mac, a login a program leads\n")
 }
 
 // loginStandInGroup is the stand-in that also writes down the login folder

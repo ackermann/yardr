@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -138,8 +137,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"status"}) })
+	out, code := executeOut(&app{}, "status")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -159,7 +157,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	}
 
 	var raw map[string]json.RawMessage
-	js := capture(t, func() { code = execute(&app{}, []string{"status", "--json"}) })
+	js, code := executeOut(&app{}, "status", "--json")
 	if err := json.Unmarshal([]byte(js), &raw); err != nil || code != 0 {
 		t.Fatalf("exit %d, %v:\n%s", code, err, js)
 	}
@@ -230,11 +228,10 @@ func TestStatusBackupsWhenServerIsStopped(t *testing.T) {
 		return nil, errors.New("no server in this test")
 	})
 
-	out := capture(t, func() {
-		if code := execute(&app{}, []string{"status"}); code != 0 {
-			t.Errorf("status exit = %d", code)
-		}
-	})
+	out, code := executeOut(&app{}, "status")
+	if code != 0 {
+		t.Errorf("status exit = %d", code)
+	}
 	wantText(t, out, "backups    every 1d, 7 kept in "+dir+"; last 10-13 14:22  "+last+"\n",
 		"\ncrew, hooks, peers and work: not known while the server is not running\n")
 }
@@ -577,8 +574,7 @@ func TestStatusNoYard(t *testing.T) {
 			return nil
 		})
 		errs := captureStderr(t)
-		var code int
-		out := capture(t, func() { code = execute(&app{stderr: errs}, []string{"status"}) })
+		out, code := executeOut(&app{stderr: errs}, "status")
 		if code != 2 || out != "" {
 			t.Fatalf("terminal %v: exit %d:\n%s", terminal, code, out)
 		}
@@ -590,11 +586,9 @@ func TestStatusNoYard(t *testing.T) {
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("status created the home directory")
 	}
-	var stdout bytes.Buffer
-	var code int
-	escaped := capture(t, func() { code = execute(&app{stdout: &stdout}, []string{"status", "--json"}) })
-	if code != 2 || escaped != "" || !strings.Contains(stdout.String(), "no yard in "+home+" yet") {
-		t.Fatalf("json: exit %d, escaped %q:\n%s", code, escaped, stdout.String())
+	out, code := executeOut(&app{}, "status", "--json")
+	if code != 2 || !strings.Contains(out, "no yard in "+home+" yet") {
+		t.Fatalf("json: exit %d:\n%s", code, out)
 	}
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("status --json created the home directory")

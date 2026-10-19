@@ -50,9 +50,7 @@ func TestWatchJSONOneEventPerLine(t *testing.T) {
 			lines <- sc.Text()
 		}
 	}()
-	old := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = old }()
+	cmd.SetOut(w)
 	done := make(chan error, 1)
 	go func() { done <- cmd.ExecuteContext(wctx) }()
 	var got []string
@@ -85,7 +83,6 @@ wait:
 	case <-time.After(15 * time.Second):
 		t.Fatal("watch did not end after cancel")
 	}
-	os.Stdout = old
 	w.Close()
 	for line := range lines {
 		got = append(got, line)

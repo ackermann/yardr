@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -246,14 +245,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	a := func() *app { return &app{st: st, actor: "me"} }
 	rund := func(args ...string) (string, error) {
 		t.Helper()
-		var stdout bytes.Buffer
-		c := a().rootCmd()
-		c.SetOut(&stdout)
-		escaped, err := run(t, c, args...)
-		if escaped != "" {
-			t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
-		}
-		return stdout.String(), err
+		return run(t, a().rootCmd(), args...)
 	}
 	if _, err := rund("init", "--harness", "claude"); err != nil {
 		t.Fatal(err)

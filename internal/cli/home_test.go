@@ -35,7 +35,7 @@ func noHome(t *testing.T) string {
 // doctorHome is the home yardr doctor reports on, run with args in front.
 func doctorHome(t *testing.T, args ...string) string {
 	t.Helper()
-	out := capture(t, func() { execute(&app{}, append(args, "doctor", "--json")) })
+	out, _ := executeOut(&app{}, append(args, "doctor", "--json")...)
 	var rep doctorReport
 	if err := json.Unmarshal([]byte(out), &rep); err != nil {
 		t.Fatalf("doctor --json: %v\n%s", err, out)
@@ -62,7 +62,7 @@ func TestHomeFlagOrder(t *testing.T) {
 	}
 	// After the command too: the flag is as good as --home=<dir>.
 	t.Setenv("YARDR_HOME", variable)
-	out := capture(t, func() { execute(&app{}, []string{"doctor", "--json", "--home=" + flag}) })
+	out, _ := executeOut(&app{}, "doctor", "--json", "--home="+flag)
 	if !strings.Contains(out, `"home": "`+flag+`"`) {
 		t.Errorf("--home after the command:\n%s", out)
 	}

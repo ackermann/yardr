@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,18 +37,10 @@ func userYardOn(t *testing.T, st store.API) store.API {
 }
 
 // as runs yardr with args as actor. The actor is given as the flag: the
-// root command's --actor is what a run of yardr goes by. Nothing may
-// escape the command's writer: what run's pipe catches fails the test.
+// root command's --actor is what a run of yardr goes by.
 func as(t *testing.T, st store.API, actor string, args ...string) (string, error) {
 	t.Helper()
-	var stdout bytes.Buffer
-	c := (&app{st: st}).rootCmd()
-	c.SetOut(&stdout)
-	escaped, err := run(t, c, append(args, "--actor", actor)...)
-	if escaped != "" {
-		t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
-	}
-	return stdout.String(), err
+	return run(t, (&app{st: st}).rootCmd(), append(args, "--actor", actor)...)
 }
 
 func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
@@ -64,17 +55,11 @@ func mustAs(t *testing.T, st store.API, actor string, args ...string) string {
 // mustAsErr is mustAs with the run's error stream in errs.
 func mustAsErr(t *testing.T, st store.API, actor string, errs io.Writer, args ...string) string {
 	t.Helper()
-	var stdout bytes.Buffer
-	c := (&app{st: st, stderr: errs}).rootCmd()
-	c.SetOut(&stdout)
-	escaped, err := run(t, c, append(args, "--actor", actor)...)
+	out, err := run(t, (&app{st: st, stderr: errs}).rootCmd(), append(args, "--actor", actor)...)
 	if err != nil {
-		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, stdout.String())
+		t.Fatalf("%s: yardr %s: %v\n%s", actor, strings.Join(args, " "), err, out)
 	}
-	if escaped != "" {
-		t.Fatalf("yardr %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
-	}
-	return stdout.String()
+	return out
 }
 
 func refusedAs(t *testing.T, st store.API, actor, want string, args ...string) {

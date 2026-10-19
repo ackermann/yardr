@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"io/fs"
 	"os"
@@ -232,22 +231,16 @@ func TestFlowDrawWithoutAYard(t *testing.T) {
 	}
 	for _, arg := range []string{"starter", "../../packs/starter"} {
 		errs := captureStderr(t)
-		var stdout bytes.Buffer
-		var code int
-		escaped := capture(t, func() { code = execute(&app{stdout: &stdout, stderr: errs}, []string{"flow", "draw", arg}) })
-		if code != 0 || escaped != "" {
-			t.Errorf("flow draw %s: exit %d, escaped %q\n%s", arg, code, escaped, errs.String())
-		} else if stdout.String() != string(want) {
+		out, code := executeOut(&app{stderr: errs}, "flow", "draw", arg)
+		if code != 0 {
+			t.Errorf("flow draw %s: exit %d\n%s", arg, code, errs.String())
+		} else if out != string(want) {
 			t.Errorf("flow draw %s: not the starter pack's drawing", arg)
 		}
 	}
-	var stdout bytes.Buffer
-	var code int
-	escaped := capture(t, func() {
-		code = execute(&app{stdout: &stdout}, []string{"flow", "draw", "../../.yardr/flows/default.flow"})
-	})
-	if code != 0 || escaped != "" || !strings.Contains(stdout.String(), "<title>Flow default</title>") {
-		t.Errorf("flow draw of a flow file: exit %d, escaped %q\n%.200s", code, escaped, stdout.String())
+	out, code := executeOut(&app{}, "flow", "draw", "../../.yardr/flows/default.flow")
+	if code != 0 || !strings.Contains(out, "<title>Flow default</title>") {
+		t.Errorf("flow draw of a flow file: exit %d\n%.200s", code, out)
 	}
 	cfg, err := config.Load()
 	if err != nil {

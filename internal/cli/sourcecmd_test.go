@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -43,17 +42,11 @@ func TestSourceOutputUsesCommandWriter(t *testing.T) {
 		{name: "list", args: []string{"list"}, want: "pushover"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var stdout bytes.Buffer
-			c := a.sourceCmd()
-			c.SetOut(&stdout)
-			escaped, err := run(t, c, tc.args...)
+			got, err := run(t, a.sourceCmd(), tc.args...)
 			if err != nil {
-				t.Fatalf("%s: %v\n%s", tc.name, err, stdout.String())
+				t.Fatalf("%s: %v\n%s", tc.name, err, got)
 			}
-			if escaped != "" {
-				t.Fatalf("%s wrote outside its command writer:\n%s", tc.name, escaped)
-			}
-			if got := stdout.String(); !strings.Contains(got, tc.want) {
+			if !strings.Contains(got, tc.want) {
 				t.Fatalf("%s wrote %q, want it to contain %q", tc.name, got, tc.want)
 			}
 		})

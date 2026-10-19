@@ -59,8 +59,7 @@ func TestCompactWithoutAServer(t *testing.T) {
 	cfg := yardWithoutServer(t)
 	setInteractive(t, false)
 	errs := captureStderr(t)
-	var code int
-	out := capture(t, func() { code = execute(&app{stderr: errs}, []string{"store", "compact"}) })
+	out, code := executeOut(&app{stderr: errs}, "store", "compact")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}
@@ -108,8 +107,7 @@ func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
 	}
 
 	errs := captureStderr(t)
-	var code int
-	capture(t, func() { code = execute(&app{stderr: errs}, []string{"store", "compact"}) })
+	_, code := executeOut(&app{stderr: errs}, "store", "compact")
 	if code != 1 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}

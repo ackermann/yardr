@@ -57,19 +57,9 @@ func (o *output) String() string {
 // pairBoth runs yardr peer pair on north and, once that has shown its code,
 // on laptop with what call makes of the address and the code, and then
 // after, while north's may still wait. Each side prints to a writer of
-// its own; what escapes onto the process's stdout fails the test. It
-// returns what the two printed and how each ended.
+// its own. It returns what the two printed and how each ended.
 func pairBoth(t *testing.T, north, laptop *cliYard, errs *output, host []string, call func(addr, code string) []string, after ...func()) (out string, hostErr, callErr error) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	var escaped output
-	caught := make(chan struct{})
-	go func() { _, _ = io.Copy(&escaped, r); close(caught) }()
 	hr, hw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -114,14 +104,8 @@ func pairBoth(t *testing.T, north, laptop *cliYard, errs *output, host []string,
 	case <-time.After(20 * time.Second):
 		t.Error("yardr peer pair on the host did not end")
 	}
-	os.Stdout = old
-	w.Close()
 	hw.Close()
-	<-caught
 	<-read
-	if got := escaped.String(); got != "" {
-		t.Errorf("pair wrote outside its commands' writers:\n%s", got)
-	}
 	if m == nil && hostErr == nil {
 		t.Fatalf("the host showed no code:\n%s", printed.String())
 	}

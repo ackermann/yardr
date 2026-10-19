@@ -10,8 +10,7 @@ import (
 // yard it says so and creates nothing, not even the home directory.
 func TestServerStatusNoYard(t *testing.T) {
 	home := newHome(t)
-	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"server", "status"}) })
+	out, code := executeOut(&app{}, "server", "status")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}

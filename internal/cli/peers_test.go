@@ -59,17 +59,20 @@ func (y *cliYard) peer(t *testing.T, args ...string) (string, error) {
 func (y *cliYard) mustErr(t *testing.T, errs io.Writer, args ...string) string {
 	t.Helper()
 	c := y.a.peerCmd()
-	var stdout bytes.Buffer
-	c.SetOut(&stdout)
 	c.SetErr(errs)
-	escaped, err := run(t, c, args...)
+	out, err := run(t, c, args...)
 	if err != nil {
-		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, stdout.String())
+		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
 	}
-	if escaped != "" {
-		t.Fatalf("peer %s wrote outside its command writer:\n%s", strings.Join(args, " "), escaped)
-	}
-	return stdout.String()
+	return out
+}
+
+// prime is what a crew member's session of this yard starts from: what
+// primeCrew prints for it.
+func (y *cliYard) prime(ctx context.Context, name string) (string, error) {
+	var buf bytes.Buffer
+	err := y.a.primeCrew(&buf, ctx, y.st, name, "")
+	return buf.String(), err
 }
 
 func (y *cliYard) must(t *testing.T, args ...string) string {

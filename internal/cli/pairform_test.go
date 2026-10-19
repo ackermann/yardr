@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -157,18 +156,11 @@ func formYards(t *testing.T, o *operators) (north, laptop *cliYard) {
 // screen laptop's form is not run.
 func formBoth(t *testing.T, o *operators, north, laptop *cliYard) (out string, hostErr, callErr error) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
 	var printed output
-	read := make(chan struct{})
-	go func() { _, _ = io.Copy(&printed, r); close(read) }()
 	pair := func(y *cliYard) error {
 		c := y.a.peerCmd()
 		c.SetArgs([]string{"pair"})
+		c.SetOut(&printed)
 		c.SetErr(io.Discard)
 		c.SilenceUsage, c.SilenceErrors = true, true
 		return c.Execute()
@@ -197,9 +189,6 @@ func formBoth(t *testing.T, o *operators, north, laptop *cliYard) (out string, h
 			t.Error("the form on the host did not end")
 		}
 	}
-	os.Stdout = old
-	w.Close()
-	<-read
 	return printed.String(), hostErr, callErr
 }
 
@@ -610,8 +599,10 @@ func TestPairFormSetsTheAddress(t *testing.T) {
 	c := north.a.peerCmd()
 	c.SetArgs([]string{"pair"})
 	c.SilenceUsage, c.SilenceErrors = true, true
-	var err error
-	out := capture(t, func() { err = c.ExecuteContext(ctx) })
+	var printed bytes.Buffer
+	c.SetOut(&printed)
+	err := c.ExecuteContext(ctx)
+	out := printed.String()
 	if err == nil || !strings.Contains(err.Error(), "the pairing was ended"+nothingSaved) || restarts.Load() != 1 {
 		t.Fatalf("%v, %d restarts\n%s", err, restarts.Load(), out)
 	}

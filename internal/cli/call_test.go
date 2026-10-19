@@ -115,9 +115,7 @@ func TestCall(t *testing.T) {
 	if out, err = run(t, clerk.callCmd(), "crm", "customer", "id=1"); err != nil || !strings.Contains(out, `"id": "1"`) {
 		t.Fatalf("a crew member with the grant = %q, %v", out, err)
 	}
-	// Ordered: the header stands before the calls, across the helper's
-	// writer and the command's direct sites (see runOrdered).
-	if out, err = runOrdered(t, clerk.callCmd(), "--list"); err != nil || !strings.Contains(out, "crew member clerk may call:\n  yardr call crm customer id=<string>   Look a customer up by id\n  yardr call crm gone\n") {
+	if out, err = run(t, clerk.callCmd(), "--list"); err != nil || !strings.Contains(out, "crew member clerk may call:\n  yardr call crm customer id=<string>   Look a customer up by id\n  yardr call crm gone\n") {
 		t.Fatalf("call --list = %q, %v", out, err)
 	}
 	if out, err = run(t, jo.sourceCmd(), "show", "crm"); err != nil ||

@@ -594,8 +594,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	}
 	errs.Reset()
 	for _, args := range [][]string{{"help"}, {"init", "--help"}, {"server", "--help"}} {
-		var code int
-		capture(t, func() { code = execute(&app{stderr: &errs}, args) })
+		_, code := executeOut(&app{stderr: &errs}, args...)
 		if code != 0 {
 			t.Errorf("%v: exit %d: %s", args, code, errs.String())
 		}

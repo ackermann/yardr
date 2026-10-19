@@ -21,8 +21,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	var errs bytes.Buffer
 	ask := func(want int, args ...string) string {
 		t.Helper()
-		var code int
-		out := capture(t, func() { code = execute(&app{stderr: &errs}, args) })
+		out, code := executeOut(&app{stderr: &errs}, args...)
 		if code != want {
 			t.Fatalf("yardr %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
 		}

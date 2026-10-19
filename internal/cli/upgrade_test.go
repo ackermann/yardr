@@ -199,8 +199,7 @@ func TestUpgradeCheckServerDown(t *testing.T) {
 func TestUpgradeCheckNoYard(t *testing.T) {
 	home := newHome(t)
 	errs := captureStderr(t)
-	var code int
-	out := capture(t, func() { code = execute(&app{stderr: errs}, []string{"upgrade", "--check"}) })
+	out, code := executeOut(&app{stderr: errs}, "upgrade", "--check")
 	if code != 2 || out != "" {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}

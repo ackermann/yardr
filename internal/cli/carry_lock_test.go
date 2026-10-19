@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,6 +51,7 @@ func carryLockYard(t *testing.T) (*store.Store, string, *app) {
 func runRm(a *app) chan error {
 	cmd := a.sourceCmd()
 	cmd.SetArgs([]string{"rm", "crm"})
+	cmd.SetOut(io.Discard)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	done := make(chan error, 1)
 	go func() { done <- cmd.Execute() }()
@@ -59,6 +61,7 @@ func runRm(a *app) chan error {
 func runAdd(a *app, file string) chan error {
 	cmd := a.sourceCmd()
 	cmd.SetArgs([]string{"add", file})
+	cmd.SetOut(io.Discard)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	done := make(chan error, 1)
 	go func() { done <- cmd.Execute() }()

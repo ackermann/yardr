@@ -96,8 +96,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 	setInteractive(t, false)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "grok": toolFails})
 
-	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	out, code := executeOut(&app{}, "doctor")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -120,7 +119,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 
 	// What the onboarding needs and the machine lacks is a fault here too.
 	fakeTools(t, map[string]string{"git": toolAnswers})
-	out = capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	out, code = executeOut(&app{}, "doctor")
 	if code != 1 {
 		t.Fatalf("no herdr, no harness: exit %d:\n%s", code, out)
 	}
@@ -881,8 +880,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	out, code := executeOut(&app{}, "doctor")
 	if code != 0 {
 		t.Fatalf("a stopped server is no fault: exit %d:\n%s", code, out)
 	}
@@ -926,7 +924,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 	}
 
 	// --try needs the store: refused with why, nothing tried.
-	out = capture(t, func() { code = execute(&app{}, []string{"doctor", "--try", "--json"}) })
+	out, code = executeOut(&app{}, "doctor", "--try", "--json")
 	if code != 1 || !strings.Contains(out, "doctor --try needs the yard's server, which is not running") ||
 		!strings.Contains(out, here("yardr server start")) || strings.Contains(out, "tried") {
 		t.Fatalf("--try: exit %d:\n%s", code, out)
@@ -958,7 +956,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 	if err := os.WriteFile((&config.Config{Home: other}).DBPath(), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out = capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	out, code = executeOut(&app{}, "doctor")
 	if code != 1 {
 		t.Fatalf("no daemon: exit %d:\n%s", code, out)
 	}
@@ -1269,8 +1267,7 @@ func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
 	scripttest.Write(t, filepath.Join(local, "codex"), toolAnswers)
 	sh := loginShellStub(t, filepath.Join(t.TempDir(), "called"), local, "")
 	stub(t, &loginShell, func() string { return sh })
-	var code int
-	out := capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	out, code := executeOut(&app{}, "doctor")
 	if code != 1 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}

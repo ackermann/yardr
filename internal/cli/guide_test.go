@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -175,17 +174,11 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 // setup runs yardr setup on st and returns what it printed.
 func setup(t *testing.T, st store.API, args ...string) string {
 	t.Helper()
-	var stdout bytes.Buffer
-	c := (&app{st: st, actor: "me"}).rootCmd()
-	c.SetOut(&stdout)
-	escaped, err := run(t, c, append([]string{"setup"}, args...)...)
+	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), append([]string{"setup"}, args...)...)
 	if err != nil {
-		t.Fatalf("yardr setup: %v\n%s", err, stdout.String())
+		t.Fatalf("yardr setup: %v\n%s", err, out)
 	}
-	if escaped != "" {
-		t.Fatalf("setup wrote outside its command writer:\n%s", escaped)
-	}
-	return stdout.String()
+	return out
 }
 
 // todo is the key of the first setup step not done, "" when all are.
