@@ -521,7 +521,7 @@ yardmaster):
 					return err
 				}
 				if err := a.groupForm(c.OutOrStdout(), c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
-					fmt.Println("cancelled")
+					fmt.Fprintln(c.OutOrStdout(), "cancelled")
 					return nil
 				} else {
 					return err
