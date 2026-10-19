@@ -226,7 +226,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 109,
+  "seq": 110,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -254,11 +254,11 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 110,
+  "seq": 112,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
-    "through": 50
+    "through": 51
   }
 }
 ```
@@ -350,7 +350,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 111,
+  "seq": 113,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -399,7 +399,7 @@ A bead closed, by an explicit close or by entering a terminal stage of its flow.
 
 ```json
 {
-  "seq": 95,
+  "seq": 96,
   "bead": "yd-sweep",
   "kind": "closed",
   "actor": "jo",
@@ -697,7 +697,7 @@ POST /call/Head
 {}
 
 {
-  "result": 106
+  "result": 107
 }
 ```
 
@@ -921,6 +921,12 @@ POST /call/UserInbox
         "to": "jo",
         "text": "The shed is painted. Shall I land it?",
         "read": false,
+        "reactions": [
+          {
+            "from": "jo",
+            "emoji": "👍"
+          }
+        ],
         "files": [
           {
             "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
@@ -931,7 +937,7 @@ POST /call/UserInbox
         ]
       },
       {
-        "seq": 50,
+        "seq": 51,
         "at": "2026-10-08T09:30:00Z",
         "from": "josephine@north",
         "to": "jo",
@@ -941,7 +947,7 @@ POST /call/UserInbox
       }
     ],
     "unread": 2,
-    "last": 50,
+    "last": 51,
     "from": ["yardmaster", "josephine@north"]
   }
 }
@@ -955,6 +961,9 @@ POST /call/UserInbox
 | `mail[].to` | string | the receiver, as `from` |
 | `mail[].text` | string | the mail |
 | `mail[].read` | bool | whether its receiver acknowledged it |
+| `mail[].reactions` | array, may be absent | the parties' emoji on the mail, by who put them, as [`React`](#react) put them; absent on mail without any |
+| `mail[].reactions[].from` | string | who put it: the sender or the receiver |
+| `mail[].reactions[].emoji` | string | which of 👍 👎 ❤️ 🎉 👀 ✅ it is |
 | `mail[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
 | `mail[].files` | array, may be absent | the files the mail carries, each an image, a page or a file, in the order it was sent with them; absent on mail without any |
 | `mail[].files[].hash` | string | the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
@@ -1050,6 +1059,23 @@ POST /call/MailPeer
 
 Where it stands afterwards is `delivery` in the conversation.
 
+### `React`
+
+Puts the party's reaction on the mail `seq`: one of 👍 👎 ❤️ 🎉 👀 ✅, or `""` to take it away. Only the letter's sender or receiver may react, and only mail its sender wrote takes one. One party holds one reaction: a new one replaces the old one. It answers nothing; the reaction is then a `reaction` event in the stream, and `reactions` on the letter in [`UserInbox`](#userinbox) and [`Conversation`](#conversation).
+
+| argument | type | |
+|---|---|---|
+| `seq` | number | the seq of the mail's event |
+| `emoji` | string | one of 👍 👎 ❤️ 🎉 👀 ✅; `""` takes the party's reaction away |
+| `actor` | string | who reacts: the user's name |
+
+```
+POST /call/React
+{"seq":13,"emoji":"🎉","actor":"jo"}
+
+{}
+```
+
 ### `Conversation`
 
 The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. A user of this yard has one history, whatever name they wrote under: when a party is a user, the conversation has also the mail between the other party and each name of a linked yard that the link [trusts as that user](peers.md#trusting-a-name-as-a-person-of-this-yard), in the same order and the same pages, so a client joins nothing itself. Asking again with the last seq seen costs what is new. A long conversation is read from its newest end, a page at a time: with `limit` alone first, then with `limit` and, as `before`, the `seq` of the oldest letter of the page before, for as long as the reply says `more`.
@@ -1075,6 +1101,12 @@ POST /call/Conversation
       "to": "jo",
       "text": "The shed is painted. Shall I land it?",
       "read": false,
+      "reactions": [
+        {
+          "from": "jo",
+          "emoji": "🎉"
+        }
+      ],
       "files": [
         {
           "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
@@ -1085,7 +1117,7 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 35,
+      "seq": 36,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1094,7 +1126,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 59,
+      "seq": 60,
       "at": "2026-10-08T09:30:00Z",
       "from": "josephine@north",
       "to": "yardmaster",
@@ -1103,7 +1135,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 107,
+      "seq": 108,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1111,7 +1143,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 108,
+      "seq": 109,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1137,7 +1169,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 107,
+      "seq": 108,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1145,7 +1177,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 108,
+      "seq": 109,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1172,7 +1204,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 109,
+      "seq": 110,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1191,7 +1223,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 50,
+      "seq": 51,
       "at": "2026-10-08T09:30:00Z",
       "from": "josephine@north",
       "to": "jo",
@@ -1211,6 +1243,9 @@ POST /call/Conversation
 | `[].to` | string | the receiver, as `from` |
 | `[].text` | string | the mail |
 | `[].read` | bool | whether its receiver acknowledged it |
+| `[].reactions` | array, may be absent | the parties' emoji on the mail, by who put them, as [`React`](#react) put them; absent on mail without any |
+| `[].reactions[].from` | string | who put it: the sender or the receiver |
+| `[].reactions[].emoji` | string | which of 👍 👎 ❤️ 🎉 👀 ✅ it is |
 | `[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
 | `[].via` | string, may be absent | the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine |
 | `[].files` | array, may be absent | the files the mail carries, each an image, a page or a file, in the order it was sent with them; absent on mail without any |
@@ -1237,7 +1272,7 @@ Marks the user's mail read through a seq. It answers nothing; when mail was in b
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":50}
+{"name":"jo","through":51}
 
 {}
 ```
