@@ -42,6 +42,7 @@ func TestSessionRunnerShown(t *testing.T) {
 	}{
 		{"herdr with its agent", Session{Runner: "herdr", Handle: map[string]any{"agent": "builder-2"}}, "herdr builder-2"},
 		{"exec with its pid", Session{Runner: "exec", Handle: map[string]any{"pid": 7}}, "exec pid 7"},
+		{"agent takes precedence over pid", Session{Runner: "herdr", Handle: map[string]any{"agent": "builder-2", "pid": 7}}, "herdr builder-2"},
 		{"starting, no handle yet", Session{Runner: "herdr"}, "herdr"},
 		{"old herdr session", Session{Handle: map[string]any{"agent": "builder-2"}}, "herdr builder-2"},
 		{"manual claim", Session{Runner: "manual", Handle: map[string]any{"manual": true}}, "manual"},

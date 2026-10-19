@@ -177,7 +177,7 @@ func flowBead(prefix string) []field {
 		{prefix + "tone", "string", "`red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark"},
 		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
 		{prefix + "worker", "string?", "who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim"},
-		{prefix + "entered_stage_at", "time?", "when the bead entered its stage; absent where no session claimed it, and where the stay has no clock"},
+		{prefix + "entered_stage_at", "time?", "when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock"},
 	}
 }
 

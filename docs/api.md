@@ -2813,7 +2813,7 @@ POST /call/Flows
 | `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].flows[].stages[].beads[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
-| `depots[].flows[].stages[].beads[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
+| `depots[].flows[].stages[].beads[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
 | `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
@@ -2821,7 +2821,7 @@ POST /call/Flows
 | `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].elsewhere[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
-| `depots[].elsewhere[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
+| `depots[].elsewhere[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 | `depots[].error` | string, may be absent | why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read |
 | `unassigned[].bead` | string | the bead's handle |
 | `unassigned[].title` | string | the bead's title |
@@ -2830,7 +2830,7 @@ POST /call/Flows
 | `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `unassigned[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
-| `unassigned[].entered_stage_at` | time, may be absent | when the bead entered its stage; absent where no session claimed it, and where the stay has no clock |
+| `unassigned[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 
 Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.
 
