@@ -1113,12 +1113,12 @@ echo "$*" >>"$FAKE/calls"
 if [ "$1" = test ]; then
   case "$*" in
   *"-count=1"*)
-    echo 'ok  yardr.dev/yardr/internal/web 12.3s'
+    echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
     sleep 2
     ;;
   *)
     sleep 2
-    echo 'ok  yardr.dev/yardr/internal/web 1m1.2s'
+    echo 'ok  yardr.dev/yardr/internal/dispatch 1m1.2s'
     ;;
   esac
 fi
@@ -1212,7 +1212,7 @@ fi
 		t.Errorf("the summary does not include the race-lock wait:\n%s", out)
 	}
 	calls, _ := os.ReadFile(callsPath)
-	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race ./...\ntest -race -count=1 yardr.dev/yardr/internal/web"; got != want {
+	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race ./...\ntest -race -count=1 yardr.dev/yardr/internal/dispatch"; got != want {
 		t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 	}
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
@@ -1448,13 +1448,13 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 		want  string // the verdict line
 	}{
 		{"under alone passes", "12.3s", true,
-			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"},
+			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"},
 		{"over alone fails naming both", "1m6.6s", false,
-			"test: yardr.dev/yardr/internal/web took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
+			"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
 		{"sub-second alone passes", "750ms", true,
-			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 0.75 s alone: under budget, loaded run"},
+			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.75 s alone: under budget, loaded run"},
 		{"microsecond alone passes", "750µs", true,
-			"test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 0.00075 s alone: under budget, loaded run"},
+			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.00075 s alone: under budget, loaded run"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fake, dir := t.TempDir(), t.TempDir()
@@ -1466,8 +1466,8 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 echo "$* held=${YARDR_RACE_HELD-unset} lock=${FAKE_LOCK_HELD-unset}" >>"$FAKE/calls"
 if [ "$1" = test ]; then
   case "$*" in
-  *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/web\t%s\n' "$FAKE_ALONE" ;;
-  *) printf 'ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n' ;;
+  *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/dispatch\t%s\n' "$FAKE_ALONE" ;;
+  *) printf 'ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n' ;;
   esac
 fi
 `
@@ -1535,7 +1535,7 @@ exec "$@"
 			wantCalls := "vet ./... held=unset lock=unset\n" +
 				"build ./... held=unset lock=unset\n" +
 				"test -race ./... held=1 lock=1\n" +
-				"test -race -count=1 yardr.dev/yardr/internal/web held=1 lock=1"
+				"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1"
 			if got := strings.TrimSpace(string(calls)); got != wantCalls {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
 			}
@@ -2067,7 +2067,7 @@ func TestYardTestRaceLegLockDiesWithOrphan(t *testing.T) {
 if [ "$1" = test ]; then
   sleep 300 &
   echo $! >"$FAKE/sleeper"
-  echo 'ok  yardr.dev/yardr/internal/web 12.3s'
+  echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
   : >"$FAKE/test-done"
 fi
 `,
@@ -2324,7 +2324,7 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 		write(dir, "red.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t1m58.3s\n"+
 				"ok  \tyardr.dev/yardr\t1m5.5s\n"+
-				"ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n"+
+				"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t1m1.5s\n"+
 				"ok  \tyardr.dev/yardr/internal/store\t1m0.1s\n"+
 				"ok  \tyardr.dev/yardr/internal/rpc\t60s\n"+
@@ -2333,14 +2333,14 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		// cli is allow-listed, exactly 60 s complies, and cached, failed
-		// and foreign lines are not judged: only root, web, pack and
-		// store are re-run, sorted, one package after another, with the
-		// leg's flags and -count=1, inside its hold. The module path is
-		// the root, whose allow-list row yardr-1x36 deleted, as
-		// yardr-3cc4 deleted store's. The load is pinned quiet, so the
-		// root's over-alone verdict fails however loaded the test
-		// machine is.
+		// cli and web are allow-listed, exactly 60 s complies, and
+		// cached, failed and foreign lines are not judged: only root,
+		// dispatch, pack and store are re-run, sorted, one package
+		// after another, with the leg's flags and -count=1, inside
+		// its hold. The module path is the root, whose allow-list row
+		// yardr-1x36 deleted, as yardr-3cc4 deleted store's. The load
+		// is pinned quiet, so the root's over-alone verdict fails
+		// however loaded the test machine is.
 		fake, env := r1go(t)
 		out, code := runEnv(dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr",
@@ -2350,24 +2350,24 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
 		// The root is over alone too: the run fails, naming both times.
-		// Web, pack and store are under alone: each passes with the R1
-		// line. Store's allow-list row yardr-3cc4 deleted, so over
-		// budget it is re-run with the rest.
+		// Dispatch, pack and store are under alone: each passes with
+		// the R1 line. Store's allow-list row yardr-3cc4 deleted, so
+		// over budget it is re-run with the rest.
 		root := "test: yardr.dev/yardr took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
-		web := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		dispatch := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, root+"\n") || !strings.Contains(out, web+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") {
-			t.Fatalf("output %q, want it to name root, web, pack and store", out)
+		if !strings.Contains(out, root+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") {
+			t.Fatalf("output %q, want it to name root, dispatch, pack and store", out)
 		}
 		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
 			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
 		}
 		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 		want := "test -race -count=1 yardr.dev/yardr held=1\n" +
+			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1\n" +
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1\n" +
-			"test -race -count=1 yardr.dev/yardr/internal/store held=1\n" +
-			"test -race -count=1 yardr.dev/yardr/internal/web held=1"
+			"test -race -count=1 yardr.dev/yardr/internal/store held=1"
 		if got := strings.TrimSpace(string(calls)); got != want {
 			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 		}
@@ -2375,14 +2375,14 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 
 	t.Run("a package under budget alone passes", func(t *testing.T) {
 		dir := t.TempDir()
-		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
+		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		fake, env := r1go(t)
 		out, code := runEnv(dir, append(env, "FAKE_OVER="),
 			"packagebudget", "loaded.txt", "go", "test", "-race", "./...")
 		if code != 0 {
 			t.Fatalf("exit %d, output %q, want exit 0", code, out)
 		}
-		want := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("output %q, want it to hold %q", out, want)
 		}
@@ -2390,23 +2390,23 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 			t.Errorf("output %q, want no budget failure", out)
 		}
 		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/web held=1"; got != want {
+		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
 			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 		}
 	})
 
 	t.Run("a package over budget alone on a loaded machine passes", func(t *testing.T) {
 		dir := t.TempDir()
-		write(dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
+		write(dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		fake, env := r1go(t)
 		out, code := runEnv(dir, append(env,
-			"FAKE_OVER=yardr.dev/yardr/internal/web",
+			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
 			"packagebudget", "heavy.txt", "go", "test", "-race", "./...")
 		if code != 0 {
 			t.Fatalf("exit %d, output %q, want exit 0", code, out)
 		}
-		want := "test: R1: yardr.dev/yardr/internal/web took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("output %q, want it to hold %q", out, want)
 		}
@@ -2414,7 +2414,7 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 			t.Errorf("output %q, want no budget failure", out)
 		}
 		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/web held=1"; got != want {
+		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
 			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 		}
 	})
@@ -2429,16 +2429,16 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				dir := t.TempDir()
-				write(dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/web\t1m1.2s\n")
+				write(dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 				_, env := r1go(t)
 				out, code := runEnv(dir, append(env,
-					"FAKE_OVER=yardr.dev/yardr/internal/web",
+					"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 					"YARDR_TEST_LOADAVG="+c.avg, "YARDR_TEST_CORES=10"),
 					"packagebudget", "stray.txt", "go", "test", "-race", "./...")
 				if code != 1 {
 					t.Fatalf("exit %d, output %q, want exit 1", code, out)
 				}
-				want := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+				want := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
 				if !strings.Contains(out, want+"\n") {
 					t.Errorf("output %q, want it to hold %q", out, want)
 				}
@@ -2448,14 +2448,14 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 
 	t.Run("a re-run that fails fails the run", func(t *testing.T) {
 		dir := t.TempDir()
-		write(dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/web\t61.2s\n")
+		write(dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
 		_, env := r1go(t)
 		out, code := runEnv(dir, append(env, "FAKE_FAIL=1"),
 			"packagebudget", "flaky.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
-		want := "test: yardr.dev/yardr/internal/web took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
+		want := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("output %q, want it to hold %q", out, want)
 		}
