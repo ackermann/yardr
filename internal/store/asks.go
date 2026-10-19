@@ -114,6 +114,47 @@ type Ask struct {
 	// and the grantees alone. It is for the operator, and is approved
 	// by ApproveSetup with the preset pick and the account together.
 	Setup *AskSetup `json:"setup,omitempty"`
+	// Identity makes the ask a mapping ask: who an unmapped sender in
+	// a source hearing by identity is, asked of the operator when a
+	// delivery from them is dropped under unknown. Its options are
+	// the yard's users, each naming the identity its pick writes,
+	// with YouDecide last; picking one writes that user's identity
+	// in the answering write (addAnswer). It is written by
+	// ClaimIdentity alone, from a dropped delivery, never by AddAsk,
+	// and stays in the yard as a run ask does.
+	Identity *AskIdentity `json:"identity,omitempty"`
+}
+
+// AskIdentity is what a mapping ask maps: the source hearing by
+// identity, the sender's id in it as the delivery carried it, and
+// the channel it arrived in ("" where the envelope named none).
+// Users are the yard's users as the card was written, in the order
+// of the ask's options before YouDecide: picking option n writes
+// Users[n-1]'s identity. The card holds the sender as unmapped
+// when it was written; a sender mapped to anyone meanwhile makes
+// its pick stale and nothing is written.
+type AskIdentity struct {
+	Source  string   `json:"source"`
+	Sender  string   `json:"sender"`
+	Channel string   `json:"channel,omitempty"`
+	Users   []string `json:"users"`
+}
+
+// IdentityAsked is what a mapping ask maps, as a client shows it:
+// the source, the sender's id in it and the channel it arrived in.
+type IdentityAsked struct {
+	Source  string `json:"source"`
+	Sender  string `json:"sender"`
+	Channel string `json:"channel,omitempty"`
+}
+
+// identityAsked is what the ask a maps, as a client shows it, nil
+// for an ask that maps nobody.
+func (a Ask) identityAsked() *IdentityAsked {
+	if a.Identity == nil {
+		return nil
+	}
+	return &IdentityAsked{Source: a.Identity.Source, Sender: a.Identity.Sender, Channel: a.Identity.Channel}
 }
 
 // Answer is the JSON of a note of kind answer: what one person did with
@@ -373,6 +414,11 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		case outside:
 			return nil, fmt.Errorf("a setup is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
 		}
+	}
+	if ask.Identity != nil {
+		// A mapping ask is the yard's own, from a dropped delivery
+		// (ClaimIdentity): no writer may invent the sender it maps.
+		return nil, fmt.Errorf("a mapping ask is written by the yard from a dropped delivery, and proposed by nobody: map the sender with yardr user identity <user> --source %s --id %s", ask.Identity.Source, ask.Identity.Sender)
 	}
 	if outside {
 		switch {
@@ -709,6 +755,19 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		outcome, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
 		if err != nil {
 			return err
+		}
+		// A mapping ask's pick writes the identity it names, in this
+		// write: a refusal (stale, or not the operator's to give)
+		// records no answer and leaves the card open.
+		for _, n := range notes {
+			if n.Seq != ans.Ask || n.Kind != NoteAsk {
+				continue
+			}
+			if ask, err := ParseAsk(n); err == nil && ask.Identity != nil {
+				if err := w.answerMapping(ctx, ask, ans, actor); err != nil {
+					return err
+				}
+			}
 		}
 		text, err := json.Marshal(ans)
 		if err != nil {

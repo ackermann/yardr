@@ -373,10 +373,10 @@ func speakerOf(t *testing.T, e store.Event) string {
 }
 
 // Hearing by identity: a mapped sender is kept with their yard name as
-// speaker, an unmapped one is dropped under unknown with a mapping
-// card offered (no address claim stands for an identity source, so
-// the drop is the record the receiver test holds), kept as outside
-// under allow, and dropped with none under ignore.
+// speaker, an unmapped one is dropped under unknown (its mapping card
+// is TestHearByIdentityOffersMappingCard, which sets an operator for
+// it to ask), kept as outside under allow, and dropped with none
+// under ignore.
 func TestHearByIdentity(t *testing.T) {
 	// Mapped under the default word, and unmapped under it.
 	r := identityDepot(t, "")
@@ -441,6 +441,112 @@ func TestHearByIdentity(t *testing.T) {
 		rr := identityDepot(t, word)
 		if h, err := rr.st.GetHook(context.Background(), "talk"); err != nil || h.Unknown != word {
 			t.Fatalf("hook with --unknown %s stored %+v %v", word, h, err)
+		}
+	}
+}
+
+// An unmapped delivery under unknown offers the operator one mapping
+// card per source and sender, showing the member id, the channel and
+// the first words; picking a user on it writes their identity, and
+// the sender's next delivery is heard as theirs. Under allow and
+// under ignore no card is offered.
+func TestHearByIdentityOffersMappingCard(t *testing.T) {
+	ctx := context.Background()
+	r := identityDepot(t, "")
+	if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	mapTalk(t, r, "ada", "U012")
+	r.now = time.Now()
+	if code := r.talk(t, "U999", "hello there"); code != http.StatusOK {
+		t.Fatalf("unmapped answered %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("a dropped delivery recorded: %d hook events", n)
+	}
+	q, err := r.st.UserAsks(ctx, "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Open) != 1 {
+		t.Fatalf("open asks = %d, want the one mapping card", len(q.Open))
+	}
+	card := q.Open[0]
+	if card.Identity == nil || card.Identity.Source != "talk" || card.Identity.Sender != "U999" || card.Identity.Channel != "C1" {
+		t.Fatalf("the card maps %+v", card.Identity)
+	}
+	if !strings.Contains(card.Question, "A message reached talk from U999 in channel C1 (first words: 'hi'). Who is this?") {
+		t.Fatalf("the question = %q", card.Question)
+	}
+	// A second delivery from the same sender offers no second card,
+	// and one from another sender offers its own.
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "again")
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U888", "someone else")
+	if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 2 {
+		t.Fatalf("open asks = %v, %v, want 2", q, err)
+	}
+	// Picking ada on the first card writes ada's identity for U999.
+	view, err := r.st.Bead(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Asks) != 1 {
+		t.Fatalf("the card bead holds %d asks", len(view.Asks))
+	}
+	pick := 0
+	for i, o := range view.Asks[0].Options {
+		if o.Label == "ada" {
+			pick = i + 1
+		}
+	}
+	if pick == 0 {
+		t.Fatalf("the card offers %v, want ada among them", view.Asks[0].Options)
+	}
+	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := r.st.GetUser(ctx, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.IsIn("talk", "U999") {
+		t.Fatalf("ada after the pick = %+v, want U999 mapped in talk", u.Identities)
+	}
+	r.now = r.now.Add(time.Second)
+	if code := r.talk(t, "U999", "mapped now"); code != http.StatusOK {
+		t.Fatalf("the mapped sender answered %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
+		t.Fatalf("hook events = %v, want the mapped delivery as ada", evs)
+	}
+
+	// Under allow the sender is heard and no card is offered; under
+	// ignore it is dropped and none is offered either.
+	for _, word := range []string{store.HookUnknownAllow, store.HookUnknownIgnore} {
+		rr := identityDepot(t, word)
+		if _, err := rr.st.AddUser(ctx, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rr.st.AddUser(ctx, "ada", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := rr.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		mapTalk(t, rr, "ada", "U012")
+		rr.now = time.Now()
+		rr.talk(t, "U999", "unmapped words")
+		if q, err := rr.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 0 {
+			t.Fatalf("%s: open asks = %v, %v, want none", word, q, err)
 		}
 	}
 }

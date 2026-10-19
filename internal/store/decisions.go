@@ -53,6 +53,8 @@ type OpenAsk struct {
 	// Setup is the setup a setup ask proposes, with the yard's words for
 	// what approving it does; absent on any other ask.
 	Setup *SetupAsked `json:"setup,omitempty"`
+	// Identity is what a mapping ask maps; absent on any other ask.
+	Identity *IdentityAsked `json:"identity,omitempty"`
 }
 
 // DecidedAsk is one ask the person answered, declined or put aside, or its
@@ -95,6 +97,8 @@ type DecidedAsk struct {
 	// an ask is approved by ApproveSetup with the preset pick and the
 	// account together. Absent on any other ask.
 	Setup *SetupAsked `json:"setup,omitempty"`
+	// Identity is what a mapping ask maps; absent on any other ask.
+	Identity *IdentityAsked `json:"identity,omitempty"`
 }
 
 // AskQueue is what a person has to decide and has dealt with.
@@ -144,7 +148,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				q.Open = append(q.Open, OpenAsk{
 					Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 					Ask: r.Note.Seq, Question: r.Ask.Question,
-					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(),
+					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 				})
 				continue
 			}
@@ -152,7 +156,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 				Ask: r.Note.Seq, Question: r.Ask.Question,
 				Asker: r.Note.Author, Since: r.Note.At,
-				State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(),
+				State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 			}
 			// An ask that is not open has the answer its state is from.
 			d.decidedBy(r)
@@ -382,6 +386,8 @@ type BeadAsk struct {
 	// an ask is approved by ApproveSetup with the preset pick and the
 	// account together. Absent on any other ask.
 	Setup *SetupAsked `json:"setup,omitempty"`
+	// Identity is what a mapping ask maps; absent on any other ask.
+	Identity *IdentityAsked `json:"identity,omitempty"`
 }
 
 // BeadView is one bead whole: body, stage, labels, notes, its asks, and
@@ -443,7 +449,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		a := BeadAsk{
 			Ask: r.Note.Seq, To: r.Ask.To, Asker: r.Note.Author, Since: r.Note.At,
 			Question: r.Ask.Question, Context: r.Ask.Context, Options: r.Ask.Options,
-			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(),
+			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}

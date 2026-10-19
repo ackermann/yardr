@@ -32,6 +32,10 @@ type Store interface {
 	// ClaimAddress offers the operator a claim for an address a
 	// dropped delivery arrived from (store.ClaimAddress).
 	ClaimAddress(ctx context.Context, sourceName, address, text string) (bool, error)
+	// ClaimIdentity offers the operator a mapping card for the
+	// sender a dropped delivery heard by identity arrived from
+	// (store.ClaimIdentity).
+	ClaimIdentity(ctx context.Context, sourceName, sender, channel, text string) (bool, error)
 }
 
 // A refused delivery is logged as a hook_rejected event, so that a hook
@@ -189,17 +193,21 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 				rc.count("stranger")
 				rc.refuse(h, name, "stranger", http.StatusOK)
 				if h.UnknownPolicy() == store.HookUnknownUnknown {
-					// Offer the operator a card for the sender it
-					// arrived from. An identity source claims no
-					// address (ClaimAddress is address hearing's),
-					// so this offer stands where the mapping card
-					// of a later bead is offered; where none can
-					// be offered the drop stands as it was,
-					// answered 200 either way. Under ignore no
-					// card is offered at all.
+					// Offer the operator a mapping card for the sender
+					// it arrived from: who this sender is, for them to
+					// map to a user of the yard. Where none can be
+					// offered (no operator, one waiting for this
+					// sender already) the drop stands as it was,
+					// answered 200 either way. Under ignore no card
+					// is offered at all, and under allow none is
+					// needed: the sender is heard as outside.
 					if values := env.Fields[dec.D.Hear.Field]; len(values) > 0 && values[0] != "" {
-						if _, err := rc.st.ClaimAddress(r.Context(), dec.D.Name, values[0], env.Text); err != nil {
-							rc.log.Warn("address claim not offered", "hook", name, "source", dec.D.Name, "err", err)
+						channel := ""
+						if cs := env.Fields["channel"]; len(cs) > 0 {
+							channel = cs[0]
+						}
+						if _, err := rc.st.ClaimIdentity(r.Context(), dec.D.Name, values[0], channel, env.Text); err != nil {
+							rc.log.Warn("mapping card not offered", "hook", name, "source", dec.D.Name, "err", err)
 						}
 					}
 				}
