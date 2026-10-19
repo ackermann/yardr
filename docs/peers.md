@@ -1593,6 +1593,11 @@ refuses it as `too_far`. Both end the sender's stage as `refused`, with
 words that say which. A message without a path, from a yardr before this,
 is taken: its path is its sender.
 
+For a sending side worked end to end — a flow with the return's whole
+vocabulary, a peer group, a manual group whose card the operator
+approves each bead on, and the routes between them — see
+[reports.md](reports.md).
+
 #### What a returned outcome is evidence of
 
 The return is signed, so it is known which yard said it. Whether it is true

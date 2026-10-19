@@ -7,13 +7,15 @@ or a pack, with the workaround that was found. It waits in the depot
 person rewrites it into a bead of ours, and the reporting yard hears how
 it ended.
 
-This page is the receiving side: the depot, the flow `report` and its
-two stage files, the readers, and the per-yard link and intake. The
-reporting side — the flow a yard sends from, and the card its operator
-approves each report on — is beside it when it lands. The machinery is
-[peering](peers.md): a signed link, an intake, and a manual first stage
-whose member's move is the release
-([who looks at a bead first](peers.md#who-looks-at-a-bead-first)).
+This page holds both sides: the receiving side first — the depot,
+the flow `report` and its two stage files, the readers, and the
+per-yard link and intake — then the reporting side: the flow a yard
+sends from, and the card its operator approves each report on. The
+machinery is [peering](peers.md): a signed link, an intake, and a
+manual first stage whose member's move is the release
+([who looks at a bead first](peers.md#who-looks-at-a-bead-first)),
+and on the way out [a stage worked by a linked
+yard](peers.md#the-sending-side-a-stage-worked-by-a-linked-yard).
 
 ## Once: the depot, the flow and the readers
 
@@ -253,3 +255,201 @@ where bead titles surface for people: the web view's lists for the
 show`. With `bead` the only kind in, the peer can put nothing in any
 inbox here, ask nothing and send no note after the bead — its only later
 words are the return's own road home, which this yard writes.
+
+## Reporting upstream: the flow `report-out` and its card
+
+The reporting side is one link, one flow and two groups on the yard
+that sends. Its operator approves each report on a card before anything
+crosses; anyone of the yard may draft one for that approval.
+
+Once, on the reporting yard:
+
+```sh
+yardr peer add upstream <its invite line>
+yardr peer allow upstream --send ping --receive ping
+yardr peer allow upstream --send bead
+yardr group add at-upstream --runner peer --set peer=upstream --limit 3
+yardr group add report-owners --runner manual --members <operator>
+yardr flow set report-out -f report-out.flow
+yardr route add --stage draft --group report-owners --label upstream-report --originator any
+yardr route add --stage sending --group at-upstream --label upstream-report --originator any
+```
+
+with `<operator>` your own user name, and `report-out.flow`:
+
+```text
+draft -> sending on send | dropped on dropped
+sending -> heard on fixed | heard on dropped | draft on refused | draft on undelivered | draft on closed
+heard terminal
+dropped terminal
+```
+
+and the flow's stage file at `<home>/flows/report-out/draft.md` (a
+store flow's stage files live in the yard's home,
+[flows.md](flows.md#stage-files-what-a-stage-is-for)), with the text
+below, whole.
+
+The link carries `bead` out and `ping` both ways, and nothing else:
+no `mail`, no `ask`, no `thread`, no `file`, nobody exposed, nobody
+trusted. The group that sends is refused while the link does not carry
+`bead` out, so the `peer allow` lines come first. The vocabulary of
+`sending` is the return's: the receiving flow's terminal moves return
+`fixed` or `dropped`; a bead the far yard could not take ends its
+stage as `refused`, and one that never reached it as
+`undelivered`, and both go back to `draft`, where the reason stands
+as a note on the bead and the report may be mended and sent again; a
+hand move there into `closed` returns that stage's name and is read
+the same way, so a mended resend is never blocked by a word the flow
+lacks.
+
+Both routes earn their flags, and neither is decoration. The `draft`
+route to `report-owners` is what puts the card in the operator's
+decisions and makes the move out of `draft` the operator's alone: a
+stage ask is put only where the stage's route leads to a manual group,
+and the member check likewise refuses nobody where there is none, so
+without it a drafter could move their own report on and never meet
+the card at all. Both routes take `--originator any`, because a
+report's originator is whoever's work it builds on — a person who
+creates one is its originator, and one an agent files from its pane
+takes that pane bead's — and any person or agent of the yard may
+draft a report for the operator to approve; without it a report
+drafted for anyone but the operator would wait with no card put and
+no group to refuse its drafter, or never be claimed. Both routes also
+name the label `upstream-report`: the bead must carry it, as the
+creation below does, or no route takes it in either stage and it
+simply waits — an unlabelled bead is never sent.
+
+After the setup, `yardr flow show report-out` must name the `draft`
+stage file with no broken warning beside it (a broken card puts no
+ask, and the bead still moves by hand); it says `pointed at by
+nothing`, which is expected — report beads are depot-less and pin
+the flow themselves. `yardr peer show upstream` must say `send
+bead, ping`, and `yardr route list` both stages with the label and
+`any` originator.
+
+### `draft.md`
+
+```text
+summary: A report waits here for the operator, who re-reads it whole and picks Send on its card, or drops it.
+
+A bead here is a report this yard may send to the upstream yard: a fault,
+a piece of feedback or a feature request found in yardr, a harness or a
+pack, with the workaround that was found. It is a depot-less bead, so it
+names no remote, starts no work anywhere and crosses with its words alone.
+Until the operator picks Send on its card, nothing crosses: the stage is a
+manual one whose only member is the operator, so a bead's agent cannot
+move its own report on.
+
+A report holds, in its title and body: what happened and what was
+expected, the harness's kind and version where a harness is involved
+(read off the machine as yardr doctor reports it), this yard's yardr
+build, the kind of depot it happened in, the workaround that was found,
+and how often it has been seen. The title holds at most 512 bytes and
+the body at most 64 KB: over either cap the bead is not sent, and its
+stage ends refused saying so. The type is bug, feature or task (any
+other arrives as task); the priority is left at the yard's default; the
+bead carries no links to outside issues (name one in words where one
+matters). Notes cross only as they fit — a long one arrives cut with a
+mark saying so, the oldest left out past their cap together — so a note
+may repeat what the body says and must never extend it: nothing the
+upstream reader will act on lives only in a note.
+
+A report never holds: a secret or any credential, token or value from an
+environment; code, a diff or a file, from a repository or anywhere else;
+another bead's title, body or notes — the report is written fresh from
+the finding, not forwarded; a path, hostname, address or person's name
+from this machine that the fault does not need; and no attachment of any
+kind, since the link carries no file.
+
+Drafting — by a person or by an agent — ends with a note on the bead
+saying the report is ready, and from that note nobody but the operator
+edits the bead. The operator then re-reads the bead whole (yardr bead
+show <id> with its history, yardr bead history <id>) immediately before
+picking, and picks Send only where the history shows no change since the
+ready note but their own. Picking Send approves the bead as it stands at
+the pick, never a snapshot of it as it stood when first read: pick on
+the fresh reading. Never edit a bead in sending.
+
+## Ask
+kind: choice
+question: Send this report to the upstream yard?
+context:
+- Picking Send sends the bead as it stands at your pick, not as it stood when you first read it: re-read it whole now, bead show and its history, and pick on that reading.
+- The title and body cross whole or not at all: over their caps the bead comes back refused, never trimmed. Everything the report depends on belongs in the body.
+- Notes cross only as they fit: a long note arrives cut with a mark saying so, and the oldest are left out past the notes' cap. Notes repeat the body; they never extend it.
+- Its type is bug, feature or task (any other arrives as task), its priority stands at the default, and it carries no links: name an outside issue in words.
+- It holds no secret or credential, no code, diff or file, no other bead's title, body or notes, no path, hostname, address or person's name the fault does not need, and no attachment.
+recommend: 1
+why: The operator has just re-read the bead whole, its history shows no edit since drafting finished, and it holds no secret, no code and no other bead's words.
+send: The report crosses to the upstream yard and waits there for a person.
+dropped: The bead closes here and nothing crosses.
+```
+
+## Drafting and approving a report
+
+A report is drafted as a depot-less bead to the template the `draft`
+stage file carries:
+
+```sh
+yardr bead create "Kimi 2.2.0 trust dialog stops a session's first prompt" \
+  --type bug --label upstream-report --meta flow=report-out -b - <<'EOF'
+What happened: a session started under Kimi 2.2.0 stops at the trust
+dialog ("Do you trust this folder?") and waits; the first prompt is
+never answered and the bead sits stalled until a person accepts.
+Expected: the session starts and answers its brief.
+Harness: kimi 2.2.0. Yardr: f415c7fb50e4. Depot kind: git.
+Workaround: answer the dialog once by hand, or start the harness with
+its trust flag; sessions run normally after that.
+Seen: twice on 2026-10-19, on the first session after the upgrade.
+EOF
+```
+
+It waits in `draft`: routed to `report-owners`, its card in the
+operator's decisions (`yardr review list` shows the bead;
+`prime --bead` shows the card, with the command that answers it), and
+nothing crosses until the Send pick. A person drafts one as
+themselves; an agent drafts one from its pane like any bead, and it
+takes that pane bead's originator. Either may edit it while it waits,
+but the stage's only member is the operator, so a drafter's own move
+of it out of `draft` is refused naming the operator — the refusal is
+the store's, from the pane the command came from. Drafting ends with
+a note on the bead saying it is ready.
+
+The operator then re-reads the bead whole — `yardr bead show <id>`
+with `yardr bead history <id>` — immediately before picking, and
+picks Send only where the history shows no change since the ready
+note but their own:
+
+```sh
+yardr bead answer <id> <ask> 1 [words]
+```
+
+with the ask's number as the card prints it. Picking moves the bead
+to `sending`, which the peer group claims and sends. What the pick
+approves is the bead as it stands at the pick, never a snapshot of
+it as it stood when first read; afterwards the same history proves
+it: no `updated` event but the operator's own between the ready note
+and the `peer_bead_sent` event means the title and body that crossed
+are the ones that were approved. Picking the card's second option
+closes the bead here in `dropped`, and nothing crosses.
+
+Over the title or body caps the bead is not sent: its stage ends
+`refused`, back in `draft`, and the bead says why — `not sent to
+upstream … it is too large`, with the two sizes — in a note by
+`yard`, where the report may be mended and sent again. A fresh card
+is put on its return, as on any re-entry.
+
+## What comes back
+
+In `sending` the bead's line says where it stands at the far yard —
+`at upstream: sent <when>, upstream last heard <when>` — and hears
+nothing while a person reads it: the link carries no `thread`, so no
+events cross meanwhile. When the far flow ends, the outcome and
+every note written there land on the bead at once, by their writers
+as `<name>@upstream`, and the bead moves to `heard`, closed: a
+`fixed` says which version, a `dropped` says why, each with the
+rewritten bead named. A `refused` ending returns the bead to `draft`
+instead, with the reason as a note by the far yard and a fresh card,
+where the report may be mended and sent again. What the answer is
+evidence of is that yard's word, as [any returned
+outcome](peers.md#what-a-returned-outcome-is-evidence-of) is.
