@@ -87,7 +87,8 @@ type Adapter interface {
 - `Verify` proves the delivery came from the service, from the request's
   headers, the raw body and the hook's secret, and returns the service's id
   of the delivery (`""` when it has none). A declared source is verified
-  from what its file says under `hook.verify`: HMAC-SHA256 of the body, in
+  from what its file says under `hook.verify`: HMAC-SHA256 of the body,
+  or of a template over its timestamp and body, in
   the header it names (`Linear-Signature`, `X-Hub-Signature-256`), and
   after it the timestamp where it says one is; Linear's signed
   `webhookTimestamp` must also be within a minute of the yard's clock.
@@ -909,17 +910,26 @@ hook:
 ```
 
 - **Verify** stays data, checked by the core. With `hmac-sha256` it is the
-  hex HMAC-SHA256 of the raw body with the hook's secret, in the header
-  `signature` names, past its `prefix` (`prefix: "sha256="`, as GitHub
-  sends, or none). With `secret` the header holds the secret itself,
-  compared as it arrives, in constant time; `signed`, `encoding` and
-  `prefix` do not apply to it. The timestamp is checked once the delivery
-  is verified: in the body at the dot path or in a header, in `ms` or `s`,
-  within `window` of the yard's clock. A delivery with a bad signature or
-  secret, or a timestamp outside the window, is refused, as Linear's is.
-  The signing secret is handed to no command, and an unverified body
-  reaches none: with `secret`, normalize is handed the request's headers
-  without the one that holds it.
+  hex HMAC-SHA256 of what `signed` names with the hook's secret, in the
+  header `signature` names, past its `prefix` (`prefix: "sha256="`, as
+  GitHub sends, or none). `signed: body` is the raw body alone, as
+  Linear and GitHub say it. A service that signs its timestamp in says
+  so as a template over the two things the core has before it trusts
+  either, the raw timestamp string and the raw body, with the service's
+  literal text around them: `signed: "v0:{timestamp}:{body}"` is the
+  basestring `v0:<timestamp>:<raw body>`, the timestamp read from the
+  header `timestamp` names as it arrived, never a re-rendered integer
+  and never re-serialised JSON. With `secret` the header holds the
+  secret itself, compared as it arrives, in constant time; `signed`,
+  `encoding` and `prefix` do not apply to it. The timestamp is checked
+  once the delivery is verified: in the body at the dot path or in a
+  header, in `ms` or `s`, within `window` of the yard's clock, so a
+  replayed body whose signature covers its timestamp still fails on
+  age. A delivery with a bad signature or secret, or a timestamp
+  outside the window, is refused, as Linear's is. The signing secret is
+  handed to no command, and an unverified body reaches none: with
+  `secret`, normalize is handed the request's headers without the one
+  that holds it.
 - **Delivery** is the service's id of the delivery: in the header
   `delivery` names, or in the body at the dot path (`delivery: { body:
   update_id }`). A retry shares the id and is answered 200 with no event,
@@ -931,6 +941,15 @@ hook:
   deliveries to one hook share a body, but one event's body goes to every
   hook that asked for it) or `repeat` (a body may come again as a new
   delivery, as a `token` sender's may).
+- **Challenge** (`hook.challenge`) is a service's verification
+  handshake, answered by the receiver and not by normalize: `challenge:
+  { body: type, value: url_verification, answer: challenge }` says a
+  verified body whose field at the dot path `body` holds `value` is
+  answered at once with a JSON object naming that body's `answer`
+  field and its value (`{"challenge":"…"}`), before normalize, dedupe
+  or recording, and records no event. Verification still comes first:
+  an unsigned handshake is refused as any bad signature is. A source
+  with no `challenge` key behaves exactly as before.
 - **Normalize** runs under the contract above: a list, run without a
   shell, one JSON object on stdin, one on stdout, exit 0, at most 64 KB,
   30 seconds. Its stdin is `{"headers": {...}, "body": ...}`: the
@@ -965,7 +984,10 @@ hook:
   fills.
 - **Refused when the file is added**: a scheme that is neither
   `hmac-sha256` nor `secret`, `signed`, `encoding` or `prefix` with scheme
-  `secret`, a signature that covers anything but the body, an encoding
+  `secret`, a signed template with a missing or repeated `{body}` or
+  `{timestamp}`, an unknown placeholder, or one naming `{timestamp}`
+  with no `timestamp` key, a challenge with a missing `body`, `value` or
+  `answer` or one that is no dot path into the body, an encoding
   that is not `hex`, a delivery id in a header and in the body, bodies
   that repeat with no delivery, a timestamp in the body and in a header,
   or in neither, a unit that is not `ms` or `s`, a window that is no

@@ -26,12 +26,14 @@ var bodiesKinds = []string{BodiesUnique, BodiesUniquePerHook, BodiesRepeat}
 
 // The ways the core verifies a delivery of a declared source.
 const (
-	// HookScheme is a scheme of hook.verify: HMAC-SHA256 over the body.
+	// HookScheme is a scheme of hook.verify: HMAC-SHA256 over what
+	// signed names.
 	HookScheme = "hmac-sha256"
 	// HookSecret is a scheme of hook.verify: the header holds the hook's
 	// secret itself, compared as it arrives.
 	HookSecret = "secret"
-	// HookSigned is what the signature covers: the raw body.
+	// HookSigned is what the signature covers when it covers the body
+	// alone: the word body.
 	HookSigned = "body"
 	// HookEncoding is how the signature arrives: hex.
 	HookEncoding = "hex"
@@ -56,6 +58,10 @@ type Hook struct {
 	// Bodies is how far a body identifies a delivery: BodiesUnique,
 	// BodiesUniquePerHook or BodiesRepeat.
 	Bodies string `json:"bodies"`
+	// Challenge is the service's verification handshake, answered by the
+	// receiver from a verified body before it normalizes or records
+	// anything, nil for a service that sends none.
+	Challenge *HookChallenge `json:"challenge,omitempty"`
 	// Normalize turns a verified body into the envelope: in {headers, body},
 	// out the envelope. It is handed no credential.
 	Normalize []string `json:"normalize"`
@@ -93,13 +99,33 @@ type HookRegister struct {
 	Secret string `json:"secret,omitempty"`
 }
 
+// HookChallenge is a service's verification handshake, as data: a
+// verified body whose field at Body holds Value is answered at once with
+// a JSON object naming its Answer field and that field's value, before
+// normalize, dedupe or recording. The three name what the service sends
+// and expects back, in its own words: for Slack, body type, value
+// url_verification, answer challenge.
+type HookChallenge struct {
+	// Body is the dot path into the body of the field that names the
+	// handshake (type).
+	Body string `json:"body"`
+	// Value is what that field holds for a handshake (url_verification).
+	Value string `json:"value"`
+	// Answer is the dot path into the body of the field the answer names
+	// and carries (challenge).
+	Answer string `json:"answer"`
+}
+
 // HookVerify is how the core proves a delivery came from the source, from
 // the request's headers and the raw body, using the hook's secret. The
 // signing secret reaches no command, and an unverified body reaches none.
 type HookVerify struct {
 	// Scheme is how a delivery is verified: hmac-sha256, or secret, the
 	// header holding the hook's secret itself. Signed is what the
-	// signature covers: body, for hmac-sha256 alone.
+	// signature covers, for hmac-sha256 alone: the word body for the raw
+	// body alone, or a template over {timestamp} and {body}, each named
+	// once, with the literal text around them the service's
+	// (v0:{timestamp}:{body}).
 	Scheme string `json:"scheme"`
 	Signed string `json:"signed"`
 	// Signature is the header the signature arrives in, in hex, past the
@@ -177,11 +203,13 @@ func (r *reader) hook(e entry) *Hook {
 	h := &Hook{}
 	var verify, bodies, normalize, register *entry
 	var deliveryNamed bool
-	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "normalize", "keys", "register") {
+	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "challenge", "normalize", "keys", "register") {
 		switch f.key {
 		case "verify":
 			verify = &f
 			h.Verify, deliveryNamed = r.hookVerify(f)
+		case "challenge":
+			h.Challenge = r.hookChallenge(f)
 		case "bodies":
 			bodies = &f
 			if s, ok := r.str(f.v, f.path); ok && !slices.Contains(bodiesKinds, s) {
@@ -279,7 +307,7 @@ func (r *reader) hookRegister(e entry) *HookRegister {
 // bodies check in hook.
 func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 	v := HookVerify{}
-	var scheme, signed, signature, delivery *entry
+	var scheme, signed, signature, delivery, timestamp *entry
 	for _, f := range r.entries(e.v, e.path, "scheme", "signed", "signature", "delivery", "timestamp") {
 		switch f.key {
 		case "scheme":
@@ -296,6 +324,7 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 		case "delivery":
 			delivery = &f
 		case "timestamp":
+			timestamp = &f
 			v.Timestamp = r.hookTimestamp(f)
 		}
 	}
@@ -314,10 +343,10 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 		}
 	} else if secret {
 		r.errf(signed.v, signed.path, "is for scheme %s: with %s the header holds the secret itself", HookScheme, HookSecret)
-	} else if s, ok := r.str(signed.v, signed.path); ok && s != HookSigned {
-		r.errf(signed.v, signed.path, "%q: the signature covers %s", s, HookSigned)
-	} else if ok {
-		v.Signed = s
+	} else if s, ok := r.str(signed.v, signed.path); ok {
+		if signed, ok := r.signedTemplate(*signed, s, timestamp != nil); ok {
+			v.Signed = signed
+		}
 	}
 	if signature == nil {
 		if secret {
@@ -336,6 +365,109 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 		v.Delivery = r.hookDelivery(*delivery)
 	}
 	return v, delivery != nil
+}
+
+// signedTemplate reads what a signature covers: the word body for the
+// body alone, or a template over {timestamp} and {body} with the
+// service's literal text around them (v0:{timestamp}:{body}). A
+// template names {timestamp} and {body} once each, names no other
+// placeholder, and names {timestamp} only where verify names a
+// timestamp to read it from. One mistake is one line, as elsewhere.
+func (r *reader) signedTemplate(e entry, s string, hasTimestamp bool) (string, bool) {
+	if s == HookSigned {
+		return s, true
+	}
+	counts := map[string]int{}
+	for rest := s; rest != ""; {
+		open := strings.Index(rest, "{")
+		stray := strings.Index(rest, "}")
+		if open == -1 {
+			if stray != -1 {
+				r.errf(e.v, e.path, "%q: unknown placeholder %q: a signed template names {body} and {timestamp} alone", s, rest[stray:])
+				return "", false
+			}
+			break
+		}
+		if stray != -1 && stray < open {
+			r.errf(e.v, e.path, "%q: unknown placeholder %q: a signed template names {body} and {timestamp} alone", s, rest[stray:open])
+			return "", false
+		}
+		end := strings.Index(rest[open:], "}")
+		if end == -1 {
+			r.errf(e.v, e.path, "%q: unknown placeholder %q: a signed template names {body} and {timestamp} alone", s, rest[open:])
+			return "", false
+		}
+		name := rest[open+1 : open+end]
+		if name != "body" && name != "timestamp" {
+			r.errf(e.v, e.path, "%q: unknown placeholder {%s}: a signed template names {body} and {timestamp} alone", s, name)
+			return "", false
+		}
+		counts[name]++
+		rest = rest[open+end+1:]
+	}
+	switch {
+	case counts["body"] > 1:
+		r.errf(e.v, e.path, "%q: repeated {body}: a signed template names {timestamp} and {body} once each", s)
+		return "", false
+	case counts["timestamp"] > 1:
+		r.errf(e.v, e.path, "%q: repeated {timestamp}: a signed template names {timestamp} and {body} once each", s)
+		return "", false
+	case counts["body"] == 0:
+		r.errf(e.v, e.path, "%q: missing {body}: a signed template names {timestamp} and {body} once each", s)
+		return "", false
+	case counts["timestamp"] == 0:
+		r.errf(e.v, e.path, "%q: missing {timestamp}: a signed template names {timestamp} and {body} once each", s)
+		return "", false
+	case counts["timestamp"] == 1 && !hasTimestamp:
+		r.errf(e.v, e.path, "%q: {timestamp} with no timestamp: a signed template naming {timestamp} needs verify.timestamp", s)
+		return "", false
+	}
+	return s, true
+}
+
+// hookChallenge reads a service's verification handshake: the field of
+// the body that names it, the value that field holds for it, and the
+// field the answer names and carries. Each is what would fail at every
+// handshake when missing or no dot path into the body.
+func (r *reader) hookChallenge(e entry) *HookChallenge {
+	c := &HookChallenge{}
+	var body, value, answer *entry
+	for _, f := range r.entries(e.v, e.path, "body", "value", "answer") {
+		switch f.key {
+		case "body":
+			body = &f
+			if s, ok := r.str(f.v, f.path); ok && !hookPath(s) {
+				r.errf(f.v, f.path, "%q: a dot path into the body (type)", s)
+			} else if ok {
+				c.Body = s
+			}
+		case "value":
+			value = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				c.Value = s
+			}
+		case "answer":
+			answer = &f
+			if s, ok := r.str(f.v, f.path); ok && !hookPath(s) {
+				r.errf(f.v, f.path, "%q: a dot path into the body (challenge)", s)
+			} else if ok {
+				c.Answer = s
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return c
+	}
+	if body == nil {
+		r.errf(e.v, join(e.path, "body"), "missing: the field of the body that names a challenge (type)")
+	}
+	if value == nil {
+		r.errf(e.v, join(e.path, "value"), "missing: the value that field holds for a challenge (url_verification)")
+	}
+	if answer == nil {
+		r.errf(e.v, join(e.path, "answer"), "missing: the field of the body the answer names (challenge)")
+	}
+	return c
 }
 
 // hookSignature reads where a delivery's signature arrives: the header, in

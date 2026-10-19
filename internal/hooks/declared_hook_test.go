@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -724,6 +725,176 @@ func TestDeclaredVerify(t *testing.T) {
 				t.Errorf("%s: err = %v, want bad request", tc.name, err)
 			}
 		}
+	}
+}
+
+// A signature over timestamp and body together: the basestring is the
+// template with the header's raw timestamp string and the raw body
+// filled in, so a signature over the body alone, a bad signature and a
+// correctly signed stale timestamp are each refused, and the timestamp
+// is read as it arrived, never re-rendered.
+func TestDeclaredVerifySignedTemplate(t *testing.T) {
+	d, err := source.Parse("q.yaml", []byte("name: q\nhook:\n  verify:\n"+
+		"    scheme: hmac-sha256\n    signed: \"v0:{timestamp}:{body}\"\n"+
+		"    signature: { header: Q-Sig, encoding: hex, prefix: \"v0=\" }\n"+
+		"    delivery: { header: Q-Delivery }\n"+
+		"    timestamp: { header: Q-Sent, unit: s, window: 5m }\n"+
+		"  bodies: repeat\n  normalize: [normalize]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := hooks.Declared{D: d}
+	now := time.Now()
+	body := []byte(`{"type":"event_callback","event_id":"Ev1"}`)
+	basestring := func(ts string, b []byte) []byte {
+		return []byte("v0:" + ts + ":" + string(b))
+	}
+	verify := func(ts, sig string) error {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(string(body)))
+		req.Header.Set("Q-Sig", "v0="+sig)
+		req.Header.Set("Q-Sent", ts)
+		req.Header.Set("Q-Delivery", "d-1")
+		delivery, err := ad.Verify(req, body, []byte(secret), now)
+		if err == nil && delivery != "d-1" {
+			t.Fatalf("delivery = %q, want d-1", delivery)
+		}
+		return err
+	}
+	ts := fmt.Sprint(now.Unix())
+	if err := verify(ts, sign(secret, basestring(ts, body))); err != nil {
+		t.Fatalf("signature over the basestring: %v", err)
+	}
+	// The header's raw string, with its leading zero kept: signing over
+	// it verifies, which a re-rendered integer would not.
+	padded := "0" + ts
+	if err := verify(padded, sign(secret, basestring(padded, body))); err != nil {
+		t.Fatalf("signature over the raw timestamp string: %v", err)
+	}
+	if err := verify(ts, sign(secret, body)); !errors.Is(err, hooks.ErrUnauthorized) {
+		t.Fatalf("signature over the body alone: err = %v, want unauthorized", err)
+	}
+	if err := verify(ts, sign("wrong-secret", basestring(ts, body))); !errors.Is(err, hooks.ErrUnauthorized) {
+		t.Fatalf("bad signature: err = %v, want unauthorized", err)
+	}
+	stale := fmt.Sprint(now.Add(-6 * time.Minute).Unix())
+	if err := verify(stale, sign(secret, basestring(stale, body))); !errors.Is(err, hooks.ErrUnauthorized) {
+		t.Fatalf("stale timestamp: err = %v, want unauthorized", err)
+	}
+}
+
+// challengeDepot is a depot whose receiver serves the declared source
+// chal, verified by a signature over v0:{timestamp}:{body} and naming a
+// url_verification handshake, with the command printing a fixed envelope.
+func challengeDepot(t *testing.T) *depot {
+	t.Helper()
+	home := t.TempDir()
+	r := newDepot(t)
+	r.rc = hooks.NewReceiver(r.own, home, nil)
+	r.rc.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = r.rc.Handler()
+	ctx := context.Background()
+	text := "name: chal\nhook:\n  verify:\n" +
+		"    scheme: hmac-sha256\n    signed: \"v0:{timestamp}:{body}\"\n" +
+		"    signature: { header: Chal-Signature, encoding: hex, prefix: \"v0=\" }\n" +
+		"    delivery: { body: event_id }\n" +
+		"    timestamp: { header: Chal-Timestamp, unit: s, window: 5m }\n" +
+		"  bodies: repeat\n" +
+		"  challenge: { body: type, value: url_verification, answer: challenge }\n" +
+		"  normalize: [normalize]\n"
+	d, err := source.Parse("chal.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(secretNormalize), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	if _, err := r.st.PutSource(ctx, "chal.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(home, "chal.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "chal", Source: "chal", SecretFile: secretFile}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// A verified handshake is answered with its challenge value and records
+// nothing; an unverified one is refused as any bad signature is, a stale
+// one likewise, and a verified body that is no handshake is recorded as
+// any other delivery. A source with no challenge key answers the same
+// body by recording it.
+func TestDeclaredChallengeAnsweredAfterVerify(t *testing.T) {
+	r := challengeDepot(t)
+	r.now = time.Now()
+	ts := fmt.Sprint(r.now.Unix())
+	challengeBody := []byte(`{"type":"url_verification","challenge":"tok-123","event_id":"Ev1"}`)
+	signFor := func(key, stamp string, b []byte) string {
+		return "v0=" + sign(key, []byte("v0:"+stamp+":"+string(b)))
+	}
+	post := func(b []byte, hdr map[string]string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/chal", strings.NewReader(string(b)))
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, strings.TrimSpace(string(out))
+	}
+	good := map[string]string{"Chal-Signature": signFor(secret, ts, challengeBody), "Chal-Timestamp": ts}
+	if code, body := post(challengeBody, good); code != http.StatusOK || body != `{"challenge":"tok-123"}` {
+		t.Fatalf("verified challenge: %d %s", code, body)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("a challenge recorded %d hook events", n)
+	}
+	bodyOnly := map[string]string{"Chal-Signature": "v0=" + sign(secret, challengeBody), "Chal-Timestamp": ts}
+	if code, _ := post(challengeBody, bodyOnly); code != http.StatusUnauthorized {
+		t.Fatalf("challenge signed over the body alone: %d", code)
+	}
+	bad := map[string]string{"Chal-Signature": signFor("wrong-secret", ts, challengeBody), "Chal-Timestamp": ts}
+	if code, _ := post(challengeBody, bad); code != http.StatusUnauthorized {
+		t.Fatalf("challenge with a bad signature: %d", code)
+	}
+	stale := fmt.Sprint(r.now.Add(-6 * time.Minute).Unix())
+	staleHdr := map[string]string{"Chal-Signature": signFor(secret, stale, challengeBody), "Chal-Timestamp": stale}
+	if code, _ := post(challengeBody, staleHdr); code != http.StatusUnauthorized {
+		t.Fatalf("challenge with a stale timestamp: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("refused challenges recorded %d hook events", n)
+	}
+	eventBody := []byte(`{"type":"event_callback","event_id":"Ev2"}`)
+	eventHdr := map[string]string{"Chal-Signature": signFor(secret, ts, eventBody), "Chal-Timestamp": ts}
+	if code, _ := post(eventBody, eventHdr); code != http.StatusOK {
+		t.Fatalf("verified non-challenge: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("a verified non-challenge left %d hook events, want 1", n)
+	}
+	// No challenge key: the same handshake-shaped body is a delivery.
+	plain := secretDepot(t, "    scheme: secret\n    signature: { header: Sentry-Secret }\n")
+	if code := plain.post(t, "/hooks/sentry", challengeBody, map[string]string{"Sentry-Secret": secret}); code != http.StatusOK {
+		t.Fatalf("challenge-shaped body to a source with no challenge: %d", code)
+	}
+	if n := len(plain.hookEvents(t)); n != 1 {
+		t.Fatalf("a source with no challenge left %d hook events, want 1", n)
 	}
 }
 

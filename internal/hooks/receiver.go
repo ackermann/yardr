@@ -153,6 +153,17 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, h, name, reason, code, err)
 		return
 	}
+	// A verification handshake is answered from the verified body at
+	// once, before Normalize, dedupe or recording: it is the service
+	// proving the endpoint is live, not a delivery. Verification came
+	// first, so an unsigned handshake is refused above as any bad
+	// signature is. A source with no challenge key has none of this.
+	if dec, ok := ad.(Declared); ok {
+		if answerName, answerValue, ok := dec.ChallengeAnswer(body); ok {
+			writeJSON(w, http.StatusOK, map[string]any{answerName: answerValue})
+			return
+		}
+	}
 	env, err := ad.Normalize(r.Header, body)
 	if err != nil {
 		rc.reject(w, h, name, "bad_request", http.StatusBadRequest, err)

@@ -142,7 +142,7 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", unauthorized("missing or malformed %s", v.Signature.Header)
 		}
 		mac := hmac.New(sha256.New, secret)
-		mac.Write(body)
+		mac.Write(signedData(v, r, body))
 		if !hmac.Equal(sig, mac.Sum(nil)) {
 			return "", unauthorized("%s does not match", v.Signature.Header)
 		}
@@ -164,6 +164,104 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 		}
 	}
 	return d.deliveryID(r, body), nil
+}
+
+// signedData is what a signature covers, built from the declaration's
+// signed template: the word body is the raw body alone, and a template
+// is its literal text with {timestamp} and {body} filled in. The
+// timestamp is the raw string the sender sent — the header's value as it
+// arrived, or the body's value as written — never a re-rendered integer
+// or re-serialised JSON, so basestring and signature agree byte for
+// byte. The age of that timestamp is checked after this, in Verify, as
+// it was when signed covered the body alone.
+func signedData(v source.HookVerify, r *http.Request, body []byte) []byte {
+	if v.Signed == "" || v.Signed == source.HookSigned {
+		return body
+	}
+	timestamp := ""
+	if strings.Contains(v.Signed, "{timestamp}") {
+		timestamp = signedTimestamp(v, r, body)
+	}
+	var out bytes.Buffer
+	rest := v.Signed
+	for rest != "" {
+		bodyAt := strings.Index(rest, "{body}")
+		tsAt := strings.Index(rest, "{timestamp}")
+		switch {
+		case bodyAt == -1 && tsAt == -1:
+			out.WriteString(rest)
+			rest = ""
+		case tsAt == -1 || (bodyAt != -1 && bodyAt < tsAt):
+			out.WriteString(rest[:bodyAt])
+			out.Write(body)
+			rest = rest[bodyAt+len("{body}"):]
+		default:
+			out.WriteString(rest[:tsAt])
+			out.WriteString(timestamp)
+			rest = rest[tsAt+len("{timestamp}"):]
+		}
+	}
+	return out.Bytes()
+}
+
+// signedTimestamp is the timestamp's raw string, for a signed template
+// that names it: the header's value as it arrived where verify.timestamp
+// names a header, or the value at its dot path in the body as written
+// (a JSON number keeps its digits). "" where the body is no JSON or
+// carries none: the signature then does not match, as a missing header's
+// does.
+func signedTimestamp(v source.HookVerify, r *http.Request, body []byte) string {
+	t := v.Timestamp
+	if t == nil {
+		return ""
+	}
+	if t.Header != "" {
+		return r.Header.Get(t.Header)
+	}
+	if t.Body == "" {
+		return ""
+	}
+	parsed, err := hookJSON(body)
+	if err != nil {
+		return ""
+	}
+	at, ok := hookAt(parsed, t.Body)
+	if !ok {
+		return ""
+	}
+	return hookScalar(at)
+}
+
+// ChallengeAnswer answers a service's verification handshake from a
+// verified body: where the declaration's hook.challenge names a body
+// whose field at Body holds Value, it returns the Answer field's name
+// as written and its value, for the receiver to answer with at once.
+// ok is false for a source with no challenge, a body that is no JSON,
+// and a verified body that is no handshake: each is normalized and
+// recorded as any other delivery. An answer field that is no scalar
+// (an object, an array, null) is no answer either.
+func (d Declared) ChallengeAnswer(body []byte) (name, value string, ok bool) {
+	if d.D == nil || d.D.Hook == nil || d.D.Hook.Challenge == nil {
+		return "", "", false
+	}
+	c := d.D.Hook.Challenge
+	parsed, err := hookJSON(body)
+	if err != nil {
+		return "", "", false
+	}
+	field, found := hookAt(parsed, c.Body)
+	if !found || hookScalar(field) != c.Value {
+		return "", "", false
+	}
+	answer, found := hookAt(parsed, c.Answer)
+	if !found {
+		return "", "", false
+	}
+	switch answer.(type) {
+	case string, json.Number, bool:
+		return c.Answer, hookScalar(answer), true
+	}
+	return "", "", false
 }
 
 // deliveryID is the service's id of the delivery: the header the
