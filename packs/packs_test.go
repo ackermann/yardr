@@ -1178,9 +1178,12 @@ func TestSlackPack(t *testing.T) {
 		}
 		return v, true
 	}
-	bot, ok := at("bot_user", "display_name")
+	bot, ok := at("features", "bot_user", "display_name")
 	if !ok || bot == "" {
-		t.Errorf("the manifest names no bot user: %v", doc["bot_user"])
+		t.Errorf("the manifest names no bot user under features: %v", doc["features"])
+	}
+	if major, ok := at("_metadata", "major_version"); !ok || major != 1 {
+		t.Errorf("the manifest's major version = %v, want 1", major)
 	}
 	scopes, ok := at("oauth_config", "scopes")
 	if !ok {

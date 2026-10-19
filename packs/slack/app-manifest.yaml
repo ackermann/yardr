@@ -15,11 +15,13 @@
 # mpim:history in particular is a reading scope only: it lets a heard
 # group thread be read back, and no message.mpim event is ever
 # subscribed, so it widens nothing that is heard.
+_metadata:
+  major_version: 1
 display_information:
   name: yardr
-bot_user:
-  display_name: yardr
-  always_online: true
+features:
+  bot_user:
+    display_name: yardr
 oauth_config:
   scopes:
     bot:
