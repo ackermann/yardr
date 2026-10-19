@@ -270,6 +270,36 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 | `data.reader` | string | who read |
 | `data.through` | number | through which seq |
 
+### A reaction on mail: `reaction`
+
+A party to a letter put an emoji on it, or took theirs away. Read the conversation with the other party again then: `reactions` on the letter of `data.seq` is what it now holds.
+
+```json
+{
+  "seq": 14,
+  "kind": "reaction",
+  "actor": "jo",
+  "data": {
+    "emoji": "👍",
+    "preview": "The shed is painted. Shall I land it?",
+    "seq": 13,
+    "to": "yardmaster"
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `reaction` |
+| `actor` | string | who reacted |
+| `at` | time | when |
+| `data.seq` | number | the seq of the mail's event |
+| `data.emoji` | string | which of 👍 👎 ❤️ 🎉 👀 ✅ it is; `""` when the reaction was taken away |
+| `data.to` | string | the other party to the mail, whom this reaction tells in a crew inbox |
+| `data.preview` | string | the mail's first words for the crew inbox line, whitespace folded and at most 80 characters |
+
 ### A crew member's status: `crew_status`
 
 The daemon saw a crew member's session do something else than before. Any other event whose kind begins `crew_` says that a session started, stopped or failed, or that the list changed, and carries less than what changed: read `Crew` again on it.

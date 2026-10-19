@@ -755,6 +755,8 @@ var apiEvents = []apiEvent{
 			{"at", "time", "when"},
 			{"data.seq", "number", "the seq of the mail's event"},
 			{"data.emoji", "string", "which of 👍 👎 ❤️ 🎉 👀 ✅ it is; `\"\"` when the reaction was taken away"},
+			{"data.to", "string", "the other party to the mail, whom this reaction tells in a crew inbox"},
+			{"data.preview", "string", "the mail's first words for the crew inbox line, whitespace folded and at most 80 characters"},
 		},
 	},
 	{
