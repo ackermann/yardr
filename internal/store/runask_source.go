@@ -598,7 +598,13 @@ func hookSays(d *source.Declaration) string {
 		if prefix == "" {
 			prefix = "none"
 		}
-		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over the body (scheme hmac-sha256, signed: body), the signature in the header %s as %s past the prefix %s", v.Signature.Header, v.Signature.Encoding, prefix)
+		// What the signature covers is the declaration's own word: the
+		// body alone, or a template over timestamp and body together.
+		signed, over := v.Signed, v.Signed
+		if signed == "" || signed == source.HookSigned {
+			signed, over = source.HookSigned, "the body"
+		}
+		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over %s (scheme hmac-sha256, signed: %s), the signature in the header %s as %s past the prefix %s", over, signed, v.Signature.Header, v.Signature.Encoding, prefix)
 	}
 	named := "it sends no delivery id"
 	switch {

@@ -247,7 +247,7 @@ The first is the id step 7 sets, a token Slack refuses fails the check here rath
 9. **The subscription, and an invitation.** The yardmaster subscribes itself from its pane (section 3.6's line) — an agent step, not an operator terminal — and the operator invites the bot into each channel it should hear (`/invite @<bot>` in Slack), without which Slack sends the channel nothing. A first mention is then the test: it lands in the yardmaster's inbox as
 
 ```text
-5210 10-17 18:02  hook (mentioned) slack message create by ada (U012AB3CD) on "C012AB3CD:1729156800.000100": @yardr can the shed land on Monday?
+5210 10-17 18:02  hook (mentioned) slack message create by ada (U012AB3CD): <@U…> can the shed land on Monday?
 ```
 
 and `yardr reply 5210 "Noted; I will post here when it lands."` answers in that thread. The thread is read back with `yardr thread show 5210` on this channel delivery too — the bot belongs to the channel it was invited into, and its token holds `channels:history` (section 3.6) — and `yardr hook show 5210` holds the delivery itself meanwhile. Two companion checks pin the group boundary of section 3.6 in the same walk: a message mentioning the bot in a group direct message the bot is part of lands in the inbox once, as a `mentioned` delivery, and a group message mentioning nobody lands nowhere — Slack sends no event for it under step 6's two subscriptions — while a one-to-one direct message mentioning nobody still lands whole by the `room=dm` subscription.

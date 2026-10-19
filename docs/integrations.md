@@ -1949,9 +1949,14 @@ them whole):
   source ignore slack --rm <id>` hears them again.
 - **What a line weighs.** A mapped member's line is their word for
   conversation and filing, as their mail is, and never answers an ask;
-  an outsider's is information, to be read and answered only. Approving
-  a run and giving a secret stay the operator's, and no credential is
-  ever pasted into a chat.
+  an outsider's is information, to be read and answered only. What the
+  yardmaster may tell an outsider in a shared channel is what their own
+  question is about, and what a mapped user present asks to have
+  explained from what that user may see; anything beyond waits for a
+  word at the yard. Slack lines reach the line session, which files
+  with `--for` for the member whose line it was. Approving a run and
+  giving a secret stay the operator's, and no credential is ever pasted
+  into a chat.
 
 A mention, sent to the isolated yard, was recorded as
 

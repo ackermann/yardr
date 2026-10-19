@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // hookLinear declares the hook of a Linear-like source: deliveries
@@ -54,6 +56,58 @@ func hookRunAsk(command string) Ask {
 	return Ask{Question: "Set up the webhook?", To: "mckean",
 		Context: []string{"the signing secret is asked for on the ask before this one; give it first"},
 		Run:     &AskRun{Argv: []string{command}}}
+}
+
+// The hook card names what the signature covers from the
+// declaration: the body alone, or the template over timestamp and body
+// together, and an unset signed reads as the body. The pack-apply card
+// and the hook-add card print the same sentence.
+func TestHookSaysNamesWhatTheSignatureCovers(t *testing.T) {
+	t.Parallel()
+	decl := func(signed string) string {
+		return `name: chat
+base: https://chat.example.com
+credential: { env: CHAT_TOKEN }
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: ` + signed + `
+    signature: { header: Chat-Signature, encoding: hex, prefix: "v0=" }
+    delivery: { body: event_id }
+    timestamp: { header: Chat-Timestamp, unit: s, window: 5m }
+  bodies: repeat
+  normalize: [chat/normalize]
+  keys: [sender]
+calls:
+  viewer: { kind: read, request: { method: GET, path: /viewer } }
+`
+	}
+	for _, tc := range []struct {
+		name   string
+		signed string
+		want   string
+	}{
+		{"the body alone", "body", "HMAC-SHA256 over the body (scheme hmac-sha256, signed: body)"},
+		{"a template over timestamp and body", `"v0:{timestamp}:{body}"`, "HMAC-SHA256 over v0:{timestamp}:{body} (scheme hmac-sha256, signed: v0:{timestamp}:{body})"},
+	} {
+		d, err := source.Parse("chat.yaml", []byte(decl(tc.signed)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := hookSays(d); !strings.Contains(got, tc.want) {
+			t.Errorf("%s: the card says:\n%s\nwant %q", tc.name, got, tc.want)
+		}
+	}
+	// Unset reads as the body alone: the reader refuses a missing
+	// signed, so only a declaration built by hand arrives without one.
+	d, err := source.Parse("chat.yaml", []byte(decl("body")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Hook.Verify.Signed = ""
+	if got := hookSays(d); !strings.Contains(got, "HMAC-SHA256 over the body (scheme hmac-sha256, signed: body)") {
+		t.Errorf("unset signed: the card says:\n%s", got)
+	}
 }
 
 // A hook is set up by two asks on one bead, the secret first: the
