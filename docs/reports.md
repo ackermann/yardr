@@ -54,12 +54,13 @@ queue's members rewrite those flows, or a pack apply rewrite this queue.
 Its members are people and only people — no crew member is ever a
 member, so no agent can move a report on. At first the member is mckean
 alone; adding a reader later is a member change to `report-readers`
-alone (`yardr group set report-readers --members …`). The group sets no
-`wait`: a bead that outstands a manual group's `wait` raises one `waited`
-event, which the yardmaster hears, so the queue is instead one people
-find where people find what waits for them — in `yardr review` and the
-web view's line. A report bead is claimed by nobody and starts no
-session in any stage of its flow.
+alone (`yardr group set report-readers --members …`). With a `wait`
+setting, a bead that waits longer than the group's `wait` raises one
+`waited` event, which the yardmaster hears. This group sets no `wait`, so
+people find the queue where people find what waits for them — in `yardr
+review` and the web view's line. The manual group may claim a report for
+a person's turn; this starts no process, and no agent is started in any
+stage of its flow.
 
 The `accepted` route is depot-wide, for every bead of `reports`
 whatever yard it came from. A route names one stage alone, so the
