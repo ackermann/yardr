@@ -720,7 +720,13 @@ yardr source rm pushover
   `credential.env`, and kept in memory alone, keyed by the credential and
   the scope. Where the env sets the mint's
   names the token is minted; one of them alone is refused; otherwise the
-  variable is used as it is set. The file may bring the command itself,
+  variable is used as it is set. A mint input is secret by default. Mark
+  an input that is not secret, such as an account address, with a mapping
+  item like `{ name: GOOGLE_ACCOUNT, secret: false }`; a secret ask for
+  only names marked this way is shown in the clear by `yardr chat` and by
+  clients that honor its `concealed` field. Mixed and secret asks
+  remain hidden. This changes how the value is drawn, not where it is
+  written or kept. The file may bring the command itself,
   `credential.mint_command: [<file>]`, a program beside the file that the
   yard copies under `<home>/sources/<name>/` and hashes as it does every
   command's: a card that adds or changes it shows its sha256, and a pack

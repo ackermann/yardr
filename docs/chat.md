@@ -525,12 +525,15 @@ ARTIFICIALANALYSIS_API_KEY for artificialanalysis  •••••••••�
 enter sends it to the yard · esc leaves, and nothing is sent
 ```
 
-The field shows a dot for each character and nothing else: the terminal,
-and a pane that shows this view, are sent dots. Paste works. While it is
-open every key but `enter`, `esc`, `pgup`, `pgdn` and `ctrl+c` is the
-field's: `tab` selects nobody, and nothing typed reaches the line for mail.
-An ask for two names asks for one after the other (`PAIR_TOKEN (1 of 2) for
-pair`) and sends them together. `esc` closes the field and sends nothing.
+For a secret credential, the field shows a dot for each character: the
+terminal and a pane that shows this view are sent dots. When the source
+marks every asked mint input as not secret, the field instead shows the
+characters as typed. In either case the value goes to the yard's server and
+not to the line for mail. Paste works. While it is open every key but
+`enter`, `esc`, `pgup`, `pgdn` and `ctrl+c` is the field's: `tab` selects
+nobody. An ask for two names asks for one after the other, such as
+`PAIR_TOKEN (1 of 2) for pair`, and sends them together. `esc` closes the
+field and sends nothing.
 
 `enter` gives what you typed to the yard's server over its socket
 (`GiveSecret`, [api.md](api.md)) and closes the field, whatever the yard
