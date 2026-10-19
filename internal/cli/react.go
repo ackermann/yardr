@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -49,7 +50,7 @@ that crew member's inbox; nothing reaches a user's inbox. A 👍 counts as a
 			if err := st.React(ctx, seq, emoji, a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"seq": seq, "emoji": emoji}, func() {
+			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "emoji": emoji}, func(w io.Writer) {
 				if clear {
 					fmt.Printf("cleared reaction on %d\n", seq)
 				} else {
