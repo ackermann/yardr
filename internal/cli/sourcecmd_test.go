@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,6 +25,38 @@ func TestSourceParamLineDefault(t *testing.T) {
 	got := paramLine(source.Param{Name: "notify", Type: "bool", Optional: true, Default: json.RawMessage("false")})
 	if got != "notify  bool  default false" {
 		t.Fatalf("paramLine = %q, want the typed default", got)
+	}
+}
+
+func TestSourceOutputUsesCommandWriter(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "show", args: []string{"show", "pushover"}, want: "pushover  https://api.pushover.net/1"},
+		{name: "list", args: []string{"list"}, want: "pushover"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			c := a.sourceCmd()
+			c.SetOut(&stdout)
+			escaped, err := run(t, c, tc.args...)
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", tc.name, err, stdout.String())
+			}
+			if escaped != "" {
+				t.Fatalf("%s wrote outside its command writer:\n%s", tc.name, escaped)
+			}
+			if got := stdout.String(); !strings.Contains(got, tc.want) {
+				t.Fatalf("%s wrote %q, want it to contain %q", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 

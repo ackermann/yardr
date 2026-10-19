@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,19 +49,33 @@ func TestPackShowPrintsPresets(t *testing.T) {
 	a := packApp(t)
 	dir := setupPack(t)
 	addPresets(t, dir)
-	out, err := run(t, a.packCmd(), "show", dir)
+	var stdout bytes.Buffer
+	c := a.packCmd()
+	c.SetOut(&stdout)
+	escaped, err := run(t, c, "show", dir)
 	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
+		t.Fatalf("%v\n%s", err, stdout.String())
 	}
+	if escaped != "" {
+		t.Fatalf("show wrote outside its command writer:\n%s", escaped)
+	}
+	out := stdout.String()
 	if want := setupMark + "\n" + setupNotes + "\n" + presetShowText; out != want {
 		t.Fatalf("show prints:\n%s", out)
 	}
 
 	a.json = true
-	out, err = run(t, a.packCmd(), "show", dir)
+	stdout.Reset()
+	c = a.packCmd()
+	c.SetOut(&stdout)
+	escaped, err = run(t, c, "show", dir)
 	if err != nil {
-		t.Fatalf("json: %v\n%s", err, out)
+		t.Fatalf("json: %v\n%s", err, stdout.String())
 	}
+	if escaped != "" {
+		t.Fatalf("json show wrote outside its command writer:\n%s", escaped)
+	}
+	out = stdout.String()
 	var got struct {
 		Pack    string        `json:"pack"`
 		Presets []pack.Preset `json:"presets"`
@@ -88,10 +103,17 @@ func TestPackShowPresetsWithoutNotes(t *testing.T) {
 	a := packApp(t)
 	dir := kindPack(t)
 	addPresets(t, dir)
-	out, err := run(t, a.packCmd(), "show", dir)
+	var stdout bytes.Buffer
+	c := a.packCmd()
+	c.SetOut(&stdout)
+	escaped, err := run(t, c, "show", dir)
 	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
+		t.Fatalf("%v\n%s", err, stdout.String())
 	}
+	if escaped != "" {
+		t.Fatalf("show wrote outside its command writer:\n%s", escaped)
+	}
+	out := stdout.String()
 	if want := "pack acme-pack carries no setup notes\n\n" + presetShowText; out != want {
 		t.Fatalf("show prints:\n%s", out)
 	}
