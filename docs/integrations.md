@@ -1877,6 +1877,88 @@ A line from the phone, sent to the isolated yard, was recorded as
     42 10-13 17:40  hook (all) telegram message create by mckean on "mckean": Can the shed land on Monday?
 ```
 
+### Slack, where it differs
+
+The same steps, with these differences (`yardr pack show slack` walks
+them whole):
+
+- **The pack hears and answers.** Applying it declares the `slack`
+  source with a `hook` key (verify `hmac-sha256` over
+  `v0:{timestamp}:{body}`, `bodies: repeat`, the `url_verification`
+  challenge, `normalize`, `keys: [channel, team, sender, room]`),
+  `thread.reply`, `thread.posted` and `thread.read`, and a `hear` key
+  with `by: identity`. It names no `notify` key, no `link` and no
+  status: the wish is to write to the yard, not to be told by it.
+- **The hook** is two cards on one bead, the secret first: `yardr bead
+  ask <id> "…" --secret-hook slack --source slack --context "…"` pastes
+  the signing secret where Slack shows it, typed unseen, and the yard's
+  server writes it to `<home>/hooks/slack.secret` (mode 0600), which
+  the hook then names; `yardr bead ask <id> "…" --run "hook add slack
+  --source slack --unknown unknown" --context "…"` stands `POST
+  /hooks/slack` up, verified with that secret, and sends nothing
+  anywhere: Slack takes its Request URL only in its own configuration.
+  `--unknown unknown` drops a sender no user maps and offers the
+  operator a mapping card. The app is created from the pack's manifest,
+  which carries no event subscriptions and no Request URL, and once the
+  hook stands the operator turns Event Subscriptions on in the browser
+  with the hook's URL and the two bot events `app_mention` and
+  `message.im` — never `message.mpim`, so no group conversation the
+  bot was never addressed in reaches the yard. Slack's
+  `url_verification` challenge to that URL is answered from the hook.
+- **The credential** is the bot's token twice: the source's env file
+  holds `SLACK_BOT_TOKEN` for the check and post calls, and the
+  answering crew member's env file holds the same value for replying,
+  since there is one bot for the whole yard and it speaks as the bot.
+  The crew member's copy is given on a card (`yardr bead ask <bead>
+  "…" --secret slack --for-crew yardmaster --context "…"`), and takes
+  effect when it next starts, so restart it. Rotation rewrites both
+  files.
+- **The identity** is the bot's `user_id`, read from `yardr source
+  check slack`, which prints the check call's selected fields: `yardr
+  bead ask <bead> "…" --run "crew identity yardmaster --source slack
+  --id <user_id>"`. With no `--key`: Slack mentions arrive as member
+  ids, and ids match exactly. A check that prints no `user_id` line
+  has not shown whose token it holds, and setup stops there.
+- **The subscriptions** are the yardmaster's alone: `yardr subscribe
+  yardmaster slack --scope mentions --where type=message`, and `yardr
+  subscribe yardmaster slack --scope all --where type=message --where
+  room=dm`. `mentions` wakes the bot when it is addressed; a follow-up
+  in a thread it answered in reaches it only when it mentions the bot
+  again. `room` is `dm` for a one-to-one direct message, heard whole,
+  and `channel` for everything else. Group direct messages are
+  untested: whether Slack delivers a mention in one as `app_mention`
+  is checked in a live trial, and until then only channel mentions and
+  one-to-one direct messages are promised.
+- **A thread** is `<channel>:<parent ts>`. `yardr reply <seq>` posts
+  `chat.postMessage` in the thread the delivery stood in, and `yardr
+  thread show <seq>` lists it oldest first through `conversations.replies`,
+  following its cursor to the end, on the same bot token. A reply run
+  again after its answer was lost posts twice, since the service takes
+  no idempotency key; where Slack refuses the read the command fails
+  with Slack's reason rather than showing an empty thread; and `yardr
+  reply --to` stands with `thread show`, since it finds the message to
+  answer under by listing the thread. There is no `thread open`, no
+  status and no bead link to a thread.
+- **Who is heard** is who each speaker is. A delivery whose sender is a
+  user's `slack` identity arrives named as them, and a subscription may
+  filter `--where speaker=<user>`; an unmapped sender is what the
+  hook's word says, a mapping card under `unknown`, heard as an
+  outsider under `allow`, dropped with no card under `ignore`. Picking
+  nobody on the card ignores that sender; `yardr source show slack`
+  and `yardr source ignore slack` list the ignored ids, and `yardr
+  source ignore slack --rm <id>` hears them again.
+- **What a line weighs.** A mapped member's line is their word for
+  conversation and filing, as their mail is, and never answers an ask;
+  an outsider's is information, to be read and answered only. Approving
+  a run and giving a secret stay the operator's, and no credential is
+  ever pasted into a chat.
+
+A mention, sent to the isolated yard, was recorded as
+
+```
+    41 10-19 14:50  hook (mentioned) slack message create by ada (U012AB3CD): <@U0BOT7> can the shed land on Monday?
+```
+
 ### The checks, in one place
 
 | what | how |

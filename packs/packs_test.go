@@ -1251,13 +1251,15 @@ func TestSlackPack(t *testing.T) {
 	if len(forbidden) > 0 {
 		t.Errorf("the manifest carries %q: the events are subscribed in the setup's step 6, once the hook stands", forbidden)
 	}
-	// Its setup notes: the app from the manifest in a browser, the apply,
-	// the bot token given to the yard by a command, whose token it is read
-	// from source check, the public hook address, the signing secret and
-	// the hook with the two bot events subscribed in the browser, the
-	// bot's identity, the yardmaster's credential, and the subscription
-	// with the invitation. The terminal way throughout; the card steps
-	// land separately.
+	// Its setup notes: the app from the manifest in a browser, the apply
+	// on a card, the bot token on a secret card, whose token it is read
+	// from source check, the public hook address on a card, the signing
+	// secret and the hook on two cards with the two bot events subscribed
+	// in the browser, the bot's identity on a card, the yardmaster's
+	// credential on a crew secret card, and the subscription with the
+	// invitation. The yard side is cards the whole way; what is not a
+	// card is named as the operator's, in a browser, in Slack or as
+	// networking.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -1267,8 +1269,8 @@ func TestSlackPack(t *testing.T) {
 		"carries no event subscriptions and no Request URL",
 		"`mpim:history` in particular is a reading\n   scope only",
 		"no\n   `message.mpim` event is ever subscribed",
-		"yardr pack apply slack\n",
-		"yardr source key slack ",
+		`yardr bead ask <bead> "Add Slack to the yard?" --run "pack apply slack"`,
+		`yardr bead ask <bead> "The Slack bot token" --secret slack`,
 		"SLACK_BOT_TOKEN",
 		"yardr source check slack\n",
 		"slack: check call whoami (POST /auth.test): 200 in …ms, … bytes",
@@ -1277,21 +1279,46 @@ func TestSlackPack(t *testing.T) {
 		"slack: bot_id: B…",
 		"no `user_id` line",
 		"setup stops",
-		"yardr settings set hook_public_url https://<his host>/hooks",
-		"umask 077",
-		"yardr hook add slack --source slack --secret-file",
-		"yardr crew identity yardmaster --source slack --id <user_id from step 4>",
-		"yardr crew show yardmaster",
+		`--run "settings set hook_public_url https://<his host>/hooks"`,
+		"networking outside\n   yardr, the operator's",
+		`--secret-hook slack --source slack`,
+		`--run "hook add slack --source slack --unknown unknown"`,
+		`--run "crew identity yardmaster --source slack --id <user_id from step 4>"`,
+		`yardr bead ask <bead> "The token it answers with" --secret slack --for-crew yardmaster`,
 		"yardr crew restart yardmaster",
+		"Rotation rewrites both files",
 		"yardr subscribe yardmaster slack --scope mentions --where type=message",
 		"yardr subscribe yardmaster slack --scope all --where type=message --where room=dm",
 		"/invite @<bot>",
+		"hears mapped members as themselves",
+		"--where speaker=<user>",
+		"mapping card",
+		"yardr source ignore slack --rm <id>",
 		"posts twice",
-		"fails with\nSlack's reason",
-		"reply\n--to` stands with `thread show`",
+		"fails with Slack's reason",
+		"`yardr reply --to` stands with `thread show`",
+		"Group\ndirect messages are untested",
+		"group direct messages stay untested until the",
+		"are the operator's in Slack's pages",
+		"browser is the operator's",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	// No terminal way stands beside the cards: the secrets are typed
+	// unseen on cards, never pasted blind or appended in a shell.
+	for _, not := range []string{
+		"umask 077",
+		"IFS= read",
+		"printf 'SLACK_BOT_TOKEN=",
+		"yardr source key slack",
+		"yardr crew show yardmaster",
+		"yardr crew set yardmaster env_file",
+		"--secret-file",
+	} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes keep a terminal way beside the cards: %q", not)
 		}
 	}
 	// Step 6 is the place the two bot events are subscribed: its list
@@ -1310,14 +1337,6 @@ func TestSlackPack(t *testing.T) {
 	}
 	if n := strings.Count(six, "message.mpim"); n != 1 {
 		t.Errorf("the setup's step 6 names message.mpim %d times, want once, in its refusal", n)
-	}
-	// The signing secret is pasted blind, as a Linear signing secret is:
-	// never a command's word, which would stay in the shell's history.
-	if !strings.Contains(six, `IFS= read -rs v && printf '%s' "$v" > ~/.yardr/slack.secret; unset v`) {
-		t.Errorf("the setup's step 6 does not take the signing secret blind:\n%s", six)
-	}
-	if strings.Contains(six, "printf '%s' '<") {
-		t.Errorf("the setup's step 6 makes the signing secret a command's word:\n%s", six)
 	}
 }
 
