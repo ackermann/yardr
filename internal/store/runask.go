@@ -423,6 +423,15 @@ var runList = []runCommand{{
 	stale:       (*wtx).sourceAddStale,
 	runRun:      runSourceAdd,
 }, {
+	words:       []string{"source", "ignore"},
+	use:         "yardr source ignore <source> --rm <id>",
+	description: "List a source's ignored senders, or stop ignoring one",
+	parse:       parseSourceIgnore,
+	check:       checkSourceIgnore,
+	card:        (*wtx).sourceIgnoreCard,
+	stale:       (*wtx).sourceIgnoreStale,
+	run:         runSourceIgnore,
+}, {
 	words:       []string{"pack", "apply"},
 	use:         "yardr pack apply <name>",
 	description: "Import a pack into a depot: set the yard to what the pack says",
@@ -506,6 +515,16 @@ var runList = []runCommand{{
 	card:        (*wtx).crewIdentityCard,
 	stale:       (*wtx).crewIdentityStale,
 	run:         runCrewIdentity,
+}, {
+	words:       []string{"user", "identity"},
+	use:         "yardr user identity <user> --source <source> [--id <id>] [--key <key>]",
+	description: "Who a user is in a source (no --source: list)",
+	parse:       parseUserIdentity,
+	check:       checkUserIdentity,
+	card:        (*wtx).userIdentityCard,
+	stale:       (*wtx).userIdentityStale,
+	run:         runUserIdentity,
+	whose:       func(argv []string) string { return argv[2] },
 }, {
 	words:       []string{"settings", "set"},
 	use:         "yardr settings set <key> <value>",

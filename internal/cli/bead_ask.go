@@ -191,6 +191,10 @@ is one of the list the yard runs from a card:
       declaration, and a commands-free add runs at approval while one
       naming commands is carried out by the server after it; a
       replacement and an absolute program stay in a terminal
+  source ignore <source> --rm <id>
+      a sender ignored in the source is heard again: their next message
+      follows the hook's word, a fresh mapping card under unknown, heard
+      as an outsider under allow
   pack apply <name>
       a pack yardr embeds, with no flag: of kind source, or of a depot
       kind re-applied to the one depot that holds it where its plan
@@ -232,6 +236,11 @@ is one of the list the yard runs from a card:
   crew identity <name> --source <source> [--id <id>] [--key <key>]
       who the crew member is in the source: mentions and assignments of
       the id or key there are then addressed to it
+  user identity <user> --source <source> [--id <id>] [--key <key>]
+      who the user is in the source: threads opened there for them are
+      then assigned to the id or key, and where the source hears by
+      identity a delivery from it is heard as theirs; asked of them or
+      of the operator, and --rm stays in a terminal
   settings set <key> <value>
       the yard's own setting changes; who the operator is and the settings
       of where the yard reads and serves from are the operator's alone,
@@ -249,10 +258,11 @@ operator's alone is refused as a run ask: what defines what the yard runs
 or whom it trusts (a command of a group or a source, who a peer sees and
 is trusted and reached as, a device, another yard paired), what takes a
 file path, and what reaches another yard. Such a command is typed in a
-terminal. The subscription and the tell are a user's own as they are the
-operator's, since a crew member does not decide what a person is told:
-the ask is for that user or for the operator (--to), and the one asked
-approves it. The yard splits the command at spaces and nowhere else, so
+terminal. The subscription, the tell and the user's identity are a
+user's own as they are the operator's, since a crew member does not
+decide what a person is told or who they are in a source: the ask is
+for that user or for the operator (--to), and the one asked approves
+it. The yard splits the command at spaces and nowhere else, so
 nothing is quoted: a quote, a backslash, ;, |, &, $ or a line break is
 refused, and a comma anywhere but in a list the command takes (the parts
 of tell=, the kinds peer allow carries, the grants crew set gives). It checks the
@@ -275,8 +285,9 @@ timer.
 
 A run ask takes no --option, --recommend or --about, and at most five
 --context lines: why the asker wants it. It is refused, and nothing is
-stored, for --to anyone but the operator (for a user's subscription or
-tell, that user or the operator) and for --to <person>@<peer>; no copy goes to a
+stored, for --to anyone but the operator (for a user's subscription,
+tell or identity, that user or the operator) and for --to <person>@<peer>;
+no copy goes to a
 linked yard. A crew member or a user writes one. An agent
 working a bead does not: it says what it needs in a note on the bead.
 

@@ -1043,6 +1043,35 @@ until the operator maps them, hears one as `outside`, or drops one
 with no card offered. A source with no identity hearing refuses
 `--unknown`, and refuses `speaker` as a filter key.
 
+Under unknown, dropping an unmapped sender offers the operator a
+mapping card on a question bead titled with the question, one per
+source and sender: who the sender is, the channel the message arrived
+in, and at most the first 80 characters beside it. Its picks are the
+yard's users, each naming the identity it writes, someone new, whom
+the pick's words name, and nobody, who is ignored. Picking a user
+writes their identity in the answering write; someone new with a valid
+new name in the pick's words adds that user and writes theirs, and
+with empty, invalid or taken words the answer is refused and the card
+stays open. Picking nobody ignores the sender: their later messages
+are dropped without a second card under either unknown or allow, until
+the entry is removed or the sender is mapped. Declining writes
+nothing, and the next message offers again. A mapping written by hand
+meanwhile makes the card stale, not overwritten.
+
+The ignored senders of a source are listed by `yardr source show
+<source>` and `yardr source ignore <source>`, and removed by `yardr
+source ignore <source> --rm <id>`: un-ignoring hears the sender again,
+a fresh card under unknown, as an outsider under allow. Removing is
+the operator's alone, refused from an agent's pane, and a crew member
+that needs an entry removed proposes the command with a run ask
+([chat.md](chat.md#questions-for-you)); adding to the list happens only
+by picking nobody on a card. The one write that maps a member id -- a
+user or someone-new pick, or `yardr user identity` typed in a
+terminal -- removes that id from the list in the same write; removing
+an identity later does not put it back. A crew member that already
+knows a mapping proposes it as `--run "user identity ..."` on a run
+ask of its own ([chat.md](chat.md#questions-for-you)).
+
 `fields[field]` must hold the address a user's env file sets under
 `address.env`, read as telling reads it; setting the address is the
 consent to be heard, and telling is a separate choice. `from` narrows

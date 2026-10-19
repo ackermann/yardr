@@ -641,6 +641,9 @@ func (c *Client) KeyUserCredential(ctx context.Context, name, src string, values
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }
+func (c *Client) UnignoreSource(ctx context.Context, name, sender, actor string) error {
+	return c.call(ctx, "UnignoreSource", nil, name, sender, actor)
+}
 func (c *Client) GrantSource(ctx context.Context, src, what string, to store.Grantee, as, actor string) (*store.SourceGrant, error) {
 	return callV[*store.SourceGrant](c, ctx, "GrantSource", src, what, to, as, actor)
 }

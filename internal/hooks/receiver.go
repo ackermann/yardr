@@ -191,6 +191,15 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case mapped:
 				stampSpeaker(env, speaker)
+			case rc.ignored(r.Context(), dec.D, env):
+				// An ignored sender is dropped without a card under any
+				// word: the operator has answered for them in
+				// particular, so unknown offers nothing further and
+				// allow hears nothing of them.
+				rc.count("stranger")
+				rc.refuse(h, name, "stranger", http.StatusOK)
+				writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+				return
 			case h.UnknownPolicy() == store.HookUnknownAllow:
 				stampSpeaker(env, store.SpeakerOutside)
 			default:
@@ -343,6 +352,27 @@ func (rc *Receiver) speaker(ctx context.Context, d *source.Declaration, env *Env
 		}
 	}
 	return "", false
+}
+
+// ignored reports whether the delivery's sender stands on the source's
+// ignore list: one of fields[field] the operator answered nobody for.
+// A source that cannot be read ignores nothing: the drop then offers a
+// card, as any unmapped sender's does.
+func (rc *Receiver) ignored(ctx context.Context, d *source.Declaration, env *Envelope) bool {
+	values := env.Fields[d.Hear.Field]
+	if len(values) == 0 {
+		return false
+	}
+	src, err := rc.st.GetSource(ctx, d.Name)
+	if err != nil {
+		return false
+	}
+	for _, v := range values {
+		if v != "" && slices.Contains(src.Ignored, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // hears reports whether the delivery's envelope carries an address a

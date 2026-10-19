@@ -789,6 +789,9 @@ credential in it whether their file sets that. The value is never printed.
 				if d.Hear != nil {
 					fmt.Println("  " + hearLine(d))
 				}
+				if d.HearsByIdentity() {
+					fmt.Println("  " + ignoredLine(d.Name, src.Ignored))
+				}
 				if d.Events != nil {
 					for _, cmd := range d.Commands() {
 						if !strings.HasPrefix(cmd.Key, "events.") {
@@ -877,6 +880,66 @@ credential in it whether their file sets that. The value is never printed.
 			})
 		},
 	}
+
+	ignore := &cobra.Command{
+		Use: "ignore <source>", Short: "List a source's ignored senders, or stop ignoring one", Args: cobra.ExactArgs(1),
+		Long: `Lists the sender ids of a source that hears by identity which the
+operator answered nobody for on their mapping cards: a delivery from one
+is dropped without a further card under any hook word. With --rm <id> it
+removes one entry, so the sender's next message follows the hook's word
+again: under unknown a fresh mapping card is offered, under allow it is
+heard as an outsider. Mapping the sender clears their entry the same way.
+
+Adding to the list happens only by picking nobody on a mapping card,
+never here. Listing is anyone's; removing is the operator's, and is
+refused from an agent's pane. A crew member that needs an entry removed
+proposes the command with a run ask. Refused for a source with no
+identity hearing, which ignores nothing.`,
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			src, err := st.GetSource(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			d, err := src.Declaration()
+			if err != nil {
+				return err
+			}
+			if !d.HearsByIdentity() {
+				return fmt.Errorf("source %s hears no sender by identity, so nothing of it is ignored", args[0])
+			}
+			if rm, _ := c.Flags().GetString("rm"); c.Flags().Changed("rm") {
+				if rm == "" {
+					return fmt.Errorf("give the ignored id to remove: yardr source ignore %s --rm <id>", args[0])
+				}
+				if err := st.UnignoreSource(c.Context(), args[0], rm, a.who()); err != nil {
+					return err
+				}
+				src, err = st.GetSource(c.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				ignored := sortedIgnored(src.Ignored)
+				return a.out(map[string]any{"source": args[0], "ignored": ignored}, func() {
+					fmt.Printf("%s: %s is no longer ignored\n", args[0], rm)
+				})
+			}
+			ignored := sortedIgnored(src.Ignored)
+			return a.out(map[string]any{"source": args[0], "ignored": ignored}, func() {
+				if len(ignored) == 0 {
+					fmt.Printf("%s: no sender is ignored\n", args[0])
+					return
+				}
+				for _, id := range ignored {
+					fmt.Println(id)
+				}
+			})
+		},
+	}
+	ignore.Flags().String("rm", "", "stop ignoring this sender id")
 
 	set := &cobra.Command{
 		Use:   "set <name> env_file=<file> | mint_command=<program> [args...] | calls_per_hour=<n> | updates_per_hour=<n>",
@@ -1440,7 +1503,7 @@ process for it. Nothing of the request is written anywhere.`,
 	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
 	check.Flags().StringVar(&checkAs, "as", "", "look at this user's credential, and make the check call as them")
 
-	cmd.AddCommand(add, list, show, rm, set, key, check, grant, revoke)
+	cmd.AddCommand(add, list, show, ignore, rm, set, key, check, grant, revoke)
 	return cmd
 }
 
@@ -1485,14 +1548,39 @@ func notifyLine(d *source.Declaration) string {
 
 // hearLine says in a line which deliveries of a source are kept: one whose
 // envelope field holds an address a user's env file sets, read as telling
-// reads it; anything else is dropped after verification.
+// reads it, or, by identity, one whose field holds a speaker's id some
+// user maps; anything else is dropped after verification.
 func hearLine(d *source.Declaration) string {
 	h := d.Hear
+	if h.ByIdentity() {
+		return fmt.Sprintf("hear: keeps a delivery whose %s is some user's identity in %s (yardr user identity); anything else follows the hook's --unknown word", h.Field, d.Name)
+	}
 	who := "a user's env_file"
 	if h.From == source.HearFromOperator {
 		who = "the operator's env_file"
 	}
 	return fmt.Sprintf("hear: keeps a delivery whose %s is the %s of %s; anything else is dropped after verification", h.Field, h.Address.Env, who)
+}
+
+// ignoredLine says in a line which senders of an identity-hearing source
+// the operator answered nobody for: their deliveries are dropped without
+// a further card under any hook word, until the entry is removed (yardr
+// source ignore <source> --rm <id>) or the sender is mapped.
+func ignoredLine(name string, ignored []string) string {
+	if len(ignored) == 0 {
+		return "ignored: none"
+	}
+	return fmt.Sprintf("ignored: %s", strings.Join(sortedIgnored(ignored), ", "))
+}
+
+// sortedIgnored is the ignored sender ids in order, never nil, so --json
+// carries an empty list and not null where none is ignored.
+func sortedIgnored(ignored []string) []string {
+	out := slices.Sorted(slices.Values(ignored))
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // limitsLine says in a line that a source says limits: of which kinds, or

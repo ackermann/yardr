@@ -329,6 +329,7 @@ or decline it. The command is one of a fixed list:
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call>\|--preset <preset> --group <group>\|--crew <crew member> [--as <user>]` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change; with `--preset <name>` the preset's calls of the pack that declares the source, named on the card with the pack; with `--as <user>` the call is made as that user, and that user alone approves it | anyone, with `yardr source revoke` by the same words, one call at a time |
 | `source add <file>` | a new source the file declares: the ask carries the declaration and each command file it names, and the card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it | only the operator, with `yardr source rm <name>` |
+| `source ignore <source> --rm <id>` | a sender ignored in the source is heard again: their next message follows the hook's word, a fresh mapping card under unknown, heard as an outsider under allow | only the operator, with nothing: no command ignores again, a fresh card's nobody pick does |
 | `pack apply <name>` | a pack yardr embeds, with no flag: of kind source, or of a depot kind re-applied to the one depot that holds it where its plan asks nothing; the card is written from the server's own binary, shows each declared source whole and, for a depot pack, each object and changed file's diff, and is carried out by the server after approval | only the operator: for a source, with `yardr source rm <name>`; a depot import has no one command back, and `yardr pack check <name> --depot <depot>` shows where it stands |
 | `hook add <name> --source <declared source> [--unknown unknown\|allow\|ignore]` | a new webhook endpoint `POST /hooks/<name>` for the declared source, verified with its signing secret given on the hook's own secret card into the file the yard owns for it; the card names that file, which the hook then names, and, for a source that hears by identity, the `--unknown` word it stores for an unmapped sender (unknown without the flag) | only the operator, with `yardr hook rm <name>` |
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
@@ -337,6 +338,7 @@ or decline it. The command is one of a fixed list:
 | `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the mail stays in the log | only the operator, with `user add`, which starts them fresh |
 | `crew set <name> open_threads=<sources> \| set_state=<sources> \| peers=<peers>` | what a crew member may newly do outside the yard | anyone where grants were given, only the operator where they were taken, with the grants that stood, which the card names |
 | `crew identity <name> --source <source> [--id <id>] [--key <key>]` | who the crew member is in the source: mentions and assignments of the id or key there are then addressed to it | only the operator, with the identity that stood, which the card names, or `--rm` where none did |
+| `user identity <user> --source <source> [--id <id>] [--key <key>]` | who the user is in the source: threads opened there for them are then assigned to the id or key, and where the source hears by identity a delivery from it is heard as theirs | that user or the operator, with the identity that stood, which the card names, or `--rm` where none did |
 | `settings set <key> <value>` | a setting changed | only the operator, with the value that stood, which the card names |
 | `peer rename <old> <new>` | a link renamed: its key, address and what it carries stay the same | only the operator, with the name that stood |
 | `bead update <bead> --originator <user>` | whose a bead is for | only the operator, with the originator that stood; a bead that was for no one can only be for another after |
@@ -353,11 +355,12 @@ only says where the yard is reached from outside, so a crew member may
 propose it and its card shows the whole URL each hook is registered at.
 A command that mixes a flag of the list with one that is not is refused
 whole, and the limit and the kinds of `peer allow` are two asks: one
-command carries one or the other. The subscription and the `tell` rows
-are not the operator's alone: a subscription and what a user's phone is
-told of ([users.md](users.md#told-outside-the-yard)) are the user's own,
-or the operator's for them, so such an ask is put to one of the two and
-the one asked approves it.
+command carries one or the other. The subscription, the `tell` and the
+user identity rows are not the operator's alone: a subscription, what a
+user's phone is told of
+([users.md](users.md#told-outside-the-yard)) and who the user is in a
+source are the user's own, or the operator's for them, so such an ask is
+put to one of the two and the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago

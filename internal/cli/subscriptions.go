@@ -134,8 +134,8 @@ the part of it the source's issues name an assignee by, and refuses for a
 user who has none there. Only the user and the operator set or remove it.
 
 In a source that hears by identity (Linear, Slack) it also names who
-spoke: a delivery from the id is kept with the user as its speaker, and
-a subscription may filter speaker=<user>.
+spoke: a delivery from the id is kept with the user as its speaker, one
+id naming one user, and a subscription may filter speaker=<user>.
 
 In Linear that part is --id, the user id; --key is the profile URL key
 (https://linear.app/<org>/profiles/<key>). In GitHub it is --key, the login,

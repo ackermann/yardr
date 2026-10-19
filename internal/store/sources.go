@@ -79,9 +79,17 @@ type Source struct {
 	CallsPerHour int `json:"calls_per_hour,omitempty"`
 	// UpdatesPerHour is how many of those calls are updates; 0 for
 	// SourceUpdateLimit.
-	UpdatesPerHour int       `json:"updates_per_hour,omitempty"`
-	AddedAt        time.Time `json:"added_at"`
-	AddedBy        string    `json:"added_by"`
+	UpdatesPerHour int `json:"updates_per_hour,omitempty"`
+	// Ignored are the sender ids in this source the operator has
+	// answered for in particular: a delivery from one is dropped
+	// without a card under any hook word, until the entry is removed
+	// (UnignoreSource) or the id is mapped to a user, which clears it
+	// in the same write. Entries are added only by picking "nobody"
+	// on a mapping card, and are read only for a source that hears by
+	// identity. PutSource keeps what the source has.
+	Ignored []string  `json:"ignored,omitempty"`
+	AddedAt time.Time `json:"added_at"`
+	AddedBy string    `json:"added_by"`
 }
 
 // Declaration reads the source's file. It was read when it was added, so
@@ -182,6 +190,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 			return err
 		}
 		src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour
+		src.Ignored = was.Ignored
 		if d.Limits != nil {
 			if err := limitsKindsFree(w.Tx, d); err != nil {
 				return err
@@ -380,6 +389,94 @@ func (w *wtx) sourceSetCheck(ctx context.Context, name, key, actor string) (*Sou
 		return nil, fmt.Errorf("source %s: %w", name, ErrNotFound)
 	}
 	return src, nil
+}
+
+// ignoredIn reports whether the source name ignores the sender id: its
+// record names it among Ignored. A source the yard declares not, or
+// whose declaration hears by no identity, ignores nothing: the entries
+// of a declaration that lost its hearing lie inert until it hears again.
+func ignoredIn(tx *bolt.Tx, name, sender string) bool {
+	src := new(Source)
+	if ok, err := get(tx, bSources, name, src); err != nil || !ok {
+		return false
+	}
+	d, err := src.Declaration()
+	if err != nil || !d.HearsByIdentity() {
+		return false
+	}
+	return slices.Contains(src.Ignored, sender)
+}
+
+// ignoreSender records the sender id on the source's ignore list, so its
+// later deliveries are dropped without a second card. It is the
+// operator's alone to say (maySource), refused from an agent pane, and
+// an id already on the list is kept once. by is the ask the change was
+// answered on, nil for none: adding happens only by picking "nobody" on
+// a mapping card, never by a command.
+func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string, by *approvedOn) error {
+	if err := w.maySource(ctx, actor, "ignoring a sender in a source", Askable); err != nil {
+		return err
+	}
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, name, src); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("source %s: %w", name, ErrNotFound)
+	}
+	if slices.Contains(src.Ignored, sender) {
+		return nil
+	}
+	src.Ignored = append(src.Ignored, sender)
+	slices.Sort(src.Ignored)
+	if err := put(w.Tx, bSources, name, src); err != nil {
+		return err
+	}
+	data := map[string]any{"source": name, "sender": sender}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "sender_ignored", actor, data)
+}
+
+// unignoreSender removes the sender id from the source's ignore list,
+// so its next delivery follows the hook's word again. It is the
+// operator's alone to say (maySource), refused from an agent pane, as
+// ignoring is; an id the list does not name is refused. by is the ask
+// the change was approved on, nil for one typed at a terminal.
+func (w *wtx) unignoreSender(ctx context.Context, name, sender, actor string, by *approvedOn) error {
+	if err := w.maySource(ctx, actor, "un-ignoring a sender in a source", Askable); err != nil {
+		return err
+	}
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, name, src); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("source %s: %w", name, ErrNotFound)
+	}
+	if !slices.Contains(src.Ignored, sender) {
+		return fmt.Errorf("source %s: %s is not ignored: %w", name, sender, ErrNotFound)
+	}
+	src.Ignored = slices.DeleteFunc(src.Ignored, func(id string) bool { return id == sender })
+	if err := put(w.Tx, bSources, name, src); err != nil {
+		return err
+	}
+	data := map[string]any{"source": name, "sender": sender}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event("", "sender_unignored", actor, data)
+}
+
+// UnignoreSource removes the sender id from the source's ignore list
+// (yardr source ignore <source> --rm <id>), so its next delivery is
+// heard again: under unknown a fresh mapping card is offered, under
+// allow it is heard as an outsider. It is the operator's alone, refused
+// from an agent pane, and the same write an approval of the row's card
+// runs.
+func (s *Store) UnignoreSource(ctx context.Context, name, sender, actor string) error {
+	return s.write(func(w *wtx) error {
+		return w.unignoreSender(ctx, name, sender, actor, nil)
+	})
 }
 
 // LimitsLine is how many calls of the source one caller makes in an hour,

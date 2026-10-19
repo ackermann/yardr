@@ -267,30 +267,87 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 	}
 	if user {
 		return s.write(func(w *wtx) error {
-			u, err := getUser(w.Tx, name)
-			if err != nil {
-				return err
-			}
-			if err := w.mayIdentify(ctx, name, actor); err != nil {
-				return err
-			}
-			id.Key = foldIdentityKey(w.Tx, source, id.Key)
-			if err := checkUserIdentityOneToOne(w.Tx, name, source, id); err != nil {
-				return err
-			}
-			kind, data, err := setIdentityIn(&u.Identities, name, source, id, "user", "user")
-			if err != nil {
-				return err
-			}
-			if err := put(w.Tx, bUsers, name, u); err != nil {
-				return err
-			}
-			return w.event("", kind, actor, data)
+			_, err := w.setUserIdentity(ctx, name, source, id, actor, nil)
+			return err
 		})
 	}
 	return s.write(func(w *wtx) error {
 		return w.setCrewIdentity(ctx, name, source, id, actor, nil)
 	})
+}
+
+// setUserIdentity is SetIdentity for a user inside the transaction, so
+// that a mapping pick and an approved run ask write the identity in the
+// write that records them: by is then the ask it was answered or
+// approved on, which the event carries, nil for a change typed in a
+// terminal. Mapping an id clears it from the source's ignore list in
+// the same write, so a mapped user is never also ignored; it answers
+// each entry it cleared. Removing an identity clears nothing: an id
+// mapped and then removed stays un-ignored, and is heard as unmapped.
+func (w *wtx) setUserIdentity(ctx context.Context, name, source string, id Identity, actor string, by *approvedOn) ([]string, error) {
+	u, err := getUser(w.Tx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.mayIdentify(ctx, name, actor); err != nil {
+		return nil, err
+	}
+	id.Key = foldIdentityKey(w.Tx, source, id.Key)
+	if err := checkUserIdentityOneToOne(w.Tx, name, source, id); err != nil {
+		return nil, err
+	}
+	kind, data, err := setIdentityIn(&u.Identities, name, source, id, "user", "user")
+	if err != nil {
+		return nil, err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := put(w.Tx, bUsers, name, u); err != nil {
+		return nil, err
+	}
+	if err := w.event("", kind, actor, data); err != nil {
+		return nil, err
+	}
+	if id.zero() {
+		return nil, nil
+	}
+	var cleared []string
+	for _, held := range []string{id.ID, id.Key} {
+		if held == "" {
+			continue
+		}
+		if ok, err := w.clearIgnored(source, held, actor, by); err != nil {
+			return nil, err
+		} else if ok {
+			cleared = append(cleared, held)
+		}
+	}
+	return cleared, nil
+}
+
+// clearIgnored drops the sender id from the source's ignore list where
+// it stands, in a write whose own check already passed: mapping clears
+// under mayIdentify, the user's or the operator's, not under maySource.
+// It answers whether an entry stood. A source the yard declares not
+// holds none.
+func (w *wtx) clearIgnored(source, sender, actor string, by *approvedOn) (bool, error) {
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, source, src); err != nil || !ok {
+		return false, err
+	}
+	if !slices.Contains(src.Ignored, sender) {
+		return false, nil
+	}
+	src.Ignored = slices.DeleteFunc(src.Ignored, func(id string) bool { return id == sender })
+	if err := put(w.Tx, bSources, source, src); err != nil {
+		return false, err
+	}
+	data := map[string]any{"source": source, "sender": sender}
+	if by != nil {
+		data["approved"] = by
+	}
+	return true, w.event("", "sender_unignored", actor, data)
 }
 
 // checkUserIdentityOneToOne refuses a user's new identity in a source

@@ -118,10 +118,11 @@ type Ask struct {
 	// a source hearing by identity is, asked of the operator when a
 	// delivery from them is dropped under unknown. Its options are
 	// the yard's users, each naming the identity its pick writes,
-	// with YouDecide last; picking one writes that user's identity
-	// in the answering write (addAnswer). It is written by
-	// ClaimIdentity alone, from a dropped delivery, never by AddAsk,
-	// and stays in the yard as a run ask does.
+	// then someone new, whom the pick's words name, and nobody, who
+	// is ignored, with YouDecide last; a pick writes in the answering
+	// write (addAnswer). It is written by ClaimIdentity alone, from a
+	// dropped delivery, never by AddAsk, and stays in the yard as a
+	// run ask does.
 	Identity *AskIdentity `json:"identity,omitempty"`
 }
 
@@ -129,10 +130,10 @@ type Ask struct {
 // identity, the sender's id in it as the delivery carried it, and
 // the channel it arrived in ("" where the envelope named none).
 // Users are the yard's users as the card was written, in the order
-// of the ask's options before YouDecide: picking option n writes
-// Users[n-1]'s identity. The card holds the sender as unmapped
-// when it was written; a sender mapped to anyone meanwhile makes
-// its pick stale and nothing is written.
+// of the ask's options before someone new, nobody and YouDecide:
+// picking option n writes Users[n-1]'s identity. The card holds the
+// sender as unmapped when it was written; a sender mapped to anyone
+// meanwhile makes its pick stale and nothing is written.
 type AskIdentity struct {
 	Source  string   `json:"source"`
 	Sender  string   `json:"sender"`

@@ -231,6 +231,7 @@ type API interface {
 	KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error)
 	KeyUserCredential(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error)
 	DeleteSource(ctx context.Context, name, actor string) error
+	UnignoreSource(ctx context.Context, name, sender, actor string) error
 	GrantSource(ctx context.Context, src, what string, to Grantee, as, actor string) (*SourceGrant, error)
 	RevokeSource(ctx context.Context, src, what string, to Grantee, as, actor string) (*SourceGrant, error)
 	SourceGrants(ctx context.Context, src string) ([]SourceGrant, error)

@@ -94,6 +94,56 @@ calls:
   viewer: { kind: read, request: { method: GET, path: /viewer } }
 `
 
+// runTalk hears by identity, for the source ignore row: fields.sender
+// holds a member id, matched against a user's identity in talk.
+const runTalk = `name: talk
+base: https://talk.example.com
+credential: { env: TALK_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { text: { type: string } }
+    request: { method: POST, path: /send, body: { text: "{text}" } }
+hook:
+  verify: { scheme: secret, signature: { header: Talk-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+`
+
+// seedTalkIgnored declares talk on the yard and ignores U999 there
+// through a mapping card's nobody pick.
+func seedTalkIgnored(t *testing.T, y *cliYard) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "talk.yaml", runTalk, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := y.own.ClaimIdentity(ctx, "talk", "U999", "C1", "hi"); err != nil || !created {
+		t.Fatalf("ClaimIdentity = %v, %v", created, err)
+	}
+	q, err := y.st.UserAsks(ctx, "jo")
+	if err != nil || len(q.Open) != 1 {
+		t.Fatalf("open asks = %+v, %v", q, err)
+	}
+	view, err := y.st.Bead(ctx, q.Open[0].Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pick := 0
+	for i, o := range view.Asks[0].Options {
+		if o.Label == store.MappingNobody {
+			pick = i + 1
+		}
+	}
+	if err := y.st.AnswerAsk(ctx, q.Open[0].Bead, q.Open[0].Ask, pick, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // runPush is a source that tells a user, for the user key row: the
 // address a delivery claims is given typed, as the approval writes it.
 const runPush = `name: pushover
@@ -232,6 +282,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":                                            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
 		"yardr source add <file>": {"source add " + addedFile},
+		"yardr source ignore <source> --rm <id>": {
+			"source ignore talk --rm U999",
+		},
 		"yardr pack apply <name>": {"pack apply telegram"},
 		"yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]": {"hook add linear --source linear"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                     {"subscribe jo yardr --where label=ui --done --where label=web"},
@@ -244,6 +297,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		},
 		"yardr crew identity <name> --source <source> [--id <id>] [--key <key>]": {
 			"crew identity yardmaster --source crm --id u1 --key boss",
+		},
+		"yardr user identity <user> --source <source> [--id <id>] [--key <key>]": {
+			"user identity ada --source crm --id u1",
 		},
 		"yardr settings set <key> <value>":             {"settings set max_sessions 20"},
 		"yardr peer rename <old> <new>":                {"peer rename airy north"},
@@ -278,6 +334,14 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		for _, command := range commands {
 			approved, ab := runYardCLI(t, "approved", key)
 			typed, _ := runYardCLI(t, "typed", key)
+			if use == "yardr source ignore <source> --rm <id>" {
+				// The entry the card removes stands on both yards
+				// before the marks below, put there by a mapping
+				// card's nobody pick, as only that pick adds one.
+				for _, y := range []*cliYard{approved, typed} {
+					seedTalkIgnored(t, y)
+				}
+			}
 			if use == "yardr pack apply <name>" {
 				ctx := context.Background()
 				// A pack approval is carried out by the server after it
@@ -474,7 +538,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed"} {
+					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_ignored", "sender_unignored"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)

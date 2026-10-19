@@ -577,6 +577,151 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	}
 }
 
+// nobodyPick answers the mapping card waiting for the sender with its
+// nobody pick, ignoring them.
+func nobodyPick(t *testing.T, r *depot, sender string) {
+	t.Helper()
+	ctx := context.Background()
+	q, err := r.st.UserAsks(ctx, "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card *store.OpenAsk
+	for _, o := range q.Open {
+		if o.Identity != nil && o.Identity.Sender == sender {
+			c := o
+			card = &c
+		}
+	}
+	if card == nil {
+		t.Fatalf("no mapping card for %s", sender)
+	}
+	view, err := r.st.Bead(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pick := 0
+	for i, o := range view.Asks[0].Options {
+		if o.Label == store.MappingNobody {
+			pick = i + 1
+		}
+	}
+	if pick == 0 {
+		t.Fatalf("the card offers %v, want the nobody pick among them", view.Asks[0].Options)
+	}
+	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An ignored sender is dropped without a second card under unknown and
+// under allow alike: the operator answered for them in particular.
+// Un-ignoring hears them again -- a fresh card under unknown, as an
+// outsider under allow -- as does mapping them directly.
+func TestHearByIdentityIgnoredSender(t *testing.T) {
+	ctx := context.Background()
+	identityUsers := func(t *testing.T, r *depot) {
+		t.Helper()
+		if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		mapTalk(t, r, "ada", "U012")
+	}
+	openCards := func(t *testing.T, r *depot) int {
+		t.Helper()
+		q, err := r.st.UserAsks(ctx, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(q.Open)
+	}
+
+	// Under unknown an ignored sender offers no second card, and after
+	// un-ignoring their next message offers a fresh one.
+	r := identityDepot(t, "")
+	identityUsers(t, r)
+	r.now = time.Now()
+	r.talk(t, "U999", "hello there")
+	if n := openCards(t, r); n != 1 {
+		t.Fatalf("open asks = %d, want the mapping card", n)
+	}
+	nobodyPick(t, r, "U999")
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "again")
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("an ignored delivery recorded: %d hook events", n)
+	}
+	if n := openCards(t, r); n != 0 {
+		t.Fatalf("open asks = %d, want no second card", n)
+	}
+	if err := r.st.UnignoreSource(ctx, "talk", "U999", "op"); err != nil {
+		t.Fatal(err)
+	}
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "back again")
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("an un-ignored delivery recorded under unknown: %d hook events", n)
+	}
+	if n := openCards(t, r); n != 1 {
+		t.Fatalf("open asks = %d, want a fresh card", n)
+	}
+
+	// Under allow an ignored sender is dropped, not heard as outside,
+	// and after un-ignoring is heard as an outsider again.
+	rr := identityDepot(t, store.HookUnknownAllow)
+	identityUsers(t, rr)
+	rr.now = time.Now()
+	rr.talk(t, "U999", "outside words")
+	if evs := rr.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != store.SpeakerOutside {
+		t.Fatalf("hook events = %v, want the delivery as outside", evs)
+	}
+	if n := openCards(t, rr); n != 0 {
+		t.Fatalf("open asks = %d, want none under allow", n)
+	}
+	if created, err := rr.own.ClaimIdentity(ctx, "talk", "U999", "C1", "hi"); err != nil || !created {
+		t.Fatalf("ClaimIdentity = %v, %v", created, err)
+	}
+	nobodyPick(t, rr, "U999")
+	rr.now = rr.now.Add(time.Second)
+	rr.talk(t, "U999", "ignored words")
+	if n := len(rr.hookEvents(t)); n != 1 {
+		t.Fatalf("an ignored delivery heard under allow: %d hook events", n)
+	}
+	if got := rr.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("stranger count %d, want 1", got)
+	}
+	if err := rr.st.UnignoreSource(ctx, "talk", "U999", "op"); err != nil {
+		t.Fatal(err)
+	}
+	rr.now = rr.now.Add(time.Second)
+	rr.talk(t, "U999", "outside again")
+	if evs := rr.hookEvents(t); len(evs) != 2 || speakerOf(t, evs[1]) != store.SpeakerOutside {
+		t.Fatalf("hook events = %v, want the delivery as outside again", evs)
+	}
+
+	// Mapping an ignored sender directly clears the entry in the same
+	// write: their next delivery is heard as theirs.
+	ru := identityDepot(t, "")
+	identityUsers(t, ru)
+	ru.now = time.Now()
+	ru.talk(t, "U777", "hello there")
+	nobodyPick(t, ru, "U777")
+	if err := ru.st.SetIdentity(ctx, "ada", "talk", store.Identity{ID: "U777"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	ru.now = ru.now.Add(time.Second)
+	ru.talk(t, "U777", "mapped now")
+	if evs := ru.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
+		t.Fatalf("hook events = %v, want the mapped delivery as ada", evs)
+	}
+}
+
 // duplicateUsers stands in for a store that already holds an id twice,
 // as one made before the one-to-one write could: hearing reads it as
 // unmapped until one identity is removed.

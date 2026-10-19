@@ -54,8 +54,9 @@ delivery whose author uniquely matches bills that user's login when a
 herdr group and a route for the made bead use that login, else the
 operator's, since a bystander needs no subscription; and, in a source
 that hears by identity (Linear, Slack), it names who spoke: a delivery
-from their id is kept with them as its speaker, and a subscription there
-may filter `speaker=<name>`. An author linked to
+from their id is kept with them as its speaker, one id naming one user
+([integrations.md](integrations.md#what-the-service-sends-in)), and a
+subscription there may filter `speaker=<name>`. An author linked to
 more than one user stays the operator's because the yard cannot tell whose
 login to bill. A user is still reached by a subscription of scope `all`
 alone. Anyone who may write to the yard sets it, as a crew member's.
