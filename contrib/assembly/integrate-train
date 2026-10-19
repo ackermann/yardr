@@ -155,8 +155,10 @@ unwatched() {
 }
 cleanup() {
   unwatched
-  [ -z "${log:-}" ] || rm -f "$log" "$log.late" "$log.sh"
+  [ -z "${log:-}" ] || rm -f "$log"
+  [ -z "${latefile:-}" ] || rm -f "$latefile"
   [ -z "${napfile:-}" ] || rm -f "$napfile"
+  [ -z "${copy:-}" ] || rm -f "$copy"
   [ -z "${errf:-}" ] || rm -f "$errf"
   return 0
 }
@@ -170,12 +172,17 @@ trap 'unwatched; exit 130' INT
 # in $lines, and $late set when it ran past $LIMIT seconds. The bound is
 # sh's own, as in merge-local, which says why it is made this way.
 runtest() {
+  # Each file of the run is made by a mktemp of its own, never named from
+  # another's: mktemp creates a file exclusively, but a local user of a shared
+  # TMPDIR who sees the log's name can plant a symlink or a script at that
+  # name with .late or .sh added before it is used (yardr-gb50).
   log=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the tests' output"
-  napfile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { rm -f "$log"; hold "cannot make a file for the timeout watcher"; }
+  napfile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
+  latefile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
   copy=
   if [ "$WHAT" = "the base's copy of $TEST" ]; then
-    copy=$log.sh
-    git -C "$REPO" show "$BASE:$TEST" >"$copy" || { rm -f "$log" "$copy"; hold "cannot read $TEST from $BASE"; }
+    copy=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the copy of $TEST"; }
+    git -C "$REPO" show "$BASE:$TEST" >"$copy" || { cleanup; hold "cannot read $TEST from $BASE"; }
   fi
   (
     cd "$WT" || exit 2
@@ -200,7 +207,7 @@ runtest() {
     nap=$!
     echo "$nap" >"$napfile"
     wait "$nap"
-    : >"$log.late"
+    echo late >"$latefile"
     seen=
     while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
       # shellcheck disable=SC2086
@@ -219,17 +226,21 @@ runtest() {
   while [ ! -s "$napfile" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
   wait "$pid" && rc=0 || rc=$?
   unwatched
-  # A command that passed as its deadline came has passed.
+  # A command that passed as its deadline came has passed. The marker is
+  # empty until the watcher writes to it, so the deadline came if it holds
+  # something.
   late=
-  if [ -e "$log.late" ] && [ "$rc" != 0 ]; then
+  if [ -s "$latefile" ] && [ "$rc" != 0 ]; then
     late=1
     echo "integrate-train: the tests ran past their deadline of ${LIMIT}s and were killed" >>"$log"
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rm -f "$log" "$log.late" "$napfile" "$log.sh"
+  cleanup
   log=
+  latefile=
   napfile=
+  copy=
   printf '%s\n' "$out"
 }
 # What a note says of a run's output: all of it, or its end.

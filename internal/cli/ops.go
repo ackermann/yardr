@@ -1268,7 +1268,9 @@ group until its session ends; the next claim takes the new chain.`,
 				e.Group = &g
 			}
 			if fl.Changed("else") {
-				var tail []store.RouteGroup
+				// Empty and non-nil: a pointer to a nil slice marshals
+				// as null, which the server reads as not named.
+				tail := []store.RouteGroup{}
 				for _, s := range further {
 					// --else '' drops the further groups; anything else
 					// replaces them, so every one wanted is named.

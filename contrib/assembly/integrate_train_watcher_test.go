@@ -119,6 +119,84 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	assertWatcherSleepFds(t, w.record, "1789")
 }
 
+// A local user of a shared TMPDIR can list it, see integrate-train's log by
+// name and put a symlink at a name made from it before integrate-train
+// creates that name (yardr-gb50): ".late" for the deadline marker, ".sh" for
+// the copy of the base's test script that is then run. A mktemp that plants
+// both symlinks at every file it hands back stands in for the user, each
+// symlink to a victim file. integrate-train must make each of its files with
+// mktemp and name none from another's, or it writes through a symlink and a
+// victim changes. The run is the base's copy of a script that outlasts its
+// deadline, which writes both.
+func TestIntegrateTrainWritesThroughNoPlantedSymlink(t *testing.T) {
+	t.Parallel()
+	w := newIntegrateTrainWatcherRun(t, "check.sh", "1", 0)
+	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1") })
+	if err := os.WriteFile(filepath.Join(w.repo, "check.sh"), []byte("echo from the base\nsleep 30\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watcherGit(t, w.repo, "add", "check.sh")
+	watcherGit(t, w.repo, "commit", "-q", "-m", "the test script")
+
+	const precious = "not for integrate-train to write\n"
+	victims := []struct{ name, path string }{
+		{"the deadline marker", filepath.Join(t.TempDir(), "late")},
+		{"the copy of the test script", filepath.Join(t.TempDir(), "copy")},
+	}
+	for _, v := range victims {
+		if err := os.WriteFile(v.path, []byte(precious), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mktemp, err := exec.LookPath("mktemp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planting := "#!/bin/sh\nf=$(" + shellQuote(mktemp) + " \"$@\") || exit\n" +
+		"ln -s " + shellQuote(victims[0].path) + " \"$f.late\"\n" +
+		"ln -s " + shellQuote(victims[1].path) + " \"$f.sh\"\n" +
+		"printf '%s\\n' \"$f\"\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(w.record), "bin", "mktemp"), []byte(planting), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Into a file, not a pipe, as the runs in watcher_test.go: see there.
+	log, err := os.Create(filepath.Join(t.TempDir(), "out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := w.cmd()
+	cmd.Stdout, cmd.Stderr = log, log
+	err = cmd.Run()
+	log.Close()
+	b, _ := os.ReadFile(log.Name())
+	out := string(b)
+	if err != nil {
+		t.Fatalf("integrate-train: %v\n%s", err, out)
+	}
+	for _, want := range []string{"the base's copy of check.sh", "from the base", "the tests ran past their deadline of 1s and were killed"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the run did not use the base's copy up to its deadline (no %q):\n%s", want, out)
+		}
+	}
+
+	for _, v := range victims {
+		if got, err := os.ReadFile(v.path); err != nil || string(got) != precious {
+			t.Errorf("integrate-train wrote through a symlink planted at the name of %s: the victim holds %q (%v)", v.name, got, err)
+		}
+	}
+	// Each file it made is gone: only the planted symlinks are left.
+	entries, err := os.ReadDir(w.tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			t.Errorf("integrate-train left %s in TMPDIR", e.Name())
+		}
+	}
+}
+
 // A pid file that holds zero must not make integrate-train signal its whole
 // process group, as merge-local's does not
 // (TestMergeLocalIgnoresZeroWatcherPID): the digits-only check let 0 through

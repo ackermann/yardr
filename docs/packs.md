@@ -269,7 +269,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -1484,7 +1484,8 @@ yard.
 pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
 --run "pack apply <name>"`, [chat.md](chat.md#questions-for-you)), for
 the operator to approve on a card: a pack of kind `source` (linear,
-github, pushover and telegram), or a pack of a depot kind
+github, google-mail, google-drive, google-docs, google-calendar,
+pushover, telegram and slack), or a pack of a depot kind
 re-applied to the one depot that holds it where its plan asks nothing.
 A card is read whole, so a pack whose card would run past 40 lines is
 refused, and the operator applies it in a terminal. Google is split into
