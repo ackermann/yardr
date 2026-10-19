@@ -140,13 +140,15 @@ tree() {
 # sleeps out its $LIMIT holding the run's inherited files, among them once
 # the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
 # wrote, in case the watcher died without killing it, and both kills are
-# silent: either may already be gone.
+# silent: either may already be gone. What the file holds is signalled only
+# if it is a number with a non-zero digit: kill 0 signals this script's whole
+# process group, and kill reads 00 as 0 (yardr-0bd1).
 unwatched() {
   [ -n "${watch:-}" ] || return 0
   kill "$watch" 2>/dev/null
   if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
     nap=$(cat "$napfile" 2>/dev/null) || nap=
-    case "$nap" in ''|*[!0-9]*) ;; *) kill "$nap" 2>/dev/null ;; esac
+    case "$nap" in ''|*[!0-9]*) ;; *[1-9]*) kill "$nap" 2>/dev/null ;; esac
   fi
   wait "$watch" 2>/dev/null
   watch=

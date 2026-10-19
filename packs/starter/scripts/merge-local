@@ -271,7 +271,9 @@ tree() {
 # sleeps out its $LIMIT holding the run's inherited files, among them once
 # the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
 # wrote, in case the watcher died without killing it, and both kills are
-# silent: either may already be gone.
+# silent: either may already be gone. What the file holds is signalled only
+# if it is a number with a non-zero digit: kill 0 signals this script's whole
+# process group, and kill reads 00 as 0 (yardr-0bd1).
 unwatched() {
   [ -n "${watch:-}" ] || return 0
   kill "$watch" 2>/dev/null
@@ -282,10 +284,14 @@ unwatched() {
   wait "$watch" 2>/dev/null
   watch=
 }
+# cleanup removes the run's files, whichever of them exist: on every exit (the
+# traps) and when a run is over.
 cleanup() {
   unwatched
-  [ -z "${log:-}" ] || rm -f "$log" "$log.late" "$log.sh"
+  [ -z "${log:-}" ] || rm -f "$log"
+  [ -z "${latefile:-}" ] || rm -f "$latefile"
   [ -z "${napfile:-}" ] || rm -f "$napfile"
+  [ -z "${copy:-}" ] || rm -f "$copy"
   return 0
 }
 trap 'cleanup' EXIT
@@ -306,12 +312,17 @@ trap 'unwatched; exit 130' INT
 # command's processes by their parents (tree), stops them all first so that
 # none starts another while it looks, and kills them once two looks agree.
 runtest() {
+  # Each file of the run is made by a mktemp of its own, never named from
+  # another's: mktemp creates a file exclusively, but a local user of a shared
+  # TMPDIR who sees the log's name can plant a symlink or a script at that
+  # name with .late or .sh added before it is used (yardr-gb50).
   log=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || hold "cannot make a file for the tests' output"
-  napfile=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || { rm -f "$log"; hold "cannot make a file for the timeout watcher"; }
+  napfile=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
+  latefile=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
   copy=
   if [ "$WHAT" = "the base's copy of $TEST" ]; then
-    copy=$log.sh
-    git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || { rm -f "$log" "$copy"; hold "cannot read $TEST from $BASE"; }
+    copy=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || { cleanup; hold "cannot make a file for the copy of $TEST"; }
+    git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || { cleanup; hold "cannot read $TEST from $BASE"; }
   fi
   t0=$(date +%s)
   (
@@ -337,7 +348,7 @@ runtest() {
     nap=$!
     echo "$nap" >"$napfile"
     wait "$nap"
-    : >"$log.late"
+    echo late >"$latefile"
     seen=
     while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
       # shellcheck disable=SC2086
@@ -358,17 +369,21 @@ runtest() {
   step "$t0" "$RUN"
   secs=$((secs + took))
   unwatched
-  # A command that passed as its deadline came has passed.
+  # A command that passed as its deadline came has passed. The marker is
+  # empty until the watcher writes to it, so the deadline came if it holds
+  # something.
   late=
-  if [ -e "$log.late" ] && [ "$rc" != 0 ]; then
+  if [ -s "$latefile" ] && [ "$rc" != 0 ]; then
     late=1
     echo "merge-local: the tests ran past their deadline of ${LIMIT}s and were killed" >>"$log"
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rm -f "$log" "$log.late" "$napfile" "$log.sh"
+  cleanup
   log=
+  latefile=
   napfile=
+  copy=
   printf '%s\n' "$out"
 }
 # What a note says of a run's output: all of it, or its end.

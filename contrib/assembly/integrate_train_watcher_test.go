@@ -118,3 +118,37 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	awaitNoWatcherSleepers(t, w.record, "1789")
 	assertWatcherSleepFds(t, w.record, "1789")
 }
+
+// A pid file that holds zero must not make integrate-train signal its whole
+// process group, as merge-local's does not
+// (TestMergeLocalIgnoresZeroWatcherPID): the digits-only check let 0 through
+// to kill, and kill reads 000 as 0 too (yardr-0bd1). The script leads a
+// process group of its own, so a signal to the group reaches it, and its TERM
+// trap turns that into exit 143.
+func TestIntegrateTrainIgnoresZeroWatcherPID(t *testing.T) {
+	t.Parallel()
+	for _, zero := range []string{"0", "000"} {
+		t.Run(zero, func(t *testing.T) {
+			t.Parallel()
+			w := newIntegrateTrainWatcherRun(t, "sleep 1", "1789", 0)
+			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1789") })
+			cmd := w.cmd()
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			group := cmd.Process.Pid
+			t.Cleanup(func() { _ = syscall.Kill(-group, syscall.SIGKILL) })
+
+			nap, _ := awaitWatcherSleep(t, cmd, w.record, "1789")
+			napfile := assertWatcherNapFileMode(t, w.tmp, nap)
+			if err := os.WriteFile(napfile, []byte(zero+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatalf("integrate-train with a watcher pid of %s: %v", zero, err)
+			}
+			awaitNoWatcherSleepers(t, w.record, "1789")
+		})
+	}
+}
