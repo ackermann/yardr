@@ -97,7 +97,7 @@ func TestMain(m *testing.M) {
 	// No test starts a real daemon or talks to a real herdr: the test
 	// binary is not yardr, and the herdr on PATH is somebody's own. A test
 	// of the start replaces these (stubStart).
-	spawnDaemon = func(*config.Config) (<-chan error, error) {
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) {
 		return nil, errors.New("tests start no daemon")
 	}
 	// Nor a server, for the same reason: a command reaches the store of a
@@ -149,7 +149,7 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no service manager")
 	}
 	signalStop = func(int) error { return errors.New("tests signal no process") }
-	spawn = func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+	spawn = func([]string, *config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
 		return 0, nil, nil, errors.New("tests start nothing in the background")
 	}
 	realAnswers = answers

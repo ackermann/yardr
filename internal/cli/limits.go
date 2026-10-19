@@ -192,7 +192,7 @@ window and resets_at, or the reason under limits_unknown.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}

@@ -113,7 +113,7 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	var started [][]string
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, append(k.command(), args...))
 		return 4242, nil, func() error { return nil }, nil
 	})

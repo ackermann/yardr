@@ -379,10 +379,9 @@ func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, fla
 	}
 	if cfg == nil {
 		var err error
-		if cfg, err = config.Load(); err != nil {
+		if cfg, err = a.config(); err != nil {
 			return err
 		}
-		a.cfg = cfg
 	}
 	if !givenAddr && cfg.WebPagesAddr != "" {
 		if err := flags.Lookup("pages-addr").Value.Set(cfg.WebPagesAddr); err != nil {

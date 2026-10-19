@@ -206,8 +206,9 @@ func serviceEnv(environ []string, home string, k *longRunning) []string {
 }
 
 // newUnit is the home's service of the kind as this yardr would write it
-// now, to run it with args.
-func newUnit(cfg *config.Config, k *longRunning, args []string) (*unit, error) {
+// now, to run it with args, from environ, the installing run's environment
+// (see app.environ).
+func newUnit(environ []string, cfg *config.Config, k *longRunning, args []string) (*unit, error) {
 	manager, name, path, err := unitFile(cfg, k.Name)
 	if err != nil {
 		return nil, err
@@ -217,7 +218,7 @@ func newUnit(cfg *config.Config, k *longRunning, args []string) (*unit, error) {
 		return nil, err
 	}
 	u := &unit{Kind: k.Name, Manager: manager, Name: name, Path: path, Home: cfg.Home, Program: self,
-		Args: append(k.command(), args...), Env: serviceEnv(os.Environ(), cfg.Home, k), Log: k.Log(cfg), Mode: 0o644}
+		Args: append(k.command(), args...), Env: serviceEnv(environ, cfg.Home, k), Log: k.Log(cfg), Mode: 0o644}
 	if k.Vars != nil {
 		u.Mode = 0o600
 	}

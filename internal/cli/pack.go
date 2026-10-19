@@ -278,11 +278,9 @@ func (a *app) packOptions(warn io.Writer, ctx context.Context, f *packFlags) (st
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := a.cfg
-	if cfg == nil {
-		if cfg, err = config.Load(); err != nil {
-			return nil, nil, err
-		}
+	cfg, err := a.config()
+	if err != nil {
+		return nil, nil, err
 	}
 	f.opts.Home = cfg.Home
 	// Whom yardr init names in the yardmaster's role it installs.

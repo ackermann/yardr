@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -208,7 +207,7 @@ operator the way the machine's own login does.`,
 			// to, and a server that does not answer leaves stdin to lead.
 			loginSt := a.st
 			if loginSt == nil {
-				if cfg, err := config.Load(); err == nil {
+				if cfg, err := a.config(); err == nil {
 					if _, err := os.Stat(cfg.DBPath()); err == nil {
 						loginSt, _ = a.store(c.Context())
 					}

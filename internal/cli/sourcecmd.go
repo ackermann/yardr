@@ -474,7 +474,7 @@ env_file; what the new file changes of its calls is printed.`,
 					return err
 				}
 			}
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -663,7 +663,7 @@ credential in it whether their file sets that. The value is never printed.
 			}
 			home := ""
 			if d.HasCommandFiles() {
-				cfg, err := config.Load()
+				cfg, err := a.config()
 				if err != nil {
 					return err
 				}
@@ -840,11 +840,9 @@ credential in it whether their file sets that. The value is never printed.
 			// copies the carrying out wrote (yardr-bht9 3.5). The
 			// carrying out holds the same lock, as do a terminal pack
 			// apply and source add.
-			cfg := a.cfg
-			if cfg == nil {
-				if cfg, err = config.Load(); err != nil {
-					return err
-				}
+			cfg, err := a.config()
+			if err != nil {
+				return err
 			}
 			release, err := config.AcquireApplyLock(cfg.Home)
 			if err != nil {
@@ -1469,7 +1467,7 @@ process for it. Nothing of the request is written anywhere.`,
 			cmdsOK := true
 			var home string
 			if len(d.Commands()) > 0 {
-				cfg, err := config.Load()
+				cfg, err := a.config()
 				if err != nil {
 					return err
 				}

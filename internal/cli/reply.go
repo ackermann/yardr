@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
@@ -159,7 +158,7 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				}
 				return body, nil
 			}
-			name, err := currentCrew(member)
+			name, err := a.currentCrew(member)
 			if err != nil {
 				// Without --crew there is nobody to answer as, except on a
 				// bead that is at another yard, where a person answers as
@@ -381,7 +380,7 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 // the rest.
 func (a *app) maySpeakAs(ctx context.Context, st store.API, what, name string) error {
 	who := a.who()
-	if who == name || config.Getenv("CREW") == name {
+	if who == name || a.yardrenv("CREW") == name {
 		return nil
 	}
 	operator, is, err := a.operator(ctx, st)

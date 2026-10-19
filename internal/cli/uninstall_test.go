@@ -80,7 +80,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 			}
 			// The web view's service, on a yard that names no address for
 			// it: yardr web install's, which down --login leaves.
-			web, err := newUnit(config.At(home), kindOf(svcWeb), []string{"--addr", "127.0.0.1:1"})
+			web, err := newUnit(os.Environ(), config.At(home), kindOf(svcWeb), []string{"--addr", "127.0.0.1:1"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -264,7 +264,7 @@ func TestUninstallLeavesAnotherYardsServices(t *testing.T) {
 func TestUninstallRemovesNothingBeforeItStops(t *testing.T) {
 	home, _, panes, _, a, serverStops := downYard(t, map[string]string{"b": "working"}, "b")
 	stubServices(t, "darwin")
-	d, err := newUnit(config.At(home), kindOf(svcDaemon), nil)
+	d, err := newUnit(os.Environ(), config.At(home), kindOf(svcDaemon), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestUninstallOnNoYard(t *testing.T) {
 		t.Error("connected to the store, which starts a server")
 		return nil, errNoServer
 	})
-	d, err := newUnit(config.At(home), kindOf(svcDaemon), nil)
+	d, err := newUnit(os.Environ(), config.At(home), kindOf(svcDaemon), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

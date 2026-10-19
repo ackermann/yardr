@@ -233,7 +233,7 @@ none and is not listed until it is started again.`,
   yardr status --json | jq -r '.web.views[].url'   # where the web view is`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.LoadReadOnly()
+			cfg, err := a.configReadOnly()
 			if err != nil {
 				return err
 			}

@@ -45,7 +45,7 @@ func (f *failing) PutCrew(ctx context.Context, def store.CrewMember, actor strin
 func startsYardmaster(t *testing.T, st store.API, name string, handle map[string]any) *int {
 	t.Helper()
 	n := 0
-	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
+	stub(t, &spawnDaemon, func([]string, *config.Config) (<-chan error, error) {
 		n++
 		if handle != nil {
 			if err := st.CrewStarted(context.Background(), name, handle); err != nil {
@@ -369,7 +369,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	st := storetest.New(t)
 	// The form waits yardmasterWait for the yardmaster; one that is disabled
 	// ends the wait at once.
-	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
+	stub(t, &spawnDaemon, func([]string, *config.Config) (<-chan error, error) {
 		if err := st.SetCrewEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
 			t.Error(err)
 		}

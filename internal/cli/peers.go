@@ -73,7 +73,7 @@ the private key stays in the home (peer.key, mode 0600; a file open to others
 is refused, as a hook's secret file is) and the same public key is printed
 every time.`,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -1231,15 +1231,6 @@ func invite(ctx context.Context, cfg *config.Config, st store.API, url string) (
 		return yardkey.Invite{}, fmt.Errorf("%w; give the yard a name an invite can carry: %s settings set name <name>", err, yardrAt(cfg.Home))
 	}
 	return inv, nil
-}
-
-// config is the yard's home as this run knows it: read now when no command
-// before has (a store handed in by a test connects to nothing).
-func (a *app) config() (*config.Config, error) {
-	if a.cfg != nil {
-		return a.cfg, nil
-	}
-	return config.Load()
 }
 
 // operatorOnly refuses what only the operator may do when this command acts

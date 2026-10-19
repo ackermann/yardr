@@ -85,7 +85,7 @@ func (r *loginRig) use(t *testing.T) {
 		t.Error("up --login started herdr's server itself")
 		return nil, nil
 	})
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, _ []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, _ []string) (int, <-chan error, func() error, error) {
 		t.Errorf("up --login started yardr %s itself", k.Name)
 		return 0, nil, func() error { return nil }, nil
 	})
@@ -533,6 +533,33 @@ func TestLoginNotSupported(t *testing.T) {
 // What up --login writes into a service is the login shell's PATH, with
 // what this process has beyond it after: a window starts yardr without what
 // a profile adds.
+// up --login writes the daemon's service with the login shell's PATH
+// (useLoginPATH), taken from the run's environment as it is when the
+// service is written, not as it was when the run began.
+func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
+	home, _, a, herdrStarts, _ := upYard(t, false)
+	rig := stubLogin(t, "darwin", herdrStarts)
+	shell := filepath.Join(t.TempDir(), "sh")
+	script := "#!/bin/sh\nPATH=/home/jo/.local/bin:/usr/bin:/bin\nexport PATH\nshift\nexec /bin/sh \"$@\"\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub(t, &loginShell, func() string { return shell })
+	// A run with an environment of its own, as Execute gives one, taken
+	// before up --login merges PATH.
+	x := a(false)
+	x.env = environMap(os.Environ())
+	out, err := run(t, x.rootCmd(), "up", "--login")
+	if err != nil {
+		t.Fatalf("up --login: %v\n%s", err, out)
+	}
+	b, err := os.ReadFile(filepath.Join(rig.dir, "dev.yardr.daemon."+homeID(home)+".plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, string(b), "<key>PATH</key>\n\t\t<string>/home/jo/.local/bin:/usr/bin:/bin:/opt/yardr/bin</string>")
+}
+
 func TestUseLoginPATH(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "sh")
 	script := "#!/bin/sh\nPATH=/home/jo/.local/bin:/usr/bin:/bin\nexport PATH\nshift\nexec /bin/sh \"$@\"\n"

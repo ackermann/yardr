@@ -127,7 +127,7 @@ prints two documents, the code at once and the result at the end.`,
 				}
 				return a.out(c.OutOrStdout(), map[string]string{"pairing": "ended"}, func(w io.Writer) { fmt.Fprintln(w, "the pairing is ended: its code is good for nothing") })
 			}
-			if len(args) == 0 && !pairFlagged(c) && !a.json && interactive() && !agentSession() {
+			if len(args) == 0 && !pairFlagged(c) && !a.json && interactive() && !a.agentSession() {
 				return a.pairForm(c.OutOrStdout(), c.ErrOrStderr(), ctx, cfg, st)
 			}
 			if !opt.yes && (a.json || !interactive()) {

@@ -595,6 +595,26 @@ func TestStatusNoYard(t *testing.T) {
 	}
 }
 
+// status --home on a directory that does not exist reports that home, from
+// the run's environment, and creates nothing: not that home, nor the one
+// YARDR_HOME names.
+func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
+	variable := newHome(t)
+	setInteractive(t, false)
+	home := filepath.Join(filepath.Dir(variable), "nothere")
+	errs := captureStderr(t)
+	out, code := executeOut(&app{stderr: errs, env: environMap(os.Environ())}, "status", "--home", home)
+	if code != 2 || out != "" {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	wantText(t, errs.String(), "no yard in "+home+" yet")
+	for _, dir := range []string{home, variable} {
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("status created %s", dir)
+		}
+	}
+}
+
 // A yard whose server cannot be reached is still a yard: status says so,
 // with what it knows without the store, and exits 0.
 func TestStatusUnreachableServer(t *testing.T) {

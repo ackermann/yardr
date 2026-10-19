@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
 )
 
@@ -15,7 +14,7 @@ type identity struct {
 	actor, session, bead string
 }
 
-// identity is who this run acts as: what the environment names
+// identity is who this run acts as: what the run's environment names
 // (YARDR_ACTOR, YARDR_SESSION, YARDR_BEAD), unless that is another bead's
 // session than the one whose worktree the command runs in. Then the
 // environment is not this agent's own: an agent may run its commands in a
@@ -31,7 +30,7 @@ type identity struct {
 // no bead is a person's or a crew member's, who act as themselves wherever
 // they stand.
 func (a *app) identity() identity {
-	env := identity{actor: config.Getenv("ACTOR"), session: config.Getenv("SESSION"), bead: config.Getenv("BEAD")}
+	env := identity{actor: a.yardrenv("ACTOR"), session: a.yardrenv("SESSION"), bead: a.yardrenv("BEAD")}
 	// Asked several times in a run (the actor, then the session): the
 	// worktree is looked at, and the line written, once per environment.
 	if a.self == nil || a.self.env != env {

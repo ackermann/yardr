@@ -101,7 +101,7 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 	actAsOperator(t)
 	chats := stubChat(t)
 	st := storetest.New(t)
-	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
+	stub(t, &spawnDaemon, func([]string, *config.Config) (<-chan error, error) {
 		for range store.MaxStartFails {
 			if err := st.CrewStartFailed(context.Background(), "yardmaster", "claude: not logged in", time.Minute); err != nil {
 				t.Error(err)

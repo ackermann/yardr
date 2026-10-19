@@ -87,7 +87,7 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	}
 	yards := upgradeCoveredYards(cfg, target)
 	restoreOn := upgradeRestoreOn(settings, noRestore)
-	actor, err := config.Actor()
+	actor, err := config.ActorWith(a.getenv)
 	if err != nil {
 		return err
 	}
@@ -382,7 +382,7 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 				}
 			}
 			if before.daemon {
-				if _, err := upgradeStartDaemon(yc); err != nil {
+				if _, err := upgradeStartDaemon(a.environ(), yc); err != nil {
 					outcome = "the daemon could not be started again: " + err.Error()
 					outcomes = append(outcomes, config.UpgradeYardOutcome{Home: before.home, Outcome: outcome, Restored: restored})
 					downAny = true

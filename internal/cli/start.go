@@ -111,8 +111,8 @@ type startResult struct {
 // Unlike the server, the daemon keeps the starter's environment: it is what
 // a daemon in a pane of its own has, and the runners need it (herdr's
 // socket, the PATH an exec group's command runs with). See daemonEnv.
-var spawnDaemon = func(cfg *config.Config) (exited <-chan error, err error) {
-	_, exited, _, err = spawn(cfg, kindOf(svcDaemon), nil)
+var spawnDaemon = func(environ []string, cfg *config.Config) (exited <-chan error, err error) {
+	_, exited, _, err = spawn(environ, cfg, kindOf(svcDaemon), nil)
 	return exited, err
 }
 
@@ -195,7 +195,7 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, y
 	var exited <-chan error
 	if !config.DaemonRunning(cfg.DaemonLock()) {
 		var err error
-		if exited, err = spawnDaemon(cfg); err != nil {
+		if exited, err = spawnDaemon(a.environ(), cfg); err != nil {
 			res.Problem = "the daemon could not be started: " + err.Error()
 			res.Next = []string{fmt.Sprintf("start it in a terminal pane of its own: %s daemon", yardrAt(cfg.Home))}
 			return res
@@ -257,7 +257,7 @@ const (
 // is not on PATH (the start says so), are not asked about. The call costs a
 // model call, so it is made on a yes only.
 func (a *app) askHarness(w io.Writer, ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (goOn bool, err error) {
-	if a.json || !interactive() || agentSession() || config.DaemonRunning(cfg.DaemonLock()) {
+	if a.json || !interactive() || a.agentSession() || config.DaemonRunning(cfg.DaemonLock()) {
 		return true, nil
 	}
 	r, err := st.GetCrew(ctx, yardmaster)
@@ -423,7 +423,7 @@ func (a *app) offerPane(w, warn io.Writer, ctx context.Context, cfg *config.Conf
 		case err != nil:
 			return err
 		}
-		if os.Getenv("HERDR_ENV") != "" {
+		if a.getenv("HERDR_ENV") != "" {
 			// In a pane of herdr there is nothing to attach: herdr shows the
 			// yardmaster's pane in place of this one, as yardr chat's key for
 			// it does, and this run waits behind it.

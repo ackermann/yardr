@@ -235,11 +235,10 @@ func (a *app) addrFromSetting(ctx context.Context, cfg *config.Config, k *longRu
 	}
 	if cfg == nil {
 		var err error
-		cfg, err = config.Load()
+		cfg, err = a.config()
 		if err != nil {
 			return err
 		}
-		a.cfg = cfg
 	}
 	if k.EnvAddr != nil {
 		if v := k.EnvAddr(cfg); v != "" {
@@ -552,14 +551,15 @@ func stopDaemon(cfg *config.Config, wait time.Duration) (int, error) {
 // spawn starts one of the kind for the home with args, detached from this
 // terminal and logging to the kind's log in the home, the way server.Start
 // starts the server. exited gets its end, should it come, and stop kills
-// it. Tests replace it.
-var spawn = func(cfg *config.Config, k *longRunning, args []string) (pid int, exited <-chan error, stop func() error, err error) {
+// it. environ is the starting run's environment (see app.environ), of
+// which the kind keeps what its env says. Tests replace it.
+var spawn = func(environ []string, cfg *config.Config, k *longRunning, args []string) (pid int, exited <-chan error, stop func() error, err error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, nil, nil, err
 	}
 	cmd := exec.Command(self, append(k.command(), args...)...)
-	cmd.Env = k.env(os.Environ(), cfg.Home)
+	cmd.Env = k.env(environ, cfg.Home)
 	cmd.Dir = cfg.Home
 	if exited, err = server.SpawnDetached(cmd, k.Log(cfg)); err != nil {
 		return 0, nil, nil, err
@@ -573,14 +573,14 @@ var startWait = 10 * time.Second
 // start starts one of the kind in the background and returns once it is
 // up: it listens on addr, or, for a kind that listens nowhere, holds its
 // file. Such a kind is started once: nothing tells a second from the first.
-func (k *longRunning) start(cfg *config.Config, args []string, addr string) (int, error) {
+func (k *longRunning) start(environ []string, cfg *config.Config, args []string, addr string) (int, error) {
 	if addr != "" && answers(addr) {
 		return 0, fmt.Errorf("something listens on %s already: a %s that runs, perhaps (http://%s/). --%s takes another port", addr, k.What, addr, k.Addr)
 	}
 	if run := k.running(cfg); addr == "" && len(run) > 0 {
 		return 0, fmt.Errorf("a %s runs on the yard in %s already (pid %d). To stop it: %s %s stop", k.What, cfg.Home, run[0].PID, yardrAt(cfg.Home), k.Name)
 	}
-	pid, exited, stop, err := spawn(cfg, k, args)
+	pid, exited, stop, err := spawn(environ, cfg, k, args)
 	if err != nil {
 		return 0, err
 	}
@@ -632,7 +632,7 @@ are handed on to it.`, line, k.logName(), k.Name),
 					return err
 				}
 			}
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -652,7 +652,7 @@ are handed on to it.`, line, k.logName(), k.Name),
 				}
 			}
 			addr := k.addr(c.Flags())
-			pid, err := k.start(cfg, k.args(c.Flags()), addr)
+			pid, err := k.start(a.environ(), cfg, k.args(c.Flags()), addr)
 			if err != nil {
 				return err
 			}
@@ -681,7 +681,7 @@ service starts it again at the next login, or when it ends with a failure, and a
 yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -711,7 +711,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 		Short: fmt.Sprintf("Report whether the %s runs, and whether it starts when you log in", k.What),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -753,7 +753,7 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 					return err
 				}
 			}
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -770,7 +770,7 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 					return err
 				}
 			}
-			u, err := newUnit(cfg, k, k.args(c.Flags()))
+			u, err := newUnit(a.environ(), cfg, k, k.args(c.Flags()))
 			if err != nil {
 				return err
 			}
@@ -809,7 +809,7 @@ One started any other way is not the service's and is left running.
 --file-only deletes the file and unloads nothing.`, k.What, k.Name),
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}

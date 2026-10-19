@@ -491,7 +491,7 @@ func upYard(t *testing.T, herdrRuns bool) (home string, st store.API, a func(jso
 		*herdrStarts++
 		return nil, nil
 	})
-	stub(t, &spawn, func(cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		if k.Name != svcDaemon || len(args) != 0 {
 			t.Errorf("up started yardr %s %v", k.Name, args)
 		}
@@ -575,7 +575,7 @@ func TestUpWithoutHerdr(t *testing.T) {
 // shell's PATH after its own: the daemon looks for herdr, git and the
 // harnesses on it.
 func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
-	_, _, a, herdrStarts, daemonStarts := upYard(t, false)
+	home, _, a, herdrStarts, daemonStarts := upYard(t, false)
 	stubLookPath(t, "claude", "git")
 	local := t.TempDir()
 	herdr := filepath.Join(local, "herdr")
@@ -598,13 +598,29 @@ func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
 		*herdrStarts++
 		return nil, nil
 	})
-	out, err := run(t, a(false).rootCmd(), "up")
+	// The daemon is started from the run's environment, which takes PATH
+	// from the process as it is when the daemon starts.
+	var daemon []string
+	started := spawn
+	stub(t, &spawn, func(environ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		daemon = daemonEnv(environ, cfg.Home)
+		return started(environ, cfg, k, args)
+	})
+	// A run with an environment of its own, as Execute gives one, taken
+	// before up merges PATH.
+	x := a(false)
+	x.env = environMap(os.Environ())
+	out, err := run(t, x.rootCmd(), "up")
 	if err != nil || *herdrStarts != 1 || *daemonStarts != 1 {
 		t.Fatalf("up: %v, herdr started %d times, the daemon %d\n%s", err, *herdrStarts, *daemonStarts, out)
 	}
 	wantText(t, out, "herdr's server  started: herdr is "+herdr+", which your login shell finds and this PATH does not")
-	if got, want := os.Getenv("PATH"), "/usr/bin:/bin:"+local+":/opt/tools"; got != want {
+	want := "/usr/bin:/bin:" + local + ":/opt/tools"
+	if got := os.Getenv("PATH"); got != want {
 		t.Fatalf("PATH for what up starts = %s, want %s", got, want)
+	}
+	if !slices.Contains(daemon, "PATH="+want) || !slices.Contains(daemon, "YARDR_HOME="+home) {
+		t.Fatalf("the daemon started with\n%s\nwant PATH=%s and YARDR_HOME=%s", strings.Join(daemon, "\n"), want, home)
 	}
 }
 
@@ -616,7 +632,7 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	var started []string
-	stub(t, &spawn, func(cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, k.Name+" "+strings.Join(args, " "))
 		if k.Name == svcDaemon {
 			unlock, err := lockDaemon(cfg.DaemonLock(), 0)

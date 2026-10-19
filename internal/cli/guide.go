@@ -88,7 +88,7 @@ it prints the steps and the command for the next one.`,
 			if a.guided {
 				return nil // the onboarding, run for this command, asked already
 			}
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -101,7 +101,7 @@ it prints the steps and the command for the next one.`,
 				return err
 			}
 			next := nextStep(steps)
-			forms := !a.json && interactive() && !agentSession()
+			forms := !a.json && interactive() && !a.agentSession()
 			if err := a.out(c.OutOrStdout(), setupReport{Home: cfg.Home, Steps: steps, Next: next}, func(w io.Writer) {
 				fmt.Fprintf(w, "The setup of the yard in %s\n\n", cfg.Home)
 				printSteps(w, steps)
@@ -129,8 +129,8 @@ it prints the steps and the command for the next one.`,
 // agentSession reports whether this run is an agent's: a session yardr
 // started, or a crew member. An agent's pane is a terminal too, and a form
 // would sit there unanswered.
-func agentSession() bool {
-	return config.Getenv("SESSION") != "" || config.Getenv("CREW") != ""
+func (a *app) agentSession() bool {
+	return a.yardrenv("SESSION") != "" || a.yardrenv("CREW") != ""
 }
 
 // printSteps prints the setup steps, each done or todo.

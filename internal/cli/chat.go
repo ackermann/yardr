@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -129,7 +128,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 		return errors.New("the yard has no crew to talk with: yardr crew add adds one, yardr init the yardmaster")
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Home: a.mailHome(), Expect: expect,
-		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh,
+		InHerdr: a.getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh,
 		Asks: func(ctx context.Context) ([]store.ResolvedAsk, error) { return chat.AsksFor(ctx, st, me) }, Secrets: st}, state)
 	return runChat(ctx, st, m, state.Head)
 }
@@ -138,7 +137,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 // terminal who did not ask for none. An agent's pane is a terminal too, and
 // a view would sit there.
 func (a *app) chats() bool {
-	return !a.json && !a.noChat && interactive() && !agentSession()
+	return !a.json && !a.noChat && interactive() && !a.agentSession()
 }
 
 // toChat is the hand-over to the yardmaster: it opens the chat on it for the

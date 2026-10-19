@@ -365,7 +365,7 @@ func TestBDPAndOTelStartStop(t *testing.T) {
 	}
 	var started [][]string
 	var pids *[]int
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, append(k.command(), args...))
 		// What is started says that it runs, as the real one does.
 		pids = running(t, cfg, k, nil)

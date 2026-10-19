@@ -56,7 +56,7 @@ of the thread.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			name, err := currentCrew(member)
+			name, err := a.currentCrew(member)
 			if err != nil {
 				return err
 			}

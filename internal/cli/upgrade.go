@@ -151,7 +151,7 @@ docs/upgrade.md says every line.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if !check {
-				cfg, err := config.Load()
+				cfg, err := a.config()
 				if err != nil {
 					return err
 				}
@@ -161,7 +161,7 @@ docs/upgrade.md says every line.`,
 			if err != nil {
 				return err
 			}
-			cfg, err := config.LoadReadOnly()
+			cfg, err := a.configReadOnly()
 			if err != nil {
 				return err
 			}

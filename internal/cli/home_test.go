@@ -22,8 +22,8 @@ import (
 )
 
 // noHome is a machine where nothing names a yard: a user's home of its own,
-// and neither variable set, both put back after the test, since --home
-// writes them. It returns the user's home.
+// and neither variable set, both put back after the test. It returns the
+// user's home.
 func noHome(t *testing.T) string {
 	t.Helper()
 	user := shortDir(t, "yu")
@@ -35,7 +35,13 @@ func noHome(t *testing.T) string {
 // doctorHome is the home yardr doctor reports on, run with args in front.
 func doctorHome(t *testing.T, args ...string) string {
 	t.Helper()
-	out, _ := executeOut(&app{}, append(args, "doctor", "--json")...)
+	return doctorHomeOf(t, &app{env: environMap(os.Environ())}, args...)
+}
+
+// doctorHomeOf is doctorHome run on a.
+func doctorHomeOf(t *testing.T, a *app, args ...string) string {
+	t.Helper()
+	out, _ := executeOut(a, append(args, "doctor", "--json")...)
 	var rep doctorReport
 	if err := json.Unmarshal([]byte(out), &rep); err != nil {
 		t.Fatalf("doctor --json: %v\n%s", err, out)
@@ -70,29 +76,36 @@ func TestHomeFlagOrder(t *testing.T) {
 
 // A relative --home is made absolute once, and what the command starts gets
 // it as YARDR_HOME: a child with the command's environment,
-// a background daemon, a detached server.
+// a background daemon, a detached server. The flag is the run's: the
+// process's own YARDR_HOME is left as it was.
 func TestHomeFlagReachesChildren(t *testing.T) {
 	user := noHome(t)
 	setInteractive(t, false)
 	fakeTools(t, map[string]string{"git": toolAnswers})
-	t.Setenv("YARDR_HOME", filepath.Join(user, "variable"))
+	variable := filepath.Join(user, "variable")
+	t.Setenv("YARDR_HOME", variable)
 	t.Chdir(user)
 	want := filepath.Join(user, "y1")
-	if got := doctorHome(t, "--home", "y1/"); got != want {
+	a := &app{env: environMap(os.Environ())}
+	if got := doctorHomeOf(t, a, "--home", "y1/"); got != want {
 		t.Fatalf("home %s, want %s", got, want)
+	}
+	if got := os.Getenv("YARDR_HOME"); got != variable {
+		t.Errorf("--home set the process's YARDR_HOME to %s; it was %s", got, variable)
 	}
 
 	elsewhere := t.TempDir()
 	child := exec.Command("/bin/sh", "-c", `printf '%s' "$YARDR_HOME"`)
 	child.Dir = elsewhere
+	child.Env = a.environ()
 	out, err := child.Output()
 	if err != nil || string(out) != want {
 		t.Errorf("a child's home = %q, %v; want %s", out, err, want)
 	}
 	for name, env := range map[string][]string{
-		"daemon":  daemonEnv(os.Environ(), want),
-		"server":  server.ServerEnv(os.Environ(), want),
-		"service": serviceEnv(os.Environ(), want, kindOf(svcDaemon)),
+		"daemon":  daemonEnv(a.environ(), want),
+		"server":  server.ServerEnv(a.environ(), want),
+		"service": serviceEnv(a.environ(), want, kindOf(svcDaemon)),
 	} {
 		var homes []string
 		for _, kv := range env {

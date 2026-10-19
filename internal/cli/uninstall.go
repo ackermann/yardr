@@ -188,7 +188,7 @@ is, else 1.`,
 			return nil
 		},
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}

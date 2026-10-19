@@ -235,7 +235,7 @@ too when a service could not be installed.`,
   yardr --home /srv/yard up`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -323,7 +323,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 		}
 	}
 	start := func() {
-		pid, err := kindOf(svcDaemon).start(cfg, nil, "")
+		pid, err := kindOf(svcDaemon).start(a.environ(), cfg, nil, "")
 		if err != nil {
 			daemon.Error, daemon.Do = err.Error(), "read "+cfg.DaemonLog()+", then: "+yardr+" up"
 		} else {
@@ -399,7 +399,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 			}
 			// One its service did not start is started all the same.
 			if err == nil && !started {
-				pid, err = k.start(cfg, args, addr)
+				pid, err = k.start(a.environ(), cfg, args, addr)
 			}
 			if err != nil {
 				p.Error, p.Do = err.Error(), fmt.Sprintf("%s %s start", yardr, k.Name)
@@ -673,7 +673,7 @@ that could not be stopped).`,
   yardr down --login                     # and not started at login any more`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}

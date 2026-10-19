@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
@@ -836,14 +835,14 @@ func (a *app) primeCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if member == "" && id == "" {
-				member = config.Getenv("CREW")
+				member = a.yardrenv("CREW")
 			}
 			if member != "" {
 				st, err := a.store(c.Context())
 				if err != nil {
 					return err
 				}
-				return a.primeCrew(c.OutOrStdout(), c.Context(), st, member, crewSession(forUser))
+				return a.primeCrew(c.OutOrStdout(), c.Context(), st, member, a.crewSession(forUser))
 			}
 			if id == "" {
 				id = a.identity().bead

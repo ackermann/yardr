@@ -22,6 +22,10 @@ const prefix = "YARDR_"
 // Getenv returns YARDR_<name>.
 func Getenv(name string) string { return os.Getenv(prefix + name) }
 
+// Key returns YARDR_<name>, the full key of a yardr variable, for a
+// lookup that is not the process's (see LoadWith).
+func Key(name string) string { return prefix + name }
+
 // Env returns name=value as the KEY=value of a child's environment.
 func Env(name, value string) []string { return []string{prefix + name + "=" + value} }
 

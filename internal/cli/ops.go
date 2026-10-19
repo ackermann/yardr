@@ -25,7 +25,6 @@ import (
 
 	"io"
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/runner"
@@ -39,7 +38,7 @@ func (a *app) serverCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "run", Short: "Own the store and serve it in the foreground", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -50,7 +49,7 @@ func (a *app) serverCmd() *cobra.Command {
 	}, &cobra.Command{
 		Use: "start", Short: "Start the server in the background if it is not running", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -64,7 +63,7 @@ func (a *app) serverCmd() *cobra.Command {
 	}, &cobra.Command{
 		Use: "stop", Short: "Stop the background server", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -73,7 +72,7 @@ func (a *app) serverCmd() *cobra.Command {
 	}, &cobra.Command{
 		Use: "status", Short: "Report whether the server answers", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.LoadReadOnly()
+			cfg, err := a.configReadOnly()
 			if err != nil {
 				return err
 			}
@@ -102,7 +101,7 @@ func (a *app) daemonCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}

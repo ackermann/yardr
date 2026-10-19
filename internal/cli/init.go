@@ -257,7 +257,7 @@ func (a *app) firstRun(c *cobra.Command) error {
 
 // onboard is firstRun for a command that needs a yard.
 func (a *app) onboard(c *cobra.Command) error {
-	cfg, err := config.Load()
+	cfg, err := a.config()
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func (a *app) onboard(c *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	opts, err := onboardForm(c.OutOrStdout(), cfg.Home, part)
+	opts, err := onboardForm(c.OutOrStdout(), cfg.Home, part, a.getenv)
 	if errors.Is(err, huh.ErrUserAborted) {
 		if part != nil {
 			return fmt.Errorf("onboarding cancelled; nothing was added to %s", cfg.Home)
@@ -335,7 +335,7 @@ func (a *app) goOn(w, warn io.Writer, ctx context.Context, cfg *config.Config, r
 // It goes by the yard as it is, not by a record of the earlier run: a yard
 // made by yardr init and never started is taken up the same way.
 func (a *app) resume(w, warn io.Writer, ctx context.Context, cfg *config.Config) error {
-	if a.json || !interactive() || agentSession() {
+	if a.json || !interactive() || a.agentSession() {
 		return nil
 	}
 	st, err := a.store(ctx)
@@ -965,10 +965,11 @@ func harnessOptions() ([]huh.Option[string], string) {
 // part is what an earlier setup, cut short, left in the home: the form says
 // so, and the yardmaster's name and how agents work with you start at what
 // that run stored. Your name does not: it is who this terminal acts as
-// (actsAs), whatever that run was told.
-func onboardForm(w io.Writer, home string, part *partYard) (initOptions, error) {
+// (actsAs), whatever that run was told. get is the run's environment, which
+// names who that is.
+func onboardForm(w io.Writer, home string, part *partYard, get func(string) string) (initOptions, error) {
 	opts, def := harnessOptions()
-	operator, err := config.Actor()
+	operator, err := config.ActorWith(get)
 	if err != nil {
 		return initOptions{}, err
 	}
@@ -1005,7 +1006,7 @@ func onboardForm(w io.Writer, home string, part *partYard) (initOptions, error) 
 			Description("Where the yardmaster's shell lives: its session starts there, and relative paths it uses resolve from there.").
 			Value(&o.Dir).Validate(func(s string) error { _, err := absDir(s); return err }),
 		huh.NewInput().Title("Model").Description("Optional; blank uses "+o.Harness+"'s default.").Value(&o.Model),
-		nameField(&o.Operator),
+		nameField(&o.Operator, get),
 	); err != nil {
 		return o, err
 	}
@@ -1032,32 +1033,35 @@ func onboardForm(w io.Writer, home string, part *partYard) (initOptions, error) 
 
 // nameField is the form's "Your name": the operator, who becomes a user of
 // the yard. It starts at who this terminal acts as and takes no other name
-// (actsAs).
-func nameField(operator *string) *huh.Input {
+// (actsAs), as get, the run's environment, names it.
+func nameField(operator *string, get func(string) string) *huh.Input {
 	return huh.NewInput().Title("Your name (who your commands act as: your login, or $YARDR_ACTOR)").
 		Description("How the role prompts name you: the person agents bring decisions to.").
-		Value(operator).Validate(actsAs)
+		Value(operator).Validate(actsAs(get))
 }
 
 // actsAs refuses a name for the operator that this terminal does not act
-// as. The operator is a user, and a user is who commands act as
-// (config.Actor): under another name the person who made the yard would be
-// no user of it, with no chat and an inbox nobody reads (yardr-cj66).
-func actsAs(name string) error {
-	actor, err := config.Actor()
-	if err != nil {
-		return err
+// as, which get, the run's environment, names. The operator is a user, and
+// a user is who commands act as (config.Actor): under another name the
+// person who made the yard would be no user of it, with no chat and an
+// inbox nobody reads (yardr-cj66).
+func actsAs(get func(string) string) func(name string) error {
+	return func(name string) error {
+		actor, err := config.ActorWith(get)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !store.ValidUserName(name):
+			return errors.New("letters, digits, '.', '_', '-', '/', starting with a letter or digit")
+		case !store.ValidUserName(actor):
+			// A login name no user may have (Windows' DOMAIN\name): nothing to keep.
+			return fmt.Errorf("commands in this terminal act as %s, which no user can be called: set YARDR_ACTOR=%s before yardr", actor, name)
+		case name != actor:
+			return fmt.Errorf("commands in this terminal act as %s; keep it, or set YARDR_ACTOR=%s before yardr", actor, name)
+		}
+		return nil
 	}
-	switch {
-	case !store.ValidUserName(name):
-		return errors.New("letters, digits, '.', '_', '-', '/', starting with a letter or digit")
-	case !store.ValidUserName(actor):
-		// A login name no user may have (Windows' DOMAIN\name): nothing to keep.
-		return fmt.Errorf("commands in this terminal act as %s, which no user can be called: set YARDR_ACTOR=%s before yardr", actor, name)
-	case name != actor:
-		return fmt.Errorf("commands in this terminal act as %s; keep it, or set YARDR_ACTOR=%s before yardr", actor, name)
-	}
-	return nil
 }
 
 // styleFields are the form page after "Your name": how agents should work
@@ -1180,7 +1184,7 @@ Unattended flags per harness:
   yardr init --harness claude --style work --about "I review every merge myself"`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
@@ -1411,11 +1415,9 @@ error; --json has where it is from.`,
 			if err != nil {
 				return err
 			}
-			cfg := a.cfg
-			if cfg == nil {
-				if cfg, err = config.Load(); err != nil {
-					return err
-				}
+			cfg, err := a.config()
+			if err != nil {
+				return err
 			}
 			rows := settingRows(cfg.Home, all)
 			if len(args) == 0 {
@@ -1467,11 +1469,9 @@ error; --json has where it is from.`,
 				if args[0] != hooks.FromSetting && k == nil {
 					return
 				}
-				cfg := a.cfg
-				if cfg == nil {
-					if cfg, err = config.Load(); err != nil {
-						return
-					}
+				cfg, err := a.config()
+				if err != nil {
+					return
 				}
 				if k != nil {
 					fmt.Fprintln(w, k.addrTakes(cfg))

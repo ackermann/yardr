@@ -177,7 +177,7 @@ for its links (yardr peer list).`,
 				return err
 			}
 			if len(changes) > 0 && !replace {
-				if a.json || !interactive() || agentSession() {
+				if a.json || !interactive() || a.agentSession() {
 					return fmt.Errorf("crew member %s exists, and add replaces its whole definition. This one would change:\n%s\n"+
 						"To change some settings and keep the rest: yardr crew set %s key=value. To save this definition as given: --replace",
 						def.Name, changeLines(changes), def.Name)
@@ -265,7 +265,7 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
-			user := crewSession(showFor)
+			user := a.crewSession(showFor)
 			inbox, err := st.InboxFor(c.Context(), r.Name, user, 0)
 			if err != nil {
 				return err
@@ -439,7 +439,7 @@ for its links (yardr peer list).`,
 		return st.SetCrewEnabled(ctx, n, false, rev, a.who())
 	})
 	restart := simple("restart", "Start a fresh session once the current one is idle", func(ctx context.Context, st store.API, n string) error {
-		return st.RequestRestartFor(ctx, n, crewSession(restartFor), "requested by "+a.who(), rev, a.who())
+		return st.RequestRestartFor(ctx, n, a.crewSession(restartFor), "requested by "+a.who(), rev, a.who())
 	})
 	restart.Flags().StringVar(&restartFor, "for", "", "restart the conversation session for this user instead of the line session")
 	show.Flags().StringVar(&showFor, "for", "", "show the inbox slice of the conversation session for this user (default $YARDR_CREW_FOR, else the line session)")
@@ -1015,11 +1015,11 @@ func absDir(d string) (string, error) {
 
 // currentCrew is --crew, else $YARDR_CREW (set in a crew member's
 // own session).
-func currentCrew(flag string) (string, error) {
+func (a *app) currentCrew(flag string) (string, error) {
 	if flag != "" {
 		return flag, nil
 	}
-	if r := config.Getenv("CREW"); r != "" {
+	if r := a.yardrenv("CREW"); r != "" {
 		return r, nil
 	}
 	return "", fmt.Errorf("--crew is required (or set YARDR_CREW)")
@@ -1028,11 +1028,11 @@ func currentCrew(flag string) (string, error) {
 // crewSession is the crew session --for names: the flag, else
 // $YARDR_CREW_FOR (set in a conversation session's pane), else the line
 // session ("").
-func crewSession(flag string) string {
+func (a *app) crewSession(flag string) string {
 	if flag != "" {
 		return flag
 	}
-	return config.Getenv(runner.CrewForEnv)
+	return a.yardrenv(runner.CrewForEnv)
 }
 
 // noteAuthor is who wrote a journal note, with the conversation session
@@ -1101,7 +1101,7 @@ yardr doctor and bare yardr say what waits.`,
 				}
 				through = v
 			}
-			if member == "" && config.Getenv("CREW") == "" {
+			if member == "" && a.yardrenv("CREW") == "" {
 				u, err := a.actingUser(c.Context(), st)
 				if err != nil {
 					return err
@@ -1118,11 +1118,11 @@ yardr doctor and bare yardr say what waits.`,
 			if mail || notes {
 				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a crew member's has one")
 			}
-			name, err := currentCrew(member)
+			name, err := a.currentCrew(member)
 			if err != nil {
 				return err
 			}
-			user := crewSession(forUser)
+			user := a.crewSession(forUser)
 			page, err := st.InboxFor(c.Context(), name, user, limit)
 			if err != nil {
 				return err
@@ -1486,7 +1486,7 @@ func (a *app) rememberCmd() *cobra.Command {
 			}
 			if m.Scope == "" {
 				m.Scope = "all"
-				if r := config.Getenv("CREW"); r != "" {
+				if r := a.yardrenv("CREW"); r != "" {
 					m.Scope = "crew:" + r
 				}
 			}
@@ -1526,7 +1526,7 @@ first and in full: the journal read back.`,
 				return err
 			}
 			if scope == "" {
-				if r := config.Getenv("CREW"); r != "" {
+				if r := a.yardrenv("CREW"); r != "" {
 					scope = "crew:" + r
 				}
 			}

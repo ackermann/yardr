@@ -398,7 +398,7 @@ func installHerdrLogin(ctx context.Context, u *unit, l *loginUnit, start bool) b
 func (a *app) loginInstall(ctx context.Context, cfg *config.Config, k *longRunning, args []string, up func() bool) loginUnit {
 	l := loginUnit{Part: k.Name}
 	again := yardrAt(cfg.Home) + " up --login"
-	u, err := newUnit(cfg, k, args)
+	u, err := newUnit(a.environ(), cfg, k, args)
 	if err != nil {
 		l.Error = err.Error()
 		return l

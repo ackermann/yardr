@@ -33,7 +33,7 @@ func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 	t.Helper()
 	n := 0
 	old := spawnDaemon
-	spawnDaemon = func(*config.Config) (<-chan error, error) {
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) {
 		n++
 		if handle != nil {
 			if err := st.CrewStarted(context.Background(), "yardmaster", handle); err != nil {
@@ -461,7 +461,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	// This daemon holds the lock, as a real one does while it runs.
 	var unlock func()
 	old := spawnDaemon
-	spawnDaemon = func(*config.Config) (<-chan error, error) {
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) {
 		if unlock, err = lockDaemon(cfg.DaemonLock(), 0); err != nil {
 			return nil, err
 		}
@@ -489,7 +489,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 
 	// Everything on PATH, and the daemon gave up.
 	stubLookPath(t, "claude", "git", "herdr")
-	spawnDaemon = func(*config.Config) (<-chan error, error) {
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) {
 		for i := 0; i < store.MaxStartFails; i++ {
 			if err := st.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", time.Minute); err != nil {
 				return nil, err
@@ -515,21 +515,21 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	if err := st.CrewStartFailed(ctx, "yardmaster", "server_not_running: no herdr server is running", time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, nil }
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) { return nil, nil }
 	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard)
 	if next := strings.Join(res.Next, "\n"); res.Running || strings.Contains(next, "doctor --try") {
 		t.Errorf("herdr's outage is no reason to try the harness: %+v", res)
 	}
 
 	// A daemon that cannot be started at all.
-	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
 	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute, io.Discard); res.DaemonStarted ||
 		res.Problem != "the daemon could not be started: fork: no" || !strings.Contains(res.Next[0], here("yardr daemon")) {
 		t.Fatalf("%+v", res)
 	}
 
 	// A daemon that ends right away, with no other holding the lock.
-	spawnDaemon = func(*config.Config) (<-chan error, error) {
+	spawnDaemon = func([]string, *config.Config) (<-chan error, error) {
 		ch := make(chan error, 1)
 		ch <- errors.New("exit status 1")
 		return ch, st.SetCrewEnabled(ctx, "yardmaster", true, "", op)

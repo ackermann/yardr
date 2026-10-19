@@ -398,7 +398,7 @@ func typeName(t *testing.T, name string) (was string, refused error) {
 		t.Fatal(err)
 	}
 	was = operator
-	f := nameField(&operator)
+	f := nameField(&operator, os.Getenv)
 	f.WithKeyMap(huh.NewDefaultKeyMap())
 	f.Focus()
 	f.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
@@ -417,7 +417,7 @@ func typeName(t *testing.T, name string) (was string, refused error) {
 // and takes that name once YARDR_ACTOR is set to it.
 func TestYourNameIsWhoCommandsActAs(t *testing.T) {
 	var name string
-	wantText(t, nameField(&name).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
+	wantText(t, nameField(&name, os.Getenv).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
 
 	login, err := config.Actor()
 	if err != nil {

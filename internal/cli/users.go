@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -525,10 +524,10 @@ func (a *app) actingUser(ctx context.Context, st store.API) (*store.User, error)
 // both ways to act as one. nil when the actor was named or is known, or
 // the yard has no users to name; then each command says its own, as before.
 func (a *app) unknownLogin(ctx context.Context, st store.API) error {
-	if a.actor != "" || config.Getenv("ACTOR") != "" || a.identity().actor != "" {
+	if a.actor != "" || a.yardrenv("ACTOR") != "" || a.identity().actor != "" {
 		return nil
 	}
-	if os.Getenv("USER") == "" {
+	if a.getenv("USER") == "" {
 		return nil
 	}
 	me := a.who()

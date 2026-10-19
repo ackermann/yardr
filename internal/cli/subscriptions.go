@@ -1047,7 +1047,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
   yardr bead watch yard-k3f9 --crew yardmaster --stage review`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name, err := currentCrew(member)
+			name, err := a.currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -1087,7 +1087,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 		Long:  "Removes every yardr subscription of the crew member (or manual group) for the bead.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name, err := currentCrew(unCrew)
+			name, err := a.currentCrew(unCrew)
 			if err != nil {
 				return err
 			}

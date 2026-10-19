@@ -42,8 +42,12 @@ type app struct {
 	actorLoaded bool
 	// homeDir is --home: the yard this run and all it starts work in.
 	homeDir string
-	cfg     *config.Config
-	st      store.API
+	// env is the run's environment by full key, less the process facts
+	// (see environ): what names its yard, who acts, and what its children
+	// start with. Nil reads the process's (see getenv).
+	env map[string]string
+	cfg *config.Config
+	st  store.API
 	// onboarded is set once this run has created the yard (see firstRun).
 	onboarded bool
 	// guided is set once the onboarding has asked how to go on with the
@@ -62,7 +66,7 @@ type app struct {
 }
 
 // Execute runs the CLI and returns the process exit code.
-func Execute() int { return execute(&app{}, os.Args[1:]) }
+func Execute() int { return execute(&app{env: environMap(os.Environ())}, os.Args[1:]) }
 
 // execute runs args on a and returns the exit code.
 func execute(a *app, args []string) int {
@@ -113,10 +117,10 @@ func (a *app) rootCmd() *cobra.Command {
 			// command in reach (identity). A preset survives: the root
 			// applies it, so this resolves to it.
 			a.stderr = c.ErrOrStderr()
-			// Before anything reads the home: every config.Load of this
-			// run, and the environment of what it starts, follow the flag.
+			// Before anything reads the home: the config of this run, and
+			// the environment of what it starts, follow the flag.
 			if c.Flags().Changed("home") {
-				if err := config.UseHome(a.homeDir); err != nil {
+				if err := a.useHome(a.homeDir); err != nil {
 					return err
 				}
 			}
@@ -219,7 +223,7 @@ func (a *app) resolveActor() (string, error) {
 	if id := a.identity(); id.actor != "" {
 		return id.actor, nil
 	}
-	return config.Actor()
+	return config.ActorWith(a.getenv)
 }
 
 func (a *app) who() string {
@@ -264,11 +268,10 @@ var connect = func(ctx context.Context, cfg *config.Config) (store.API, error) {
 // store connects to the yardr server, starting it on first use.
 func (a *app) store(ctx context.Context) (store.API, error) {
 	if a.st == nil {
-		cfg, err := config.Load()
+		cfg, err := a.config()
 		if err != nil {
 			return nil, err
 		}
-		a.cfg = cfg
 		st, err := connect(ctx, cfg)
 		if err != nil {
 			return nil, err

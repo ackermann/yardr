@@ -187,7 +187,7 @@ func TestServiceNameWithoutHome(t *testing.T) {
 	stubServices(t, "darwin")
 	// The home is not there: the service is written under its name all
 	// the same.
-	u, err := newUnit(config.At(home), kindOf(svcDaemon), nil)
+	u, err := newUnit(os.Environ(), config.At(home), kindOf(svcDaemon), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,7 +679,7 @@ func TestWebStartHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	var started [][]string
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, append(k.command(), args...))
 		return 4242, nil, func() error { return nil }, nil
 	})
@@ -753,7 +753,7 @@ func TestWebStartAs(t *testing.T) {
 		t.Fatal(err)
 	}
 	var started [][]string
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, append(k.command(), args...))
 		return 4242, nil, func() error { return nil }, nil
 	})
@@ -771,7 +771,7 @@ func TestWebStartAs(t *testing.T) {
 func stubWeb(t *testing.T) *[]string {
 	t.Helper()
 	var started []string
-	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		if k.Name != svcWeb || len(args) != 2 || args[0] != "--addr" {
 			t.Errorf("started %s %q", k.Name, args)
 		}
@@ -809,7 +809,7 @@ func TestWebStart(t *testing.T) {
 	// One that ends at once (its port taken between the look and the start).
 	gone := make(chan error, 1)
 	gone <- errors.New("exit status 1")
-	stub(t, &spawn, func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func([]string, *config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
 		return 1, gone, func() error { return nil }, nil
 	})
 	stub(t, &answers, func(string) bool { return false })
@@ -820,7 +820,7 @@ func TestWebStart(t *testing.T) {
 	// A child that never binds the address is stopped before start returns.
 	stopped := false
 	stub(t, &startWait, 10*time.Millisecond)
-	stub(t, &spawn, func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func([]string, *config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
 		return 7, nil, func() error { stopped = true; return nil }, nil
 	})
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "stopped it") || !stopped {

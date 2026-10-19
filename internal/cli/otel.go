@@ -50,10 +50,10 @@ notes and prompts are never sent. See docs/otel.md.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Before the store: with nowhere to send to, no server is started.
 			x := &otel.Exporter{
-				Traces: otel.SignalURL(or(endpoint, os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
-					or(traces, os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")), "traces"),
-				Logs: otel.SignalURL(or(endpoint, os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
-					or(logs, os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")), "logs"),
+				Traces: otel.SignalURL(or(endpoint, a.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+					or(traces, a.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")), "traces"),
+				Logs: otel.SignalURL(or(endpoint, a.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+					or(logs, a.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")), "logs"),
 				After: after, Once: once, Text: includeText, Version: version.Current(),
 				Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 			}
@@ -62,7 +62,7 @@ notes and prompts are never sent. See docs/otel.md.`,
 				return nil
 			}
 			var err error
-			if x.Headers, err = otel.ParseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")); err != nil {
+			if x.Headers, err = otel.ParseHeaders(a.getenv("OTEL_EXPORTER_OTLP_HEADERS")); err != nil {
 				return fmt.Errorf("OTEL_EXPORTER_OTLP_HEADERS: %w", err)
 			}
 			given, err := otel.ParseHeaders(strings.Join(headers, ","))

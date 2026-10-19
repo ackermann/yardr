@@ -120,7 +120,7 @@ does not start the server. The rewrite replaces the file only once it is
 complete.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
