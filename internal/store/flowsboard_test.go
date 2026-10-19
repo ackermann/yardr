@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -481,5 +483,50 @@ func TestFlowsEmpty(t *testing.T) {
 	}
 	if board.Travelling != 0 || board.Depots == nil || board.Unassigned == nil {
 		t.Fatalf("empty board = %+v, want zeros and empty rows", board)
+	}
+}
+
+// TestFlowsTerminal pins the terminal flag: true exactly where the flow says
+// entering the stage closes the bead, on flows with a terminal stage and one
+// without, and served on every stage.
+func TestFlowsTerminal(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	flowsBoard(t, y)
+	y.flowDepot(t, "plain", "plain-flow", "new", "review")
+	board, err := y.Flows(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := map[string]bool{}
+	for _, d := range board.Depots {
+		for _, f := range d.Flows {
+			for _, s := range f.Stages {
+				terminal[d.Name+"/"+f.Name+"/"+s.Stage] = s.Terminal
+				// Served on every stage, not only where it is true.
+				raw, err := json.Marshal(s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(raw), `"terminal":`) {
+					t.Errorf("%s %s %s serves no terminal flag: %s", d.Name, f.Name, s.Stage, raw)
+				}
+			}
+		}
+	}
+	want := map[string]bool{
+		"shop/code/backlog":       false,
+		"shop/code/new":           false,
+		"shop/code/review":        false,
+		"shop/code/merged":        true,
+		"shop/bugs/triage":        false,
+		"shop/bugs/fixed":         true,
+		"loose/default/inbox":     false,
+		"loose/default/done":      true,
+		"plain/plain-flow/new":    false,
+		"plain/plain-flow/review": false,
+	}
+	if !reflect.DeepEqual(terminal, want) {
+		t.Errorf("terminal flags:\n got %v\nwant %v", terminal, want)
 	}
 }

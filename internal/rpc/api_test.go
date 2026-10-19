@@ -513,6 +513,7 @@ var apiCalls = []apiCall{
 			{"depots[].flows[].stages[].group", "string", "the group a bead of the flow's type would be routed to here, `\"\"` when no route matches"},
 			{"depots[].flows[].stages[].human", "bool", "the group is a manual one"},
 			{"depots[].flows[].stages[].lamp", "string", "`fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise"},
+			{"depots[].flows[].stages[].terminal", "bool", "the stage closes the bead entering it"},
 		},
 			flowBead("depots[].flows[].stages[].beads[]."),
 			flowBead("depots[].elsewhere[]."),

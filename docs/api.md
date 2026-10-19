@@ -2724,6 +2724,7 @@ POST /call/Flows
                 "group": "builders",
                 "human": false,
                 "lamp": "none",
+                "terminal": false,
                 "beads": [
                   {
                     "bead": "yd-train",
@@ -2740,6 +2741,7 @@ POST /call/Flows
                 "group": "elders",
                 "human": true,
                 "lamp": "none",
+                "terminal": true,
                 "beads": []
               }
             ]
@@ -2791,6 +2793,7 @@ POST /call/Flows
 | `depots[].flows[].stages[].group` | string | the group a bead of the flow's type would be routed to here, `""` when no route matches |
 | `depots[].flows[].stages[].human` | bool | the group is a manual one |
 | `depots[].flows[].stages[].lamp` | string | `fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise |
+| `depots[].flows[].stages[].terminal` | bool | the stage closes the bead entering it |
 | `depots[].flows[].stages[].beads[].bead` | string | the bead's handle |
 | `depots[].flows[].stages[].beads[].title` | string | the bead's title |
 | `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |

@@ -69,8 +69,12 @@ type FlowsStage struct {
 	// Lamp is the stage's wait light: fault where a held, blocked or
 	// stranded bead stands on it, turn where only a person's turn does,
 	// none otherwise. The panel's two lamps, served.
-	Lamp  string     `json:"lamp"`
-	Beads []FlowBead `json:"beads"`
+	Lamp string `json:"lamp"`
+	// Terminal is a stage that closes the bead entering it, as the web's
+	// stage says: a reader draws the buffer stop from this, never from the
+	// last place.
+	Terminal bool       `json:"terminal"`
+	Beads    []FlowBead `json:"beads"`
 }
 
 // FlowBead is one bead of the flows view: the bead with its Arrivals row.
@@ -175,7 +179,7 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 		for _, rf := range rfs {
 			ff := FlowsFlow{Name: rf.Flow.Name, Type: rf.Type, Source: rf.Source.String(), Stages: []FlowsStage{}}
 			for _, st := range rf.Flow.Stages {
-				fs := FlowsStage{Stage: st, Lamp: "none", Beads: []FlowBead{}}
+				fs := FlowsStage{Stage: st, Lamp: "none", Terminal: rf.Flow.IsTerminal(st), Beads: []FlowBead{}}
 				// Routes may match on type; the depot's own flow is shown
 				// for the default type, as `yardr flow show` does. The
 				// probe names no originator, so it reads as the operator's.
