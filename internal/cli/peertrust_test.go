@@ -17,10 +17,9 @@ import (
 // same yard is a stranger's, as before.
 func TestPeerAllowTrust(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)
@@ -136,7 +135,7 @@ func TestDoctorTrustOfSomeoneGone(t *testing.T) {
 // the marks had grown to answers (the trial of yardr-7ed6).
 func TestPeerAllowTrustHelpNamesAnswers(t *testing.T) {
 	north := newCLIYard(t, "north")
-	t.Setenv("YARDR_HOME", north.home)
+	cliEnv(t, north)
 	wantText(t, north.must(t, "allow", "--help"),
 		"An answer the name",
 		"It is about mail and answers and nothing else")

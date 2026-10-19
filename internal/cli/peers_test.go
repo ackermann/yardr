@@ -84,12 +84,23 @@ func (y *cliYard) must(t *testing.T, args ...string) string {
 	return out
 }
 
+// cliEnv is the yards' runs in their homes' environments: each yard's app
+// reads its own home from its map, in place of the process's YARDR_HOME,
+// which the peer commands no longer read. A test changes one in place of
+// t.Setenv (yardEnv).
+func cliEnv(t *testing.T, yards ...*cliYard) {
+	t.Helper()
+	for _, y := range yards {
+		y.a.env = testYard(t, y.st, y.home)
+	}
+}
+
 // yardr peer key makes the key once and prints the same public key every
 // time; a key file open to others is refused. The invite carries the
 // yard's name, that key and the URL when one is given.
 func TestPeerKeyAndInvite(t *testing.T) {
 	y := newCLIYard(t, "north")
-	t.Setenv("YARDR_HOME", y.home)
+	cliEnv(t, y)
 	first := strings.TrimSpace(y.must(t, "key"))
 	if _, err := yardkey.ParsePublic(first); err != nil {
 		t.Fatalf("peer key printed %q: %v", first, err)
@@ -133,16 +144,17 @@ func TestPeerKeyAndInvite(t *testing.T) {
 // peer add, peer allow and peer rm. Anyone may stop a kind.
 func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	ctx := context.Background()
 
+	env := yardEnv(t, north.st)
 	for _, who := range []string{"yardmaster", "yard-10-new"} {
 		north.a.actor = who
 		if who == "yardmaster" {
-			t.Setenv("YARDR_CREW", "yardmaster")
+			env["YARDR_CREW"] = "yardmaster"
 		} else {
-			t.Setenv("YARDR_CREW", "")
+			env["YARDR_CREW"] = ""
 		}
 		if _, err := north.peer(t, "add", "south", invite); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may add a peer; this is "+who) {
 			t.Fatalf("%s adding a peer: %v", who, err)
@@ -194,7 +206,6 @@ func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
 		}
 	}
 	// A yard's own invite is not a peer to add.
-	t.Setenv("YARDR_HOME", north.home)
 	own := strings.TrimSpace(north.must(t, "invite"))
 	if _, err := north.peer(t, "add", "me", own); err == nil || !strings.Contains(err.Error(), "this yard's own") {
 		t.Fatalf("adding one's own invite = %v", err)
@@ -225,7 +236,7 @@ func TestPeerAddAllowAndRemoveAreTheOperators(t *testing.T) {
 // at all, and show says so.
 func TestPeerShowSaysNoListenerNoIncoming(t *testing.T) {
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
-	t.Setenv("YARDR_HOME", laptop.home)
+	cliEnv(t, north, laptop)
 	invite := strings.TrimSpace(laptop.must(t, "invite"))
 	out := north.must(t, "add", "laptop", invite)
 	wantText(t, out, "it gave no URL, so this yard never calls it", "peer invite --url <where it reaches this yard>")
@@ -247,10 +258,9 @@ func TestPeerShowSaysNoListenerNoIncoming(t *testing.T) {
 // missing.
 func TestPeerPing(t *testing.T) {
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
+	cliEnv(t, north, laptop)
 	// north can be called, laptop cannot.
-	t.Setenv("YARDR_HOME", north.home)
 	northInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", laptop.home)
 	laptopInvite := strings.TrimSpace(laptop.must(t, "invite"))
 	north.must(t, "add", "laptop", laptopInvite)
 	laptop.must(t, "add", "north", northInvite)
@@ -306,6 +316,7 @@ func TestPeerPing(t *testing.T) {
 // peer that must call, messages given up, mail taken for nobody.
 func TestDoctorPeers(t *testing.T) {
 	y := newCLIYard(t, "north")
+	cliEnv(t, y)
 	ctx := context.Background()
 	part, err := peerPart(ctx, y.a.cfg, y.st)
 	if err != nil || part.Configured || !strings.Contains(part.Detail, "linked with no other") || len(part.Notes) != 0 {
@@ -432,7 +443,7 @@ func TestPeerShowExposes(t *testing.T) {
 // not said it understands.
 func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	ctx := context.Background()

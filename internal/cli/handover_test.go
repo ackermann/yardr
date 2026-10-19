@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -31,7 +32,8 @@ func stubChat(t *testing.T) *[]string {
 // ($USER) the name commands act as (the OS's): on a person's machine they
 // are the same, and the operator is then the user the chat opens for. A
 // test may run with a $USER that is someone else, or none. The form needs
-// no such help: its "Your name" is who commands act as.
+// no such help: its "Your name" is who commands act as. It stays on the
+// process: defaultOperator reads $USER there, with no run to ask.
 func actAsOperator(t *testing.T) {
 	t.Helper()
 	actor, err := config.Actor()
@@ -46,16 +48,18 @@ func actAsOperator(t *testing.T) {
 // own pane and with --no-chat it opens nothing, and what it prints names
 // yardr chat.
 func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	actAsOperator(t)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	chats := stubChat(t)
 	start := func(args ...string) string {
 		t.Helper()
-		out, err := run(t, (&app{st: st}).rootCmd(), append([]string{"init", "--harness", "claude", "--start"}, args...)...)
+		out, err := run(t, appOn(st).rootCmd(), append([]string{"init", "--harness", "claude", "--start"}, args...)...)
 		if err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
@@ -77,9 +81,9 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 		t.Fatalf("--json: start = %+v, %v", res.Start, err)
 	}
 	wantText(t, start("--no-chat"), names)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	wantText(t, start(), names)
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 	if len(*chats) != 0 {
 		t.Fatalf("a chat opened with --json, --no-chat or in an agent's pane: %v", *chats)
 	}
@@ -101,6 +105,8 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 	actAsOperator(t)
 	chats := stubChat(t)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	stub(t, &spawnDaemon, func([]string, *config.Config) (<-chan error, error) {
 		for range store.MaxStartFails {
 			if err := st.CrewStartFailed(context.Background(), "yardmaster", "claude: not logged in", time.Minute); err != nil {
@@ -109,7 +115,7 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 		}
 		return nil, nil
 	})
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -117,7 +123,7 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 		"`yardr --home "+home+" doctor` says of it:",
 		"  FAULT  yardmaster  yardmaster is not running: the daemon gave up after", "the last with: claude: not logged in. Once that is fixed: yardr --home "+home+" crew start yardmaster",
 		"Once that is set right, run yardr --home "+home+" in this terminal again")
-	doc, _ := run(t, (&app{st: st}).rootCmd(), "doctor")
+	doc, _ := run(t, appOn(st).rootCmd(), "doctor")
 	for _, l := range strings.Split(doc, "\n") {
 		if strings.HasPrefix(l, "  FAULT  yardmaster") && !strings.Contains(out, l) {
 			t.Errorf("the form does not say doctor's line %q:\n%s", l, out)
@@ -132,17 +138,19 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 // harness at a login screen) is not up either: no chat, and doctor's lines
 // with the one doctor cannot know, since it reads no pane.
 func TestOnboardingWithASilentYardmasterOpensNoChat(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	actAsOperator(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	stubAsk(t, (&former{t: t, goes: []string{goYardmaster}}).ask)
 	chats := stubChat(t)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	stubStart(t, st, yardmasterHandle())
 	stubPane(t, "Not logged in · Run /login")
 	stub(t, &yardmasterWait, 50*time.Millisecond)
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}

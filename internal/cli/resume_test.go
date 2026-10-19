@@ -123,10 +123,13 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 			added: []string{"the default_kind setting, which marks the yard set up"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := newHome(t)
+			home := newHomeDir(t)
+			// The login name stays on the process: defaultOperator reads
+			// $USER there, with no run to ask.
 			t.Setenv("USER", "kim")
 			st := &failing{API: storetest.New(t), on: tc.on}
-			a := &app{st: st, actor: "me"}
+			a := testApp(t, st, home)
+			a.actor = "me"
 			ctx := context.Background()
 			if out, err := run(t, a.rootCmd(), first...); err == nil {
 				t.Fatalf("the first run did not fail:\n%s", out)
@@ -136,7 +139,7 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 			if got, _ := st.Settings(ctx); got["default_kind"] != "" {
 				t.Fatalf("the failed run marked the yard set up: %v", got)
 			}
-			cfg, err := config.Load()
+			cfg, err := testApp(t, nil, home).config()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,7 +147,7 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 				t.Fatalf("initialized = %v %v", ok, err)
 			}
 			st.on = ""
-			t.Setenv("YARDR_ACTOR", tc.operator)
+			yardEnv(t, st)["YARDR_ACTOR"] = tc.operator
 
 			out, err := run(t, a.rootCmd(), tc.again...)
 			if err != nil {
@@ -190,9 +193,10 @@ func keysOf(f *former) []string {
 
 // resumeYard is a terminal on a fresh home with the programs a yard needs,
 // a service manager nothing is installed in, and a former to answer with.
+// The test names the home to its runs (testYard).
 func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
 	t.Helper()
-	home := newHome(t)
+	home := newHomeDir(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	stubServices(t, "darwin")
@@ -210,15 +214,17 @@ func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
 func TestOnboardingAfterAFailedRun(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := &failing{API: storetest.New(t), on: "crew"}
-	if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--yardmaster", "boss"); !errors.Is(err, errCut) {
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
+	if _, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--yardmaster", "boss"); !errors.Is(err, errCut) {
 		t.Fatal(err)
 	}
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
-	t.Setenv("YARDR_ACTOR", "Jo")
+	yardEnv(t, st)["YARDR_ACTOR"] = "Jo"
 
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -242,15 +248,17 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := &failing{API: storetest.New(t), on: "setting default_kind"}
-	if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--yardmaster", "boss"); !errors.Is(err, errCut) {
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
+	if _, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--yardmaster", "boss"); !errors.Is(err, errCut) {
 		t.Fatal(err)
 	}
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
-	t.Setenv("YARDR_ACTOR", "Jo")
+	yardEnv(t, st)["YARDR_ACTOR"] = "Jo"
 
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -275,12 +283,14 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	// TestMain's start fails: "tests start no daemon".
-	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	out, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 	if err == nil || err.Error() != "yardmaster is not up" || !strings.Contains(out, "the daemon could not be started") {
 		t.Fatalf("first run: %v\n%s", err, out)
 	}
-	cfg, err := config.Load()
+	cfg, err := testApp(t, nil, home).config()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +307,7 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 	started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())
 	stubPane(t, answeredPane)
 
-	out, err = run(t, (&app{st: st}).rootCmd())
+	out, err = run(t, appOn(st).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -324,9 +334,11 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 func TestTheNextRunWaitsForAYardmasterThatWasNotUp(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())
 	stubPane(t, "sh$ claude\nNot logged in")
-	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	out, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
 	if err == nil || *started != 1 || !strings.Contains(out, "has not answered its first prompt within 30ms") {
 		t.Fatalf("first run: %d started, %v\n%s", *started, err, out)
 	}
@@ -340,7 +352,7 @@ func TestTheNextRunWaitsForAYardmasterThatWasNotUp(t *testing.T) {
 
 	// Still silent: bare yardr says so, and no ends it there.
 	f.answers = map[string]any{"finish": false}
-	out, err = run(t, (&app{st: st}).rootCmd())
+	out, err = run(t, appOn(st).rootCmd())
 	if err != nil || !strings.Contains(out, "note   yardmaster  yardmaster's session runs, and it has not answered its first prompt") ||
 		!strings.Contains(out, "Left as it is. To finish later: yardr --home "+home+" init --start") || strings.Contains(out, "Usage:") {
 		t.Fatalf("no: %v\n%s", err, out)
@@ -353,10 +365,10 @@ func TestTheNextRunWaitsForAYardmasterThatWasNotUp(t *testing.T) {
 	stubPane(t, answeredPane)
 	f.answers, f.asked = nil, nil
 	// Bare yardr finds nothing to finish on a yard that runs: help.
-	if out, err = run(t, (&app{st: st}).rootCmd()); err != nil || len(f.asked) != 0 || !strings.Contains(out, "Usage:") {
+	if out, err = run(t, appOn(st).rootCmd()); err != nil || len(f.asked) != 0 || !strings.Contains(out, "Usage:") {
 		t.Fatalf("a yard that runs: asked %q, %v\n%s", f.asked, err, out)
 	}
-	out, err = run(t, (&app{st: st}).rootCmd(), "init", "--start", "--wait", "30ms")
+	out, err = run(t, appOn(st).rootCmd(), "init", "--start", "--wait", "30ms")
 	if err != nil || *started != 1 || !strings.Contains(out, "The daemon was running already.") || !strings.Contains(out, "yardmaster is running, in herdr") {
 		t.Fatalf("init --start again: %d started, %v\n%s", *started, err, out)
 	}
@@ -367,6 +379,8 @@ func TestTheNextRunWaitsForAYardmasterThatWasNotUp(t *testing.T) {
 func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	// The form waits yardmasterWait for the yardmaster; one that is disabled
 	// ends the wait at once.
 	stub(t, &spawnDaemon, func([]string, *config.Config) (<-chan error, error) {
@@ -375,7 +389,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 		}
 		return nil, nil
 	})
-	out, err := run(t, (&app{st: st}).rootCmd())
+	out, err := run(t, appOn(st).rootCmd())
 	if err != nil || !strings.Contains(out, "yardmaster is stopped (disabled)") ||
 		!strings.Contains(out, "Once that is set right, run yardr --home "+home+" in this terminal again: it goes on from here.") {
 		t.Fatalf("form: %v\n%s", err, out)
@@ -393,7 +407,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())
 	stubPane(t, answeredPane)
 	f.asked = nil
-	out, err = run(t, (&app{st: st}).rootCmd())
+	out, err = run(t, appOn(st).rootCmd())
 	if err != nil || *started != 1 || !strings.Contains(out, "yardmaster is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("again: asked %q, %v\n%s", keysOf(f), err, out)
 	}
@@ -418,18 +432,20 @@ func TestBareYardrLeavesOtherYardsAlone(t *testing.T) {
 			}
 			holdDaemon(t, home)
 		}},
-		{"an agent", func(t *testing.T, _ store.API, _ string) { t.Setenv("YARDR_CREW", "yardmaster") }},
+		{"an agent", func(t *testing.T, st store.API, _ string) { yardEnv(t, st)["YARDR_CREW"] = "yardmaster" }},
 		{"no terminal", func(t *testing.T, _ store.API, _ string) { setInteractive(t, false) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home, f := resumeYard(t, nil)
 			st := storetest.New(t)
-			if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude"); err != nil {
+			// The run acts as the login name, as it does on a person's machine.
+			testYard(t, st, home, "USER="+os.Getenv("USER"))
+			if _, err := run(t, appOn(st).rootCmd(), "init", "--harness", "claude"); err != nil {
 				t.Fatal(err)
 			}
 			started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())
 			tc.prep(t, st, home)
-			out, err := run(t, (&app{st: st}).rootCmd())
+			out, err := run(t, appOn(st).rootCmd())
 			if err != nil || len(f.asked) != 0 || *started != 0 || !strings.Contains(out, "Usage:") {
 				t.Fatalf("asked %q, %d started, %v\n%s", f.asked, *started, err, out)
 			}

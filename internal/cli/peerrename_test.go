@@ -15,12 +15,10 @@ import (
 // mail from before and after reads back as one conversation.
 func TestPeerRenameCommand(t *testing.T) {
 	north, south, east := newCLIYard(t, "north"), newCLIYard(t, "south"), newCLIYard(t, "east")
+	cliEnv(t, north, south, east)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", east.home)
 	eInvite := strings.TrimSpace(east.must(t, "invite"))
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "suoth", sInvite) // the wrong name
 	north.must(t, "add", "east", eInvite)
@@ -183,10 +181,9 @@ func TestPeerRenameHelpNamesNoReleaseSetting(t *testing.T) {
 // that comes under the new name.
 func TestPingFollowsARename(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "suoth", sInvite)
 	south.must(t, "add", "north", nInvite)

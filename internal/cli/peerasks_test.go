@@ -16,7 +16,7 @@ import (
 // the asker is a bead's agent.
 func TestBeadAskAcrossYards(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	ctx := context.Background()
@@ -109,7 +109,7 @@ func TestBeadAskAcrossYards(t *testing.T) {
 // not said it understands ask, and allows all the same.
 func TestPeerAllowSendAskWarns(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	ctx := context.Background()
@@ -138,10 +138,9 @@ func TestPeerAllowSendAskWarns(t *testing.T) {
 // after.
 func TestBeadAnswerForeign(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)
@@ -243,10 +242,9 @@ func TestBeadAnswerForeign(t *testing.T) {
 // second line must not stand at the margin as the yard's own.
 func TestBeadAnswerForeignQuestionOneLine(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)

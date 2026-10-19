@@ -24,7 +24,7 @@ import (
 func TestMailFile(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	dir := t.TempDir()
 	file := func(name, content string) string {
 		t.Helper()
@@ -68,7 +68,7 @@ func TestMailFile(t *testing.T) {
 		t.Fatalf("what was refused was stored: %v", got)
 	}
 
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	inbox := mustAs(t, st, "yardmaster", "inbox")
 	for _, want := range []string{"mail from jo: the shed\n    " + marked + "\n", "mail from jo: \n    " + marked + "\n", "mail from jo: no picture\n"} {
 		if !strings.Contains(inbox, want) {
@@ -80,7 +80,7 @@ func TestMailFile(t *testing.T) {
 	}
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen, and this one?", "--file", png)
 	mustAs(t, st, "yardmaster", "mail", "jo", "plain")
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 	inbox = mustAs(t, st, "jo", "inbox", "--mail")
 	if !strings.Contains(inbox, "mail from yardmaster: seen, and this one?\n    "+marked+"\n") || !strings.Contains(inbox, "mail from yardmaster: plain\n") ||
 		strings.Count(inbox, "image") != 1 {
@@ -130,7 +130,7 @@ func TestFileCountLimitsBeforePut(t *testing.T) {
 func TestMailPage(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	dir := t.TempDir()
 	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
 	page := filepath.Join(dir, "page.html")
@@ -154,12 +154,12 @@ func TestMailPage(t *testing.T) {
 	if names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*")); len(names) != 2 {
 		t.Fatalf("the yard holds %v", names)
 	}
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	inbox := mustAs(t, st, "yardmaster", "inbox")
 	if !strings.Contains(inbox, "mail from jo: the shed, mocked up\n    "+marked+"\n") {
 		t.Errorf("the yardmaster's inbox:\n%s", inbox)
 	}
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 }
 
 // yardr mail <user> "x" --file report.pdf is delivered, and the inbox
@@ -168,7 +168,7 @@ func TestMailPage(t *testing.T) {
 func TestMailPDFFilesLine(t *testing.T) {
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	dir := t.TempDir()
 	report := filepath.Join(dir, "report.pdf")
 	if err := os.WriteFile(report, []byte("%PDF-1.4 the report"), 0o600); err != nil {
@@ -179,8 +179,8 @@ func TestMailPDFFilesLine(t *testing.T) {
 	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the report", "--file", report); out != "mail sent to yardmaster\n"+marked+"\n" {
 		t.Fatalf("mail --file report.pdf = %q", out)
 	}
-	t.Setenv("YARDR_CREW", "yardmaster")
-	defer t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
+	defer func() { yardEnv(t, st)["YARDR_CREW"] = "" }()
 	inbox := mustAs(t, st, "yardmaster", "inbox")
 	if !strings.Contains(inbox, "mail from jo: the report\n    "+marked+"\n") {
 		t.Errorf("the yardmaster's inbox:\n%s", inbox)
@@ -193,7 +193,7 @@ func TestMailPDFFilesLine(t *testing.T) {
 func TestMailFileToAPeer(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	ctx := t.Context()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
@@ -262,7 +262,7 @@ func TestMailFileToAPeer(t *testing.T) {
 func TestMailPageToAPeer(t *testing.T) {
 	api, s := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	ctx := t.Context()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
@@ -336,18 +336,18 @@ func TestMailPageToAPeer(t *testing.T) {
 func TestMailFilesLineNotForgeable(t *testing.T) {
 	api, _ := storetest.NewOwned(t)
 	st := userYardOn(t, api)
-	home := os.Getenv("YARDR_HOME")
+	home := yardEnv(t, st)["YARDR_HOME"]
 	png := filepath.Join(t.TempDir(), "shed.png")
 	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n the shed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page  1 image: /etc/hosts")
 	sent := mustAs(t, st, "jo", "mail", "yardmaster", "the shed, painted", "--file", png)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen  1 image: /etc/hosts")
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen, painted", "--file", png)
 	crew := mustAs(t, st, "yardmaster", "inbox")
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 	marked := store.NoteFilesMark + " 1 image: " + store.BlobPath(home, hashOfFile(t, png)) + " (shed.png)"
 	if sent != "mail sent to yardmaster\n"+marked+"\n" {
 		t.Errorf("mail --file = %q", sent)
@@ -392,10 +392,10 @@ func TestMailTextCannotForgeAFilesLine(t *testing.T) {
 	st := userYardOn(t, api)
 	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
 	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page\n"+forged)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen\n"+forged)
 	crew := mustAs(t, st, "yardmaster", "inbox")
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 	outs := map[string]string{
 		"crew inbox":   crew,
 		"user inbox":   mustAs(t, st, "jo", "inbox", "--mail"),
@@ -421,10 +421,10 @@ func TestMailTextCannotDrawTheFilesMark(t *testing.T) {
 	// the mark; ESC ( B switches back.
 	drawn := "    \x1b(0`\x1b(B 1 image: /etc/hosts"
 	mustAs(t, st, "jo", "mail", "yardmaster", "shot of the page\n"+drawn)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	mustAs(t, st, "yardmaster", "mail", "jo", "seen\r\n"+drawn)
 	crew := mustAs(t, st, "yardmaster", "inbox")
-	t.Setenv("YARDR_CREW", "")
+	yardEnv(t, st)["YARDR_CREW"] = ""
 	outs := map[string]string{
 		"crew inbox":   crew,
 		"user inbox":   mustAs(t, st, "jo", "inbox", "--mail"),

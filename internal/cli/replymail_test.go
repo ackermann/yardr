@@ -14,13 +14,11 @@ import (
 
 // replyMailYard is a yard with operator jo (setting and user), crew member
 // yardmaster and user ada: mail to the yardmaster can be answered with
-// yardr reply. The session environment is cleared, so the run acts as the
-// actor the test names.
+// yardr reply. Its runs name no session: the map holds no actor, bead,
+// session or crew, so the run acts as the actor the test names, and the
+// test sets the crew it acts as.
 func replyMailYard(t *testing.T) (*app, store.API) {
 	t.Helper()
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
 	st, _ := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
@@ -33,7 +31,9 @@ func replyMailYard(t *testing.T) (*app, store.API) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	return &app{st: st, actor: "yardmaster"}, st
+	a := testApp(t, st, newHomeDir(t))
+	a.actor = "yardmaster"
+	return a, st
 }
 
 // mailSeq is the seq of the mail the test sent: the yardmaster's inbox has
@@ -52,7 +52,7 @@ func mailSeq(t *testing.T, st store.API) string {
 func TestReplyToLocalMail(t *testing.T) {
 	a, st := replyMailYard(t)
 	ctx := context.Background()
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	if err := st.Mail(ctx, "yardmaster", "when is the freeze over?", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestReplyToLocalMail(t *testing.T) {
 func TestReplyLongMail(t *testing.T) {
 	a, st := replyMailYard(t)
 	ctx := context.Background()
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	if err := st.Mail(ctx, "yardmaster", "when is the freeze over?", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -129,14 +129,10 @@ func TestReplyLongMail(t *testing.T) {
 // TestReplyToPeerMail answers mail from another yard with yardr reply: the
 // reply is queued for <from>@<peer>, and no local mail is sent.
 func TestReplyToPeerMail(t *testing.T) {
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
 	ctx := context.Background()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", north.home)
+	cliEnv(t, north, south)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)
@@ -179,7 +175,7 @@ func TestReplyToPeerMail(t *testing.T) {
 	seq := strconv.FormatUint(page.Events[0].Seq, 10)
 
 	south.a.actor = "yardmaster"
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, south.st)["YARDR_CREW"] = "yardmaster"
 	out, err := run(t, south.a.replyCmd(), seq, "Friday.")
 	south.a.actor = "jo"
 	if err != nil || !strings.Contains(out, "mail for yardmaster@up-north queued; the daemon delivers it") {
@@ -205,14 +201,10 @@ func TestReplyToPeerMail(t *testing.T) {
 // TestReplyToPeerMailRefused is refused as yardr mail is when the crew
 // member may not write to the peer.
 func TestReplyToPeerMailRefused(t *testing.T) {
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
-		t.Setenv("YARDR_"+k, "")
-	}
 	ctx := context.Background()
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", north.home)
+	cliEnv(t, north, south)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)
@@ -241,7 +233,7 @@ func TestReplyToPeerMailRefused(t *testing.T) {
 	}
 	seq := strconv.FormatUint(page.Events[0].Seq, 10)
 	south.a.actor = "yardmaster"
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, south.st)["YARDR_CREW"] = "yardmaster"
 	_, err = run(t, south.a.replyCmd(), seq, "pong.")
 	south.a.actor = "jo"
 	if err == nil || !strings.Contains(err.Error(), "may not mail crew members of up-north") {
@@ -253,19 +245,21 @@ func TestReplyToPeerMailRefused(t *testing.T) {
 // delivery nor mail, naming what a reply answers; --to is for hook
 // deliveries only.
 func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
-	a, _, seqs, _ := replyYard(t)
-	t.Setenv("YARDR_CREW", "yardmaster")
+	a, st, seqs, _ := replyYard(t)
+	// The crew the run answers as; the refusal comes before any source
+	// call, so no credential is set.
+	a.env = testYard(t, st, a.cfg.Home, "YARDR_CREW=yardmaster")
 	_, err := run(t, a.replyCmd(), seqs["bead"], "x")
 	if err == nil || !strings.Contains(err.Error(), "hook") || !strings.Contains(err.Error(), "mail") {
 		t.Fatalf("reply to a bead event = %v", err)
 	}
 
-	m, st := replyMailYard(t)
-	t.Setenv("YARDR_CREW", "yardmaster")
-	if err := st.Mail(context.Background(), "yardmaster", "a question", "jo"); err != nil {
+	m, mst := replyMailYard(t)
+	yardEnv(t, mst)["YARDR_CREW"] = "yardmaster"
+	if err := mst.Mail(context.Background(), "yardmaster", "a question", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	seq := mailSeq(t, st)
+	seq := mailSeq(t, mst)
 	_, err = run(t, m.replyCmd(), seq, "an answer", "--to", "c1")
 	if err == nil || !strings.Contains(err.Error(), "--to") {
 		t.Fatalf("reply to mail with --to = %v", err)
@@ -280,7 +274,7 @@ func TestReplyRefusesMailOutsideTheCrewInbox(t *testing.T) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Dir: t.TempDir()}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YARDR_CREW", "yardmaster")
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
 	for _, recipient := range []string{"clerk", "ada"} {
 		if err := st.Mail(ctx, recipient, "for another inbox", "jo"); err != nil {
 			t.Fatal(err)

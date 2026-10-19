@@ -28,7 +28,8 @@ func TestBeadNoteAck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "yardmaster"}
+	a := testApp(t, st, newHomeDir(t))
+	a.actor = "yardmaster"
 
 	out, err := run(t, a.beadCmd(), "note", "yd-1", "narrower: only the shed")
 	if err != nil {
@@ -48,7 +49,7 @@ func TestBeadNoteAck(t *testing.T) {
 	}
 
 	// As another session, and with text, the ack is refused.
-	t.Setenv("YARDR_SESSION", "another")
+	yardEnv(t, st)["YARDR_SESSION"] = "another"
 	if _, err := run(t, a.beadCmd(), "note", "yd-1", "--ack", fmt.Sprint(seq)); err == nil ||
 		!strings.Contains(err.Error(), "was told to session "+sess.ID) {
 		t.Fatalf("another session's ack: %v", err)
@@ -62,7 +63,7 @@ func TestBeadNoteAck(t *testing.T) {
 	}
 
 	// As the told session the ack lands, and bead show says the note was read.
-	t.Setenv("YARDR_SESSION", sess.ID)
+	yardEnv(t, st)["YARDR_SESSION"] = sess.ID
 	out, err = run(t, a.beadCmd(), "note", "yd-1", "--ack", fmt.Sprint(seq))
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +92,7 @@ func TestBeadNoteAck(t *testing.T) {
 
 	// A note neither delivery took says so, with why, instead of "will be
 	// told".
-	t.Setenv("YARDR_SESSION", "")
+	yardEnv(t, st)["YARDR_SESSION"] = ""
 	out, err = run(t, a.beadCmd(), "note", "yd-1", "wider: the fence too")
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func TestBeadNoteAck(t *testing.T) {
 		t.Fatalf("bead show lacks %q:\n%s", want, out)
 	}
 
-	t.Setenv("YARDR_SESSION", sess.ID)
+	yardEnv(t, st)["YARDR_SESSION"] = sess.ID
 	a.json = true
 	out, err = run(t, a.beadCmd(), "note", "yd-1", "--ack", fmt.Sprint(seq))
 	if err != nil {
@@ -152,7 +153,8 @@ func TestBeadDoneRefusedWhileNoteUnread(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := &app{st: st, actor: "yardmaster"}
+	a := testApp(t, st, newHomeDir(t))
+	a.actor = "yardmaster"
 	for _, id := range []string{"yd-1", "yd-2"} {
 		if _, err := run(t, a.beadCmd(), "note", id, "narrower: only the shed"); err != nil {
 			t.Fatal(err)
@@ -173,7 +175,7 @@ func TestBeadDoneRefusedWhileNoteUnread(t *testing.T) {
 	if err != nil || sess.Session == nil {
 		t.Fatal("yd-1 has no session")
 	}
-	t.Setenv("YARDR_SESSION", *sess.Session)
+	yardEnv(t, st)["YARDR_SESSION"] = *sess.Session
 	notes, _ := st.Notes(ctx, "yd-1")
 	seq := notes[len(notes)-1].Seq
 	_, err = run(t, a.beadCmd(), "done", "yd-1")

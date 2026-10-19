@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -530,6 +531,7 @@ func TestPairFormYardThatCannotBeCalled(t *testing.T) {
 	o := &operators{ways: []string{pairShow}, answers: map[string]any{"pair_listen": listenOther}, abort: "pair_address"}
 	o.t = t
 	laptop := newCLIYard(t, "laptop") // its server has said nothing of a listener
+	cliEnv(t, laptop)
 	setInteractive(t, true)
 	stubAsk(t, o.ask)
 	restarts := 0
@@ -570,6 +572,7 @@ func TestPairFormYardThatCannotBeCalled(t *testing.T) {
 // server that says it listens where nothing answers is not taken at its word.
 func TestPairFormSetsTheAddress(t *testing.T) {
 	north := newCLIYard(t, "north")
+	cliEnv(t, north)
 	addr := strings.TrimPrefix(north.srv.URL, "http://")
 	o := &operators{ways: []string{pairShow}, answers: map[string]any{"pair_listen": listenSet, "pair_listen_addr": addr, "pair_restart": true}}
 	o.t = t
@@ -579,6 +582,7 @@ func TestPairFormSetsTheAddress(t *testing.T) {
 	stub(t, &answers, realAnswers)
 	// The address of a listener that is gone: the server's word for it.
 	gone := newCLIYard(t, "gone")
+	cliEnv(t, gone)
 	gone.srv.Close()
 	said(t, north.a.cfg, hooks.Listener{Addr: strings.TrimPrefix(gone.srv.URL, "http://"), From: hooks.FromSetting})
 	var restarts atomic.Int32
@@ -642,6 +646,7 @@ func TestNoPairFormWithoutATerminal(t *testing.T) {
 	o := &operators{}
 	o.t = t
 	laptop := newCLIYard(t, "laptop") // no listener: the command says so, at once
+	cliEnv(t, laptop)
 	stubAsk(t, o.ask)
 	const refuses, noListener = "--yes confirms the check without asking", "this yard has no listener, so the other yard cannot call it"
 	setInteractive(t, false)
@@ -654,12 +659,13 @@ func TestNoPairFormWithoutATerminal(t *testing.T) {
 		t.Errorf("with --json: %v", err)
 	}
 	laptop.a.json = false
+	env := yardEnv(t, laptop.st)
 	for _, v := range []string{"YARDR_SESSION", "YARDR_CREW"} {
-		t.Setenv(v, "s1")
+		env[v] = "s1"
 		if _, err := laptop.peer(t, "pair"); err == nil || !strings.Contains(err.Error(), noListener) {
 			t.Errorf("with %s: %v", v, err)
 		}
-		t.Setenv(v, "")
+		env[v] = ""
 	}
 	for _, args := range [][]string{{"--name", "north"}, {"--url", "http://127.0.0.1:1"}, {"--yes"}, {"--timeout", "1s"}} {
 		if _, err := laptop.peer(t, append([]string{"pair"}, args...)...); err == nil || !strings.Contains(err.Error(), noListener) {
@@ -678,18 +684,20 @@ func TestNoPairFormWithoutATerminal(t *testing.T) {
 // yes opens the form in the same run. yardr doctor's line for a yard with
 // no peer names the command.
 func TestSetupOffersTheLink(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	actAsOperator(t)
 	stubServices(t, "darwin")
 	stubWeb(t)
 	st := storetest.New(t)
+	// The run acts as the login name, as it does on a person's machine.
+	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	out, keys := onboardTo(t, st, map[string]any{"link": true, "pair_listen": listenStop})
 	if !slices.Equal(keys[len(keys)-5:], []string{"web", "link", "pair_way", "pair_listen", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	wantText(t, out, "Linking this yard with another", "This yard cannot be called yet.", "Stopped: nothing was changed.")
 	part, err := peerPart(context.Background(), &config.Config{Home: home}, st)
-	if err != nil || part.Configured || !strings.Contains(part.Detail, here("yardr peer pair")+" in a terminal links it with one, as a form") {
+	if err != nil || part.Configured || !strings.Contains(part.Detail, hereAt(home, "yardr peer pair")+" in a terminal links it with one, as a form") {
 		t.Fatalf("doctor's peers line: %+v, %v", part, err)
 	}
 
@@ -728,10 +736,9 @@ func TestSetupOffersTheLink(t *testing.T) {
 // later. Leaving the question trusts nobody and is no failure.
 func TestPairFormAsksWhomToTrust(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite)

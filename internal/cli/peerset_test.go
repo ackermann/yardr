@@ -17,10 +17,9 @@ import (
 // take is refused with its reason.
 func TestPeerSetURL(t *testing.T) {
 	north, laptop := newCLIYard(t, "north"), newCLIYard(t, "laptop")
+	cliEnv(t, north, laptop)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	northInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", laptop.home)
 	laptopInvite := strings.TrimSpace(laptop.must(t, "invite"))
 	north.must(t, "add", "laptop", laptopInvite)
 	laptop.must(t, "add", "north", northInvite)
@@ -138,13 +137,12 @@ func TestPeerSetURL(t *testing.T) {
 // says how many and how they go now.
 func TestPeerSetURLSaysWhatWaits(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	north.must(t, "add", "south", strings.TrimSpace(south.must(t, "invite")))
 	north.must(t, "allow", "south", "--send", "ping")
 	if _, err := north.st.PeerSend(context.Background(), "south", store.PeerPing, nil, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YARDR_HOME", north.home)
 	out := north.must(t, "set", "south", "--url", south.srv.URL)
 	wantText(t, out, "1 messages that waited for it still wait, and are posted there, each at its next try",
 		"no daemon runs on this yard, and the daemon is what calls it")

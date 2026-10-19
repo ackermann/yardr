@@ -15,7 +15,7 @@ import (
 // only yards this one is linked with.
 func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", south.home)
+	cliEnv(t, north, south)
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	a, st, ctx := north.a, north.st, context.Background()
@@ -94,10 +94,9 @@ func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
 // <name>@<peer>, marked as from another yard.
 func TestMailToAPeersCrew(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	cliEnv(t, north, south)
 	ctx := context.Background()
-	t.Setenv("YARDR_HOME", north.home)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", sInvite)
 	south.must(t, "add", "up-north", nInvite) // the name is south's to choose
@@ -218,9 +217,8 @@ func carry(t *testing.T, yards ...*cliYard) {
 // is set, and what is set with the files that follow it.
 func TestPeerAllowMailLimit(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
-	t.Setenv("YARDR_HOME", north.home)
+	cliEnv(t, north, south)
 	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
-	t.Setenv("YARDR_HOME", south.home)
 	south.must(t, "add", "up-north", nInvite)
 
 	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 30 mails and asks an hour, and 1920 files (yardr peer allow up-north --mail-limit <n> sets it)\n")
