@@ -1722,6 +1722,9 @@ runs:
 Each line is read from the routes as they are when the command runs, for a
 bead of that intake's depot with the label `from-<peer>`. Nothing of it is
 stored: a route added later changes the line, and what the beads then do.
+For a receiving side worked end to end — a depot, a flow, stage files and
+a per-yard intake that only people work — see
+[reports.md](reports.md).
 
 ### Who looks at a bead first
 
