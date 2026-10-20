@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,6 +42,39 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
 	cfg := config.At(yardEnv(t, st)["YARDR_HOME"])
 	ctx := context.Background()
+	secret := cfg.Home + "/adhoc.secret"
+	if err := os.WriteFile(secret, []byte("token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutHook(ctx, store.Hook{Name: "adhoc", Source: "token", SecretFile: secret}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// With the edge set and no address, the link is how hooks arrive:
+	// doctor says nothing of the receiver's address, and status says so.
+	noAddress := func() bool {
+		t.Helper()
+		parts, err := optionalParts(ctx, cfg, st, nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range parts {
+			for _, n := range p.Notes {
+				if p.Key == "hooks" && strings.Contains(n, "takes webhooks on") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if noAddress() {
+		t.Error("doctor speaks of the receiver's address on a yard whose hooks come through the edge")
+	}
+	r := &statusReport{Home: cfg.Home, Hooks: &hookStatus{Hooks: []hookEndpoint{{Name: "adhoc", Source: "token"}}}, Edge: &edgeStatus{URL: srv.URL, Handle: "mckean"}}
+	if got := r.parts(); !slices.ContainsFunc(got, func(p statusPart) bool {
+		return p.name == "hooks" && p.lines[0] == "the server takes webhooks through the edge alone: it has no address of its own"
+	}) {
+		t.Errorf("status of a yard whose hooks come through the edge: %+v", got)
+	}
 
 	doctorNote := func() string {
 		t.Helper()
@@ -109,8 +143,12 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 		t.Errorf("status before the server said = %q", got)
 	}
 
-	// A yard with no edge has no edge part, and no link in doctor.
+	// A yard with no edge has no edge part, and no link in doctor, which
+	// asks for an address again.
 	mustEdge(t, st, srv.Client(), "edge", "disconnect")
+	if !noAddress() {
+		t.Error("doctor says nothing of the receiver on a disconnected yard with a hook")
+	}
 	parts, err := optionalParts(ctx, cfg, st, nil, false)
 	if err != nil {
 		t.Fatal(err)

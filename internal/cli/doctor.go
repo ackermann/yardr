@@ -519,21 +519,26 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 			}
 		}
 	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, connected, edgeErr := store.EdgeOf(all)
 	// The receiver's address is the server's, so what the server said: with
 	// hooks, always; without, when it has an address all the same, since one
 	// it cannot listen on (another yard has it) is to be changed either way.
-	if l, known := hooks.ReadListener(cfg); len(hs) > 0 || known && l.Addr != "" {
+	// A yard connected to an edge needs no address: the link serves its
+	// hooks, and its line says how it is.
+	l, known := hooks.ReadListener(cfg)
+	linkAlone := connected && l.Addr == "" && all[hooks.FromSetting] == ""
+	if len(hs) > 0 && !linkAlone || known && l.Addr != "" {
 		_, text := receiver(ctx, cfg, st)
 		hook.Notes = append(hook.Notes, text)
 	}
 	// The link to the edge serves the hooks as the listener does, with or
 	// without it, so its line is beside the listener's.
-	all, err := st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if e, connected, err := store.EdgeOf(all); err != nil {
-		hook.Notes = append(hook.Notes, fmt.Sprintf("the edge setting is not one this build reads, so the server keeps no link: %v; %s edge disconnect clears it", err, yardr))
+	if edgeErr != nil {
+		hook.Notes = append(hook.Notes, fmt.Sprintf("the edge setting is not one this build reads, so the server keeps no link: %v; %s edge disconnect clears it", edgeErr, yardr))
 	} else if connected {
 		s, known := edgelink.ReadState(cfg)
 		hook.Notes = append(hook.Notes, fmt.Sprintf("the link to the edge %s, as handle %s: %s", e.URL, e.Handle, edgeLinkLine(s, known, yardr)))

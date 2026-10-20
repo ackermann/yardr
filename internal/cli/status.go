@@ -341,6 +341,15 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	}
 	if e, connected, _ := store.EdgeOf(all); connected {
 		rep.Edge = &edgeStatus{URL: e.URL, Handle: e.Handle}
+		// Where a sender posts to, through the edge, when the yard's own
+		// listener gives no address.
+		if rep.Hooks != nil {
+			for i := range rep.Hooks.Hooks {
+				if one := &rep.Hooks.Hooks[i]; one.URL == "" {
+					one.URL = e.HooksURL() + "/" + one.Name
+				}
+			}
+		}
 		if s, known := edgelink.ReadState(cfg); known {
 			rep.Edge.Link = &s
 		}
@@ -538,6 +547,8 @@ func (r *statusReport) parts() []statusPart {
 			lines = []string{"the server takes webhooks on " + h.Addr}
 		case h.Addr != "":
 			lines = []string{"the server takes no webhooks: it does not listen on " + h.Addr}
+		case r.Edge != nil:
+			lines = []string{"the server takes webhooks through the edge alone: it has no address of its own"}
 		default:
 			lines = []string{"the server takes no webhooks: it has no address for them"}
 		}
