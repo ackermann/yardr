@@ -1192,6 +1192,18 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 				return err
 			} else if sess != nil && !sess.Manual() {
 				return fmt.Errorf("bead %s: the session %s of a bead's agent may not pin a bead's flow (metadata flow)", id, sess.ID)
+			} else if sess == nil && sessionOf(ctx) != "" {
+				// A runner can call before its pane handle is recorded. The
+				// socket classifies that call from the starting session it
+				// names, so the store must hold a flow pin the same way.
+				starting := new(Session)
+				ok, err := get(w.Tx, bSessions, sessionOf(ctx), starting)
+				if err != nil {
+					return err
+				}
+				if ok && !starting.Manual() && starting.State == "starting" {
+					return fmt.Errorf("bead %s: the session %s of a bead's agent may not pin a bead's flow (metadata flow)", id, starting.ID)
+				}
 			}
 		}
 		if p.Originator != nil {

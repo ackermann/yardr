@@ -186,6 +186,39 @@ func TestSocketServesACrewPaneTheYardsRouting(t *testing.T) {
 	}
 }
 
+// A runner can make a call before the daemon records its pane handle. Its
+// session id still makes the socket refuse admin calls, and the store must
+// also refuse a flow pin for that starting session.
+func TestSocketRefusesAStartingBeadSessionFlowPin(t *testing.T) {
+	st, c, _ := paneYard(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}, "jo"))
+	if _, err := st.PutFlow(ctx, trains, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "starting"}, "jo")
+	must(err)
+	sess, err := st.Claim(ctx, b.ID, "builders", "new", "yard")
+	must(err)
+	c.Session = sess.ID
+
+	_, err = c.UpdateBead(ctx, b.ID, store.BeadPatch{Metadata: map[string]any{"flow": "trains"}}, store.Expect{Session: sess.ID}, "jo")
+	if err == nil || !strings.Contains(err.Error(), "may not pin a bead's flow") {
+		t.Fatalf("UpdateBead pin from a starting session = %v, want it refused", err)
+	}
+	got, err := st.GetBead(ctx, b.ID)
+	if err != nil || store.PinnedFlow(got) != "" {
+		t.Fatalf("bead after the refused pin = %+v, %v: want no pin", got, err)
+	}
+}
+
 // An exec session's command is the operator's own, run as its group (the
 // assembly that lands a bead and installs the build): it is served what a
 // person's terminal is, not held to an agent's calls.
