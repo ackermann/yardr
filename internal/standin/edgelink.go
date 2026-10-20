@@ -47,6 +47,13 @@ type EdgeAnswer struct {
 	Body   []byte      `json:"body"`
 }
 
+// EdgeData is one piece of a yard's streamed answer: a data frame's id and
+// body, in the order the yard flushed them.
+type EdgeData struct {
+	ID   string
+	Body []byte
+}
+
 // EdgeLink is one link the stand-in welcomed.
 type EdgeLink struct {
 	e       *Edge
@@ -61,6 +68,10 @@ type EdgeLink struct {
 	answers []EdgeAnswer
 	acks    []string
 	ackCh   chan string
+	data    []EdgeData
+	dataCh  chan EdgeData
+	ends    []string
+	endCh   chan string
 	silent  bool
 	pongs   int
 	pongCh  chan struct{}
@@ -140,7 +151,8 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusPolicyViolation, "the hello does not answer this challenge")
 		return
 	}
-	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{}, ackCh: make(chan string, 64), pongCh: make(chan struct{}, 64)}
+	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{},
+		ackCh: make(chan string, 64), dataCh: make(chan EdgeData, 64), endCh: make(chan string, 64), pongCh: make(chan struct{}, 64)}
 	if err := writeFrame(ctx, c, map[string]string{"type": "welcome"}); err != nil {
 		return
 	}
@@ -187,6 +199,23 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 			l.mu.Unlock()
 			select {
 			case l.ackCh <- f.ID:
+			default:
+			}
+		case "data":
+			d := EdgeData{ID: f.ID, Body: f.Body}
+			l.mu.Lock()
+			l.data = append(l.data, d)
+			l.mu.Unlock()
+			select {
+			case l.dataCh <- d:
+			default:
+			}
+		case "end":
+			l.mu.Lock()
+			l.ends = append(l.ends, f.ID)
+			l.mu.Unlock()
+			select {
+			case l.endCh <- f.ID:
 			default:
 			}
 		}
@@ -273,6 +302,34 @@ func (l *EdgeLink) Acks() []string {
 
 // AckEvents signals each id the yard acks.
 func (l *EdgeLink) AckEvents() <-chan string { return l.ackCh }
+
+// Data are the yard's streamed pieces on this link so far, in the order
+// they came.
+func (l *EdgeLink) Data() []EdgeData {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]EdgeData(nil), l.data...)
+}
+
+// DataEvents signals each piece of a streamed answer the yard sends.
+func (l *EdgeLink) DataEvents() <-chan EdgeData { return l.dataCh }
+
+// Ends are the ids the yard ended on this link so far, in the order they
+// came.
+func (l *EdgeLink) Ends() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.ends...)
+}
+
+// EndEvents signals each id whose answer the yard ended.
+func (l *EdgeLink) EndEvents() <-chan string { return l.endCh }
+
+// SendEnd tells the yard a stream's caller went away: the yard cancels the
+// request with that id, as the edge does when a device goes away.
+func (l *EdgeLink) SendEnd(ctx context.Context, id string) error {
+	return writeFrame(ctx, l.c, map[string]string{"type": "end", "id": id})
+}
 
 // Silence has the stand-in hear nothing more on the link and send nothing,
 // with no close: a laptop's network gone with neither end told.

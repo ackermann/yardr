@@ -5,9 +5,10 @@ yards. A yard that is connected to it takes its webhooks through it: GitHub,
 Linear, Slack and the rest post to `https://my.yardr.dev/hooks/<handle>/<hook>`,
 and the edge hands each delivery to the yard connected under that handle. The
 yard dials out, so a laptop on any network, with no open port and no tunnel of
-its own, is reachable for webhooks. What the edge hands over is the sender's
-raw body and headers, and the yard verifies every delivery itself, with
-secrets only it holds. Today the edge carries webhooks alone.
+its own, is reachable for webhooks and for its devices' calls. What the edge
+hands over of a delivery is the sender's raw body and headers, and the yard
+verifies every delivery itself, with secrets only it holds. Today the edge
+carries webhooks and devices' calls.
 
 ```sh
 yardr edge connect https://my.yardr.dev   # fetch the edge's key, show it, enrol by a code
@@ -78,7 +79,9 @@ its operator.
 ## What the edge reads, and what it never holds
 
 TLS ends at Cloudflare and at the router, so the edge reads every webhook
-payload and its headers, and the yard's answer, in the clear. The yard-key
+payload and its headers, and the yard's answer, in the clear. A device's
+calls pass it in the clear too
+([below](#footplate-through-the-link)). The yard-key
 signatures prove who sent a frame; they hide nothing. Nothing through the
 edge is end-to-end encrypted.
 
@@ -98,9 +101,37 @@ that use. The edge's public notice says the same for both kinds of yard, for
 people who have no yard of their own.
 
 Peers are never carried through the edge: two linked yards call each other
-directly, as [peers.md](peers.md) says. Carrying a device's calls through the
-same link is **planned**; today a device calls the yard's listener, and a
-yard that listens nowhere takes no device call.
+directly, as [peers.md](peers.md) says. A device's calls are carried
+through the same link ([below](#footplate-through-the-link)).
+
+## footplate through the link
+
+A device of yours, such as footplate, the native window over a yard, reaches
+a connected yard through the same link, with no listener of the yard's own.
+`yardr user device pair <user> footplate` counts a link that is up as a
+listener and gives the edge's address with the code, so pairing is pairing
+by code as on the LAN: the device is given the address and the code, and
+asks once for its token
+([users.md](users.md#enrolled-by-a-code)).
+
+Two gates, as for a hosted yard: the edge's (your account's session) and the
+yard's (the device's token). Every call but the stream waits up to 30
+seconds for the yard's answer; past that, or with no link up, the edge
+answers 504 or 503 and keeps nothing: a device asks again, and only
+webhooks are queued. `GET /user/events` stays open as it does on the
+listener; while nothing arrives for 30 seconds the edge writes an empty
+line, which is no event and which a client skips
+([api.md](api.md#the-stream-of-a-device)).
+
+What the edge reads of it: every call and its answer — conversations, beads,
+mail, asks, notes — and the device token each call carries, with which the
+edge could act as that device within what the device may do. The edge is
+ours and connecting is invite-only, and a token is revoked per device on the
+yard: `yardr user device rm <user> <device>`.
+
+Never over the link: model credentials and hook signing secrets, and the
+calls that carry them, `GiveSecret`, `ApproveAsk` and `ApproveSetup`. Those
+are answered at the yard's own machine, as on a LAN without TLS.
 
 ## Hosted and connected
 
@@ -109,6 +140,7 @@ yard that listens nowhere takes no device call.
 | account, handle, sign-up | the edge's, by invite | the same |
 | webhook URL | `https://my.yardr.dev/hooks/<handle>/<hook>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
+| footplate | Kratos session plus device token, pairing by code | the same, through the link |
 | who runs it, upgrades, backs up | the service | the person |
 | invite list | yes, for the trial | yes, the same list |
 

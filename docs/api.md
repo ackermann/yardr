@@ -610,7 +610,9 @@ nothing else. What is not the same:
   the note read back (`via` in `Conversation` and in `Bead`'s `notes[]`). A
   view shows it behind the writer: `jo (via phone)`.
 - **A request is bounded**: a call's body to 1 MiB, and `PutBlob`'s to the
-  yard's cap on a file besides. One over it is answered 413.
+  yard's cap on a file besides. One over it is answered 413. Over the edge,
+  an answer larger than one frame of the link carries is answered 413
+  instead, so one large file cannot close the link.
 - The two headers of a reply on the socket, the build and the pid, are not
   sent.
 
@@ -680,6 +682,13 @@ socket's:
 
 A stream that ends for any other reason is opened again after the last seq
 read, as on the socket.
+
+A client that reaches the yard through the edge
+([edge.md](edge.md#footplate-through-the-link)) gets an empty line while the
+stream is idle: the edge writes one whenever 30 seconds pass with nothing
+from the yard, since what stands in front of it cuts a response that sends
+no bytes for longer. The yard's stream stays silent; the line is the edge's
+alone, and no event. A client skips a line that is blank.
 
 ### TLS is yours, and the client's rule
 

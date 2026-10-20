@@ -473,9 +473,11 @@ A yard needs nothing else for it, no identity service and no login.
 `/user/`, with the token in `Authorization: Bearer <token>`. The paths, the
 answers and what a client must do about TLS are in
 [api.md](api.md#over-the-network). A yard without `hook_addr` listens
-nowhere, and a token lets nothing in; a yard without a device answers 404
-under `/user/`. Webhooks are what reach a yard that listens nowhere:
-through [the edge](edge.md) they arrive with no listener at all.
+nowhere. There a token lets nothing in, unless the yard is connected to
+[the edge](edge.md), whose link carries a device's calls with no listener;
+a yard without a device answers 404 under `/user/`, over the link too.
+Webhooks reach a yard that listens nowhere the same way: through the edge
+they arrive with no listener at all.
 
 ```text
 $ yardr user device add mckean phone
@@ -717,8 +719,9 @@ It then calls as mckean until: yardr user device rm mckean phone
   user device list` has it once the code was used.
 - **`--url`** is the address the device reaches this yard at, given to the
   device with the code. Without it, it is the listener's own address, which
-  is right on one machine or one network; a listener on every address
-  (`:8790`) needs it. A yard without a listener opens no pairing.
+  is right on one machine or one network, or the edge's when the yard's link
+  is up and it listens nowhere; a listener on every address (`:8790`) needs
+  it. A yard with neither opens no pairing.
 - **The device is added when the code is used**, as by the operator who
   opened the pairing, and is then a device as `device add` makes one: the
   store keeps the token's SHA-256, `device list` and `device rm` know it.

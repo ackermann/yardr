@@ -15,11 +15,14 @@ import (
 	"rsc.io/qr"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // devicePairYard is userYard with a listener that serves the devices of its
@@ -190,6 +193,69 @@ func TestDevicePairQR(t *testing.T) {
 		if !strings.HasPrefix(line, "  \x1b[30;47m") || !strings.HasSuffix(line, "\x1b[0m") {
 			t.Fatalf("a line of the coloured picture is %q", line)
 		}
+	}
+}
+
+// A yard that listens nowhere but whose link to the edge is up opens a
+// pairing all the same: the default address is the edge's, and the device
+// redeems the code down the link. With the link down, no pairing.
+func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
+	t.Parallel()
+	api, own := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	edge, err := standin.NewEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewTLSServer(edge)
+	t.Cleanup(srv.Close)
+	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
+	cfg := config.At(yardEnv(t, st)["YARDR_HOME"])
+	ctx := context.Background()
+
+	sayLink(t, cfg, edgelink.State{URL: srv.URL, Handle: "mckean", Since: time.Now(), Reason: edgelink.DownPings, Ups: 1})
+	refusedAs(t, st, "jo", "this yard has no listener, so no device can call it with a code: ", "user", "device", "pair", "jo", "phone")
+
+	sayLink(t, cfg, edgelink.State{URL: srv.URL, Handle: "mckean", Up: true, Since: time.Now(), Ups: 1})
+	yard, err := yardkey.Load(cfg.PeerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := rpc.NewUserServer(own, func(context.Context) string { return "south" }, nil)
+	l := &edgelink.Link{
+		Edge: store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean"},
+		Key:  yard, Handler: u.Handler(), HTTP: srv.Client(),
+		Backoff: 10 * time.Millisecond, BackoffMax: 20 * time.Millisecond,
+	}
+	lctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); l.Run(lctx) }()
+	defer func() { cancel(); <-done }()
+
+	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone")
+	m := devicePairShown.FindStringSubmatch(out)
+	if m == nil || m[1] != srv.URL {
+		t.Fatalf("device pair over the link shows no code at %s:\n%s", srv.URL, out)
+	}
+	var link *standin.EdgeLink
+	select {
+	case link = <-edge.Links():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the yard's link never came up at the edge")
+	}
+	body, _ := json.Marshal(map[string]string{"code": m[2]})
+	dctx, dcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer dcancel()
+	a, err := link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, nil, body, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got rpc.Paired
+	if err := json.Unmarshal(a.Body, &got); err != nil || a.Status != http.StatusOK || !deviceToken.MatchString(got.Token) {
+		t.Fatalf("the code down the link = %d %s, %v", a.Status, a.Body, err)
+	}
+	if d, err := own.ResolveDevice(ctx, got.Token, "100.64.0.7"); err != nil || d == nil || d.User != "jo" || d.Name != "phone" {
+		t.Fatalf("the token the device was given resolves to %+v, %v", d, err)
 	}
 }
 

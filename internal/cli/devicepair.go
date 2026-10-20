@@ -13,6 +13,8 @@ import (
 	"rsc.io/qr"
 
 	"io"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
@@ -68,6 +70,21 @@ func drawQR(text string, colour bool) (string, error) {
 	return b.String(), nil
 }
 
+// linkAddr is the address a device reaches this yard at through the edge:
+// the edge's own, when the yard is connected and its link is up. It is the
+// device's address where the yard listens nowhere, and "" otherwise.
+func linkAddr(cfg *config.Config, settings map[string]string) string {
+	s, known := edgelink.ReadState(cfg)
+	if !known || !s.Up {
+		return ""
+	}
+	e, connected, err := store.EdgeOf(settings)
+	if err != nil || !connected {
+		return ""
+	}
+	return e.URL
+}
+
 // devicePaired is what yardr user device pair prints of a pairing it
 // opened.
 type devicePaired struct {
@@ -96,9 +113,10 @@ the pairing. A yard has one such pairing open at a time; --end ends it.
 
 --url is the address the device reaches this yard at, which the device is
 given with the code; the default is the listener's own address, which is
-right on one machine or one network. --qr also draws a QR code that holds
-the address and the code, as <address>#<code>, and nothing else: a phone
-reads it in place of both being typed.
+right on one machine or one network, or the edge's when the yard's link is
+up and it listens nowhere. A yard with neither opens no pairing. --qr also
+draws a QR code that holds the address and the code, as <address>#<code>,
+and nothing else: a phone reads it in place of both being typed.
 
 The code is all a device needs, and whoever has it within those minutes gets
 the token: show it, and the QR code, to the device and to nobody else. What
@@ -147,13 +165,18 @@ a person.`,
 			if err != nil {
 				return err
 			}
-			if listening, text := receiver(ctx, cfg, st); !listening {
+			listening, text := receiver(ctx, cfg, st)
+			edge := linkAddr(cfg, all)
+			if !listening && edge == "" {
 				return fmt.Errorf("this yard has no listener, so no device can call it with a code: %s", text)
 			}
 			if addr == "" {
 				if addr, err = listenerURL(cfg); err != nil {
-					l, _ := hooks.ReadListener(cfg)
-					return fmt.Errorf("the listener's address (%s) is none to give a device: say where the device reaches this yard with --url, such as --url https://<this machine>", l.Addr)
+					if edge == "" {
+						l, _ := hooks.ReadListener(cfg)
+						return fmt.Errorf("the listener's address (%s) is none to give a device: say where the device reaches this yard with --url, such as --url https://<this machine>", l.Addr)
+					}
+					addr = edge
 				}
 			} else if addr, err = yardkey.CleanURL(addr); err != nil {
 				return fmt.Errorf("%w: the address the device reaches this yard at", err)
@@ -191,7 +214,7 @@ a person.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&addr, "url", "", "where the device reaches this yard's listener, such as https://mac.example.net (default: the listener's address)")
+	cmd.Flags().StringVar(&addr, "url", "", "where the device reaches this yard, such as https://mac.example.net (default: the listener's address, or the edge's when the link is up)")
 	cmd.Flags().BoolVar(&draw, "qr", false, "also draw a QR code that holds the address and the code")
 	cmd.Flags().BoolVar(&end, "end", false, "end the device pairing this yard has open")
 	return cmd

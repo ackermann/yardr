@@ -437,18 +437,38 @@ func TestLinkRefusesAChallengeNotTheEdges(t *testing.T) {
 	}
 }
 
-// An answer larger than the edge passes on is sent cut one byte past
-// MaxAnswer: the edge takes it as no answer either way, and the frame stays
-// under what it reads of one.
-func TestLinkCutsAnAnswerTooLargeToPassOn(t *testing.T) {
+// An answer that encodes past the edge's 1 MiB frame limit is never sent:
+// the request is answered 413 with a short error instead, so one large
+// answer cannot close the link, which serves the next call as before.
+func TestLinkAnswers413ForAnAnswerLargerThanOneFrame(t *testing.T) {
 	t.Parallel()
 	y := linkTo(t, func(l *Link) {
 		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write(make([]byte, 3*MaxAnswer))
+			if strings.HasPrefix(r.URL.Path, "/user/blobs/") {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Write(make([]byte, 900<<10))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		})
 	}, nil)
 	l := y.next(t)
-	if a := deliver(t, l, l.Frame(http.MethodGet, "/hooks/big", nil, nil, false)); len(a.Body) != MaxAnswer+1 || a.Status != http.StatusOK {
-		t.Errorf("answered %d with %d bytes", a.Status, len(a.Body))
+	big := l.Frame(http.MethodGet, "/user/blobs/"+strings.Repeat("a", 64), nil, nil, false)
+	if a := deliver(t, l, big); a.Status != http.StatusRequestEntityTooLarge || len(a.Body) == 0 || len(a.Body) > 1024 {
+		t.Errorf("the 900 KiB answer was answered %d with %d bytes", a.Status, len(a.Body))
+	}
+	select {
+	case id := <-l.EndEvents():
+		if id != big.ID {
+			t.Errorf("the end is for %s, want the 413's %s", id, big.ID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no end after the 413")
+	}
+	if a := deliver(t, l, l.Frame(http.MethodGet, "/hooks/after", nil, nil, false)); a.Status != http.StatusOK {
+		t.Errorf("the call after the 413 answered %+v", a)
+	}
+	if s := y.link.State(); !s.Up || s.Ups != 1 {
+		t.Errorf("the link went down on the large answer: %+v", s)
 	}
 }
