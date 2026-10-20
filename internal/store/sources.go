@@ -490,9 +490,11 @@ func (s Source) LimitsLine() string {
 }
 
 // SourceKeyed is what KeySource, KeyUser, KeyUserCredential or GiveSecret
-// did: the names it wrote, the file they are in, and the credential's
-// state in the words yardr source show has for it. None of it holds a
-// value. A giving to a waiting login holds the login's reference instead
+// did: the names it wrote, the file they are in, and what the yard can say
+// of those names without showing a value. A source credential has the state
+// yardr source show reports; a hook signing secret says it is set; an
+// address, credential for a user or crew, or harness key says which names
+// are set. A giving to a waiting login holds the login's reference instead
 // of a file.
 type SourceKeyed struct {
 	Source *Source  `json:"source"`
@@ -510,8 +512,8 @@ type SourceKeyed struct {
 	// a line: the one that tells the user through the source, or once
 	// that is said the one that tries it.
 	User string `json:"user,omitempty"`
-	// Crew is whose own credential in the source was given, and whose
-	// file File is; "" for a source's credential and for a user's
+	// Crew is whose own credential in a source or harness key was given, and
+	// whose file File is; "" for a source's credential and for a user's
 	// address. Next is then when the value takes effect, in a line: the
 	// running session does not see it, so when its next one starts.
 	Crew string `json:"crew,omitempty"`
@@ -521,9 +523,10 @@ type SourceKeyed struct {
 	// check, made as that user.
 	As   string `json:"as,omitempty"`
 	Next string `json:"next,omitempty"`
-	// State is where every variable of the credential is set now
-	// (CredentialState); Missing is what it still wants, in the words of
-	// its error, when the names given are not all it needs.
+	// State is the yard's description of what the giving set: CredentialState
+	// for a source credential, a setting sentence for another file-backed
+	// secret. Missing is what a source still wants when the names given are
+	// not all it needs, in the words of its error.
 	State   string `json:"credential,omitempty"`
 	Missing string `json:"missing,omitempty"`
 }
@@ -594,10 +597,10 @@ func (k *sourceKey) keyed(home string) *SourceKeyed {
 // sourceKey is one giving of a source's credential, as keySource left it,
 // of a user's own address in the source, as keyUser did (user is then
 // set), of a user's own credential in it, as keyUser did for one (user
-// and as are then set), or of a crew member's own credential in it, as
-// giveCrewSecret did (crew is then set). It outlives the transaction: a
-// batch may run any of them twice, and renamed stays true once any run
-// renamed the file.
+// and as are then set), or of a crew member's own credential in a source
+// or harness key (crew is then set). It outlives the transaction: a batch
+// may run any of them twice, and renamed stays true once any run renamed
+// the file.
 type sourceKey struct {
 	src  *Source
 	user *User

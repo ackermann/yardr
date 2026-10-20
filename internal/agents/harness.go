@@ -97,16 +97,17 @@ type Harness struct {
 	Hints      Hints            `yaml:"hints" json:"hints,omitzero"`
 }
 
-// Trust is one folder-trust dialog yardr answers itself: the text that
-// marks it on the pane's screen, the answers that accept it, and the mark
-// of the dialog's selected answer, as the harness prints them. The dialog
-// is answered only when the mark shows, one answer shows exactly, and the
+// Trust is one dialog yardr answers itself from a harness file: the text
+// that marks it on the pane's screen, the answers that accept it, and the
+// mark of the selected answer, as the harness prints them. Folder trust
+// and a use-this-API-key confirmation share this shape. The dialog is
+// answered only when the mark shows, one answer shows exactly, and the
 // cursor is seen on that answer (internal/runner/trust.go). There is one
 // answer per harness version that renamed it: Kimi 2.2.0 renamed 'Trust
 // this folder' to 'Trust and continue', so its file names both. Answers
 // arrive as one string or a list, and the file's old `answer` still reads
-// as one. Env are entries that let a harness skip this dialog; the runner
-// sets their active values only when it is allowed to answer the dialog.
+// as one. Env are entries that let a harness skip folder trust; the runner
+// sets their active values only when it is allowed to answer that dialog.
 // EnvNames exposes their names without values in JSON. The cursor is the
 // dialog's own mark: Kimi's is ❯ though its input mark is ">".
 type Trust struct {

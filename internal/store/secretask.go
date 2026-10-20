@@ -1,10 +1,9 @@
-// A secret ask is an ask whose answer is no words: it asks the operator for
-// the credential of a declared source, and what the person types goes to
-// the file that credential is read from (GiveSecret), never into a note.
-// The ask says where its answer goes, by source and by name; the answer
-// says which names were given. Neither holds a value, and nothing else an
-// ask has can take one: a pick, words and a decline's words are refused on
-// a secret ask (answerable).
+// A secret ask is an ask whose answer is no words: its fields say where the
+// person's value goes (GiveSecret), never into a note. The ask says where
+// its answer goes, by destination and name; the answer says which names
+// were given. Neither holds a value, and nothing else an ask has can take
+// one: a pick, words and a decline's words are refused on a secret ask
+// (answerable).
 //
 // A secret ask may ask for a person's own address in a source that tells
 // people instead (AskSecret.User): the variable the source's notify key
@@ -16,6 +15,9 @@
 // starts. Or it may ask for a user's own credential in the source
 // (AskSecret.As), kept in that user's env file: the user's to give, or
 // the operator's for them, as their address is.
+// A waiting login's input (AskSecret.Login) is handed to it and kept
+// nowhere; a harness API key (AskSecret.Harness) is kept in its crew
+// member's env file.
 package store
 
 import (
@@ -34,11 +36,10 @@ import (
 	"yardr.dev/yardr/internal/source"
 )
 
-// AskSecret is where the answer of a secret ask goes: the variables Env of
-// the credential of the declared source Source. All of it is the yard's,
-// from the source's declaration as it was when the ask was written: the
-// asker names the source and may narrow the names, and names no path and no
-// name the declaration does not have.
+// AskSecret says where the answer of a secret ask goes. For a source ask,
+// Env names variables of the source's credential as its declaration stood
+// when the ask was written: the asker may narrow those names, but names no
+// path and no variable the declaration does not have.
 //
 // With Login instead of a source it is a login-input ask: the value goes to
 // the harness login that waits under that reference (loginwait.go), and Env
@@ -139,10 +140,10 @@ func (s AskSecret) Line() string {
 // SecretAsked is the secret an ask asks for, as a client shows it: the
 // source, the names to ask the person for, the user whose own address it
 // is (absent for a source's credential), the crew member whose own
-// credential it is (absent for any other secret), the user whose own
-// credential it is (absent for any other secret), the waiting login it
-// goes to (absent for any other secret), the harness kind whose API key
-// it is (absent for any other secret), and the card's line whole.
+// credential or harness key it is (absent for any other secret), the user
+// whose own credential it is (absent for any other secret), the waiting
+// login it goes to (absent for any other secret), the harness kind whose
+// API key it is (absent for any other secret), and the card's line whole.
 type SecretAsked struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
