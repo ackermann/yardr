@@ -468,7 +468,8 @@ func TestTalkRead(t *testing.T) {
 
 // Beside the member in conversation is its state, in the words `yardr
 // footplate lists it with: working and idle while it runs, not running
-// while it is stopped, and running at a login screen.
+// while it is stopped, and not logged in at a login screen, where it reads
+// no mail until the login the yard leads is made (yardr-302g).
 func TestTalkStatus(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
@@ -496,7 +497,7 @@ func TestTalkStatus(t *testing.T) {
 		{"yardmaster", "working"},
 		{"scribe", "idle"},
 		{"alder", "not running"},
-		{"login", "idle"},
+		{"login", "not logged in"},
 	} {
 		r := f.get("/talk?with=" + c.with)
 		if r.status != 200 {

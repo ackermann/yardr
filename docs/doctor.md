@@ -475,6 +475,11 @@ needs next, one JSON object a line. The program shows each to the person and
 answers on stdin, one JSON object a line, with the one field of the need it
 answers.
 
+The yard's daemon is one such program: for a crew member sitting at its
+login screen it leads this login itself and relays each need to the yard's
+operator as an ask, the input as a secret ask naming its `login`
+([crew.md](crew.md#the-yard-leads-a-harnesss-login)).
+
 With `--group` the login command and the proving call run with that group's
 env: its `env_file` is read as the runner reads it for the group's
 sessions, and the login lands in the folder the env names

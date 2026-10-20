@@ -91,6 +91,9 @@ func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 			d.Log.Error("crew", "crew", r.Name, "err", err)
 		}
 	}
+	// From the login marks as the pass read them: one a pass sets is
+	// read on the next, which its write wakes.
+	d.harnessLogins(ctx, rs)
 	return nil
 }
 

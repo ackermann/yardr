@@ -188,6 +188,7 @@ alike share one line, under the last of them:
 | `sent; <name> is working and reads mail when idle` | mail does not interrupt a turn |
 | `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |
 | `<name> is not logged in and cannot read mail (run <harness> in another terminal and log in there)` | its pane shows its harness's login screen; `<harness>` is the kind's command |
+| `<name> is not logged in and cannot read mail: the yard leads its login, and waits for the operator at its asks (yardr asks)` | as above, on a yard that leads the login itself ([crew.md](crew.md#the-yard-leads-a-harnesss-login)) |
 | `<name> is not running: yardr crew start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr crew show <name>` | as above, and that command says why |
 

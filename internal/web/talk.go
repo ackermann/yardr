@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/chat"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -239,9 +240,10 @@ func talkPeers(crew []store.CrewMember, users []store.User, as string, unread []
 }
 
 // withStatus is the state of the member in conversation, in footplate's
-// words. It uses the crew state and status directly: yardr chat adds
-// refinements for a login screen and failed retries. "" when with names
-// no crew member.
+// words. It uses the crew state and status directly, but for a login
+// screen: a member there reads no mail, however its runtime reads it, and
+// "idle" would say it does (yardr-302g). yardr chat adds a refinement for
+// failed retries. "" when with names no crew member.
 func withStatus(crew []store.CrewMember, with string) string {
 	for _, r := range crew {
 		if r.Name == with {
@@ -249,6 +251,9 @@ func withStatus(crew []store.CrewMember, with string) string {
 			case "failed":
 				return chat.Failed
 			case "running":
+				if r.Handle[dispatch.HarnessLoginKey] != nil {
+					return chat.NotLoggedIn
+				}
 				switch r.Status {
 				case "working":
 					return chat.Working

@@ -454,6 +454,11 @@ func loginExe(r store.CrewMember) (kind, exe string) {
 	return kind, agents.Executable(kind)
 }
 
+// YardLeadsLogin is what is said of a crew member at its login screen
+// whose login the yard leads (dispatch.HarnessLoginAskKey): the operator
+// answers it at asks, with no terminal.
+const YardLeadsLogin = "the yard leads its login, and waits for the operator at its asks (yardr asks)"
+
 // PaneKey is the key that goes to the selected crew member's pane, as the
 // view names it in a sentence.
 const PaneKey = "ctrl+g"
@@ -492,6 +497,9 @@ func Known(r store.CrewMember) string {
 	if kind == "" {
 		kind = "its harness"
 	}
+	if r.Handle[dispatch.HarnessLoginAskKey] != nil {
+		return fmt.Sprintf("%s is not logged in: %s; it starts again once the login is made", r.Name, YardLeadsLogin)
+	}
 	if r.Handle[dispatch.HarnessLoginKey] != nil {
 		_, exe := loginExe(r)
 		return fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
@@ -517,6 +525,9 @@ func Standing(l store.Letter, r *store.CrewMember, yardr string) string {
 		return "sent"
 	}
 	n := r.Name
+	if r.Handle[dispatch.HarnessLoginAskKey] != nil {
+		return fmt.Sprintf("%s is not logged in and cannot read mail: %s", n, YardLeadsLogin)
+	}
 	if r.Handle[dispatch.HarnessLoginKey] != nil {
 		_, exe := loginExe(*r)
 		return fmt.Sprintf("%s is not logged in and cannot read mail (run %s in another terminal and log in there)", n, exe)

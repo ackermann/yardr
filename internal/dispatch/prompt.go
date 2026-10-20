@@ -503,7 +503,8 @@ func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map
 		}
 		data = map[string]any{"reason": ReasonNotLoggedIn, "line": why.login,
 			"hint": fmt.Sprintf("%s is not logged in: its pane shows its login screen, and yardr types nothing there. "+
-				"%s waits until it is logged in: run %s in another terminal and log in there, then %s; or answer the login in its pane.",
+				"%s waits until it is logged in: run %s in another terminal and log in there, then %s; or answer the login in its pane. "+
+				"For a crew member of a yard with an operator, the yard leads the login itself and asks the operator (a login_led event names the ask).",
 				kind, what, exe, fresh)}
 	}
 	if pane, _ := handle["pane"].(string); pane != "" {

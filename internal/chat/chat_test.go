@@ -489,6 +489,16 @@ func TestNotLoggedInStatus(t *testing.T) {
 	if got := Known(r); !strings.Contains(got, "run codex in another terminal and log in there") {
 		t.Errorf("notice names no login command of the kind: %q", got)
 	}
+
+	// The yard leads its login: the operator answers at asks, and no
+	// terminal is named (yardr-302g).
+	r.Handle[dispatch.HarnessLoginAskKey] = map[string]any{"ask": 4, "step": "pick"}
+	if got := Standing(store.Letter{}, &r, "yardr"); got != "chief is not logged in and cannot read mail: "+YardLeadsLogin {
+		t.Errorf("standing while the yard leads the login: %q", got)
+	}
+	if got := Known(r); strings.Contains(got, "terminal") || !strings.Contains(got, YardLeadsLogin) {
+		t.Errorf("notice while the yard leads the login: %q", got)
+	}
 }
 
 // fits checks that the view is h lines, none wider than w.

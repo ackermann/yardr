@@ -218,6 +218,18 @@ type Dispatcher struct {
 	// real suite runs.
 	QuietRun func(ctx context.Context, depot store.Depot) (QuietResult, error)
 
+	// LeadLogin starts the leader of a harness's login the yard leads for
+	// a crew member at its login screen (harnesslogin.go); nil runs this
+	// binary's `yardr harness login <kind> --json`. HarnessInstalled says
+	// whether a kind's command is here to be logged in; nil looks on PATH.
+	// Tests set both, so no harness runs.
+	LeadLogin        func(ctx context.Context, kind string) (*LoginLeader, error)
+	HarnessInstalled func(kind string) bool
+	// leads are the logins the yard leads, by kind, and loginRests the
+	// kinds whose last one ended without a login (harnesslogin.go).
+	leads      map[string]*harnessLead
+	loginRests map[string]loginRest
+
 	quietMu      sync.Mutex
 	quietRunning bool // a quiet whole-suite run is in flight (quiet.go)
 

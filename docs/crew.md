@@ -364,6 +364,9 @@ at all.
   in the input, since its selected option carries the mark of the input.
   While the crew member sits there its status is `not logged in`
   ([chat.md](chat.md)), and `yardr doctor` lists it as a fault.
+- A yard with an operator leads that login itself, with no agent in the
+  loop: the crew member cannot relay a login its own harness needs to run.
+  See "The yard leads a harness's login" below.
 - The one text the daemon sends is its own, alone in the input because its
   Enter was not taken: the last nudge (for two of the daemon's intervals after it was
   typed, a minute by default: the same words there later are taken as a
@@ -386,6 +389,50 @@ A bead's agent gets no nudges. Its first prompt, when the daemon delivers
 it (see [groups.md](groups.md)), waits for text in the input the same way,
 for a dialog of its harness there, and for its login screen, with
 `nudge_held` on the bead.
+
+## The yard leads a harness's login
+
+A crew member at its harness's login screen reads no mail, and on a
+yard with no terminal (a hosted one) nobody can log the harness in by
+hand. So when the yard has an operator (`yardr settings set operator
+<name>`), the daemon leads the login itself, through asks of the
+operator on the crew member's journal. They stand among the operator's
+decisions in footplate, the web view and `yardr asks`:
+
+1. **How to log in**: one option per way of each harness installed on
+   the yard's machine whose file has a login a program leads (`yardr
+   harness list`), today Claude Code's subscription and its Console.
+   Nothing runs until it is answered. Picking a harness other than the
+   one the crew member runs makes it, and the yard's `default_kind`, run
+   that one.
+2. **What the sign-in page gave you**: the daemon runs `yardr harness
+   login <kind> --json` ([doctor.md](doctor.md)), and the page to sign in
+   on is the link in this ask. It is a secret ask naming the login's wait
+   (`--secret-login`): what is typed there goes to the waiting login in
+   the server's memory, and no note, event, file or mail holds it.
+3. **Check that it answers?**: the one real call that proves the login,
+   which costs a model call on the person's account; or skip it.
+
+When the login is made, every session of that harness sitting at its
+login screen is started again, as `yardr crew restart` does, and its
+first prompt goes. A `login_led` event on the journal tells each step
+(`asked`, `started`, `logged_in`, `failed`), never a value.
+
+One login is led per harness at a time: the machine's login of a harness
+is that of every crew member running it. Mail while a login is open asks
+nothing more. A login that ends without one (the leader's input waits
+ten minutes, the whole login fifteen; a declined ask) takes its open ask
+back with why, and the next one is asked only when the crew member is
+next sent mail. The first ask has no limit: a daemon that starts again
+finds it on the session's handle (`harness_login_ask`) and waits on it.
+While it is open, the crew member's line says the yard leads its login
+and waits for the operator at its asks.
+
+A crew member whose env points its harness at a login folder of its own
+(`CLAUDE_CONFIG_DIR` in an env file) is not logged in by the yard's
+login, which runs with the daemon's env; it comes back at its screen and
+is asked for again on its next mail. A group's login is `yardr harness
+login --group` ([doctor.md](doctor.md)).
 
 ## Findings from builders and reviewers
 
