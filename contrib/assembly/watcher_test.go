@@ -269,11 +269,12 @@ func assertWatcherSleepFds(t *testing.T, record, limit string) {
 // watcher from one ps lookup of that pid. The files are the fake sleep's
 // record for the limit and the nap file holding the same pid; both must
 // appear, so the recording is complete before the caller kills the run. The
-// deadline is a fuse against the watcher never starting, never a window the
-// fixture must fit in: process-table visibility under load decides nothing.
+// one-minute deadline is a fuse against the watcher never starting, not a
+// window the fixture must fit in: a full race run can delay process startup.
+// Process-table visibility under load decides nothing.
 func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, tmp, record, limit string) (int, int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	var pid int
 	for {
 		if p, ok := watcherSleepPidFromFiles(t, tmp, record, limit); ok {
