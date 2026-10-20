@@ -1,0 +1,212 @@
+# The edge: webhooks with no open port
+
+The edge is the service at `https://my.yardr.dev` that stands in front of
+yards. A yard that is connected to it takes its webhooks through it: GitHub,
+Linear, Slack and the rest post to `https://my.yardr.dev/hooks/<handle>/<hook>`,
+and the edge hands each delivery to the yard connected under that handle. The
+yard dials out, so a laptop on any network, with no open port and no tunnel of
+its own, is reachable for webhooks. What the edge hands over is the sender's
+raw body and headers, and the yard verifies every delivery itself, with
+secrets only it holds. Today the edge carries webhooks alone.
+
+```sh
+yardr edge connect https://my.yardr.dev   # fetch the edge's key, show it, enrol by a code
+yardr edge status                          # what this yard is connected to, and how its link is
+yardr edge disconnect                      # leave the edge, and put back the hook address from before
+```
+
+A connected yard is one you run on your own machine that keeps one link open
+to the edge. A hosted yard is one the service runs for you
+([below](#hosted-and-connected)). Both take webhooks at the same URLs, and
+both are on the trial's invite list. The same is said for people who have no
+yard of their own on the edge's public notice,
+`https://my.yardr.dev/edge/notice`, which needs no sign-in.
+
+## Connecting a yard
+
+Only the operator connects a yard, and a yard connects to one edge at a time.
+
+```text
+$ yardr edge connect https://my.yardr.dev
+The edge's key: ed25519:9bR…T1  (fetched over HTTPS from my.yardr.dev; compare it with https://yardr.dev/edge)
+This yard's key: ed25519:Hk3…q9
+Open https://my.yardr.dev/connect and enter the code  WQ4F-7K2M
+Waiting for you to approve this yard there. Ctrl+C stops, and writes nothing.
+… approved by you@example.net as mckean
+Connected: webhooks reach this yard at https://my.yardr.dev/hooks/mckean/<hook>
+hook_public_url set to https://my.yardr.dev/hooks/mckean
+The server opens the link to the edge now: yardr edge status says when it is up.
+```
+
+**The first step is trust.** The yard has no edge key yet, so the command
+fetches it over HTTPS, with the system's certificate checks, before anything
+is signed, and prints it. Whoever holds a valid certificate for the address at
+that moment is taken for the edge. A plain `http` address is refused except
+on this machine, for a stand-in. After that moment the pin holds on its own:
+a different certificate, a different machine behind the name, or a different
+key served later moves nothing, and the link refuses an edge that cannot sign
+with the pinned key. It is trust on first use, as `ssh` does with a host
+key, with the web's certificates making the first use hard to intercept. A
+person who does not want to take the certificate's word compares the printed
+key with the one published at `https://yardr.dev/edge`, a page outside the
+edge's own hosting.
+
+**Then the yard enrols.** It sends its public key and its name, signed to the
+pinned key, and gets a code back. You sign in at `/connect` and enter the
+code, and the page shows the yard's name and the start of its key before you
+approve it. You type and paste nothing on this machine: the yard's key is its
+credential, and every answer from the edge is checked against the pinned key.
+Connecting takes the trial's invite, as a hosted yard does: an account whose
+email is not on the list is refused.
+
+**Connecting sets two settings.** The `edge` setting holds the edge's
+address, its pinned key, the handle, and the `hook_public_url` it replaced
+([configuration.md](configuration.md#settings)). `hook_public_url` becomes
+`<url>/hooks/<handle>`, so `yardr hook add` and the packs that register their
+own webhooks print or register the right URL with no change. The running
+server dials at once; no restart. `yardr status` and `yardr doctor` show the
+link beside the listener's, and the server logs `edge_link_up` and
+`edge_link_down`, with why a link went down.
+
+**Disconnecting puts it back.** `yardr edge disconnect` asks the edge to drop
+its row for the yard, clears `edge`, and restores the `hook_public_url` from
+before connecting, or clears it when there was none. One you changed after
+connecting stays as you left it. The settings are cleared whether or not the
+edge answers; when it does not, the command says so, and its row waits for
+its operator.
+
+## What the edge reads, and what it never holds
+
+TLS ends at Cloudflare and at the router, so the edge reads every webhook
+payload and its headers, and the yard's answer, in the clear. The yard-key
+signatures prove who sent a frame; they hide nothing. Nothing through the
+edge is end-to-end encrypted.
+
+It never holds:
+
+- **repositories**: git runs from the yard to GitHub directly, never through
+  the link;
+- **hook signing secrets**: they are in the yard's secret files, and the yard
+  verifies every delivery itself; the edge cannot verify one;
+- **the yard's private key**: the key never leaves the yard's machine;
+- **model credentials of a connected yard**: the harness logs in on the
+  person's machine.
+
+For a hosted yard the service keeps no harness credential either: the person
+signs each login in, and states at sign-up that their provider's terms allow
+that use. The edge's public notice says the same for both kinds of yard, for
+people who have no yard of their own.
+
+Peers are never carried through the edge: two linked yards call each other
+directly, as [peers.md](peers.md) says. Carrying a device's calls through the
+same link is **planned**; today a device calls the yard's listener, and a
+yard that listens nowhere takes no device call.
+
+## Hosted and connected
+
+| | hosted yard | connected yard |
+|---|---|---|
+| account, handle, sign-up | the edge's, by invite | the same |
+| webhook URL | `https://my.yardr.dev/hooks/<handle>/<hook>` | the same |
+| how the edge reaches it | TCP to its container or droplet | the link the yard opened |
+| who runs it, upgrades, backs up | the service | the person |
+| invite list | yes, for the trial | yes, the same list |
+
+One account holds one yard for now, chosen once: connecting is refused while
+a hosted yard exists, and the other way round, until the old one is gone (a
+hosted yard is deleted by the operator on request; a connected one leaves
+with `yardr edge disconnect`).
+
+## While the yard is away: the queue
+
+The edge forwards live first: with the yard connected, it sends the delivery
+down the link and waits up to 2 seconds for the answer, which it passes back
+to the sender byte for byte. That keeps the yard's own answers working: a
+handshake answered from the verified body, a 401 for a bad signature, a 200
+for a dropped stranger. With the yard not connected, or no answer in time,
+the edge keeps the delivery and answers the sender `202` with the queued
+entry's id. GitHub does not redeliver on its own, so keeping it is the only
+way it is not lost. On reconnect the edge sends the queue oldest first; the
+yard serves each and sends `ack` once it is recorded or refused, and only
+then does the edge delete it. A live frame that ran out of time is the same
+queued entry: if the yard's answer arrives later, it counts as that entry's
+ack.
+
+**What bounds the queue.** Anyone on the internet can post to a hook URL, and
+the edge cannot tell a real delivery from junk, since only the yard holds the
+secret. So every bound is checked before the `202`, and a request past one is
+refused, never kept:
+
+- **a body of at most 1 MiB**, the yard's own limit; a larger one is answered
+  `413`, live or away;
+- **per yard, at most 1,000 deliveries and 64 MiB queued**, and nothing kept
+  past 7 days;
+- **across the edge, at most 2 GiB queued**, so one yard's flood cannot fill
+  the disk the edge lives on.
+
+Past a per-yard or edge-wide bound the edge answers `503` with
+`X-Edge-Refusal: queue-full` and keeps what it has: the newest is refused
+rather than the oldest dropped, so a stranger's flood pushes no real delivery
+out. Entries older than 7 days are dropped. The numbers are the router's
+flags.
+
+**Junk in the queue, accepted for the trial.** The bounds cap what a stranger
+can cost the edge, but not what they can cost one yard: while a yard is away,
+anyone who knows its handle can post junk to its hook URLs until its queue is
+full, and its real deliveries are then refused until the junk is delivered
+(and refused by the yard) or expires. That risk is accepted for the trial,
+with two guards: the [Cloudflare rule](#the-edges-operator-the-cloudflare-rule)
+below, which slows any one sender, and an event to the edge's operator, at
+the first refusal for a yard and then at most one an hour, through the
+router's notify command or its log. Each refusal and each drop is counted on
+the yard's row.
+
+**Twice, for a hook with no delivery id.** A delivery can reach the yard
+twice: an ack lost with the link, or a late live answer beside the queued
+copy. The yard catches the second with its existing dedupe, and that holds
+only for a hook whose delivery has a key: the sender's delivery id, or a body
+the source declares unique. A hook with neither, a `token` hook whose sender
+sends no id, is recorded twice. For those hooks the link delivers at least
+once, not exactly once, and the person who wants one record per delivery has
+the sender send an id. The edge does not dedupe for them: judging which two
+bodies are one delivery is the yard's knowledge.
+
+**A queued delivery's timestamp.** A declared source may refuse a delivery
+whose timestamp is further than its window from now, which would fail every
+queued delivery on arrival. So for a queued frame the yard checks the
+sender's timestamp against the edge-signed time the edge received it, instead
+of its own clock. The window keeps its job at the edge's door instead of the
+yard's, with the stated limit that the edge could replay a captured delivery
+with a fresh time.
+
+**Save a Slack URL with the yard connected.** Slack sends `url_verification`
+when the URL is saved in its app settings, and expects the challenge back in
+the answer. The edge never answers a handshake, since it cannot verify one,
+so one that arrives while the yard is away is queued and answered `202`, and
+Slack shows the URL as not verified. Save the URL with the yard connected,
+which is when the hook is being set up anyway, and save it again if Slack
+refuses.
+
+## The edge's operator: the Cloudflare rule
+
+The rule is set in Cloudflare's dashboard, not in code: zone `yardr.dev` >
+Security > WAF > Rate limiting rules > Create. It is the zone's one
+rate-limiting rule. The zone is on Cloudflare's Free plan, whose
+rate-limiting rules match on the path alone, count by IP, and count and block
+over a fixed 10 seconds:
+
+- **expression:** `starts_with(http.request.uri.path, "/hooks/")`
+- **count by IP**, 100 requests per 10 seconds
+- **action:** Block for 10 seconds
+
+The period and the block are the Free plan's fixed 10 seconds; the count is
+proposed. It covers `/hooks/` on every host of the zone, not only
+my.yardr.dev; no other host of the zone serves `/hooks/` today, so the wider
+scope costs nothing now, and whoever adds one reads this first.
+
+The rule is best effort. Cloudflare counts requests per data center, and
+enforcement can lag
+(`https://developers.cloudflare.com/waf/rate-limiting-rules/request-rate/`),
+so a short burst past the count still reaches the edge. That fits the
+queue-abuse risk accepted for the trial above. The rule is set before a yard
+is pointed at the edge, so junk is throttled before it reaches the queue.

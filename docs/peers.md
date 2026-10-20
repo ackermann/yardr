@@ -63,7 +63,10 @@ yardr server stop            # the next command starts it again, on the address
 No listener, no incoming. `yardr doctor` and `yardr peer show` say when that
 is so. A yard that only calls needs no listener. One of the two has to be
 reachable by the other: on an address the other can reach, directly or
-through a tunnel or proxy of your own. There is no relay.
+through a tunnel or proxy of your own. There is no relay. Peers are never
+carried through [the edge](edge.md) either: it carries webhooks alone, so a
+yard nothing can reach still takes those, while everything between two yards
+still crosses the link between them.
 
 ### The form
 

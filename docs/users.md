@@ -474,7 +474,8 @@ A yard needs nothing else for it, no identity service and no login.
 answers and what a client must do about TLS are in
 [api.md](api.md#over-the-network). A yard without `hook_addr` listens
 nowhere, and a token lets nothing in; a yard without a device answers 404
-under `/user/`.
+under `/user/`. Webhooks are what reaches a yard that listens nowhere:
+through [the edge](edge.md) they arrive with no listener at all.
 
 ```text
 $ yardr user device add mckean phone
