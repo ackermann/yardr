@@ -211,6 +211,48 @@ func TestPostHogPackNormalizeShapes(t *testing.T) {
 	}
 }
 
+// The link in an envelope is built from the body's own project.url and
+// issue id, which are a verified sender's data, not the yard's: only an
+// https base and a UUID issue id, as PostHog sends them, make a link.
+// Anything else is still an error_issue, with no link for a bead or an
+// inbox to carry a reader somewhere the body chose.
+func TestPostHogPackNormalizeLinks(t *testing.T) {
+	ad := posthogDecl(t)
+	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
+	body := func(distinct, projectURL string) []byte {
+		return []byte(`{"event":{"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","distinct_id":"` + distinct +
+			`","properties":{"name":"boom","description":"it went boom"}},"project":{"id":48291,"url":"` + projectURL + `"}}`)
+	}
+	for _, tc := range []struct {
+		name       string
+		body       []byte
+		wantURL    string
+		wantThread string // issue id the thread still carries
+	}{
+		{"an https project and a UUID issue",
+			body(id, "https://us.posthog.com/project/48291"),
+			"https://us.posthog.com/project/48291/error-tracking/" + id, id},
+		{"a script scheme in the project url",
+			body(id, "javascript:alert(1)//evil"),
+			"", id},
+		{"a plain http project url",
+			body(id, "http://us.posthog.com/project/48291"),
+			"", id},
+		{"an issue id that leaves its segment",
+			body("abc/../../x?y=1#frag", "https://us.posthog.com/project/48291"),
+			"", "abc/../../x?y=1#frag"},
+	} {
+		got, err := ad.Normalize(nil, tc.body)
+		if err != nil {
+			t.Errorf("%s: normalize: %v", tc.name, err)
+			continue
+		}
+		if got.Type != "error_issue" || got.URL != tc.wantURL || got.Thread.URL != tc.wantURL || got.Thread.ID != tc.wantThread {
+			t.Errorf("%s: got type %q url %q thread %+v", tc.name, got.Type, got.URL, got.Thread)
+		}
+	}
+}
+
 // A normalize that exits non-zero is answered 400, which the service
 // retries. So the script answers an envelope for every object body and
 // never prints any of it: on success it prints nothing to stderr at all,

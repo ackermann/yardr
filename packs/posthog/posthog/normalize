@@ -32,7 +32,13 @@ def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " "))
      | if . != "" then . else ((($e.properties | obj)."$exception_issue_id" // "") | if type == "string" then . else "" end) end) as $id
     | (($e.properties | obj).name | str(.)) as $name
     | (($e.properties | obj).description | str(.) | trunc) as $text
-    | (if $base != "" and $id != "" then "\($base)/error-tracking/\($id)" else "" end) as $url
+    # The link is the one place body data leaves as an address a reader
+    # follows, so it is made only as PostHog makes it: an https project
+    # URL, and the UUID of the issue in its own segment (the id the issue
+    # call takes). Another scheme, or an id carrying a slash, query or
+    # fragment, makes no link; the issue is still heard, unlinked.
+    | (if ($base | test("^https://[^[:space:]]+$")) and ($id | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
+       then "\($base)/error-tracking/\($id)" else "" end) as $url
     # No mentions: the description is an error message, and an @word in
     # one names nobody. The entity is the issue, whose description
     # persists across its deliveries.
