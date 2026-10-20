@@ -729,3 +729,58 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 		})
 	}
 }
+
+// The SBOM scanner is third-party code that only reads the source: it
+// runs in its own job, so it shares neither the build job's workspace
+// (where it could change an archive before that archive is attested)
+// nor the build job's id-token and attestations grants, which it never
+// needs. The attestation stays with the build it vouches for.
+func TestReleaseWorkflowSBOMRunsApartFromTheBuild(t *testing.T) {
+	t.Parallel()
+	workflow, err := os.ReadFile("../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(workflow), "anchore/sbom-action@"); n != 1 {
+		t.Fatalf("release workflow uses anchore/sbom-action %d times; want 1", n)
+	}
+	jobs := map[string]string{}
+	current := ""
+	for _, line := range strings.Split(string(workflow), "\n") {
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") && strings.HasSuffix(line, ":") {
+			current = strings.TrimSuffix(strings.TrimSpace(line), ":")
+			continue
+		}
+		if current != "" {
+			jobs[current] += line + "\n"
+		}
+	}
+	sbom, ok := jobs["sbom"]
+	if !ok {
+		t.Fatal("release workflow has no sbom job apart from the build job")
+	}
+	if !strings.Contains(sbom, "anchore/sbom-action@") {
+		t.Error("sbom job does not run anchore/sbom-action")
+	}
+	if !strings.Contains(sbom, "actions/checkout@") {
+		t.Error("sbom job does not check out the source it scans")
+	}
+	if strings.Contains(sbom, "id-token") || strings.Contains(sbom, "attestations:") || strings.Contains(sbom, "contents: write") {
+		t.Error("sbom job carries a grant it does not need (id-token, attestations, or contents write)")
+	}
+	build, ok := jobs["build"]
+	if !ok {
+		t.Fatal("release workflow has no build job")
+	}
+	if strings.Contains(build, "anchore/sbom-action") {
+		t.Error("build job runs anchore/sbom-action beside the archives it attests")
+	}
+	if !strings.Contains(build, "actions/attest-build-provenance@") {
+		t.Error("build job no longer attests the archives")
+	}
+	if release, ok := jobs["release"]; !ok {
+		t.Fatal("release workflow has no release job")
+	} else if !strings.Contains(release, "needs: [build, sbom]") {
+		t.Error("release job does not wait for the sbom job, so a draft no longer means the scan passed")
+	}
+}

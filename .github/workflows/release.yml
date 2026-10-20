@@ -93,6 +93,27 @@ jobs:
       - name: BDP read conformance
         run: BDP_REPO=$GITHUB_WORKSPACE/bdp conformance/bdp/run.sh
 
+  # The SBOM scanner is third-party code that only reads the source, so
+  # it runs apart from the build: it shares neither the workspace whose
+  # archives are attested (and uploaded from there) nor the build job's
+  # id-token and attestations grants, which it never needs. The release
+  # job waits for it, as it waited when the scan was a step of the build,
+  # so a draft still means the scan passed.
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: sbom the source
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ./
+          format: spdx-json
+          # The draft holds the archives and checksums.txt alone (the
+          # site's sync refuses any other name in the checksums); the
+          # SBOM is kept as a workflow artifact of this job.
+          upload-release-assets: "false"
+
   build:
     needs: [test, conformance]
     runs-on: ubuntu-latest
@@ -127,15 +148,6 @@ jobs:
       # are signed by hand afterwards (docs/install.md, "Signed checksums").
       - name: build the archives
         run: contrib/release/build "$VERSION" dist
-      - name: sbom the source
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          path: ./
-          format: spdx-json
-          # The draft holds the archives and checksums.txt alone (the site's
-          # sync refuses any other name in the checksums); the SBOM is kept
-          # as a workflow artifact beside dist.
-          upload-release-assets: "false"
       # Only a tag attests; a dry run publishes nothing, not even attestations.
       - name: attest the archives
         if: github.event_name == 'push'
@@ -152,7 +164,7 @@ jobs:
   release:
     # Only a tag publishes; a dry run ends with the artifacts above.
     if: github.event_name == 'push'
-    needs: build
+    needs: [build, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The one job that may write to the release, and it runs no code from
