@@ -527,7 +527,10 @@ draft CI makes for the tag, `sign` asks mckean to sign the draft's
 checksums, `verify` checks the signature and each archive's attestation,
 and `publish` releases the draft and files the yardr.dev sync bead (the
 release flow, `.yardr/flows/type/release.flow`; the script its stages run
-is `contrib/release/stage`).
+is `contrib/release/stage`). With GitHub Actions switched off on the
+release repo there is no CI, so `build` builds the release on this
+machine instead and `verify` skips the attestations
+([below](#with-actions-off)).
 
 ```sh
 yardr bead create "yardr v1.2.3" -t release -d yardr -b - < notes.md
@@ -585,6 +588,25 @@ and the SBOM kept for a week as the run's artifacts, and nothing attested
 or published. The workflow runs on Linux and holds no Apple identity, so
 the darwin binaries of a draft it made are unsigned. It holds no minisign
 key either, so its `checksums.txt` is unsigned until it is signed by hand.
+
+### With Actions off
+
+When GitHub Actions is switched off on the release repo — a private repo
+whose minutes ran out, as yardr-dev/yardr's did — there is no workflow to
+make the draft, so the flow builds the release on this machine instead.
+`build` asks `gh api repos/<owner>/<repo>/actions/permissions` after
+pushing the tag: when it answers `false`, it runs
+`contrib/release/build` from the tagged checkout with `SOURCE_DATE_EPOCH`
+from the tagged commit, as the workflow sets it, and makes the draft from
+the four archives and `checksums.txt`, with the bead's body as its notes.
+There is no attestation: nothing but this machine vouches for the build,
+and the build's note says so. The five signing commands, `sign`, and
+`publish` are unchanged; `verify` checks the signature and the checksums
+as ever and skips the attestations. A draft already standing is adopted in
+both modes, and a release is rebuilt the same way: delete the tag and the
+draft, then advance the bead back to `build`. When Actions is on, or the
+check cannot run, the flow waits for CI's draft as ever. There is no
+setting to force a local build: the repo's Actions state is the switch.
 
 ### Signed darwin binaries
 

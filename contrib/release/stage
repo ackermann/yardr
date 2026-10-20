@@ -22,9 +22,15 @@
 #     commit with no release on it is pushed again and waited on, and a
 #     draft already standing is adopted, not refused. A CI run that
 #     concluded anything but success reports failed with the run's URL.
+#     When GitHub Actions is switched off on the release repo there is no
+#     CI to wait for: build runs contrib/release/build on this machine
+#     instead (SOURCE_DATE_EPOCH from the tagged commit, as the workflow
+#     sets it) and makes the draft from it, with no attestation; a draft
+#     already standing is adopted in both modes.
 #   verify: downloads the release, checks checksums.txt.minisig against the
 #     release key, the archives against checksums.txt, and each archive's
-#     build-provenance attestation (gh attestation verify). Then done, to
+#     build-provenance attestation (gh attestation verify), skipped with
+#     no attestation when Actions is off on the release repo. Then done, to
 #     publish; a missing or bad signature reports failed with what minisign
 #     said, so sign is asked again, and archives that do not match, an
 #     attestation that does not verify, or a check that could not run,
@@ -45,7 +51,8 @@
 # the repo and the key come from the environment, with yardr's as the
 # defaults. Its CI is expected to draft the release the same way
 # (.github/workflows/release.yml does): the four archives and checksums.txt
-# on the pushed tag, each archive attested.
+# on the pushed tag, each archive attested. With Actions off on that repo
+# too the draft is built on this machine instead, with no attestation.
 #
 #   YARDR_RELEASE_REPO      the GitHub repo, owner/name (default yardr-dev/yardr)
 #   YARDR_RELEASE_PUBKEY    the minisign public key verify checks against
@@ -165,6 +172,15 @@ version() {
     fail question "the bead's title names no version (its last word is \"$v\"): title it \"$PRODUCT v<major>.<minor>.<patch>\" and advance the bead back to $MODE"
 }
 
+# actions_off: whether GitHub Actions is switched off on the release repo,
+# asked of gh before build waits and before verify attests. Only a false
+# answer counts: true, or an answer that cannot be read, is today's
+# behaviour (wait for CI, check the attestations).
+actions_off() {
+  enabled=$(gh api "repos/$GHREPO/actions/permissions" --jq .enabled 2>/dev/null) || return 1
+  [ "$enabled" = false ]
+}
+
 build() {
   : "${YARDR_DEPOT_PATH:?the bead has no depot}" "${YARDR_BASE:?the bead has no base}"
   command -v git >/dev/null 2>&1 || fail failed "git is not on PATH; the release group runs where jq, git and gh are"
@@ -208,60 +224,102 @@ build() {
   [ -n "$tagat" ] || git -C "$REPO" tag "$v" "$base" || fail failed "tagging $at as $v failed; nothing was pushed"
   git -C "$REPO" push "$REMOTE" "$v" >"$tmp/push.log" 2>&1 ||
     fail failed "tag $v is made but pushing it to $REMOTE failed; push it by hand, then advance the bead back to build" "$(tail -n 10 "$tmp/push.log")"
-  # The pushed tag starts CI's release workflow, which tests, builds the
-  # archives and checksums.txt, attests them and makes the draft. Each
-  # round asks the workflow for its run and the release for its assets;
-  # the draft is done when it holds the four archives and checksums.txt.
-  # A gh answer that cannot be read is another round, not a failure: only
-  # a run that concluded, or the last round, ends the wait.
-  rounds=${YARDR_RELEASE_WAIT_ROUNDS:-60}
-  sleep_for=${YARDR_RELEASE_WAIT_SLEEP:-30}
-  case $rounds in '' | *[!0-9]*) rounds=60 ;; esac
-  case $sleep_for in '' | *[!0-9]*) sleep_for=30 ;; esac
-  run_url=""
-  n_arch=0
-  has_sums=0
-  i=0
-  while [ "$i" -lt "$rounds" ]; do
-    i=$((i + 1))
-    runs=$(gh run list --repo "$GHREPO" --workflow release.yml --commit "$base" --event push --json conclusion,status,url --limit 1 2>/dev/null) || runs=""
-    if [ -n "$runs" ]; then
-      status=$(printf '%s' "$runs" | jq -r '.[0].status // empty' 2>/dev/null) || status=""
-      concl=$(printf '%s' "$runs" | jq -r '.[0].conclusion // empty' 2>/dev/null) || concl=""
-      url=$(printf '%s' "$runs" | jq -r '.[0].url // empty' 2>/dev/null) || url=""
-      [ -z "$url" ] || run_url=$url
-      if [ "$status" = completed ] && [ -n "$concl" ] && [ "$concl" != success ]; then
-        fail failed "CI's release run for $v $concl ($run_url): fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build"
+  # With Actions off on the release repo there is no CI to make the draft:
+  # it is built on this machine instead, from this checkout at the pushed
+  # tag, reproducibly (SOURCE_DATE_EPOCH from the tagged commit, as the
+  # workflow sets it). A draft already standing is adopted here too,
+  # filled again rather than refused.
+  if actions_off; then
+    echo "== $BEAD: Actions is off on $GHREPO; building $v on this machine"
+    epoch=$(git -C "$REPO" log -1 --format=%ct "$base" 2>/dev/null) || epoch=""
+    mkdir -p "$tmp/dist" ||
+      fail failed "cannot make a working directory; nothing was released"
+    if ! SOURCE_DATE_EPOCH="$epoch" "$REPO/contrib/release/build" "$v" "$tmp/dist" >"$tmp/build.log" 2>&1; then
+      fail failed "building $v on this machine failed; fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build" "$(tail -n 20 "$tmp/build.log")"
+    fi
+    n_dist=0
+    for f in "$tmp/dist"/*.tar.gz; do
+      [ -f "$f" ] || continue
+      n_dist=$((n_dist + 1))
+    done
+    if [ "$n_dist" -ne 4 ] || [ ! -f "$tmp/dist/checksums.txt" ]; then
+      fail failed "the build on this machine made $n_dist archives, not the four and checksums.txt; fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build" "$(tail -n 20 "$tmp/build.log")"
+    fi
+    printf '%s\n' "$body" >"$tmp/notes.md"
+    if [ "$existing" = true ]; then
+      gh release upload "$v" --repo "$GHREPO" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" --clobber >"$tmp/upload.log" 2>&1 ||
+        fail failed "uploading this machine's build to the standing draft for $v failed; build again by hand (contrib/release/build $v dist) and upload it, then advance the bead to sign" "$(cat "$tmp/upload.log")"
+      if gh release edit "$v" --repo "$GHREPO" --notes-file "$tmp/notes.md" >"$tmp/notes.log" 2>&1; then
+        echo "== $BEAD: the draft's notes are the bead's body"
+      else
+        fail failed "the draft for $v holds this machine's build but setting its notes from the bead failed; set them by hand from the bead's body, then advance the bead to sign" "$(cat "$tmp/notes.log")"
+      fi
+    else
+      if gh release create "$v" --repo "$GHREPO" --draft --verify-tag --notes-file "$tmp/notes.md" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" >"$tmp/create.log" 2>&1; then
+        echo "== $BEAD: draft $v holds this machine's build"
+      else
+        fail failed "the build for $v is made but creating its draft failed; build again by hand (contrib/release/build $v dist) and make the draft from it, then advance the bead to sign" "$(cat "$tmp/create.log")"
       fi
     fi
-    draft=$(gh release view "$v" --repo "$GHREPO" --json assets 2>/dev/null) || draft=""
-    if [ -n "$draft" ]; then
-      n_arch=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(endswith(".tar.gz"))] | length' 2>/dev/null) || n_arch=0
-      has_sums=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(. == "checksums.txt")] | length' 2>/dev/null) || has_sums=0
-    fi
-    if [ "$n_arch" -eq 4 ] && [ "$has_sums" -ge 1 ]; then
-      echo "== $BEAD: draft $v holds the four archives and checksums.txt"
-      break
-    fi
-    [ "$i" -ge "$rounds" ] || sleep "$sleep_for"
-  done
-  if [ "$n_arch" -ne 4 ] || [ "$has_sums" -lt 1 ]; then
-    mins=$((rounds * sleep_for / 60))
-    where="no release run has shown for the tag yet"
-    [ -z "$run_url" ] || where="the run is at $run_url"
-    fail failed "CI did not finish the draft for $v in $mins minutes ($where); check the run, and to run it again delete the tag here and on $REMOTE and advance the bead back to build"
-  fi
-  printf '%s\n' "$body" >"$tmp/notes.md"
-  if gh release edit "$v" --repo "$GHREPO" --notes-file "$tmp/notes.md" >"$tmp/notes.log" 2>&1; then
-    echo "== $BEAD: the draft's notes are the bead's body"
+    built_by="built on this machine from $at, with no attestation"
+    run_line=""
   else
-    fail failed "the draft for $v is complete but setting its notes from the bead failed; set them by hand from the bead's body, then advance the bead to sign" "$(cat "$tmp/notes.log")"
+    # The pushed tag starts CI's release workflow, which tests, builds the
+    # archives and checksums.txt, attests them and makes the draft. Each
+    # round asks the workflow for its run and the release for its assets;
+    # the draft is done when it holds the four archives and checksums.txt.
+    # A gh answer that cannot be read is another round, not a failure: only
+    # a run that concluded, or the last round, ends the wait.
+    rounds=${YARDR_RELEASE_WAIT_ROUNDS:-60}
+    sleep_for=${YARDR_RELEASE_WAIT_SLEEP:-30}
+    case $rounds in '' | *[!0-9]*) rounds=60 ;; esac
+    case $sleep_for in '' | *[!0-9]*) sleep_for=30 ;; esac
+    run_url=""
+    n_arch=0
+    has_sums=0
+    i=0
+    while [ "$i" -lt "$rounds" ]; do
+      i=$((i + 1))
+      runs=$(gh run list --repo "$GHREPO" --workflow release.yml --commit "$base" --event push --json conclusion,status,url --limit 1 2>/dev/null) || runs=""
+      if [ -n "$runs" ]; then
+        status=$(printf '%s' "$runs" | jq -r '.[0].status // empty' 2>/dev/null) || status=""
+        concl=$(printf '%s' "$runs" | jq -r '.[0].conclusion // empty' 2>/dev/null) || concl=""
+        url=$(printf '%s' "$runs" | jq -r '.[0].url // empty' 2>/dev/null) || url=""
+        [ -z "$url" ] || run_url=$url
+        if [ "$status" = completed ] && [ -n "$concl" ] && [ "$concl" != success ]; then
+          fail failed "CI's release run for $v $concl ($run_url): fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build"
+        fi
+      fi
+      draft=$(gh release view "$v" --repo "$GHREPO" --json assets 2>/dev/null) || draft=""
+      if [ -n "$draft" ]; then
+        n_arch=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(endswith(".tar.gz"))] | length' 2>/dev/null) || n_arch=0
+        has_sums=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(. == "checksums.txt")] | length' 2>/dev/null) || has_sums=0
+      fi
+      if [ "$n_arch" -eq 4 ] && [ "$has_sums" -ge 1 ]; then
+        echo "== $BEAD: draft $v holds the four archives and checksums.txt"
+        break
+      fi
+      [ "$i" -ge "$rounds" ] || sleep "$sleep_for"
+    done
+    if [ "$n_arch" -ne 4 ] || [ "$has_sums" -lt 1 ]; then
+      mins=$((rounds * sleep_for / 60))
+      where="no release run has shown for the tag yet"
+      [ -z "$run_url" ] || where="the run is at $run_url"
+      fail failed "CI did not finish the draft for $v in $mins minutes ($where); check the run, and to run it again delete the tag here and on $REMOTE and advance the bead back to build"
+    fi
+    printf '%s\n' "$body" >"$tmp/notes.md"
+    if gh release edit "$v" --repo "$GHREPO" --notes-file "$tmp/notes.md" >"$tmp/notes.log" 2>&1; then
+      echo "== $BEAD: the draft's notes are the bead's body"
+    else
+      fail failed "the draft for $v is complete but setting its notes from the bead failed; set them by hand from the bead's body, then advance the bead to sign" "$(cat "$tmp/notes.log")"
+    fi
+    built_by="built by CI from $at"
+    run_line=""
+    [ -z "$run_url" ] || run_line=" CI's run is at $run_url."
   fi
   url="https://github.com/$GHREPO/releases/tag/$v"
   dir="~/releases/$v"
-  run_line=""
-  [ -z "$run_url" ] || run_line=" CI's run is at $run_url."
-  done_with sign "build: $PRODUCT $v is drafted ($url, built by CI from $at): the four archives and checksums.txt, the checksums not yet signed.$run_line Sign them with the five commands, in order (minisign asks for the key's password; each names $v):
+  done_with sign "build: $PRODUCT $v is drafted ($url, $built_by): the four archives and checksums.txt, the checksums not yet signed.$run_line Sign them with the five commands, in order (minisign asks for the key's password; each names $v):
 
 mkdir -p $dir
 gh release download $v --repo $GHREPO --pattern checksums.txt --dir $dir --clobber
@@ -312,6 +370,13 @@ verify() {
   done
   [ -z "$extra" ] ||
     fail question "release $v holds files its checksums.txt does not name ($extra); it is remade by hand (the release and the tag deleted, the bead back to build)"
+  # With Actions off the release was built on this machine, with no
+  # attestation to check; the signature and the checksums are the whole
+  # of it.
+  if actions_off; then
+    echo "== $BEAD: Actions is off on $GHREPO; skipping attestations"
+    done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt (no attestation: built on this machine)."
+  fi
   # Each file's attestation says CI's release workflow built it; without
   # one the files are not the workflow's, however well they checksum.
   # shellcheck disable=SC2086 # $names is a newline-separated list

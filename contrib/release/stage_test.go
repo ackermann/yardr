@@ -40,9 +40,10 @@ esac
 // fakeGh serves release view from FAKE_GH_VIEW_SEQ, one response per call
 // ($n.json for the nth call, the last one standing after that, a file
 // holding ABSENT for no release, and no directory for never one); lists
-// the runs FAKE_GH_RUNS cans; saves the notes file a release edit was
-// given; serves release downloads from a directory; and verifies
-// attestations as FAKE_GH_ATTEST_RC says.
+// the runs FAKE_GH_RUNS cans; saves the notes file a release edit or
+// create was given; serves release downloads from a directory; verifies
+// attestations as FAKE_GH_ATTEST_RC says; and answers whether Actions is
+// enabled from FAKE_GH_ACTIONS_ENABLED.
 const fakeGh = `#!/bin/sh
 printf 'gh %s\n' "$*" >>"$FAKE_DIR/calls.log"
 case "$1 $2" in
@@ -82,11 +83,22 @@ case "$1 $2" in
   done
   exit "${FAKE_GH_EDIT_RC:-0}"
   ;;
+"release create")
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--notes-file" ]; then cp "$a" "$FAKE_DIR/notes.md"; fi
+    prev="$a"
+  done
+  exit "${FAKE_GH_CREATE_RC:-0}"
+  ;;
 "run list")
   printf '%s\n' "${FAKE_GH_RUNS:-[]}"
   ;;
 "attestation verify")
   exit "${FAKE_GH_ATTEST_RC:-0}"
+  ;;
+api*)
+  printf '%s\n' "${FAKE_GH_ACTIONS_ENABLED:-}"
   ;;
 esac
 exit 0
@@ -97,6 +109,20 @@ const fakeMinisign = `#!/bin/sh
 printf 'minisign %s\n' "$*" >>"$FAKE_DIR/calls.log"
 printf '%s\n' "${FAKE_MINISIGN_OUT:-Signature and comment signature verified}"
 exit "${FAKE_MINISIGN_RC:-0}"
+`
+
+// fakeBuild stands in for contrib/release/build in the checkout: it logs
+// its arguments and SOURCE_DATE_EPOCH, and writes four archives and a
+// checksums.txt to its out-dir.
+const fakeBuild = `#!/bin/sh
+printf 'build %s SOURCE_DATE_EPOCH=%s\n' "$*" "${SOURCE_DATE_EPOCH:-}" >>"$FAKE_DIR/calls.log"
+out=$2
+mkdir -p "$out"
+for t in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+  printf 'fake %s\n' "$t" >"$out/yardr_${1#v}_$t.tar.gz"
+done
+printf 'fake checksums\n' >"$out/checksums.txt"
+exit "${FAKE_BUILD_RC:-0}"
 `
 
 // stage is one run's world: the stand-ins, their canned answers, and the
@@ -262,6 +288,23 @@ func (s *stage) repo() (checkout, origin string) {
 	s.git(checkout, "commit", "-q", "-m", "one")
 	s.git(checkout, "push", "-q", "origin", "main")
 	return checkout, origin
+}
+
+// build installs the fake release build script in the checkout and pushes
+// it, as the real one rides main: the stage runs it from there when
+// Actions is off, and refuses a dirty or behind checkout first.
+func (s *stage) build(checkout string) {
+	s.t.Helper()
+	dir := filepath.Join(checkout, "contrib", "release")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build"), []byte(fakeBuild), 0o755); err != nil {
+		s.t.Fatal(err)
+	}
+	s.git(checkout, "add", "contrib/release/build")
+	s.git(checkout, "commit", "-q", "-m", "fake build")
+	s.git(checkout, "push", "-q", "origin", "main")
 }
 
 func (s *stage) git(dir string, args ...string) string {
@@ -460,6 +503,91 @@ func TestStageBuildTagsPushesAndWaitsForTheDraft(t *testing.T) {
 	}
 }
 
+func TestStageBuildBuildsOnThisMachineWhenActionsIsOff(t *testing.T) {
+	s := newStage(t)
+	checkout, origin := s.repo()
+	s.build(checkout)
+	// No release standing: the build makes the draft itself, never waiting.
+	s.view(viewAbsent)
+	body := "Release \"v1.2.3\"\n\n- fixes <bugs> & things"
+	s.show("yardr v1.2.3", body)
+	s.run("build", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_ACTIONS_ENABLED=false")
+	got := s.log()
+	// The tag is at the base, here and on the remote.
+	at := strings.TrimSpace(s.git(checkout, "rev-parse", "refs/tags/v1.2.3"))
+	base := strings.TrimSpace(s.git(checkout, "rev-parse", "refs/heads/main"))
+	if at != base {
+		t.Fatalf("tag v1.2.3 is at %s, not at main", at)
+	}
+	remote := exec.Command("git", "--git-dir="+origin, "rev-parse", "refs/tags/v1.2.3")
+	remote.Env = s.env
+	out, err := remote.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != at {
+		t.Fatalf("tag v1.2.3 is not pushed: %v\n%s", err, out)
+	}
+	// Actions was asked, the checkout's build script ran with the tagged
+	// commit's time, and the draft was created from it; CI was never asked.
+	s.mustContain(got, "gh api repos/yardr-dev/yardr/actions/permissions --jq .enabled")
+	epoch := strings.TrimSpace(s.git(checkout, "log", "-1", "--format=%ct", base))
+	s.mustContain(got, "build v1.2.3")
+	s.mustContain(got, "SOURCE_DATE_EPOCH="+epoch)
+	s.mustContain(got, "gh release create v1.2.3 --repo yardr-dev/yardr --draft --verify-tag --notes-file")
+	s.mustContain(got, ".tar.gz")
+	s.mustContain(got, "checksums.txt")
+	s.mustLack(got, "gh run list")
+	if n := strings.Count(got, "gh release view"); n != 1 {
+		t.Errorf("gh release view was asked %d times; want 1 (the look before tagging)", n)
+	}
+	// The draft's notes are the body, set at creation.
+	s.mustLack(got, "gh release edit")
+	notes, err := os.ReadFile(filepath.Join(s.dir, "notes.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(notes) != body+"\n" {
+		t.Fatalf("notes file = %q; want the body's bytes", notes)
+	}
+	// Done, with no attestation and the five commands, each naming the version.
+	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+	s.mustLack(got, "--outcome")
+	s.mustContain(got, "is drafted")
+	s.mustContain(got, "built on this machine")
+	s.mustContain(got, "no attestation")
+	s.mustLack(got, "built by CI")
+	for _, cmd := range []string{
+		"mkdir -p ~/releases/v1.2.3",
+		"gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt --dir ~/releases/v1.2.3 --clobber",
+		"minisign -S -s ~/.minisign/yardr-release.key -m ~/releases/v1.2.3/checksums.txt",
+		"minisign -V -P " + releaseKey + " -m ~/releases/v1.2.3/checksums.txt",
+		"gh release upload v1.2.3 --repo yardr-dev/yardr ~/releases/v1.2.3/checksums.txt.minisig --clobber",
+	} {
+		s.mustContain(got, cmd)
+	}
+}
+
+func TestStageBuildAdoptsAStandingDraftWhenActionsIsOff(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.build(checkout)
+	// A run that died after tagging: the tag is already at the base, and a
+	// draft is already standing. It is adopted and filled again, not
+	// refused or remade.
+	s.git(checkout, "tag", "v1.2.3", "refs/heads/main")
+	s.view(draftJSON([]string{"a.tar.gz", "b.tar.gz", "c.tar.gz", "d.tar.gz", "checksums.txt"}, true))
+	s.show("yardr v1.2.3", "notes")
+	out := s.run("build", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_ACTIONS_ENABLED=false")
+	got := s.log()
+	s.mustContain(out, "finishing that run")
+	s.mustContain(out, "adopting it")
+	s.mustContain(got, "build v1.2.3")
+	s.mustContain(got, "gh release upload v1.2.3 --repo yardr-dev/yardr")
+	s.mustLack(got, "gh release create")
+	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --notes-file")
+	s.mustLack(got, "gh run list")
+	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+	s.mustContain(got, "built on this machine")
+}
+
 func TestStageBuildResumesAfterTagging(t *testing.T) {
 	s := newStage(t)
 	checkout, _ := s.repo()
@@ -621,6 +749,23 @@ func TestStageVerifyChecksASignedRelease(t *testing.T) {
 	s.mustContain(got, "the signature on v1.2.3 is good")
 	s.mustContain(got, "2 archives match checksums.txt")
 	s.mustContain(got, "attestation verifies")
+}
+
+func TestStageVerifySkipsAttestationsWhenActionsIsOff(t *testing.T) {
+	s := newStage(t)
+	s.release(map[string]string{"a.tar.gz": "a\n", "b.tar.gz": "b\n"}, false, true)
+	s.show("yardr v1.2.3", "notes")
+	s.run("verify", "FAKE_GH_ACTIONS_ENABLED=false")
+	got := s.log()
+	s.mustContain(got, "gh api repos/yardr-dev/yardr/actions/permissions --jq .enabled")
+	s.mustContain(got, "gh release download v1.2.3 --repo yardr-dev/yardr")
+	s.mustContain(got, "minisign -V -P "+releaseKey)
+	s.mustLack(got, "attestation verify")
+	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+	s.mustLack(got, "--outcome")
+	s.mustContain(got, "the signature on v1.2.3 is good")
+	s.mustContain(got, "2 archives match checksums.txt")
+	s.mustContain(got, "no attestation: built on this machine")
 }
 
 func TestStageVerifyQuestionsABadAttestation(t *testing.T) {
