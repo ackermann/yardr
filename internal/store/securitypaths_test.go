@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -130,6 +131,50 @@ func TestDoneSafeRefusedOnASecurityPath(t *testing.T) {
 	}
 	if b, err := s.Done(ctx, "web-d", store.DoneSafe, "", store.Expect{}, "me"); err != nil || b.Stage != "approved" {
 		t.Fatalf("done-safe on a diff that touches no security path: %+v, %v", b, err)
+	}
+}
+
+// A file cannot be named to decide whether the report is safe when git
+// cannot resolve the configured base. Treating that as no list would let a
+// depot with a security_paths file on its base skip the check.
+func TestDoneSafeHeldWhenTheBaseCannotBeResolved(t *testing.T) {
+	t.Parallel()
+	dir := gitRepo(t, map[string]string{store.SecurityPathsFile: "internal/store/**\n"})
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "missing"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	putFlow(t, s, "web", "", safeFlow)
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-a", Title: "web-a", Depot: "web", Stage: "review"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	branchOf(t, dir, "web-a", "main", touching(t, "internal/store/new.go"))
+	_, err := s.Done(ctx, "web-a", store.DoneSafe, "", store.Expect{}, "me")
+	if err == nil || !strings.Contains(err.Error(), "could not be told") || !strings.Contains(err.Error(), "resolving base missing") {
+		t.Fatalf("done-safe with an unresolved base: %v", err)
+	}
+	if got := stageOf(t, s, ctx, "web-a"); got != "review" {
+		t.Fatalf("the bead moved to %s", got)
+	}
+}
+
+// A branch controls its filenames, so the refusal quotes a matching path
+// before returning it to the session's terminal.
+func TestDoneSafeQuotesChangedPaths(t *testing.T) {
+	t.Parallel()
+	s, ctx, dir := securityRepo(t, "internal/store/**\n")
+	file := "internal/store/evil\n\x1b]52;c;owned\a.go"
+	reviewed(t, s, ctx, dir, "web-a", "main", touching(t, file))
+	_, err := s.Done(ctx, "web-a", store.DoneSafe, "", store.Expect{}, "me")
+	if err == nil {
+		t.Fatal("done-safe on a matching path was taken")
+	}
+	if !strings.Contains(err.Error(), strconv.QuoteToASCII(file)) {
+		t.Errorf("the refusal does not name the quoted path %q: %v", file, err)
+	}
+	if strings.ContainsAny(err.Error(), "\x1b\a") || strings.Contains(err.Error(), "\n") {
+		t.Errorf("the refusal carries raw terminal controls or line breaks: %q", err)
 	}
 }
 

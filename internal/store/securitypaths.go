@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -71,8 +71,9 @@ func noRevision(rev string) error {
 }
 
 // securityPaths reads the depot's SecurityPathsFile at the tip of its base.
-// A depot with no such file, or whose base git does not know here, has no
-// list. A list that cannot be read or has a line git would refuse is an
+// A depot with no such file has no list. If git cannot resolve the base, the
+// list cannot be established, so the check refuses rather than treating it
+// as absent. A list that cannot be read or has a line git would refuse is an
 // error: the file says the depot wants the check, so it is not skipped.
 func securityPaths(ctx context.Context, d Depot) ([]string, error) {
 	base := or(d.Base, "origin/main")
@@ -80,9 +81,7 @@ func securityPaths(ctx context.Context, d Depot) ([]string, error) {
 		return nil, fmt.Errorf("base %w", err)
 	}
 	sha, err := git(ctx, d.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
-	if errors.Is(err, errGitNotFound) {
-		return nil, nil
-	} else if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("resolving base %s in %s: %w", base, d.Path, err)
 	}
 	commit := strings.TrimSpace(string(sha))
@@ -202,6 +201,12 @@ func (c *safeCheck) refusal(f *Flow, id, stage string) error {
 	if len(files) > shown {
 		files, more = files[:shown], fmt.Sprintf(" and %d more", len(c.files)-shown)
 	}
+	names := make([]string, len(files))
+	for i, file := range files {
+		// A branch can name a file with terminal controls or line breaks; quote
+		// it before returning the refusal to the session that reported done-safe.
+		names[i] = strconv.QuoteToASCII(file)
+	}
 	return fmt.Errorf("bead %s: %s is refused: the diff against %s touches %s%s, which the depot lists in %s; %s",
-		id, DoneSafe, c.base, strings.Join(files, ", "), more, SecurityPathsFile, instead)
+		id, DoneSafe, c.base, strings.Join(names, ", "), more, SecurityPathsFile, instead)
 }

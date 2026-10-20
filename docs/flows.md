@@ -339,10 +339,10 @@ event on the bead, as for any move an agent is refused.
   has it: a stage without it gets the flow's own refusal, which names the
   outcomes it has.
 - **What cannot be told holds the report too.** A list git refuses (a pathspec
-  it does not know, more than 500 lines), a branch it cannot compare, a git
-  that is slower than 30 seconds: the report is refused with the reason, since
-  a depot that lists paths wants the check made. `done` is always there to
-  report instead.
+  it does not know, more than 500 lines), a base or branch git cannot resolve,
+  a branch it cannot compare, a git that is slower than 30 seconds: the report
+  is refused with the reason, since a depot that lists paths wants the check
+  made. `done` is always there to report instead.
 - **A line against mistakes, not a wall.** The check is on the outcome, which
   is how a reviewer reports. `yardr bead advance <id> --to approved` is the
   manual move, for a person or the yardmaster, and is not held to the list;
