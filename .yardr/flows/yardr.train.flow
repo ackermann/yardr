@@ -1,14 +1,16 @@
 # yardr.train: the flow of depot yardr's trains (yardr depot flow yardr --type train
 # yardr.train). A train waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
-# main and tests it, Codex reviews the whole diff, and the train lands on main
-# locally, where the assembly fast-forwards main and advances it straight
-# to merged (the bare edge, which no outcome offers), or, experimentally,
-# through a pull request (approved -> in-pr -> land): only pr-train reports
-# done in approved, and without YARDR_PR=1 in its cmd it holds the train
-# instead, as pr-merge does in land. A rebase onto main
-# that conflicts, in open or in approved, goes to the mergers; a resolved
-# train goes back to open, where it is integrated (and reviewed) again.
+# main and tests it, Codex reviews the whole diff, another agent reviews the
+# whole of it again for security alone (the wagons among it, which nobody
+# reviewed one by one), and the train lands on main locally, where the assembly
+# fast-forwards main and advances it straight to merged (the bare edge, which no
+# outcome offers), or, experimentally, through a pull request (approved ->
+# in-pr -> land): only pr-train reports done in approved, and without
+# YARDR_PR=1 in its cmd it holds the train instead, as pr-merge does in land. A
+# rebase onto main that conflicts, in open or in approved, goes to the mergers;
+# a resolved train goes back to open, where it is integrated (and reviewed)
+# again.
 #
 # No session reports merged, and none reports changes in approved: those are
 # what GitHub's events about the train's pull request say, through the table
@@ -18,7 +20,8 @@
 # done. See docs/line.md#trains.
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
-review -> approved on done | open on changes | decide on question
+review -> review-security on done | open on changes | decide on question
+review-security -> approved on done | open on changes | decide on question
 approved -> in-pr on done | open on failed | merge on conflict | open on changes | merged on merged | merged
 in-pr -> land on done | open on changes | decide on question | merged on merged
 land -> merged on done | open on failed | merged on merged

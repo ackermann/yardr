@@ -24,11 +24,14 @@ name each in your note.
    selection alone instead (docs/line.md, "The landing run, and the whole
    suite on a quiet machine").
 
-Approval here is the last review before the train lands on `main`. Before the
-train leaves, one note on it says how the review ended. Outcomes:
+Approval here is the last review of whether the train does what it says.
+`review-security` then reads the whole diff once more, for security alone,
+before the train lands on `main`. Before the train leaves, one note on it says
+how the review ended. Outcomes:
 
 - `done`, approved: the note says what you checked, what you fixed (commits),
-  the check results, and any remaining risk. The train goes to `approved`.
+  the check results, and any remaining risk. The train goes to
+  `review-security`, and from there to `approved`.
 - `changes`: the train goes back to `open`; the fix is then a new child the
   yardmaster files, so make the finding concrete enough to be a bead. If the
   notes show the train has already come back from review twice, do not send it

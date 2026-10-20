@@ -18,8 +18,9 @@ machine, one yardr carries in its binary, or the pack's directory on a web
 server, fetched when the command runs.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): a flow from
-backlog to merged with its stage files, the roles of a builder, a reviewer
-and the yardmaster, and the reference assembly, as one pack. It is in the
+backlog to merged with its stage files, the roles of a builder, a reviewer,
+a security reviewer and the yardmaster, and the reference assembly, as one
+pack. It is in the
 binary, so `starter` names it with no checkout at hand
 ([Naming a pack](#naming-a-pack)), and it is the default pack of a yard that
 names none.
@@ -111,7 +112,8 @@ flows:
     stages:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: new, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }
       approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
@@ -119,6 +121,7 @@ flows:
 groups:
   builders:  { agent: roles/builder.md,  limit: 5 }
   reviewers: { agent: roles/reviewer.md, limit: 3 }
+  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }
   assembly:  { run: scripts/merge-local, limit: 1 }
   backlog:   { people: true }
   decisions: { people: true }
@@ -138,7 +141,7 @@ sources:
   linear:
     as: yardmaster
     hears:
-      task: { new: started, review: review, merged: done }
+      task: { new: started, review: review, review-security: review, merged: done }
 ```
 
 | key | meaning |
@@ -155,6 +158,7 @@ sources:
 | `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, stage file, outcomes or manual moves, and a flow has at least one |
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
 | `groups.<group>.limit` | optional: how many beads the group works at once |
+| `groups.<group>.binds_as` | optional, for a group with `agent:`: another agent group of the pack, declared before this one, whose agent, model and permission arguments this group gets, so that the import asks nothing for it. The starter's `security-reviewers` bind as `reviewers`: the second review is run by the agent the first is, unless the import is given `--bind security-reviewers=<kind>[:<model>]`. A group the yard has already keeps what it has, as any does ([below](#yardr-pack-apply)) |
 | `groups.<group>.calls.<source>` | optional, for a group with `agent:` or `run:`: the calls of a declared source the group's sessions should be able to make with `yardr call`: `read` for every read call, and calls by name, which is the one way an update is asked for (`calls: { crm: [read, note] }`). The pack only asks: the import puts it to the yard's operator ([Calls of a declared source](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.role` | the crew member's role file |
 | `crew.<name>.hears.events` | event kinds from the yard itself |
@@ -227,6 +231,9 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a flow without an `end` stage; an `end` stage with a group, a stage file or
   a way out;
 - a group that is not exactly one of agent, script, people;
+- a `binds_as` on a group that is no agent group, or naming a group that the
+  pack lacks, that is no agent group, or that is the group itself or comes
+  after it in the file;
 - a role, script or stage file that is missing, absolute or outside the
   pack, or a stage file that is empty;
 - a placeholder in a role or stage file that an import does not fill
@@ -615,7 +622,7 @@ stage maps
   create           hook linear as boss
 
 stage map of source linear, as crew member boss
-  the pack says task:merged=done task:new=started task:review=review
+  the pack says task:merged=done task:new=started task:review-security=review task:review=review
   would be set on hook linear, which has none
   ok       hook         hook linear
   ok       identity     crew member boss has an identity in linear
@@ -903,6 +910,19 @@ create, the agent, model and arguments the flags give it, and lists under
 group or crew member the yard already has are the yard's and are never
 touched, whatever `--bind` says.
 
+**A group that binds as another asks nothing.** Where a group of the pack
+says `binds_as: <group>`, the import gives a new one the agent kind, model and
+arguments that other group has: those the flags and answers bind it with when
+the import makes it too, or those the group of the yard that is or takes it
+has now (`--group` included). So a pack can add a group to a flow, as the
+starter added `security-reviewers`, without every earlier import command
+gaining a flag for it, or a terminal a form. `--bind <group>=…` names the group
+and binds it on its own instead, and the plan then asks about it as about any
+new agent group. Under "groups" the plan says `agent, model and arguments as
+group <name>`. Only a new group is bound so: one the yard has keeps what it
+has, and where the group it binds as is no agent group in the yard (a people
+group of that name, say) the new group is asked about as before.
+
 **Opening threads is asked of the operator.** For each crew member with a
 source under `asks` in the plan:
 
@@ -1078,9 +1098,9 @@ starter in depot web  2026-10-03 18:40 by mckean
   source     /Users/me/yardr/packs/starter at 8562e43c1f0a
   flow       default (stored as starter.default)
   roles      the pack's
-  groups     assembly -> web-assembly, backlog -> backlog, builders -> web-builders, decisions -> decisions, reviewers -> web-reviewers
+  groups     assembly -> web-assembly, backlog -> backlog, builders -> web-builders, decisions -> decisions, reviewers -> web-reviewers, security-reviewers -> web-security-reviewers
   crew       yardmaster -> boss
-  objects    9 files, 5 groups, 2 flows, 2 flow pointers, 13 routes, 3 subscriptions
+  objects    11 files, 6 groups, 2 flows, 2 flow pointers, 15 routes, 3 subscriptions
 ```
 
 | field (`--json`) | meaning |
@@ -1574,7 +1594,7 @@ said):
   "sources": [{"source": "linear", "crew": "boss", "needs": [{"what": "hook", "status": "ok", "detail": "…"}]}],
   "open_threads": [{"pack": "yardmaster", "crew": "boss", "wants": ["linear", "github"], "has": [], "asks": ["linear"], "declined": [],
     "lacks": [{"source": "github", "missing": [{"what": "hook", "status": "missing", "detail": "…"}]}]}],
-  "maps": [{"source": "linear", "pack": "yardmaster", "as": "boss", "map": {"task:new": "started", "task:review": "review", "task:merged": "done"},
+  "maps": [{"source": "linear", "pack": "yardmaster", "as": "boss", "map": {"task:new": "started", "task:review": "review", "task:review-security": "review", "task:merged": "done"},
     "hook": "linear", "action": "create", "needs": [{"what": "set_state", "status": "missing", "detail": "…"}]}],
   "optional": [{"source": "github", "setup": "yardr hook add github --source github --secret-file <file>", "detail": "…"}],
   "notes": [], "refused": []
@@ -1612,7 +1632,9 @@ prune removes), under its kind:
 | `source` | `name`, `from` (the declaration's file in the pack) and `declaration`, its text: what is added; `decl_dir` (the declaration's directory in the pack) and `commands`, each command's `key`, `program` and the `sha256` of the pack's file, when it brings command files. `declared` has, per source, `file`, `base`, `calls`, `commands`, `action` and `needs` |
 
 An object's `asks` are the ids of the questions whose answers it still
-needs, its `keeps` what the import leaves as the yard has it, and its
+needs, its `binds` the yard's group a new group that binds as another
+(`binds_as`) takes its agent, model and arguments from, with no question of
+its own, its `keeps` what the import leaves as the yard has it, and its
 `shadows` the depot's files the pack's role stands in front of. A file has
 `edited: true` when its installed copy was edited by hand. `depot_roles` says
 whose roles the plan sets. A dropped

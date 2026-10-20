@@ -360,6 +360,17 @@ to `approved` on `done-safe`, and only beads the reviewer sends on with
 once, so that both may commit on the one branch; the design has what a gate
 for reviews at once would take.
 
+The call between `done` and `done-safe` was the first reviewer's alone, by a
+list in prose. The part of it that is paths is held by the yard now:
+[`.yardr/security_paths`](../.yardr/security_paths) lists them (the store,
+the socket API, the web view, hooks, peers and pairing, declared sources,
+`go.mod` and `go.sum`, `.yardr/` and the assembly), and a `done-safe` for a
+diff that touches one is refused, naming the files, so the reviewer reports
+`done` and the bead goes on to `review-security`
+([flows.md](flows.md#done-safe-and-the-security-paths)). The rest of the
+list, which no path names (what the daemon runs as whom, a file's mode, text
+from outside), is still the reviewer's to judge.
+
 ## 4. Approved: the assembly lands it on main
 
 yardr takes no position on how work lands: a PR per bead, a shared PR
@@ -911,8 +922,8 @@ branch. It is for several pieces of one feature, built in parallel, that
 are not worth having on main one by one: each piece would otherwise pay
 for the whole suite at its landing and a review of its own, and the
 assembly lands one bead at a time. A wagon pays for a plain run of the
-tests, twice, and no review; the whole suite and one review happen once, on
-the whole train, before main moves. Everything about the train itself is as above
+tests, twice, and no review; the whole suite and the reviews (the second for
+security alone) happen once, on the whole train, before main moves. Everything about the train itself is as above
 and below: nothing changes in what a train needs to reach main.
 
 ```sh
@@ -966,8 +977,9 @@ yardr dep add <train> <wagon> -k parent
   adds a fix child. The train's reviewer is told that wagons were not
   reviewed, nor tested as a landing is, one by
   one ([`.yardr/flows/yardr.train/review.md`](../.yardr/flows/yardr.train/review.md)),
-  and reviews each. So keep a train to about five wagons, which one review
-  can hold, and leave single fixes on the normal path.
+  and reviews each; the security review reads each again. So keep a train to
+  about five wagons, which one review can hold, and leave single fixes on the
+  normal path.
 
 ### The train's own flow
 
@@ -1014,10 +1026,16 @@ path with that setup:
    event, with the count. The count is read from the train's events, so a
    restarted daemon keeps waiting; it starts over when the train enters the
    stage any other way or a human un-holds it.
-3. **review**: `yardr-reviewers` reviews the whole diff, `<base>..yard/<train>`:
-   the train's brief says it is a train, names its children and gives the
-   range. Changes go back to `open` (`--outcome changes`) after adding the
-   fix as a child; without one the train would be integrated again unchanged.
+3. **review** and **review-security**: `yardr-reviewers` reviews the whole
+   diff, `<base>..yard/<train>`: the train's brief says it is a train, names
+   its children and gives the range. Changes go back to `open` (`--outcome
+   changes`) after adding the fix as a child; without one the train would be
+   integrated again unchanged. `done` sends the train to `review-security`,
+   where another agent reads the same diff once more for security alone
+   ([`.yardr/flows/yardr.train/review-security.md`](../.yardr/flows/yardr.train/review-security.md)),
+   every wagon among it and what the wagons open together; its `done` goes to
+   `approved`, its `changes` back to `open` as the first review's. A train has
+   no `done-safe`: it is always read twice.
 4. **approved**: the train lands, through a pull request (below) or
    locally: `yardr-refinery` and merge-local land `yard/<train>` on the depot's
    base exactly as a bead's branch (BaseOf(train) is the depot's base) and

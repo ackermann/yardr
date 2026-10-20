@@ -190,10 +190,14 @@ func TestTrainEndToEnd(t *testing.T) {
 		t.Fatalf("no integration note:\n%s", notes)
 	}
 
-	// The reviewer approves the whole diff.
+	// The reviewer approves the whole diff, and the security review passes it.
+	y.yardr("bead", "done", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "review-security" {
+		t.Fatalf("train in %s after review, want review-security", e.Stage)
+	}
 	y.yardr("bead", "done", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "approved" {
-		t.Fatalf("train in %s after review, want approved", e.Stage)
+		t.Fatalf("train in %s after the security review, want approved", e.Stage)
 	}
 
 	// The assembly lands it on main as one fast-forward.
@@ -363,7 +367,8 @@ func TestMergeLocalRedTestsSendATrainToOpen(t *testing.T) {
 	y.exec("merge-local", "assembly", "r-1")
 	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
-	y.yardr("bead", "done", "r-e") // review -> approved
+	y.yardr("bead", "done", "r-e") // review -> review-security
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	// Something red reached the train branch after review.
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "RED", "red\n")
 	main := y.git(y.repo, "rev-parse", "main")

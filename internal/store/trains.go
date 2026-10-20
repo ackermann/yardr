@@ -22,7 +22,7 @@ const (
 
 // Wagons. A wagon is a piece of a train that is not worth having on the base
 // by itself: it lands on its train's branch with no review of its own and
-// tested for what it changed alone, and the whole suite and the one review
+// tested for what it changed alone, and the whole suite and the reviews
 // are the train's (docs/line.md, "Wagons"). That is only safe under a train, so a
 // wagon with no parent train stays where its flow starts: checkWagon refuses
 // to move or create it anywhere else, and the dispatcher starts no agent or

@@ -24,7 +24,10 @@ review ended. Outcomes:
 - `done-safe`, approved, and it needs no security review: the diff touches
   nothing on the list below. The note says what you checked against the
   list, what you fixed (commits), and the check results. The bead goes
-  straight to `approved`, and the assembly lands it.
+  straight to `approved`, and the assembly lands it. The yard holds the
+  paths on the list to `.yardr/security_paths`: `done-safe` for a diff that
+  touches one is refused, naming the files, and the outcome is `done`.
+  That file is the paths alone; the rest of the list is your judgment.
 - `changes`, it needs the builder: the design is wrong, the bead was misread,
   or a large part is missing. The note gives concrete, actionable findings,
   and the bead goes back to `new`. If the notes show the bead has already

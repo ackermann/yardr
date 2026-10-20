@@ -167,6 +167,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
 	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	// A note a script left since is not the review.
 	y.yardr("bead", "note", "r-e", "assembly: the tests failed once; running them once more")
 
@@ -342,6 +343,7 @@ func landYard(t *testing.T) (*yard, string) {
 	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	y.exec("pr-train", "yard-pr", "r-e")
 	y.yardr("bead", "done", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "land" {
@@ -503,6 +505,7 @@ func TestPRTrainHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -533,6 +536,7 @@ func TestPRTrainClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -600,6 +604,7 @@ func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e") // no YARDR_PR: no PR
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 
 	y.opts = "YARDR_PR=1"
 	y.exec("pr-train", "yard-pr", "r-e")
@@ -623,6 +628,7 @@ func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 	if err := os.WriteFile(filepath.Join(gh, "mergeable"), []byte("CONFLICTING\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -651,6 +657,7 @@ func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 	// The reviewer's commit is what pr-train would push.
 	tip := y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
+	y.yardr("bead", "done", "r-e") // review-security -> approved
 
 	y.exec("pr-train", "yard-pr", "r-e")
 

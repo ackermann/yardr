@@ -32,12 +32,15 @@ func TestTrainFlowOutcomes(t *testing.T) {
 	t.Parallel()
 	f := trainFlow(t)
 	want := map[string][]store.Outcome{
-		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
-		"review":   {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
-		"approved": {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}, {Name: "changes", To: "open"}, {Name: "merged", To: "merged"}},
-		"in-pr":    {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}, {Name: "merged", To: "merged"}},
-		"land":     {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}, {Name: "merged", To: "merged"}},
-		"merge":    {{Name: "done", To: "open"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
+		"open":   {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
+		"review": {{Name: "done", To: "review-security"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
+		// The second review, for security alone, reads all of it: the
+		// wagons nobody reviewed one by one, and the sum.
+		"review-security": {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
+		"approved":        {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}, {Name: "changes", To: "open"}, {Name: "merged", To: "merged"}},
+		"in-pr":           {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}, {Name: "merged", To: "merged"}},
+		"land":            {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}, {Name: "merged", To: "merged"}},
+		"merge":           {{Name: "done", To: "open"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
 	}
 	for stage, outs := range want {
 		if got := f.Outcomes[stage]; !slices.Equal(got, outs) {

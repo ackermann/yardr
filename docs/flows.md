@@ -288,6 +288,71 @@ A gate is a stage whose group runs a check: route it to a script group
 ([groups.md](groups.md#runners)), and the flow says where its `done` and its
 `failed` lead.
 
+### done-safe and the security paths
+
+A flow may offer a way past a stage that only some beads need. Depot yardr's
+`review` does: `done` sends a bead on to `review-security`, a second review
+for security alone, and `done-safe` sends it straight to `approved`
+([line.md](line.md#then-once-more-for-security-alone)); the starter pack's
+default flow has the same two. Which one a reviewer reports is its judgment,
+by the list its stage file has. A depot can hold that judgment to its code
+with a file in its repository, `.yardr/security_paths`:
+
+```
+# Paths whose change always has the security review.
+internal/store/**
+internal/source*/**
+go.mod
+```
+
+One pattern a line; blank lines and lines starting with `#` are left out.
+A pattern is a git pathspec read as a glob from the repository's root, as
+git's `:(glob)` magic reads it: `*` stays within a directory, `**` crosses
+directories, `internal/store/**` is everything under that directory and
+`go.mod` that file alone. A line that starts with a colon is given to git as
+it is, with the magic it carries (`:(exclude)docs/**`). Depot yardr's own file
+is [`.yardr/security_paths`](../.yardr/security_paths).
+
+When `done-safe` is reported (`yardr bead done <id> --outcome done-safe`, by a
+session, a person or the web view) and the bead's diff touches a file a
+pattern matches, the report is refused: the refusal names the files, the bead
+stays where it is, and the message says to report `done` instead, which goes
+to the second review. For a session the refusal is also a `move_refused`
+event on the bead, as for any move an agent is refused.
+
+- **The diff** is the one `yardr review` shows, the bead's branch from where it
+  left its base (`git diff <base>...yard/<bead>`). The base is the depot's;
+  for a child of a train it is the train's branch, so a child answers for its
+  own changes and not for what the train's earlier children landed; for a bead
+  that came from a linked yard, the commit that yard named. A rename counts as
+  the deletion and the addition it is, so a file moved out of a listed path is
+  a change to it.
+- **Where the list is read.** From the tip of the depot's base branch, as a
+  repository flow is ([Repo flows](#repo-flows)), and never from a bead's
+  branch or worktree: a bead that empties the list on its branch is still held
+  to the list as the base has it, and the edit applies once it has been
+  reviewed and landed. A depot that lists `.yardr/**`, as depot yardr does,
+  sends a change to the list itself through both reviews.
+- **No list, no check.** A depot without the file takes `done-safe` as its flow
+  says, and so does a dir depot, which has no branches to compare. The check is
+  made for the outcome named `done-safe` alone, and only when the bead's stage
+  has it: a stage without it gets the flow's own refusal, which names the
+  outcomes it has.
+- **What cannot be told holds the report too.** A list git refuses (a pathspec
+  it does not know, more than 500 lines), a branch it cannot compare, a git
+  that is slower than 30 seconds: the report is refused with the reason, since
+  a depot that lists paths wants the check made. `done` is always there to
+  report instead.
+- **A line against mistakes, not a wall.** The check is on the outcome, which
+  is how a reviewer reports. `yardr bead advance <id> --to approved` is the
+  manual move, for a person or the yardmaster, and is not held to the list;
+  nothing here stops an agent that runs it, and the roles tell agents to
+  report outcomes.
+
+The starter pack ships no list: the paths are the depot's, and a pack writes
+nothing into a repository
+([packs/starter](../packs/starter/README.md#the-second-review-for-security-alone)).
+
 ## Stage files: what a stage is for
 
 A stage can carry a markdown **stage file**: what the stage is for, what
@@ -709,7 +774,8 @@ type train, from repo@2c2a589)`):
 # yardr.train.flow
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
-review -> approved on done | open on changes | decide on question
+review -> review-security on done | open on changes | decide on question
+review-security -> approved on done | open on changes | decide on question
 approved -> in-pr on done | open on failed | merge on conflict | merged
 in-pr -> land on done | open on changes | decide on question
 land -> merged on done | open on failed
@@ -719,7 +785,7 @@ merged terminal
 ```
 
 Depot yardr has the flow but, as of 2026-10-03, only the depot's stage routes:
-a train in `backlog`, `review`, `approved` or `decide` goes to the same
+a train in `backlog`, `review`, `review-security`, `approved` or `decide` goes to the same
 group as any bead, and `open`, `merge`, `in-pr` and `land` have no route
 (`flow show` warns for each: beads there wait for a human). The groups in
 the table that the depot lacks are the ones
@@ -730,6 +796,7 @@ the table that the depot lacks are the ones
 | backlog | `backlog` | manual (the yardmaster adds children, then advances to open) |
 | open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train) |
 | review | `yardr-reviewers` | as for any bead; the brief says it is a train and gives the range |
+| review-security | `yardr-security` | as for any bead; the second review reads the whole diff, every wagon, for security alone (there is no `done-safe` for a train) |
 | approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
 | in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: the check "Is the PR merged?"; Done, or `yardr bead done <train>` by hand, means "merge it" (to `land`) |
 | land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge) with `YARDR_PR=1` |

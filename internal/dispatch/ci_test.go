@@ -39,7 +39,9 @@ func (r *ghDepot) reviewed(t *testing.T, id, sha string) {
 func (r *ghDepot) enterInPR(t *testing.T, id, sha string) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := r.api.AdvanceNote(ctx, id, "approved", "", store.Expect{Stage: "review"}, "me")
+	_, err := r.api.AdvanceNote(ctx, id, "review-security", "", store.Expect{Stage: "review"}, "me")
+	must(t, err)
+	_, err = r.api.AdvanceNote(ctx, id, "approved", "", store.Expect{Stage: "review-security"}, "me")
 	must(t, err)
 	r.reviewed(t, id, sha)
 	_, err = r.api.AdvanceNote(ctx, id, "in-pr", "", store.Expect{Stage: "approved"}, "me")

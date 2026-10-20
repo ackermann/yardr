@@ -21,6 +21,7 @@ repository ([below](#seeding-a-depot-yardr-depot-init)).
 | flows | a depot's own default and type flows, named flows: `.yardr/flows/`; none in a depot set up from a pack | named flows, a pack's among them (`<pack>.<flow>`), and depot and type pointers to them: where the flow of a depot set up by `yardr depot init` is |
 | stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` ([flows.md](flows.md#stage-files-what-a-stage-is-for)) |
 | tests | the test script, when the depot's test command names one by its path | the depot's test command, `depot add --test` ([Tests](#tests)) |
+| security paths | `.yardr/security_paths`, read from the base: the paths whose change a reviewer may not call `done-safe` ([flows.md](flows.md#done-safe-and-the-security-paths)) | |
 | roles | a depot's own role prompts: `.yardr/roles/<name>.md`, read from the base; none in a depot set up from a pack | each group's and crew member's `prompt`: for a depot set up from a pack the absolute path of the pack's role as installed in the home, `~/.yardr/packs/<pack>/roles/<name>.md`. `~/.yardr/roles/`, in a yard that has it from an earlier yardr, is the fallback of a relative `prompt` |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings |
 | routes | | which group works which stage, by depot, type, label |
@@ -431,8 +432,11 @@ A bead therefore cannot change what judges it: a builder who edits
 The edit takes effect only once it has been reviewed and landed on the
 base, like any other code, and then applies to every bead after it. That
 holds for the flow and the roles of a depot that keeps its own under
-`.yardr/` ([why](#why-the-repo-holds-what-the-work-is)). yardr resolves the
-base whenever it reads them and re-reads the files when its commit moves.
+`.yardr/` ([why](#why-the-repo-holds-what-the-work-is)), and for
+`.yardr/security_paths`, the list that holds a reviewer's `done-safe` to the
+paths it names: a bead that empties the list on its own branch is held to the
+base's. yardr resolves the base whenever it reads them and re-reads the files
+when its commit moves.
 
 ## Tests
 

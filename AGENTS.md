@@ -25,7 +25,8 @@ worked); user docs live in `docs/` and are not repeated here.
   google pack under `packs/` carries it as its declarations' mint command.
 - `conformance/bdp`: the BDP conformance suite (`run.sh`, vitest).
 - `.yardr/`: the yard's own rules for this depot: `depot.md`, the `test`
-  gate, `flows/`, `roles/`.
+  gate, `flows/`, `roles/`, `security_paths` (the paths a reviewer may not
+  call `done-safe` for).
 - `.github/workflows/`: CI (`ci.yml`) and release.
 
 ## Packages (`internal/`)
