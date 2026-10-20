@@ -126,4 +126,4 @@ errors:
 # · <title> · <elapsed> · ctrl+o" line is no pattern here: it stays on
 # screen after the command exits.
 background:
-  - pattern: ' running +\d+[smh]( +\d+[ms])?$'
+  - pattern: '^└ ◆ .+ running +\d+[smh]( +\d+[ms])?$'
