@@ -200,6 +200,35 @@ func TestLinkServesTheEdgesFramesInOrder(t *testing.T) {
 	}
 }
 
+// A body at the edge's 1 MiB limit and headers near the router's HTTP
+// header limit fit in one frame after JSON encodes the body as base64.
+func TestLinkAcceptsTheEdgesLargestHookFrame(t *testing.T) {
+	t.Parallel()
+	const headerBytes = 900 << 10
+	const bodyBytes = store.MaxHookPayload
+	seen := make(chan bool, 1)
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			seen <- err == nil && len(body) == bodyBytes && len(r.Header.Get("X-Large")) == headerBytes
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}, nil)
+	l := y.next(t)
+	f := l.Frame(http.MethodPost, "/hooks/large", http.Header{"X-Large": {strings.Repeat("x", headerBytes)}}, make([]byte, bodyBytes), false)
+	if a := deliver(t, l, f); a.Status != http.StatusAccepted {
+		t.Fatalf("the largest hook frame answered %+v", a)
+	}
+	select {
+	case ok := <-seen:
+		if !ok {
+			t.Error("the yard received a frame with a changed body or header")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the yard did not serve the largest hook frame")
+	}
+}
+
 // A frame is refused, and never reaches the handler, when it is not the
 // edge's as it came: signed by another key, or changed after the edge
 // signed it in a header the yard verifies with (the sender's signature, its
@@ -297,6 +326,41 @@ func TestLinkRefusesAFrameFromAnotherLink(t *testing.T) {
 	y.stop()
 	if got := strings.Join(y.served.paths(), " "); got != path+" /hooks/after" {
 		t.Errorf("served %s: the first link's frame was served again on the second", got)
+	}
+}
+
+// A handler's context ends when its socket does, so a handler waiting on the
+// request does not keep the old link from reconnecting.
+func TestLinkCancelsHandlersWhenSocketCloses(t *testing.T) {
+	t.Parallel()
+	started, canceled := make(chan struct{}), make(chan struct{})
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/user/events" {
+				close(started)
+				<-r.Context().Done()
+				close(canceled)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}, nil)
+	first := y.next(t)
+	send(t, first, first.Frame(http.MethodGet, "/user/events", nil, nil, false))
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the handler did not start")
+	}
+	first.Close()
+	select {
+	case <-canceled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the handler's request context stayed live after the socket ended")
+	}
+	second := y.next(t)
+	if a := deliver(t, second, second.Frame(http.MethodGet, "/hooks/reconnected", nil, nil, false)); a.Status != http.StatusAccepted {
+		t.Errorf("the reconnected link answered %+v", a)
 	}
 }
 

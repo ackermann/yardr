@@ -77,9 +77,9 @@ const (
 )
 
 const (
-	// maxLinkFrame bounds what is read of one frame from the edge: a request
-	// whose body is store.MaxHookPayload, in base64, with its headers.
-	maxLinkFrame = 2 << 20
+	// maxLinkFrame bounds one frame from the edge: a MaxHookPayload body in
+	// base64 and headers that fit the router's 1 MiB HTTP header budget.
+	maxLinkFrame = 3 << 20
 	// MaxAnswer is the largest body of an answer the edge passes on. A larger
 	// one is no answer at the edge, so it is sent cut one byte past this:
 	// the edge refuses it all the same, and the frame stays under what the
@@ -335,14 +335,12 @@ func (l *Link) challenge(ctx context.Context, c *websocket.Conn, yardNonce []byt
 // goroutine of its own, so a slow one holds up no other.
 func (l *Link) serve(ctx context.Context, c *websocket.Conn, session string) (reason, detail string) {
 	lctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	dead := or(l.DeadAfter, linkDead)
 	var silent atomic.Bool
 	heard := time.AfterFunc(dead, func() {
 		silent.Store(true)
 		c.CloseNow()
 	})
-	defer heard.Stop()
 	go func() {
 		t := time.NewTicker(or(l.PingEvery, linkPing))
 		defer t.Stop()
@@ -358,7 +356,11 @@ func (l *Link) serve(ctx context.Context, c *websocket.Conn, session string) (re
 		}
 	}()
 	var served sync.WaitGroup
-	defer served.Wait()
+	defer func() {
+		heard.Stop()
+		cancel()
+		served.Wait()
+	}()
 	var last uint64 // the seq of the last request accepted on this socket
 	for {
 		var f frameIn
