@@ -694,12 +694,13 @@ func (w *streamWriter) finish() {
 	}
 }
 
-// sendResponse sends the head and says whether its frame went whole. An
-// answer that encodes past maxFrame is never sent in one frame: it goes as
-// a stream instead, the head marked with stream and an empty body, then the
-// body in data frames, so one large answer crosses the link instead of
-// closing it. Only a head that alone is too large, its headers, is answered
-// 413, with a short error.
+// sendResponse sends the head and says whether its frame is the whole
+// answer. An answer that encodes past maxFrame is never sent in one frame:
+// it goes as a stream instead, the head marked with stream and an empty
+// body, then the body in data frames, so one large answer crosses the link
+// instead of closing it. Only a head that alone is too large, its headers,
+// is answered 413, with a short error. A stream and a 413 both report
+// false, so the caller sends no more of the answer after either.
 func (w *streamWriter) sendResponse(status int, header http.Header, body []byte) bool {
 	b, err := json.Marshal(responseFrame{Type: "response", ID: w.id, Status: status, Header: header, Body: body})
 	if err != nil {
@@ -720,7 +721,10 @@ func (w *streamWriter) sendResponse(status int, header http.Header, body []byte)
 			w.quiet = true
 			return false
 		}
-		return w.writeResponse(b)
+		// A 413 carries no body: report it unwhole, as a stream, so the
+		// caller sends no data after it.
+		w.writeResponse(b)
+		return false
 	}
 	if !w.writeResponse(head) {
 		return false

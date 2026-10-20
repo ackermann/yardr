@@ -546,3 +546,61 @@ func TestLinkAnswers413WhenTheHeadAloneIsLargerThanOneFrame(t *testing.T) {
 		t.Errorf("the link went down on the oversized head: %+v", s)
 	}
 }
+
+// A flushed head that alone is too large is refused 413 with nothing after
+// it: what the handler wrote before or after the flush crosses as no data.
+func TestLinkSendsNoBodyAfterAFlushedOversizedHead(t *testing.T) {
+	t.Parallel()
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/user/big-head-flush" {
+				w.Header().Set("X-Pad", strings.Repeat("x", 1<<20))
+				w.Write([]byte("first"))
+				w.(http.Flusher).Flush()
+				w.Write([]byte("second"))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+	}, nil)
+	l := y.next(t)
+	f := l.Frame(http.MethodGet, "/user/big-head-flush", nil, nil, false)
+	if a := deliver(t, l, f); a.Status != http.StatusRequestEntityTooLarge || len(a.Body) == 0 || len(a.Body) > 1024 {
+		t.Errorf("the flushed oversized head was answered %d with %d bytes", a.Status, len(a.Body))
+	}
+	pieces := 0
+	ended := false
+	for !ended {
+		select {
+		case <-l.DataEvents():
+			pieces++
+		case id := <-l.EndEvents():
+			if id != f.ID {
+				t.Errorf("the end is for %s, want the 413's %s", id, f.ID)
+			}
+			ended = true
+		case <-time.After(10 * time.Second):
+			t.Fatal("no end after the 413")
+		}
+	}
+	// The yard sends data before the end, so once the end is here every
+	// piece already waits; drain without waiting.
+drain:
+	for {
+		select {
+		case <-l.DataEvents():
+			pieces++
+		default:
+			break drain
+		}
+	}
+	if pieces != 0 {
+		t.Errorf("the 413 carried %d data pieces", pieces)
+	}
+	if a := deliver(t, l, l.Frame(http.MethodGet, "/hooks/after", nil, nil, false)); a.Status != http.StatusOK {
+		t.Errorf("the call after the 413 answered %+v", a)
+	}
+	if s := y.link.State(); !s.Up || s.Ups != 1 {
+		t.Errorf("the link went down on the flushed oversized head: %+v", s)
+	}
+}
