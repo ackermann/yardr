@@ -39,8 +39,10 @@
 # over budget and not allow-listed again by itself: over budget alone on a
 # quiet machine fails the run, over budget alone on a loaded one passes
 # with an R1 line naming both times and the load, for the quiet run to
-# judge again (docs/testing.md R6); the run fails when a test file sleeps
-# over budget at a site that is not.
+# judge again strictly (docs/testing.md R6), unless YARDR_R1_STRICT is set,
+# which only the quiet run sets: then over budget alone fails however
+# loaded the machine, and the failure line names the load beside the times;
+# the run fails when a test file sleeps over budget at a site that is not.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went. The run ends
@@ -689,7 +691,8 @@ summary() {
 # A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s is run again alone, and fails the run when
 # over 60 s again on a quiet machine; over again on a loaded one passes
-# with the load named, for the quiet run. The fix beads delete the rows;
+# with the load named, for the quiet run, which judges R1 strictly
+# (YARDR_R1_STRICT, set by the quiet run alone). The fix beads delete the rows;
 # a row whose package is gone fails nothing, since no result line maps to
 # it, but delete it anyway.
 over60='
@@ -732,7 +735,10 @@ loadedmachine() {
 # itself, and judged by the re-run: over 60 s alone fails on a quiet
 # machine, naming both times, and passes with both times and the load on a
 # loaded one (loadedmachine), for the quiet run to judge again; under
-# alone passes with both times and why. The re-run is the leg's
+# alone passes with both times and why. With YARDR_R1_STRICT, which the
+# quiet run alone sets, the loaded pass is off: over 60 s alone fails
+# however loaded the machine, and the failure line names the load beside
+# both times. The re-run is the leg's
 # own command ($2 on: the same flags), with -count=1 so it is timed and
 # not cached, and the one package; several are re-run one after another,
 # sorted, not in parallel. It shares the leg's hold on the race lock
@@ -832,7 +838,12 @@ packagebudget() {
     if [ "$rrc" = 0 ] && [ -n "$alone" ]; then
       if awk -v s="$alone" 'BEGIN { exit !(s + 0 > 60) }'; then
         if load=$(loadedmachine); then
-          echo "test: R1: $pkg took $secs s in the run, $alone s alone: over budget, loaded machine ($load), not failed"
+          if [ -n "$YARDR_R1_STRICT" ]; then
+            echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1), loaded machine ($load)"
+            st=1
+          else
+            echo "test: R1: $pkg took $secs s in the run, $alone s alone: over budget, loaded machine ($load), not failed"
+          fi
         else
           echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1)"
           st=1

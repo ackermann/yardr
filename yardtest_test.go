@@ -2426,6 +2426,42 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 		}
 	})
 
+	t.Run("the quiet run's strict setting fails over budget alone on a loaded machine", func(t *testing.T) {
+		// The same loaded re-measurement, judged twice: without the
+		// setting it loud-passes as at a landing, with YARDR_R1_STRICT,
+		// which the quiet run alone sets, it fails, naming both times
+		// and the load beside them.
+		dir := t.TempDir()
+		write(dir, "strict.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		loaded := []string{
+			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
+			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10",
+		}
+		_, env := r1go(t)
+		out, code := runEnv(dir, append(env, loaded...),
+			"packagebudget", "strict.txt", "go", "test", "-race", "./...")
+		if code != 0 {
+			t.Fatalf("without the setting: exit %d, output %q, want exit 0", code, out)
+		}
+		loud := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+		if !strings.Contains(out, loud+"\n") {
+			t.Errorf("without the setting: output %q, want it to hold %q", out, loud)
+		}
+		_, env = r1go(t)
+		out, code = runEnv(dir, append(env, append(loaded, "YARDR_R1_STRICT=1")...),
+			"packagebudget", "strict.txt", "go", "test", "-race", "./...")
+		if code != 1 {
+			t.Fatalf("with the setting: exit %d, output %q, want exit 1", code, out)
+		}
+		strict := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (load 72.4 on 10 cores)"
+		if !strings.Contains(out, strict+"\n") {
+			t.Errorf("with the setting: output %q, want it to hold %q", out, strict)
+		}
+		if strings.Contains(out, "not failed") {
+			t.Errorf("with the setting: output %q, want no loaded pass", out)
+		}
+	})
+
 	t.Run("unknown load and a load at the core count fail the run", func(t *testing.T) {
 		for _, c := range []struct {
 			name string

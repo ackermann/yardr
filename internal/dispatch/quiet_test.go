@@ -554,6 +554,41 @@ func TestQuietExecRunWithholdsServerSettings(t *testing.T) {
 	waitQuiet(t, s, store.QuietPassed, 1)
 }
 
+// The real run judges R1 strictly: it starts the gate with YARDR_R1_STRICT,
+// which the quiet run alone sets, so a package over 60 s alone fails
+// however loaded the machine instead of loud-passing as at a landing.
+func TestQuietExecRunSetsStrictR1(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-b", "main")
+	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
+		[]byte("[ \"$YARDR_R1_STRICT\" = 1 ] && [ \"$YARDR_LANDING\" = 1 ] && [ \"$YARDR_RACE_HELD\" = 1 ]\n"), 0o755))
+	git("add", "check.sh")
+	git("commit", "-m", "a green base")
+
+	s := storetest.New(t)
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
+	must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
+	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "landing", Depot: "yard"}, "me")
+	must(t, err)
+	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
+	must(t, err)
+	dispatch.QuietMaybe(d, ctx)
+	waitQuiet(t, s, store.QuietPassed, 1)
+}
+
 // The real run again, on a green base under /tmp as the daemon makes
 // its worktrees (no TMPDIR of a test harness): the check compares git's
 // resolved toplevel with the directory it runs in, and the run resolves
