@@ -388,6 +388,7 @@ var allowSerial = map[string]string{
 	"TestWebStop":                                             "running,stubWeb",
 	"TestWhatNoAnswerMeans":                                   "stub:tryTimeout",
 	"TestWorktreeLeavesTheBeadsOwnEnvironmentAlone":           "t.Chdir",
+	"TestYardLeadsStandInLogin":                               "fakeTools,noHome,stub:tryHarnessCall",
 	"TestWorktreeNamesTheSessionWhenTheEnvironmentIsAnothers": "t.Chdir",
 	"TestYardrAt":                                             "noHome",
 }
