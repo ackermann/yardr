@@ -1190,6 +1190,7 @@ docs/flows/                    internal/flowdraw internal/cli
 docs/                          .
 .yardr/depot.md                -
 .yardr/roles/                  -
+AGENTS.md                      -
 .github/                       -
 .github/workflows/release.yml  contrib/release
 .gitignore                     -

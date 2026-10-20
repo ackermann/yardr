@@ -8,11 +8,11 @@ Each call goes out with a short-lived token minted
 from a gws login on this machine, so no new copy of a secret is
 stored anywhere. The login, the
 account, the mint and calling as a user are the four google packs'
-shared setup, said once in `docs/google.md`.
+shared setup, said once in `yardr docs google`.
 
 1. **The gws login.** It needs the Drive scope,
    `https://www.googleapis.com/auth/drive`, else the calls come back
-   403. The shared login instructions in `docs/google.md` show how to
+   403. The shared login instructions in `yardr docs google` show how to
    check and add the `drive` service while keeping the other applied
    packs' scopes.
 2. **The setup card.** One card carries the pack's whole setup: the
@@ -32,13 +32,13 @@ shared setup, said once in `docs/google.md`.
    # source google-drive is declared: 8 calls under https://www.googleapis.com (yardr source show google-drive)
    ```
 3. **The account.** The yard's Google account for `google-drive` is
-   answered on the setup card, as described in `docs/google.md`
+   answered on the setup card, as described in `yardr docs google`
    (step 3): typed unseen on the first pack, then picked.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-drive`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
-   `docs/google.md`.
+   `yardr docs google`.
 5. **The grants.** A pack of kind source asks none at import, so what
    a crew member may call is picked on the setup card as one preset.
    The pack's presets, as `yardr pack show google-drive` prints them
@@ -76,7 +76,7 @@ shared setup, said once in `docs/google.md`.
    the person expects mail.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
-   `docs/google.md` ("Calling as a user"), one card per grant, with
+   `yardr docs google` ("Calling as a user"), one card per grant, with
    `read`, `folder`, `doc`, `slides`, `share` and `reply` from above. There is no
    typed way beside these: a grant `as` ada is ada's to give.
    `yardr source show google-drive` lists each call with its kind
@@ -112,7 +112,7 @@ shared setup, said once in `docs/google.md`.
    the reply only answers.
 
 Calling as a user — the yard reading another person's drive with
-their own credential — is the shared setup too: `docs/google.md`
+their own credential — is the shared setup too: `yardr docs google`
 has it.
 
 What is not there, on purpose: deleting, updating, trash; uploading

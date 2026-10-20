@@ -7,11 +7,11 @@ with a
 short-lived token minted from a gws login on this machine, so no new
 copy of a secret is stored anywhere. The login, the account, the mint
 and calling as a user are the four google packs' shared setup, said
-once in `docs/google.md`.
+once in `yardr docs google`.
 
 1. **The gws login.** It needs the Calendar scope,
    `https://www.googleapis.com/auth/calendar`, else the calls come
-   back 403. The shared login instructions in `docs/google.md` show
+   back 403. The shared login instructions in `yardr docs google` show
    how to check and add the `calendar` service while keeping the
    other applied packs' scopes.
 2. **The setup card.** One card carries the pack's whole setup: the
@@ -32,13 +32,13 @@ once in `docs/google.md`.
    ```
 3. **The account.** The yard's Google account for
    `google-calendar` is answered on the setup card, as described in
-   `docs/google.md` (step 3): typed unseen on the first pack, then
+   `yardr docs google` (step 3): typed unseen on the first pack, then
    picked.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-calendar`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
-   `docs/google.md`.
+   `yardr docs google`.
 5. **The grants.** A pack of kind source asks none at import, so what
    a crew member may call is picked on the setup card as one preset.
    The pack's presets, as `yardr pack show google-calendar` prints
@@ -63,7 +63,7 @@ once in `docs/google.md`.
    ```
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
-   `docs/google.md` ("Calling as a user"), one card per grant, with
+   `yardr docs google` ("Calling as a user"), one card per grant, with
    `read`, `create` and `edit` from above. There is no typed way beside
    these: a grant `as` ada is ada's to give.
    `yardr source show google-calendar` lists each call with its kind
@@ -99,7 +99,7 @@ only when that is intended ([events.patch](https://developers.google.com/workspa
 [events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)).
 
 Calling as a user — the yard reading another person's calendar with
-their own credential — is the shared setup too: `docs/google.md`
+their own credential — is the shared setup too: `yardr docs google`
 has it.
 
 What is not there, on purpose: inviting anyone (no attendees, and

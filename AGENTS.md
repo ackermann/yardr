@@ -13,7 +13,8 @@ worked); user docs live in `docs/` and are not repeated here.
 - `internal/`: all Go code, one package per area (below). Nothing outside
   `internal/` imports it except `main` and the tests.
 - `docs/`: user and design docs, including `docs/api.md` (the socket API
-  contract), `docs/testing.md` (the test rules), `docs/design/`, `docs/flows/`.
+  contract), `docs/testing.md` (the test rules), `docs/design/`, `docs/flows/`;
+  `docs/docs.go` beside them embeds the top-level pages in the binary (`yardr docs`).
 - `packs/`: packs shipped inside the binary (`packs/packs.go` embeds them);
   per-service and per-depot-kind directories.
 - `harnesses/`: one `<kind>.yaml` per agent harness kind, embedded and read

@@ -131,7 +131,7 @@ file's.
      --says "event=ci conclusion=failure stage=in-pr -> changes"
    # hook gh saved: POST /hooks/gh (github)
    ```
-   The lines are the flow's (docs/line.md writes them for its train flow):
+   The lines are the flow's (`yardr docs line` writes them for its train flow):
    a hook with an `event=ci` line and no `--as` is refused, as is one
    whose source declares no `ci` command. A hook whose table has no
    `event=ci` line may skip the `--as`: events still move beads, and only

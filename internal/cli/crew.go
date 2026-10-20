@@ -1818,13 +1818,14 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 %[2]s- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
   yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
   Do not run yardr watch: it never returns.
+- yardr docs [name [section]]: how the yard works: flows, groups, the line, the glossary.
 `, name, outsideHowTo(r), notes)
 	})
 }
 
 // setupDoneLine is what a crew member's prime prints in place of its
 // role's "First run" section once the setup is complete.
-const setupDoneLine = "The setup is done (`yardr doctor`); the steps are in docs/setup.md, should a depot be added."
+const setupDoneLine = "The setup is done (`yardr doctor`); the steps are in `yardr docs setup`, should a depot be added."
 
 // withoutFirstRun replaces a role's "## First run" section, heading and
 // all, with setupDoneLine. A role without that heading is returned as

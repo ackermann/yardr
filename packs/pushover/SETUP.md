@@ -2,7 +2,7 @@
 
 The pack wires Pushover into the yard as the declared source `pushover`:
 one push to one person. What lands in a user's inbox then reaches their
-phone. Docs has the longer telling: `docs/pushover.md`.
+phone. Docs has the longer telling: `yardr docs pushover`.
 
 1. **Two keys from Pushover.** On pushover.net, logged in, with its app
    on the phone: **Your User Key**, on the first page after login,

@@ -7,9 +7,9 @@ Read first: the bead (`yardr bead show <id>`), every bead and file it names,
 and the code the question is about. A claim about what exists is only worth
 writing after you have read the file or run the command. Read the
 repository's own account of its principles and its glossary when it has them
-(in yardr: docs/glossary.md, and generalization, composability and
-simplicity: prefer a mechanism that exists over a new one, and a general one
-over a special case).
+(in yardr: `yardr docs glossary`, and generalization, composability and
+simplicity: prefer a mechanism that exists over a new one, and a general
+one over a special case).
 
 Write `docs/design/<date>-<bead id>-<short-name>.md`, with today's date as YYYY-MM-DD, so the folder lists in order. Under its title, one line:
 `Design <bead id>, proposed <date>. A proposal as it was decided on, not a

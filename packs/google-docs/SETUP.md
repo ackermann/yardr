@@ -7,12 +7,12 @@ appended).
 Each call goes out with a short-lived token minted from a gws login
 on this machine, so no new copy of a secret is stored anywhere.
 The login, the account, the mint and calling as a user are the four
-google packs' shared setup, said once in `docs/google.md`.
+google packs' shared setup, said once in `yardr docs google`.
 
 1. **The gws login.** It needs the Docs and Slides scopes,
    `https://www.googleapis.com/auth/documents` and
    `https://www.googleapis.com/auth/presentations`, else the calls
-   come back 403. The shared login instructions in `docs/google.md`
+   come back 403. The shared login instructions in `yardr docs google`
    show how to check and add the `docs,slides` services while keeping
    the other applied packs' scopes.
 2. **The setup card.** One card carries the pack's whole setup: the
@@ -35,13 +35,13 @@ google packs' shared setup, said once in `docs/google.md`.
    ```
 3. **The account.** The yard's Google account for `google-docs`
    and `google-slides` is answered on the setup card, as described
-   in `docs/google.md` (step 3): typed unseen on the first pack,
+   in `yardr docs google` (step 3): typed unseen on the first pack,
    then picked, one typed value serving both sources.
 4. **The mint.** Nothing to type: the pack brings `google-mint`
    beside its declaration, and applying it (step 2) copies it for
    `google-docs` and `google-slides`, its sha256 on the card. What it needs and refuses,
    and how a mint of the operator's own replaces it, are in
-   `docs/google.md`.
+   `yardr docs google`.
 5. **The grants.** A pack of kind source asks none at import, so what
    a crew member may call is picked on the setup card as one preset.
    The pack's presets, as `yardr pack show google-docs` prints them
@@ -70,7 +70,7 @@ google packs' shared setup, said once in `docs/google.md`.
    ```
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
-   `docs/google.md` ("Calling as a user"), one card per grant, with
+   `yardr docs google` ("Calling as a user"), one card per grant, with
    `read`, `write`, `replace` and `slide` from above. There is no typed way
    beside these: a grant `as` ada is ada's to give.
    `yardr source show google-docs` lists each call with its kind and
@@ -109,7 +109,7 @@ google packs' shared setup, said once in `docs/google.md`.
 
 Calling as a user — the yard reading another person's documents
 with their own credential — is the shared setup too:
-`docs/google.md` has it.
+`yardr docs google` has it.
 
 What is not there, on purpose: Sheets, which joins this pack when a
 sheets source exists; Tasks, which is no source yet, so no pack
