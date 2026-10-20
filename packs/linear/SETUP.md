@@ -75,9 +75,16 @@ means in Linear is a flow pack's to say, not this file's.
    yardr crew set <name> env_file=~/.yardr/crew/<name>.env
    ```
    The token is that of a Linear OAuth application made for the crew
-   member, so it acts as the application's own user and not as a person; a
-   personal key makes it speak as that person. Restart the crew member
-   after changing the file.
+   member, so it acts as the application's own user and not as a person.
+   Linear takes an OAuth token as `Authorization: Bearer <token>`, and the
+   pack sends it that way. A personal key makes the crew member speak as
+   that person. Linear's docs (https://linear.app/developers/graphql) show
+   one sent bare, as `Authorization: <key>`, and do not say that Bearer
+   takes it too. The thread commands send a `lin_api_` key bare, so they
+   work with either token. The declared calls (`yardr call linear viewer`,
+   `yardr source check linear`) send every key as Bearer and read it from
+   the source's own env file (`yardr source key linear`), so put an OAuth
+   token there. Restart the crew member after changing the file.
 4. **Its identity.** The id and the profile key of the user the token acts
    as, looked up in Linear by hand — both:
    ```sh

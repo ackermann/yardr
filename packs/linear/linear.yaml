@@ -18,8 +18,19 @@ about: Linear issues and comments. Hears its webhooks and speaks in its threads.
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.
 # hook.normalize is handed no credential at all.
+#
+# The header is how a declared call, one of the calls below, sends it.
+# Without one those calls go out with no credential at all. Linear takes
+# an OAuth access token as a Bearer token, and the yard's own is an OAuth
+# application's token, so Bearer is the form here. Linear's authentication
+# docs, at linear.app/developers/graphql, show a personal API key sent
+# bare, as "Authorization: <API_KEY>", and do not say that Bearer takes one
+# too. A declared call therefore wants an OAuth token. linear/thread builds
+# its own header, a lin_api_ key bare and anything else as Bearer, and
+# takes either.
 credential:
   env: LINEAR_API_KEY
+  header: "Authorization: Bearer {credential}"
 
 # ---- what it sends us ----------------------------------------------------
 
