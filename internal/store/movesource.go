@@ -239,8 +239,22 @@ func movePeerIdentities(tx *bolt.Tx, from, to string) (int, error) {
 			if at := slices.IndexFunc(p.Identities, func(have PeerIdentity) bool { return have.Source == to && have.Crew == id.Crew }); at >= 0 && p.Identities[at].ID != id.ID {
 				return 0, fmt.Errorf("%s@%s has one %s identity and another %s identity: give it one (yardr peer identity %s %s --source %s ...), then move again", id.Crew, p.Name, from, to, p.Name, id.Crew, to)
 			}
+			// User identities have already moved, and earlier peer
+			// identities in this fold have been written in this transaction.
+			// Refuse a destination id that would now name another speaker,
+			// just as either identity setter would.
+			holder, err := speakerHolding(tx, to, id.ID, p.Name, id.Crew)
+			if err != nil {
+				return 0, err
+			}
+			if holder != "" {
+				return 0, fmt.Errorf("%s@%s has identity %s in %s that would clash after moving %s to %s: %s in %s would also name %s; give one speaker another identity, then move again", id.Crew, p.Name, id.ID, from, from, to, id.ID, to, holder)
+			}
 			p.Identities[j].Source = to
 			n++
+			if err := put(tx, bPeers, p.Name, p); err != nil {
+				return 0, err
+			}
 		}
 		slices.SortFunc(p.Identities, comparePeerIdentity)
 		p.Identities = slices.Compact(p.Identities)

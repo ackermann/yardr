@@ -316,6 +316,56 @@ func TestMoveSourceRecordsMovesPeerIdentities(t *testing.T) {
 	}
 }
 
+// Folding a peer mapping into a source refuses an id a user or another
+// linked yard already holds there. Otherwise the store would make the
+// sender ambiguous after both setters had kept that id one-to-one.
+func TestMoveSourceRecordsRefusesPeerIdentityClashes(t *testing.T) {
+	for _, other := range []string{"user", "peer"} {
+		other := other
+		t.Run(other, func(t *testing.T) {
+			t.Parallel()
+			y := peerIdentityYard(t)
+			if _, err := y.api.PutSource(y.ctx, "chat-declared.yaml", identitySource("chat-declared"), "jo"); err != nil {
+				t.Fatal(err)
+			}
+			wantHolder := "ada"
+			if other == "user" {
+				if err := y.api.SetIdentity(y.ctx, "ada", "chat", store.Identity{ID: "U7"}, "jo"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(key)}, "jo"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := y.api.SetPeerIdentity(y.ctx, "south", store.PeerIdentity{Source: "chat", ID: "U7", Crew: "mayor"}, "jo"); err != nil {
+					t.Fatal(err)
+				}
+				wantHolder = "mayor@south"
+			}
+			y.mapPeer(t, "north", "chat-declared", "U7", "mayor")
+
+			head, err := y.api.Head(y.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := y.api.MoveSourceRecords(y.ctx, "chat-declared", "chat", "jo"); err == nil || !strings.Contains(err.Error(), "U7 in chat would also name "+wantHolder) {
+				t.Fatalf("moving a colliding identity = %v", err)
+			}
+			if now, _ := y.api.Head(y.ctx); now != head {
+				t.Fatalf("refused, yet %d events were logged", now-head)
+			}
+			p, err := y.api.GetPeer(y.ctx, "north")
+			if err != nil || !reflect.DeepEqual(p.Identities, []store.PeerIdentity{{Source: "chat-declared", ID: "U7", Crew: "mayor"}}) {
+				t.Fatalf("a refused move changed the mapping: %+v, %v", p.Identities, err)
+			}
+		})
+	}
+}
+
 // A speaker with an "@" is a crew member of a linked yard and no user,
 // because no user's name has one. The inbox line frames it as information on
 // that ground (SpeakerIsForeign). This pins it for the ways a user gets a
