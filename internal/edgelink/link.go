@@ -431,7 +431,11 @@ func (l *Link) serve(ctx context.Context, c *websocket.Conn, session string) (re
 			// comes.
 			reqCtx, cancel := context.WithCancel(lctx)
 			l.track(f.ID, cancel)
-			served.Go(func() { l.answer(lctx, c, f, reqCtx) })
+			request := f
+			served.Go(func() {
+				defer cancel()
+				l.answer(lctx, c, request, reqCtx)
+			})
 		case "end":
 			l.cancel(f.ID)
 		case "ping":
@@ -493,18 +497,17 @@ func (l *Link) untrack(id string) {
 // answer back. A queued request is acked once the handler is done, so it is
 // acked after it is recorded or refused, and nothing else is sent for it. A
 // live request is answered as a stream: the head goes as a response frame
-// on the handler's first flush, or whole when it never flushed, each piece
-// it flushes after as a data frame, and end when the handler returns. The
-// end goes after every live answer, flushed or whole: the edge drops one
-// nothing waits on, and a stream's head without one would leave its device
-// waiting. The request is the sender's as the edge signed it, from
-// RemoteAddr; reqCtx ends it with the link, or when the edge ends the
-// request.
+// on the handler's first flush, or whole when it never flushed; each flushed
+// piece goes as data, and end goes when the handler returns. The end goes
+// after every live answer, flushed or whole: the edge drops one nothing
+// waits on, and a stream's head without one would leave its device waiting.
+// The request is the sender's as the edge signed it, from RemoteAddr; reqCtx
+// ends it with the link, or when the edge ends the request.
 func (l *Link) answer(lctx context.Context, c *websocket.Conn, f frameIn, reqCtx context.Context) {
 	defer l.untrack(f.ID)
 	if f.Queued {
 		w := &answerWriter{header: http.Header{}}
-		l.serveOne(w, f, reqCtx, func() { w.status, w.body = http.StatusInternalServerError, nil })
+		l.serveOne(w, f, reqCtx, func() { w.status = http.StatusInternalServerError })
 		if err := l.write(lctx, c, ackFrame{Type: "ack", ID: f.ID}); err != nil && lctx.Err() == nil {
 			l.Log.Warn("edge link: an ack not sent", "id", text(f.ID), "err", err)
 		}
@@ -568,13 +571,12 @@ func (l *Link) request(ctx context.Context, f frameIn) (*http.Request, error) {
 	return req, nil
 }
 
-// answerWriter keeps a queued request's answer while its handler runs: its
-// status, headers and body, of which the ack carries none, since the edge
-// answered its sender long ago.
+// answerWriter keeps a queued request's status and headers while its
+// handler runs; its body is discarded because the ack carries no answer and
+// the edge answered its sender long ago.
 type answerWriter struct {
 	header http.Header
 	status int
-	body   []byte
 }
 
 func (w *answerWriter) Header() http.Header { return w.header }
@@ -587,27 +589,27 @@ func (w *answerWriter) WriteHeader(status int) {
 
 func (w *answerWriter) Write(b []byte) (int, error) {
 	w.WriteHeader(http.StatusOK)
-	w.body = append(w.body, b...)
 	return len(b), nil
 }
 
 // streamWriter is a live request's answer as the edge takes a stream: the
-// head goes as a response frame on the first flush, each piece after as a
-// data frame, and end when the handler returns (finish). A handler that
-// never flushes is answered whole. Writes go under the link's context, so
-// they outlive the request's own cancel.
+// head goes as a response, each flushed piece as data, and end when the
+// handler returns (finish). A handler that never flushes is answered whole.
+// Writes go under the link's context, so they outlive the request's own
+// cancel.
 type streamWriter struct {
 	l   *Link
 	c   *websocket.Conn
 	ctx context.Context
 	id  string
 
-	header http.Header
-	status int
-	since  []byte // written since the last flush
-	head   bool   // the response went
-	quiet  bool   // a send failed: the link is going, and later sends are skipped
-	failed bool   // the handler panicked: the tail is dropped
+	header  http.Header
+	status  int
+	since   []byte // written since the last flush
+	head    bool   // the response went
+	quiet   bool   // a send failed: the link is going, and later sends are skipped
+	refused bool   // the response head was too large; its 413 carries no body
+	failed  bool   // the handler panicked: the tail is dropped
 }
 
 func (w *streamWriter) Header() http.Header { return w.header }
@@ -620,16 +622,15 @@ func (w *streamWriter) WriteHeader(status int) {
 
 func (w *streamWriter) Write(b []byte) (int, error) {
 	w.WriteHeader(http.StatusOK)
-	if !w.quiet {
+	if !w.quiet && !w.refused {
 		w.since = append(w.since, b...)
 	}
 	return len(b), nil
 }
 
-// Flush sends what the handler wrote since the last flush: the head as a
-// response with the first piece, and each piece after as data. A flush with
-// nothing new sends the head alone, so the edge has it while the stream is
-// still quiet.
+// Flush sends the head on the first call, then what the handler wrote since
+// the last flush as data. A flush with nothing new sends the head alone, so
+// the edge has it while the stream is still quiet.
 func (w *streamWriter) Flush() {
 	if w.status == 0 {
 		w.status = http.StatusOK
@@ -640,8 +641,9 @@ func (w *streamWriter) Flush() {
 	}
 	if !w.head {
 		w.head = true
-		w.sendResponse(w.status, w.header, w.since)
-	} else if len(w.since) > 0 {
+		w.refused = !w.sendResponse(w.status, w.header, nil)
+	}
+	if len(w.since) > 0 && !w.refused {
 		w.sendData(w.since)
 	}
 	w.since = nil
@@ -671,7 +673,7 @@ func (w *streamWriter) finish() {
 			body = nil
 		}
 		w.sendResponse(w.status, w.header, body)
-	} else if len(w.since) > 0 && !w.failed {
+	} else if len(w.since) > 0 && !w.failed && !w.refused {
 		w.sendData(w.since)
 	}
 	if w.quiet {
@@ -682,25 +684,27 @@ func (w *streamWriter) finish() {
 	}
 }
 
-// sendResponse sends the head: the status, headers and first piece. An
-// answer that encodes past maxFrame is never sent: the request is answered
-// 413 instead, with a short error, so one large answer cannot close the
-// link the edge reads it on.
-func (w *streamWriter) sendResponse(status int, header http.Header, body []byte) {
+// sendResponse sends the head and says whether its frame fit. An answer
+// that encodes past maxFrame is never sent: the request is answered 413
+// instead, with a short error, so one large answer cannot close the link
+// the edge reads it on.
+func (w *streamWriter) sendResponse(status int, header http.Header, body []byte) bool {
 	b, err := json.Marshal(responseFrame{Type: "response", ID: w.id, Status: status, Header: header, Body: body})
 	if err != nil {
 		w.quiet = true
 		w.l.Log.Warn("edge link: an answer that encodes to nothing, dropped", "id", text(w.id), "err", err)
-		return
+		return false
 	}
+	fits := true
 	if len(b) > maxFrame {
+		fits = false
 		w.l.Log.Warn("edge link: an answer larger than one frame carries, answered 413", "id", text(w.id), "bytes", len(b))
 		b, err = json.Marshal(responseFrame{Type: "response", ID: w.id, Status: http.StatusRequestEntityTooLarge,
 			Header: http.Header{}, Body: []byte("the answer is larger than one frame of the link carries")})
 		if err != nil || len(b) > maxFrame {
 			// The id alone fills a frame: nothing truthful fits in one.
 			w.quiet = true
-			return
+			return false
 		}
 	}
 	if err := w.l.writeBytes(w.ctx, w.c, b); err != nil {
@@ -708,7 +712,9 @@ func (w *streamWriter) sendResponse(status int, header http.Header, body []byte)
 		if w.ctx.Err() == nil {
 			w.l.Log.Warn("edge link: an answer not sent", "id", text(w.id), "err", err)
 		}
+		return false
 	}
+	return fits
 }
 
 // sendData sends one flushed piece as data frames, split where one frame

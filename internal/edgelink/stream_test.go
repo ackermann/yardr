@@ -129,3 +129,77 @@ func TestLinkStreamsUserEventsOverTheLink(t *testing.T) {
 		t.Fatal("no end after the edge's end: the yard's handler did not return")
 	}
 }
+
+// A flushed piece larger than one frame follows a response head as data
+// frames that fit, instead of being mistaken for an oversized head.
+func TestLinkStreamsALargeFlushedPieceAsDataFrames(t *testing.T) {
+	t.Parallel()
+	body := strings.Repeat("x", 900<<10)
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(body)); err != nil {
+				t.Errorf("write the stream piece: %v", err)
+				return
+			}
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				t.Errorf("flush the stream piece: %v", err)
+			}
+		})
+	}, nil)
+	l := y.next(t)
+	f := l.Frame(http.MethodGet, "/user/events", nil, nil, false)
+	head := deliver(t, l, f)
+	if head.Status != http.StatusCreated || len(head.Body) != 0 {
+		t.Fatalf("the response head is %+v, want 201 with no body", head)
+	}
+	var got strings.Builder
+	frames := 0
+	for got.Len() < len(body) {
+		select {
+		case d := <-l.DataEvents():
+			if d.ID != f.ID {
+				t.Fatalf("the data is for %s, want %s", d.ID, f.ID)
+			}
+			got.Write(d.Body)
+			frames++
+		case <-time.After(10 * time.Second):
+			t.Fatalf("received %d of %d bytes in %d data frames", got.Len(), len(body), frames)
+		}
+	}
+	if got.String() != body || frames < 2 {
+		t.Fatalf("received %d bytes in %d data frames, want the %d byte piece split across frames", got.Len(), frames, len(body))
+	}
+	select {
+	case id := <-l.EndEvents():
+		if id != f.ID {
+			t.Fatalf("the end is for %s, want %s", id, f.ID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the link never ended the large flushed piece")
+	}
+}
+
+// The request context ends when its handler returns, as it does on the
+// listener. Canceling it also lets the parent link release the child.
+func TestLinkCancelsRequestContextWhenHandlerReturns(t *testing.T) {
+	t.Parallel()
+	contexts := make(chan context.Context, 1)
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contexts <- r.Context()
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}, nil)
+	l := y.next(t)
+	f := l.Frame(http.MethodGet, "/user/summary", nil, nil, false)
+	if a := deliver(t, l, f); a.Status != http.StatusNoContent {
+		t.Fatalf("the request answered %d", a.Status)
+	}
+	ctx := <-contexts
+	select {
+	case <-ctx.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the handler's request context stayed live after it returned")
+	}
+}
