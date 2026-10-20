@@ -17,7 +17,7 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The whole suite on a quiet machine (docs/testing.md R6): the landing no
+// The whole suite when the yard is quiet (docs/testing.md R6): the landing no
 // longer gates every bead with it once the incremental landing lands, so
 // it still runs, here, as a backstop. It starts on yard events only: the
 // trigger subscribes to the event stream (Store.Subscribe, pushed as

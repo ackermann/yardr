@@ -22,10 +22,10 @@ The re-measurement can be loaded too: the race lock holds off the other
 gate legs, not every test on the machine. Over 60 s alone on a loaded
 machine -- the one-minute load average past the core count -- passes with
 a `test: R1:` line naming both times and the load instead of failing
-(yardr-wq5h), unless `YARDR_R1_STRICT` is set, which only the quiet run
-(R6) sets: then over 60 s alone fails however loaded the machine, and
-the failure line names both times and the load beside them. Unknown
-load fails as before.
+(yardr-wq5h), unless `YARDR_R1_STRICT` is set by the quiet run (R6): then
+over 60 s alone fails however loaded the machine. On a loaded machine,
+the failure line names both times and the load beside them; on a quiet
+machine it names both times. Unknown load fails as before.
 
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. Exactly 500 ms complies; over fails unless
@@ -75,7 +75,7 @@ so the pick alone misses them. A landing that changed nothing compiled
 runs the plain selection alone, as before; one whose change cannot be
 selected (go.mod or go.sum, a deletion, a file no row knows) and one
 with nothing to compare with still run the whole suite. The whole
-suite otherwise runs only on a quiet machine (R6 below).
+suite otherwise runs only when the yard is quiet (R6 below).
 
 R6. The whole suite still runs, but when the yard is quiet, not on a timer
 and not as a gate on any bead. The daemon's trigger
@@ -101,16 +101,18 @@ the next quiet event. Quiet is the yard's, not the machine's: nothing
 here waits for low load, and the run starts however loaded the host,
 which is why it judges R1 strictly instead of loud-passing as a
 landing may. The run tests the depot's base in a worktree of
-its own with `YARDR_LANDING=1` and `YARDR_R1_STRICT=1`, holding the machine-wide race lock for
-its whole length, so it never overlaps a landing leg, and it is
+its own with `YARDR_LANDING=1` and `YARDR_R1_STRICT=1`, holding the
+machine-wide race lock for its whole length, so it never overlaps a
+landing leg, and it is
 single-flight: while one quiet run runs, a further event does not start
 a second, and the trigger re-arms only when the first finishes. A green
 run is logged and told as `quiet_passed`, a red base as `quiet_failed`
 naming the failing packages and the base commit, each with its wall
 time and starting load. The strict setting, which only the quiet run
 sets, turns off R1's loaded pass: a package over 60 s alone fails
-however loaded the machine, and its failure line names both times and
-the load, so a slowdown cannot hide behind a loaded host (yardr-8gdt).
+however loaded the machine. On a loaded host its failure line names
+both times and the load; on a quiet host it names both times, so a
+slowdown cannot hide behind a loaded host (yardr-8gdt).
 `YARDR_LANDING=1` with `YARDR_R1_STRICT=1` beside it stays the one command
 anyone can run.
 
