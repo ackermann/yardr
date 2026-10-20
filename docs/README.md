@@ -60,6 +60,7 @@ internal/yardkey    a yard's key pair and the signatures between linked yards
 internal/pairing    linking two yards from a short code
 internal/peer       unix-socket peer identity for the store and exec runner
 internal/yards      messages between this yard and its peers
+internal/edgelink   the yard's side of the edge: fetching its key and enrolling the yard by a code
 internal/otel       trace context for a bead's work; the event log as OTLP
 main.go             the yardr binary
 packs/starter       the starter pack: the default roles, flow and stage files, embedded in the binary

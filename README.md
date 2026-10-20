@@ -102,7 +102,7 @@ Every command takes `--json`, and `yardr <command> --help` says the rest.
 |---|---|---|
 | the work | `bead`, `dep`, `ready`, `session`, `flow`, `route`, `group`, `depot`, `pack` | beads and the edges between them, what is ready and what is being worked; the stages a bead goes through, who works each, where, and a way of working as a pack |
 | people and crew | `crew`, `user`, `mail`, `inbox`, `chat`, `react`, `timer`, `review`, `prime`, `remember`, `recall` | the always-on agents and the people of the yard: mail between them, what waits on you, what an agent reads when it starts, what the yard remembers |
-| outside | `hook`, `source`, `call`, `reply`, `thread`, `link`, `subscribe`, `unsubscribe`, `limits`, `peer` | services outside the yard and other yards: what comes in, what goes out, the issues beads belong to, who is told what |
+| outside | `hook`, `source`, `call`, `reply`, `thread`, `link`, `subscribe`, `unsubscribe`, `limits`, `peer`, `edge` | services outside the yard and other yards: what comes in, what goes out, the issues beads belong to, who is told what |
 | the yard | `init`, `setup`, `doctor`, `status`, `up`, `down`, `server`, `daemon`, `store`, `settings`, `events`, `watch`, `web`, `bdp`, `otel`, `harness`, `version` | creating a yard and setting it up, what it has and what runs, its processes, its store and settings, its events, and the views of it |
 
 ## Where the rest is

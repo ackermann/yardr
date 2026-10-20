@@ -38,3 +38,4 @@ plain words kept on purpose, because they name general machinery.
 | operator | the person who runs the yard; one of its users |
 | user | a person of the yard: a name and an inbox |
 | device | one program of a user that calls the yard from outside it, let in by a token the yard gave it ([users.md](users.md#devices)) |
+| edge | a service that stands in front of yards and hands them the webhooks sent to it; yardr runs one at https://my.yardr.dev. A yard connects to one with `yardr edge connect`, pins its key when it does, and still verifies every webhook itself |

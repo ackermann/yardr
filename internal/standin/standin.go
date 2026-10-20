@@ -25,6 +25,9 @@
 //
 // And it is a customer system under /crm/, for a declared source whose
 // calls a session makes with yardr call: see Server.crm.
+//
+// Edge is another kind: yardr's own edge, as a yard calls it (design
+// yardr-hosted-050n), written from that design.
 package standin
 
 import (

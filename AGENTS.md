@@ -46,6 +46,9 @@ it lists every exported name with its comment, faster than grepping.
   state, routes beads, runs the crew, keeps backups; never polls.
 - `diskkeep`: keeping the machine's disk free for landings' builds
   (GOCACHE rotation, stale go-tmp), run by `yardr disk keep`.
+- `edgelink`: the yard's side of the edge (`yardr edge connect`): fetching
+  the edge's key and enrolling the yard by a code, each call signed with the
+  yard's key; the edge itself is the `yardr-hosted` router, not here.
 - `eta`: arrival-time estimates and the arrivals board rows.
 - `flowdraw`: flows drawn as SVG signalling diagrams (generated into
   `docs/flows/`); the drawing holds no beads.
@@ -69,8 +72,8 @@ it lists every exported name with its comment, faster than grepping.
   re-execs itself on upgrade.
 - `source`: declared sources: declarations, credentials, mints, calls; the
   operator's provider logic lives in commands, not here.
-- `standin`: fake Linear/GitHub APIs for tests and tryouts, written from
-  the services' docs, not recorded.
+- `standin`: fake Linear/GitHub APIs and the edge for tests and tryouts,
+  written from the services' docs and the design, not recorded.
 - `store`: the bbolt store and `API`, the interface everything uses
   (`*Store` in the owning process, `rpc.Client` elsewhere); migrations are
   `migrate_NNN_*.go`.

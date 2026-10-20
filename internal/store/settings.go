@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -17,6 +18,7 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // bSettings holds the yard's own defaults, key -> value (a JSON string),
@@ -57,6 +59,9 @@ const (
 	// the URL of hook <name> is it plus /<name>. A hook whose source
 	// registers its webhook is registered at that URL.
 	HookPublicURLSetting = "hook_public_url"
+	// EdgeSetting is the edge the yard is connected to, as Edge says:
+	// yardr edge connect writes it and yardr edge disconnect clears it.
+	EdgeSetting = "edge"
 	// RouterAddrSetting is the address of the yard's router on the user's
 	// network, which GiveSecret is taken from besides the yard's own
 	// machine (rpc).
@@ -206,6 +211,10 @@ var KnownSettings = []Setting{
 	{Key: HookPublicURLSetting, Help: "the public address hooks are reached at, such as https://yard.example/hooks: the URL of hook <name> is it plus /<name>. " +
 		"A hook whose source names a register call and secret scheme is registered at that URL when its card is approved; no card for one is written while it is unset",
 		Check: CheckHookPublicURL},
+	{Key: EdgeSetting, Help: "the edge this yard is connected to, one JSON value that yardr edge connect writes and yardr edge disconnect clears: " +
+		"the edge's address (url), the key it was pinned by when this yard connected (key), the handle it gave this yard (handle), " +
+		"and the hook_public_url that connecting replaced, which disconnecting puts back (hook_public_url)",
+		Check: CheckEdge},
 	{Key: RouterAddrSetting, Help: "the address of the yard's router on the user's network, such as 172.18.0.2, " +
 		"written by the provisioner of a hosted yard: GiveSecret is taken from that peer when it says the request came to it over https " +
 		"(X-Forwarded-Proto: https), and from the yard's own machine as before. Read on every call; unset, from the yard's own machine alone",
@@ -416,9 +425,10 @@ func SettingOf(key string) (Setting, bool) {
 // settingAsk is whether setting key may be proposed as a run ask. Alone
 // are who the operator is, what the yard installs itself from, who the
 // web view acts as and what it trusts, where backups go, the addresses
-// the servers bind, and the herdr session, whose check turns on which
-// panes run now: the operator types those. hook_public_url is Askable:
-// it binds nothing and serves nothing, only says where the yard is
+// the servers bind, the edge it is connected to (the key it pins is one
+// the operator was shown), and the herdr session, whose check turns on
+// which panes run now: the operator types those. hook_public_url is
+// Askable: it binds nothing and serves nothing, only says where the yard is
 // reached from outside, and its card shows the whole URL each hook is
 // registered at. A new setting defaults to Alone until it is marked
 // Askable here.
@@ -428,7 +438,7 @@ func settingAsk(key string) AskClass {
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, RouterAddrSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, EdgeSetting, RouterAddrSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone
@@ -571,22 +581,125 @@ func CheckHookAddr(addr string) error { return checkHostPort("hook address", add
 // or a path that leaves its base. The operator gives it as a setting:
 // no proxy or tunnel address is worked out from anything else.
 func CheckHookPublicURL(v string) error {
+	return checkPublicURL(HookPublicURLSetting, v, "https://yard.example/hooks", "the hook's name is added to its path")
+}
+
+// checkPublicURL is what hook_public_url and the edge's address have in
+// common: an absolute address, https, or http to this machine alone, with no
+// user, query or fragment and a path that stays within its base. what names
+// the address in a refusal, example is one that would be taken, and
+// queryWhy, when given, says why a query is no part of it.
+func checkPublicURL(what, v, example, queryWhy string) error {
 	u, err := url.Parse(v)
 	switch {
 	case err != nil || u.Host == "" || u.Opaque != "":
-		return fmt.Errorf("%s %q: a public address, such as https://yard.example/hooks", HookPublicURLSetting, v)
+		return fmt.Errorf("%s %q: a public address, such as %s", what, v, example)
 	case u.User != nil:
-		return fmt.Errorf("%s %q: an address with no user or password in it", HookPublicURLSetting, v)
+		return fmt.Errorf("%s %q: an address with no user or password in it", what, v)
 	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(v, "?#"):
-		return fmt.Errorf("%s %q: an address with no query or fragment: the hook's name is added to its path", HookPublicURLSetting, v)
+		why := "an address with no query or fragment"
+		if queryWhy != "" {
+			why += ": " + queryWhy
+		}
+		return fmt.Errorf("%s %q: %s", what, v, why)
 	case u.Scheme == "http" && !isLoopbackHost(u.Hostname()):
-		return fmt.Errorf("%s %q: http is for a stand-in on this machine only: a public address is https", HookPublicURLSetting, v)
+		return fmt.Errorf("%s %q: http is for a stand-in on this machine only: a public address is https", what, v)
 	case u.Scheme != "https" && u.Scheme != "http":
-		return fmt.Errorf("%s %q: %s:// is not https://", HookPublicURLSetting, v, u.Scheme)
+		return fmt.Errorf("%s %q: %s:// is not https://", what, v, u.Scheme)
 	case hasDotsPath(u.Path):
-		return fmt.Errorf("%s %q: its path has no '..' segment", HookPublicURLSetting, v)
+		return fmt.Errorf("%s %q: its path has no '..' segment", what, v)
 	}
 	return nil
+}
+
+// CheckEdgeURL refuses an address that is no edge's: one hook_public_url
+// would not take, and one with a path, since the edge answers at fixed paths
+// (/edge/key, /edge/enrol) that a signature covers. Plain http is for a
+// stand-in on this machine: the key of an edge is fetched before anything
+// is signed, and over http it would be anyone's.
+func CheckEdgeURL(v string) error {
+	if err := checkPublicURL("edge address", v, "https://my.yardr.dev", ""); err != nil {
+		return err
+	}
+	if u, _ := url.Parse(v); u.Path != "" {
+		return fmt.Errorf("edge address %q: the edge's origin alone, such as https://my.yardr.dev: its calls are at paths of their own under it", v)
+	}
+	return nil
+}
+
+// Edge is the value of the edge setting. It is one setting so that the key
+// an edge was pinned by, and the handle it gave this yard, cannot change
+// apart from the address they were got at.
+type Edge struct {
+	// URL is the edge's origin (CheckEdgeURL).
+	URL string `json:"url"`
+	// Key is the edge's public key (yardkey.Public) as this yard pinned it
+	// when it connected. It is never taken from the edge again: a different
+	// key at the same address is a different edge.
+	Key string `json:"key"`
+	// Handle is what the edge calls this yard, which its hooks are reached
+	// under.
+	Handle string `json:"handle"`
+	// HookPublicURL is the hook_public_url that connecting replaced, which
+	// disconnecting puts back; "" when there was none.
+	HookPublicURL string `json:"hook_public_url,omitempty"`
+}
+
+// edgeHandle is what an edge may call a yard: one segment of a path, in
+// lower case.
+var edgeHandle = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// HooksURL is the address the edge takes this yard's webhooks at, which is
+// what hook_public_url is while connected: a hook's URL is it plus /<name>.
+func (e Edge) HooksURL() string { return e.URL + "/hooks/" + e.Handle }
+
+// String is the edge as the setting holds it.
+func (e Edge) String() string {
+	b, _ := json.Marshal(e) // strings only
+	return string(b)
+}
+
+// ParseEdge reads the value of the edge setting as String writes it, and
+// refuses one that holds what connecting would not have written: an address
+// that is no edge's, a key that is no yard's, a handle that is no path
+// segment, a hook_public_url that setting would not take.
+func ParseEdge(v string) (Edge, error) {
+	var e Edge
+	if err := json.Unmarshal([]byte(v), &e); err != nil {
+		return Edge{}, fmt.Errorf("%s: not what yardr edge connect writes (%v)", EdgeSetting, err)
+	}
+	if err := CheckEdgeURL(e.URL); err != nil {
+		return Edge{}, fmt.Errorf("%s: %w", EdgeSetting, err)
+	}
+	if _, err := yardkey.ParsePublic(e.Key); err != nil {
+		return Edge{}, fmt.Errorf("%s: the edge's key: %w", EdgeSetting, err)
+	}
+	if !edgeHandle.MatchString(e.Handle) {
+		return Edge{}, fmt.Errorf("%s: handle %q: lower case letters, digits and '-', which the edge's address takes as one segment of a path", EdgeSetting, e.Handle)
+	}
+	if e.HookPublicURL != "" {
+		if err := CheckHookPublicURL(e.HookPublicURL); err != nil {
+			return Edge{}, fmt.Errorf("%s: the hook_public_url to put back: %w", EdgeSetting, err)
+		}
+	}
+	return e, nil
+}
+
+// CheckEdge is the edge setting's check.
+func CheckEdge(v string) error {
+	_, err := ParseEdge(v)
+	return err
+}
+
+// EdgeOf is the edge a yard's settings name, and false when it is
+// connected to none.
+func EdgeOf(settings map[string]string) (Edge, bool, error) {
+	v := settings[EdgeSetting]
+	if v == "" {
+		return Edge{}, false, nil
+	}
+	e, err := ParseEdge(v)
+	return e, err == nil, err
 }
 
 func hasDotsPath(p string) bool {

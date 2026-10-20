@@ -1,0 +1,375 @@
+// Package edgelink is the yard's side of the edge (design
+// yardr-hosted-050n): the service at https://my.yardr.dev that stands in
+// front of yards. It holds what yardr edge connect does: fetch the edge's
+// key, enrol this yard by a code a person approves in a browser, and ask
+// the edge to forget the yard again. The edge's half is the router of the
+// yardr-hosted repository; this package is its client and knows no more of
+// it than the calls below.
+//
+// The yard has no key of the edge's until it has fetched one, and a request
+// is signed to a named receiver key (yardkey.SignRequest), so the first
+// step is the one that is not signed: GET /edge/key over HTTPS. That is
+// trust on first use, as ssh has for a host key, with the web's
+// certificates making the first use hard to intercept. Everything after it
+// is signed with the yard's key and answered signed with the key that was
+// fetched, so a different key at the same address, later, moves nothing.
+//
+// The calls, all under the edge's origin:
+//
+//	GET  /edge/key        the edge's public key as yardkey.Public writes it,
+//	                      as plain text. Not signed.
+//	POST /edge/enrol      {"key": <the yard's key>, "name": <its name>}.
+//	                      Answered {"code", "expires"} (RFC 3339, shown to
+//	                      the person and read as unknown if it is anything
+//	                      else) while no one has
+//	                      approved the yard at the edge's /connect page, and
+//	                      {"handle", "email"} once someone has. The yard
+//	                      calls again, signed anew, until the second, and is
+//	                      answered the same code while its code is open.
+//	POST /edge/disconnect {}: the edge forgets the row that names the yard's
+//	                      key, and answers 200, or 404 if it had none.
+//
+// A request carries the yard's key, the time and the signature in the
+// Yardr-Peer-* headers, as between peers. An answer carries its signature
+// in Yardr-Peer-Signature, made with the edge's key over its status, the
+// request's signature and its body (yardkey.SignResponse). An answer that
+// is not so signed is anyone's, whatever it says. A refusal is a 4xx with
+// {"refused": <reason>}, signed too.
+package edgelink
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+	"unicode"
+
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
+)
+
+// The edge's paths. They are fixed, which is why the edge's address is its
+// origin alone (store.CheckEdgeURL): a signature covers the path.
+const (
+	KeyPath        = "/edge/key"
+	EnrolPath      = "/edge/enrol"
+	DisconnectPath = "/edge/disconnect"
+)
+
+const (
+	// callTimeout bounds one call: the edge answers each at once, since the
+	// wait for a person is the yard's calling again and not the edge's
+	// holding a call.
+	callTimeout = 15 * time.Second
+	// DefaultPoll is how often a yard asks again while its code waits for
+	// the person to approve it.
+	DefaultPoll = 2 * time.Second
+	// DefaultWait is how long a yard waits for the person, whatever the edge
+	// says its code is good for: the edge's own refusal ends it sooner, and
+	// the yard's clock is not trusted to read the edge's expiry.
+	DefaultWait = 15 * time.Minute
+	// maxAnswer bounds what is read of an answer: a key, a code or a handle
+	// is a few dozen bytes.
+	maxAnswer = 4 << 10
+	// maxText bounds each word of the edge's that is shown to a person.
+	maxText = 64
+)
+
+// ErrNotApproved ends a wait that ran out, with the person not having
+// approved the yard.
+var ErrNotApproved = errors.New("nobody approved the yard in time")
+
+// ErrUnsigned is an answer that is not signed with the key this yard
+// pinned: what it says is anyone's.
+var ErrUnsigned = errors.New("not signed with the key this yard pinned")
+
+// Refused is the edge's signed word that it does not take the yard. The
+// reason is the edge's own text, signed, and cut to what a terminal shows.
+type Refused struct {
+	Status int
+	Reason string
+}
+
+func (e *Refused) Error() string {
+	if e.Reason == "" {
+		return fmt.Sprintf("the edge refused this yard (%d)", e.Status)
+	}
+	return fmt.Sprintf("the edge refused this yard: %s (%d)", e.Reason, e.Status)
+}
+
+// Client calls the edge at URL.
+type Client struct {
+	// URL is the edge's origin (store.CheckEdgeURL).
+	URL string
+	// HTTP makes the calls; nil is a client with the system's roots. It is
+	// copied to refuse a redirect: the address is the edge's own, and a
+	// call that followed one would carry the yard's signature, or its trust,
+	// somewhere else.
+	HTTP *http.Client
+	// Poll is how often Enrolment.Wait asks again, and WaitFor how long it
+	// waits for the person; zero is DefaultPoll and DefaultWait.
+	Poll, WaitFor time.Duration
+	// Now is the clock a request is signed by; nil is time.Now. Each call is
+	// signed at the moment it is made, since the edge refuses a signature
+	// more than yardkey.MaxSkew old, and a wait is longer than that.
+	Now func() time.Time
+}
+
+func (c *Client) client() *http.Client {
+	base := c.HTTP
+	if base == nil {
+		base = http.DefaultClient
+	}
+	own := *base
+	own.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &own
+}
+
+// transport says why a call did not get an answer. A certificate this
+// machine does not trust is told apart: it is the one failure of the first
+// step that means the address may not be the edge's.
+func (c *Client) transport(err error) error {
+	var cert *tls.CertificateVerificationError
+	if errors.As(err, &cert) {
+		return fmt.Errorf("the certificate of %s is not trusted by this machine: the edge's key is fetched over HTTPS and nothing was signed: %w", c.URL, err)
+	}
+	return err
+}
+
+// Key is the edge's public key, fetched over HTTPS, or over plain http from
+// this machine alone, for a stand-in (store.CheckEdgeURL). It is the first
+// trust step: nothing is signed before the key is in the yard's hands, and
+// the caller shows it to the person and pins it (store.Edge).
+func (c *Client) Key(ctx context.Context) (string, error) {
+	if err := store.CheckEdgeURL(c.URL); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+KeyPath, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return "", c.transport(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s%s answered %d, and not with a key: is it an edge, at the address its operator gave?", c.URL, KeyPath, resp.StatusCode)
+	}
+	text, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer+1))
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(string(text))
+	if len(text) > maxAnswer {
+		key = ""
+	}
+	if _, err := yardkey.ParsePublic(key); err != nil {
+		return "", fmt.Errorf("what answers at %s%s is no edge's key: %w", c.URL, KeyPath, err)
+	}
+	return key, nil
+}
+
+// call makes one signed POST to path and returns the status and body of an
+// answer the edge signed, with the key the yard pinned. Any other is an
+// error whatever it says: anyone on the way can write a 200.
+func (c *Client) call(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, path string, body []byte) (int, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+path, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	now := time.Now
+	if c.Now != nil {
+		now = c.Now
+	}
+	ts, reqSig := yardkey.SignRequest(yard, edgeKey, http.MethodPost, path, now(), body)
+	req.Header.Set(yardkey.HeaderKey, yardkey.Public(yard))
+	req.Header.Set(yardkey.HeaderTime, ts)
+	req.Header.Set(yardkey.HeaderSig, reqSig)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return 0, nil, c.transport(err)
+	}
+	defer resp.Body.Close()
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer+1))
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(answer) > maxAnswer {
+		return 0, nil, fmt.Errorf("the answer of %s is larger than %d bytes", c.URL, maxAnswer)
+	}
+	if err := yardkey.VerifyResponse(edgeKey, resp.StatusCode, reqSig, resp.Header.Get(yardkey.HeaderSig), answer); err != nil {
+		// What an unsigned answer says is anyone's text: only its status is
+		// passed on.
+		return 0, nil, fmt.Errorf("%s answered %d, %w: the clocks are more than %s apart, the edge's key is not the one this yard pinned, or something between the two answered",
+			c.URL, resp.StatusCode, ErrUnsigned, yardkey.MaxSkew)
+	}
+	return resp.StatusCode, answer, nil
+}
+
+// answer is what the edge says to an enrolling call, and its refusals.
+type answer struct {
+	Code    string          `json:"code"`
+	Expires json.RawMessage `json:"expires"`
+	Handle  string          `json:"handle"`
+	Email   string          `json:"email"`
+	Refused string          `json:"refused"`
+}
+
+// expiry reads when a code stops being good, as RFC 3339. It is shown to the
+// person and decides nothing, so a value that is not a time counts as
+// unknown, and is no reason to refuse the enrolment.
+func expiry(raw json.RawMessage) time.Time {
+	var t time.Time
+	if json.Unmarshal(raw, &t) != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// Enrolment is a yard's enrolment with the edge, as far as the edge has
+// taken it: Code is what the person types at the edge's /connect page,
+// until Expires (the zero time when the edge did not say); Handle, and Email
+// of whoever approved, once someone has. A yard the edge knows already is
+// answered with its handle at once.
+type Enrolment struct {
+	Code    string
+	Expires time.Time
+	Handle  string
+	Email   string
+
+	c       *Client
+	edgeKey string
+	yard    ed25519.PrivateKey
+	body    []byte
+}
+
+// Enrol begins the enrolment of the yard whose key is yard, which calls
+// itself name, with the edge whose key is edgeKey: the first call, which the
+// edge answers with a code. The caller shows the code and Waits.
+func (c *Client) Enrol(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, name string) (*Enrolment, error) {
+	body, err := json.Marshal(map[string]string{"key": yardkey.Public(yard), "name": name})
+	if err != nil {
+		return nil, err
+	}
+	e := &Enrolment{c: c, edgeKey: edgeKey, yard: yard, body: body}
+	if err := e.ask(ctx); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// ask makes the enrolling call once and takes what it is answered. The
+// edge answers the same code to a yard that asks again while the code is
+// open, so asking is the whole of waiting.
+func (e *Enrolment) ask(ctx context.Context) error {
+	status, body, err := e.c.call(ctx, e.edgeKey, e.yard, EnrolPath, e.body)
+	if err != nil {
+		return err
+	}
+	var a answer
+	if err := json.Unmarshal(body, &a); err != nil {
+		return fmt.Errorf("the edge's answer to the enrolment is no JSON object (%d)", status)
+	}
+	if status != http.StatusOK {
+		return &Refused{Status: status, Reason: text(a.Refused)}
+	}
+	switch {
+	case a.Handle != "":
+		e.Handle, e.Email = a.Handle, text(a.Email)
+	case a.Code != "":
+		// The person types the code as it is shown: one that a terminal
+		// would not show whole is no code.
+		if text(a.Code) != a.Code {
+			return errors.New("the edge's code is not text a person can type")
+		}
+		e.Code, e.Expires = a.Code, expiry(a.Expires)
+	default:
+		return errors.New("the edge's answer to the enrolment holds neither a code nor a handle")
+	}
+	return nil
+}
+
+// Wait asks the edge, every Poll, until the person has approved the yard,
+// which sets Handle; it ends with the edge's refusal (an expired code, a
+// person who said no), with ctx, or with ErrNotApproved when WaitFor is up.
+func (e *Enrolment) Wait(ctx context.Context) error {
+	wait, poll := e.c.WaitFor, e.c.Poll
+	if wait <= 0 {
+		wait = DefaultWait
+	}
+	if poll <= 0 {
+		poll = DefaultPoll
+	}
+	waiting, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	for e.Handle == "" {
+		select {
+		case <-waiting.Done():
+			// The caller's own end is the caller's to say; the wait's is
+			// ours.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return ErrNotApproved
+		case <-time.After(poll):
+		}
+		if err := e.ask(waiting); err != nil {
+			// The end of the wait, or the caller's, can land inside a call:
+			// it is then the end, and not a failure of the call.
+			switch {
+			case ctx.Err() != nil:
+				return ctx.Err()
+			case waiting.Err() != nil:
+				return ErrNotApproved
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// Drop asks the edge to forget the yard whose key is yard: the row that
+// names that key. The edge answering that it has none is the same to a yard
+// that wants to be gone.
+func (c *Client) Drop(ctx context.Context, edgeKey string, yard ed25519.PrivateKey) error {
+	status, body, err := c.call(ctx, edgeKey, yard, DisconnectPath, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK || status == http.StatusNotFound {
+		return nil
+	}
+	var a answer
+	_ = json.Unmarshal(body, &a)
+	return &Refused{Status: status, Reason: text(a.Refused)}
+}
+
+// text is s as one line a terminal shows as it is, cut short: the edge's
+// words reach a person's screen, and a control character in them could
+// rewrite it.
+func text(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			continue
+		}
+		if b.Len() >= maxText {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
