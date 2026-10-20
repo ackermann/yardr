@@ -867,7 +867,6 @@ packagebudget() {
 # the row with the fix. Each row covers one site, including when a file has
 # two sleeps with the same duration.
 longsleeps='
-yardtest_test.go 3000 the race-lock test holds the lock 3 s past the build step so the wait spans whole seconds however slowly the run started
 internal/dispatch/harness_reset_test.go 1000 a session age reads the wall clock, not the dispatchers, so the test sleeps past its 1 s max_age
 internal/dispatch/failure_test.go 2050 a session age reads the wall clock, so the test sleeps past its 2 s max_age
 internal/server/server_test.go 1000 the drain test holds the store past the grace, then releases it

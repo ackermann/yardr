@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -1165,8 +1166,8 @@ fi
 		close(done)
 	}()
 	// The run's build step is its last before the race leg: hold the lock
-	// three seconds past it, so the run is still waiting when the hold
-	// ends however slowly it started, and the wait spans whole seconds.
+	// until the run is queued and its ticket is a second old, measured,
+	// so the wait is real by construction and spans whole seconds.
 	callsPath := filepath.Join(fake, "calls")
 	waitFor := func(what string) {
 		t.Helper()
@@ -1185,7 +1186,39 @@ fi
 		}
 	}
 	waitFor("build ./...")
-	time.Sleep(3 * time.Second)
+	// The queue publishes the wait as data: a ticket file. Seeing the
+	// ticket alone is not enough — the wait timer starts before the
+	// ticket is made, so a release before the first lock attempt leaves
+	// a zero wait and no wait line. Hold until the ticket is a second
+	// old, measured from its first sight, so the first attempt has run
+	// while held and the summary's waited seconds are positive.
+	qdir := filepath.Join(home, ".yardr", "race.queue")
+	var firstSeen time.Time
+	ticketDeadline := time.Now().Add(60 * time.Second)
+	for {
+		seen := false
+		if entries, err := os.ReadDir(qdir); err == nil {
+			for _, e := range entries {
+				if raceTicketName.MatchString(e.Name()) {
+					seen = true
+					break
+				}
+			}
+		}
+		if seen {
+			firstSeen = time.Now()
+			break
+		}
+		if time.Now().After(ticketDeadline) {
+			cmd.Process.Kill()
+			<-done
+			t.Fatalf("the run never queued for the race lock, output:\n%s", out)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
+	}
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
@@ -1773,11 +1806,34 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if code, _ := finish(term); code != 143 {
 		t.Errorf("a waiter killed with TERM exits %d, want 143", code)
 	}
-	if slices.Contains(tickets(), termTicket) {
-		t.Errorf("the TERM killed waiter's ticket is still queued")
-	}
 	if code, out := finish(holder); code != 0 {
 		t.Fatalf("the holder exits %d, want 0:\n%s", code, out)
+	}
+	// The TERM waiter's ticket is gone by w2's acquisition at the
+	// latest: the handler removes it on exit, or w2's servicing pass
+	// reaps it as dead. A dead ticket behind the acquirer is reached
+	// only when the next waiter takes the lock — front on the way to
+	// the front, fullclean as it acquires — so the poll starts after
+	// the holder finishes. The directory is the oracle, not
+	// --race-queue, which skips dead tickets without removing them.
+	termGone := func() bool { return !slices.Contains(tickets(), termTicket) }
+	w2Acquired := func() bool {
+		b, err := os.ReadFile(holderFile)
+		return err == nil && strings.Contains(string(b), "bead=w2-bead\n")
+	}
+	termDeadline := time.Now().Add(30 * time.Second)
+	for {
+		if termGone() {
+			break
+		}
+		if w2Acquired() {
+			t.Errorf("the TERM killed waiter's ticket is still queued after w2 acquired the lock")
+			break
+		}
+		if time.Now().After(termDeadline) {
+			t.Fatalf("the TERM killed waiter's ticket never left the queue")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	w2code, w2out := finish(w2)
 	w3code, w3out := finish(w3)
@@ -1806,6 +1862,30 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".yardr", "race.holder")); !os.IsNotExist(err) {
 		t.Errorf("the holder file is left behind")
+	}
+	// A pre-seeded dead ticket at the back of the queue is absent after
+	// the next acquisition: the acquirer's fullclean reaps it. The seed
+	// sorts last by a future timestamp, so front does not reach it, and
+	// a live ticket lingering here would convict the perl instead.
+	if err := os.MkdirAll(qdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	deadPID := raceDeadPID(t)
+	now := time.Now().Unix()
+	seedName := fmt.Sprintf("%010d%09d-%d", now+3600, 999999999, deadPID)
+	seed := fmt.Sprintf("pid=%d\nstart=0\nbead=dead-seed\ndir=%s\ncreated=%d\n", deadPID, wt, now)
+	if err := os.WriteFile(filepath.Join(qdir, seedName), []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// No holder blocks it: the waiter takes the lock at once, so its
+	// ticket may come and go before a poll sees it. Finish it and read
+	// the queue it leaves.
+	seedWaiter := start("seed-bead", "true")
+	if code, out := finish(seedWaiter); code != 0 {
+		t.Fatalf("the seed waiter exits %d, want 0:\n%s", code, out)
+	}
+	if slices.Contains(tickets(), seedName) {
+		t.Errorf("the pre-seeded dead ticket is still queued after the next acquisition")
 	}
 }
 
@@ -2107,8 +2187,12 @@ fi
 	}
 	defer outFile.Close()
 	cmd.Stdout, cmd.Stderr = outFile, outFile
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	proc := cmd.Process
 	done := make(chan error, 1)
-	go func() { done <- cmd.Run() }()
+	go func() { done <- cmd.Wait() }()
 	pidPath := filepath.Join(fake, "sleeper")
 	t.Cleanup(func() {
 		if b, err := os.ReadFile(pidPath); err == nil {
@@ -2123,7 +2207,7 @@ fi
 			break
 		}
 		if time.Now().After(deadline) {
-			cmd.Process.Kill()
+			proc.Kill()
 			<-done
 			t.Fatalf("the race leg never reached go test")
 		}
@@ -2162,7 +2246,7 @@ fi
 		select {
 		case <-done:
 		case <-time.After(10 * time.Second):
-			cmd.Process.Kill()
+			proc.Kill()
 		}
 		outFile.Seek(0, 0)
 		b, _ := io.ReadAll(outFile)
@@ -2182,8 +2266,121 @@ fi
 			t.Fatalf("run failed: %v\n%s", err, b)
 		}
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
+		proc.Kill()
 		t.Fatal("race-leg worker did not finish after releasing the lock")
+	}
+}
+
+// The orphan test's deadline path, forced deterministically: the fake go
+// writes a barrier marker and waits for a release the test never creates,
+// so the wait for test-done times out and the test kills the run through
+// the published handle. The kill uses Start in this goroutine and Wait in
+// the done goroutine, never Cmd concurrently with Run, so the race
+// detector stays silent. The group dies with the kill, leaving no perl,
+// worker or sleeper behind.
+func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, fake, dir, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	for name, text := range map[string]string{
+		"go": `#!/bin/sh
+if [ "$1" = test ]; then
+  : >"$FAKE/barrier-reached"
+  while [ ! -f "$FAKE/release" ]; do sleep 0.1; done
+  sleep 300 &
+  echo $! >"$FAKE/sleeper"
+  echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
+  : >"$FAKE/test-done"
+fi
+`,
+		"gofmt": "#!/bin/sh\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", ".yardr/test")
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+base, "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan-deadline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outFile.Close()
+	cmd.Stdout, cmd.Stderr = outFile, outFile
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	proc := cmd.Process
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+		if b, err := os.ReadFile(filepath.Join(fake, "sleeper")); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	barrierDeadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(fake, "barrier-reached")); err == nil {
+			break
+		}
+		if time.Now().After(barrierDeadline) {
+			_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+			<-done
+			t.Fatalf("the race leg never reached go test")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The release never comes: a short deadline forces the same path the
+	// ten-second deadline takes in the orphan test above.
+	forced := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+			_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+			<-done
+			t.Fatalf("test-done appeared without the release")
+		}
+		if time.Now().After(forced) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the killed run never exited")
+	}
+	if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+		t.Errorf("test-done appeared after the kill")
 	}
 }
 
