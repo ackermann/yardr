@@ -4,8 +4,9 @@ The release group works this stage (`contrib/release/stage verify`): it
 downloads `checksums.txt` and `checksums.txt.minisig` from the release,
 checks the signature against the release key, checks the release's
 archives against the checksums, and checks each archive's
-build-provenance attestation (`gh attestation verify`), which says CI's
-release workflow built it. No agent works this stage by hand.
+build-provenance attestation (`gh attestation verify`), requiring the
+yardr release workflow and the tag being verified. No agent works this
+stage by hand.
 
 Outcomes:
 

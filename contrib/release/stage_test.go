@@ -612,6 +612,7 @@ func TestStageVerifyChecksASignedRelease(t *testing.T) {
 	s.mustContain(got, "gh attestation verify")
 	s.mustContain(got, "a.tar.gz --repo yardr-dev/yardr")
 	s.mustContain(got, "b.tar.gz --repo yardr-dev/yardr")
+	s.mustContain(got, "--signer-workflow yardr-dev/yardr/.github/workflows/release.yml --source-ref refs/tags/v1.2.3")
 	if n := strings.Count(got, "attestation verify"); n != 2 {
 		t.Errorf("attestation verify ran %d times; want once per archive", n)
 	}

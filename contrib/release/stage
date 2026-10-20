@@ -316,7 +316,9 @@ verify() {
   # one the files are not the workflow's, however well they checksum.
   # shellcheck disable=SC2086 # $names is a newline-separated list
   for b in $names; do
-    attest_out=$(gh attestation verify "$tmp/$b" --repo "$GHREPO" 2>&1) ||
+    attest_out=$(gh attestation verify "$tmp/$b" --repo "$GHREPO" \
+      --signer-workflow "$GHREPO/.github/workflows/release.yml" \
+      --source-ref "refs/tags/$v" 2>&1) ||
       fail question "the attestation for $b on release $v is missing or bad: the files are not CI's build, or the check could not reach GitHub. It is remade by hand (the release and the tag deleted, the bead back to build), or checked again where the failure was the network" "$attest_out"
   done
   done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt, and every archive's attestation verifies."

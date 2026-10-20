@@ -550,7 +550,7 @@ will stand on the GitHub release. The yardmaster shapes the bead in
   itself.
 - `verify` downloads the draft, checks the signature against the release
   key, the archives against the checksums, and each archive's
-  build-provenance attestation, which says CI's release workflow built it
+  build-provenance attestation from the release workflow for this tag
   (`gh attestation verify`). A bad signature asks `sign` again.
 - `publish` releases the draft, files the yardr.dev sync bead and advances
   it to `new`; the release bead is `published`.
