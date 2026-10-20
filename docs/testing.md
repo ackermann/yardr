@@ -35,7 +35,28 @@ clocks the packages already own (the dispatcher's clock, which tests set;
 tests). A test that must use the real clock is allow-listed with its
 reason, and the gate counts those entries. The gate reads literal
 durations in `*_test.go` files; a sleep it cannot read, such as a
-variable, is not judged and still owes the budget.
+variable, is not judged and still owes the budget. A test waits for the
+effect it asserts: it polls the condition (a store event, a file, a held
+question, a ticket) with a deadline that is only a fuse against a hang,
+never the measurement. Where the code owns the time the test waits on,
+the test sets that clock -- the fake clocks named above -- and advances
+it. A deadline taken from the load is the last resort, and only where
+the thing waited on is a program outside the test (a harness binary, a
+browser): there the bound is product code, its failure under load is a
+product question, and the test stubs the bound long (as the doctor
+tests stub thirty seconds) instead of inheriting whatever load leaves
+of it. A count inside a fixed wall-clock window, and a sleep followed
+by asserting the slept-for event exists, are both the first shape
+written wrong. A reviewer checks the pick without running anything, as
+the sleep scan is checked: a diff that adds a test names one of the
+three shapes for every new sleep over the scan, every count asserted
+inside a fixed window, and every sleep-then-assert on the slept-for
+event -- the polled condition and its fuse, the set clock, or the
+stubbed product bound with its bead. The worked example is yardr-x51w's
+peerhold fix (`internal/dispatch/peerhold_test.go`): wait for six polls
+in whatever time the machine takes, and keep only the one elapsed-time
+assertion (at least 200 ms over five 50 ms pauses) whose direction load
+cannot falsify.
 
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for

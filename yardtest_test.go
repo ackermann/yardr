@@ -870,12 +870,49 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if n != 1 {
 					t.Errorf("the output has %d flaky lines, want 1", n)
 				}
+				// One log line per printed flaky line, in the log the repo
+				// owns: the date, the short sha, and the names the printed
+				// line carries.
+				common := gitT(t, dir, "rev-parse", "--git-common-dir")
+				if !filepath.IsAbs(common) {
+					common = filepath.Join(dir, common)
+				}
+				logb, err := os.ReadFile(filepath.Join(common, "yardr-flaky.log"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var logged []string
+				if s := strings.TrimSpace(string(logb)); s != "" {
+					logged = strings.Split(s, "\n")
+				}
+				if len(logged) != n {
+					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d)", len(logged), n)
+				}
+				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+				for _, line := range logged {
+					for _, want := range []string{sha, pkg, test} {
+						if !strings.Contains(line, want) {
+							t.Errorf("flaky log line %q, want it to carry %q", line, want)
+						}
+					}
+					if ok, _ := regexp.MatchString(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} `, line); !ok {
+						t.Errorf("flaky log line %q, want it to start with the date", line)
+					}
+				}
 				if strings.Contains(out, "test: FAILED") {
 					t.Errorf("a step that passed on rerun is followed by a failure summary")
 				}
 			} else {
 				if strings.Contains(out, "test: flaky:") {
 					t.Errorf("a step that failed twice names a flake")
+				}
+				// No flaky line printed, so no log line either.
+				common := gitT(t, dir, "rev-parse", "--git-common-dir")
+				if !filepath.IsAbs(common) {
+					common = filepath.Join(dir, common)
+				}
+				if _, err := os.Stat(filepath.Join(common, "yardr-flaky.log")); !os.IsNotExist(err) {
+					t.Errorf("a step that failed twice wrote the flaky log")
 				}
 				want := "test: FAILED: go test -race ./...\n--- FAIL: " + test
 				if !strings.Contains(out, want) || !strings.Contains(out, "FAIL\t"+pkg) {

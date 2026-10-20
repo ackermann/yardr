@@ -38,8 +38,9 @@ closing, or holding).
    through the cheapest setup that pins it (a function call, then a
    throwaway store, then a stand-in; a process, a sleep, or a build only
    where nothing cheaper reaches the behaviour), and wait on the effect,
-   not on wall time. A test that fails only under load is suspect: file
-   it from the flaky line, say in the finding whether it is the product
+   not on wall time. A test that fails only under load is suspect:
+   handle a fail-then-pass as the depot's AGENTS.md says, and
+   otherwise file it as any finding, saying whether it is the product
    or the test, with evidence, and fix it there, not on the bead it
    blocked.
 5. Test anything that starts agents or servers in an isolated environment,

@@ -109,7 +109,9 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # new, for a session, two reviews and a 15-minute landing run, all for load.
 # What this costs: a test that fails one time in two for a real race now gets
 # through a landing half the time. That is the trade; the flaky line in the
-# output is what makes it visible, and the yardmaster files a bead from it.
+# output is what makes it visible, and one line per flaky line is appended
+# to yardr-flaky.log in the git common dir, which the repo owns and every
+# worktree shares. AGENTS.md says when that line becomes a bead.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
 # A step's output is kept in its log and printed. Outside the race worker it
@@ -630,9 +632,17 @@ again() {
           step_ok=$((step_ok + $(okcount "$log")))
           if [ "$rc" = 0 ]; then
             if [ -n "$tests" ]; then
-              echo "test: flaky: $tests_line ($pkgs_line) passed on rerun"
+              flaky="$tests_line ($pkgs_line) passed on rerun"
             else
-              echo "test: flaky: $pkgs_line passed on rerun"
+              flaky="$pkgs_line passed on rerun"
+            fi
+            echo "test: flaky: $flaky"
+            # The same line in the log the repo owns: date, short sha, and
+            # the names the printed line carries. It is not committed. A
+            # run that cannot write it still passes: the line above stays
+            # the record.
+            if common=$(git rev-parse --git-common-dir 2>/dev/null); then
+              echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$common/yardr-flaky.log" || true
             fi
           fi
         fi

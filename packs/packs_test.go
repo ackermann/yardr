@@ -594,15 +594,17 @@ func TestEyesLabel(t *testing.T) {
 // The builder and reviewer roles say what a test may cost, in the six
 // copies that carry the regression-test lines: the cheapest setup that
 // pins the behaviour, waiting on the effect, and a test that fails only
-// under load filed from the flaky line with a finding saying whether it
-// is the product or the test (design yardr-022s, as its approval
-// softened it: suspect, not presumed a test bug). Wrapping differs
-// between the roles, so this reads each file as one line.
+// under load handled as the depot's AGENTS.md says, else filed as any
+// finding saying whether it is the product or the test (design
+// yardr-022s, as its approval softened it: suspect, not presumed a test
+// bug; yardr-wa54 moved the filing rule out of the packs, so each
+// depot's AGENTS.md owns it). Wrapping differs between the roles, so
+// this reads each file as one line.
 func TestRolesSayWhatATestMayCost(t *testing.T) {
 	files := packFiles(t)
 	rule := []string{
 		"A new test earns its seconds and its stability: drive the behaviour through the cheapest setup that pins it (a function call, then a throwaway store, then a stand-in; a process, a sleep, or a build only where nothing cheaper reaches the behaviour), and wait on the effect, not on wall time.",
-		"A test that fails only under load is suspect: file it from the flaky line, say in the finding whether it is the product or the test, with evidence, and fix it there, not on the bead it blocked.",
+		"A test that fails only under load is suspect: handle a fail-then-pass as the depot's AGENTS.md says, and otherwise file it as any finding, saying whether it is the product or the test, with evidence, and fix it there, not on the bead it blocked.",
 	}
 	for _, name := range []string{"starter/roles/builder.md", "contributors/roles/builder.md", "design/roles/builder.md", "starter/roles/reviewer.md", "contributors/roles/reviewer.md", "design/roles/reviewer.md"} {
 		body := strings.Join(strings.Fields(files[name]), " ")

@@ -16,9 +16,10 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
      throwaway store, then a stand-in; a process, a sleep, or a build
      only where nothing cheaper reaches the behaviour), and wait on the
      effect, not on wall time. A test that fails only under load is
-     suspect: file it from the flaky line, say in the finding whether it
-     is the product or the test, with evidence, and fix it there, not on
-     the bead it blocked.
+     suspect: handle a fail-then-pass as the depot's AGENTS.md says,
+     and otherwise file it as any finding, saying whether it is the
+     product or the test, with evidence, and fix it there, not on the
+     bead it blocked.
    - style matches the surrounding code; comments explain why
    - nothing outside the bead's scope crept in
    - a new concept, flag, setting or special case that an existing
