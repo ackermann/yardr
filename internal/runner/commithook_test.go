@@ -7,9 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
+
+// The tests in this file run in parallel: each drives real git commits, and
+// the hook behind each commit spawns git several times, so in sequence they
+// cost the package tens of seconds of its 60 s budget (docs/testing.md R1).
+// Each owns its repositories and homes under t.TempDir and scrubs the
+// session environment it passes down, so they share nothing.
 
 // sessionGit runs git in dir with the session environment env: a scrubbed
 // base (no YARDR_* or GIT_CONFIG_*, a hermetic identity and config, no
@@ -68,13 +75,41 @@ func sessionLog(t *testing.T, dir string, env []string) string {
 	return sessionGitT(t, dir, env, "log", "-1", "--format=%B")
 }
 
-func sessionHerdrEnv(t *testing.T, home string, job dispatch.Job, name string) []string {
+// testHookEnv installs a hooks dir holding the yard's commit-msg hook plus
+// the named pass-through shims, and returns the session lines pointing git
+// at it. A pass-through changes nothing where the repo has no hook of that
+// name, and each one git runs is two processes (the shim, its rev-parse),
+// so tests install only the shims their repo hooks need; the full install
+// is covered at the file level by TestEnsureCommitHookInstallsPassthroughs,
+// and every shim that fires here runs the same pass-through body.
+func testHookEnv(t *testing.T, home string, shims ...string) []string {
 	t.Helper()
-	env, err := (&Herdr{YardHome: home}).agentEnv(job, name)
-	if err != nil {
+	dir := config.At(home).GitHooks()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return env
+	files := []hookFile{{"commit-msg", commitHook}}
+	for _, name := range shims {
+		files = append(files, hookFile{name, passthroughHook})
+	}
+	for _, f := range files {
+		if err := ensureHookFile(dir, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=" + dir,
+		"GIT_CONFIG_PARAMETERS=",
+	}
+}
+
+// sessionTestEnv is the session env with a hooks dir holding the yard's
+// commit-msg hook plus the named pass-through shims (see testHookEnv).
+func sessionTestEnv(t *testing.T, home string, job dispatch.Job, name string, shims ...string) []string {
+	t.Helper()
+	return (&Herdr{YardHome: home}).agentEnvWithHook(job, name, testHookEnv(t, home, shims...))
 }
 
 // The yard owns the session's commit-msg hook: it is written under the
@@ -82,6 +117,7 @@ func sessionHerdrEnv(t *testing.T, home string, job dispatch.Job, name string) [
 // it alone, an outdated or unexecutable one is repaired, and a home that
 // holds none is an error, not a half-written hook.
 func TestEnsureCommitHook(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir, err := EnsureCommitHook(home)
 	if err != nil {
@@ -136,12 +172,13 @@ func TestEnsureCommitHook(t *testing.T) {
 // and syntactically sound, and an outdated or unexecutable one is repaired
 // as the commit-msg hook is.
 func TestEnsureCommitHookInstallsPassthroughs(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir, err := EnsureCommitHook(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range passthroughHooks {
+	for i, name := range passthroughHooks {
 		hook := filepath.Join(dir, name)
 		body, err := os.ReadFile(hook)
 		if err != nil || string(body) != passthroughHook {
@@ -150,8 +187,12 @@ func TestEnsureCommitHookInstallsPassthroughs(t *testing.T) {
 		if st, err := os.Stat(hook); err != nil || st.Mode().Perm()&0o111 == 0 {
 			t.Fatalf("%s not executable: %v", name, st)
 		}
-		if out, err := exec.Command("sh", "-n", hook).CombinedOutput(); err != nil {
-			t.Fatalf("%s: sh -n: %v\n%s", name, err, out)
+		// Every shim is byte-identical (checked above), so one syntax check
+		// covers all of them; each sh -n is a process spawn.
+		if i == 0 {
+			if out, err := exec.Command("sh", "-n", hook).CombinedOutput(); err != nil {
+				t.Fatalf("%s: sh -n: %v\n%s", name, err, out)
+			}
 		}
 	}
 	one := filepath.Join(dir, "pre-commit")
@@ -173,6 +214,29 @@ func TestEnsureCommitHookInstallsPassthroughs(t *testing.T) {
 	}
 }
 
+// writeRepoHook writes one executable hook into dir.
+func writeRepoHook(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// otherHooksRepo is a session repo with a hooks dir and the session env to
+// commit in it: the yard's commit-msg hook plus the pre-commit and
+// prepare-commit-msg shims.
+func otherHooksRepo(t *testing.T) (repo, hooks string, env []string) {
+	t.Helper()
+	repo = sessionRepo(t)
+	hooks = filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	job := sessionJob("web-3", "builders", "claude", "opus")
+	env = sessionTestEnv(t, t.TempDir(), job, "web-3-new", "pre-commit", "prepare-commit-msg")
+	return repo, hooks, env
+}
+
 // The repo's other hooks still run in a session, not only its commit-msg:
 // a pre-commit that refuses blocks the session's commit as it would
 // without the yard's hook, prepare-commit-msg runs, and a commit the
@@ -180,89 +244,105 @@ func TestEnsureCommitHookInstallsPassthroughs(t *testing.T) {
 // points its own core.hooksPath elsewhere has its pre-commit run from
 // there too.
 func TestSessionCommitRunsOtherRepoHooks(t *testing.T) {
-	repo := sessionRepo(t)
-	home := t.TempDir()
-	hooks := filepath.Join(repo, ".git", "hooks")
-	if err := os.MkdirAll(hooks, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	preRan := filepath.Join(repo, ".git", "pre-commit.ran")
-	prepareRan := filepath.Join(repo, ".git", "prepare-commit-msg.ran")
-	writeHook := func(name, body string) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(hooks, name), []byte(body), 0o755); err != nil {
+	t.Parallel()
+	t.Run("refused", func(t *testing.T) {
+		t.Parallel()
+		repo, hooks, env := otherHooksRepo(t)
+		preRan := filepath.Join(repo, ".git", "pre-commit.ran")
+		writeRepoHook(t, hooks, "pre-commit", "#!/bin/sh\necho ran > "+preRan+"\nexit 1\n")
+		if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused"); err == nil {
+			t.Fatalf("a refusing repo pre-commit committed:\n%s", out)
+		}
+		if _, err := os.Stat(preRan); err != nil {
+			t.Fatal("the repo's pre-commit hook did not run")
+		}
+	})
+	t.Run("allowed", func(t *testing.T) {
+		t.Parallel()
+		repo, hooks, env := otherHooksRepo(t)
+		preRan := filepath.Join(repo, ".git", "pre-commit.ran")
+		prepareRan := filepath.Join(repo, ".git", "prepare-commit-msg.ran")
+		writeRepoHook(t, hooks, "pre-commit", "#!/bin/sh\necho ran > "+preRan+"\n")
+		writeRepoHook(t, hooks, "prepare-commit-msg", "#!/bin/sh\necho ran > "+prepareRan+"\n")
+		sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: allowed")
+		if _, err := os.Stat(preRan); err != nil {
+			t.Fatal("the repo's pre-commit hook did not run")
+		}
+		if _, err := os.Stat(prepareRan); err != nil {
+			t.Fatal("the repo's prepare-commit-msg hook did not run")
+		}
+		if body := sessionLog(t, repo, env); strings.Count(body, "Yardr-Bead: web-3") != 1 ||
+			strings.Count(body, "Yardr-Agent: builders (claude opus)") != 1 {
+			t.Fatalf("yard trailers missing beside repo hooks:\n%s", body)
+		}
+	})
+	// From a depot-configured hooksPath, as for commit-msg.
+	t.Run("configured hooksPath", func(t *testing.T) {
+		t.Parallel()
+		repo, _, env := otherHooksRepo(t)
+		custom := filepath.Join(repo, "myhooks")
+		if err := os.MkdirAll(custom, 0o755); err != nil {
 			t.Fatal(err)
 		}
-	}
-	writeHook("pre-commit", "#!/bin/sh\necho ran > "+preRan+"\nexit 1\n")
-	writeHook("prepare-commit-msg", "#!/bin/sh\necho ran > "+prepareRan+"\n")
-	job := sessionJob("web-3", "builders", "claude", "opus")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
-	if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused"); err == nil {
-		t.Fatalf("a refusing repo pre-commit committed:\n%s", out)
-	}
-	if _, err := os.Stat(preRan); err != nil {
-		t.Fatal("the repo's pre-commit hook did not run")
-	}
-	writeHook("pre-commit", "#!/bin/sh\necho ran > "+preRan+"\n")
-	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: allowed")
-	if _, err := os.Stat(prepareRan); err != nil {
-		t.Fatal("the repo's prepare-commit-msg hook did not run")
-	}
-	if body := sessionLog(t, repo, env); strings.Count(body, "Yardr-Bead: web-3") != 1 ||
-		strings.Count(body, "Yardr-Agent: builders (claude opus)") != 1 {
-		t.Fatalf("yard trailers missing beside repo hooks:\n%s", body)
-	}
+		customRan := filepath.Join(repo, ".git", "custom-pre-commit.ran")
+		writeRepoHook(t, custom, "pre-commit", "#!/bin/sh\necho ran > "+customRan+"\nexit 1\n")
+		gitT(t, repo, "config", "core.hooksPath", "myhooks")
+		if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused"); err == nil {
+			t.Fatalf("a refusing configured pre-commit committed:\n%s", out)
+		}
+		if _, err := os.Stat(customRan); err != nil {
+			t.Fatal("the depot's configured pre-commit hook did not run")
+		}
+	})
+}
 
-	// From a depot-configured hooksPath, as for commit-msg.
-	custom := filepath.Join(repo, "myhooks")
-	if err := os.MkdirAll(custom, 0o755); err != nil {
-		t.Fatal(err)
+// pushThroughPrePush pushes one session commit past a repo pre-push hook
+// that refuses when refuse is set.
+func pushThroughPrePush(t *testing.T, refuse bool) {
+	t.Helper()
+	repo := sessionRepo(t)
+	home := t.TempDir()
+	bare := t.TempDir()
+	gitT(t, bare, "init", "-q", "--bare", "-b", "main")
+	ran := filepath.Join(repo, ".git", "pre-push.ran")
+	body := "#!/bin/sh\necho ran > " + ran + "\n"
+	if refuse {
+		body = "#!/bin/sh\necho ran > " + ran + "\nexit 1\n"
 	}
-	customRan := filepath.Join(repo, ".git", "custom-pre-commit.ran")
-	if err := os.WriteFile(filepath.Join(custom, "pre-commit"),
-		[]byte("#!/bin/sh\necho ran > "+customRan+"\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
+	writeRepoHook(t, filepath.Join(repo, ".git", "hooks"), "pre-push", body)
+	job := sessionJob("web-3", "builders", "codex", "luna")
+	env := sessionTestEnv(t, home, job, "web-3-new", "pre-push")
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: to push")
+	out, err := sessionGit(t, repo, env, "push", bare, "main")
+	if refuse && err == nil {
+		t.Fatalf("a refusing repo pre-push pushed:\n%s", out)
 	}
-	gitT(t, repo, "config", "core.hooksPath", "myhooks")
-	if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused again"); err == nil {
-		t.Fatalf("a refusing configured pre-commit committed:\n%s", out)
+	if !refuse && err != nil {
+		t.Fatalf("an allowing repo pre-push refused:\n%s", out)
 	}
-	if _, err := os.Stat(customRan); err != nil {
-		t.Fatal("the depot's configured pre-commit hook did not run")
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatal("the repo's pre-push hook did not run")
 	}
 }
 
 // A repo pre-push hook still guards a session's push: one that refuses
 // leaves the remote where it was, one that allows lets the push through.
 func TestSessionPushRunsRepoPrePush(t *testing.T) {
-	repo := sessionRepo(t)
-	home := t.TempDir()
-	bare := t.TempDir()
-	gitT(t, bare, "init", "-q", "--bare", "-b", "main")
-	ran := filepath.Join(repo, ".git", "pre-push.ran")
-	hook := filepath.Join(repo, ".git", "hooks", "pre-push")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran > "+ran+"\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
-	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: to push")
-	if out, err := sessionGit(t, repo, env, "push", bare, "main"); err == nil {
-		t.Fatalf("a refusing repo pre-push pushed:\n%s", out)
-	}
-	if _, err := os.Stat(ran); err != nil {
-		t.Fatal("the repo's pre-push hook did not run")
-	}
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran > "+ran+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	sessionGitT(t, repo, env, "push", bare, "main")
+	t.Parallel()
+	t.Run("refused", func(t *testing.T) {
+		t.Parallel()
+		pushThroughPrePush(t, true)
+	})
+	t.Run("allowed", func(t *testing.T) {
+		t.Parallel()
+		pushThroughPrePush(t, false)
+	})
 }
 
 // A runner does not start work when it cannot install the hook that gives
 // session commits their trailers.
 func TestRunnerDoesNotStartWithoutCommitHook(t *testing.T) {
+	t.Parallel()
 	home := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(home, []byte("file"), 0o600); err != nil {
 		t.Fatal(err)
@@ -292,59 +372,69 @@ func TestRunnerDoesNotStartWithoutCommitHook(t *testing.T) {
 // Co-Authored-By, in whatever case, and Signed-off-by go); any other
 // trailer stays, and the depot's shared .git/config is unchanged.
 func TestSessionCommitsCarryYardrTrailers(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ kind, model string }{
 		{"claude", "claude-opus-4-5"},
 		{"codex", "gpt-6-luna"},
 		{"muse", "muse-spark"},
 	} {
-		repo := sessionRepo(t)
-		before, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
-		if err != nil {
-			t.Fatal(err)
+		t.Run(tc.kind, func(t *testing.T) {
+			t.Parallel()
+			carryYardrTrailers(t, tc.kind, tc.model)
+		})
+	}
+}
+
+func carryYardrTrailers(t *testing.T, kind, model string) {
+	t.Helper()
+	repo := sessionRepo(t)
+	before, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	job := sessionJob("web-3", "builders", kind, model)
+	env := sessionTestEnv(t, home, job, "web-3-new")
+	for _, want := range []string{
+		"YARDR_KIND=" + kind, "YARDR_MODEL=" + model,
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=" + filepath.Join(home, "githooks"),
+		"GIT_CONFIG_PARAMETERS=",
+	} {
+		found := false
+		for _, kv := range env {
+			found = found || kv == want
 		}
-		home := t.TempDir()
-		job := sessionJob("web-3", "builders", tc.kind, tc.model)
-		env := sessionHerdrEnv(t, home, job, "web-3-new")
-		for _, want := range []string{
-			"YARDR_KIND=" + tc.kind, "YARDR_MODEL=" + tc.model,
-			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath",
-			"GIT_CONFIG_VALUE_0=" + filepath.Join(home, "githooks"),
-			"GIT_CONFIG_PARAMETERS=",
-		} {
-			found := false
-			for _, kv := range env {
-				found = found || kv == want
-			}
-			if !found {
-				t.Errorf("%s: session env lacks %q", tc.kind, want)
-			}
+		if !found {
+			t.Errorf("session env lacks %q", want)
 		}
-		msg := "web-3: carry the yard's trailers\n\nA body naming no trailers.\n\n" +
-			"Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\n" +
-			"co-authored-by: second <two@example.com>\n" +
-			"Signed-off-by: Christopher Scott <c@example.com>\n" +
-			"Reviewed-by: Zed <z@example.com>\n"
-		sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", msg)
-		body := sessionLog(t, repo, env)
-		for _, want := range []string{"Yardr-Bead: web-3", "Yardr-Agent: builders (" + tc.kind + " " + tc.model + ")", "Reviewed-by: Zed <z@example.com>"} {
-			if n := strings.Count(body, want); n != 1 {
-				t.Errorf("%s: %q %d times, want once:\n%s", tc.kind, want, n, body)
-			}
+	}
+	msg := "web-3: carry the yard's trailers\n\nA body naming no trailers.\n\n" +
+		"Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\n" +
+		"co-authored-by: second <two@example.com>\n" +
+		"Signed-off-by: Christopher Scott <c@example.com>\n" +
+		"Reviewed-by: Zed <z@example.com>\n"
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", msg)
+	body := sessionLog(t, repo, env)
+	for _, want := range []string{"Yardr-Bead: web-3", "Yardr-Agent: builders (" + kind + " " + model + ")", "Reviewed-by: Zed <z@example.com>"} {
+		if n := strings.Count(body, want); n != 1 {
+			t.Errorf("%q %d times, want once:\n%s", want, n, body)
 		}
-		for _, gone := range []string{"co-authored-by", "signed-off-by"} {
-			if strings.Contains(strings.ToLower(body), gone) {
-				t.Errorf("%s: %s survived:\n%s", tc.kind, gone, body)
-			}
+	}
+	for _, gone := range []string{"co-authored-by", "signed-off-by"} {
+		if strings.Contains(strings.ToLower(body), gone) {
+			t.Errorf("%s survived:\n%s", gone, body)
 		}
-		if after, _ := os.ReadFile(filepath.Join(repo, ".git", "config")); string(after) != string(before) {
-			t.Errorf("%s: .git/config changed:\n%s", tc.kind, after)
-		}
+	}
+	if after, _ := os.ReadFile(filepath.Join(repo, ".git", "config")); string(after) != string(before) {
+		t.Errorf(".git/config changed:\n%s", after)
 	}
 }
 
 // Repo trailer config must not rename the yard's trailers, change their
 // separators, or make the hook miss harness trailers while parsing.
 func TestSessionCommitIgnoresRepoTrailerConfig(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	for key, value := range map[string]string{
 		"trailer.separators":         ";",
@@ -355,7 +445,7 @@ func TestSessionCommitIgnoresRepoTrailerConfig(t *testing.T) {
 		gitT(t, repo, "config", key, value)
 	}
 	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := sessionHerdrEnv(t, t.TempDir(), job, "web-3-new")
+	env := sessionTestEnv(t, t.TempDir(), job, "web-3-new")
 	message := "web-3: ignore trailer config\n\n" +
 		"Co-Authored-By: Claude <c@example.com>\n" +
 		"Signed-off-by: Operator <o@example.com>\n"
@@ -376,10 +466,11 @@ func TestSessionCommitIgnoresRepoTrailerConfig(t *testing.T) {
 // Amending never duplicates the yard's trailers: neither amending in place
 // nor amending with a message the harness signed again.
 func TestSessionCommitAmendKeepsSingleTrailers(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "claude", "opus")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: one\n\nCo-Authored-By: Claude <c@example.com>\n")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "--amend", "--no-edit")
@@ -401,10 +492,11 @@ func TestSessionCommitAmendKeepsSingleTrailers(t *testing.T) {
 // Every matching trailer is removed, however many the message contains,
 // and duplicate Yardr trailers are replaced by exactly the current pair.
 func TestSessionCommitNormalizesDuplicateTrailers(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "muse", "spark")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 
 	var msg strings.Builder
 	msg.WriteString("web-3: normalize all trailers\n\n")
@@ -432,6 +524,7 @@ func TestSessionCommitNormalizesDuplicateTrailers(t *testing.T) {
 // The repo's own commit-msg hook still runs: what it adds stays beside the
 // yard's trailers, and one that refuses the message fails the commit.
 func TestSessionCommitRunsRepoHook(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	ran := filepath.Join(repo, ".git", "repo-hook.ran")
@@ -443,7 +536,7 @@ func TestSessionCommitRunsRepoHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: chained\n\nSigned-off-by: Christopher Scott <c@example.com>\n")
 	if _, err := os.Stat(ran); err != nil {
@@ -472,6 +565,7 @@ func TestSessionCommitRunsRepoHook(t *testing.T) {
 // run: the yard chains to what git would run without the session's
 // override, not only to the git dir's hooks.
 func TestSessionCommitChainsConfiguredHooksPath(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	ran := filepath.Join(repo, ".git", "custom-hook.ran")
@@ -485,7 +579,7 @@ func TestSessionCommitChainsConfiguredHooksPath(t *testing.T) {
 	}
 	gitT(t, repo, "config", "core.hooksPath", "myhooks")
 	job := sessionJob("web-3", "builders", "claude", "opus")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: custom hooks path")
 	if _, err := os.Stat(ran); err != nil {
 		t.Fatal("the depot's configured commit-msg hook did not run")
@@ -498,12 +592,13 @@ func TestSessionCommitChainsConfiguredHooksPath(t *testing.T) {
 // A session commits in a linked worktree, not in the depot checkout: its
 // commits carry the yard's trailers there too.
 func TestSessionCommitInLinkedWorktreeCarriesTrailers(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	wt := filepath.Join(t.TempDir(), "web-3")
 	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/web-3", wt)
 	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 	sessionGitT(t, wt, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: from the worktree\n\nSigned-off-by: Christopher Scott <c@example.com>\n")
 	body := sessionLog(t, wt, env)
@@ -520,6 +615,7 @@ func TestSessionCommitInLinkedWorktreeCarriesTrailers(t *testing.T) {
 // Outside a session the yard's hook leaves the message alone (there is no
 // bead to name), while the repo's own hook still runs.
 func TestCommitOutsideSessionLeavesMessage(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	ran := filepath.Join(repo, ".git", "repo-hook.ran")
@@ -530,11 +626,7 @@ func TestCommitOutsideSessionLeavesMessage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".git", "hooks", "commit-msg"), []byte(hook), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := EnsureCommitHook(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + dir}
+	env := testHookEnv(t, home)
 	msg := "a change\n\nCo-Authored-By: Someone <s@example.com>\n"
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", msg)
 	if _, err := os.Stat(ran); err != nil {
@@ -549,6 +641,7 @@ func TestCommitOutsideSessionLeavesMessage(t *testing.T) {
 // An exec session runs a script, not an agent: its commits name the group
 // with kind exec, and the bead's model override still applies.
 func TestExecSessionCommitNamesExec(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := dispatch.Job{
@@ -557,10 +650,7 @@ func TestExecSessionCommitNamesExec(t *testing.T) {
 		Session: store.Session{ID: "s1"},
 	}
 	e := &Exec{Home: home, Bin: "/bin/yardr"}
-	hookEnv, err := commitHookEnv(home)
-	if err != nil {
-		t.Fatal(err)
-	}
+	hookEnv := testHookEnv(t, home)
 	var env []string
 	env = append(env, Env(job, job.Group.Name)...)
 	env = append(env, e.env(job, hookEnv)...)
@@ -589,10 +679,11 @@ func TestExecSessionCommitNamesExec(t *testing.T) {
 // A commit through the editor carries the yard's trailers too: the hook
 // appends past git's comment lines, which the cleanup strips.
 func TestEditorCommitCarriesYardrTrailers(t *testing.T) {
+	t.Parallel()
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "muse", "spark")
-	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	env := sessionTestEnv(t, home, job, "web-3-new")
 	editor := filepath.Join(t.TempDir(), "editor")
 	if err := os.WriteFile(editor, []byte("#!/bin/sh\nprintf 'web-3: through the editor\\n' > \"$1\"\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -610,6 +701,7 @@ func TestEditorCommitCarriesYardrTrailers(t *testing.T) {
 // The session model is the bead's override, else the group's, as the
 // agent's own --model.
 func TestSessionModel(t *testing.T) {
+	t.Parallel()
 	job := func(groupCfg, beadMeta map[string]any) dispatch.Job {
 		return dispatch.Job{Group: store.Group{Config: groupCfg}, Bead: store.Bead{Metadata: beadMeta}}
 	}
@@ -633,6 +725,7 @@ func TestSessionModel(t *testing.T) {
 // either would win over (or add to) the core.hooksPath the session points
 // at its own commit-msg hook with.
 func TestWithheldDropsGitConfig(t *testing.T) {
+	t.Parallel()
 	job := dispatch.Job{Depot: &store.Depot{Name: "web", Base: "main"}}
 	got := withheld(job, []string{"PATH=/bin", "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=a",
 		"GIT_CONFIG_VALUE_0=b", "GIT_CONFIG_KEY_1=c", "GIT_CONFIG_VALUE_1=d",

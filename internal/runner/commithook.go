@@ -38,21 +38,12 @@ set -u
 msg=${1:?usage: commit-msg <msgfile>}
 
 # The repo's own commit-msg hook first, so a depot's hooks still run: what
-# git would run without this one (the configured hooksPath, else the git
-# dir's hooks), read past this session's core.hooksPath override. A hook
-# that refuses the message fails the commit before the yard normalizes it.
-hooks_path=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git config core.hooksPath 2>/dev/null || true)
-if [ -n "$hooks_path" ]; then
-	case "$hooks_path" in
-	/*) repo_hooks=$hooks_path ;;
-	*) top=$(git rev-parse --show-toplevel 2>/dev/null || true)
-	   repo_hooks=${top:+$top/}$hooks_path ;;
-	esac
-else
-	# --git-path honours core.hooksPath, so read it past the override too:
-	# without that it names this hook's own directory.
-	repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git rev-parse --git-path hooks 2>/dev/null || true)
-fi
+# git would run without this one, read past this session's core.hooksPath
+# override. --git-path honours a configured hooksPath (a relative one it
+# returns relative to here, where git runs hooks), and otherwise names the
+# git dir's hooks: one git call, as in the pass-through below. A hook that
+# refuses the message fails the commit before the yard normalizes it.
+repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git rev-parse --git-path hooks 2>/dev/null || true)
 if [ -n "${repo_hooks:-}" ] && [ -x "$repo_hooks/commit-msg" ] && [ ! "$repo_hooks/commit-msg" -ef "$0" ]; then
 	"$repo_hooks/commit-msg" "$@" || exit $?
 fi
@@ -88,13 +79,16 @@ trailer_git() {
 		git -C / "$@"
 }
 
-# One interpret-trailers pass replaces one same-key trailer, so remove each
-# kind until git's own parse shows none left. Do the same for old Yardr
+# One interpret-trailers pass replaces one same-key trailer, so count the
+# kind's trailers with git's own parse and replace that many; a parse per
+# trailer would double the hook's git calls. Do the same for old Yardr
 # trailers: replace would otherwise leave an earlier duplicate behind.
 drop_trailers() {
 	token=$1
-	while trailer_git interpret-trailers --parse < "$msg" 2>/dev/null | grep -qiE "^${token}[[:space:]:]"; do
+	n=$(trailer_git interpret-trailers --parse < "$msg" 2>/dev/null | grep -ciE "^${token}[[:space:]:]")
+	while [ "$n" -gt 0 ]; do
 		trailer_git interpret-trailers --trim-empty --if-exists replace --trailer "$token:" --in-place "$msg" || exit $?
+		n=$((n - 1))
 	done
 }
 drop_trailers 'Co-Authored-By'
