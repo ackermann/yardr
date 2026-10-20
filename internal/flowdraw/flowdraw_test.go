@@ -40,21 +40,21 @@ func TestTrainFlowOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := planOf(flow(t, "yardr.train", string(text)))
-	if want := []string{"backlog", "open", "review", "merge", "approved", "in-pr", "land", "merged"}; !slices.Equal(p.line, want) {
+	if want := []string{"backlog", "open", "review", "merge", "review-security", "approved", "in-pr", "land", "merged"}; !slices.Equal(p.line, want) {
 		t.Errorf("line = %v, want %v", p.line, want)
 	}
 	if want := []string{"decide"}; !slices.Equal(p.sidings, want) {
 		t.Errorf("sidings = %v, want %v", p.sidings, want)
 	}
-	// review's way on is approved, past merge: the track on either side of
-	// merge carries nothing, and the way on is a line below.
-	if want := []bool{true, true, false, false, true, true, true}; !slices.Equal(p.track, want) {
+	// review's way on is review-security, past merge: the track on either
+	// side of merge carries nothing, and the way on is a line below.
+	if want := []bool{true, true, false, false, true, true, true, true}; !slices.Equal(p.track, want) {
 		t.Errorf("track = %v, want %v", p.track, want)
 	}
 	if !slices.ContainsFunc(p.loops, func(l loop) bool {
-		return l.from == "review" && l.to == "approved" && slices.Equal(l.outcomes, []string{"done"})
+		return l.from == "review" && l.to == "review-security" && slices.Equal(l.outcomes, []string{"done"})
 	}) {
-		t.Errorf("no line below for review -> approved on done: %+v", p.loops)
+		t.Errorf("no line below for review -> review-security on done: %+v", p.loops)
 	}
 	// merge leads to open on two outcomes: one line, both named.
 	if !slices.ContainsFunc(p.loops, func(l loop) bool {
@@ -62,7 +62,7 @@ func TestTrainFlowOrder(t *testing.T) {
 	}) {
 		t.Errorf("no single line for merge -> open on done, rework: %+v", p.loops)
 	}
-	if want := []string{"review", "approved", "in-pr"}; !slices.Equal(p.signals, want) {
+	if want := []string{"review", "review-security", "approved", "in-pr"}; !slices.Equal(p.signals, want) {
 		t.Errorf("signals = %v, want %v", p.signals, want)
 	}
 }
