@@ -1181,7 +1181,7 @@ yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
   --says "event=pull_request action=closed merged=true -> merged: PR merged" \
   --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
   --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR" \
-  --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR" \
+  --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security -> changes: CI failed on the head of the PR" \
   --says "event=ci conclusion=success stage=in-pr -> done" \
   --says "event=ci conclusion=failure stage=in-pr -> changes"
 ```
@@ -1197,19 +1197,22 @@ no `ci` command (the `github` pack's setup notes walk it).
    yardr-pr-merge session is still running is moved as any bead is by a
    `done` from outside its session: the session ends with the move, and its
    own `done` afterwards is refused as stale.
-2. **PR closed unmerged** is `question`: a train in `review` or `in-pr`
-   goes to `decide` with "PR closed unmerged: reopen, or drop the train?".
+2. **PR closed unmerged** is `question`: a train in `review`,
+   `review-security` or `in-pr` goes to `decide` with "PR closed unmerged:
+   reopen, or drop the train?".
 3. **Changes requested** by a person (`sender=user`: a login ending in
    `[bot]` is a bot; the yard posts no reviews, as pr-train writes its
-   review into the PR's body) is `changes`: from `review`, `approved` and
-   `in-pr` the train goes back to `open` with the review in the note, where
-   its integrators take it up again. Comments (`issue_comment`) have no
-   line: a crew member subscribed to github with `--scope mentions` gets them.
-4. **CI red, in `review`**: a `workflow_run` or `check_suite` completed
-   with conclusion `failure` or `timed_out` on the head is `changes` too,
-   and the line holds in `review` only (`stage=review`). A `cancelled` run
-   or suite is not red: someone, or a newer push, stopped it, so it says
-   nothing about the commit.
+   review into the PR's body) is `changes`: from `review`, `review-security`,
+   `approved` and `in-pr` the train goes back to `open` with the review in the
+   note, where its integrators take it up again. Comments (`issue_comment`)
+   have no line: a crew member subscribed to github with `--scope mentions`
+   gets them.
+4. **CI red, in `review` or `review-security`**: a `workflow_run` or
+   `check_suite` completed with conclusion `failure` or `timed_out` on the
+   head is `changes` too, and the line holds in those two only
+   (`stage=review stage=review-security`). A `cancelled` run or suite is not
+   red: someone, or a newer push, stopped it, so it says nothing about the
+   commit.
 5. **CI, in `in-pr`** (`event=ci`): not taken from an event. CI is state,
    read from the source through its `ci` command, and an event only has it
    read again (see "CI is read as state" below). What was read is put to
