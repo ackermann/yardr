@@ -292,6 +292,26 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 	wantCardClosed(t, y, declined.Bead, "declined by mckean")
 }
 
+// A decline ends a mapping card as a pick that writes does, so it is
+// the operator the card asks alone to give: another user's decline is
+// refused whole, and the card stands open for the operator.
+func TestMappingDeclineIsTheOperatorsAlone(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	card := claimCard(t, y, "U555")
+	if err := y.DeclineAsk(y.ctx, card.Bead, card.Ask, "not now", "ada"); err == nil || !strings.Contains(err.Error(), "the operator") {
+		t.Fatalf("a decline by ada = %v, want it refused as the operator's alone", err)
+	}
+	wantCardOpen(t, y, card.Bead)
+	if q := mappingQueue(t, y); len(q.Open) != 1 || q.Open[0].Bead != card.Bead {
+		t.Fatalf("open asks after a refused decline = %+v, want the card left open", q.Open)
+	}
+	if err := y.DeclineAsk(y.ctx, card.Bead, card.Ask, "not now", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, card.Bead, "declined by mckean")
+}
+
 // mappedTo is the users who hold the sender's id in the source.
 func mappedTo(y *askYard, source, sender string) (holders []string, err error) {
 	err = y.read(func(tx *bolt.Tx) (err error) {
