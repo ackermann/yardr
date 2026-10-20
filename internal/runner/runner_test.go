@@ -1076,27 +1076,27 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 		Group: store.Group{Name: "assembly", Config: map[string]any{"worktrees": "/wt"}},
 		Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"},
 	}
-	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
 		t.Fatalf("config.worktrees ignored: %v", env)
 	}
 	// A child of a train lands on the train's branch, not the depot's base.
-	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=main") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=main") {
 		t.Fatalf("no train: %v", env)
 	}
 	// The type and the train are always said, the train empty for none, so a
 	// script can tell a wagon of a train (merge-local tests it without YARDR_LANDING) and no
 	// value the daemon was started with reads as the bead's.
 	job.Bead.Type = "wagon"
-	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=wagon") || !slices.Contains(env, "YARDR_TRAIN=") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_TYPE=wagon") || !slices.Contains(env, "YARDR_TRAIN=") {
 		t.Fatalf("no train: %v", env)
 	}
 	job.Train, job.Base = "yd-e", "yard/yd-e"
-	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") {
 		t.Fatalf("child of a train: %v", env)
 	}
 	// Without a depot there is no worktree, but the branch is still known.
 	job.Depot = nil
-	env := e.env(job)
+	env := e.env(job, nil)
 	if !slices.Contains(env, "YARDR_BRANCH=yard/yd-7") || slices.ContainsFunc(env, func(s string) bool {
 		return strings.HasPrefix(s, "YARDR_WORKTREE=")
 	}) {
@@ -1968,7 +1968,7 @@ func TestExecEnvDirDepot(t *testing.T) {
 		}
 	}
 	// A git depot's command is told its kind too.
-	if env := e.env(dispatch.Job{Bead: job.Bead, Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"}}); !slices.Contains(env, "YARDR_DEPOT_KIND=git") {
+	if env := e.env(dispatch.Job{Bead: job.Bead, Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"}}, nil); !slices.Contains(env, "YARDR_DEPOT_KIND=git") {
 		t.Errorf("git depot env: %v", env)
 	}
 }

@@ -68,6 +68,15 @@ func sessionLog(t *testing.T, dir string, env []string) string {
 	return sessionGitT(t, dir, env, "log", "-1", "--format=%B")
 }
 
+func sessionHerdrEnv(t *testing.T, home string, job dispatch.Job, name string) []string {
+	t.Helper()
+	env, err := (&Herdr{YardHome: home}).agentEnv(job, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
 // The yard owns the session's commit-msg hook: it is written under the
 // yard's home, executable, and syntactically sound; a second install leaves
 // it alone, an outdated or unexecutable one is repaired, and a home that
@@ -122,6 +131,33 @@ func TestEnsureCommitHook(t *testing.T) {
 	}
 }
 
+// A runner does not start work when it cannot install the hook that gives
+// session commits their trailers.
+func TestRunnerDoesNotStartWithoutCommitHook(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(home, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "started")
+	job := dispatch.Job{
+		Bead:  store.Bead{ID: "web-3", Type: "task", Stage: "new"},
+		Group: store.Group{Name: "builders", Config: map[string]any{"cmd": "touch " + marker}},
+	}
+	if _, err := (&Exec{Home: home}).Start(t.Context(), job); err == nil ||
+		!strings.Contains(err.Error(), "install yard commit-msg hook") {
+		t.Fatalf("exec start error = %v, want a commit-hook install error", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("exec command started without its hook: %v", err)
+	}
+
+	job.Depot = &store.Depot{Name: "web", Path: t.TempDir(), Kind: store.DepotGit}
+	if _, err := (&Herdr{YardHome: home}).Start(t.Context(), job); err == nil ||
+		!strings.Contains(err.Error(), "install yard commit-msg hook") {
+		t.Fatalf("herdr start error = %v, want a commit-hook install error", err)
+	}
+}
+
 // A commit made in a session's worktree by each harness ends in exactly the
 // yard's two trailers, whatever the harness signed with (each of several
 // Co-Authored-By, in whatever case, and Signed-off-by go); any other
@@ -139,7 +175,7 @@ func TestSessionCommitsCarryYardrTrailers(t *testing.T) {
 		}
 		home := t.TempDir()
 		job := sessionJob("web-3", "builders", tc.kind, tc.model)
-		env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+		env := sessionHerdrEnv(t, home, job, "web-3-new")
 		for _, want := range []string{
 			"YARDR_KIND=" + tc.kind, "YARDR_MODEL=" + tc.model,
 			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath",
@@ -182,7 +218,7 @@ func TestSessionCommitAmendKeepsSingleTrailers(t *testing.T) {
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "claude", "opus")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: one\n\nCo-Authored-By: Claude <c@example.com>\n")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "--amend", "--no-edit")
@@ -207,7 +243,7 @@ func TestSessionCommitNormalizesDuplicateTrailers(t *testing.T) {
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "muse", "spark")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 
 	var msg strings.Builder
 	msg.WriteString("web-3: normalize all trailers\n\n")
@@ -246,7 +282,7 @@ func TestSessionCommitRunsRepoHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: chained\n\nSigned-off-by: Christopher Scott <c@example.com>\n")
 	if _, err := os.Stat(ran); err != nil {
@@ -288,7 +324,7 @@ func TestSessionCommitChainsConfiguredHooksPath(t *testing.T) {
 	}
 	gitT(t, repo, "config", "core.hooksPath", "myhooks")
 	job := sessionJob("web-3", "builders", "claude", "opus")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: custom hooks path")
 	if _, err := os.Stat(ran); err != nil {
 		t.Fatal("the depot's configured commit-msg hook did not run")
@@ -306,7 +342,7 @@ func TestSessionCommitInLinkedWorktreeCarriesTrailers(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "web-3")
 	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/web-3", wt)
 	job := sessionJob("web-3", "builders", "codex", "luna")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 	sessionGitT(t, wt, env, "commit", "-q", "--allow-empty",
 		"-m", "web-3: from the worktree\n\nSigned-off-by: Christopher Scott <c@example.com>\n")
 	body := sessionLog(t, wt, env)
@@ -360,9 +396,13 @@ func TestExecSessionCommitNamesExec(t *testing.T) {
 		Session: store.Session{ID: "s1"},
 	}
 	e := &Exec{Home: home, Bin: "/bin/yardr"}
+	hookEnv, err := commitHookEnv(home)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var env []string
 	env = append(env, Env(job, job.Group.Name)...)
-	env = append(env, e.env(job)...)
+	env = append(env, e.env(job, hookEnv)...)
 	for _, want := range []string{"YARDR_KIND=exec", "YARDR_MODEL=omni", "GIT_CONFIG_COUNT=1"} {
 		found := false
 		for _, kv := range env {
@@ -378,7 +418,7 @@ func TestExecSessionCommitNamesExec(t *testing.T) {
 		t.Fatalf("exec commit:\n%s", body)
 	}
 	job.Bead.Metadata = nil
-	env = append(Env(job, job.Group.Name), e.env(job)...)
+	env = append(Env(job, job.Group.Name), e.env(job, hookEnv)...)
 	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "yd-7: again")
 	if body := sessionLog(t, repo, env); strings.Count(body, "Yardr-Agent: assembly (exec)") != 1 {
 		t.Fatalf("exec commit with no model:\n%s", body)
@@ -391,7 +431,7 @@ func TestEditorCommitCarriesYardrTrailers(t *testing.T) {
 	repo := sessionRepo(t)
 	home := t.TempDir()
 	job := sessionJob("web-3", "builders", "muse", "spark")
-	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
 	editor := filepath.Join(t.TempDir(), "editor")
 	if err := os.WriteFile(editor, []byte("#!/bin/sh\nprintf 'web-3: through the editor\\n' > \"$1\"\n"), 0o755); err != nil {
 		t.Fatal(err)

@@ -3,7 +3,6 @@ package runner
 import (
 	"cmp"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -150,23 +149,20 @@ func modelFor(cfg map[string]any, override string) string {
 
 // commitHookEnv points the session's git at the yard's commit-msg hook
 // (EnsureCommitHook): core.hooksPath through the environment, so the depot's
-// shared .git/config is never written. A home that holds no hooks dir (a
-// test's, or one the yard cannot write) leaves git alone: the session still
-// starts, and its commits carry no yard trailers.
-func commitHookEnv(home string, log *slog.Logger) []string {
+// shared .git/config is never written. A runner with a home cannot start a
+// session without its hook: otherwise commits would silently miss the
+// trailers this hook guarantees.
+func commitHookEnv(home string) ([]string, error) {
 	if home == "" {
-		return nil
+		return nil, nil
 	}
 	dir, err := EnsureCommitHook(home)
 	if err != nil {
-		if log != nil {
-			log.Debug("yard commit-msg hook not installed", "home", home, "err", err)
-		}
-		return nil
+		return nil, fmt.Errorf("install yard commit-msg hook: %w", err)
 	}
 	return []string{
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=core.hooksPath",
 		"GIT_CONFIG_VALUE_0=" + dir,
-	}
+	}, nil
 }

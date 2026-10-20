@@ -84,6 +84,10 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 			return nil, err
 		}
 	}
+	hookEnv, err := commitHookEnv(e.Home)
+	if err != nil {
+		return nil, err
+	}
 	cmdline := str(job.Group.Config, "cmd", "")
 	dir := str(job.Group.Config, "dir", "")
 	if dir == "" && job.Depot != nil {
@@ -114,7 +118,7 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	// daemon's own, and are held to what the daemon's are: none of what
 	// withheld leaves out, and no key yardr sets itself (withEnvFile).
 	cmd.Env = slices.Concat(inherited(job),
-		withEnvFile(slices.Concat(Env(job, job.Group.Name), e.env(job)), withheld(job, secrets)))
+		withEnvFile(slices.Concat(Env(job, job.Group.Name), e.env(job, hookEnv)), withheld(job, secrets)))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -236,7 +240,7 @@ func withheld(job dispatch.Job, environ []string) []string {
 }
 
 // env is the exec-only part of the command's environment.
-func (e *Exec) env(job dispatch.Job) []string {
+func (e *Exec) env(job dispatch.Job, hookEnv []string) []string {
 	var env []string
 	if e.Home != "" {
 		env = append(env, config.Env("HOME", e.Home)...)
@@ -250,7 +254,7 @@ func (e *Exec) env(job dispatch.Job) []string {
 	// at the hook, through the environment, so the depot's shared
 	// .git/config is never written.
 	env = slices.Concat(env, config.Env("KIND", "exec"), config.Env("MODEL", sessionModel(job)))
-	env = append(env, commitHookEnv(e.Home, e.Log)...)
+	env = append(env, hookEnv...)
 	// Always set, empty for a bead with no train, so that one the daemon was
 	// itself started with cannot read as this bead's.
 	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train))

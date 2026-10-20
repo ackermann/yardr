@@ -171,9 +171,13 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if job.Depot == nil {
 		return nil, fmt.Errorf("herdr runner needs the bead to have a depot")
 	}
+	hookEnv, err := commitHookEnv(h.YardHome)
+	if err != nil {
+		return nil, err
+	}
 	depot := job.Depot
 	if depot.IsDir() {
-		return h.startDir(ctx, job)
+		return h.startDir(ctx, job, hookEnv)
 	}
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
@@ -269,7 +273,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	raw, err = h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
+		"env":   envMap(withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets)),
 	})
 	if err != nil {
 		return handle, err
@@ -348,7 +352,7 @@ func (h *Herdr) FirstPrompt(handle map[string]any) string {
 // there for the bead (reused by its later stages), and its brief goes under
 // the directory's .yardr/briefs/. A train's child is no different: a train
 // in a dir depot only groups, so no train branch is made either.
-func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any, error) {
+func (h *Herdr) startDir(ctx context.Context, job dispatch.Job, hookEnv []string) (map[string]any, error) {
 	depot := job.Depot
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	if st, err := os.Stat(depot.Path); err != nil || !st.IsDir() {
@@ -371,7 +375,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	raw, err := h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": ws.Workspace.ID, "cwd": depot.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
+		"env":   envMap(withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets)),
 	})
 	if err != nil {
 		return handle, err
@@ -685,7 +689,17 @@ func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
 // Every agent gets what the yard's commit-msg hook names its commits with
 // (YARDR_KIND, YARDR_MODEL) and the core.hooksPath that points its git at
 // the hook.
-func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
+func (h *Herdr) agentEnv(job dispatch.Job, name string) ([]string, error) {
+	hookEnv, err := commitHookEnv(h.YardHome)
+	if err != nil {
+		return nil, err
+	}
+	return h.agentEnvWithHook(job, name, hookEnv), nil
+}
+
+// agentEnvWithHook is agentEnv with the commit hook already ensured before
+// the runner creates a worktree, so an installation error starts no work.
+func (h *Herdr) agentEnvWithHook(job dispatch.Job, name string, hookEnv []string) []string {
 	env := Env(job, name)
 	// The harness kind and the agent model, beside the bead and group Env
 	// already names: what the yard's commit-msg hook writes into
@@ -701,7 +715,7 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	}
 	// The yard's commit-msg hook, through the environment, so the depot's
 	// shared .git/config is never written (see commitHookEnv).
-	env = append(env, commitHookEnv(h.YardHome, h.Log)...)
+	env = append(env, hookEnv...)
 	if h.YardBin != "" {
 		env = append(env, config.Env("BIN", h.YardBin)...)
 	}
