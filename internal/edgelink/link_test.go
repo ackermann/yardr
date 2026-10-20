@@ -1,6 +1,7 @@
 package edgelink
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -437,16 +438,21 @@ func TestLinkRefusesAChallengeNotTheEdges(t *testing.T) {
 	}
 }
 
-// An answer that encodes past the edge's 1 MiB frame limit is never sent:
-// the request is answered 413 with a short error instead, so one large
-// answer cannot close the link, which serves the next call as before.
-func TestLinkAnswers413ForAnAnswerLargerThanOneFrame(t *testing.T) {
+// An answer that encodes past the edge's 1 MiB frame limit goes as a stream
+// instead: the head marked with stream and an empty body, the body in data
+// frames, then end. An 8 MiB blob crosses whole, and the link serves the
+// next call as before.
+func TestLinkStreamsAnAnswerLargerThanOneFrame(t *testing.T) {
 	t.Parallel()
+	body := make([]byte, 8<<20)
+	for i := range body {
+		body[i] = byte(i*31 + 7)
+	}
 	y := linkTo(t, func(l *Link) {
 		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, "/user/blobs/") {
 				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Write(make([]byte, 900<<10))
+				w.Write(body)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
@@ -454,8 +460,60 @@ func TestLinkAnswers413ForAnAnswerLargerThanOneFrame(t *testing.T) {
 	}, nil)
 	l := y.next(t)
 	big := l.Frame(http.MethodGet, "/user/blobs/"+strings.Repeat("a", 64), nil, nil, false)
+	head := deliver(t, l, big)
+	if !head.Stream || head.Status != http.StatusOK || head.Header.Get("Content-Type") != "application/octet-stream" || len(head.Body) != 0 {
+		t.Fatalf("the head is %+v, want a streamed 200 octet-stream with an empty body", head)
+	}
+	var got []byte
+	for len(got) < len(body) {
+		select {
+		case d := <-l.DataEvents():
+			if d.ID != big.ID {
+				t.Fatalf("the data is for %s, want %s", d.ID, big.ID)
+			}
+			got = append(got, d.Body...)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("received %d of %d bytes", len(got), len(body))
+		}
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatal("the reassembled body differs from the blob it answers")
+	}
+	select {
+	case id := <-l.EndEvents():
+		if id != big.ID {
+			t.Errorf("the end is for %s, want the stream's %s", id, big.ID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no end after the streamed answer")
+	}
+	if a := deliver(t, l, l.Frame(http.MethodGet, "/hooks/after", nil, nil, false)); a.Status != http.StatusOK {
+		t.Errorf("the call after the stream answered %+v", a)
+	}
+	if s := y.link.State(); !s.Up || s.Ups != 1 {
+		t.Errorf("the link went down on the streamed answer: %+v", s)
+	}
+}
+
+// Only a head that alone encodes past the edge's 1 MiB frame limit, its
+// headers, is answered 413 with a short error: the link stays up for the
+// next call.
+func TestLinkAnswers413WhenTheHeadAloneIsLargerThanOneFrame(t *testing.T) {
+	t.Parallel()
+	y := linkTo(t, func(l *Link) {
+		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/user/big-head" {
+				w.Header().Set("X-Pad", strings.Repeat("x", 1<<20))
+				w.Write([]byte("small"))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+	}, nil)
+	l := y.next(t)
+	big := l.Frame(http.MethodGet, "/user/big-head", nil, nil, false)
 	if a := deliver(t, l, big); a.Status != http.StatusRequestEntityTooLarge || len(a.Body) == 0 || len(a.Body) > 1024 {
-		t.Errorf("the 900 KiB answer was answered %d with %d bytes", a.Status, len(a.Body))
+		t.Errorf("the oversized head was answered %d with %d bytes", a.Status, len(a.Body))
 	}
 	select {
 	case id := <-l.EndEvents():
@@ -469,6 +527,6 @@ func TestLinkAnswers413ForAnAnswerLargerThanOneFrame(t *testing.T) {
 		t.Errorf("the call after the 413 answered %+v", a)
 	}
 	if s := y.link.State(); !s.Up || s.Ups != 1 {
-		t.Errorf("the link went down on the large answer: %+v", s)
+		t.Errorf("the link went down on the oversized head: %+v", s)
 	}
 }

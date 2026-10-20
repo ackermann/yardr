@@ -46,6 +46,10 @@ import (
 //	yard → edge           {"type":"response","id","status","header","body"}
 //	                      (a live request: the head, and the whole answer
 //	                      when its handler never flushed)
+//	yard → edge           {"type":"response","id","status","header",
+//	                      "stream":true}   (a live answer that will not fit
+//	                      one frame: the head with an empty body, the body
+//	                      in data pieces, then end)
 //	yard → edge           {"type":"data","id","body"}   (each piece of a
 //	                      live answer its handler flushed, in order)
 //	yard → edge           {"type":"end","id"}   (a live answer is over: its
@@ -94,8 +98,9 @@ const (
 	// maxFrame bounds one frame to the edge: the edge's own read limit
 	// (maxFrame in the router's link package). A frame that encodes larger
 	// is never sent, since the edge closes the link on one. An answer that
-	// will not fit is answered 413 instead, and one flushed piece that will
-	// not fit is sent as data frames that do.
+	// will not fit one frame goes as a stream instead, the head marked with
+	// stream and an empty body, then the body in data frames that fit; only
+	// a head that alone will not fit is answered 413.
 	maxFrame = 1 << 20
 	// maxDataBody is the most bytes one data frame carries: base64 grows a
 	// body by four thirds, with no character JSON escapes, so this with
@@ -271,6 +276,10 @@ type responseFrame struct {
 	Status int         `json:"status"`
 	Header http.Header `json:"header"`
 	Body   []byte      `json:"body"`
+	// Stream marks the head of an answer that will not fit one frame: its
+	// body is empty, and the body follows in data frames with the same id
+	// until end.
+	Stream bool `json:"stream,omitempty"`
 }
 
 type dataFrame struct {
@@ -608,7 +617,7 @@ type streamWriter struct {
 	since   []byte // written since the last flush
 	head    bool   // the response went
 	quiet   bool   // a send failed: the link is going, and later sends are skipped
-	refused bool   // the response head was too large; its 413 carries no body
+	refused bool   // the head alone was too large; its 413 carries no body
 	failed  bool   // the handler panicked: the tail is dropped
 }
 
@@ -659,7 +668,8 @@ func (w *streamWriter) fail() {
 }
 
 // finish sends what the handler's return leaves: the whole answer when it
-// never flushed, any piece it wrote since its last flush, and the end.
+// never flushed, as a stream when it will not fit one frame, any piece it
+// wrote since its last flush, and the end.
 func (w *streamWriter) finish() {
 	if w.quiet {
 		return
@@ -684,10 +694,12 @@ func (w *streamWriter) finish() {
 	}
 }
 
-// sendResponse sends the head and says whether its frame fit. An answer
-// that encodes past maxFrame is never sent: the request is answered 413
-// instead, with a short error, so one large answer cannot close the link
-// the edge reads it on.
+// sendResponse sends the head and says whether its frame went whole. An
+// answer that encodes past maxFrame is never sent in one frame: it goes as
+// a stream instead, the head marked with stream and an empty body, then the
+// body in data frames, so one large answer crosses the link instead of
+// closing it. Only a head that alone is too large, its headers, is answered
+// 413, with a short error.
 func (w *streamWriter) sendResponse(status int, header http.Header, body []byte) bool {
 	b, err := json.Marshal(responseFrame{Type: "response", ID: w.id, Status: status, Header: header, Body: body})
 	if err != nil {
@@ -695,18 +707,30 @@ func (w *streamWriter) sendResponse(status int, header http.Header, body []byte)
 		w.l.Log.Warn("edge link: an answer that encodes to nothing, dropped", "id", text(w.id), "err", err)
 		return false
 	}
-	fits := true
-	if len(b) > maxFrame {
-		fits = false
-		w.l.Log.Warn("edge link: an answer larger than one frame carries, answered 413", "id", text(w.id), "bytes", len(b))
+	if len(b) <= maxFrame {
+		return w.writeResponse(b)
+	}
+	head, herr := json.Marshal(responseFrame{Type: "response", ID: w.id, Status: status, Header: header, Stream: true})
+	if herr != nil || len(head) > maxFrame {
+		w.l.Log.Warn("edge link: an answer whose head alone is larger than one frame carries, answered 413", "id", text(w.id), "bytes", len(b))
 		b, err = json.Marshal(responseFrame{Type: "response", ID: w.id, Status: http.StatusRequestEntityTooLarge,
-			Header: http.Header{}, Body: []byte("the answer is larger than one frame of the link carries")})
+			Header: http.Header{}, Body: []byte("the answer's head is larger than one frame of the link carries")})
 		if err != nil || len(b) > maxFrame {
 			// The id alone fills a frame: nothing truthful fits in one.
 			w.quiet = true
 			return false
 		}
+		return w.writeResponse(b)
 	}
+	if !w.writeResponse(head) {
+		return false
+	}
+	w.sendData(body)
+	return false
+}
+
+// writeResponse sends b as the response frame it already encodes.
+func (w *streamWriter) writeResponse(b []byte) bool {
 	if err := w.l.writeBytes(w.ctx, w.c, b); err != nil {
 		w.quiet = true
 		if w.ctx.Err() == nil {
@@ -714,7 +738,7 @@ func (w *streamWriter) sendResponse(status int, header http.Header, body []byte)
 		}
 		return false
 	}
-	return fits
+	return true
 }
 
 // sendData sends one flushed piece as data frames, split where one frame

@@ -39,12 +39,15 @@ type EdgeFrame struct {
 	Sig      string      `json:"sig"`
 }
 
-// EdgeAnswer is a yard's response frame.
+// EdgeAnswer is a yard's response frame. Stream marks the head of an answer
+// that will not fit one frame: its body is empty, and the body follows in
+// data frames with the same id until end.
 type EdgeAnswer struct {
 	ID     string      `json:"id"`
 	Status int         `json:"status"`
 	Header http.Header `json:"header"`
 	Body   []byte      `json:"body"`
+	Stream bool        `json:"stream,omitempty"`
 }
 
 // EdgeData is one piece of a yard's streamed answer: a data frame's id and

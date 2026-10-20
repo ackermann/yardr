@@ -122,6 +122,9 @@ webhooks are queued. `GET /user/events` stays open as it does on the
 listener; while nothing arrives for 30 seconds the edge writes an empty
 line, which is no event and which a client skips
 ([api.md](api.md#the-stream-of-a-device)).
+An answer larger than one frame of the link, such as a blob download,
+crosses as a stream — the head, then the body in pieces — up to the
+edge's 16 MiB bound; past it the edge cuts the response.
 
 What the edge reads of it: every call and its answer — conversations, beads,
 mail, asks, notes — and the device token each call carries, with which the
