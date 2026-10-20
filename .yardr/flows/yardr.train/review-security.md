@@ -38,12 +38,13 @@ Check the diff against this list:
 A train that touches none of this is passed quickly: the note is one line
 saying so, naming the wagons, and the outcome is `done`.
 
-A small finding is fixed on the train branch (commits starting `review:`),
-not sent back, with a regression test. Run `YARDR_LANDING=1 sh .yardr/test`
-after your changes: it runs the selection plus the six black-box suites when
-compiled content changed, and the plain selection alone when nothing
-compiled changed (docs/line.md, "The landing run, and the whole suite on a
-quiet machine"). One note on the train says how the review ended. Outcomes:
+A small finding is fixed on the train branch (commits subject
+"<bead id> review: <what>"), not sent back, with a regression test. Run
+`YARDR_LANDING=1 sh .yardr/test` after your changes: it runs the selection
+plus the six black-box suites when compiled content changed, and the plain
+selection alone when nothing compiled changed (docs/line.md, "The landing
+run, and the whole suite on a quiet machine"). One note on the train says
+how the review ended. Outcomes:
 
 - `done`, passed: the note says what the train opens and to whom, or that it
   touches nothing on the list, names each wagon, says what you fixed

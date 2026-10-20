@@ -26,7 +26,7 @@ A train waits exactly this way. `dep add <train> <child> -k parent` also adds `<
 
 ### 2.3. Review today, and what already works
 
-One review stage, one reviewer, fix-forward. The reviewer reads the whole diff on `yard/<bead>`, fixes what it can with confidence in commits starting `review:`, and runs the depot's test command only when it committed or the builder's test line is not for the commit under review (packs/starter/roles/reviewer.md, .yardr/flows/default/review.md). The whole suite runs once per bead, in the assembly, with `YARDR_LANDING=1`, on exactly what lands (docs/line.md, "One whole-suite run per bead").
+One review stage, one reviewer, fix-forward. The reviewer reads the whole diff on `yard/<bead>`, fixes what it can with confidence in commits subject "<bead id> review: <what>", and runs the depot's test command only when it committed or the builder's test line is not for the commit under review (packs/starter/roles/reviewer.md, .yardr/flows/default/review.md). The whole suite runs once per bead, in the assembly, with `YARDR_LANDING=1`, on exactly what lands (docs/line.md, "One whole-suite run per bead").
 
 Three reviews one after another work today with no code, as the bead says: three stages in the flow (review-quality, review-security, review-ux), each with its own stage file (docs/flows.md, "Stage files") routed to its own group, each reporting `done` on and `changes` back. Stages, routes, stage files, and per-stage outcomes are all per-stage already.
 
