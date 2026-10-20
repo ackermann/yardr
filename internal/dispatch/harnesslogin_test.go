@@ -138,10 +138,14 @@ func loginSetup(t *testing.T) (store.API, *crewRunner, *dispatch.Dispatcher, *st
 // openAsks are op's open asks on the yardmaster's journal.
 func openAsks(t *testing.T, s store.API) []store.ResolvedAsk {
 	t.Helper()
-	ctx := context.Background()
-	r, err := s.GetCrew(ctx, "yardmaster")
+	r, err := s.GetCrew(context.Background(), "yardmaster")
 	must(t, err)
-	notes, err := s.Notes(ctx, r.Journal)
+	return openAsksOn(t, s, r.Journal)
+}
+
+func openAsksOn(t *testing.T, s store.API, journal string) []store.ResolvedAsk {
+	t.Helper()
+	notes, err := s.Notes(context.Background(), journal)
 	must(t, err)
 	var out []store.ResolvedAsk
 	for _, a := range store.ResolveAsks(notes, time.Now()) {
@@ -323,5 +327,88 @@ func TestLedLoginAskOutlivesTheDaemon(t *testing.T) {
 	passUntil(t, third, "the leader started for the pick made while no daemon ran", func() bool { return l.count() == 1 })
 	if _, ev := kindCount(t, s, r.Journal, "login_led"); ev.Data["step"] != "started" {
 		t.Errorf("last login_led %v, want the start", ev.Data)
+	}
+}
+
+// When a member picks a kind whose login is already open, it joins that
+// login: no second pick ask, and it restarts with the other members of the
+// kind once the one login is made.
+func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
+	t.Parallel()
+	s, f, d, l := loginSetup(t)
+	ctx := context.Background()
+	yardmaster, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	passUntil(t, d, "the yardmaster's login ask", func() bool { return len(openAsks(t, s)) == 1 })
+
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "fake", Enabled: true,
+		Config: map[string]any{"kind": "codex"}}, "op")
+	must(t, err)
+	passUntil(t, d, "scout at its login screen", func() bool {
+		r, err := s.GetCrew(ctx, "scout")
+		return err == nil && r.Live() && r.Handle[dispatch.HarnessLoginKey] != nil
+	})
+	scout, err := s.GetCrew(ctx, "scout")
+	must(t, err)
+	handle := map[string]any{}
+	for k, v := range scout.Handle {
+		handle[k] = v
+	}
+	handle["kind"] = "codex"
+	must(t, s.SetCrewHandleFor(ctx, "scout", "", handle))
+	scout, err = s.GetCrew(ctx, "scout")
+	must(t, err)
+	passUntil(t, d, "scout's kind choice", func() bool { return len(openAsksOn(t, s, scout.Journal)) == 1 })
+	pick := openAsksOn(t, s, scout.Journal)[0]
+	must(t, s.AnswerAsk(ctx, scout.Journal, pick.Note.Seq, 1, "", "op"))
+	passUntil(t, d, "scout joined the existing Claude login", func() bool {
+		r, err := s.GetCrew(ctx, "scout")
+		return err == nil && r.Config["kind"] == "claude" && r.Handle[dispatch.HarnessLoginAskKey] == nil
+	})
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if asks := openAsksOn(t, s, scout.Journal); len(asks) != 0 {
+		t.Fatalf("scout has %d extra asks while Claude's login is open", len(asks))
+	}
+	if l.count() != 0 {
+		t.Fatalf("the login started before its existing ask was answered")
+	}
+
+	pick = openAsks(t, s)[0]
+	must(t, s.AnswerAsk(ctx, yardmaster.Journal, pick.Note.Seq, 1, "", "op"))
+	passUntil(t, d, "the login's secret ask", func() bool {
+		asks := openAsks(t, s)
+		return len(asks) == 1 && asks[0].Ask.Secret != nil
+	})
+	secret := openAsks(t, s)[0]
+	if _, err := s.GiveSecret(ctx, yardmaster.Journal, secret.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	passUntil(t, d, "the login's confirm ask", func() bool {
+		asks := openAsks(t, s)
+		return len(asks) == 1 && asks[0].Ask.Secret == nil && asks[0].Note.Seq != pick.Note.Seq
+	})
+	confirm := openAsks(t, s)[0]
+	must(t, s.AnswerAsk(ctx, yardmaster.Journal, confirm.Note.Seq, 2, "", "op"))
+	passUntil(t, d, "the shared login finished", func() bool {
+		_, ev := kindCount(t, s, yardmaster.Journal, "login_led")
+		return ev.Data["step"] == "logged_in"
+	})
+	f.mu.Lock()
+	f.login = ""
+	f.mu.Unlock()
+	passUntil(t, d, "scout restarted with the selected kind", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.n >= 4
+	})
+	scout, err = s.GetCrew(ctx, "scout")
+	must(t, err)
+	if scout.Config["kind"] != "claude" || scout.Handle["agent"] != "scout-3" {
+		t.Errorf("scout after restart: config kind %v, handle %v", scout.Config["kind"], scout.Handle)
+	}
+	if asks := openAsksOn(t, s, scout.Journal); len(asks) != 0 {
+		t.Errorf("scout has %d extra asks after the shared login completed", len(asks))
 	}
 }

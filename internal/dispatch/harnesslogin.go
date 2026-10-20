@@ -97,9 +97,9 @@ type harnessLead struct {
 	step string
 	// urls are the sign-in pages the leader printed, for the next ask.
 	urls []string
-	// switched names the crew member whose kind the pick changed, "" for
-	// none: it is restarted on the new kind however its screen reads.
-	switched string
+	// switched names crew members whose kind the pick changed: they are
+	// restarted on the new kind however their screens read.
+	switched []string
 
 	leader *LoginLeader
 	lines  chan leadLine
@@ -215,6 +215,10 @@ func (d *Dispatcher) harnessLogins(ctx context.Context, rs []store.CrewMember) {
 	for _, kind := range slices.Sorted(maps.Keys(d.leads)) {
 		l := d.leads[kind]
 		carried[kind], carried[l.seat.key()] = true, true
+		carried["member:"+l.seat.member] = true
+		for _, member := range l.switched {
+			carried["member:"+member] = true
+		}
 		d.carryLead(ctx, l)
 	}
 	settings, err := d.Store.Settings(ctx)
@@ -224,7 +228,7 @@ func (d *Dispatcher) harnessLogins(ctx context.Context, rs []store.CrewMember) {
 	operator := settings[store.OperatorSetting]
 	seats := seatsAtLogin(rs, settings[store.DefaultKindSetting])
 	for _, seat := range seats {
-		if l := d.leadOf(seat); l != nil || operator == "" || carried[seat.kind] || carried[seat.key()] {
+		if l := d.leadOf(seat); l != nil || operator == "" || carried[seat.kind] || carried[seat.key()] || carried["member:"+seat.member] {
 			continue
 		}
 		if mark := askMark(rs, seat); mark != nil {
@@ -249,7 +253,7 @@ func (d *Dispatcher) leadOf(seat loginSeat) *harnessLead {
 		return l
 	}
 	for _, l := range d.leads {
-		if l.seat.member == seat.member && l.seat.user == seat.user {
+		if (l.seat.member == seat.member && l.seat.user == seat.user) || slices.Contains(l.switched, seat.member) {
 			return l
 		}
 	}
@@ -493,7 +497,11 @@ func (d *Dispatcher) picked(ctx context.Context, l *harnessLead, cur *store.Reso
 	}
 	c := choices[n-1]
 	if c.kind != l.kind {
-		if err := d.switchKind(ctx, l.seat, c.kind); err != nil {
+		answeredBy := actor
+		if cur != nil && cur.Note.Author != "" {
+			answeredBy = cur.Note.Author
+		}
+		if err := d.switchKind(ctx, l.seat, c.kind, answeredBy); err != nil {
 			d.endLead(ctx, l, err.Error())
 			return false
 		}
@@ -501,10 +509,16 @@ func (d *Dispatcher) picked(ctx context.Context, l *harnessLead, cur *store.Reso
 		if other := d.leads[c.kind]; other != nil {
 			// That kind's login is led already: this crew member waits on
 			// it, and is restarted with the rest of its kind.
+			if !slices.Contains(other.switched, l.seat.member) {
+				other.switched = append(other.switched, l.seat.member)
+			}
 			d.markLeadAsk(ctx, l.seat, nil)
 			return false
 		}
-		l.kind, l.switched = c.kind, l.seat.member
+		l.kind = c.kind
+		if !slices.Contains(l.switched, l.seat.member) {
+			l.switched = append(l.switched, l.seat.member)
+		}
 		d.leads[c.kind] = l
 	}
 	l.method, l.ask, l.step = c.method, 0, ""
@@ -520,7 +534,7 @@ func (d *Dispatcher) picked(ctx context.Context, l *harnessLead, cur *store.Reso
 
 // switchKind makes the seat's crew member, and the yard's default, run
 // kind: the operator's pick of another harness than it runs.
-func (d *Dispatcher) switchKind(ctx context.Context, seat loginSeat, kind string) error {
+func (d *Dispatcher) switchKind(ctx context.Context, seat loginSeat, kind, answeredBy string) error {
 	r, err := d.Store.GetCrew(ctx, seat.member)
 	if err != nil {
 		return err
@@ -531,10 +545,11 @@ func (d *Dispatcher) switchKind(ctx context.Context, seat loginSeat, kind string
 	}
 	cfg["kind"] = kind
 	r.Config = cfg
-	if _, err := d.Store.PutCrew(ctx, *r, actor); err != nil {
+	if _, err := d.Store.PutCrew(ctx, *r, answeredBy); err != nil {
 		return fmt.Errorf("making %s run %s: %w", seat.member, kind, err)
 	}
-	if err := d.Store.SetSetting(ctx, store.DefaultKindSetting, kind, actor); err != nil {
+	// The answer to this operator-only ask authorizes the setting change.
+	if err := d.Store.SetSetting(ctx, store.DefaultKindSetting, kind, answeredBy); err != nil {
 		return fmt.Errorf("making %s the yard's default kind: %w", kind, err)
 	}
 	return nil
@@ -722,12 +737,13 @@ func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	l.stop()
 	d.markLeadAsk(ctx, l.seat, nil)
 	var restarted []string
+	var seats []loginSeat
 	if rs, err := d.Store.Crew(ctx); err == nil {
 		settings, _ := d.Store.Settings(ctx)
-		seats := seatsAtLogin(rs, settings[store.DefaultKindSetting])
+		seats = seatsAtLogin(rs, settings[store.DefaultKindSetting])
 		sort.SliceStable(seats, func(i, j int) bool { return seats[i].key() < seats[j].key() })
 		for _, seat := range seats {
-			if seat.kind != l.kind && seat.member != l.switched {
+			if seat.kind != l.kind && !slices.Contains(l.switched, seat.member) {
 				continue
 			}
 			if err := d.Store.RequestRestartFor(ctx, seat.member, seat.user, l.kind+" was logged in through the yard's asks", "", actor); err != nil {
@@ -741,6 +757,13 @@ func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	// reads its login from elsewhere) is offered one on its next mail.
 	head, _ := d.Store.Head(ctx)
 	d.loginRests[l.kind] = loginRest{head: head}
+	// A switched session still carries its old kind until its requested
+	// restart runs. Do not offer that old login from a pass's earlier read.
+	for _, seat := range seats {
+		if slices.Contains(l.switched, seat.member) && seat.kind != l.kind {
+			d.loginRests[seat.kind] = loginRest{head: head}
+		}
+	}
 	_ = d.Store.LogDispatch(ctx, l.seat.journal, "login_led", actor, map[string]any{
 		"crew": l.seat.member, "kind": l.kind, "step": "logged_in", "proved": l.proved, "restarted": restarted,
 		"reason": fmt.Sprintf("%s is logged in: the crew at its login screen starts again", l.kind)})
