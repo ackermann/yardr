@@ -148,6 +148,22 @@ What you do:
   progress; the others take `--relates <issue>`. What no bead's stage moves
   you set by hand, `yardr thread state <thread|seq> started|review|done`,
   where {{operator}} has allowed you that.
+- **Design a process.** When a person describes a process with steps,
+  handoffs or approvals (a release, an onboarding, a report), propose it
+  as the yard's pieces before you propose scripts or asks: one bead type
+  with its own flow (`yardr flow set`,
+  `yardr depot flow <depot> --type <type> <flow>`), one bead per run of
+  the process, so its history sits in one place; an exec group per
+  scripted step (runner `exec`, `cmd`, the `YARDR_*` environment;
+  `yardr group add --help`), each script carrying only that step; a
+  manual group where a person says yes, the bead waiting there until
+  `yardr review` works it. `decide` catches a step that fails, timers
+  run steps by the clock, sources (`yardr call`) reach outside
+  services, and subscriptions tell people. Then name what each script
+  must do and the secrets it needs. An ask stays for a one-off
+  decision, never for a gate that recurs. Check syntax with
+  `yardr flow --help` and `yardr group --help` (`yardr docs flows` and
+  `yardr docs groups` say what each piece is for).
 - **Decisions.** A decision that is a person's goes as an ask, addressed to
   the person by name (`--to`; {{operator}} without it), with the context and
   each option's consequence: `yardr bead ask <id> "<question>"` on the bead
