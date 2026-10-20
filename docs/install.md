@@ -522,11 +522,12 @@ yard with any agent it stops nothing and prints `"confirm": true`, as
 
 ### With the yard
 
-A release bead cuts the release: `build` makes the archives and the GitHub
-release, `sign` asks mckean to sign the checksums, `verify` checks the
-signature, and `publish` files the yardr.dev sync bead (the release flow,
-`.yardr/flows/type/release.flow`; the script its stages run is
-`contrib/release/stage`).
+A release bead cuts the release: `build` tags the base and waits for the
+draft CI makes for the tag, `sign` asks mckean to sign the draft's
+checksums, `verify` checks the signature and each archive's attestation,
+and `publish` releases the draft and files the yardr.dev sync bead (the
+release flow, `.yardr/flows/type/release.flow`; the script its stages run
+is `contrib/release/stage`).
 
 ```sh
 yardr bead create "yardr v1.2.3" -t release -d yardr -b - < notes.md
@@ -537,26 +538,29 @@ The title's last word is the version; the body is the release notes as they
 will stand on the GitHub release. The yardmaster shapes the bead in
 `backlog`, then advances it to `build`, and from there:
 
-- `build` refuses a bad title, an existing release or tag, a dirty tree, or
-  a checkout that is not the remote's `main`; builds the four archives and
-  `checksums.txt`; tags the base commit, pushes the tag, and makes the
-  GitHub release; notes the five signing commands on the bead.
+- `build` refuses a bad title, a published release, a tag at another
+  commit, a dirty tree, or a checkout that is not the remote's `main`;
+  tags the base commit, pushes the tag, and waits for the draft release
+  CI makes for the tag, bounded; sets the draft's notes from the bead's
+  body and notes the five signing commands on the bead. A CI run that
+  concluded anything but success fails the bead with the run's URL.
 - `sign` asks mckean whether `checksums.txt.minisig` is uploaded. Run the
   five commands from the build's note, in a directory of their own, then
   Done. Each names the version, so a stale file or a wrong release shows
   itself.
-- `verify` downloads the release, checks the signature against the release
-  key and the archives against the checksums. A bad signature asks `sign`
-  again.
-- `publish` files the yardr.dev sync bead and advances it to `new`; the
-  release bead is `published`.
+- `verify` downloads the draft, checks the signature against the release
+  key, the archives against the checksums, and each archive's
+  build-provenance attestation, which says CI's release workflow built it
+  (`gh attestation verify`). A bad signature asks `sign` again.
+- `publish` releases the draft, files the yardr.dev sync bead and advances
+  it to `new`; the release bead is `published`.
 
-Anything failed or questioned waits in `decide` for a person. The yard's
-build leaves the darwin binaries unsigned, unless the release group carries
-the two signing variables in its `env_file`
-([setup.md](setup.md#letting-the-yard-cut-releases)); a signed build is
-otherwise still by hand, below. The group and the routes are the yard's, and
-the yardmaster adds them once.
+Anything failed or questioned waits in `decide` for a person. To build the
+release again, delete the tag and the draft release first, then advance the
+bead back to `build`: the pushed tag is what starts CI. The yard's releases
+leave the darwin binaries unsigned; a signed build is by hand, below. The
+group and the routes are the yard's, and the yardmaster adds them once
+([setup.md](setup.md#letting-the-yard-cut-releases)).
 
 `contrib/release/build <version> [out-dir]` builds the four archives and
 `checksums.txt` (into `dist/` by default) on any machine with Go: it
@@ -565,17 +569,22 @@ machine it is on to check the stamp. It refuses a tree with uncommitted or
 untracked files. The darwin binaries it builds are not signed, and it says
 so, unless it is told to sign them ([below](#signed-darwin-binaries)). The
 same holds for `checksums.txt` ([Signed checksums](#signed-checksums)).
+With `SOURCE_DATE_EPOCH` set to seconds since the epoch the build is
+reproducible: every archive entry carries that time, and the same inputs
+make the same bytes.
 
-`.github/workflows/release.yml` runs the depot's tests and then that script when
-a tag `v*` is pushed, and creates the GitHub release with the files, unless
-the yard already made it (a release bead's `build` tags and creates within
-the minute, long before the workflow gets there); a tag
-with a pre-release part (`v1.2.3-rc.1`) makes a pre-release. Started by hand
-(Actions, "release", "Run workflow") it is a dry run: the same tests and
-build, the archives kept for a week as the run's `dist` artifact, and no
-release. The workflow runs on Linux and holds no Apple identity, so the
-darwin binaries of a release it made are unsigned. It holds no minisign key
-either, so its `checksums.txt` is unsigned until it is signed by hand.
+`.github/workflows/release.yml` runs when a tag `v*` is pushed: the same
+test jobs as `ci.yml`, then that script with `SOURCE_DATE_EPOCH` fixed to
+the tagged commit (so a tag rebuilt makes the release's archives again), an
+SBOM of the source, build-provenance attestations for the four archives,
+and a draft release holding the archives and `checksums.txt`. Every action
+it uses is pinned by full commit SHA. A tag with a pre-release part
+(`v1.2.3-rc.1`) makes a pre-release. Started by hand (Actions, "release",
+"Run workflow") it is a dry run: the same tests and build, the archives
+and the SBOM kept for a week as the run's artifacts, and nothing attested
+or published. The workflow runs on Linux and holds no Apple identity, so
+the darwin binaries of a draft it made are unsigned. It holds no minisign
+key either, so its `checksums.txt` is unsigned until it is signed by hand.
 
 ### Signed darwin binaries
 
@@ -638,16 +647,18 @@ The setup is done once per Mac, and needs the Xcode command line tools
    ```
 
 The files of a signed build replace the ones the workflow attached to the
-release, all of them together, as `checksums.txt` is of this build's
+draft, all of them together, as `checksums.txt` is of this build's
 archives:
 
 ```sh
 gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt --clobber
 ```
 
-A signature the release had is of the checksums this replaces: build with
+A signature the draft had is of the checksums this replaces: build with
 the minisign key too ([below](#signed-checksums)) and upload
-`dist/checksums.txt.minisig` with the rest.
+`dist/checksums.txt.minisig` with the rest. A draft whose archives were
+replaced by hand is no longer CI's build, so its attestations no longer
+verify; `verify` checks them next, and questions the bead.
 
 ### Signed checksums
 
@@ -686,8 +697,8 @@ holds. yardr's is `RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB`
 [From a release archive](#from-a-release-archive) verifies with. A new key
 is a new footplate, as footplate verifies with the one it was built with.
 
-A release the workflow made has unsigned checksums. They are signed as they
-stand, with no new build, and the signature is added to the release:
+A draft the workflow made has unsigned checksums. They are signed as they
+stand, with no new build, and the signature is added to the draft:
 
 ```sh
 gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt --clobber

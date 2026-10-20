@@ -1,22 +1,26 @@
-summary: The release group builds the archives, tags the base, makes the GitHub release and notes the five signing commands.
+summary: The release group tags the base, waits for CI's draft release, sets its notes and notes the five signing commands.
 
 The release group works this stage
 (`contrib/release/stage build`, docs/install.md "Making a release"): it
-builds the four archives and `checksums.txt` from the depot's base, tags
-that commit, pushes the tag, and makes the GitHub release with the bead's
-body as its notes. It then notes the five signing commands on the bead, for
-the version, and reports done. No agent works this stage by hand.
+tags the depot's base commit, pushes the tag, and waits for the draft
+release CI's release workflow makes for the tag, bounded. The workflow
+tests, builds the four archives and `checksums.txt` reproducibly, attests
+them and drafts the release; the stage sets the draft's notes from the
+bead's body, notes the five signing commands on the bead, for the
+version, and reports done. No agent works this stage by hand.
 
 Before the bead leaves as `done`:
 
-- the release exists, with the four archives and `checksums.txt`, unsigned;
+- the draft release exists, with the four archives and `checksums.txt`,
+  unsigned, the bead's body as its notes;
 - a note on the bead has the five signing commands.
 
 Outcomes:
 
 - `done`: both hold. The bead goes to `sign`, where mckean is asked to sign
   the checksums.
-- `failed`: the version, the tag, the tree, the build or the release stood
-  in the way; the note says which. The bead goes to `decide`, to a human.
+- `failed`: the version, the tag, the tree, CI or the draft stood in the
+  way; the note says which, and a failed CI run names its URL. The bead
+  goes to `decide`, to a human.
 - `question`: the bead itself is wrong, as a rule its title names no
   version. Note what is wrong first; the bead goes to `decide`, to a human.

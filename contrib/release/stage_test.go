@@ -2,8 +2,8 @@
 // script is run the way the exec group runs it, against a throwaway git
 // repository with a local bare remote, with stand-ins for gh, minisign and
 // yardr first on PATH; what it asked of them is asserted from their shared
-// call log. The build step runs a stand-in build script (the real
-// contrib/release/build is build_test.go's), so no test compiles yardr.
+// call log. CI is the fake gh's canned answers (the draft it serves, the
+// runs it lists), so no test reaches GitHub.
 package release
 
 import (
@@ -37,21 +37,30 @@ case "$1 $2" in
 esac
 `
 
-// fakeGh answers release view from an exit status, saves the notes file a
-// release create was given, and serves release downloads from a directory.
+// fakeGh serves release view from FAKE_GH_VIEW_SEQ, one response per call
+// ($n.json for the nth call, the last one standing after that, a file
+// holding ABSENT for no release, and no directory for never one); lists
+// the runs FAKE_GH_RUNS cans; saves the notes file a release edit was
+// given; serves release downloads from a directory; and verifies
+// attestations as FAKE_GH_ATTEST_RC says.
 const fakeGh = `#!/bin/sh
 printf 'gh %s\n' "$*" >>"$FAKE_DIR/calls.log"
 case "$1 $2" in
 "release view")
+  if [ -n "${FAKE_GH_VIEW_SEQ:-}" ]; then
+    n=1
+    if [ -f "$FAKE_DIR/view.n" ]; then n=$(($(cat "$FAKE_DIR/view.n") + 1)); fi
+    echo "$n" >"$FAKE_DIR/view.n"
+    f="$FAKE_GH_VIEW_SEQ/$n.json"
+    if [ ! -f "$f" ]; then
+      last=$(ls "$FAKE_GH_VIEW_SEQ" 2>/dev/null | grep -E '^[0-9]+\.json$' | sort -n | tail -n 1)
+      if [ -n "$last" ]; then f="$FAKE_GH_VIEW_SEQ/$last"; else f=""; fi
+    fi
+    if [ -z "$f" ] || [ "$(cat "$f")" = ABSENT ]; then exit 1; fi
+    cat "$f"
+    exit 0
+  fi
   exit "${FAKE_GH_VIEW_RC:-1}"
-  ;;
-"release create")
-  prev=""
-  for a in "$@"; do
-    if [ "$prev" = "--notes-file" ]; then cp "$a" "$FAKE_DIR/notes.md"; fi
-    prev="$a"
-  done
-  exit "${FAKE_GH_CREATE_RC:-0}"
   ;;
 "release download")
   rc="${FAKE_GH_DOWNLOAD_RC:-0}"
@@ -65,6 +74,20 @@ case "$1 $2" in
   fi
   exit "$rc"
   ;;
+"release edit")
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--notes-file" ]; then cp "$a" "$FAKE_DIR/notes.md"; fi
+    prev="$a"
+  done
+  exit "${FAKE_GH_EDIT_RC:-0}"
+  ;;
+"run list")
+  printf '%s\n' "${FAKE_GH_RUNS:-[]}"
+  ;;
+"attestation verify")
+  exit "${FAKE_GH_ATTEST_RC:-0}"
+  ;;
 esac
 exit 0
 `
@@ -74,22 +97,6 @@ const fakeMinisign = `#!/bin/sh
 printf 'minisign %s\n' "$*" >>"$FAKE_DIR/calls.log"
 printf '%s\n' "${FAKE_MINISIGN_OUT:-Signature and comment signature verified}"
 exit "${FAKE_MINISIGN_RC:-0}"
-`
-
-// fakeBuild stands in for contrib/release/build: four archives and a
-// checksums.txt over them, and a log of where it ran and with what cache.
-const fakeBuild = `#!/bin/sh
-# fakebuild <version> <out-dir>
-{
-  echo "fakebuild $*"
-  echo "pwd: $PWD"
-  echo "gocache: $GOCACHE"
-  echo "out: $2"
-} >>"$FAKE_DIR/calls.log"
-for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-  printf 'fake yardr %s for %s\n' "$1" "$target" >"$2/yardr_fake_${1}_$target.tar.gz"
-done
-(cd "$2" && $FAKE_SUM yardr_fake_*.tar.gz >checksums.txt)
 `
 
 // stage is one run's world: the stand-ins, their canned answers, and the
@@ -137,7 +144,6 @@ func newStage(t *testing.T) *stage {
 	write("yardr", fakeYardr)
 	write("gh", fakeGh)
 	write("minisign", fakeMinisign)
-	write("fakebuild", fakeBuild)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") {
@@ -149,11 +155,9 @@ func newStage(t *testing.T) *stage {
 	s.env = append(s.env,
 		"PATH="+s.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"FAKE_DIR="+s.dir,
-		"FAKE_SUM="+sumCmd(t),
 		"YARDR_BIN=yardr",
 		"YARDR_BEAD=yardr-rel1",
 		"YARDR_BASE=main",
-		"YARDR_RELEASE_BUILD="+filepath.Join(s.bin, "fakebuild"),
 	)
 	s.prime("done", "failed", "question")
 	return s
@@ -190,6 +194,31 @@ func (s *stage) prime(names ...string) {
 	if err := os.WriteFile(filepath.Join(s.dir, "prime.json"), []byte(b.String()), 0o644); err != nil {
 		s.t.Fatal(err)
 	}
+}
+
+// viewAbsent is a release view response for no release standing.
+const viewAbsent = "ABSENT\n"
+
+// view cans what gh release view serves, one response per call; calls past
+// the last are served the last response again.
+func (s *stage) view(responses ...string) {
+	s.t.Helper()
+	dir := s.t.TempDir()
+	for i, r := range responses {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.json", i+1)), []byte(r), 0o644); err != nil {
+			s.t.Fatal(err)
+		}
+	}
+	s.env = append(s.env, "FAKE_GH_VIEW_SEQ="+dir)
+}
+
+// draftJSON is a release view answer holding these asset names.
+func draftJSON(names []string, isDraft bool) string {
+	assets := make([]string, 0, len(names))
+	for _, n := range names {
+		assets = append(assets, fmt.Sprintf(`{"name": %q}`, n))
+	}
+	return fmt.Sprintf(`{"isDraft": %v, "assets": [%s]}`, isDraft, strings.Join(assets, ","))
 }
 
 // run runs ./stage the way the exec group does and returns what it printed;
@@ -309,20 +338,26 @@ func TestStageBuildRefusesADirtyTree(t *testing.T) {
 	log := s.log()
 	s.mustContain(log, "yardr bead done yardr-rel1 --outcome failed --note -")
 	s.mustContain(log, "uncommitted or untracked files")
-	s.mustLack(log, "gh release create")
-	s.mustLack(out, "built")
+	s.mustLack(log, "gh run list")
+	s.mustLack(out, "draft")
 }
 
-func TestStageBuildRefusesAnExistingRelease(t *testing.T) {
+func TestStageBuildRefusesAPublishedRelease(t *testing.T) {
 	s := newStage(t)
 	checkout, _ := s.repo()
+	s.view(draftJSON([]string{"checksums.txt"}, false))
 	s.show("yardr v1.2.3", "notes")
-	s.run("build", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_VIEW_RC=0")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout)
 	got := s.log()
 	s.mustContain(got, "--outcome failed")
 	s.mustContain(got, "already exists")
-	s.mustLack(got, "gh release create")
-	s.mustLack(got, "fakebuild")
+	s.mustContain(got, "published")
+	s.mustLack(got, "gh run list")
+	probe := exec.Command("git", "-C", checkout, "rev-parse", "--verify", "-q", "refs/tags/v1.2.3")
+	probe.Env = s.env
+	if err := probe.Run(); err == nil {
+		t.Fatal("a tag was made for a refused build")
+	}
 }
 
 func TestStageBuildRefusesATagAtAnotherCommit(t *testing.T) {
@@ -339,7 +374,7 @@ func TestStageBuildRefusesATagAtAnotherCommit(t *testing.T) {
 	got := s.log()
 	s.mustContain(got, "--outcome failed")
 	s.mustContain(got, "at another commit")
-	s.mustLack(got, "fakebuild")
+	s.mustLack(got, "gh run list")
 }
 
 func TestStageBuildRefusesACheckoutBehindItsRemote(t *testing.T) {
@@ -358,19 +393,30 @@ func TestStageBuildRefusesACheckoutBehindItsRemote(t *testing.T) {
 	got := s.log()
 	s.mustContain(got, "--outcome failed")
 	s.mustContain(got, "not at origin/main")
-	s.mustLack(got, "fakebuild")
+	s.mustLack(got, "gh run list")
 }
 
-func TestStageBuildReleases(t *testing.T) {
+func TestStageBuildTagsPushesAndWaitsForTheDraft(t *testing.T) {
 	s := newStage(t)
 	checkout, origin := s.repo()
+	complete := []string{
+		"yardr_1.2.3_darwin_amd64.tar.gz", "yardr_1.2.3_darwin_arm64.tar.gz",
+		"yardr_1.2.3_linux_amd64.tar.gz", "yardr_1.2.3_linux_arm64.tar.gz",
+		"checksums.txt",
+	}
+	// No release, then a draft still filling, then the whole draft: the
+	// build waits through the first two rounds, not just one look.
+	s.view(viewAbsent, draftJSON(complete[:2], true), draftJSON(complete, true))
 	body := "Release \"v1.2.3\"\n\n- fixes <bugs> & things"
 	s.show("yardr v1.2.3", body)
-	s.run("build", "YARDR_DEPOT_PATH="+checkout)
+	s.run("build", "YARDR_DEPOT_PATH="+checkout,
+		`FAKE_GH_RUNS=[{"status":"in_progress","conclusion":"","url":"https://example.com/run/1"}]`,
+		"YARDR_RELEASE_WAIT_SLEEP=0")
 	got := s.log()
 	// The tag is at the base, here and on the remote.
 	at := strings.TrimSpace(s.git(checkout, "rev-parse", "refs/tags/v1.2.3"))
-	if at != strings.TrimSpace(s.git(checkout, "rev-parse", "refs/heads/main")) {
+	base := strings.TrimSpace(s.git(checkout, "rev-parse", "refs/heads/main"))
+	if at != base {
 		t.Fatalf("tag v1.2.3 is at %s, not at main", at)
 	}
 	remote := exec.Command("git", "--git-dir="+origin, "rev-parse", "refs/tags/v1.2.3")
@@ -379,20 +425,17 @@ func TestStageBuildReleases(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != at {
 		t.Fatalf("tag v1.2.3 is not pushed: %v\n%s", err, out)
 	}
-	// The build ran in the depot, into a private dir with a private cache.
-	s.mustContain(got, "fakebuild v1.2.3")
-	s.mustContain(got, "pwd: "+checkout)
-	s.mustContain(got, "gocache: ")
-	s.mustLack(got, "gocache: \n")
-	// The release carries the five files with the body as its notes.
-	s.mustContain(got, "gh release create v1.2.3")
-	s.mustContain(got, "--repo yardr-dev/yardr")
-	s.mustContain(got, "--title v1.2.3")
-	s.mustContain(got, "--verify-tag")
-	for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"} {
-		s.mustContain(got, "yardr_fake_v1.2.3_"+target+".tar.gz")
+	// The build makes no release of its own; it asks CI's run after this
+	// commit, and the release after its assets, until the draft is whole.
+	s.mustLack(got, "gh release create")
+	s.mustContain(got, "gh run list --repo yardr-dev/yardr --workflow release.yml --commit "+base+" --event push")
+	s.mustContain(got, "gh release view v1.2.3 --repo yardr-dev/yardr --json isDraft")
+	s.mustContain(got, "gh release view v1.2.3 --repo yardr-dev/yardr --json assets")
+	if n := strings.Count(got, "gh release view"); n != 3 {
+		t.Errorf("gh release view was asked %d times; want 3 (absent, filling, whole)", n)
 	}
-	s.mustContain(got, "checksums.txt")
+	// The draft's notes are the body, set once it is whole.
+	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --notes-file")
 	notes, err := os.ReadFile(filepath.Join(s.dir, "notes.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -400,9 +443,12 @@ func TestStageBuildReleases(t *testing.T) {
 	if string(notes) != body+"\n" {
 		t.Fatalf("notes file = %q; want the body's bytes", notes)
 	}
-	// Done, with the five commands, each naming the version.
+	// Done, with the run's URL and the five commands, each naming the version.
 	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
 	s.mustLack(got, "--outcome")
+	s.mustContain(got, "is drafted")
+	s.mustContain(got, "built by CI")
+	s.mustContain(got, "https://example.com/run/1")
 	for _, cmd := range []string{
 		"mkdir -p ~/releases/v1.2.3",
 		"gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt --dir ~/releases/v1.2.3 --clobber",
@@ -419,11 +465,13 @@ func TestStageBuildResumesAfterTagging(t *testing.T) {
 	checkout, _ := s.repo()
 	// A run that died after tagging: the tag is already at the base.
 	s.git(checkout, "tag", "v1.2.3", "refs/heads/main")
+	s.view(draftJSON([]string{"a.tar.gz", "b.tar.gz", "c.tar.gz", "d.tar.gz", "checksums.txt"}, true))
 	s.show("yardr v1.2.3", "notes")
-	out := s.run("build", "YARDR_DEPOT_PATH="+checkout)
+	out := s.run("build", "YARDR_DEPOT_PATH="+checkout, "YARDR_RELEASE_WAIT_SLEEP=0")
 	got := s.log()
 	s.mustContain(out, "finishing that run")
-	s.mustContain(got, "gh release create v1.2.3")
+	s.mustContain(out, "adopting it")
+	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --notes-file")
 	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
 }
 
@@ -435,7 +483,66 @@ func TestStageBuildRefusesAnEmptyBody(t *testing.T) {
 	got := s.log()
 	s.mustContain(got, "--outcome question")
 	s.mustContain(got, "no body")
-	s.mustLack(got, "fakebuild")
+	s.mustLack(got, "gh run list")
+}
+
+func TestStageBuildFailsWhenCIFails(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout,
+		`FAKE_GH_RUNS=[{"status":"completed","conclusion":"failure","url":"https://example.com/run/9"}]`,
+		"YARDR_RELEASE_WAIT_SLEEP=0")
+	got := s.log()
+	s.mustContain(got, "yardr bead done yardr-rel1 --outcome failed --note -")
+	s.mustContain(got, "CI's release run for v1.2.3 failure")
+	s.mustContain(got, "https://example.com/run/9")
+	s.mustContain(got, "delete the tag")
+	s.mustLack(got, "gh release edit")
+}
+
+func TestStageBuildTimesOutWaitingForTheDraft(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout,
+		"YARDR_RELEASE_WAIT_ROUNDS=3", "YARDR_RELEASE_WAIT_SLEEP=0")
+	got := s.log()
+	s.mustContain(got, "--outcome failed")
+	s.mustContain(got, "did not finish the draft")
+	s.mustContain(got, "no release run has shown")
+	if n := strings.Count(got, "gh release view"); n != 4 {
+		t.Errorf("gh release view was asked %d times; want 4 (one look, three rounds)", n)
+	}
+	if n := strings.Count(got, "gh run list"); n != 3 {
+		t.Errorf("gh run list was asked %d times; want 3 (one per round)", n)
+	}
+}
+
+func TestStageBuildTimeoutNamesTheRun(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout,
+		`FAKE_GH_RUNS=[{"status":"in_progress","conclusion":"","url":"https://example.com/run/2"}]`,
+		"YARDR_RELEASE_WAIT_ROUNDS=2", "YARDR_RELEASE_WAIT_SLEEP=0")
+	got := s.log()
+	s.mustContain(got, "--outcome failed")
+	s.mustContain(got, "did not finish the draft")
+	s.mustContain(got, "https://example.com/run/2")
+}
+
+func TestStageBuildFailsWhenTheNotesAreNotSet(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.view(draftJSON([]string{"a.tar.gz", "b.tar.gz", "c.tar.gz", "d.tar.gz", "checksums.txt"}, true))
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout,
+		"FAKE_GH_EDIT_RC=1", "YARDR_RELEASE_WAIT_SLEEP=0")
+	got := s.log()
+	s.mustContain(got, "--outcome failed")
+	s.mustContain(got, "setting its notes from the bead failed")
+	s.mustContain(got, "advance the bead to sign")
 }
 
 func TestStageHoldsWhenTheFlowOffersNoOutcome(t *testing.T) {
@@ -502,10 +609,28 @@ func TestStageVerifyChecksASignedRelease(t *testing.T) {
 	got := s.log()
 	s.mustContain(got, "gh release download v1.2.3 --repo yardr-dev/yardr")
 	s.mustContain(got, "minisign -V -P "+releaseKey)
+	s.mustContain(got, "gh attestation verify")
+	s.mustContain(got, "a.tar.gz --repo yardr-dev/yardr")
+	s.mustContain(got, "b.tar.gz --repo yardr-dev/yardr")
+	if n := strings.Count(got, "attestation verify"); n != 2 {
+		t.Errorf("attestation verify ran %d times; want once per archive", n)
+	}
 	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
 	s.mustLack(got, "--outcome")
 	s.mustContain(got, "the signature on v1.2.3 is good")
 	s.mustContain(got, "2 archives match checksums.txt")
+	s.mustContain(got, "attestation verifies")
+}
+
+func TestStageVerifyQuestionsABadAttestation(t *testing.T) {
+	s := newStage(t)
+	s.release(map[string]string{"a.tar.gz": "a\n", "b.tar.gz": "b\n"}, false, true)
+	s.show("yardr v1.2.3", "notes")
+	s.run("verify", "FAKE_GH_ATTEST_RC=1")
+	got := s.log()
+	s.mustContain(got, "yardr bead done yardr-rel1 --outcome question --note -")
+	s.mustContain(got, "the attestation for")
+	s.mustContain(got, "is missing or bad")
 }
 
 func TestStageVerifyFailsABadSignature(t *testing.T) {
@@ -568,14 +693,28 @@ func TestStagePublishFilesTheSyncBead(t *testing.T) {
 	s.run("publish", "YARDR_DEPOT_PATH="+checkout, "FAKE_CREATE_ID=yardr.dev-s9nc")
 	got := s.log()
 	title := "Sync yardr v1.2.3 to yardr.dev: scripts/sync-release yardr v1.2.3"
+	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --draft=false")
 	s.mustContain(got, "yardr bead create "+title+" -d yardr.dev -p 1 -b - -l difficulty:1,size:small --json")
 	s.mustContain(got, "https://github.com/yardr-dev/yardr/releases/tag/v1.2.3")
 	s.mustContain(got, "built from "+at)
 	s.mustContain(got, "scripts/sync-release yardr v1.2.3")
 	s.mustContain(got, "yardr bead advance yardr.dev-s9nc --to new")
 	s.mustContain(got, "publish: filed yardr.dev-s9nc")
+	s.mustContain(got, "released from its draft")
 	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
 	s.mustLack(got, "--outcome")
+}
+
+func TestStagePublishFailsWhenTheDraftIsNotReleased(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.git(checkout, "tag", "v1.2.3")
+	s.show("yardr v1.2.3", "notes")
+	s.run("publish", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_EDIT_RC=1")
+	got := s.log()
+	s.mustContain(got, "--outcome failed")
+	s.mustContain(got, "releasing the draft for v1.2.3 failed")
+	s.mustLack(got, "bead create")
 }
 
 func TestStagePublishRefusesAMissingTag(t *testing.T) {

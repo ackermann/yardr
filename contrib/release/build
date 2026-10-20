@@ -13,6 +13,12 @@
 # YARDR_RELEASE_ALLOW_DIRTY=1 lets a build with uncommitted changes through;
 # its revision then ends in -modified.
 #
+# SOURCE_DATE_EPOCH, the seconds since the epoch the archives are stamped
+# with, makes the build reproducible: the same inputs make the same bytes.
+# .github/workflows/release.yml sets it from the tagged commit, so a tag
+# rebuilt makes the release's archives again. Unset, the archives carry
+# the time they were packed, as before.
+#
 # YARDR_RELEASE_SIGN_IDENTITY and YARDR_RELEASE_NOTARY_PROFILE, set together
 # on a Mac, sign each darwin binary with that "Developer ID Application"
 # identity of the keychain and have Apple notarize it under that notarytool
@@ -117,6 +123,20 @@ for flag in --no-xattrs --no-mac-metadata; do
   fi
 done
 
+# A reproducible build stamps every entry with one time and packs them in
+# one order. GNU tar takes both as flags; a tar that knows neither (a Mac's)
+# still packs identical entries, because the staged files themselves are
+# touched to the epoch before they are packed, below.
+epoch=${SOURCE_DATE_EPOCH:-}
+case $epoch in '' | *[!0-9]*) epoch="" ;; esac
+if [ -n "$epoch" ]; then
+  for flag in --sort-name "--mtime=@$epoch"; do
+    if accepts "$flag"; then
+      tarflags="$tarflags $flag"
+    fi
+  done
+fi
+
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 host=$(go env GOHOSTOS)/$(go env GOHOSTARCH)
@@ -217,9 +237,32 @@ for target in $targets; do
     # shellcheck disable=SC2086 # $files is a list
     (cd "$dir" && xattr -c $files) 2>/dev/null || true
   fi
+  if [ -n "$epoch" ]; then
+    # One time on every staged file, for the tars that take no --mtime.
+    # GNU date reads -d @<epoch>, a Mac's -r <epoch>.
+    if stamp=$(date -u -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null) ||
+      stamp=$(date -u -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null); then
+      # touch -t reads the stamp in local time; the stamp is UTC.
+      # shellcheck disable=SC2086 # $files is a list
+      (cd "$dir" && TZ=UTC touch -t "$stamp" $files)
+    else
+      echo "contrib/release/build: SOURCE_DATE_EPOCH is set and date formats neither -d @$epoch nor -r $epoch; unset it for archives stamped with the time" >&2
+      exit 1
+    fi
+  fi
   # COPYFILE_DISABLE is what an older bsdtar without --no-mac-metadata reads.
-  # shellcheck disable=SC2086 # $files and $tarflags are lists
-  COPYFILE_DISABLE=1 tar -czf "$out/$archive" $tarflags -C "$dir" $files
+  if [ -n "$epoch" ] && command -v gzip >/dev/null 2>&1; then
+    # gzip -n writes no file name or timestamp; tar -z gives no such
+    # control, so the tar is packed plain and compressed after. (A pipe
+    # would hide tar's failure: sh has no pipefail.)
+    # shellcheck disable=SC2086 # $files and $tarflags are lists
+    COPYFILE_DISABLE=1 tar -cf "$stage/$archive.tar" $tarflags -C "$dir" $files
+    gzip -n -c "$stage/$archive.tar" >"$out/$archive"
+    rm -f "$stage/$archive.tar"
+  else
+    # shellcheck disable=SC2086 # $files and $tarflags are lists
+    COPYFILE_DISABLE=1 tar -czf "$out/$archive" $tarflags -C "$dir" $files
+  fi
   archives="$archives $archive"
 done
 

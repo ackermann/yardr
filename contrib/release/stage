@@ -12,44 +12,51 @@
 # and the version from the bead's title's last word, which must be
 # v<major>.<minor>.<patch>; the bead's body is the release notes.
 #
-#   build: refuses a bad title (question: the bead is wrong), an existing
-#     release or tag, a dirty tree, and a checkout that is not the remote's
-#     base; builds the archives and checksums.txt into a private dir with a
-#     private GOCACHE; tags the base commit, pushes the tag, and makes the
-#     GitHub release with the bead's body as its notes; notes the five
-#     signing commands for the version on the bead. Then done, to sign.
-#     A run that died after tagging resumes: a tag at the base commit with
-#     no release on it is finished, not refused.
+#   build: refuses a bad title (question: the bead is wrong), a published
+#     release, a tag at another commit, a dirty tree, and a checkout that
+#     is not the remote's base; tags the base commit, pushes the tag, and
+#     waits for the draft release CI's release workflow makes for the tag,
+#     bounded; sets the draft's notes from the bead's body and notes the
+#     five signing commands for the version on the bead. Then done, to
+#     sign. A run that died after tagging resumes: a tag at the base
+#     commit with no release on it is pushed again and waited on, and a
+#     draft already standing is adopted, not refused. A CI run that
+#     concluded anything but success reports failed with the run's URL.
 #   verify: downloads the release, checks checksums.txt.minisig against the
-#     release key and the archives against checksums.txt. Then done, to
+#     release key, the archives against checksums.txt, and each archive's
+#     build-provenance attestation (gh attestation verify). Then done, to
 #     publish; a missing or bad signature reports failed with what minisign
-#     said, so sign is asked again, and archives that do not match, or a
-#     check that could not run, report question, to decide.
-#   publish: files the yardr.dev sync bead and advances it to new, notes its
-#     id on the release bead. Then done, to published.
+#     said, so sign is asked again, and archives that do not match, an
+#     attestation that does not verify, or a check that could not run,
+#     report question, to decide.
+#   publish: releases the draft, files the yardr.dev sync bead and advances
+#     it to new, notes its id on the release bead. Then done, to published.
 #
 # Every failure path ends in a done with an outcome or a hold, never a bare
 # exit, as deploy-dokku documents: has_outcome asks prime before moving, so
 # only moves the flow allows are tried, and a flow that names none holds
 # the bead instead.
 #
-# Needs on PATH: jq and git always; gh for build and verify; minisign and
-# shasum (or sha256sum) for verify. gh acts as whoever it is logged in as.
+# Needs on PATH: jq and git always; gh for build, verify and publish;
+# minisign and shasum (or sha256sum) for verify. gh acts as whoever it is
+# logged in as.
 #
-# Another depot's release flow calls this same script with its own release
-# (footplate's does): the build command, the repo and the key come from the
-# environment, with yardr's as the defaults.
+# Another depot's release flow calls this same script with its own release:
+# the repo and the key come from the environment, with yardr's as the
+# defaults. Its CI is expected to draft the release the same way
+# (.github/workflows/release.yml does): the four archives and checksums.txt
+# on the pushed tag, each archive attested.
 #
 #   YARDR_RELEASE_REPO      the GitHub repo, owner/name (default yardr-dev/yardr)
-#   YARDR_RELEASE_BUILD     the build command, run in the depot as
-#                           $BUILD <version> <out-dir>, writing the archives
-#                           and checksums.txt there (default contrib/release/build)
 #   YARDR_RELEASE_PUBKEY    the minisign public key verify checks against
 #                           (default yardr's release key)
 #   YARDR_RELEASE_KEY_PATH  the signer's secret key, as the five commands
 #                           name it (default ~/.minisign/<product>-release.key)
 #   YARDR_RELEASE_REMOTE    the git remote the tag is fetched from and pushed
 #                           to (default origin)
+#   YARDR_RELEASE_WAIT_ROUNDS  how many times build asks after the draft
+#                           (default 60)
+#   YARDR_RELEASE_WAIT_SLEEP   seconds between those rounds (default 30)
 set -u
 # The ranges in the patterns below are ASCII's, and what git and gh say is
 # read in English.
@@ -63,7 +70,6 @@ BASE=${YARDR_BASE:-}
 GHREPO=${YARDR_RELEASE_REPO:-yardr-dev/yardr}
 PRODUCT=${GHREPO##*/}
 PUBKEY=${YARDR_RELEASE_PUBKEY:-RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB}
-BUILD=${YARDR_RELEASE_BUILD:-contrib/release/build}
 # The default keeps its ~ on every shell: quoted, it expands for whoever
 # pastes the commands, not here (bash would expand an unquoted one, dash
 # would not, and the note must read the same everywhere).
@@ -181,54 +187,81 @@ build() {
     fail failed "$REPO is at $(git -C "$REPO" rev-parse --short "$head"), not at $REMOTE/$BASE ($(git -C "$REPO" rev-parse --short "$base")): check out $BASE there and pull, then advance the bead back to build"
   at=$(git -C "$REPO" rev-parse --short "$base")
   # A run that died after tagging resumes: the tag is ours when it is at
-  # this base and no release stands on it, and tagging and pushing it again
-  # change nothing. Anything else already standing is refused.
-  if gh release view "$v" --repo "$GHREPO" >/dev/null 2>&1; then
-    fail failed "release $v already exists on $GHREPO: if a run left it half-made, upload what is missing by hand and advance the bead to sign"
-  fi
+  # this base, and tagging and pushing it again change nothing. A draft
+  # already standing is a run that died while waiting, and is adopted,
+  # not refused; anything published is.
+  # No release standing reads as empty: gh fails, and jq passes empty
+  # input through with success and no output.
+  existing=$(gh release view "$v" --repo "$GHREPO" --json isDraft 2>/dev/null | jq -r .isDraft 2>/dev/null) || existing=""
+  case $existing in
+  "") ;;
+  true) echo "== $BEAD: draft $v is already standing; adopting it" ;;
+  false) fail failed "release $v already exists on $GHREPO, and is published: if a run left it half-made, fix it by hand and advance the bead to sign" ;;
+  *) fail question "reading release $v failed; nothing was tagged" ;;
+  esac
   tagat=$(git -C "$REPO" rev-parse --verify -q "refs/tags/$v^{commit}" 2>/dev/null || true)
   if [ -n "$tagat" ] && [ "$tagat" != "$base" ]; then
     fail failed "tag $v already exists in $REPO, at another commit ($(git -C "$REPO" rev-parse --short "$tagat")): delete it or title the bead for another version"
   fi
   maketmp
-  out=$tmp/dist
-  cache=$tmp/gocache
-  mkdir "$out" "$cache"
-  log=$tmp/build.log
-  echo "== $BEAD: $BUILD $v (out $out)"
-  # The build runs in the depot, so a relative build command is the depot's
-  # own script; the out-dir and GOCACHE are private to the run, so no
-  # checkout and no shared cache is written to.
-  if (cd "$REPO" && GOCACHE="$cache" "$BUILD" "$v" "$out" >"$log" 2>&1); then
-    echo "== $BEAD: built $v"
-  else
-    fail failed "building $v failed" "$(tail -n 30 "$log")"
-  fi
-  [ -f "$out/checksums.txt" ] || fail failed "the build left no checksums.txt in $out; nothing was tagged"
-  files=""
-  n=0
-  for f in "$out"/*; do
-    [ -f "$f" ] || continue
-    case $f in *.minisig) continue ;; esac
-    files="$files
-$f"
-    case $f in "$out/checksums.txt") ;; *) n=$((n + 1)) ;; esac
-  done
-  [ "$n" -gt 0 ] || fail failed "the build left no archives beside checksums.txt; nothing was tagged"
   [ -z "$tagat" ] || echo "== $BEAD: tag $v is already at $at; finishing that run"
   [ -n "$tagat" ] || git -C "$REPO" tag "$v" "$base" || fail failed "tagging $at as $v failed; nothing was pushed"
   git -C "$REPO" push "$REMOTE" "$v" >"$tmp/push.log" 2>&1 ||
     fail failed "tag $v is made but pushing it to $REMOTE failed; push it by hand, then advance the bead back to build" "$(tail -n 10 "$tmp/push.log")"
+  # The pushed tag starts CI's release workflow, which tests, builds the
+  # archives and checksums.txt, attests them and makes the draft. Each
+  # round asks the workflow for its run and the release for its assets;
+  # the draft is done when it holds the four archives and checksums.txt.
+  # A gh answer that cannot be read is another round, not a failure: only
+  # a run that concluded, or the last round, ends the wait.
+  rounds=${YARDR_RELEASE_WAIT_ROUNDS:-60}
+  sleep_for=${YARDR_RELEASE_WAIT_SLEEP:-30}
+  case $rounds in '' | *[!0-9]*) rounds=60 ;; esac
+  case $sleep_for in '' | *[!0-9]*) sleep_for=30 ;; esac
+  run_url=""
+  n_arch=0
+  has_sums=0
+  i=0
+  while [ "$i" -lt "$rounds" ]; do
+    i=$((i + 1))
+    runs=$(gh run list --repo "$GHREPO" --workflow release.yml --commit "$base" --event push --json conclusion,status,url --limit 1 2>/dev/null) || runs=""
+    if [ -n "$runs" ]; then
+      status=$(printf '%s' "$runs" | jq -r '.[0].status // empty' 2>/dev/null) || status=""
+      concl=$(printf '%s' "$runs" | jq -r '.[0].conclusion // empty' 2>/dev/null) || concl=""
+      url=$(printf '%s' "$runs" | jq -r '.[0].url // empty' 2>/dev/null) || url=""
+      [ -z "$url" ] || run_url=$url
+      if [ "$status" = completed ] && [ -n "$concl" ] && [ "$concl" != success ]; then
+        fail failed "CI's release run for $v $concl ($run_url): fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build"
+      fi
+    fi
+    draft=$(gh release view "$v" --repo "$GHREPO" --json assets 2>/dev/null) || draft=""
+    if [ -n "$draft" ]; then
+      n_arch=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(endswith(".tar.gz"))] | length' 2>/dev/null) || n_arch=0
+      has_sums=$(printf '%s' "$draft" | jq '[.assets[]?.name | select(. == "checksums.txt")] | length' 2>/dev/null) || has_sums=0
+    fi
+    if [ "$n_arch" -eq 4 ] && [ "$has_sums" -ge 1 ]; then
+      echo "== $BEAD: draft $v holds the four archives and checksums.txt"
+      break
+    fi
+    [ "$i" -ge "$rounds" ] || sleep "$sleep_for"
+  done
+  if [ "$n_arch" -ne 4 ] || [ "$has_sums" -lt 1 ]; then
+    mins=$((rounds * sleep_for / 60))
+    where="no release run has shown for the tag yet"
+    [ -z "$run_url" ] || where="the run is at $run_url"
+    fail failed "CI did not finish the draft for $v in $mins minutes ($where); check the run, and to run it again delete the tag here and on $REMOTE and advance the bead back to build"
+  fi
   printf '%s\n' "$body" >"$tmp/notes.md"
-  # shellcheck disable=SC2086 # $files is a newline-separated list
-  if gh release create "$v" $files --repo "$GHREPO" --title "$v" --notes-file "$tmp/notes.md" --verify-tag >"$tmp/create.log" 2>&1; then
-    echo "== $BEAD: released $v"
+  if gh release edit "$v" --repo "$GHREPO" --notes-file "$tmp/notes.md" >"$tmp/notes.log" 2>&1; then
+    echo "== $BEAD: the draft's notes are the bead's body"
   else
-    fail failed "tag $v is pushed but making the release failed; make it by hand from $out, or delete the tag and the release and advance the bead back to build" "$(cat "$tmp/create.log")"
+    fail failed "the draft for $v is complete but setting its notes from the bead failed; set them by hand from the bead's body, then advance the bead to sign" "$(cat "$tmp/notes.log")"
   fi
   url="https://github.com/$GHREPO/releases/tag/$v"
   dir="~/releases/$v"
-  done_with sign "build: $PRODUCT $v is released ($url, built from $at): $n archives and checksums.txt, the checksums not yet signed. Sign them with the five commands, in order (minisign asks for the key's password; each names $v):
+  run_line=""
+  [ -z "$run_url" ] || run_line=" CI's run is at $run_url."
+  done_with sign "build: $PRODUCT $v is drafted ($url, built by CI from $at): the four archives and checksums.txt, the checksums not yet signed.$run_line Sign them with the five commands, in order (minisign asks for the key's password; each names $v):
 
 mkdir -p $dir
 gh release download $v --repo $GHREPO --pattern checksums.txt --dir $dir --clobber
@@ -279,17 +312,27 @@ verify() {
   done
   [ -z "$extra" ] ||
     fail question "release $v holds files its checksums.txt does not name ($extra); it is remade by hand (the release and the tag deleted, the bead back to build)"
-  done_with publish "verify: the signature on $v is good ($minisign_out) and its $n archives match checksums.txt."
+  # Each file's attestation says CI's release workflow built it; without
+  # one the files are not the workflow's, however well they checksum.
+  # shellcheck disable=SC2086 # $names is a newline-separated list
+  for b in $names; do
+    attest_out=$(gh attestation verify "$tmp/$b" --repo "$GHREPO" 2>&1) ||
+      fail question "the attestation for $b on release $v is missing or bad: the files are not CI's build, or the check could not reach GitHub. It is remade by hand (the release and the tag deleted, the bead back to build), or checked again where the failure was the network" "$attest_out"
+  done
+  done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt, and every archive's attestation verifies."
 }
 
 publish() {
   : "${YARDR_DEPOT_PATH:?the bead has no depot}"
-  command -v git >/dev/null 2>&1 || fail failed "git is not on PATH; the release group runs where jq and git are"
+  command -v git >/dev/null 2>&1 || fail failed "git is not on PATH; the release group runs where jq, git and gh are"
+  command -v gh >/dev/null 2>&1 || fail failed "gh is not on PATH (and logged in); the release group runs where jq, git and gh are"
   version failed
   echo "== $BEAD: publish $v of $GHREPO"
   maketmp
   at=$(git -C "$REPO" rev-parse --short --verify -q "refs/tags/$v^{commit}" 2>/dev/null) ||
     fail failed "tag $v is not in $REPO; fetch it, then advance the bead back to publish"
+  gh release edit "$v" --repo "$GHREPO" --draft=false >"$tmp/draft.log" 2>&1 ||
+    fail failed "releasing the draft for $v failed; release it by hand (gh release edit $v --repo $GHREPO --draft=false), then advance the bead back to publish" "$(cat "$tmp/draft.log")"
   url="https://github.com/$GHREPO/releases/tag/$v"
   day=$(date +%Y-%m-%d)
   if [ "$PRODUCT" = yardr ]; then other=footplate; else other=yardr; fi
@@ -303,7 +346,7 @@ Done when: the depot's test command passes; \`git diff main --stat\` shows only 
   [ -n "$new" ] || fail failed "filing the sync bead failed" "$(cat "$tmp/create.err")"
   "$Y" bead advance "$new" --to new || fail failed "sync bead $new is filed but advancing it to new failed; advance it by hand, then this bead to published"
   "$Y" bead note "$BEAD" "publish: filed $new (\"$title\") and advanced it to new."
-  done_with published "publish: $new carries the site's sync; $PRODUCT $v is published."
+  done_with published "publish: $PRODUCT $v is released from its draft; $new carries the site's sync."
 }
 
 case "$MODE" in

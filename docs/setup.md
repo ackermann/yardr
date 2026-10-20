@@ -319,11 +319,11 @@ yardr route add --stage sign --group decisions --depot yardr
 ```
 
 The group runs the depot's own script, one release at a time; the stage in
-`cmd` says which of `build`, `verify` or `publish` it is. The build refuses
-a checkout that is not clean at the remote's `main`, so the script it runs
-is `main`'s. `sign` goes to the manual group mckean is in, whose Done says
-the signature is uploaded; `backlog` and `decide` ride the depot's existing
-routes. The group runs where `jq`, `git`, `gh` (logged in) and `minisign`
-are; to sign the darwin binaries as well as build them, give it the two
-variables in its `env_file`
-([groups.md](groups.md#outbound-credentials)).
+`cmd` says which of `build`, `verify` or `publish` it is. The build tags
+the base and waits for CI's draft release; it refuses a checkout that is
+not clean at the remote's `main`, so the script it runs is `main`'s.
+`sign` goes to the manual group mckean is in, whose Done says the signature
+is uploaded; `backlog` and `decide` ride the depot's existing routes. The
+group runs where `jq`, `git`, `gh` (logged in) and `minisign` are. The
+yard's releases leave the darwin binaries unsigned; a signed build is by
+hand ([install.md](install.md#signed-darwin-binaries)).

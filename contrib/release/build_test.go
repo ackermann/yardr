@@ -4,6 +4,7 @@ package release
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -132,6 +133,59 @@ func members(t *testing.T, archive string) {
 	for name := range want {
 		if !got[name] {
 			t.Errorf("the archive has no %s", name)
+		}
+	}
+}
+
+// With SOURCE_DATE_EPOCH set, the same version builds the same bytes
+// twice: every entry carries the epoch, not the time it was packed
+// (release.yml sets it from the tagged commit, so a tag rebuilt makes the
+// release's archives again).
+func TestBuildIsReproducibleWithSourceDateEpoch(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("builds yardr")
+	}
+	const epoch = 1759881600 // 2025-10-08T00:00:00Z, a fixed stamp
+	archive := "yardr_9.8.7_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+	dists := []string{t.TempDir(), t.TempDir()}
+	for _, dist := range dists {
+		if out, err := buildWith(t, []string{fmt.Sprintf("SOURCE_DATE_EPOCH=%d", epoch)}, "v9.8.7", dist); err != nil {
+			t.Fatalf("build: %v\n%s", err, out)
+		}
+	}
+	for _, name := range []string{archive, "checksums.txt"} {
+		first, err := os.ReadFile(filepath.Join(dists[0], name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := os.ReadFile(filepath.Join(dists[1], name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Errorf("%s differs between the two builds (%d and %d bytes)", name, len(first), len(second))
+		}
+	}
+	f, err := os.Open(filepath.Join(dists[0], archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for tr := tar.NewReader(gz); ; {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.ModTime.Unix() != epoch {
+			t.Errorf("%s is stamped %s; want the epoch", h.Name, h.ModTime.UTC())
 		}
 	}
 }
@@ -558,18 +612,16 @@ func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
 	}
 }
 
-// The workflow artifact already carries everything in dist/. The release
-// step must pass a signature to gh when present, without making an unsigned
-// release fail on an unmatched glob, and must leave a release the yard
-// already made alone: it looks first, and creates only when the release is
-// not there yet.
+// The release step makes the draft, and only the draft: it looks first,
+// and a re-run fills the draft its first run made again, while a
+// published release is never touched.
 func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 	t.Parallel()
 	workflow, err := os.ReadFile("../../.github/workflows/release.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	const marker = "      - name: create the release\n"
+	const marker = "      - name: create the draft release\n"
 	_, after, ok := strings.Cut(string(workflow), marker)
 	if !ok {
 		t.Fatal("release workflow has no create-release step")
@@ -594,14 +646,14 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 	}
 	script := strings.Join(lines, "\n")
 	for _, tc := range []struct {
-		name   string
-		tag    string
-		sign   bool
-		exists bool // gh release view finds the release already made
+		name  string
+		tag   string
+		draft string // what gh release view answers: missing, true or false
 	}{
-		{name: "unsigned stable release", tag: "v1.2.3"},
-		{name: "signed prerelease", tag: "v1.2.4-rc.1", sign: true},
-		{name: "release the yard made", tag: "v1.2.5", exists: true},
+		{name: "stable draft", tag: "v1.2.3", draft: "missing"},
+		{name: "prerelease draft", tag: "v1.2.4-rc.1", draft: "missing"},
+		{name: "re-run fills the draft again", tag: "v1.2.5", draft: "true"},
+		{name: "published release untouched", tag: "v1.2.6", draft: "false"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -614,23 +666,18 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if tc.sign {
-				if err := os.WriteFile(filepath.Join(dist, "checksums.txt.minisig"), nil, 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
 
 			bin := filepath.Join(dir, "bin")
 			if err := os.Mkdir(bin, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			gh := "#!/bin/sh\n{ printf '%s\\0' \"$@\"; printf '\\n'; } >>\"$GH_CALLS\"\nif [ \"$1\" = release ] && [ \"$2\" = view ]; then exit \"$GH_VIEW_RC\"; fi\nexit 0\n"
+			gh := "#!/bin/sh\n{ printf '%s\\0' \"$@\"; printf '\\n'; } >>\"$GH_CALLS\"\n" +
+				"if [ \"$1\" = release ] && [ \"$2\" = view ]; then\n" +
+				"  if [ \"$GH_VIEW_DRAFT\" = missing ]; then exit 1; fi\n" +
+				"  printf '%s\\n' \"$GH_VIEW_DRAFT\"\n" +
+				"fi\nexit 0\n"
 			if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
 				t.Fatal(err)
-			}
-			viewRC := "1"
-			if tc.exists {
-				viewRC = "0"
 			}
 			calls := filepath.Join(dir, "gh-args")
 			cmd := exec.Command("/bin/bash", "-e", "-c", script)
@@ -638,10 +685,15 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 			cmd.Env = []string{
 				"PATH=" + bin + ":/usr/bin:/bin",
 				"GH_CALLS=" + calls,
-				"GH_VIEW_RC=" + viewRC,
+				"GH_VIEW_DRAFT=" + tc.draft,
 				"TAG=" + tc.tag,
 			}
-			if out, err := cmd.CombinedOutput(); err != nil {
+			out, err := cmd.CombinedOutput()
+			if tc.draft == "false" {
+				if err == nil {
+					t.Fatalf("release step passed over a published release:\n%s", out)
+				}
+			} else if err != nil {
 				t.Fatalf("release step: %v\n%s", err, out)
 			}
 			raw, err := os.ReadFile(calls)
@@ -655,17 +707,21 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 				}
 				got = append(got, strings.Split(strings.TrimSuffix(call, "\x00"), "\x00"))
 			}
-			want := [][]string{{"release", "view", tc.tag}}
-			if !tc.exists {
-				create := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt"}
-				if tc.sign {
-					create = append(create, "dist/checksums.txt.minisig")
-				}
-				create = append(create, "--verify-tag", "--generate-notes", "--title", tc.tag)
+			view := []string{"release", "view", tc.tag, "--json", "isDraft", "--jq", ".isDraft"}
+			var want [][]string
+			switch tc.draft {
+			case "missing":
+				create := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt",
+					"--verify-tag", "--generate-notes", "--title", tc.tag, "--draft"}
 				if strings.Contains(tc.tag, "-") {
 					create = append(create, "--prerelease")
 				}
-				want = append(want, create)
+				want = [][]string{view, create}
+			case "true":
+				upload := []string{"release", "upload", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt", "--clobber"}
+				want = [][]string{view, upload}
+			default:
+				want = [][]string{view}
 			}
 			if fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
 				t.Errorf("gh calls = %q; want %q", got, want)

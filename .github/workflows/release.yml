@@ -1,8 +1,18 @@
 name: release
 
-# A pushed tag v* makes a release. Run by hand (workflow_dispatch) it is a
-# dry run: the same tests and the same build, the archives kept as a workflow
-# artifact, and nothing published.
+# A pushed tag v* tests, builds, attests and drafts the release: the same
+# test jobs as ci.yml, then the four archives and checksums.txt built
+# reproducibly, an SBOM of the source, build-provenance attestations for
+# the archives, and a draft release holding the files. The yard's release
+# flow pushes the tag and waits for the draft (docs/install.md, "Making a
+# release"); mckean signs the draft's checksums by hand, and the flow
+# publishes the draft once the signature verifies. Run by hand
+# (workflow_dispatch) it is a dry run: the same tests and the same build,
+# the archives and the SBOM kept as workflow artifacts, and nothing
+# attested or published.
+#
+# Every uses: below is pinned by full commit SHA, with the release it is
+# as a comment; a tag that moves would run code no review saw.
 on:
   push:
     tags: ["v*"]
@@ -11,25 +21,100 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # The same steps as ci.yml's test job; keep the two in step.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # go-version-file pins the toolchain go.mod names; cache keeps the
+      # module and build caches keyed on go.sum.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
+      # The depot's test command as the assembly runs it on what lands: go
+      # vet, go test -race over every package, and the store/dispatch/bdp
+      # suites again through the unix-socket client. It is the whole suite
+      # here because the checkout has no base to compare with. Running the
+      # script itself keeps CI and the landing from drifting apart.
+      - name: depot tests (.yardr/test, as for a landing)
+        run: YARDR_LANDING=1 sh .yardr/test
+      # What that run leaves out: the plain (non-race) build, and every
+      # package, not just three, through the unix-socket client.
+      - name: go test
+        run: go test ./...
+      - name: go test (rpc)
+        run: YARDR_TEST_RPC=1 go test ./...
+
+  # The same steps as ci.yml's conformance job; keep the two in step.
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The BDP commit conformance/bdp/README.md records as last verified.
+      # Moving it is a deliberate change, made together with the README.
+      BDP_REF: 182f1fcf8a01d896976bff3c9e3fb87c596c6ca6
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: gastownhall/bdp
+          ref: ${{ env.BDP_REF }}
+          path: bdp
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: bdp/package.json
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: bdp/.nvmrc
+          cache: pnpm
+          cache-dependency-path: bdp/pnpm-lock.yaml
+      - name: build bdp
+        working-directory: bdp
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: BDP read conformance
+        run: BDP_REPO=$GITHUB_WORKSPACE/bdp conformance/bdp/run.sh
+
   build:
+    needs: [test, conformance]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # The attestation step mints an OIDC token and writes the attestations.
+      id-token: write
+      attestations: write
     env:
       # A dry run has no tag to take the version from.
       VERSION: ${{ github.event_name == 'push' && github.ref_name || 'v0.0.0-dryrun' }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
-      # The same tests a bead passes before it lands (gofmt, go vet, go test
-      # -race, the rpc suites): a tag on a commit that fails them makes no
-      # release. The checkout has no base to compare with, so here it is the
-      # whole suite.
-      - name: depot tests (.yardr/test, as for a landing)
-        run: YARDR_LANDING=1 sh .yardr/test
+      # Reproducible archives: the build stamps every entry with the tagged
+      # commit's time, so the same tag always makes the same bytes.
+      - name: fix the build time to the commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >>"$GITHUB_ENV"
       # The script a person runs for the same build. It cross-compiles the
       # four targets without cgo, stamps the version, runs the linux/amd64
       # binary's `yardr version` against it, and writes the archives and
@@ -40,10 +125,24 @@ jobs:
       # "Signed darwin binaries"). checksums.txt comes out unsigned too: the
       # minisign key is not on this runner, and the checksums of a release
       # are signed by hand afterwards (docs/install.md, "Signed checksums").
-      # The publish step uploads that signature when one is present.
       - name: build the archives
         run: contrib/release/build "$VERSION" dist
-      - uses: actions/upload-artifact@v7
+      - name: sbom the source
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ./
+          format: spdx-json
+          # The draft holds the archives and checksums.txt alone (the site's
+          # sync refuses any other name in the checksums); the SBOM is kept
+          # as a workflow artifact beside dist.
+          upload-release-assets: "false"
+      # Only a tag attests; a dry run publishes nothing, not even attestations.
+      - name: attest the archives
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
@@ -51,21 +150,21 @@ jobs:
           retention-days: 7
 
   release:
-    # Only a tag publishes; a dry run ends with the artifact above.
+    # Only a tag publishes; a dry run ends with the artifacts above.
     if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The one job that may write, and it runs no code from the repository:
-    # it only hands the built files to GitHub.
+    # The one job that may write to the release, and it runs no code from
+    # the repository: it only hands the built files to GitHub.
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
-      - name: create the release
+      - name: create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -74,9 +173,16 @@ jobs:
           # v1.2.3-rc.1 is a pre-release: it never becomes "latest".
           prerelease=
           case "$TAG" in *-*) prerelease=--prerelease ;; esac
-          # A release the yard already made (its build tags and creates
-          # within the minute) is left as it is; without this the run fails
-          # here on every release the yard cuts.
-          gh release view "$TAG" >/dev/null 2>&1 ||
-            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt* \
-              --verify-tag --generate-notes --title "$TAG" $prerelease
+          # A re-run finds the draft its first run made and fills it again;
+          # a published release is never touched.
+          if existing=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$existing" = true ]; then
+              gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --clobber
+            else
+              echo "release $TAG is already published; not touching it" >&2
+              exit 1
+            fi
+          else
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+              --verify-tag --generate-notes --title "$TAG" --draft $prerelease
+          fi
