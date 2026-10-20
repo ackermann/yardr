@@ -50,7 +50,9 @@ it lists every exported name with its comment, faster than grepping.
   (GOCACHE rotation, stale go-tmp), run by `yardr disk keep`.
 - `edgelink`: the yard's side of the edge (`yardr edge connect`): fetching
   the edge's key and enrolling the yard by a code, each call signed with the
-  yard's key; the edge itself is the `yardr-hosted` router, not here.
+  yard's key, and the link `yardr server` keeps open to it (dialled,
+  challenged, every frame checked, served with the listener's mux); the
+  edge itself is the `yardr-hosted` router, not here.
 - `eta`: arrival-time estimates and the arrivals board rows.
 - `flowdraw`: flows drawn as SVG signalling diagrams (generated into
   `docs/flows/`); the drawing holds no beads.

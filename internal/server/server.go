@@ -181,6 +181,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 			os.Remove(c.PIDFile())
 			os.Remove(c.PIDStart())
 			os.Remove(c.HookState())
+			os.Remove(c.EdgeState())
 		}
 	}()
 	if from := config.Getenv("REPLACED_FROM"); from != "" {
@@ -395,9 +396,14 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 //
 // BDP and the rest of the socket are not on it.
 //
-// The function returned stops the listener and has the receivers log the
-// refusals they had still counted (hooks.Receiver.Run, rpc.UserServer.Run);
-// it is called while the store is open.
+// The same handlers, the one mux, serve what comes down the yard's link to
+// its edge (keepEdge), with or without an address, less /peers/: so a
+// delivery through the edge meets the receiver's own check, a device call
+// its own token check, and nothing new decides who is let in.
+//
+// The function returned stops the listener and the link and has the
+// receivers log the refusals they had still counted (hooks.Receiver.Run,
+// rpc.UserServer.Run); it is called while the store is open.
 func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slog.Logger) (stop func()) {
 	l := hooks.Listener{Addr: c.HookAddr, From: hooks.FromVariable}
 	if l.Addr == "" {
@@ -415,19 +421,6 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 			log.Warn("hook receiver state not written", "err", err)
 		}
 	}()
-	if l.Addr == "" {
-		return func() {}
-	}
-	ln, err := net.Listen("tcp", l.Addr)
-	if err != nil {
-		l.Error = err.Error()
-		log.Error("hook receiver not started", "addr", l.Addr, "from", l.From, "err", err)
-		if err := st.LogEvent(ctx, "", "hook_listener_failed", "yard",
-			map[string]any{"addr": l.Addr, "from": l.From, "error": l.Error}); err != nil {
-			log.Warn("hook_listener_failed event", "err", err)
-		}
-		return func() {}
-	}
 	// Beside the hooks, under /peers/: the yards this one is linked with
 	// (docs/peers.md); under /user/: the devices of its users (docs/api.md,
 	// "Over the network"). Each handler serves its own paths and nothing
@@ -454,6 +447,31 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 	// Without the slash too, or the mux would answer a redirect there to
 	// whoever asks.
 	mux.Handle(strings.TrimSuffix(rpc.UserPath, "/"), device)
+	stopEdge := keepEdge(ctx, c, st, mux, log)
+	stopListener := func() {}
+	if l.Addr != "" {
+		stopListener = listenHooks(ctx, st, &l, mux, log)
+	}
+	return func() {
+		stopListener()
+		stopEdge()
+		stopRunning()
+		<-flushed
+	}
+}
+
+// listenHooks serves mux on l's address, or records in l why it cannot.
+func listenHooks(ctx context.Context, st *store.Store, l *hooks.Listener, mux http.Handler, log *slog.Logger) (stop func()) {
+	ln, err := net.Listen("tcp", l.Addr)
+	if err != nil {
+		l.Error = err.Error()
+		log.Error("hook receiver not started", "addr", l.Addr, "from", l.From, "err", err)
+		if err := st.LogEvent(ctx, "", "hook_listener_failed", "yard",
+			map[string]any{"addr": l.Addr, "from": l.From, "error": l.Error}); err != nil {
+			log.Warn("hook_listener_failed event", "err", err)
+		}
+		return func() {}
+	}
 	srv := &http.Server{Handler: mux,
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
@@ -462,11 +480,7 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 		}
 	}()
 	log.Info("hook receiver ready", "addr", ln.Addr().String(), "from", l.From)
-	return func() {
-		srv.Close()
-		stopRunning()
-		<-flushed
-	}
+	return func() { srv.Close() }
 }
 
 // Connect returns a client for the running server, starting one if none

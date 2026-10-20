@@ -39,3 +39,4 @@ plain words kept on purpose, because they name general machinery.
 | user | a person of the yard: a name and an inbox |
 | device | one program of a user that calls the yard from outside it, let in by a token the yard gave it ([users.md](users.md#devices)) |
 | edge | a service that stands in front of yards and hands them the webhooks sent to it; yardr runs one at https://my.yardr.dev. A yard connects to one with `yardr edge connect`, pins its key when it does, and still verifies every webhook itself |
+| edge link | the one WebSocket a yard's server keeps open to its edge while the `edge` setting is set, so that what reaches the edge for the yard comes down it with no port of the yard's own; it is the yard's only once each end has signed the other's fresh nonce, and every request on it is signed by the edge |

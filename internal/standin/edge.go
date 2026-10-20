@@ -18,7 +18,8 @@ import (
 // repository's: it serves the key it signs with at GET /edge/key, takes a
 // yard's enrolment at POST /edge/enrol (answering a code, and the handle once
 // a person has approved the yard), and drops a yard's row at POST
-// /edge/disconnect. A request is checked as a peer's is, signed by the yard
+// /edge/disconnect, and serves the link at GET /edge/link (edgelink.go). A
+// request is checked as a peer's is, signed by the yard
 // whose key it names, to this edge's key, within yardkey.MaxSkew; every
 // answer is signed with the key the stand-in is told to sign with.
 //
@@ -34,6 +35,10 @@ type Edge struct {
 	// asked counts the enrolling calls of each yard since it last asked to
 	// be forgotten: a yard whose row is dropped is enrolled afresh.
 	asked map[string]int
+	// links are the links welcomed and not yet taken by the test, and
+	// upgrades the signed upgrades taken.
+	links    chan *EdgeLink
+	upgrades int
 }
 
 // EdgeBehaviour is what a test changes about an Edge, with Behave.
@@ -55,6 +60,12 @@ type EdgeBehaviour struct {
 	// with, the reason being "expired"; DisconnectStatus is what a
 	// disconnecting yard is answered, 200 when zero.
 	Refuse, DisconnectStatus int
+	// ChallengeSigner, when not nil, signs the link's challenge in place of
+	// the edge's key, and ChallengeOverNonce, when not nil, is the yard nonce
+	// it is signed over in place of the one the upgrade named: a challenge
+	// that is not the edge's, or not this socket's.
+	ChallengeSigner    ed25519.PrivateKey
+	ChallengeOverNonce []byte
 }
 
 // EdgeEnrol is one enrolling call as the edge took it.
@@ -126,6 +137,8 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.enrol(w, r)
 	case "POST /edge/disconnect":
 		e.disconnect(w, r)
+	case "GET /edge/link":
+		e.link(w, r)
 	default:
 		http.NotFound(w, r)
 	}

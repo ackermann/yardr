@@ -123,7 +123,8 @@ func TestEdgeConnect(t *testing.T) {
 		"Open "+srv.URL+"/connect and enter the code  WQ4F-7K2M  (10 minutes)",
 		"… approved by chris@mckean.co as mckean",
 		"Connected: webhooks reach this yard at "+srv.URL+"/hooks/mckean/<hook>",
-		"hook_public_url set to "+srv.URL+"/hooks/mckean")
+		"hook_public_url set to "+srv.URL+"/hooks/mckean",
+		"The server opens the link to the edge now: yardr edge status says when it is up.")
 	if errs != "" || strings.Contains(out, "was ") {
 		t.Errorf("a connect that replaced nothing says more than that:\n%s\nstderr: %s", out, errs)
 	}

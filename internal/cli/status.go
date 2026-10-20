@@ -15,6 +15,7 @@ import (
 
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
@@ -45,7 +46,9 @@ type statusReport struct {
 	HerdrLogin herdrLogin `json:"herdr_login_service"`
 	Web        webStatus  `json:"web"`
 	// Hooks is absent too on a yard with no hook and no address for them.
-	Hooks *hookStatus  `json:"hooks,omitempty"`
+	Hooks *hookStatus `json:"hooks,omitempty"`
+	// Edge is the edge the yard is connected to, absent when none.
+	Edge  *edgeStatus  `json:"edge,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
 	// Devices are the users' devices: who may call the yard from outside
 	// it. Absent with none.
@@ -96,6 +99,15 @@ type hookStatus struct {
 	Addr      string         `json:"addr,omitempty"`
 	Listening bool           `json:"listening"`
 	Hooks     []hookEndpoint `json:"hooks"`
+}
+
+// edgeStatus is the edge the yard is connected to, and its link.
+type edgeStatus struct {
+	URL    string `json:"url"`
+	Handle string `json:"handle"`
+	// Link is the link as the running server last said it is; absent while
+	// it has said nothing.
+	Link *edgelink.State `json:"link,omitempty"`
 }
 
 // hookEndpoint is one hook.
@@ -327,6 +339,12 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	if rep.Hooks, err = readHooks(ctx, cfg, st); err != nil {
 		return nil, err
 	}
+	if e, connected, _ := store.EdgeOf(all); connected {
+		rep.Edge = &edgeStatus{URL: e.URL, Handle: e.Handle}
+		if s, known := edgelink.ReadState(cfg); known {
+			rep.Edge.Link = &s
+		}
+	}
 	peers, err := st.Peers(ctx)
 	if err != nil {
 		return nil, err
@@ -528,6 +546,14 @@ func (r *statusReport) parts() []statusPart {
 			rows = append(rows, []string{one.Name, one.Source, one.URL})
 		}
 		parts = append(parts, statusPart{"hooks", append(lines, columns(rows)...)})
+	}
+
+	if e := r.Edge; e != nil {
+		s, known := edgelink.State{}, e.Link != nil
+		if known {
+			s = *e.Link
+		}
+		parts = append(parts, statusPart{"edge", []string{e.URL + " as handle " + e.Handle, "link " + edgeLinkLine(s, known, yardr)}})
 	}
 
 	if len(r.Peers) > 0 {

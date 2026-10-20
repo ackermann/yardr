@@ -225,6 +225,10 @@ func (c *Config) LogFile() string  { return filepath.Join(c.Home, "server.log") 
 // (see server.HookListener).
 func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state") }
 
+// EdgeState is where the server says how its link to the edge is, each time
+// it changes (see edgelink.ReadState).
+func (c *Config) EdgeState() string { return filepath.Join(c.Home, "edge.state") }
+
 // PeerKey is the file holding the yard's private key, by which other yards
 // know it (see internal/yardkey). It is read as a secret file is: mode 0600.
 func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }

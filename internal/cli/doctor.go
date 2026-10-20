@@ -16,6 +16,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/rpc"
@@ -524,6 +525,18 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 	if l, known := hooks.ReadListener(cfg); len(hs) > 0 || known && l.Addr != "" {
 		_, text := receiver(ctx, cfg, st)
 		hook.Notes = append(hook.Notes, text)
+	}
+	// The link to the edge serves the hooks as the listener does, with or
+	// without it, so its line is beside the listener's.
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if e, connected, err := store.EdgeOf(all); err != nil {
+		hook.Notes = append(hook.Notes, fmt.Sprintf("the edge setting is not one this build reads, so the server keeps no link: %v; %s edge disconnect clears it", err, yardr))
+	} else if connected {
+		s, known := edgelink.ReadState(cfg)
+		hook.Notes = append(hook.Notes, fmt.Sprintf("the link to the edge %s, as handle %s: %s", e.URL, e.Handle, edgeLinkLine(s, known, yardr)))
 	}
 	packs, err := st.Packs(ctx)
 	if err != nil {

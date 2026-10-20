@@ -68,6 +68,37 @@ type edgeView struct {
 	Replaced      string `json:"replaced_hook_public_url,omitempty"`
 	// ApprovedBy is who approved the yard at the edge, said when connecting.
 	ApprovedBy string `json:"approved_by,omitempty"`
+	// Link is the link as the running server last said it is, said by
+	// status; absent while it has said nothing.
+	Link *edgelink.State `json:"link,omitempty"`
+}
+
+// edgeLinkLine is the yard's link to its edge in one line, as the running
+// server last said it is (s, when known): yardr status, yardr doctor and
+// yardr edge status show it beside the listener's. yardr is the command as
+// it is typed for this home.
+func edgeLinkLine(s edgelink.State, known bool, yardr string) string {
+	switch {
+	case !known:
+		return "the server has not said how its link is: it dials the edge while it runs with the edge set"
+	case s.Up:
+		line := "up since " + since(s.Since)
+		if n := s.Reconnects(); n > 0 {
+			line += fmt.Sprintf(" (%s since the server started)", plural(n, "reconnect"))
+		}
+		return line
+	}
+	line := "down since " + since(s.Since) + ": " + s.Reason
+	if s.Detail != "" {
+		line += " (" + s.Detail + ")"
+	}
+	switch s.Reason {
+	case edgelink.DownRefusedKey:
+		return line + ". If the edge's key changed on purpose, " + yardr + " edge disconnect and connect again"
+	case edgelink.DownRefused:
+		return line + ". The edge does not take this yard's link: is the yard still connected at the edge? " + yardr + " edge disconnect and connect again"
+	}
+	return line + "; the server dials again on its own"
 }
 
 func viewOf(e store.Edge, settings map[string]string) edgeView {
@@ -252,6 +283,9 @@ func (a *app) edgeConnect(c *cobra.Command, address string) error {
 	if edge.HookPublicURL != "" {
 		a.progress(w, warn, "%s was %s; restored on disconnect", store.HookPublicURLSetting, edge.HookPublicURL)
 	}
+	// The server follows the setting and dials at once; whether the link
+	// came up is its to say, after this command has ended.
+	a.progress(w, warn, "The server opens the link to the edge now: yardr edge status says when it is up.")
 	if !a.json {
 		return nil
 	}
@@ -287,9 +321,21 @@ edge. It reads what yardr edge connect wrote and does not call the edge.`,
 					fmt.Fprintf(w, "not connected to an edge: yardr edge connect <url>, such as %s\n", productionEdge)
 				})
 			}
+			cfg, err := a.config()
+			if err != nil {
+				return err
+			}
 			view := viewOf(e, settings)
+			if s, known := edgelink.ReadState(cfg); known {
+				view.Link = &s
+			}
 			return a.out(c.OutOrStdout(), view, func(w io.Writer) {
 				fmt.Fprintf(w, "edge      %s  (key %s, as handle %s)\n", view.URL, keyLabel(view.Key), view.Handle)
+				s, known := edgelink.State{}, view.Link != nil
+				if known {
+					s = *view.Link
+				}
+				fmt.Fprintf(w, "link      %s\n", edgeLinkLine(s, known, yardrAt(cfg.Home)))
 				fmt.Fprintf(w, "hooks     %s/<hook>\n", view.HooksURL)
 				if view.HookPublicURL != view.HooksURL {
 					now := "unset"
