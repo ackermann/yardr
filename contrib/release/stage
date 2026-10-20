@@ -242,8 +242,13 @@ build() {
       [ -f "$f" ] || continue
       n_dist=$((n_dist + 1))
     done
-    if [ "$n_dist" -ne 4 ] || [ ! -f "$tmp/dist/checksums.txt" ]; then
-      fail failed "the build on this machine made $n_dist archives, not the four and checksums.txt; fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build" "$(tail -n 20 "$tmp/build.log")"
+    missing=""
+    for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+      archive="yardr_${v#v}_$target.tar.gz"
+      [ -f "$tmp/dist/$archive" ] || missing="$missing $archive"
+    done
+    if [ "$n_dist" -ne 4 ] || [ -n "$missing" ] || [ ! -f "$tmp/dist/checksums.txt" ]; then
+      fail failed "the build on this machine did not make the four expected archives and checksums.txt (found $n_dist archives; missing:$missing); fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build" "$(tail -n 20 "$tmp/build.log")"
     fi
     printf '%s\n' "$body" >"$tmp/notes.md"
     if [ "$existing" = true ]; then

@@ -118,8 +118,11 @@ const fakeBuild = `#!/bin/sh
 printf 'build %s SOURCE_DATE_EPOCH=%s\n' "$*" "${SOURCE_DATE_EPOCH:-}" >>"$FAKE_DIR/calls.log"
 out=$2
 mkdir -p "$out"
-for t in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
-  printf 'fake %s\n' "$t" >"$out/yardr_${1#v}_$t.tar.gz"
+targets=${YARDR_RELEASE_TARGETS:-darwin/arm64 darwin/amd64 linux/amd64 linux/arm64}
+for t in $targets; do
+  os=${t%/*}
+  arch=${t#*/}
+  printf 'fake %s\n' "$t" >"$out/yardr_${1#v}_${os}_${arch}.tar.gz"
 done
 printf 'fake checksums\n' >"$out/checksums.txt"
 exit "${FAKE_BUILD_RC:-0}"
@@ -586,6 +589,21 @@ func TestStageBuildAdoptsAStandingDraftWhenActionsIsOff(t *testing.T) {
 	s.mustLack(got, "gh run list")
 	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
 	s.mustContain(got, "built on this machine")
+}
+
+func TestStageBuildRejectsAnIncompleteLocalTargetSet(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.build(checkout)
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_ACTIONS_ENABLED=false",
+		"YARDR_RELEASE_TARGETS=darwin/amd64 darwin/arm64 linux/amd64 windows/amd64")
+	got := s.log()
+	s.mustContain(got, "did not make the four expected archives")
+	s.mustContain(got, "yardr_1.2.3_linux_arm64.tar.gz")
+	s.mustContain(got, "--outcome failed")
+	s.mustLack(got, "gh release create")
+	s.mustLack(got, "gh run list")
 }
 
 func TestStageBuildResumesAfterTagging(t *testing.T) {
