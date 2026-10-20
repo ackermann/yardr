@@ -252,6 +252,29 @@ func TestWebServeKeepsTheTokenOutOfALog(t *testing.T) {
 	}
 }
 
+// An acting view must have its private record: without it, a detached view
+// has no way to open the token URL, and the token has nowhere mode 0600 can
+// protect it. Read-only views may still serve without a record.
+func TestWebServeActsRequiresItsTokenRecord(t *testing.T) {
+	t.Parallel()
+	st, cfg := webYard(t)
+	if err := os.MkdirAll(cfg.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.WebViews(), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := appOn(st)
+	a.cfg = cfg
+	_, err := run(t, a.webCmd(), "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0", "--as", "Jo")
+	if err == nil || !strings.Contains(err.Error(), "could not record the acting web view's token") {
+		t.Fatalf("serve with no place for the token: %v, want it refused", err)
+	}
+	if views := webViews(cfg); len(views) != 0 {
+		t.Errorf("serve with no token record left a view listed: %+v", views)
+	}
+}
+
 // yardr web open opens the URL of the view that runs: with its token where
 // the view acts, plain where it does not. It does not print the token where
 // a browser took it, prints it where none did, and names the views when it

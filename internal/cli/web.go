@@ -279,6 +279,9 @@ this machine. Both answers carry Retry-After.`,
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
 			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as, jwtCfg.Issuer, token); err != nil {
+				if token != "" {
+					return fmt.Errorf("could not record the acting web view's token: %w", err)
+				}
 				log.Warn("yardr status will not list this view: it could not be recorded", "err", err)
 			} else {
 				defer clear()
