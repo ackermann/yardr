@@ -448,45 +448,61 @@ func TestLinkStreamsAnAnswerLargerThanOneFrame(t *testing.T) {
 	for i := range body {
 		body[i] = byte(i*31 + 7)
 	}
+	shortURL := "/user/blobs/" + strings.Repeat("a", 64)
+	largeURL := "/user/blobs/" + strings.Repeat("b", 64)
 	y := linkTo(t, func(l *Link) {
 		l.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, "/user/blobs/") {
 				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Write(body)
+				if r.URL.Path == shortURL {
+					w.Write(body[:900<<10])
+				} else {
+					w.Write(body)
+				}
 				return
 			}
 			w.WriteHeader(http.StatusOK)
 		})
 	}, nil)
 	l := y.next(t)
-	big := l.Frame(http.MethodGet, "/user/blobs/"+strings.Repeat("a", 64), nil, nil, false)
-	head := deliver(t, l, big)
-	if !head.Stream || head.Status != http.StatusOK || head.Header.Get("Content-Type") != "application/octet-stream" || len(head.Body) != 0 {
-		t.Fatalf("the head is %+v, want a streamed 200 octet-stream with an empty body", head)
-	}
-	var got []byte
-	for len(got) < len(body) {
-		select {
-		case d := <-l.DataEvents():
-			if d.ID != big.ID {
-				t.Fatalf("the data is for %s, want %s", d.ID, big.ID)
+	streamAnswer := func(path string, want []byte) {
+		t.Helper()
+		f := l.Frame(http.MethodGet, path, nil, nil, false)
+		head := deliver(t, l, f)
+		if !head.Stream || head.Status != http.StatusOK || head.Header.Get("Content-Type") != "application/octet-stream" || len(head.Body) != 0 {
+			t.Fatalf("the head is %+v, want a streamed 200 octet-stream with an empty body", head)
+		}
+		var got []byte
+		for len(got) < len(want) {
+			select {
+			case d := <-l.DataEvents():
+				if d.ID != f.ID {
+					t.Fatalf("the data is for %s, want %s", d.ID, f.ID)
+				}
+				if len(d.Body) > maxDataBody {
+					t.Fatalf("a data piece is %d bytes, over maxDataBody %d", len(d.Body), maxDataBody)
+				}
+				got = append(got, d.Body...)
+			case <-time.After(10 * time.Second):
+				t.Fatalf("received %d of %d bytes", len(got), len(want))
 			}
-			got = append(got, d.Body...)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatal("the reassembled body differs from the blob it answers")
+		}
+		select {
+		case id := <-l.EndEvents():
+			if id != f.ID {
+				t.Errorf("the end is for %s, want the stream's %s", id, f.ID)
+			}
 		case <-time.After(10 * time.Second):
-			t.Fatalf("received %d of %d bytes", len(got), len(body))
+			t.Fatal("no end after the streamed answer")
 		}
 	}
-	if !bytes.Equal(got, body) {
-		t.Fatal("the reassembled body differs from the blob it answers")
-	}
-	select {
-	case id := <-l.EndEvents():
-		if id != big.ID {
-			t.Errorf("the end is for %s, want the stream's %s", id, big.ID)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("no end after the streamed answer")
-	}
+	// The original 900 KiB case just crossed the one-frame limit. Keep it
+	// alongside the full blob so both the old boundary and the edge bound fit.
+	streamAnswer(shortURL, body[:900<<10])
+	streamAnswer(largeURL, body)
 	if a := deliver(t, l, l.Frame(http.MethodGet, "/hooks/after", nil, nil, false)); a.Status != http.StatusOK {
 		t.Errorf("the call after the stream answered %+v", a)
 	}
