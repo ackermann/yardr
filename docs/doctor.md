@@ -28,7 +28,7 @@ also says how a program that fetches gets it
 starts no daemon, no yardr server and no herdr server. What it does do:
 
 - It runs each harness it finds with its version flag (`claude --version`),
-  for up to 5 seconds each, side by side. That runs a program and changes
+  for up to 20 seconds each, side by side. That runs a program and changes
   nothing.
 - It asks the herdr it finds whether its server answers (`herdr agent list`,
   the call a crew member's start begins with), for up to 5 seconds.
