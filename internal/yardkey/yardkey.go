@@ -361,10 +361,16 @@ func VerifyFrame(from string, f Frame, sig string) error {
 	}
 	// HTTP allows neither in a header, and either would let two header
 	// maps digest alike.
+	seenHeaders := make(map[string]string, len(f.Header))
 	for name, values := range f.Header {
 		if strings.ContainsAny(name, ":\r\n") {
 			return fmt.Errorf("%w: a header name holds a colon or a line break", ErrSignature)
 		}
+		lower := strings.ToLower(name)
+		if prior, ok := seenHeaders[lower]; ok && prior != name {
+			return fmt.Errorf("%w: header names %q and %q differ only in case", ErrSignature, prior, name)
+		}
+		seenHeaders[lower] = name
 		for _, v := range values {
 			if strings.ContainsAny(v, "\r\n") {
 				return fmt.Errorf("%w: a header value holds a line break", ErrSignature)

@@ -196,3 +196,26 @@ func TestVerifyFrameRefusesWhatCouldSignAsAnother(t *testing.T) {
 		}
 	}
 }
+
+// A JSON header map can split one HTTP name across keys that differ only in
+// case. HeaderDigest lowercases names, while request construction merges
+// those keys back into one header in map iteration order, so the verifier
+// refuses the ambiguous form even when its digest matches.
+func TestVerifyFrameRefusesHeaderNamesThatDifferOnlyInCase(t *testing.T) {
+	edge := seeded(101)
+	base := Frame{Session: "s", Seq: 1, ID: "r-1", Method: "POST", Path: "/hooks/x",
+		Header:   map[string][]string{"X-Hub-Signature-256": {"first", "second"}},
+		Received: "2026-10-20T09:14:03Z"}
+	sig := SignFrame(edge, base)
+	changed := base
+	changed.Header = map[string][]string{
+		"X-Hub-Signature-256": {"first"},
+		"x-hub-signature-256": {"second"},
+	}
+	if HeaderDigest(changed.Header) != HeaderDigest(base.Header) {
+		t.Fatal("the case split should preserve the current header digest")
+	}
+	if err := VerifyFrame(Public(edge), changed, sig); err == nil {
+		t.Fatal("a header split across case-insensitive names verified")
+	}
+}
