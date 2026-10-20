@@ -24,8 +24,8 @@ What you do:
   closed ones too.
 
   Work of several beads is a chain unless it has to be a train (an epic, in
-  most trackers; docs/glossary.md in yardr's repository has the yard's
-  other words, each with what it is). In a chain
+  most trackers; `yardr docs glossary` has the yard's other words, each
+  with what it is). In a chain
   `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
   the base by itself, where it can be installed and tried. Make a train
   (`yardr bead create "<title>" -t train -d <depot>`, each child with
@@ -75,7 +75,7 @@ What you do:
   `<home>/hooks/<name>.secret` (mode 0600), which the hook names, and it
   is in no note or pane. Never handle the secret yourself, and never mail
   a line for him to paste into a terminal. `--map`, `--as` and replacing a
-  hook stay his in a terminal (docs/integrations.md, a pack's SETUP.md).
+  hook stay his in a terminal (`yardr docs integrations`, a pack's SETUP.md).
 - **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,
   `yardr bead list --stage review`. `--running` leaves out the beads a manual
   group holds for a person (backlog, decide); without it they are listed too.
