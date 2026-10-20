@@ -875,10 +875,12 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 		does = append(does, fmt.Sprintf("the link with %s (%s) takes %d mails and asks an hour from it. It takes %d now.", al.name, peerAs(p), al.limit, has))
 		back = append(back, "--mail-limit", strconv.Itoa(has))
 	}
-	addedSend := slices.DeleteFunc(slices.Clone(al.send), func(k string) bool { return slices.Contains(p.Send, k) })
-	addedReceive := slices.DeleteFunc(slices.Clone(al.receive), func(k string) bool { return slices.Contains(p.Receive, k) })
-	removedSend := slices.DeleteFunc(slices.Clone(al.nosend), func(k string) bool { return !slices.Contains(p.Send, k) })
-	removedReceive := slices.DeleteFunc(slices.Clone(al.noreceive), func(k string) bool { return !slices.Contains(p.Receive, k) })
+	afterSend := changeList(p.Send, al.send, al.nosend)
+	afterReceive := changeList(p.Receive, al.receive, al.noreceive)
+	addedSend := slices.DeleteFunc(slices.Clone(afterSend), func(k string) bool { return slices.Contains(p.Send, k) })
+	addedReceive := slices.DeleteFunc(slices.Clone(afterReceive), func(k string) bool { return slices.Contains(p.Receive, k) })
+	removedSend := slices.DeleteFunc(slices.Clone(p.Send), func(k string) bool { return slices.Contains(afterSend, k) })
+	removedReceive := slices.DeleteFunc(slices.Clone(p.Receive), func(k string) bool { return slices.Contains(afterReceive, k) })
 	kinds := len(al.send)+len(al.receive)+len(al.nosend)+len(al.noreceive) > 0
 	if asking && kinds && len(addedSend)+len(addedReceive)+len(removedSend)+len(removedReceive) == 0 {
 		return AskRun{}, fmt.Errorf("peer %s: the link carries %s to it and takes %s from it already, so the command would change nothing", al.name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
@@ -889,7 +891,7 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 		// link as it is, then which kinds the command adds and stops.
 		does = append(does, fmt.Sprintf("the link with %s (%s) will carry %s to it and take %s from it. It carries %s to it and takes %s from it now.",
 			al.name, peerAs(p),
-			kindsSay(changeList(p.Send, al.send, al.nosend)), kindsSay(changeList(p.Receive, al.receive, al.noreceive)),
+			kindsSay(afterSend), kindsSay(afterReceive),
 			kindsSay(p.Send), kindsSay(p.Receive)))
 		var delta []string
 		if len(addedSend) > 0 {

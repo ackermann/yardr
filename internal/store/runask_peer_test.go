@@ -164,6 +164,34 @@ func TestRunAskPeerAllowAnyKind(t *testing.T) {
 	}
 }
 
+// When a kind is both added and stopped, the write lets the stop win. The
+// card and its no-op check use that resulting state too.
+func TestRunAskPeerAllowCardsTheResultOfConflictingKinds(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := peerRuleYard(t)
+	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer allow airy --send bead --no-send bead"), "yardmaster"); err == nil || !strings.Contains(err.Error(), "the link carries nothing to it and takes nothing from it already") {
+		t.Fatalf("adding and stopping an absent kind = %v", err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerBead}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, runAsk("peer allow airy --send bead --no-send bead"), "yardmaster")
+	run := *y.asked(t, seq).Ask.Run
+	want := []string{
+		"the link with airy (it calls itself yardr, key " + y.peerOf(t, "airy").Key[:8] + "…) will carry nothing to it and take nothing from it. It carries bead to it and takes nothing from it now.",
+		"That stops carrying bead to it.",
+	}
+	if !slices.Equal(run.Does, want) || run.Back != "yardr peer allow airy --send bead" || run.BackBy != "only the operator" {
+		t.Fatalf("the ask stores %q, %q by %q", run.Does, run.Back, run.BackBy)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if p := y.peerOf(t, "airy"); len(p.Send) != 0 {
+		t.Fatalf("the link carries %v after stop wins", p.Send)
+	}
+}
+
 // An approval that arrived through the reach of the peer a command is about
 // is refused, with words that say why, and leaves the ask open and the yard
 // as it was: a peer does not widen its own link, say where its own beads go
