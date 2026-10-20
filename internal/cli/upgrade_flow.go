@@ -19,7 +19,9 @@ import (
 )
 
 // upgradeRun installs the depot's build, verified, or rolls back: the
-// command of design yardr-6ja6 sections 3.1-3.3 and 3.6. Timeout bounds the
+// command of design yardr-6ja6 sections 3.1-3.3 and 3.6. The scripts the
+// covered yards already run from their homes are refreshed with the build
+// and put back with it (upgrade_scripts.go). Timeout bounds the
 // whole multi-yard gate; noRestore overrides the upgrade_restore setting
 // for one run, and fromFlag names the depot for one run instead of the
 // upgrade_from setting.
@@ -216,6 +218,13 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	newRev := version.Show(newBuild.Revision)
 	fmt.Fprintf(w, "%-9s  go install . at %s\n", "install", newRev)
 
+	// The scripts a yard runs from its home are the depot's too, and a fix
+	// landed in one is live only when this carries it, as it does the
+	// binary. They go in with the build and, on a rollback, come out with
+	// it: a new script may call what only the new binary knows.
+	scripts := upgradeScriptsInstall(ctx, depot.Path, yards, warn)
+	fmt.Fprintf(w, "%-9s  %s\n", "scripts", scripts.summary())
+
 	// A stopped server is started first, per yard, so there is always a
 	// server to verify; nothing else is started.
 	for i, before := range was {
@@ -299,6 +308,12 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 		}
 		downAny = true
 	} else {
+		// The scripts go back with the binary they were refreshed for, and
+		// only once it is back: where it could not be, the new build is the
+		// one installed.
+		if names := scripts.putBack(warn); len(names) > 0 {
+			fmt.Fprintf(w, "%-9s  %s put back\n", "scripts", strings.Join(names, ", "))
+		}
 		for _, before := range was {
 			yc := config.At(before.home)
 			outcome := "back on " + prevRev

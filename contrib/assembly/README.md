@@ -60,13 +60,16 @@ never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
 Where the yard's `upgrade_from` setting names the bead's depot it then runs
 the installed yardr's `upgrade`, and the landing note says how the install
 went (`merged 6a07178, tested with the base's copy of .yardr/test in 355 s;
-install ok in 24 s`), with the install's seconds in the log line; a failed
-install where the yard still answers still merges, like a failed push. Where
-the installed yardr predates the command the note says to install the new
-yardr once by hand first. When the install leaves the yard dead no advance
-is possible, and the bead fails its session toward a hold. The step activates
-only once the operator reinstalls this script from `main` and sets
-`upgrade_from` (docs/upgrade.md, "The assembly step").
+install ok in 24 s (scripts refreshed: merge-local)`), with the install's
+seconds in the log line. A failed install where the yard still answers still
+merges, like a failed push. Where the installed yardr predates the command
+the note says to install the new yardr once by hand first. When the install
+leaves the yard dead no advance is possible, and the bead fails its session
+toward a hold. The step activates only once the operator has installed this
+script and sets `upgrade_from` (docs/upgrade.md, "The assembly step"). The
+install also keeps the scripts the yard has in `~/.yardr/scripts` current
+from the checkout it builds, this one among them, and the note names the
+ones it refreshed (docs/upgrade.md, "The scripts").
 Finally it advances the bead to `merged` with `merged <sha>`, what tested
 it, the seconds the tests took, and how the install went where it ran
 (`merged 6a07178, tested with the base's copy of .yardr/test in 355 s`).
@@ -173,6 +176,9 @@ yardr group add yard-integrators --runner exec --limit 1 \
   --set log="$HOME/.yardr/logs/integrator.log"
 yardr route add --stage open --type train --depot yard --group yard-integrators --priority 10
 ```
+
+The install is the first-time step: from then on `yardr upgrade` refreshes
+each script from the checkout it builds (docs/upgrade.md, "The scripts").
 
 Landing trains through pull requests adds the groups `yard-pr` and
 `yard-pr-merge`, routed for `approved` and `land` (type `train`), with

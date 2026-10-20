@@ -116,11 +116,25 @@ func TestMergeLocalCopiesIdentical(t *testing.T) {
 
 // A landing on the depot upgrade_from names installs the landed build and
 // notes the outcome: the summary joins the landing note, the seconds the
-// log line, and the install's own lines the log.
+// log line, and the install's own lines the log. The install also refreshes
+// the scripts the yard already has from the tree that landed, and the note
+// names them, so a fix landed in merge-local is live for the next landing
+// with no hand step; a script the yard lacks is not added.
 func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
 	y := newYard(t)
 	y.tests("true")
 	y.commit(y.wt, "b.txt", "bead\n")
+	const old, landed = "#!/bin/sh\necho old\n", "#!/bin/sh\necho landed\n"
+	if err := os.MkdirAll(filepath.Join(y.wt, "contrib", "assembly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	y.commit(y.wt, "contrib/assembly/merge-local", landed)
+	y.commit(y.wt, "contrib/assembly/pr-train", landed)
+	scripts := filepath.Join(y.home, "scripts")
+	if err := os.MkdirAll(scripts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, scripts, "merge-local", old)
 	y.upgradeFrom("r")
 	bin := t.TempDir()
 	y.bin = yardrCopy(t, bin)
@@ -131,16 +145,24 @@ func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
 	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" {
 		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
 	}
-	if !regexp.MustCompile(`; install ok in \d+ s`).MatchString(y.notes()) {
-		t.Fatalf("no install summary in the landing note:\n%s", y.notes())
+	if !regexp.MustCompile(`; install ok in \d+ s \(scripts refreshed: merge-local\)`).MatchString(y.notes()) {
+		t.Fatalf("no install summary naming the refreshed script in the landing note:\n%s", y.notes())
 	}
 	if !regexp.MustCompile(`(?m)^== r-1 took: the tests \d+ s, upgrade \d+ s$`).MatchString(y.log) {
 		t.Fatalf("the log line has no upgrade seconds:\n%s", y.log)
 	}
-	for _, want := range []string{"backup", "keep", "install    go install . at ", "health     ok in "} {
+	for _, want := range []string{"backup", "keep", "install    go install . at ", "scripts    merge-local refreshed", "health     ok in "} {
 		if !strings.Contains(y.log, want) {
 			t.Fatalf("the log lacks the install's %q line:\n%s", want, y.log)
 		}
+	}
+	for file, want := range map[string]string{"merge-local": landed, "merge-local.previous": old} {
+		if got, err := os.ReadFile(filepath.Join(scripts, file)); err != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v; want %q", file, got, err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(scripts, "pr-train")); err == nil {
+		t.Fatalf("the install added pr-train, which the yard did not have")
 	}
 	for _, p := range []string{filepath.Join(y.home, "backups", "yard.db.before-install"), filepath.Join(bin, "yardr.prev")} {
 		if _, err := os.Stat(p); err != nil {
@@ -176,6 +198,39 @@ exec `+shellQuote(yardrBin)+` "$@"
 	}
 	if !regexp.MustCompile(`(?m)^== r-1 took: the tests \d+ s$`).MatchString(y.log) {
 		t.Fatalf("the log line is not the one without the step:\n%s", y.log)
+	}
+}
+
+// A scripts line that says none were refreshed names nothing in the landing
+// note: the note reads names from lines that end in "refreshed", and this
+// one must not be taken for a script called "none".
+func TestMergeLocalNamesNoScriptsThatWereKept(t *testing.T) {
+	y := newYard(t)
+	y.tests("true")
+	y.commit(y.wt, "b.txt", "bead\n")
+	y.upgradeFrom("r")
+	y.bin = writeScript(t, t.TempDir(), "yardr", `#!/bin/sh
+if [ "$1" = "upgrade" ] && [ "$2" = "--help" ]; then
+  printf '%s\n' 'Usage:' '  yardr upgrade [flags]'
+  exit 0
+fi
+if [ "$1" = "upgrade" ]; then
+  printf '%s\n' 'install    go install . at deadbeefcd12' 'scripts    kept as they were, see the warnings above' 'health     ok in 1 s'
+  exit 0
+fi
+exec `+shellQuote(yardrBin)+` "$@"
+`)
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" {
+		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
+	}
+	if !regexp.MustCompile(`; install ok in \d+ s`).MatchString(y.notes()) {
+		t.Fatalf("no install summary in the landing note:\n%s", y.notes())
+	}
+	if strings.Contains(y.notes(), "(scripts") {
+		t.Fatalf("the landing note names scripts that were kept:\n%s", y.notes())
 	}
 }
 

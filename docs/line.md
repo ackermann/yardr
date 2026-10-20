@@ -447,7 +447,8 @@ the session and the daemon stops the script, so it is the script's last step.
    `yardmaster`) is mailed;
 5. installs the landed build if the yard's `upgrade_from` setting names the
    bead's depot: it runs the installed yardr's `upgrade` and folds its
-   one-line summary into the landing note and its seconds into the log line.
+   one-line summary into the landing note, with the scripts the install
+   refreshed by name, and its seconds into the log line.
    Like a failed push, a failed install where the yard still answers still
    merges, with a note saying what failed and what was put back; where the
    installed yardr predates the command the note says to install the new
@@ -455,7 +456,7 @@ the session and the daemon stops the script, so it is the script's last step.
    advance is possible, and the bead fails its session toward a hold. A
    wagon never installs: it lands on its train's branch while the install
    builds the depot's checkout. The step activates only once the operator
-   reinstalls the script from `main` and sets `upgrade_from`
+   has installed the script and sets `upgrade_from`
    ([upgrade.md](upgrade.md#the-assembly-step));
 6. advances to the terminal stage `merged` with the note `merged <sha>`,
    what tested it, the seconds the tests took, and how the install went
@@ -478,7 +479,10 @@ yardr route add --stage approved --group yardr-refinery --depot yardr
 ```
 
 The script is installed from `main` rather than run from a checkout: a bead
-branch must not change how it is landed. Without a checkout of yardr, the
+branch must not change how it is landed. That install is the first-time step.
+Once the script is there, `yardr upgrade` refreshes it from the checkout it
+builds, so a fix that lands in it is live for the next landing
+([upgrade.md](upgrade.md#the-scripts)). Without a checkout of yardr, the
 starter pack carries the same script: `yardr depot init <depot>`,
 which is what `yardr setup` runs, installs it as
 `~/.yardr/packs/starter/scripts/merge-local` and adds the group
@@ -1332,6 +1336,11 @@ yardr group add yardr-integrators --runner exec --limit 1 \
   --set log="$HOME/.yardr/logs/integrator.log"
 yardr route add --stage open --type train --depot yardr --group yardr-integrators --priority 10
 ```
+
+Each install is the first-time step. Once a script is there, `yardr upgrade`
+refreshes it from the checkout it builds, `pr-train` and `pr-merge` below
+included, so a fix that lands in one is live for the next run
+([upgrade.md](upgrade.md#the-scripts)).
 
 Through pull requests (experimental, see above), every cmd on the path
 carries `YARDR_PR=1`:

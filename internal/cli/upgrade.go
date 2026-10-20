@@ -111,11 +111,13 @@ func (a *app) upgradeCmd() *cobra.Command {
 
 Without --check it does the hand step whole: from the checkout of the
 depot --from names for one run, or the upgrade_from setting where the
-flag is absent, it runs go install ., restarts each covered yard's web
-view where it runs as a login service, checks every covered yard runs
-it, and otherwise puts the previous build back. The covered yards are
-this yard plus every yard registered on this machine whose login
-service runs the shared binary. A yard with neither is untouched.
+flag is absent, it runs go install ., refreshes the scripts each covered
+yard already has in <home>/scripts (merge-local and the others its groups
+run) from the same checkout, restarts each covered yard's web view where
+it runs as a login service, checks every covered yard runs it, and
+otherwise puts the previous build back, the scripts with it. The covered
+yards are this yard plus every yard registered on this machine whose
+login service runs the shared binary. A yard with neither is untouched.
 
 --from is how a hosted-style yard takes an upgrade: one whose operator
 names no notify source cannot set upgrade_from, which stays refused so

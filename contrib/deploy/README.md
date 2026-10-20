@@ -29,7 +29,9 @@ yardr route add --stage merged --group app-deploy --depot app
 
 Install it from `main`, not a checkout, so a branch cannot change how it is
 deployed: the script that runs is the one the group's `cmd` names, and
-nothing of the tree it pushes is run here. It needs `git` and `ssh` on PATH.
+nothing of the tree it pushes is run here. Once it is there, `yardr upgrade`
+keeps the copy current from the checkout it builds (docs/upgrade.md, "The
+scripts"). It needs `git` and `ssh` on PATH.
 Compare the key `ssh-keyscan` printed with the host's own
 (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`, on the host) before
 trusting the file: the scan believes whoever answers.

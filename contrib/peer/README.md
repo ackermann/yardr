@@ -24,7 +24,8 @@ yardr route add --stage push --depot web --group web/return
 It is also built into yardr: `yardr peer intake <peer> --depot <depot> --flow
 <flow>` writes it to `~/.yardr/scripts/` when the depot is a repository, and
 keeps one that is there. Install it from `main`, not a checkout, so a branch
-cannot change how it is given back.
+cannot change how it is given back. Once it is there, `yardr upgrade` keeps
+the copy current from the checkout it builds (docs/upgrade.md, "The scripts").
 
 It pushes `yard/<this yard's bead>` to the remote `YARDR_PUSH` names, under
 the same name: never the base, never forced, and it never merges. Then it

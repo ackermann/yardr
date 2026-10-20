@@ -2,33 +2,38 @@
 
 `yardr upgrade` installs the depot's build, verified, or rolls back. It
 does the hand step whole: from the checkout of the depot the
-`upgrade_from` setting names it runs `go install .`, checks every
-covered yard runs it, and otherwise puts the previous build back. The
-assembly calls it after the merge when the setting names the depot; by
-hand it is run after pulling instead of `go install .`. A yard without
-the setting is untouched.
+`upgrade_from` setting names it runs `go install .`, refreshes the
+scripts the yard already runs from its home from the same checkout,
+checks every covered yard runs the new build, and otherwise puts the
+previous build back, the scripts with it. The assembly calls it after
+the merge when the setting names the depot; by hand it is run after
+pulling instead of `go install .`. A yard without the setting is
+untouched.
 
 ```sh
 $ yardr upgrade
 backup    /Users/jo/.yardr/backups/yard.db.before-install
 keep      /Users/jo/go/bin/yardr.prev (1904410)
 install   go install . at 1904417
+scripts   merge-local, integrate-train refreshed
 health    ok in 24 s
 ```
 
 One line per step, exit 1 when the install fails, 0 when every covered
-yard runs the new build.
+yard runs the new build. The `scripts` line is [its own
+section](#the-scripts).
 
 ## The assembly step
 
 `contrib/assembly/merge-local` — and the identical copies the packs
 carry — calls it after the push and before the advance: when
 `upgrade_from` names the landed bead's depot, it runs the installed
-yardr's `upgrade` and folds the one-line summary into the landing note
-and the seconds into the group's log line.
+yardr's `upgrade` and folds the one-line summary into the landing note,
+with the scripts the install refreshed by name, and the seconds into
+the group's log line.
 
 ```sh
-merged 6a07178, tested with the base's copy of .yardr/test in 355 s; install ok in 24 s
+merged 6a07178, tested with the base's copy of .yardr/test in 355 s; install ok in 24 s (scripts refreshed: merge-local)
 ```
 
 The code has landed, so a failed install where the yard still answers
@@ -41,13 +46,14 @@ advance is possible: the bead fails its session toward a hold, with the
 wagon never installs: it lands on its train's branch, not the depot's
 base, while the install builds the depot's checkout.
 
-The step activates only once the operator reinstalls the script from
-`main` and sets `upgrade_from` — the assembly runs the installed copy,
-so landing the step changes nothing by itself. In order, the four
-activations are: name a notify source (setting `upgrade_from` is
-refused without one), install a build that has the command (one
-`go install .` by hand from `main`), reinstall the script from `main`,
-then set `upgrade_from` to the depot.
+The step activates only once the operator has installed the script and
+sets `upgrade_from`. The assembly runs the installed copy, so landing
+the step changes nothing by itself. In order, the four activations are:
+name a notify source (setting `upgrade_from` is refused without one),
+install a build that has the command (one `go install .` by hand from
+`main`), install the script from `main` (the first-time step of
+[line.md](line.md#setup); [the upgrade keeps it current](#the-scripts)
+from then on), then set `upgrade_from` to the depot.
 
 A yard whose operator names no notify source cannot set `upgrade_from`
 — the setting stays refused, so the automatic path can never install
@@ -60,6 +66,62 @@ into the automatic path. Setting `upgrade_from` to a depot the yard has
 not got is refused too — add the depot first — and removing the depot it
 names is refused until the setting is cleared, so no one can create a
 depot under a dangling name and choose the install source.
+
+## The scripts
+
+The groups of a yard run scripts from `<home>/scripts`: `merge-local` for
+the assembly, `integrate-train`, `pr-train` and `pr-merge` for trains,
+`deploy-dokku` for a deploy stage, `return-branch` for a peer. The
+operator installs each once by hand (`install contrib/assembly/merge-local
+~/.yardr/scripts/`, [line.md](line.md#setup)), and a copy is only as new
+as that step. A fix that lands in a script then reaches no landing until
+someone installs it again. So after `go install .` the upgrade refreshes
+the copies from the same checkout, and a fix to a script is live for the
+next landing, as a fix to the binary is. It reads the six scripts from
+where the docs have the operator install them from, `contrib/assembly/`
+(`merge-local`, `integrate-train`, `pr-train`, `pr-merge`),
+`contrib/deploy/deploy-dokku` and `contrib/peer/return-branch`, and
+writes each under its own name.
+
+It touches only what is there. A script the yard does not have is not
+added, since a yard that never set the group up has no use for it, and a
+script the checkout does not have leaves the yard's alone. A copy whose
+bytes equal the checkout's is not touched and gets no `.previous`.
+
+A copy that differs is replaced, never written in place. `sh` reads a
+script as it runs, so writing over one changes what a landing that is
+running reads next. The upgrade writes the new file beside it as
+`.<name>.new` with mode 0755, checks it with `sh -n`, and renames it over
+the old name. The landing that is running keeps the file it opened, and
+the next one starts on the new. The bytes replaced stay as
+`<name>.previous` in the same directory, one generation, overwritten each
+time. That is the way back for a copy someone edited by hand. The upgrade
+does not look for hand edits; whatever differs is replaced.
+
+A new file that fails `sh -n` is not installed, and neither is one that
+cannot be written. The yard's copy stays as it was, and the upgrade prints
+a warning that names it, with the shell's words for the error. This never
+fails the upgrade. The binary is installed and verified whatever happens
+here, and the warning lands in the log the assembly keeps.
+
+Each covered yard's own `<home>/scripts` is refreshed, the same set the
+binary covers, with the scripts each has. The copies a pack carries under
+`<home>/packs/*/scripts` are not refreshed. A pack import owns those, and
+no group of a yard set up by hand runs them.
+
+The upgrade says it in one line between `install` and `health`:
+`scripts   merge-local, integrate-train refreshed`. The line reads
+`scripts   current` when every copy it found was the checkout's, and
+`scripts   kept as they were, see the warnings above` when every copy it
+tried to refresh was kept, with a warning for each. On a rollback each script this run
+replaced goes back from its `.previous`, once the previous binary is
+back, because a new script may call what only the new binary knows. The
+output then adds `scripts   merge-local put back`, and a put-back copy
+has no `.previous` left.
+
+The installed yardr has to be one that does this. The upgrade that
+installs the first such build is still run by the old one and refreshes
+nothing; the next upgrade does.
 
 ## What it covers
 
@@ -190,11 +252,12 @@ A view's `state` is `answers`, `old` or `dead`.
 
 When the bound expires with any covered yard not on the new build,
 `yardr upgrade` rolls back: it copies `yardr.prev` over the installed
-path once, then, in every covered yard, stops the daemon first and then
-the server — `yardr down`'s order — and starts again only what ran
-before the upgrade. Unlike `down` it stops no agent: agents already
-running keep running through the restart, and their sessions are in the
-pre-install snapshot, so the restored yard knows them.
+path once and [puts back the scripts](#the-scripts) it replaced, then,
+in every covered yard, stops the daemon first and then the server —
+`yardr down`'s order — and starts again only what ran before the
+upgrade. Unlike `down` it stops no agent: agents already running keep
+running through the restart, and their sessions are in the pre-install
+snapshot, so the restored yard knows them.
 
 Whether a store must go back too is answered by the old build itself,
 per yard: it is started on the current store, and if it refuses with

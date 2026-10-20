@@ -540,16 +540,17 @@ fi
 # seconds into the log line (docs/upgrade.md, "The assembly step"). A wagon
 # lands on its train's branch, not the depot's base, while the install builds
 # the depot's checkout, which holds none of it, so a wagon never installs.
-# The step activates only once the operator reinstalls this script from main
-# and sets upgrade_from; without either, and on every other depot, the
-# landing runs exactly as before. Like a failed push, a failed install where
-# the yard still answers never sends the bead back: the code has landed, so
-# the bead still merges, with a note saying what failed and what was put
-# back, and the command's own telling carries it. Where the installed yardr
-# predates the command, the note says to install the new yardr once by hand
-# first instead. When the install leaves the yard dead, the advance below
-# fails as the calls before it did, and the bead fails its session toward a
-# hold, with the marker and this log as the record.
+# The step activates only once the operator has installed this script, once
+# by hand, and sets upgrade_from; the install then keeps the copy current
+# (docs/upgrade.md, "The scripts"). Without either, and on every other
+# depot, the landing runs exactly as before. Like a failed push, a failed
+# install where the yard still answers never sends the bead back: the code
+# has landed, so the bead still merges, with a note saying what failed and
+# what was put back, and the command's own telling carries it. Where the
+# installed yardr predates the command, the note says to install the new
+# yardr once by hand first instead. When the install leaves the yard dead,
+# the advance below fails as the calls before it did, and the bead fails its
+# session toward a hold, with the marker and this log as the record.
 upgrade_note=
 if [ -n "$LANDING" ]; then
   from=$("$Y" settings get upgrade_from 2>/dev/null) || from=
@@ -567,6 +568,10 @@ if [ -n "$LANDING" ]; then
       printf '%s\n' "$upgrade_out"
       if [ -n "$ok" ]; then
         upgrade_note="; install ok in $took s"
+        # The scripts the install refreshed from the landed tree, by name: the
+        # fix this landing carried to one of them is live from the next one.
+        refreshed=$(printf '%s\n' "$upgrade_out" | sed -n 's/^scripts  *\(.*\) refreshed$/\1/p' | tail -n 1)
+        [ -z "$refreshed" ] || upgrade_note="$upgrade_note (scripts refreshed: $refreshed)"
       else
         line=$(printf '%s\n' "$upgrade_out" | grep '^yardr: ' | tail -n 1)
         line=${line#yardr: }
