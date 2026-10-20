@@ -428,9 +428,8 @@ func TestUpgradeScriptsLeftoverIsNotWrittenThrough(t *testing.T) {
 
 // Every source is a file of this tree, so a typo in the list cannot leave a
 // script that is never refreshed. The test reads only that the file is
-// there; no change to its content can fail it, which is why the gate's table
-// has no row naming it. A script moved without the list is found when this
-// package is next tested, or by the whole suite.
+// there; a moved or removed source then fails when that source's row selects
+// this package, or when the test gate selects the whole suite.
 func TestUpgradeScriptSourcesAreInTheTree(t *testing.T) {
 	t.Parallel()
 	seen := map[string]bool{}

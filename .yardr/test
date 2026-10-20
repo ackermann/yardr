@@ -1167,13 +1167,18 @@ packs/template/                internal/pack packs
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web
-contrib/assembly/merge-local   internal/pack
+contrib/assembly/merge-local   internal/cli internal/pack
+contrib/assembly/integrate-train internal/cli
+contrib/assembly/pr-train      internal/cli
+contrib/assembly/pr-merge      internal/cli
 contrib/assembly/              contrib/assembly .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .
+contrib/deploy/deploy-dokku    internal/cli
 contrib/deploy/                contrib/deploy .
 contrib/github-mint/           contrib/github-mint internal/cli internal/dispatch .
 contrib/machine-limits/        contrib/machine-limits .
+contrib/peer/return-branch     internal/cli
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
