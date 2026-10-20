@@ -14,7 +14,7 @@ import (
 // read from the session's handle as the runner left it. A session on the
 // bead's own branch has no such line.
 func TestPrimeSaysThePullRequestHeadTheWorktreeIsOn(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)

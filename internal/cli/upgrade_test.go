@@ -202,13 +202,14 @@ func TestUpgradeCheckServerDown(t *testing.T) {
 // On a home with no yard the check says so as any command does: exit 2,
 // naming init, creating nothing, starting no server.
 func TestUpgradeCheckNoYard(t *testing.T) {
-	home := newHome(t)
+	t.Parallel()
+	home := newHomeDir(t)
 	errs := captureStderr(t)
 	out, code := executeOut(&app{stderr: errs, env: testEnv(t, home)}, "upgrade", "--check")
 	if code != 2 || out != "" {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	wantText(t, errs.String(), "no yard in "+home+" yet", here("yardr init --harness <kind>"))
+	wantText(t, errs.String(), "no yard in "+home+" yet", hereAt(home, "yardr init --harness <kind>"))
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("the check created the home directory")
 	}

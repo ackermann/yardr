@@ -584,21 +584,13 @@ func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
 	stubLookPath(t, "claude", "git")
 	local := t.TempDir()
 	herdr := filepath.Join(local, "herdr")
-	if err := os.WriteFile(herdr, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// A login shell whose profile prints a line of its own and adds two
-	// directories.
-	shell := filepath.Join(t.TempDir(), "sh")
-	script := "#!/bin/sh\necho 'welcome back'\nPATH=" + local + ":/opt/tools:/usr/bin:/bin\nexport PATH\nshift\nexec /bin/sh \"$@\"\n"
-	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	stub(t, &loginShell, func() string { return shell })
-	// A loaded machine can spend the login shell's five seconds starting
-	// the script alone; the test is about what it finds, not the bound,
-	// so it gets thirty, as fake tools get for a version flag.
-	stub(t, &loginShellTimeout, 30*time.Second)
+	// The test is about what up does with what the login shell answers,
+	// not about asking it, so it stubs the answers instead of starting
+	// one: no spawn to stretch under load. The shell itself is named so
+	// that up asks at all.
+	stub(t, &loginShell, func() string { return "/bin/sh" })
+	stub(t, &loginShellFinds, func(context.Context, []string) map[string]string { return map[string]string{"herdr": herdr} })
+	stub(t, &loginShellPATH, func(context.Context) string { return local + ":/opt/tools:/usr/bin:/bin" })
 	t.Setenv("PATH", "/usr/bin:/bin")
 	stub(t, &spawnHerdr, func(bin, _ string) (<-chan error, error) {
 		if bin != herdr {
@@ -722,7 +714,9 @@ func TestUpAndDownOnNoYard(t *testing.T) {
 // whatever its profile prints before, and is nothing without a shell.
 func TestLoginShellPATH(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "sh")
-	script := "#!/bin/sh\necho 'PATH is nice today'\nPATH=/a:/b\nshift\nexec /bin/sh \"$@\"\n"
+	// The script runs the -c command itself instead of re-execing a
+	// shell for it: one spawn, not two, so less to stretch under load.
+	script := "#!/bin/sh\necho 'PATH is nice today'\nPATH=/a:/b\neval \"$3\"\n"
 	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

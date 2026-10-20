@@ -18,7 +18,7 @@ import (
 // beads waiting for a person; without the flag they are listed as before
 // (yardr-jcw1: 35 of 38 rows were backlog beads).
 func TestSessionListRunning(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)
@@ -85,7 +85,7 @@ func TestSessionListRunning(t *testing.T) {
 // text and in --json; it is read from the bead, so an originator change
 // shows on the next list.
 func TestSessionListOriginator(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	depot := gitDepot(t, st)
@@ -176,7 +176,7 @@ func TestSessionListOriginator(t *testing.T) {
 // hal and jo (the operator), while one on hal's own group shows hal and
 // hal (yardr-q0xd).
 func TestSessionListLogin(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	depot := gitDepot(t, st)
@@ -261,7 +261,7 @@ func TestSessionListLogin(t *testing.T) {
 // under the table and as reset_wait in --json: read from the session's
 // handle as the daemon keeps it (yardr-vpzj).
 func TestSessionListSaysUntilWhenAGroupIsHeldBack(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)

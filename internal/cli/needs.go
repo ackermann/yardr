@@ -371,8 +371,9 @@ var plainName = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
 // shell is run as a login shell and not as an interactive one, with stdin
 // closed, so it asks nothing. Whatever keeps it from answering (no SHELL, a
 // shell that does not take -l -c, a profile that hangs) yields nothing: the
-// report then says what it says without it.
-func loginShellFinds(ctx context.Context, programs []string) map[string]string {
+// report then says what it says without it. A variable so that a test of
+// what uses the answer stubs the answer instead of starting a shell.
+var loginShellFinds = func(ctx context.Context, programs []string) map[string]string {
 	shell := loginShell()
 	var asks []string
 	asked := map[string]bool{}
@@ -419,8 +420,8 @@ const loginPathMark = "yardr-login-path="
 // loginShellFinds asks it; "" when it could not be asked. It is for what
 // yardr up starts from a window: a daemon and a herdr server started there
 // would look for herdr, git and the harnesses on a PATH without what the
-// person's profile adds, and find none.
-func loginShellPATH(ctx context.Context) string {
+// person's profile adds, and find none. A variable, as loginShellFinds is.
+var loginShellPATH = func(ctx context.Context) string {
 	shell := loginShell()
 	if shell == "" {
 		return ""

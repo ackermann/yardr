@@ -23,7 +23,8 @@ import (
 // and nothing of a pack is installed. The crew member keeps its name and
 // its prompt.
 func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
-	home := newHome(t)
+	t.Parallel()
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me", env: testEnv(t, home)}

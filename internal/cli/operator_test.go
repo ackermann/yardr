@@ -118,7 +118,7 @@ func TestInitStyleFlags(t *testing.T) {
 // What is no style is refused with the four that are, by init before it
 // creates anything and by settings set.
 func TestStyleRefused(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}

@@ -226,7 +226,8 @@ func TestFlowDrawHelpNamesEveryEmbeddedPack(t *testing.T) {
 // and a pack, by directory or by name, and neither makes a store nor starts
 // a server.
 func TestFlowDrawWithoutAYard(t *testing.T) {
-	newHome(t)
+	t.Parallel()
+	home := newHomeDir(t)
 	requireNonInteractive(t)
 	want, err := os.ReadFile("../../docs/flows/starter.svg")
 	if err != nil {
@@ -234,21 +235,18 @@ func TestFlowDrawWithoutAYard(t *testing.T) {
 	}
 	for _, arg := range []string{"starter", "../../packs/starter"} {
 		errs := captureStderr(t)
-		out, code := executeOut(&app{stderr: errs}, "flow", "draw", arg)
+		out, code := executeOut(&app{stderr: errs, env: testEnv(t, home)}, "flow", "draw", arg)
 		if code != 0 {
 			t.Errorf("flow draw %s: exit %d\n%s", arg, code, errs.String())
 		} else if out != string(want) {
 			t.Errorf("flow draw %s: not the starter pack's drawing", arg)
 		}
 	}
-	out, code := executeOut(&app{}, "flow", "draw", "../../.yardr/flows/default.flow")
+	out, code := executeOut(&app{env: testEnv(t, home)}, "flow", "draw", "../../.yardr/flows/default.flow")
 	if code != 0 || !strings.Contains(out, "<title>Flow default</title>") {
 		t.Errorf("flow draw of a flow file: exit %d\n%.200s", code, out)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.At(home)
 	for _, made := range []string{cfg.DBPath(), cfg.PIDFile(), cfg.Socket()} {
 		if _, err := os.Stat(made); err == nil {
 			t.Errorf("%s exists: flow draw reached for a store", made)

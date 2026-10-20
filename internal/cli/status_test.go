@@ -604,7 +604,8 @@ func TestStatusNoYard(t *testing.T) {
 // the run's environment, and creates nothing: not that home, nor the one
 // YARDR_HOME names.
 func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
-	variable := newHome(t)
+	t.Parallel()
+	variable := newHomeDir(t)
 	requireNonInteractive(t)
 	home := filepath.Join(filepath.Dir(variable), "nothere")
 	errs := captureStderr(t)

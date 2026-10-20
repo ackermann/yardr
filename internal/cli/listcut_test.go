@@ -75,7 +75,7 @@ func TestBeadListWithClosedIsCut(t *testing.T) {
 // session list -a is the newest ended sessions with the live ones, cut as
 // bead list -a is, and --bead keeps one bead's (yardr-wav4).
 func TestSessionListWithEndedIsCut(t *testing.T) {
-	newHome(t)
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"); err != nil {

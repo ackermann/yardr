@@ -17,14 +17,11 @@ import (
 )
 
 // yardWithoutServer is a set-up yard in a fresh home with no server running
-// on it, as after `yardr server stop`.
+// on it, as after `yardr server stop`. The home is the test's own, not the
+// process's: the commands under test resolve it from the run's environment.
 func yardWithoutServer(t *testing.T) *config.Config {
 	t.Helper()
-	newHome(t)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.At(newHomeDir(t))
 	if err := os.MkdirAll(cfg.Home, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +53,7 @@ func captureStderr(t *testing.T) *bytes.Buffer {
 // store compact on a yard with no server running compacts the file and
 // starts no server: the first-run check, which connects, is skipped for it.
 func TestCompactWithoutAServer(t *testing.T) {
+	t.Parallel()
 	cfg := yardWithoutServer(t)
 	requireNonInteractive(t)
 	errs := captureStderr(t)
@@ -87,6 +85,7 @@ func TestCompactWithoutAServer(t *testing.T) {
 // store compact on a yard whose server runs refuses, saying what to stop,
 // and leaves the store as it is.
 func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
+	t.Parallel()
 	cfg := yardWithoutServer(t)
 	requireNonInteractive(t)
 	ctx, cancel := context.WithCancel(context.Background())

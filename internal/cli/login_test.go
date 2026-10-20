@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
@@ -565,16 +564,10 @@ func TestLoginNotSupported(t *testing.T) {
 func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
 	home, _, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
-	shell := filepath.Join(t.TempDir(), "sh")
-	script := "#!/bin/sh\nPATH=/home/jo/.local/bin:/usr/bin:/bin\nexport PATH\nshift\nexec /bin/sh \"$@\"\n"
-	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	stub(t, &loginShell, func() string { return shell })
-	// A loaded machine can spend the login shell's five seconds starting
-	// the script alone; the test is about the PATH it answers, not the
-	// bound, so it gets thirty, as fake tools get for a version flag.
-	stub(t, &loginShellTimeout, 30*time.Second)
+	// The test is about what up writes, not about asking the shell, so it
+	// stubs the answer instead of starting one: no spawn to stretch under
+	// load.
+	stub(t, &loginShellPATH, func(context.Context) string { return "/home/jo/.local/bin:/usr/bin:/bin" })
 	// A run with an environment of its own, as Execute gives one, taken
 	// before up --login merges PATH.
 	x := a(false)
@@ -591,22 +584,16 @@ func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
 }
 
 func TestUseLoginPATH(t *testing.T) {
-	shell := filepath.Join(t.TempDir(), "sh")
-	script := "#!/bin/sh\nPATH=/home/jo/.local/bin:/usr/bin:/bin\nexport PATH\nshift\nexec /bin/sh \"$@\"\n"
-	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	stub(t, &loginShell, func() string { return shell })
-	// A loaded machine can spend the login shell's five seconds starting
-	// the script alone; the test is about the PATH it answers, not the
-	// bound, so it gets thirty, as fake tools get for a version flag.
-	stub(t, &loginShellTimeout, 30*time.Second)
+	// The test is about the merge, not about asking the shell, so it
+	// stubs the answer instead of starting one: no spawn to stretch under
+	// load.
+	stub(t, &loginShellPATH, func(context.Context) string { return "/home/jo/.local/bin:/usr/bin:/bin" })
 	t.Setenv("PATH", "/usr/bin:/bin:/Applications/Yard.app/bin")
 	useLoginPATH(context.Background())
 	if got, want := os.Getenv("PATH"), "/home/jo/.local/bin:/usr/bin:/bin:/Applications/Yard.app/bin"; got != want {
 		t.Fatalf("PATH = %s, want %s", got, want)
 	}
-	stub(t, &loginShell, func() string { return "" })
+	stub(t, &loginShellPATH, func(context.Context) string { return "" })
 	useLoginPATH(context.Background())
 	if got := os.Getenv("PATH"); !strings.HasPrefix(got, "/home/jo/.local/bin:") {
 		t.Fatalf("PATH without a login shell = %s", got)
