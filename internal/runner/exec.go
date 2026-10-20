@@ -218,7 +218,8 @@ func withUser(env []string) []string {
 // otherwise win over (or add to) the core.hooksPath the session points at
 // its own commit-msg hook with (see commitHookEnv): a repeated variable is
 // answered with its first, so one inherited from the daemon would beat the
-// session's appended one.
+// session's appended one. GIT_CONFIG_PARAMETERS is command-line config and
+// has higher precedence still, so the session clears it as well.
 func withheld(job dispatch.Job, environ []string) []string {
 	env := config.WithoutServerSettings(environ)
 	names := []string{"TEST"}
@@ -232,7 +233,8 @@ func withheld(job dispatch.Job, environ []string) []string {
 	return slices.DeleteFunc(env, func(kv string) bool {
 		if strings.HasPrefix(kv, "GIT_CONFIG_COUNT=") ||
 			strings.HasPrefix(kv, "GIT_CONFIG_KEY_") ||
-			strings.HasPrefix(kv, "GIT_CONFIG_VALUE_") {
+			strings.HasPrefix(kv, "GIT_CONFIG_VALUE_") ||
+			strings.HasPrefix(kv, "GIT_CONFIG_PARAMETERS=") {
 			return true
 		}
 		return slices.ContainsFunc(drop, func(p string) bool { return strings.HasPrefix(kv, p) })

@@ -309,6 +309,7 @@ func TestSessionCommitsCarryYardrTrailers(t *testing.T) {
 			"YARDR_KIND=" + tc.kind, "YARDR_MODEL=" + tc.model,
 			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath",
 			"GIT_CONFIG_VALUE_0=" + filepath.Join(home, "githooks"),
+			"GIT_CONFIG_PARAMETERS=",
 		} {
 			found := false
 			for _, kv := range env {
@@ -337,6 +338,37 @@ func TestSessionCommitsCarryYardrTrailers(t *testing.T) {
 		}
 		if after, _ := os.ReadFile(filepath.Join(repo, ".git", "config")); string(after) != string(before) {
 			t.Errorf("%s: .git/config changed:\n%s", tc.kind, after)
+		}
+	}
+}
+
+// Repo trailer config must not rename the yard's trailers, change their
+// separators, or make the hook miss harness trailers while parsing.
+func TestSessionCommitIgnoresRepoTrailerConfig(t *testing.T) {
+	repo := sessionRepo(t)
+	for key, value := range map[string]string{
+		"trailer.separators":         ";",
+		"trailer.yardr-bead.key":     "Other-Bead:",
+		"trailer.co-authored-by.key": "Bot:",
+		"trailer.signed-off-by.key":  "Signoff:",
+	} {
+		gitT(t, repo, "config", key, value)
+	}
+	job := sessionJob("web-3", "builders", "codex", "luna")
+	env := sessionHerdrEnv(t, t.TempDir(), job, "web-3-new")
+	message := "web-3: ignore trailer config\n\n" +
+		"Co-Authored-By: Claude <c@example.com>\n" +
+		"Signed-off-by: Operator <o@example.com>\n"
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", message)
+	body := sessionLog(t, repo, env)
+	for _, want := range []string{"Yardr-Bead: web-3", "Yardr-Agent: builders (codex luna)"} {
+		if n := strings.Count(body, want); n != 1 {
+			t.Errorf("%q %d times, want once:\n%s", want, n, body)
+		}
+	}
+	for _, gone := range []string{"Co-Authored-By", "Signed-off-by", "Other-Bead", "Bot:", "Signoff:"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(gone)) {
+			t.Errorf("%q survived:\n%s", gone, body)
 		}
 	}
 }
@@ -603,7 +635,8 @@ func TestSessionModel(t *testing.T) {
 func TestWithheldDropsGitConfig(t *testing.T) {
 	job := dispatch.Job{Depot: &store.Depot{Name: "web", Base: "main"}}
 	got := withheld(job, []string{"PATH=/bin", "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=a",
-		"GIT_CONFIG_VALUE_0=b", "GIT_CONFIG_KEY_1=c", "GIT_CONFIG_VALUE_1=d", "YARDR_TEST=x"})
+		"GIT_CONFIG_VALUE_0=b", "GIT_CONFIG_KEY_1=c", "GIT_CONFIG_VALUE_1=d",
+		"GIT_CONFIG_PARAMETERS='core.hooksPath=/tmp/other'", "YARDR_TEST=x"})
 	for _, kv := range got {
 		if strings.HasPrefix(kv, "GIT_CONFIG") || strings.HasPrefix(kv, "YARDR_TEST=") {
 			t.Errorf("withheld kept %q: %v", kv, got)

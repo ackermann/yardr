@@ -41,7 +41,7 @@ msg=${1:?usage: commit-msg <msgfile>}
 # git would run without this one (the configured hooksPath, else the git
 # dir's hooks), read past this session's core.hooksPath override. A hook
 # that refuses the message fails the commit before the yard normalizes it.
-hooks_path=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 git config core.hooksPath 2>/dev/null || true)
+hooks_path=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git config core.hooksPath 2>/dev/null || true)
 if [ -n "$hooks_path" ]; then
 	case "$hooks_path" in
 	/*) repo_hooks=$hooks_path ;;
@@ -51,7 +51,7 @@ if [ -n "$hooks_path" ]; then
 else
 	# --git-path honours core.hooksPath, so read it past the override too:
 	# without that it names this hook's own directory.
-	repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 git rev-parse --git-path hooks 2>/dev/null || true)
+	repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git rev-parse --git-path hooks 2>/dev/null || true)
 fi
 if [ -n "${repo_hooks:-}" ] && [ -x "$repo_hooks/commit-msg" ] && [ ! "$repo_hooks/commit-msg" -ef "$0" ]; then
 	"$repo_hooks/commit-msg" "$@" || exit $?
@@ -72,13 +72,29 @@ inner=$kind
 agent=$group
 [ -n "$inner" ] && agent="$group ($inner)"
 
+# Trailer interpretation must not inherit the depot's or operator's
+# trailer.* config: separators and key aliases could otherwise leave a
+# harness trailer behind or rename one of the yard's two. Run outside the
+# worktree with global and system config disabled; Git invokes hooks from
+# the worktree, so make the message path absolute first.
+case "$msg" in
+	/*) ;;
+	*) msg=$(pwd)/$msg ;;
+esac
+trailer_git() {
+	env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_PREFIX \
+		-u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+		GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+		git -C / "$@"
+}
+
 # One interpret-trailers pass replaces one same-key trailer, so remove each
 # kind until git's own parse shows none left. Do the same for old Yardr
 # trailers: replace would otherwise leave an earlier duplicate behind.
 drop_trailers() {
 	token=$1
-	while git interpret-trailers --parse < "$msg" 2>/dev/null | grep -qiE "^${token}[[:space:]:]"; do
-		git interpret-trailers --trim-empty --if-exists replace --trailer "$token:" --in-place "$msg" || exit $?
+	while trailer_git interpret-trailers --parse < "$msg" 2>/dev/null | grep -qiE "^${token}[[:space:]:]"; do
+		trailer_git interpret-trailers --trim-empty --if-exists replace --trailer "$token:" --in-place "$msg" || exit $?
 	done
 }
 drop_trailers 'Co-Authored-By'
@@ -88,7 +104,7 @@ drop_trailers 'Yardr-Agent'
 
 # The yard's own trailers, replacing whatever is there (a hand-written
 # value, another session's on amend), so they never duplicate.
-exec git interpret-trailers --if-exists replace --trailer "Yardr-Bead: $bead" --trailer "Yardr-Agent: $agent" --in-place "$msg"
+trailer_git interpret-trailers --if-exists replace --trailer "Yardr-Bead: $bead" --trailer "Yardr-Agent: $agent" --in-place "$msg"
 `
 
 // passthroughHooks are git's other hooks, besides commit-msg: the hooks a
@@ -131,7 +147,7 @@ hook=${0##*/}
 # relative one it returns relative to here, where git runs hooks), and
 # otherwise names the git dir's hooks, in a linked worktree the common
 # dir's. One git call, since hooks like reference-transaction fire often.
-repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 git rev-parse --git-path hooks 2>/dev/null || true)
+repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS git rev-parse --git-path hooks 2>/dev/null || true)
 if [ -n "${repo_hooks:-}" ] && [ -x "$repo_hooks/$hook" ] && [ ! "$repo_hooks/$hook" -ef "$0" ]; then
 	exec "$repo_hooks/$hook" "$@"
 fi
@@ -236,5 +252,8 @@ func commitHookEnv(home string) ([]string, error) {
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=core.hooksPath",
 		"GIT_CONFIG_VALUE_0=" + dir,
+		// A command-line config inherited from the daemon or env_file has
+		// higher precedence than GIT_CONFIG_COUNT and could hide this hook.
+		"GIT_CONFIG_PARAMETERS=",
 	}, nil
 }
