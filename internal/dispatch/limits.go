@@ -161,7 +161,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			if !d.idleTold[s.ID] && s.Handle[HarnessErrorKey] == nil {
 				// Before the idle limit counts: one prompt to hand on,
 				// while the session can still act on it itself.
-				d.idleNudge(ctx, r, s)
+				d.idleNudge(ctx, r, s, g, tail, read)
 			}
 			if tell && s.Handle[HarnessErrorKey] == nil && d.outcomeIdle(ctx, r, s) {
 				// Its last note is its own done note: the pane has the
@@ -298,8 +298,15 @@ func (d *Dispatcher) stillIdle(ctx context.Context, r Runner, s *store.Session, 
 // first prompt still unsubmitted, and one that waits for a usage limit's
 // reset are not nudged: the first has not had its turn, the second cannot
 // act, the third is starting, and the fourth is told at its reset. One
-// with a note already due is told of that instead.
-func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) {
+// with a note already due is told of that instead. One whose pane says
+// that work it started in the background still runs is not nudged
+// either: its harness wakes it when that exits. The pane is looked at for
+// that only when a nudge would otherwise be sent, reusing the tail the
+// pass read already where there is one.
+//
+// tail and read are that tail: the end of the pane as read for the
+// spell's other looks on this pass, and whether one was read.
+func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session, g store.Group, tail string, read bool) {
 	if d.idleNudged[s.ID] {
 		return
 	}
@@ -348,6 +355,19 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		if n.Author == agent && n.At.After(s.StartedAt) {
 			return
 		}
+	}
+	if !read {
+		// The nudge is due: only now is the pane read, so a pass with
+		// nothing to send reads nothing new.
+		tail, read = d.paneTail(ctx, r, *s)
+	}
+	if _, busy := HarnessBackground(harnessKind(g.Config), tail); read && busy {
+		// It waits for a shell of its own, and its harness wakes it when
+		// that exits (yardr-kh12: a builder whose depot test ran in the
+		// background answered every nudge, and each answer started a new
+		// idle spell). No nudge, and none marked: once the shell is gone
+		// the nudge goes as ever.
+		return
 	}
 	text := fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
 	told, delivery, err := d.nudgeSession(ctx, r, s, text)

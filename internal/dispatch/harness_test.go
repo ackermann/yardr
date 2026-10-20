@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,6 +241,113 @@ func TestBackgroundWorkIsItsKindsToDeclare(t *testing.T) {
 	}
 	if line, ok := dispatch.HarnessBackground("claude", shellRuns); !ok || line != "⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage" {
 		t.Fatalf("background work in the pane = %q, %v; want the status line", line, ok)
+	}
+}
+
+// tallyRunner is an agentRunner whose agents also take nudges, as herdr's
+// do, keeping the nudges and counting the pane reads.
+type tallyRunner struct {
+	*agentRunner
+	mu     sync.Mutex
+	nudges []string
+	tails  int
+}
+
+func (n *tallyRunner) Nudge(_ context.Context, _ map[string]any, text string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.nudges = append(n.nudges, text)
+	return nil
+}
+
+func (n *tallyRunner) Tail(ctx context.Context, h map[string]any, lines int) (string, error) {
+	n.mu.Lock()
+	n.tails++
+	n.mu.Unlock()
+	return n.agentRunner.Tail(ctx, h, lines)
+}
+
+func (n *tallyRunner) told() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]string{}, n.nudges...)
+}
+
+func (n *tallyRunner) reads() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.tails
+}
+
+// The pane of a builder that waits for a command it started in the
+// background, as Muse Code 1.4.9 drew it (read live from pane w114:p2, 20
+// Oct 2026), and the same pane with the command gone.
+const (
+	museRuns = "◆ Still blocked on the gate run — no result yet.\n" +
+		"── Voice input (alt(option)+v to start) ──…\n" +
+		"❯ \n" +
+		"───…\n" +
+		"main · ↓ to select\n" +
+		"└ ◆ Run depot test gate in worktree  running          27m 03s\n" +
+		"  muse-spark-1.3 · max · /tmp/work · Auto-review"
+	museGone = "◆ The gate passed; handing on now.\n" +
+		"── Voice input (alt(option)+v to start) ──…\n" +
+		"❯ \n" +
+		"───…\n" +
+		"  muse-spark-1.3 · max · /tmp/work · Auto-review"
+)
+
+// An agent that waits for a shell of its own is not nudged to hand on
+// (yardr-kh12: each answer ended the agent's turn, which started a new
+// idle spell, so every pass nudged again). Once the pane no longer says
+// so, the nudge goes as ever, once; and a pass with nothing to send reads
+// no pane.
+func TestIdleSessionWithBackgroundWorkIsNotNudged(t *testing.T) {
+	t.Parallel()
+	s, r, d, b := harnessSetup(t, "muse", map[string]any{"idle": "1h", "stall": "off"})
+	n := &tallyRunner{agentRunner: r}
+	d.Runners["fake"] = n
+	ctx := context.Background()
+	sess := liveSession(t, s, b.ID)
+	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	nudged := func() int { t.Helper(); return len(eventKinds(t, s, b.ID, "session_idle_nudge")) }
+
+	r.show("idle", museRuns)
+	must(t, d.Reconcile(ctx))
+	// The agent answers the silence, as it answered each nudge: a new
+	// spell, still waiting on its shell.
+	r.show("working", "◆ Working")
+	must(t, d.Reconcile(ctx))
+	r.show("idle", museRuns)
+	must(t, d.Reconcile(ctx))
+	if got := n.told(); len(got) != 0 || nudged() != 0 {
+		t.Fatalf("nudges = %q, session_idle_nudge events = %d; want none while a background shell runs", got, nudged())
+	}
+
+	// The shell is gone and the agent still sits there: the nudge goes,
+	// once, as today.
+	r.show("idle", museGone)
+	must(t, d.Reconcile(ctx))
+	if got := n.told(); len(got) != 1 || !strings.Contains(got[0], "write your note and hand on") {
+		t.Fatalf("nudges = %q, want the handover nudge once the pane shows no background work", got)
+	}
+	if n := nudged(); n != 1 {
+		t.Fatalf("session_idle_nudge events = %d, want 1", n)
+	}
+
+	// Past the spell's young looks, a pass with nothing to send reads no
+	// pane: the nudge's own read went only when it was due.
+	now = now.Add(3 * time.Minute)
+	reads := n.reads()
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if got := n.reads(); got != reads {
+		t.Fatalf("pane reads = %d, want still %d on passes with nothing to send", got, reads)
+	}
+	if got := n.told(); len(got) != 1 {
+		t.Fatalf("nudges = %q, want still the one", got)
 	}
 }
 

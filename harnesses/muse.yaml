@@ -114,3 +114,16 @@ login:
 errors:
   - reason: other
     pattern: '^model failed:'
+
+# What Muse Code draws while a command its agent started in the background
+# still runs (read live from a builder's pane w114:p2, 20 Oct 2026, Muse
+# Code 1.4.9): the status line under its input, the command's title with
+# the status word "running" and how long it has run.
+#   main · ↓ to select
+#   └ ◆ Run depot test gate in worktree  running                     14m 01s
+# Muse wakes the agent when the command exits, so the agent is not idle
+# to the group's idle limit while it shows. The transcript's "Backgrounded
+# · <title> · <elapsed> · ctrl+o" line is no pattern here: it stays on
+# screen after the command exits.
+background:
+  - pattern: ' running +\d+[smh]( +\d+[ms])?$'

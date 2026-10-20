@@ -709,6 +709,12 @@ and its status line (seen 13 Oct 2026, 2.1.288):
   ⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage
 ```
 
+Muse Code's is the status line under its input (seen 20 Oct 2026, 1.4.9):
+
+```text
+└ ◆ Run depot test gate in worktree  running                     14m 01s
+```
+
 With one there, no `session_idle` is raised and the idle spell starts again
 from that look: the pane is read again one `idle` later, and a `grace` does
 not end the session meanwhile. Once the line is gone and the agent still
@@ -1125,7 +1131,7 @@ built into the binary and read once when yardr starts:
 | `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code and Muse have one) | the herdr runner |
 | `login_recipe` | how a program leads its login for a person with no terminal ([doctor.md](doctor.md#a-harnesss-login-led-by-a-program)): the harness's own login command (`argv`), the ways to log in it has flags for (`methods`, each a `label` and its `args`), and patterns for two lines it prints, the one with the page to sign in on (`open_url`, whose one group is the address) and the one it takes input on (`input`), with the command and version they were read from (`verified`). Claude Code has one; a kind with none is logged in in a terminal | `yardr harness login <kind> --json`; `yardr doctor --json`, `yardr harness show --json`, for a program that leads it |
-| `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-command-runs-in-the-background); Claude Code has two, no other kind has any) | the daemon |
+| `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-command-runs-in-the-background); Claude Code has two, Muse one) | the daemon |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
 ```sh

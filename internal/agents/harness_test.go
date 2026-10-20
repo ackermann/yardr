@@ -296,25 +296,26 @@ func TestLogin(t *testing.T) {
 	}
 }
 
-// Claude Code's lines for a shell its agent left running in the background
-// are the ones a file names (yardr-zjhw): the line that ends the turn and
-// the status line, as 2.1.288 drew them in two builders' panes. No other
-// kind names one.
+// The lines for a shell an agent left running in the background are the
+// ones a file names: Claude Code's (yardr-zjhw: the line that ends the
+// turn and the status line, as 2.1.288 drew them in two builders' panes)
+// and Muse Code's (yardr-kh12: the status line under its input, read live
+// from a builder's pane, 20 Oct 2026, 1.4.9). No other kind names one.
 func TestBackground(t *testing.T) {
 	for _, h := range Harnesses {
-		if (len(h.Background) > 0) != (h.Kind == "claude") {
-			t.Errorf("%s: background %+v; only claude's file names one", h.Kind, h.Background)
+		if (len(h.Background) > 0) != (h.Kind == "claude" || h.Kind == "muse") {
+			t.Errorf("%s: background %+v; only claude's and muse's files name one", h.Kind, h.Background)
 		}
 	}
-	claude, _ := Lookup("claude")
-	runs := func(line string) bool {
-		for _, b := range claude.Background {
+	runs := func(h Harness, line string) bool {
+		for _, b := range h.Background {
 			if b.Matches(line) {
 				return true
 			}
 		}
 		return false
 	}
+	claude, _ := Lookup("claude")
 	for line, want := range map[string]bool{
 		"✻ Brewed for 48s · done 12:44 AM · 1 shell still running":     true,
 		"✻ Sautéed for 8m 17s · done 1:16 AM · 2 shells still running": true,
@@ -327,8 +328,23 @@ func TestBackground(t *testing.T) {
 		"⏺ I saw 1 shell still running and stopped it.":                false,
 		"✻ Waiting for 1 background agent to finish":                   false,
 	} {
-		if got := runs(line); got != want {
-			t.Errorf("%q says background work runs: %v, want %v", line, got, want)
+		if got := runs(claude, line); got != want {
+			t.Errorf("claude: %q says background work runs: %v, want %v", line, got, want)
+		}
+	}
+	muse, _ := Lookup("muse")
+	for line, want := range map[string]bool{
+		"└ ◆ Run depot test gate in worktree  running          27m 03s": true,
+		"└ ◆ Build the docs  running  5s":                               true,
+		"Run depot test gate in worktree  running  14m 01s":             true,
+		" Backgrounded · Run depot test gate in worktree · 5m · ctrl+o": false,
+		"◆ Ran command · Verify gate tests still … · ✓ · 0.2s · ctrl+o": false,
+		"main · ↓ to select":                                            false,
+		"muse-spark-1.3 · max · /tmp/work · Auto-review":                false,
+		"◆ Still blocked on the gate run — no result yet.":              false,
+	} {
+		if got := runs(muse, line); got != want {
+			t.Errorf("muse: %q says background work runs: %v, want %v", line, got, want)
 		}
 	}
 }
