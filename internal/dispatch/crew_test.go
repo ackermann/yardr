@@ -177,6 +177,10 @@ func (f *crewRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[st
 	return true
 }
 
+func (f *crewRunner) AcceptKey(context.Context, map[string]any, map[string]any) bool {
+	return false
+}
+
 func (f *crewRunner) LiveCrew(context.Context, store.CrewMember, string) (*dispatch.LiveAgent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1208,6 +1212,10 @@ func (n *nudgeRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[s
 	}
 	n.trustKeys = append(n.trustKeys, "enter")
 	return true
+}
+
+func (n *nudgeRunner) AcceptKey(context.Context, map[string]any, map[string]any) bool {
+	return false
 }
 
 func (n *nudgeRunner) HarnessScreen(context.Context, map[string]any) (bool, bool) {

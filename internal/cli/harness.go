@@ -24,8 +24,9 @@ file per kind, built into yardr: the marks its pane is read by, the error
 lines it stops on, the questions and the login screen it draws in place of
 its input, what it adds to a hint of yardr's, the flags yardr starts it
 with or offers, the models it suggests a person pick, where the model its
-agent reports is read, whether yardr answers its folder-trust dialog, and
-the login command a program can lead its login by. list and show print the
+agent reports is read, whether yardr answers its folder-trust dialog, the
+login command a program can lead its login by, and the API key it runs
+with. list and show print the
 files this build of yardr runs on;
 login leads a kind's login for a program.
 
@@ -97,6 +98,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(h.Install != "", "where to get it")
 	add(h.Fetch != nil, "a fetch for a Mac")
 	add(h.LoginRecipe != nil, "a login a program leads")
+	add(len(h.LoginEnv) > 0, "an API key login")
 	return out
 }
 
@@ -254,6 +256,13 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 			fmt.Fprintf(w, "  where it takes input:   %s\n", r.Input)
 		}
 		fmt.Fprintf(w, "  (read from %s on %s; it may stop matching when the harness prints something else)\n", r.Verified.From, r.Verified.On)
+	}
+	if len(h.LoginEnv) > 0 {
+		fmt.Fprintln(w, "\nAPI key it runs with, offered on the yard's first-login ask; no login program is led for it")
+		fmt.Fprintf(w, "  variables: %s\n", strings.Join(h.LoginEnv, ", "))
+	}
+	if k := h.ApiKey; k != nil {
+		fmt.Fprintf(w, "\nUse-this-API-key dialog, drawn with no login: yardr answers %q with %s\n", k.Dialog, strings.Join(k.Answers, ", "))
 	}
 	if len(h.Background) > 0 {
 		fmt.Fprintln(w, "\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")

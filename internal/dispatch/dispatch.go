@@ -528,6 +528,13 @@ const PromptLook = "prompt_look"
 // stays on the handle as the record of it.
 const TrustAccepted = "trust_accepted"
 
+// KeyAccepted is a handle key: yardr answered the session's
+// use-this-API-key dialog itself, at its start or on a later pass (see
+// TrustAcceptor). It stays on the handle as the record of it, beside
+// TrustAccepted: the two dialogs stand at different times, so each is
+// answered once.
+const KeyAccepted = "key_accepted"
+
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
 // prompt or a question) gets a session_blocked event so a human can step in,

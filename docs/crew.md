@@ -401,10 +401,11 @@ decisions in footplate, the web view and `yardr asks`:
 
 1. **How to log in**: one option per way of each harness installed on
    the yard's machine whose file has a login a program leads (`yardr
-   harness list`), today Claude Code's subscription and its Console.
-   Nothing runs until it is answered. Picking a harness other than the
-   one the crew member runs makes it, and the yard's `default_kind`, run
-   that one.
+   harness list`), today Claude Code's subscription and its Console, and
+   one more per harness whose file names an API key it runs with
+   (`login_env`), today Claude Code's API key. Nothing runs until it is
+   answered. Picking a harness other than the one the crew member runs
+   makes it, and the yard's `default_kind`, run that one.
 2. **What the sign-in page gave you**: the daemon runs `yardr harness
    login <kind> --json` ([doctor.md](doctor.md)), and the page to sign in
    on is the link in this ask. It is a secret ask naming the login's wait
@@ -412,6 +413,14 @@ decisions in footplate, the web view and `yardr asks`:
    the server's memory, and no note, event, file or mail holds it.
 3. **Check that it answers?**: the one real call that proves the login,
    which costs a model call on the person's account; or skip it.
+
+Picking **API key** leads no login program and reads no login screen:
+one secret ask brings the key, which is written into the crew member's
+environment file (mode 0600) and kept nowhere else, and the crew member
+is started again on it. On its first start with the key and no login,
+the harness asks in its pane whether to use it; the yard answers yes,
+as it answers folder trust, since the key is only there by the
+operator's hand.
 
 When the login is made, every session of that harness sitting at its
 login screen is started again, as `yardr crew restart` does, and its
@@ -431,7 +440,10 @@ and waits for the operator at its asks.
 A crew member whose env points its harness at a login folder of its own
 (`CLAUDE_CONFIG_DIR` in an env file) is not logged in by the yard's
 login, which runs with the daemon's env; it comes back at its screen and
-is asked for again on its next mail. A group's login is `yardr harness
+is asked for again on its next mail. An API key reaches only the crew
+member it was given for: a group's agents and conversation sessions read
+their own env files, so they sit at the login screen until they carry
+the key too. A group's login is `yardr harness
 login --group` ([doctor.md](doctor.md)).
 
 ## Findings from builders and reviewers

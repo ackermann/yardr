@@ -485,7 +485,9 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 	wantText(t, show("claude"), "Login led by a program, with no terminal (yardr harness login claude --json)",
 		"  the command: claude auth login", `  method "Anthropic Console (API usage billing)": --console`,
 		"  where it takes input:   ^Paste code here if prompted",
-		"(read from claude auth login, Claude Code 2.1.288 on 2026-10-13; it may stop matching when the harness prints something else)")
+		"(read from claude auth login, Claude Code 2.1.288 on 2026-10-13; it may stop matching when the harness prints something else)",
+		"API key it runs with, offered on the yard's first-login ask", "  variables: ANTHROPIC_API_KEY",
+		`Use-this-API-key dialog, drawn with no login: yardr answers "Do you want to use this API key?" with Yes`)
 	shown = agents.Harness{}
 	if err := json.Unmarshal([]byte(show("kimi", "--json")), &shown); err != nil || shown.LoginRecipe != nil {
 		t.Fatalf("show kimi --json: %v, %+v", err, shown.LoginRecipe)
@@ -494,7 +496,7 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 		t.Errorf("show kimi names a login it has no recipe for:\n%s", out)
 	}
 	list, _ := executeOut(testApp(t, nil, home), "harness", "list")
-	wantText(t, list, "a fetch for a Mac, a login a program leads\n")
+	wantText(t, list, "a fetch for a Mac, a login a program leads, an API key login\n")
 }
 
 // loginStandInGroup is the stand-in that also writes down the login folder

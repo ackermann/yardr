@@ -67,15 +67,18 @@ type ScreenWatcher interface {
 }
 
 // TrustAcceptor is implemented by runners that answer the folder-trust
-// dialog a harness draws on its first start in a directory (the herdr
-// runner, from the kind's file). On a pass where a first prompt is pending
-// and the agent is not ready, the dispatcher answers the dialog the
-// config's kind names when that is what the session's pane shows, and
-// reports whether it did: the dialog may have drawn only after the start
-// looked. A config whose kind names none, or that says trust=false,
-// answers nothing, as no pane at another question does.
+// dialog a harness draws on its first start in a directory, and the
+// use-this-API-key dialog one draws on its first start with a key in its
+// environment (the herdr runner, from the kind's file). On a pass where a
+// first prompt is pending and the agent is not ready, the dispatcher
+// answers the dialog the config's kind names when that is what the
+// session's pane shows, and reports whether it did: the dialog may have
+// drawn only after the start looked. A config whose kind names none, or
+// that says trust=false of folder trust, answers nothing, as no pane at
+// another question does.
 type TrustAcceptor interface {
 	AcceptTrust(ctx context.Context, handle map[string]any, cfg map[string]any) bool
+	AcceptKey(ctx context.Context, handle map[string]any, cfg map[string]any) bool
 }
 
 // What a Nudger that waits for the agent to start on its text (herdr does,
@@ -690,24 +693,30 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	if handle[promptLost] == true {
 		return pass
 	}
-	// tryTrust answers the session's folder-trust dialog when that is what
-	// its pane shows, while its first prompt is demonstrably untaken:
-	// nothing counted sent, or a counted send the session demonstrably
-	// never took (see the rule below). Answered once: the handle says so
-	// after the first.
-	tryTrust := func() bool {
-		if handle[TrustAccepted] == true {
+	// tryAnswer answers the session's dialog of one kind the runner answers
+	// itself (see TrustAcceptor) when that is what its pane shows, while
+	// its first prompt is demonstrably untaken: nothing counted sent, or a
+	// counted send the session demonstrably never took (see the rule
+	// below). Answered once per kind: the handle says so after the first.
+	tryAnswer := func(accepted string, answer func(ta TrustAcceptor) bool) bool {
+		if handle[accepted] == true {
 			return false
 		}
 		// A look for typed text that failed rules nothing out.
 		bypass := trustBypass && sent && handle[PromptStarted] != true && known && typedKnown && !shown && !typed
 		ta, ok := r.(TrustAcceptor)
-		if !ok || !trustAllowed || (sent && !bypass) || !ta.AcceptTrust(ctx, handle, cfg) {
+		if !ok || !trustAllowed || (sent && !bypass) || !answer(ta) {
 			return false
 		}
-		pass.trusted, pass.handle = true, withHandle(handle, TrustAccepted, true)
+		pass.trusted, pass.handle = true, withHandle(handle, accepted, true)
 		pass.trustedBypass = bypass
 		return true
+	}
+	// tryTrust answers either dialog the runner answers itself, folder
+	// trust first: the two stand at different times, so at most one shows.
+	tryTrust := func() bool {
+		return tryAnswer(TrustAccepted, func(ta TrustAcceptor) bool { return ta.AcceptTrust(ctx, handle, cfg) }) ||
+			tryAnswer(KeyAccepted, func(ta TrustAcceptor) bool { return ta.AcceptKey(ctx, handle, cfg) })
 	}
 	if status != "idle" && status != "done" {
 		// At a question, or not telling: nothing is sent, and nothing is

@@ -1271,7 +1271,7 @@ case "$1 $2" in
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "yardmaster"}, "yardmaster", "prime yourself",
-		map[string]any{"agent": "yardmaster"}, nil)
+		map[string]any{"agent": "yardmaster"}, nil, nil)
 	if err != nil {
 		t.Fatalf("not-ready agent treated as a failure: %v", err)
 	}

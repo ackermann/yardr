@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -272,6 +273,109 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	}
 }
 
+// Picking "API key" on the first ask leads no login program: one secret
+// ask brings the key, GiveSecret writes it into the crew member's env
+// file, and the crew member starts again with its first prompt. No leader
+// runs, and the value is in the file and nowhere else in the yard.
+func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
+	t.Parallel()
+	s, f, d, l := loginSetup(t)
+	ctx := context.Background()
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	pick := openAsks(t, s)[0]
+	var labels []string
+	for _, o := range pick.Ask.Options {
+		labels = append(labels, o.Label)
+	}
+	if len(labels) < 3 || labels[0] != "Claude Code: Claude subscription" || labels[2] != "Claude Code: API key" {
+		t.Fatalf("first ask options: %q", labels)
+	}
+	must(t, s.AnswerAsk(ctx, r.Journal, pick.Note.Seq, 3, "", "op"))
+	passUntil(t, d, "a secret ask for the key", func() bool {
+		a := openAsks(t, s)
+		return len(a) == 1 && a[0].Ask.Secret != nil
+	})
+	key := openAsks(t, s)[0]
+	if key.Ask.Secret.Harness != "claude" || key.Ask.Secret.Crew != "yardmaster" ||
+		strings.Join(key.Ask.Secret.Env, ",") != "ANTHROPIC_API_KEY" || key.Ask.Secret.Source != "" {
+		t.Fatalf("the secret ask asks for %+v", key.Ask.Secret)
+	}
+	if l.count() != 0 {
+		t.Fatalf("a leader ran for an API key pick")
+	}
+	const value = "sk-ant-k3y"
+	if _, err := s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": value}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	passUntil(t, d, "the login told as made", func() bool {
+		_, ev := kindCount(t, s, r.Journal, "login_led")
+		return ev.Data["step"] == "logged_in"
+	})
+	f.mu.Lock()
+	f.login, f.input, f.sent = "", "", true
+	f.mu.Unlock()
+	passUntil(t, d, "the yardmaster started again with its first prompt", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, n := range f.nudges {
+			if strings.HasSuffix(n, ": prime yourself") {
+				return true
+			}
+		}
+		return false
+	})
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+		t.Fatal(err)
+	} else if r.Handle[dispatch.HarnessLoginAskKey] != nil {
+		t.Errorf("the login's mark is left on the handle: %v", r.Handle[dispatch.HarnessLoginAskKey])
+	}
+	// The key is in the crew member's env file, mode 0600, and the
+	// answer holds the name, never the value.
+	file, _ := r.Config["env_file"].(string)
+	if b, err := os.ReadFile(file); err != nil || string(b) != "ANTHROPIC_API_KEY="+value+"\n" {
+		t.Fatalf("the env file holds %q, %v", b, err)
+	}
+	if st, err := os.Stat(file); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("the env file's mode = %v, %v", st.Mode(), err)
+	}
+	notes, err := s.Notes(ctx, r.Journal)
+	must(t, err)
+	for _, n := range notes {
+		if strings.Contains(n.Text, value) {
+			t.Errorf("note %d holds the key", n.Seq)
+		}
+	}
+	evs, err := s.EventsSince(ctx, 0, 10000)
+	must(t, err)
+	for _, e := range evs {
+		b, _ := json.Marshal(e)
+		if strings.Contains(string(b), value) {
+			t.Errorf("event %s holds the key: %s", e.Kind, b)
+		}
+	}
+}
+
+// A kind whose harness file names no login_env offers no API-key option:
+// with every kind installed, the first ask holds Claude's key alone.
+func TestAPIKeyOptionNeedsLoginEnv(t *testing.T) {
+	t.Parallel()
+	s, _, d, _ := loginSetup(t)
+	d.HarnessInstalled = func(kind string) bool { return true }
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	var keys []string
+	for _, o := range openAsks(t, s)[0].Ask.Options {
+		if strings.HasSuffix(o.Label, "API key") {
+			keys = append(keys, o.Label)
+		}
+	}
+	if len(keys) != 1 || keys[0] != "Claude Code: API key" {
+		t.Fatalf("API key options: %q", keys)
+	}
+}
+
 // A login nobody finishes ends with its open ask taken back, and is not
 // offered again on every pass: only once mail comes after it ended.
 func TestLedLoginThatEndsIsOfferedOnNextMail(t *testing.T) {
@@ -328,6 +432,73 @@ func TestLedLoginAskOutlivesTheDaemon(t *testing.T) {
 	if _, ev := kindCount(t, s, r.Journal, "login_led"); ev.Data["step"] != "started" {
 		t.Errorf("last login_led %v, want the start", ev.Data)
 	}
+}
+
+// A key's secret ask outlives the daemon, as the first ask does: it has
+// no leader to have gone with it, so a daemon that starts again waits on
+// it, and acts on a key given while none ran.
+func TestLedKeyAskOutlivesTheDaemon(t *testing.T) {
+	t.Parallel()
+	s, f, d, l := loginSetup(t)
+	ctx := context.Background()
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	passUntil(t, d, "a secret ask for the key", func() bool {
+		a := openAsks(t, s)
+		return len(a) == 1 && a[0].Ask.Secret != nil
+	})
+	seq := openAsks(t, s)[0].Note.Seq
+	again := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
+		LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
+	for range 3 {
+		must(t, again.Reconcile(context.Background()))
+	}
+	if a := openAsks(t, s); len(a) != 1 || a[0].Note.Seq != seq {
+		t.Fatalf("after the daemon started again: %d open asks, want the key's", len(a))
+	}
+	if _, err := s.GiveSecret(ctx, r.Journal, seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	third := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
+		LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
+	passUntil(t, third, "the login told as made", func() bool {
+		_, ev := kindCount(t, s, r.Journal, "login_led")
+		return ev.Data["step"] == "logged_in"
+	})
+	if l.count() != 0 {
+		t.Errorf("a leader ran for an API key pick")
+	}
+}
+
+// A declined key ends the lead without a login: its ask is taken back,
+// and the first ask comes again only once mail comes after it ended.
+func TestLedKeyDeclinedIsOfferedOnNextMail(t *testing.T) {
+	t.Parallel()
+	s, _, d, _ := loginSetup(t)
+	ctx := context.Background()
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	passUntil(t, d, "a secret ask for the key", func() bool {
+		a := openAsks(t, s)
+		return len(a) == 1 && a[0].Ask.Secret != nil
+	})
+	must(t, s.DeclineAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, "", "op"))
+	passUntil(t, d, "the login's end told", func() bool {
+		_, ev := kindCount(t, s, r.Journal, "login_led")
+		return ev.Data["step"] == "failed"
+	})
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if n := len(openAsks(t, s)); n != 0 {
+		t.Fatalf("%d asks open after the key was declined, want none until mail comes", n)
+	}
+	must(t, s.Mail(ctx, "yardmaster", "hello?", "op"))
+	passUntil(t, d, "the ask again", func() bool { return len(openAsks(t, s)) == 1 })
 }
 
 // When a member picks a kind whose login is already open, it joins that

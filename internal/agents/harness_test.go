@@ -51,7 +51,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.Label != "" || h.Provider != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.LoginEnv != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.ApiKey != nil || h.Label != "" || h.Provider != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -486,6 +486,28 @@ func TestLoginRecipe(t *testing.T) {
 	}
 }
 
+// Only claude's file names the variables of an API key and the dialog
+// drawn for one: the other kinds are logged in some other way, and their
+// questions are left for a human.
+func TestLoginEnv(t *testing.T) {
+	for _, h := range Harnesses {
+		if (h.LoginEnv != nil) != (h.Kind == "claude") {
+			t.Errorf("%s: login_env %v; only claude's file names one", h.Kind, h.LoginEnv)
+		}
+		if (h.ApiKey != nil) != (h.Kind == "claude") {
+			t.Errorf("%s: api_key %+v; only claude's file names one", h.Kind, h.ApiKey)
+		}
+	}
+	claude, _ := Lookup("claude")
+	if !slices.Equal(claude.LoginEnv, []string{"ANTHROPIC_API_KEY"}) {
+		t.Errorf("claude's login_env: %v", claude.LoginEnv)
+	}
+	k := claude.ApiKey
+	if k.Dialog != "Do you want to use this API key?" || !slices.Equal(k.Answers, []string{"Yes"}) || k.Cursor != "❯" {
+		t.Errorf("claude's api_key: %+v", k)
+	}
+}
+
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
@@ -528,6 +550,12 @@ func TestLoadRefuses(t *testing.T) {
 		"an offer without a label":         {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a label"},
 		"too few offers":                   {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}]\n", "offers: 1 entries, want 2 to 4"},
 		"too many offers":                  {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B}, {model: c, label: C}, {model: d, label: D}, {model: e, label: E}]\n", "offers: 5 entries, want 2 to 4"},
+		"login_env, no variable":           {"claude.yaml", "version: 1\nlabel: x\nlogin_env: ['1BAD']\n", `login_env: "1BAD" is no name of a variable`},
+		"login_env, named twice":           {"claude.yaml", "version: 1\nlabel: x\nlogin_env: [A_KEY, A_KEY]\n", `login_env: "A_KEY" is named twice`},
+		"api_key, no answers":              {"claude.yaml", "version: 1\nlabel: x\napi_key: {dialog: 'Use it?'}\n", "names its text, its accepting answers and its cursor"},
+		"api_key, no dialog":               {"claude.yaml", "version: 1\nlabel: x\napi_key: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"api_key, no cursor":               {"claude.yaml", "version: 1\nlabel: x\napi_key: {dialog: 'Use it?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
+		"api_key, env":                     {"claude.yaml", "version: 1\nlabel: x\napi_key: {dialog: 'Use it?', answers: ['Yes'], cursor: '>', env: ['A=1']}\n", "api_key takes no env"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)

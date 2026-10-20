@@ -440,3 +440,60 @@ func TestBeadAskAndAnswerALoginInput(t *testing.T) {
 		t.Fatalf("prime after the giving, %v:\n%s", err, out)
 	}
 }
+
+// bead answer --secret gives a harness-key secret ask -- the yard's led
+// login asks for it, no bead ask flag does -- from NAME=value lines on a
+// pipe, and prints who gave which names and the file, never a value.
+func TestBeadAnswerAHarnessKey(t *testing.T) {
+	t.Parallel()
+	st, id, _ := secretYard(t)
+	ctx := context.Background()
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddAsk(ctx, id, store.Ask{Question: "The key it runs with", To: "mckean",
+		Context: []string{"Create one at https://console.anthropic.com/ (API usage billing).", "It is written into the crew member's environment."},
+		Secret:  &store.AskSecret{Harness: "claude", Crew: "yardmaster"}}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	me := &app{st: st, actor: "mckean"}
+
+	out, err := run(t, me.primeCmd(), "--bead", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster",
+		"it goes to a file only the yard's server reads; no agent is shown it",
+		"answer with: yardr bead answer " + id + " 1 --secret",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prime has no %q:\n%s", want, out)
+		}
+	}
+
+	if out, err := answerFrom(t, me, "OTHER_KEY=s3cret\n", id, "1", "--secret"); err == nil ||
+		!strings.Contains(err.Error(), "name that was not asked for") || strings.Contains(out+err.Error(), "s3cret") {
+		t.Fatalf("another name: %q, err = %v", out, err)
+	}
+	out, err = answerFrom(t, me, "ANTHROPIC_API_KEY=sk-ant-s3cret\n", id, "1", "--secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, _ := r.Config["env_file"].(string)
+	want := "mckean gave ANTHROPIC_API_KEY · it is set in " + file + "\nnext: it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)\n"
+	if out != want {
+		t.Fatalf("answer printed %q\nwant            %q", out, want)
+	}
+	if b, err := os.ReadFile(file); err != nil || string(b) != "ANTHROPIC_API_KEY=sk-ant-s3cret\n" {
+		t.Fatalf("the file holds %q, %v", b, err)
+	}
+	out, err = run(t, me.primeCmd(), "--bead", id)
+	if err != nil || !strings.Contains(out, "ask 1 · answered") || !strings.Contains(out, "mckean gave ANTHROPIC_API_KEY") || strings.Contains(out, "s3cret") {
+		t.Fatalf("prime after the giving, %v:\n%s", err, out)
+	}
+}

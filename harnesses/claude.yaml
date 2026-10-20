@@ -186,6 +186,28 @@ login_recipe:
   open_url: '^If the browser didn.t open, visit: (https://\S+)$'
   input: '^Paste code here if prompted'
 
+# The variables of an API key Claude Code runs with when they are set in
+# its session's environment (yardr-q9t9): the kind names them, not yardr's
+# code. With them the yard's first-login ask offers an "API key" choice,
+# which writes the given key into the crew member's environment and leads
+# no login program.
+login_env: [ANTHROPIC_API_KEY]
+
+# The dialog Claude Code draws on its first start with such a key set and
+# no login, which the yard answers Yes, as it answers folder trust (read
+# live, Claude Code 2.1.288, 20 Oct 2026, with a stand-in key in a fresh
+# home; one-shot never draws it). The key is only ever in the session's
+# environment by the operator's hand.
+#   Detected a custom API key in your environment
+#   ANTHROPIC_API_KEY: sk-ant-...<last 20 of the key>
+#   Do you want to use this API key?
+#   Yes
+#   ❯ No (recommended)
+api_key:
+  dialog: "Do you want to use this API key?"
+  answers: ["Yes"]
+  cursor: "❯"
+
 # Claude Code's offer to run /auto-mode-setup, drawn in place of its input
 # at the end of a turn once auto mode has blocked several actions and
 # ~/.claude/settings.json has no autoMode.environment (seen in a builder's

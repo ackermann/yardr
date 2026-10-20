@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -692,6 +693,14 @@ what the person asked does, and this is the asker's own.`,
 						fmt.Fprintf(w, "%s for %s: a secret, %s, %s's own address in the source %s\n", on, who, secret.Names(), secret.User, secret.Source)
 						return
 					}
+					if secret.Harness != "" {
+						label := secret.Harness
+						if h, ok := agents.Lookup(secret.Harness); ok && h.Label != "" {
+							label = h.Label
+						}
+						fmt.Fprintf(w, "%s for %s: a secret, %s, the API key %s runs with, for crew member %s\n", on, who, secret.Names(), label, secret.Crew)
+						return
+					}
 					if secret.Crew != "" {
 						fmt.Fprintf(w, "%s for %s: a secret, %s, for crew member %s in the source %s\n", on, who, secret.Names(), secret.Crew, secret.Source)
 						return
@@ -1169,6 +1178,26 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 			fmt.Fprintf(w, "%s gave %s · it went to the waiting login %s, and is kept nowhere\n", a.who(), strings.Join(keyed.Given, " and "), keyed.Login)
 		})
 	}
+	if secret.Harness != "" {
+		values, err := readHarnessKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()))
+		if err != nil {
+			return err
+		}
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		if err != nil {
+			return secretErr(err)
+		}
+		return a.out(c.OutOrStdout(), keyed, func(w io.Writer) {
+			line := fmt.Sprintf("%s gave %s · it is set in %s", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
+			if keyed.Missing != "" {
+				line += " · " + keyed.Missing
+			}
+			fmt.Fprintln(w, line)
+			if keyed.Next != "" {
+				fmt.Fprintln(w, "next: "+keyed.Next)
+			}
+		})
+	}
 	src, err := st.GetSource(c.Context(), secret.Source)
 	if err != nil {
 		return err
@@ -1421,6 +1450,52 @@ func readHookKeys(secret *store.AskSecret, in io.Reader, typed func(prompt strin
 			values[n] = v
 		} else {
 			return nil, fmt.Errorf("the hook %s: nothing was typed for %s, and nothing is written", secret.Hook, n)
+		}
+	}
+	return values, nil
+}
+
+// readHarnessKeys reads the values a harness-key secret ask asks for, as
+// readHookKeys reads a hook's: unseen from a terminal, or as NAME=value
+// lines from anything else. There is no declaration to read them against:
+// the ask names them from the kind's harness file. No error holds a value.
+func readHarnessKeys(secret *store.AskSecret, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
+	label := secret.Harness
+	if h, ok := agents.Lookup(secret.Harness); ok && h.Label != "" {
+		label = h.Label
+	}
+	values := map[string]string{}
+	if typed == nil {
+		env, err := config.ParseEnv(in, "standard input")
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range env {
+			k, v, _ := strings.Cut(e, "=")
+			if !slices.Contains(secret.Env, k) {
+				return nil, fmt.Errorf("the API key %s runs with: standard input sets a name that was not asked for (%s)", label, strings.Join(secret.Env, ", "))
+			}
+			values[k] = v
+		}
+		for _, n := range secret.Env {
+			if _, ok := values[n]; !ok {
+				return nil, fmt.Errorf("the API key %s runs with: standard input has no line %s=<value>", label, n)
+			}
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("the API key %s runs with: standard input has no NAME=value line, and nothing is written", label)
+		}
+		return values, nil
+	}
+	for _, n := range secret.Env {
+		v, err := typed(fmt.Sprintf("%s, the API key %s runs with (nothing is shown as you type): ", n, label))
+		if err != nil {
+			return nil, fmt.Errorf("the API key %s runs with: reading %s: %w", label, n, err)
+		}
+		if v = strings.TrimSpace(v); v != "" {
+			values[n] = v
+		} else {
+			return nil, fmt.Errorf("the API key %s runs with: nothing was typed for %s, and nothing is written", label, n)
 		}
 	}
 	return values, nil

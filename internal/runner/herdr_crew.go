@@ -249,7 +249,7 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 	}
 	prompt := crewPrompt(h.yard(), r, user)
 	handle[firstPrompt] = prompt
-	return h.startAgent(ctx, start, name, prompt, handle, trustEntry(r.Config))
+	return h.startAgent(ctx, start, name, prompt, handle, trustEntry(r.Config), keyEntry(r.Config))
 }
 
 // CrewForEnv is the pane env name (YARDR_CREW_FOR) carrying the user of a

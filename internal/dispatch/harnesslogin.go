@@ -29,18 +29,23 @@ import (
 // the yard's operator on the crew member's journal:
 //
 //  1. Which harness, and which of its methods: one option per method of
-//     each kind installed here whose file has a login recipe. Nothing runs
-//     until it is answered, so a person who does nothing sees this one ask.
+//     each kind installed here whose file has a login recipe, and one
+//     "API key" option per kind whose file names a login_env. Nothing
+//     runs until it is answered, so a person who does nothing sees this
+//     one ask.
 //  2. The pick starts the login leader, a child of the daemon on its own
 //     binary, and answers its choose need with the method. Its open_url is
 //     the link of the next ask; its input is a secret ask naming the wait
 //     the leader registered (store.LoginWait), which GiveSecret answers in
 //     the server's memory: the daemon never holds the value, and no note,
-//     event, file or mail does.
+//     event, file or mail does. An API key pick instead asks for the key
+//     as a secret ask, which GiveSecret writes into the crew member's env
+//     file: no leader runs, and no login screen is read.
 //  3. Its confirm, the one call that proves the login, is an ask of its
 //     own: it costs a model call on the person's account.
 //  4. Done: every session of the kind sitting at its login screen is
 //     restarted, as yardr crew restart does, and its first prompt goes.
+//     A key's done is the same restart, on the secret ask's answer.
 //
 // One login is led per kind at a time: the machine's login of a kind is
 // every crew member's of that kind. A login that ends without one (the
@@ -60,7 +65,12 @@ const (
 	leadPick    = "pick"
 	leadInput   = "input"
 	leadConfirm = "confirm"
+	leadKey     = "key"
 )
+
+// apiKeyMethod is the method of an "API key" choice: the option's label
+// after the kind's, as a recipe method's label is.
+const apiKeyMethod = "API key"
 
 // LoginLeader is a running `yardr harness login <kind> --json`: the JSON
 // lines it prints, the JSON lines it is answered with, and its end.
@@ -162,25 +172,32 @@ func seatKind(r store.CrewMember, handle map[string]any, def string) string {
 }
 
 // loginChoice is one option of the first ask: a kind, and one of its
-// methods ("" for a kind with none).
+// methods ("" for a kind with none), or its API key.
 type loginChoice struct {
 	kind, method string
+	apiKey       bool
 }
 
-// loginChoices are the kinds the yard can lead a login of, each by method:
-// installed here, with a login recipe in their file.
+// loginChoices are the kinds the yard can lead a login of, each by method,
+// and each by API key: installed here, with a login recipe or a login_env
+// in their file. The key follows the kind's methods, so the recommended
+// option stays the kind's own login.
 func (d *Dispatcher) loginChoices() []loginChoice {
 	var out []loginChoice
 	for _, h := range agents.Harnesses {
-		if h.LoginRecipe == nil || !d.harnessInstalled(h.Kind) {
+		if !d.harnessInstalled(h.Kind) {
 			continue
 		}
-		if len(h.LoginRecipe.Methods) == 0 {
-			out = append(out, loginChoice{kind: h.Kind})
-			continue
+		if h.LoginRecipe != nil {
+			if len(h.LoginRecipe.Methods) == 0 {
+				out = append(out, loginChoice{kind: h.Kind})
+			}
+			for _, m := range h.LoginRecipe.Methods {
+				out = append(out, loginChoice{kind: h.Kind, method: m.Label})
+			}
 		}
-		for _, m := range h.LoginRecipe.Methods {
-			out = append(out, loginChoice{kind: h.Kind, method: m.Label})
+		if len(h.LoginEnv) > 0 {
+			out = append(out, loginChoice{kind: h.Kind, method: apiKeyMethod, apiKey: true})
 		}
 	}
 	return out
@@ -273,9 +290,10 @@ func askMark(rs []store.CrewMember, seat loginSeat) map[string]any {
 
 // adoptLead takes up the login whose mark a session carries, from a
 // daemon before this one: its first ask is waited on again, or acted on
-// where it was answered meanwhile. An open ask of a later step is taken
-// back, since its leader went with that daemon. It reports whether a login
-// is led for the seat again.
+// where it was answered meanwhile, and so is an API key's secret ask,
+// which has no leader to have gone with that daemon. An open ask of a
+// later led step is taken back, since its leader went with that daemon.
+// It reports whether a login is led for the seat again.
 func (d *Dispatcher) adoptLead(ctx context.Context, seat loginSeat, mark map[string]any) bool {
 	var seq float64
 	switch n := mark["ask"].(type) {
@@ -291,8 +309,8 @@ func (d *Dispatcher) adoptLead(ctx context.Context, seat loginSeat, mark map[str
 		journal = seat.journal
 	}
 	state, _ := d.askState(ctx, journal, uint64(seq))
-	if step == leadPick && (state == store.AskOpen || state == store.AskAside || state == store.AskAnswered) {
-		l := &harnessLead{kind: kind, seat: seat, ask: uint64(seq), step: leadPick}
+	if (step == leadPick || step == leadKey) && (state == store.AskOpen || state == store.AskAside || state == store.AskAnswered) {
+		l := &harnessLead{kind: kind, seat: seat, ask: uint64(seq), step: step}
 		l.seat.journal = journal
 		if l.kind == "" {
 			l.kind = seat.kind
@@ -346,18 +364,28 @@ func (d *Dispatcher) offerLogin(ctx context.Context, seat loginSeat, operator st
 	if shown == "" {
 		shown = seat.kind
 	}
+	lines := []string{
+		fmt.Sprintf("%s shows %s's login screen, so it reads no mail until the harness is logged in.", who, shown),
+		"The yard runs the harness's own login for you and asks you here for each step: a page to sign in on, then what the page gives you.",
+	}
+	if slices.ContainsFunc(choices, func(c loginChoice) bool { return c.apiKey }) {
+		lines = append(lines,
+			fmt.Sprintf("An API key choice instead asks only for the key, and writes it into %s's environment.", seat.member),
+			"What you type at a login's asks goes to the login and is kept nowhere; a key is kept in that file alone.")
+	} else {
+		lines = append(lines, "What you type at those asks goes to the login and is kept nowhere.")
+	}
 	ask := store.Ask{
 		Question: fmt.Sprintf("%s is not logged in: how should the yard log in its harness?", who),
 		To:       operator,
-		Context: []string{
-			fmt.Sprintf("%s shows %s's login screen, so it reads no mail until the harness is logged in.", who, shown),
-			"The yard runs the harness's own login for you and asks you here for each step: a page to sign in on, then what the page gives you.",
-			"What you type at those asks goes to the login and is kept nowhere.",
-		},
+		Context:  lines,
 	}
 	for i, c := range choices {
 		ch, _ := agents.Lookup(c.kind)
 		consequence := fmt.Sprintf("runs %s's own login, and every crew member on %s uses it", ch.Label, ch.Label)
+		if c.apiKey {
+			consequence = fmt.Sprintf("asks for the API key, writes it into %s's environment, and starts %s again on it", seat.member, seat.member)
+		}
 		if c.kind != seat.kind {
 			consequence = fmt.Sprintf("makes %s and the yard's default run %s, then %s", seat.member, ch.Label, consequence)
 		}
@@ -422,6 +450,11 @@ func (d *Dispatcher) carryLead(ctx context.Context, l *harnessLead) {
 		case state == store.AskAnswered && l.step == leadInput:
 			// Given: the value went to the leader in the server's memory.
 			l.ask = 0
+		case state == store.AskAnswered && l.step == leadKey:
+			// Given: the key is in the crew member's env file, and no
+			// leader runs, so the login is made with the restart.
+			l.ask = 0
+			d.loggedIn(ctx, l)
 		case state == store.AskDeclined || state == store.AskTakenBack:
 			l.ask = 0
 			if l.leader == nil {
@@ -522,13 +555,22 @@ func (d *Dispatcher) picked(ctx context.Context, l *harnessLead, cur *store.Reso
 		d.leads[c.kind] = l
 	}
 	l.method, l.ask, l.step = c.method, 0, ""
-	if err := d.startLeader(ctx, l); err != nil {
+	if c.apiKey {
+		if err := d.askKey(ctx, l); err != nil {
+			d.endLead(ctx, l, err.Error())
+			return false
+		}
+	} else if err := d.startLeader(ctx, l); err != nil {
 		d.endLead(ctx, l, err.Error())
 		return false
 	}
+	reason := fmt.Sprintf("%s was picked: the yard runs its login", c.label())
+	if c.apiKey {
+		reason = fmt.Sprintf("%s was picked: the yard asks for the API key", c.label())
+	}
 	_ = d.Store.LogDispatch(ctx, l.seat.journal, "login_led", actor, map[string]any{
 		"crew": l.seat.member, "kind": l.kind, "step": "started", "method": c.method,
-		"reason": fmt.Sprintf("%s was picked: the yard runs its login", c.label())})
+		"reason": reason})
 	return true
 }
 
@@ -730,11 +772,40 @@ func (d *Dispatcher) askConfirm(ctx context.Context, l *harnessLead, line leadLi
 	d.markLeadAsk(ctx, l.seat, l)
 }
 
+// askKey asks the operator for the API key of l's kind, as a secret ask:
+// GiveSecret writes it into the crew member's env file, and the lead ends
+// on its answer with the sessions started again. No leader runs.
+func (d *Dispatcher) askKey(ctx context.Context, l *harnessLead) error {
+	h, _ := agents.Lookup(l.kind)
+	settings, err := d.Store.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	seq, err := d.Store.AddAsk(ctx, l.seat.journal, store.Ask{
+		Question: fmt.Sprintf("Paste the API key %s runs with", h.Label),
+		To:       settings[store.OperatorSetting],
+		Context: []string{
+			fmt.Sprintf("It is written into %s's environment, and kept nowhere else.", l.seat.member),
+			fmt.Sprintf("The yard starts %s again on it at once.", l.seat.member),
+		},
+		Secret: &store.AskSecret{Harness: l.kind, Crew: l.seat.member, Env: h.LoginEnv},
+	}, actor)
+	if err != nil {
+		return fmt.Errorf("ask for the API key: %w", err)
+	}
+	l.ask, l.step = seq, leadKey
+	d.markLeadAsk(ctx, l.seat, l)
+	return nil
+}
+
 // loggedIn ends l with its login made: every live session of its kind at
 // the login screen, and the crew member its pick switched, starts again.
+// A key's lead runs no leader, so there is nothing to stop.
 func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	delete(d.leads, l.kind)
-	l.stop()
+	if l.stop != nil {
+		l.stop()
+	}
 	d.markLeadAsk(ctx, l.seat, nil)
 	var restarted []string
 	var seats []loginSeat

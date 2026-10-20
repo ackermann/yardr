@@ -75,6 +75,20 @@ type Harness struct {
 	// terminal: its own login command, not the screen Login names. nil
 	// when none was read, and the harness is logged in in a terminal.
 	LoginRecipe *LoginRecipe `yaml:"login_recipe" json:"login_recipe,omitempty"`
+	// LoginEnv are the variables of an API key the harness runs with
+	// when they are set in its session's environment, named here and
+	// not in yardr's code. A kind that names them gets an "API key"
+	// choice on the yard's first-login ask, which writes the given key
+	// into the crew member's environment and leads no login program; a
+	// kind without it gets no such choice. nil when the file names
+	// none, and the harness is logged in some other way.
+	LoginEnv []string `yaml:"login_env" json:"login_env,omitempty"`
+	// ApiKey is the dialog the harness draws on its first start with
+	// such a key set and no login, which yardr answers with the
+	// accepting answer, as it answers folder trust: the key is only
+	// ever in the session's environment by the operator's hand. nil
+	// when the file names none, and the dialog is left for a human.
+	ApiKey *Trust `yaml:"api_key" json:"api_key,omitempty"`
 	// Background are the lines the harness draws around its input while
 	// work its agent started in the background still runs (a shell): the
 	// agent waits for it and the harness wakes it, so it is idle to herdr
@@ -668,6 +682,24 @@ func (h *Harness) check() error {
 	if h.LoginRecipe != nil {
 		if err := h.LoginRecipe.check(); err != nil {
 			return fmt.Errorf("login_recipe: %w", err)
+		}
+	}
+	seen := map[string]bool{}
+	for _, e := range h.LoginEnv {
+		switch {
+		case !harnessEnvKey.MatchString(e):
+			return fmt.Errorf("login_env: %q is no name of a variable", e)
+		case seen[e]:
+			return fmt.Errorf("login_env: %q is named twice", e)
+		}
+		seen[e] = true
+	}
+	if k := h.ApiKey; k != nil {
+		if k.Dialog == "" || len(k.Answers) == 0 || slices.Contains(k.Answers, "") || k.Cursor == "" {
+			return fmt.Errorf("api_key: a dialog yardr answers names its text, its accepting answers and its cursor")
+		}
+		if len(k.Env) > 0 {
+			return fmt.Errorf("api_key takes no env: nothing skips this dialog")
 		}
 	}
 	for i := range h.Background {

@@ -21,9 +21,10 @@ import (
 // So is a prompt that was sent and did not arrive (see arrived): one that
 // never showed is sent again, one left in the agent's input is submitted,
 // and one taken as arrived without its echo is looked at again.
-// With trust, the one question yardr answers itself is the folder-trust
-// dialog the kind's file names (see acceptTrust); the handle then says so.
-func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust *agents.Trust) (map[string]any, error) {
+// With trust, the questions yardr answers itself are the folder-trust
+// dialog the kind's file names and, with key, its use-this-API-key dialog
+// (see acceptTrust); the handle then says which.
+func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *agents.Trust) (map[string]any, error) {
 	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
 	for attempt := 0; ; attempt++ {
@@ -37,11 +38,20 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	var herr *herdrError
 	if errors.As(err, &herr) && herr.Code == "agent_not_ready" {
 		pane, _ := handle["pane"].(string)
-		if trust == nil || pane == "" || !h.acceptTrust(ctx, pane, *trust) {
+		answered := ""
+		if pane != "" {
+			switch {
+			case trust != nil && h.acceptTrust(ctx, pane, *trust):
+				answered = dispatch.TrustAccepted
+			case key != nil && h.acceptTrust(ctx, pane, *key):
+				answered = dispatch.KeyAccepted
+			}
+		}
+		if answered == "" {
 			handle[store.PendingPrompt] = prompt
 			return handle, nil
 		}
-		handle[dispatch.TrustAccepted] = true
+		handle[answered] = true
 		if !h.ready(ctx, handle) {
 			// Slow, or at a next question: the dispatcher takes it from here.
 			handle[store.PendingPrompt] = prompt

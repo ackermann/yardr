@@ -175,6 +175,26 @@ Use Up/Down or 1/2, then Enter. Esc quits.
 `
 }
 
+// apiKeyDialog is Claude Code 2.1.288's use-this-API-key dialog as herdr's
+// `pane read --source visible` prints it, the cursor on the answer `on`
+// ("Yes" or "No (recommended)"). Read live under a pty, 20 Oct 2026, with
+// a stand-in key in a fresh home: the dialog opens with its cursor on No,
+// and the key shows masked to its last 20 characters.
+func apiKeyDialog(on string) string {
+	mark := func(answer string) string {
+		if answer == on {
+			return " ❯ " + answer
+		}
+		return "   " + answer
+	}
+	return ` Detected a custom API key in your environment
+ ANTHROPIC_API_KEY: sk-ant-...key-0000000000000000
+ Do you want to use this API key?
+` + mark("Yes") + "\n" + mark("No (recommended)") + `
+ Enter to confirm · Esc to cancel
+`
+}
+
 // trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
 // agent start says agent_not_ready, the pane shows screen, `down` toggles
 // it between no and yes as the real one wraps, redrawing after `redraw`
@@ -262,7 +282,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.yes), c.dialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry)
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -279,6 +299,86 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	}
 }
 
+// An agent started with an API key in its environment and no login stops
+// at the harness's use-this-API-key dialog (yardr-q9t9). yardr answers
+// Yes, moving the cursor onto it first, and the agent gets its first
+// prompt at once; the folder-trust dialog beside it is untouched.
+func TestStartAgentAcceptsAPIKey(t *testing.T) {
+	shortTrustWait(t)
+	claude, _ := agents.Lookup("claude")
+	for _, c := range []struct {
+		name  string
+		start string
+		moves bool // the cursor starts off Yes, so down is sent
+	}{
+		{"cursor off Yes", "No (recommended)", true},
+		{"cursor on Yes", "Yes", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
+			h, calls := trustHerdr(t, no, yes, apiKeyDialog(c.start), "idle")
+			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, claude.ApiKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handle["key_accepted"] != true || handle["trust_accepted"] != nil || handle[store.PendingPrompt] != nil {
+				t.Fatalf("handle = %v\n%s", handle, calls())
+			}
+			got := calls()
+			down, enter, prompt := strings.Index(got, "pane send-keys w1:p1 down"), strings.Index(got, "pane send-keys w1:p1 enter"),
+				strings.Index(got, "agent prompt b1 read the brief")
+			if enter < 0 || prompt < enter || (down >= 0) != c.moves || (c.moves && enter < down) {
+				t.Fatalf("want enter%s, then the prompt:\n%s", map[bool]string{true: " after down", false: ", no down"}[c.moves], got)
+			}
+		})
+	}
+}
+
+// Only the use-this-API-key dialog is answered, and only when asked to:
+// any other question, a kind with no dialog, and either half of the dialog
+// without the other are left for a human, no key sent that could answer
+// something else. `trust=false` leaves it answered: that flag is folder
+// trust's.
+func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
+	shortTrustWait(t)
+	claude, _ := agents.Lookup("claude")
+	no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
+	cases := []struct {
+		name, screen string
+		key          *agents.Trust
+	}{
+		{"another question with Yes", " Do you want to allow this?\n ❯ Yes\n", claude.ApiKey},
+		{"the folder-trust dialog", trustDialog("No, exit"), claude.ApiKey},
+		{"the question without its answer", "Do you want to use this API key?\n ❯ No (recommended)\n", claude.ApiKey},
+		{"the answer without the question", "❯ Yes\n", claude.ApiKey},
+		{"no dialog named", yes, nil},
+	}
+	for _, c := range cases {
+		h, calls := trustHerdr(t, no, yes, c.screen, "idle")
+		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, c.key)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		got := calls()
+		if handle[store.PendingPrompt] != "read the brief" || handle["key_accepted"] != nil || handle["trust_accepted"] != nil ||
+			strings.Contains(got, "enter") || strings.Contains(got, "agent prompt") || strings.Contains(got, "send-keys") {
+			t.Errorf("%s: handle = %v\n%s", c.name, handle, got)
+		}
+	}
+	// trust=false is folder trust's alone: the key dialog is answered.
+	h, _ := trustHerdr(t, no, yes, no, "idle")
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, keyEntry(map[string]any{"kind": "claude", "trust": false}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle["key_accepted"] != true {
+		t.Fatalf("with trust=false: handle = %v", handle)
+	}
+}
+
 // Found live: the dialog redraws a moment after a key, and a second `down`
 // sent before it did wrapped the cursor back to "No, exit", so the dialog
 // was never answered. One `down` per redraw.
@@ -292,7 +392,7 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "idle", "0.3")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +409,7 @@ func TestStartAgentTrustThenNotReady(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "blocked")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +458,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	for _, c := range cases {
 		h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), c.screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -382,7 +482,7 @@ func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
 		h, calls := trustHerdr(t, kimiTrustDialog("Don't trust"), kimiTrustDialog(kimi.Trust.Answers[0]),
 			kimiTrustDialogUnknown(start), "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, kimi.Trust)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, kimi.Trust, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -451,6 +551,45 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 	}
 }
 
+// The dispatcher's later passes answer a use-this-API-key dialog that drew
+// only after the start looked, by the same rule as the start, and nothing
+// else. `trust=false` leaves it answered.
+func TestAcceptKeyAnswersLateDialog(t *testing.T) {
+	shortTrustWait(t)
+	claude, _ := agents.Lookup("claude")
+	no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
+	cases := []struct {
+		name   string
+		screen string
+		handle map[string]any
+		cfg    map[string]any
+		want   bool
+		keys   bool // a key may have been sent
+	}{
+		{"the dialog, drawn late", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, true, true},
+		{"the dialog, kind unset", yes, map[string]any{"pane": "w1:p1"}, nil, true, true},
+		{"trust=false", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, true, true},
+		{"not drawn yet", "", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
+		{"another question", " Do you want to allow this?\n ❯ Yes\n", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
+		{"the folder-trust dialog", trustDialog(claude.Trust.Answers[0]), map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, false, false},
+		{"a kind with no dialog", yes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "grok"}, false, false},
+		{"no pane", yes, map[string]any{"agent": "b1"}, map[string]any{"kind": "claude"}, false, false},
+	}
+	for _, c := range cases {
+		h, calls := trustHerdr(t, no, yes, c.screen, "idle")
+		if got := h.AcceptKey(context.Background(), c.handle, c.cfg); got != c.want {
+			t.Errorf("%s: AcceptKey = %v, want %v\n%s", c.name, got, c.want, calls())
+		}
+		got := calls()
+		if c.want && !strings.Contains(got, "pane send-keys w1:p1 enter") {
+			t.Errorf("%s: no enter sent:\n%s", c.name, got)
+		}
+		if !c.keys && strings.Contains(got, "send-keys") {
+			t.Errorf("%s: a key was sent:\n%s", c.name, got)
+		}
+	}
+}
+
 func TestTrustEntry(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
@@ -476,6 +615,28 @@ func TestTrustEntry(t *testing.T) {
 		got := trustEntry(c.cfg)
 		if got != c.want {
 			t.Errorf("trustEntry(%v) = %+v, want %+v", c.cfg, got, c.want)
+		}
+	}
+}
+
+func TestKeyEntry(t *testing.T) {
+	claude, _ := agents.Lookup("claude")
+	cases := []struct {
+		cfg  map[string]any
+		want *agents.Trust
+	}{
+		{nil, claude.ApiKey}, // kind defaults to claude
+		{map[string]any{"kind": "claude"}, claude.ApiKey},
+		{map[string]any{"kind": "claude", "trust": false}, claude.ApiKey},
+		{map[string]any{"kind": "claude", "trust": true}, claude.ApiKey},
+		{map[string]any{"kind": "kimi"}, nil},
+		{map[string]any{"kind": "codex"}, nil},
+		{map[string]any{"kind": "grok"}, nil},
+	}
+	for _, c := range cases {
+		got := keyEntry(c.cfg)
+		if got != c.want {
+			t.Errorf("keyEntry(%v) = %+v, want %+v", c.cfg, got, c.want)
 		}
 	}
 }
