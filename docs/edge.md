@@ -15,11 +15,11 @@ yardr edge status                          # what this yard is connected to, and
 yardr edge disconnect                      # leave the edge, and put back the hook address from before
 ```
 
-A connected yard is one you run on your own machine that keeps one link open
-to the edge. A hosted yard is one the service runs for you
+A connected yard is a yard you run on your own machine that keeps one link
+open to the edge. A hosted yard is a yard the service runs for you
 ([below](#hosted-and-connected)). Both take webhooks at the same URLs, and
-both are on the trial's invite list. The same is said for people who have no
-yard of their own on the edge's public notice,
+both are on the trial's invite list. People who have no yard of their own
+read the same on the edge's public notice,
 `https://my.yardr.dev/edge/notice`, which needs no sign-in.
 
 ## Connecting a yard
