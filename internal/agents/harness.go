@@ -734,9 +734,11 @@ func UnattendedHelp() string {
 func VersionArgs(kind string) []string { return byName[kind].Flags.Version }
 
 // harnessVersionTimeout bounds reading an installed harness's version; a
-// test shortens it. A harness answers in well under a second; the rest is
-// room for a cold start.
-var harnessVersionTimeout = 5 * time.Second
+// test shortens it. A harness answers in well under a second, but five
+// seconds ran out under load even on a stand-in that answers at once, so
+// this is the twenty Models allows: both ask one installed tool for one
+// short answer.
+var harnessVersionTimeout = 20 * time.Second
 
 // HarnessVersion is the version the installed harness of kind reports: the
 // first line its file's version flags print, "" when the file names none,

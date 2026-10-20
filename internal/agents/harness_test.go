@@ -662,12 +662,23 @@ func TestHarnessVersion(t *testing.T) {
 	if got := HarnessVersion(ctx, "kimi"); got != "" {
 		t.Errorf("a harness not installed here: version %q, want none", got)
 	}
+	// The scripts sleep by absolute path: PATH above holds the fake tool
+	// alone, so a bare sleep would fail and answer at once instead. The
+	// hanging one execs its sleep, so the timeout kills the sleeper itself
+	// instead of leaving it holding the output pipe open.
 	write := func(body string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, "kimi"), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// A script's start alone is slow under load, so the answering cases run
+	// under a bound far longer than a person's (the doctor tests' shape);
+	// the slow stand-in below runs under the bound itself, and only the
+	// hanging case runs short.
+	old := harnessVersionTimeout
+	harnessVersionTimeout = 30 * time.Second
+	defer func() { harnessVersionTimeout = old }()
 	write("#!/bin/sh\necho\necho 'kimi-code 2.9.9 (ae6bbc1 2026-10-20)'\necho noise\n")
 	if got, want := HarnessVersion(ctx, "kimi"), "kimi-code 2.9.9 (ae6bbc1 2026-10-20)"; got != want {
 		t.Errorf("version %q, want %q", got, want)
@@ -676,10 +687,15 @@ func TestHarnessVersion(t *testing.T) {
 	if got := HarnessVersion(ctx, "kimi"); got != "" {
 		t.Errorf("a failing harness: version %q, want none", got)
 	}
-	write("#!/bin/sh\nsleep 30\n")
-	old := harnessVersionTimeout
+	// Past the old five seconds, within the twenty now allowed: a slow
+	// answer still yields its version.
+	harnessVersionTimeout = old
+	write("#!/bin/sh\n/bin/sleep 6\necho 'kimi-code 2.9.9 (ae6bbc1 2026-10-20)'\n")
+	if got, want := HarnessVersion(ctx, "kimi"), "kimi-code 2.9.9 (ae6bbc1 2026-10-20)"; got != want {
+		t.Errorf("a slow harness: version %q, want %q", got, want)
+	}
+	write("#!/bin/sh\nexec /bin/sleep 30\n")
 	harnessVersionTimeout = 50 * time.Millisecond
-	defer func() { harnessVersionTimeout = old }()
 	if got := HarnessVersion(ctx, "kimi"); got != "" {
 		t.Errorf("a hanging harness: version %q, want none", got)
 	}

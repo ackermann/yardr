@@ -165,7 +165,7 @@ can be created on; they are then never a fault.
 | `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed. When the login shell finds claude, codex, grok, kimi, kiro, opencode, pi or muse, the line above is printed for each it finds instead |
 | `ok <harness> <path>, the harness of <who>: answers its version flag (<its first line>)` | found, and it runs |
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but its version flag fails: <error and its first line>` | found, and it does not run |
-| `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 5s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
+| `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 20s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
 | `ok <harness> <path>, the harness of <who>: not checked, yardr knows no version flag for <kind>` | found, and not run: the flag is known for claude, codex, grok, kimi, kiro, opencode, pi and muse |
 | `note <harness> …` | the two failing lines above, for a harness nothing runs on yet (a home with no yard) |
 | `…; harness file v<n>` or `…; no harness file (yardr harness list)` | the end of every line of a harness that was found: the version of the file yardr reads the kind from (`yardr harness show <kind>`, [groups.md](groups.md#what-yardr-knows-of-a-kind)), or that it has none and knows no marks, error lines or flags of the kind |

@@ -167,22 +167,19 @@ func TestDaemonSkipsAnOlderBuildAndLogsIt(t *testing.T) {
 	must(t, os.Chtimes(path, past, past))
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
-	time.Sleep(200 * time.Millisecond)
+	skipped := func() []store.Event {
+		evs, err := s.EventsSince(context.Background(), head, 0)
+		must(t, err)
+		return slices.DeleteFunc(evs, func(e store.Event) bool { return e.Kind != "replace_skipped" })
+	}
+	until(t, "the replace_skipped event", func() bool { return len(skipped()) == 1 })
 	cancel()
 	must(t, <-done)
 	if calls.Load() != 0 {
 		t.Fatal("the daemon exec'd an older build")
 	}
-	evs, err := s.EventsSince(context.Background(), head, 0)
-	must(t, err)
-	var skipped []store.Event
-	for _, e := range evs {
-		if e.Kind == "replace_skipped" {
-			skipped = append(skipped, e)
-		}
-	}
-	if len(skipped) != 1 || skipped[0].Data["process"] != "daemon" || skipped[0].Data["candidate"] != "old" {
-		t.Fatalf("replace_skipped events = %+v; want one, from the daemon", skipped)
+	if got := skipped(); len(got) != 1 || got[0].Data["process"] != "daemon" || got[0].Data["candidate"] != "old" {
+		t.Fatalf("replace_skipped events = %+v; want one, from the daemon", got)
 	}
 }
 

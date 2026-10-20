@@ -583,9 +583,11 @@ func presetKinds() []string {
 }
 
 // versionTimeout is how long a harness gets to print its version; tests
-// replace it. A harness answers in well under a second; the rest is room
-// for a cold start.
-var versionTimeout = 5 * time.Second
+// replace it. A harness answers in well under a second, but five seconds
+// ran out under load even on a stand-in that answers at once, so this is
+// twenty, the same as the agents package's own version bound: both ask
+// one installed tool for one short answer.
+var versionTimeout = 20 * time.Second
 
 // goos is the system doctor explains things for; tests replace it.
 var goos = runtime.GOOS
