@@ -4,7 +4,8 @@
 server, as `yardr bdp serve` is. Without `--as`, `YARDR_WEB_AS` or the
 `web_as` setting it reads only: no page takes a write, and every route
 refuses any method but GET and HEAD. With one of them it acts as that
-user too: the talk page sends its mail as them, and a bead's page
+user too, for a browser that has opened the view's token URL: the talk
+page sends its mail as them, and a bead's page
 answers its asks and sends the bead on
 ([Acting as a user](#acting-as-a-user)), and nothing else takes a
 write.
@@ -12,7 +13,8 @@ write.
 ```sh
 yardr web serve                          # http://127.0.0.1:8791/
 yardr web serve --addr 127.0.0.1:9000
-yardr web serve --as mckean              # acts as mckean: talk, asks, moves
+yardr web serve --as mckean              # acts as mckean: talk, asks, moves; prints a URL to open once
+yardr web open                           # opens the view in your browser, where it acts too
 curl -s localhost:8791/                                  # the page
 curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ```
@@ -122,7 +124,9 @@ it asks of one, whichever it is:
 - **TLS and access are the proxy's.** The view speaks plain HTTP to
   loopback and has no login: whoever the proxy lets through reads the whole
   yard. Who that is, the proxy says (a private network's membership, a
-  login of its own).
+  login of its own). A view that acts takes its writes from a browser that
+  holds its cookie besides, which the token URL buys under the name the
+  browser reaches the view by ([Acting as a user](#acting-as-a-user)).
 - **Name only names whose resolution you control**: the machine's name on a
   private network of yours, a name in DNS you run, a name you assigned at
   the proxy. Under a name someone else controls, their pages could point it
@@ -169,6 +173,13 @@ port: an echo server on a spare tailnet-only port saw
 present. The `--https=8444` gives the view a tailnet-only port of its own:
 port 443 of that tailnet name is Funnel (public, the hooks), so the view
 is not served there.
+
+A view that acts prints its token URL under loopback, which is this
+machine's. A browser behind the proxy opens it under the name it reaches the
+view by, with the same token: `https://adventuretime.tail5cf2e8.ts.net:8444/?token=<token>`,
+once, and its cookie is that name's ([Acting as a user](#acting-as-a-user)).
+The token is the `token` of the view's record (`jq -r .token
+<home>/webviews/web-*.json`). That step is not part of the run above.
 
 A proxy in front of the view forwards the sandbox origin's port too:
 run links name the view's host on the origin's port
@@ -252,11 +263,14 @@ status` and the start line say whose tokens the view verifies (`jwt from
 `yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
-Outside JWT mode there is still no authentication: anyone who can reach this
-machine on that port can read the whole yard, and act as the user of a view
-that acts. In JWT mode every request but `/health` needs a token the gateway
-signed.
-With none of `--as`, `YARDR_WEB_AS` and `web_as` the view stays
+Outside JWT mode there is still no authentication for reading: anyone who can
+reach this machine on that port can read the whole yard. A view that acts is
+refused `--unsafe` there: the token and the cookie that guard its writes
+would cross the network over plain HTTP, where anyone on it can read them, so
+`--as`, `YARDR_WEB_AS` or `web_as` together with `--unsafe` ends at start and
+says so ([Acting as a user](#acting-as-a-user)). In JWT mode every request
+but `/health` needs a token the gateway signed, and each request acts as its
+own user. With none of `--as`, `YARDR_WEB_AS` and `web_as` the view stays
 read-only.
 
 - With `--unsafe`, `--addr` takes any address: `:9000`, `0.0.0.0:9000`, or
@@ -287,7 +301,6 @@ read-only.
   are counted apart.
 - Outside JWT mode it logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
-  On a view that acts it says `can read the yard and act as <user>` instead.
 - In JWT mode the warning says requests other than `/health` need a token
   signed by the gateway.
   The line after it says what the view answers to:
@@ -303,9 +316,10 @@ that order: a start and an install hand on `--as` only when it is
 given, so a view of theirs without it reads the setting itself, at
 every start. Whoever the view acts as must be a user of the yard
 (`yardr user list`): with any other name it refuses to start, naming
-the flag, the variable or the setting the name came from. The talk
-page ([Talk](#talk)) then holds the user's conversation with a crew member
-or another user,
+the flag, the variable or the setting the name came from. For a browser
+that has opened the view's token URL ([below](#the-token-and-the-cookie))
+the talk page ([Talk](#talk)) then holds the user's conversation with a crew
+member or another user,
 live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
@@ -347,19 +361,100 @@ compared is the request's `Origin` header, and this is how it is matched:
   the edge may end TLS and forward the request to the view over HTTP.
 
 Anything else is answered 403 and sends nothing. `Origin` is the browser's
-own header: a client that is no browser sends none, so `curl` posts with
-one of its own (`-H 'Origin: http://127.0.0.1:8791'`).
+own header, and a client that is no browser sets it as it likes
+(`curl -H 'Origin: http://127.0.0.1:8791'`): the check keeps a page on
+another site out, and nothing more. What keeps another client out is the
+token ([next](#the-token-and-the-cookie)).
 
-The view still has no login: whoever reaches it acts as its user, and who
-reaches it is the edge's to say — the private network's membership, a login
-of its own — as who reads the yard is ([Behind a proxy](#behind-a-proxy)).
-The edge is what stands in front. `yardr status` says whom a view acts as
-(`this machine only, acts as mckean`), and the start line carries it too
-(`serving the yard url=http://127.0.0.1:8791/ pages=http://127.0.0.1:8789/ acts_as=mckean`), whether
-the flag, the variable or the setting named the user. Behind an auth
+The view has no login of its own: who reads it is the edge's to say — the
+private network's membership, a login of its own — as who reads the yard is
+([Behind a proxy](#behind-a-proxy)). Who acts as its user is whoever holds
+its cookie, and that is whoever opened its token URL. `yardr status` says
+whom a view acts as (`this machine only, acts as mckean`), and the start line
+carries it too (`serving the yard url=http://127.0.0.1:8791/ pages=http://127.0.0.1:8789/ acts_as=mckean`),
+whether the flag, the variable or the setting named the user. Behind an auth
 gateway the view acts per request instead of as one user: each visitor's
 token maps to their own user ([Behind an auth
+gateway](#behind-an-auth-gateway)), and none of what follows applies.
+
+### The token and the cookie
+
+Loopback is open to every process on the machine and to every page the
+visitor's browser opens, and the origin check above is a client's own word.
+Outside JWT mode a view that acts therefore asks for a secret of its own,
+one per serve, and acts for the browsers that hold it:
+
+- **The token** is 256 random bits, in hex. The view makes it when it starts
+  and keeps it in its record in `<home>/webviews/`
+  ([Where it runs](#where-it-runs)), a file of mode 0600 in a directory of
+  0700, which only you can read. In a terminal it prints the token once, in
+  a URL on a line of its own, as Jupyter does:
+
+  ```
+  To act as mckean, open this URL in your browser: it trades the token for a cookie, and the view takes writes from that browser alone
+    http://127.0.0.1:8791/?token=3f9c7a…
+  ```
+
+  A view that no terminal runs (`yardr web start`, the login service) writes
+  its log where the terminal would be, and a log is read by more than you (a
+  service's is made by its manager, with the mode it likes). It says there
+  only to run `yardr web open`, and the token stays in the record.
+- **The cookie.** A GET to any page with the right `?token=`, compared in
+  constant time, is answered with a cookie and a redirect to the same URL
+  without the token, so that the token does not stay in the address bar. The
+  cookie is `HttpOnly` and `SameSite=Strict`, for the whole view and for the
+  browser's session, and it holds a keyed hash of the token, not the token.
+  It is named for the port the view was reached on (`yardr_web_8791`): a
+  browser sends a host's cookies to every port of it, so two views on one
+  machine would otherwise trade one cookie. It has no `Secure` attribute: the
+  view speaks plain HTTP, which a browser may refuse that one from, and a
+  proxy that ends TLS can add it.
+- **The CSRF value.** Every form of the view carries a hidden field, `csrf`,
+  and a write must send it back with the cookie: in the form, or, from a
+  script, in an `X-CSRF-Token` header. It is another keyed hash of the token.
+  `SameSite` keeps the requests of another site from carrying the cookie, but
+  not those of a page on another port of the same host (the sandbox origin's,
+  for one), which has no way to know the value.
+
+A write that lacks the cookie or the CSRF value, or carries one that is not
+this view's, is answered 403 and changes nothing, on any route and by any
+method: a route that takes writes later is guarded without being named. The
+origin check stays, and applies as well. Only a GET carries the token to a
+cookie; a POST with one is a write without a cookie.
+
+Reads are not guarded, as before. A request without the cookie reads as on a
+view with no `--as`: it acts as no one, so it is drawn no form
+(`form-action 'none'`), the needs rows list nothing addressed to the user, a
+mail's file is not served to it, and the talk page says that the view acts,
+and for which browsers it does ([Talk](#talk)).
+
+`yardr web open` opens the view that runs in this machine's browser: at the
+URL with its token where the view acts, and at its plain address where it does
+not. It takes the token from the view's record, so a view that was started
+again, with a token of its own, is opened the same way. `--addr <host:port>`
+names the view when several run. Where no browser opens (a machine with no
+display), it prints the URL, token included, since that is all there is to
+open it by. The browser is started with the URL on its command line, which
+another user of this machine could read from the process list for as long as
+that process lives: on a machine with other users, open the URL by hand.
+
+The token lasts as long as the view. One that is started again, by a stop and
+a start or at the next login, makes a new token, and a browser's cookie from
+before no longer holds: its pages read as without a cookie until `yardr web
+open`, or the new URL, trades the new token for a new cookie.
+
+`--unsafe` with a view that acts is refused outside JWT mode: it would send
+the token and the cookie over plain HTTP across the network, where anyone on
+it can read them. The refusal names the user and where the name came from
+(`--as`, `YARDR_WEB_AS` or `web_as`) and says what to do instead: drop
+`--unsafe`, so that the view listens on loopback, which an ssh forward or a
+proxy of yours that ends TLS reaches; start without a user; or put an auth
+gateway in front and use JWT mode ([Behind an auth
 gateway](#behind-an-auth-gateway)).
+
+What this keeps out is every other user of the machine, who cannot read the
+file, and everything that runs in a browser. It does not keep out a process
+of yours: it can read the file as it reads the rest of the home.
 
 ## Keeping it running
 
@@ -376,6 +471,7 @@ yardr web install                # starts now, and at every login
 yardr web install --addr 127.0.0.1:9000
 yardr web install --host yard.example.net   # answers to that name too, for a proxy of yours
 yardr web install --as mckean               # acts as mckean: talk, asks, moves
+yardr web open                   # opens the view that runs in your browser, where it acts too
 yardr web uninstall
 ```
 
@@ -412,7 +508,10 @@ the service starts goes by `YARDR_WEB_PAGES_ADDR` and
 
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
-how to stop it. It refuses an address something listens on already.
+how to stop it. It refuses an address something listens on already. A view
+that acts keeps its token in its record, not in that log, and `yardr web
+open` opens it ([The token and the cookie](#the-token-and-the-cookie)), for a
+view the login service runs too.
 
 `yardr web stop` stops the views that the records under `<home>/webviews/`
 name ([below](#where-it-runs)), however each was started: in a terminal, by
@@ -475,8 +574,11 @@ a `note` for a view that is open to the network.
   them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its
   address, its pid, `--unsafe` or not, the user it acts as, when it started,
-  the build it runs)
-  and holds a lock on it. It removes the record when it stops. One that ended without doing so
+  the build it runs and, for a view that acts, its token) and holds a lock
+  on it. The record is a file of mode 0600: `yardr status` and `yardr doctor`
+  print the rest of it and never the token
+  ([The token and the cookie](#the-token-and-the-cookie)). It removes the
+  record when it stops. One that ended without doing so
   (`kill -9`, a reboot) holds the lock no longer, so its record is not
   listed, whatever its pid has become since; the next view to start removes
   it. Nothing is found by process name or by trying a port.
@@ -499,8 +601,9 @@ URL that names another host, and every response carries
 itself refuses to load or call anything else. The policy also refuses
 inline `<script>`, inline `<style>` and `style=` attributes, so a page has
 none: scripts and styles live in the asset files. It refuses every form
-target (`form-action 'none'`) but on a view that acts, whose talk and bead
-pages post to the view itself (`form-action 'self'`). The one exception
+target (`form-action 'none'`) but for a request that acts, on a view that
+acts one that holds its cookie, whose talk and bead pages post to the view
+itself (`form-action 'self'`). The one exception
 to the test is a bead page's run links, which name the yard's own sandbox
 origin; the test allows those and only those ([One bead](#one-bead)).
 
@@ -510,7 +613,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 |---|---|---|
 | `/` | Home: the overview — the answer line with one row per wait, then the Running, Yard and Closed rows — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
-| `/talk` | on a view that acts: the user's conversation with a crew member or another user, live, and the form that sends it mail as them; without a user, that the view does not act ([Talk](#talk)) | `Talk` |
+| `/talk` | on a view that acts, for a browser that holds its cookie: the user's conversation with a crew member or another user, live, and the form that sends it mail as them; without a user, that the view does not act, or that this browser has not opened its token URL ([Talk](#talk)) | `Talk` |
 | `/talk?with=<member>` | the conversation with that member or user; without `?with=` the yardmaster's, else the first member's | `Talk` |
 | `/talk?with=<member>&before=<seq>` | an older page of the conversation: the 50 letters under that seq, a snapshot | `Talk` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
@@ -1454,6 +1557,7 @@ always set there, `eta` beside it when there is more to say):
 ## Talk
 
 On a view that acts, `/talk` is its user's conversation
+(for a browser that holds the view's cookie, [The token and the cookie](#the-token-and-the-cookie))
 with a crew member or another user — the web's `yardr chat` for one party
 at a time — with
 the form that sends it mail as them. `?with=` names either; without it
@@ -1470,7 +1574,9 @@ acknowledged it.
 A page the mail carries is named without a link, never drawn as an image:
 no link here opens one. A file downloads from its link, `file <name>`.
 A file the yard no longer holds is a line saying so, never a broken image.
-With no user the page says the view does not act.
+With no user the page says the view does not act; on a view that acts, for a
+browser that holds no cookie, it says that and where the token URL comes from
+(`yardr web open`, or the terminal the view started in).
 
 The page reads as a messaging app: the crew and the people stay above the
 letters and
@@ -1516,7 +1622,8 @@ page, each with `own` (whether the view's user wrote it) and `sender` (who
 the page names for it) beside them, and `more` beside them where older mail
 was left out. `error` and `draft` stand only on a POST that sent nothing:
 why, and the words back in the form. `max_mail` is how many bytes the form
-takes.
+takes. `needs_token` stands, true, where `as` is empty because the view acts
+and this request holds no cookie.
 
 ## The stream
 

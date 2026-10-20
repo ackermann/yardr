@@ -525,7 +525,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `daemon.lock` | held by the running daemon, with its pid and start time in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
-| `webviews/` | a record per running web view, held by it while it serves, which `yardr status`, `yardr doctor` and `yardr web stop` read ([web.md](web.md#where-it-runs)) |
+| `webviews/` | a record per running web view, held by it while it serves, which `yardr status`, `yardr doctor`, `yardr web stop` and `yardr web open` read; the record of a view that acts holds its token, in a file of mode 0600 ([web.md](web.md#where-it-runs)) |
 | `bdp.log`, `otel.log` | the same for `yardr bdp serve` and `yardr otel export` when no terminal runs them ([below](#long-running-commands)) |
 | `bdpservers/`, `otelexports/` | a record per running BDP server and telemetry export, as `webviews/` holds the views', which their `stop` and `status` read |
 | `otel-export.json` | what `yardr otel export` has sent, where the next run continues ([otel.md](otel.md#what-it-remembers)) |

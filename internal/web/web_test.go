@@ -34,6 +34,12 @@ type fixture struct {
 	ts *httptest.Server
 	// home is the yard's home, where a store flow's stage files are.
 	home string
+	// token, session and csrf are those of a view that acts, once signIn
+	// has traded the token for the cookie as a browser does: do and
+	// postForm then send the cookie, and the CSRF value with a write.
+	token   string
+	session *http.Cookie
+	csrf    string
 }
 
 // newFixture serves a yard whose home is .../.depot and that has no `name`
@@ -70,6 +76,7 @@ func (f *fixture) do(method, target string, headers ...string) resp {
 		}
 		req.Header.Add(headers[i], headers[i+1])
 	}
+	f.authorize(req)
 	r, err := http.DefaultClient.Do(req)
 	if err != nil {
 		f.t.Fatal(err)
@@ -77,6 +84,56 @@ func (f *fixture) do(method, target string, headers ...string) resp {
 	defer r.Body.Close()
 	b, _ := io.ReadAll(r.Body)
 	return resp{r.StatusCode, r.Header, string(b)}
+}
+
+// signIn is a browser opening the URL the view printed: it trades the token
+// ActAs gave for the cookie and keeps it, with the CSRF value the view's
+// forms carry, for every request the fixture sends after.
+func (f *fixture) signIn(srv *web.Server, token string) {
+	f.t.Helper()
+	f.token, f.csrf = token, srv.CSRF()
+	f.session = f.cookieAt("")
+}
+
+// cookieAt trades the fixture's token for the cookie at the request host
+// host ("" for the test server's own), as a browser that reached the view
+// under that name does: the cookie is named for the port.
+func (f *fixture) cookieAt(host string) *http.Cookie {
+	f.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, f.ts.URL+"/?token="+f.token, nil)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if host != "" {
+		req.Host = host
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	r, err := client.Do(req)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	defer r.Body.Close()
+	cookies := r.Cookies()
+	if r.StatusCode != http.StatusSeeOther || len(cookies) != 1 {
+		f.t.Fatalf("the token URL at %q: status %d with %d cookies, want 303 and one", host, r.StatusCode, len(cookies))
+	}
+	return cookies[0]
+}
+
+// authorize gives req the cookie the fixture holds, and a write the CSRF
+// value too, unless the caller sent one of its own.
+func (f *fixture) authorize(req *http.Request) {
+	if f.session == nil {
+		return
+	}
+	req.AddCookie(f.session)
+	switch req.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		if req.Header.Get("X-CSRF-Token") == "" {
+			req.Header.Set("X-CSRF-Token", f.csrf)
+		}
+	}
 }
 
 func (f *fixture) get(target string, headers ...string) resp {

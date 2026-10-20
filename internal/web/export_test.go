@@ -18,6 +18,10 @@ func SetDescribeServer(fn func(context.Context, *config.Config) (server.Info, bo
 	return func() { describeServer = prev }
 }
 
+// CSRF is the value the forms of a view that acts carry, for a test that
+// sends a write the way a browser does.
+func (s *Server) CSRF() string { return s.csrfValue() }
+
 // Streams is how many /events streams are open.
 func (s *Server) Streams() int { return int(s.streams.Load()) }
 

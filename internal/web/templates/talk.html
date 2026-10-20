@@ -29,7 +29,10 @@
 {{end}}
 {{define "content"}}
 <div id="talk">
-  {{- if not .Data.As}}
+  {{- if .Data.NeedsToken}}
+  {{- /* The view acts, but this browser has not shown its cookie. */}}
+  <p class="item">This view acts as a user, and only for a browser that has opened its token URL. Run <code>yardr web open</code> on the machine the view runs on, or open the URL it printed in its terminal when it started, and this page holds that user's conversation with a crew member or another user, with the form that writes to it.</p>
+  {{- else if not .Data.As}}
   {{- /* The view does not act: no user to show a conversation of. */}}
   <p class="item">This view does not act. Start it with <code>--as &lt;user&gt;</code>, a user of the yard, and this page holds that user's conversation with a crew member or another user, with the form that writes to it.</p>
   {{- else if not .Data.With}}
@@ -91,6 +94,7 @@
          loads the conversation it lands on. It stands outside the live
          part, so what is typed survives what arrives. */}}
   <form id="send" method="post" action="/talk?with={{.Data.With}}" hx-post="/talk?with={{.Data.With}}" hx-target="#talk" hx-select="#talk > *" hx-swap="innerHTML ignoreTitle:true">
+    {{template "csrf"}}
     <label class="label" for="text">Mail to {{.Data.With}} as {{.Data.As}}</label>
     <textarea id="text" name="text" rows="3" required maxlength="{{.Data.MaxMail}}" placeholder="Write to {{.Data.With}}…">{{.Data.Draft}}</textarea>
     {{- /* The key that sends beside the Send button: yard.js fills the

@@ -47,6 +47,11 @@ type webView struct {
 	// it is read, since the machine's address may have changed by then.
 	URL  string `json:"url,omitempty"`
 	Open bool   `json:"open"`
+	// token is the secret of a view that acts as a user, read from its
+	// record for yardr web open. It has no field in the JSON: status and
+	// doctor print views, and the record, a file only its owner reads, is
+	// where the token is kept.
+	token string
 }
 
 // webViewsDir is where the home's running web views record themselves.
@@ -54,9 +59,16 @@ func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
 // addr, acting as the user as ("" for none) or verifying the tokens of
-// jwtFrom in JWT mode ("" for none), until clear is called.
-func announceWeb(cfg *config.Config, addr string, unsafe bool, as, jwtFrom string) (clear func(), err error) {
-	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom})
+// jwtFrom in JWT mode ("" for none), until clear is called. A view that acts
+// keeps its token in the record (token, "" for none): the record is a file
+// of mode 0600 in the home's own directory of them, which is where the
+// operator, and yardr web open for them, find it.
+func announceWeb(cfg *config.Config, addr string, unsafe bool, as, jwtFrom, token string) (clear func(), err error) {
+	fields := map[string]any{"addr": addr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom}
+	if token != "" {
+		fields["token"] = token
+	}
+	return kindOf(svcWeb).announce(cfg, fields)
 }
 
 // webViews are the home's running web views, oldest first. A record nobody
@@ -65,9 +77,15 @@ func webViews(cfg *config.Config) []webView {
 	views := []webView{}
 	for _, p := range held(webViewsDir(cfg)) {
 		var v webView
-		if b, err := os.ReadFile(p); err != nil || json.Unmarshal(b, &v) != nil || v.Addr == "" {
+		b, err := os.ReadFile(p)
+		if err != nil || json.Unmarshal(b, &v) != nil || v.Addr == "" {
 			continue
 		}
+		var secret struct {
+			Token string `json:"token"`
+		}
+		_ = json.Unmarshal(b, &secret)
+		v.token = secret.Token
 		v.URL, v.Open = webURL(v.Addr), v.Unsafe && !loopbackOnly(v.Addr)
 		v.Build, v.Differs = version.Show(v.Revision), v.Revision != version.Current()
 		views = append(views, v)

@@ -164,10 +164,11 @@ func TestBeadAskVisibleWithBrokenFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.ActAs("jo")
+	token := srv.ActAs("jo")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f.ts = ts
+	f.signIn(srv, token)
 	r := f.get("/beads/" + b.ID)
 	for _, want := range []string{
 		"flow is unavailable",
@@ -367,10 +368,11 @@ func TestBeadConcurrentAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.ActAs("jo")
+	token := srv.ActAs("jo")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: base.st, ts: ts, home: base.home}
+	f.signIn(srv, token)
 	rev := revOf(t, f, b.ID)
 	var wg sync.WaitGroup
 	responses := make(chan resp, 2)

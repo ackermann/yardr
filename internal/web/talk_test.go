@@ -32,12 +32,17 @@ func talkFixture(t *testing.T, as string) (*fixture, *web.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var token string
 	if as != "" {
-		srv.ActAs(as)
+		token = srv.ActAs(as)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
-	return &fixture{t: t, st: st, ts: ts, home: home}, srv
+	f := &fixture{t: t, st: st, ts: ts, home: home}
+	if as != "" {
+		f.signIn(srv, token)
+	}
+	return f, srv
 }
 
 // postForm posts form to target, following no redirect, so a 303 is seen
@@ -56,6 +61,7 @@ func (f *fixture) postForm(target string, form url.Values, headers ...string) re
 		}
 		req.Header.Add(headers[i], headers[i+1])
 	}
+	f.authorize(req)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	r, err := client.Do(req)
 	if err != nil {
@@ -326,12 +332,17 @@ func talkBlobFixture(t *testing.T, as string) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var token string
 	if as != "" {
-		srv.ActAs(as)
+		token = srv.ActAs(as)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
-	return &fixture{t: t, st: st, ts: ts, home: dir}
+	f := &fixture{t: t, st: st, ts: ts, home: dir}
+	if as != "" {
+		f.signIn(srv, token)
+	}
+	return f
 }
 
 // The talk page draws each mail's images below its words, with the
@@ -726,6 +737,11 @@ func TestTalkPostOrigin(t *testing.T) {
 		if requestHost != "" {
 			req.Host = requestHost
 		}
+		// The cookie is the one a browser that reached the view under this
+		// host has: it is named for the port, and the origin is what is
+		// under test, not the token.
+		req.AddCookie(f.cookieAt(requestHost))
+		req.Header.Set("X-CSRF-Token", f.csrf)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if origin != "absent" {
 			req.Header.Set("Origin", origin)

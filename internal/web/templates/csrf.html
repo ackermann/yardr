@@ -1,0 +1,4 @@
+{{- /* The CSRF value of a view that acts, as the hidden field every form of it
+       carries. A view that takes no token (it reads only, or it is in JWT
+       mode) has none to draw. */}}
+{{define "csrf"}}{{with csrf}}<input type="hidden" name="csrf" value="{{.}}">{{end}}{{end}}

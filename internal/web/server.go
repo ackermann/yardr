@@ -2,8 +2,9 @@
 // with html/template, and the same data as JSON to whoever asks for it.
 // Without --as it only reads the yard; with --as <user> the talk page
 // sends mail as that user, and a bead's page answers its asks and sends
-// the bead on, and nothing else takes a write. In JWT mode each request
-// acts as its own verified user instead.
+// the bead on, and nothing else takes a write, and only for a browser that
+// holds the view's cookie (viewtoken.go). In JWT mode each request acts as
+// its own verified user instead.
 //
 // A page is one template in templates/ and one handler that builds the
 // page's data once and hands it to respond; docs/web.md says how to add one.
@@ -113,6 +114,9 @@ type Server struct {
 	// the talk page sends its mail as them, and a bead's page answers its
 	// asks and sends it on; no other page takes a write.
 	as string
+	// token is the secret a view that acts as a user asks a browser for
+	// (ActAs), nil for one that does not and for one in JWT mode.
+	token *viewToken
 	// pagesMux serves the sandbox origin: a note's blobs under the
 	// scripted policy, and nothing else. pagesAddr is the address it
 	// listens on, as bound, which the bead page's run links are built
@@ -150,12 +154,12 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 
 // partial are the files of templates/ that define a part of a page, not a
 // page: every page is parsed with them.
-var partial = []string{"shell", "aside", "entry", "card"}
+var partial = []string{"shell", "aside", "entry", "card", "csrf"}
 
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL, "blobURL": blobURL, "clock": clock, "inc": inc, "markAuthor": markAuthor}
+	funcs := template.FuncMap{"asset": s.assetURL, "blobURL": blobURL, "clock": clock, "csrf": s.csrfValue, "inc": inc, "markAuthor": markAuthor}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")
@@ -271,6 +275,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/health" {
 		var ok bool
 		if r, ok = s.verifyJWT(w, r); !ok {
+			return
+		}
+	}
+	// A view that acts as a user takes its writes from the browser that
+	// holds its cookie, and acts for no other (viewtoken.go).
+	if s.token != nil {
+		var ok bool
+		if r, ok = s.admit(w, r); !ok {
 			return
 		}
 	}
@@ -655,12 +667,16 @@ func (s *Server) AllowHosts(hosts ...string) {
 }
 
 // ActAs is --as: the view acts as user, whom the caller has read from the
-// yard's users. It registers the POST routes, which without it do not
-// exist: the mux answers a POST as it answers every other method. Call it
-// before the server serves.
-func (s *Server) ActAs(user string) {
+// yard's users, for a browser that holds the view's cookie. It registers the
+// POST routes, which without it do not exist: the mux answers a POST as it
+// answers every other method. It returns the token that buys the cookie,
+// which the caller keeps for the operator alone (a view that acts has no
+// way to be without one). Call it before the server serves.
+func (s *Server) ActAs(user string) (token string) {
 	s.as = user
+	s.token = newViewToken()
 	s.postRoutes()
+	return s.token.secret
 }
 
 // postRoutes registers the routes that take a write: the talk page's form
@@ -675,12 +691,16 @@ func (s *Server) postRoutes() {
 func (s *Server) As() string { return s.as }
 
 // acting is the user the request acts as: the request's verified JWT user
-// in JWT mode, else the view's fixed one (--as). Every write path and
-// every gate that names a user reads this, so two visitors act as
-// themselves on one view.
+// in JWT mode, else the view's fixed one (--as) for a request that holds
+// its cookie, and no one for the rest, which read as on a view with no --as.
+// Every write path and every gate that names a user reads this, so two
+// visitors act as themselves on one view.
 func (s *Server) acting(ctx context.Context) string {
 	if s.jwt != nil {
 		return jwtIdentityOf(ctx).user
+	}
+	if s.token != nil && ctx.Value(tokenHeldKey{}) == nil {
+		return ""
 	}
 	return s.as
 }

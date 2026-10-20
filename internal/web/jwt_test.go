@@ -715,6 +715,11 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 		!strings.Contains(r.body, `<form id="send" method="post"`) {
 		t.Errorf("jo's talk: status %d, want jo's letters and the form, and none of kay's:\n%s", r.status, r.body)
 	}
+	// The gateway's token is the proof of who writes, and the form carries
+	// no CSRF value of a per-view token that JWT mode does not have.
+	if strings.Contains(r.body, `name="csrf"`) {
+		t.Errorf("a form in JWT mode carries a CSRF field:\n%s", r.body)
+	}
 	r = f.get("/talk", header, kay)
 	if r.status != 200 || !strings.Contains(r.body, "fix the gate") ||
 		strings.Contains(r.body, "paint the shed") ||

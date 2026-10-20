@@ -49,6 +49,10 @@ type Talk struct {
 	// MaxMail is how many bytes the form takes: a text it sends as one mail,
 	// or as numbered mails when one does not hold it.
 	MaxMail int `json:"max_mail"`
+	// NeedsToken is whether the view acts as a user and this browser has
+	// not shown its cookie (viewtoken.go), which is why As is empty: the
+	// page says how to get it, not that the view was started without --as.
+	NeedsToken bool `json:"needs_token,omitempty"`
 	// Error is why a POST did not send, "" otherwise; Draft is the text
 	// it did not send, back in the form.
 	Error string `json:"error,omitempty"`
@@ -85,8 +89,9 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	as := s.acting(ctx)
 	if as == "" {
-		// The view does not act: no user to show a conversation of.
-		s.respond(w, r, Page{Template: "talk", Title: "Talk", Menu: "talk", Data: Talk{}})
+		// The view does not act, or not for this browser: no user to show a
+		// conversation of.
+		s.respond(w, r, Page{Template: "talk", Title: "Talk", Menu: "talk", Data: Talk{NeedsToken: s.token != nil}})
 		return
 	}
 	head, err := s.st.Head(ctx)

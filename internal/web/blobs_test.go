@@ -46,10 +46,12 @@ func (f *fixture) as(t *testing.T, as string) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.ActAs(as)
+	token := srv.ActAs(as)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
-	return &fixture{t: t, st: f.st, ts: ts, home: f.home}
+	acting := &fixture{t: t, st: f.st, ts: ts, home: f.home}
+	acting.signIn(srv, token)
+	return acting
 }
 
 // /blobs/<hash> serves a blob a note on some bead names, with its type,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net"
@@ -98,6 +99,18 @@ them, as yardr review offers it. A form's POST is taken only from the
 view's own pages, and every other route stays GET. Without a user the talk
 page says the view does not act, and the view changes nothing.
 
+A view that acts takes its writes only from a browser that holds its cookie
+(docs/web.md, "The token and the cookie"). When it starts it makes a token
+of 256 random bits, keeps it in its record under <home>/webviews, a file only
+you can read, and prints a URL carrying it (http://127.0.0.1:8791/?token=...)
+once, in a terminal and never into a log: open it in your browser, which
+trades the token for a cookie and is sent on to the page without it. yardr
+web open opens that URL, from the record. A
+write without the cookie and the CSRF value of the page it was made from is
+refused with 403, and a browser without the cookie reads the yard as a
+view with no user does. --unsafe is refused with a user, outside JWT mode:
+the token and the cookie would cross the network in the clear.
+
 Behind an auth gateway that forwards each request with a signed JWT proving
 who the visitor is, the yard's web_jwt_issuer setting turns JWT mode on
 (docs/web.md, "Behind an auth gateway"): every request but /health must
@@ -113,7 +126,8 @@ this machine. Both answers carry Retry-After.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
   yardr web serve --host yard.example.net  # on loopback, for a proxy that forwards that name
-  yardr web serve --as mckean              # acts as mckean: talk, asks, moves
+  yardr web serve --as mckean              # acts as mckean: talk, asks, moves; prints a URL to open once
+  yardr web open                           # opens the view in your browser, where it acts too
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
   yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
@@ -176,6 +190,12 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			// Outside JWT mode a view that acts is guarded by a token and a
+			// cookie, and --unsafe would send both over plain HTTP to the
+			// network. (In JWT mode as is refused above.)
+			if unsafe && as != "" {
+				return webUnsafeAsRefused(as, asFrom)
+			}
 			// The yard's web_addr, where no --addr was given: checked when
 			// it was set, and by web.Listen below.
 			if err := a.addrFromSetting(ctx, a.cfg, kindOf(svcWeb), c.Flags()); err != nil {
@@ -207,8 +227,11 @@ this machine. Both answers carry Retry-After.`,
 			if err != nil {
 				return err
 			}
+			// A view that acts takes its writes from a browser that holds a
+			// cookie, which a URL with this token buys.
+			var token string
 			if as != "" {
-				srv.ActAs(as)
+				token = srv.ActAs(as)
 			}
 			if jwtCfg.Issuer != "" {
 				if err := srv.UseJWT(ctx, jwtCfg); err != nil {
@@ -236,7 +259,7 @@ this machine. Both answers carry Retry-After.`,
 				hostname, _ := os.Hostname()
 				srv.AllowNetwork(hostname, hosts...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
-				log.Warn(unsafeWarning(port, as, jwtCfg.Issuer))
+				log.Warn(unsafeWarning(port, jwtCfg.Issuer))
 			} else if len(hosts) > 0 {
 				srv.AllowHosts(hosts...)
 			}
@@ -255,7 +278,7 @@ this machine. Both answers carry Retry-After.`,
 			}()
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
-			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as, jwtCfg.Issuer); err != nil {
+			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe, as, jwtCfg.Issuer, token); err != nil {
 				log.Warn("yardr status will not list this view: it could not be recorded", "err", err)
 			} else {
 				defer clear()
@@ -271,6 +294,20 @@ this machine. Both answers carry Retry-After.`,
 				at = append(at, "answers_to", to)
 			}
 			log.Info("serving the yard", at...)
+			if token != "" {
+				if w := c.ErrOrStderr(); isTerminal(w) {
+					// Once, on a line of its own so that a terminal makes it a
+					// link, as Jupyter prints its own. yardr web open opens it
+					// again from the view's record.
+					fmt.Fprintf(w, "To act as %s, open this URL in your browser: it trades the token for a cookie, and the view takes writes from that browser alone\n  %s?token=%s\n",
+						as, webURL(ln.Addr().String()), token)
+				} else {
+					// A log is read by more than the operator (a service's is
+					// made by its manager, with the mode it likes), so the
+					// token stays out of it: the record has it.
+					log.Info("to act as " + as + ", run yardr web open: the token is in the view's record, not in this log")
+				}
+			}
 			serveErr := make(chan error, 2)
 			go func() { serveErr <- hs.Serve(ln) }()
 			go func() { serveErr <- ps.Serve(pln) }()
@@ -290,12 +327,13 @@ this machine. Both answers carry Retry-After.`,
 		},
 	}
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
-	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; outside JWT mode there is no authentication")
+	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; outside JWT mode there is no authentication, and a view that acts is refused")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
 	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+"); every interface on that port with --unsafe")
 	serve.Flags().StringVar(&pagesHost, "pages-host", "", "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)")
 	cmd.AddCommand(serve)
+	cmd.AddCommand(a.webOpenCmd())
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
@@ -315,7 +353,9 @@ to yardr web serve, and names what the view answers to on loopback besides
 the loopback names (docs/web.md, "Behind a proxy"). --as is handed on too:
 the view acts as that user, and refuses to start when no user of the yard
 has the name; without --as it acts as YARDR_WEB_AS, else the yard's web_as
-setting, and reads only with neither (docs/web.md, "Acting as a user").`
+setting, and reads only with neither (docs/web.md, "Acting as a user"). A
+view that acts keeps its token in its record, not in the log: yardr web open
+opens the view with it.`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
   yardr web start --host yard.example.net  # the same, for a proxy that forwards that name
   yardr web start --as mckean              # acts as mckean: talk, asks, moves`
@@ -339,7 +379,9 @@ service and handed on to yardr web serve: the view answers to the names
 given besides the loopback names, and still listens on loopback only. --as
 is written into the service too: the view acts as that user. Without --as
 the view acts as YARDR_WEB_AS from the install environment when set, else
-the yard's web_as setting, which it reads at every start. To reach the
+the yard's web_as setting, which it reads at every start. A view that acts
+makes a token at every start and keeps it in its record, not in the log:
+yardr web open opens the view with it. To reach the
 view from another machine, forward the port over ssh or put a proxy of
 yours in front of it (docs/web.md, "Behind a proxy").
 
@@ -516,18 +558,46 @@ func webAnswersTo(unsafe bool, names []string) string {
 	return ""
 }
 
+// isTerminal reports whether w is a terminal, which a person reads and
+// nothing keeps, as it does a file or a pipe, which whoever reads the log
+// does too. Tests replace it.
+var isTerminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 // unsafeWarning is what --unsafe says at start: who can reach the view on
-// port, and what reaching it lets them do — read the yard, and act as its
-// user where one stands. In JWT mode only /health is open without a token.
-func unsafeWarning(port, as, issuer string) string {
+// port, and that they read the yard. A view that acts takes no --unsafe
+// outside JWT mode (webUnsafeAsRefused), so there is no user for them to act
+// as. In JWT mode only /health is open without a token.
+func unsafeWarning(port, issuer string) string {
 	if issuer != "" {
 		return "open to the network on port " + port + ": every request but /health needs a token signed by the gateway"
 	}
-	can := "can read the yard"
-	if as != "" {
-		can = "can read the yard and act as " + as
+	return "no authentication: anyone who can reach this machine on port " + port + " can read the yard"
+}
+
+// webUnsafeAsRefused is the refusal of --unsafe for a view that acts as the
+// user as, from --as, YARDR_WEB_AS or the yard's web_as setting (from), outside
+// JWT mode: what keeps others from acting as them is a token and a cookie,
+// which --unsafe would send over plain HTTP to the network.
+func webUnsafeAsRefused(as, from string) error {
+	whose, unset := "--as "+as, "start without --as"
+	switch from {
+	case store.FromEnvironment:
+		whose, unset = "YARDR_WEB_AS "+as, "unset YARDR_WEB_AS"
+	case store.FromSet:
+		whose, unset = "web_as "+as, `unset web_as (yardr settings set web_as "")`
 	}
-	return "no authentication: anyone who can reach this machine on port " + port + " " + can
+	return fmt.Errorf("--unsafe refused: the view acts as %s (%s), and what keeps other people from acting as them is a token and a cookie, "+
+		"which --unsafe would send over plain HTTP across the network, where anyone on it can read them. "+
+		"Drop --unsafe (the view then listens on loopback, which an ssh forward or a proxy of yours that ends TLS reaches), %s, "+
+		`or put an auth gateway in front and use JWT mode (docs/web.md, "Behind an auth gateway")`,
+		as, whose, unset)
 }
 
 // webHosts is what --host gave, each name as the view compares it, or why

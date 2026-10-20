@@ -553,15 +553,15 @@ func TestStatusAndDoctorSayJWTFrom(t *testing.T) {
 func TestUnsafeWarning(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		port, as, issuer string
-		want             string
+		port, issuer string
+		want         string
 	}{
-		{"8791", "", "", "no authentication: anyone who can reach this machine on port 8791 can read the yard"},
-		{"9000", "Jo", "", "no authentication: anyone who can reach this machine on port 9000 can read the yard and act as Jo"},
-		{"8791", "", "https://team.example.net", "open to the network on port 8791: every request but /health needs a token signed by the gateway"},
+		{"8791", "", "no authentication: anyone who can reach this machine on port 8791 can read the yard"},
+		{"9000", "", "no authentication: anyone who can reach this machine on port 9000 can read the yard"},
+		{"8791", "https://team.example.net", "open to the network on port 8791: every request but /health needs a token signed by the gateway"},
 	} {
-		if got := unsafeWarning(c.port, c.as, c.issuer); got != c.want {
-			t.Errorf("unsafeWarning(%q, %q, %q) = %q, want %q", c.port, c.as, c.issuer, got, c.want)
+		if got := unsafeWarning(c.port, c.issuer); got != c.want {
+			t.Errorf("unsafeWarning(%q, %q) = %q, want %q", c.port, c.issuer, got, c.want)
 		}
 	}
 }
