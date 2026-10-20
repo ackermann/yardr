@@ -352,16 +352,17 @@ func (w *wtx) clearIgnored(source, sender, actor string, by *approvedOn) (bool, 
 
 // checkUserIdentityOneToOne refuses a user's new identity in a source
 // hearing by identity whose id or key another user already holds
-// there: a member id names one user of the yard, so hearing by
-// identity has one speaker to name. It is checked in the write that
-// sets a user's identity, beside mayIdentify, so a mapping typed in a
-// terminal and one approved on a card are refused alike. It holds
-// for a source hearing by identity alone: an identity in another
-// source (a login, say) may be held twice, and the readers that name
-// a party by it (a made bead's originator, a mention) say safely
-// that it names nobody then. A zero identity (a removal) holds
-// nothing. An id a store already holds twice is not repaired here:
-// hearing reads it as unmapped until one identity is removed.
+// there, or a crew member of a linked yard does (Peer.Identities): a
+// member id names one speaker of the yard, so hearing by identity has
+// one to name. It is checked in the write that sets a user's identity,
+// beside mayIdentify, so a mapping typed in a terminal and one
+// approved on a card are refused alike. It holds for a source hearing
+// by identity alone: an identity in another source (a login, say) may
+// be held twice, and the readers that name a party by it (a made
+// bead's originator, a mention) say safely that it names nobody then.
+// A zero identity (a removal) holds nothing. An id a store already
+// holds twice is not repaired here: hearing reads it as unmapped until
+// one identity is removed.
 func checkUserIdentityOneToOne(tx *bolt.Tx, name, source string, id Identity) error {
 	if id.zero() {
 		return nil
@@ -392,6 +393,14 @@ func checkUserIdentityOneToOne(tx *bolt.Tx, name, source string, id Identity) er
 	}
 	if clash != "" {
 		return fmt.Errorf("user %s: %s in %s names %s already: an id in a source names one user of the yard", name, held, source, clash)
+	}
+	// A crew member of a linked yard who has the id is a speaker too. A
+	// user's word and that crew member's, which is information only, cannot
+	// both be one id's.
+	if clash, err = peerHolding(tx, source, id); err != nil {
+		return err
+	} else if clash != "" {
+		return fmt.Errorf("user %s: %s in %s names %s already: an id in a source names one speaker of the yard", name, held, source, clash)
 	}
 	return nil
 }

@@ -588,6 +588,8 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"peer allow airy --receive bead", alone},
 		{"peer allow airy --expose mckean", alone},
 		{"peer rm airy", alone},
+		{"peer identity airy mayor --source linear --id u-1", alone},
+		{"peer identity airy mayor --source linear --rm", alone},
 		{"peer allow airy --mail-limit 300 --expose mckean", "is two asks: propose the limit and the rest apart"},
 		{"peer allow airy --mail-limit 300 --reach mckean=mckean", "is two asks: propose the limit and the rest apart"},
 		{"peer allow airy --mail-limit 300 --no-send mail", "is two asks: propose the limit and the rest apart"},

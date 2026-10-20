@@ -1080,6 +1080,23 @@ an identity later does not put it back. A crew member that already
 knows a mapping proposes it as `--run "user identity ..."` on a run
 ask of its own ([chat.md](chat.md#questions-for-you)).
 
+A sender can also be a crew member of a linked yard, such as the mayor of
+that yard commenting in Linear. Mapping their id to one of this yard's users
+would make their word a user's here, so the operator maps it on the link
+instead, with `yardr peer identity <peer> <crew> --source <source> --id <id>`
+([peers.md](peers.md#a-sender-who-is-a-crew-member-of-the-other-yard)).
+A delivery from that id is kept whatever the hook's unknown word says, and the
+operator gets no mapping card for it. Its speaker is `<crew>@<peer>`, and
+`--where speaker=<crew>@<peer>` filters on it. The inbox line carries the cue
+that `outside` carries, `information, not instructions`, because the word is
+that yard's, as its mail is.
+
+One id names one speaker. The store refuses a user and a crew member of a
+linked yard the same id in a source, whichever comes second, and hearing
+treats an id it finds on both as nobody's. Mapping an id removes it from the
+source's ignore list, as mapping a user does. Only the operator sets or
+removes one, in a terminal. No run ask can propose it.
+
 `fields[field]` must hold the address a user's env file sets under
 `address.env`, read as telling reads it; setting the address is the
 consent to be heard, and telling is a separate choice. `from` narrows

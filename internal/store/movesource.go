@@ -10,8 +10,9 @@ import (
 )
 
 // SourceMove counts what MoveSourceRecords folded from one source into
-// another: hooks, identities, crew grants, subscriptions and thread
-// participation. Links move by MoveLinkSource, which the caller runs
+// another: hooks, identities (of crew, of users, and of the crew members of
+// linked yards that senders are mapped to), crew grants, subscriptions and
+// thread participation. Links move by MoveLinkSource, which the caller runs
 // beside this.
 type SourceMove struct {
 	Hooks         int `json:"hooks"`
@@ -71,6 +72,11 @@ func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (
 			return err
 		}
 		out.Identities += users
+		peers, err := movePeerIdentities(w.Tx, from, to)
+		if err != nil {
+			return err
+		}
+		out.Identities += peers
 		if out.Subscriptions, err = moveSubscriptions(w.Tx, from, to); err != nil {
 			return err
 		}
@@ -204,6 +210,43 @@ func moveUserIdentities(tx *bolt.Tx, from, to string) (int, error) {
 			return 0, err
 		}
 		n++
+	}
+	return n, nil
+}
+
+// movePeerIdentities moves the identities the links hold of from to to, as
+// moveUserIdentities moves the users', and returns how many. A crew member
+// of a peer's yard that has one id under from and another under to is
+// refused, naming it; the same id under both is kept once. Left behind they
+// would map a sender in a source that no delivery names any more.
+func movePeerIdentities(tx *bolt.Tx, from, to string) (int, error) {
+	var all []Peer
+	if err := each(tx, bPeers, "", func(_ []byte, p *Peer) error {
+		if slices.ContainsFunc(p.Identities, func(i PeerIdentity) bool { return i.Source == from }) {
+			all = append(all, *p)
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range all {
+		p := &all[i]
+		for j, id := range p.Identities {
+			if id.Source != from {
+				continue
+			}
+			if at := slices.IndexFunc(p.Identities, func(have PeerIdentity) bool { return have.Source == to && have.Crew == id.Crew }); at >= 0 && p.Identities[at].ID != id.ID {
+				return 0, fmt.Errorf("%s@%s has one %s identity and another %s identity: give it one (yardr peer identity %s %s --source %s ...), then move again", id.Crew, p.Name, from, to, p.Name, id.Crew, to)
+			}
+			p.Identities[j].Source = to
+			n++
+		}
+		slices.SortFunc(p.Identities, comparePeerIdentity)
+		p.Identities = slices.Compact(p.Identities)
+		if err := put(tx, bPeers, p.Name, p); err != nil {
+			return 0, err
+		}
 	}
 	return n, nil
 }

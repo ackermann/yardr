@@ -174,6 +174,14 @@ func ValidHookUnknown(word string) bool { return slices.Contains(HookUnknowns, w
 // a yard user's name.
 const SpeakerOutside = "outside"
 
+// SpeakerIsForeign reports whether a delivery's speaker is a crew member of
+// a linked yard, <crew>@<peer> (PeerIdentity.Speaker), and so no user of
+// this one. No user's name has an "@" (peerMailName), which is what parts a
+// name from its yard. Its word is another yard's, information and not
+// instructions, as SpeakerOutside's is. A reader that gives a user's word
+// its weight asks this first.
+func SpeakerIsForeign(speaker string) bool { return strings.Contains(speaker, "@") }
+
 // SpeakerKey is the derived filter key hearing by identity adds beside
 // a declaration's hook.keys: a subscription may filter on it for a
 // source hearing by identity alone.

@@ -1,0 +1,346 @@
+package store_test
+
+import (
+	"errors"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
+)
+
+// identitySource is a declared source called name that hears by identity:
+// fields.sender holds a sender's id. plainSource is one that hears every
+// delivery and no sender by identity.
+func identitySource(name string) string {
+	env := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_TOKEN"
+	return "name: " + name + "\nbase: https://" + name + ".example.com\ncredential: { env: " + env + ` }
+calls:
+  message:
+    kind: update
+    params: { text: { type: string } }
+    request: { method: POST, path: /send, body: { text: "{text}" } }
+hook:
+  verify: { scheme: secret, signature: { header: Sender-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+`
+}
+
+func plainSource(name string) string {
+	return strings.Replace(identitySource(name), "hear:\n  field: sender\n  by: identity\n", "", 1)
+}
+
+// peerIdentityYard is rosterYard (the peer north, the operator jo, the user ada,
+// the crew members yardmaster and clerk) with the sources chat and talk,
+// which hear by identity, and plain, which does not.
+func peerIdentityYard(t *testing.T) *peerYard {
+	t.Helper()
+	y, _ := rosterYard(t)
+	for name, text := range map[string]string{"chat": identitySource("chat"), "talk": identitySource("talk"), "plain": plainSource("plain")} {
+		if _, err := y.api.PutSource(y.ctx, name+".yaml", text, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return y
+}
+
+func (y *peerYard) mapPeer(t *testing.T, peer, source, id, crew string) *store.Peer {
+	t.Helper()
+	p, err := y.api.SetPeerIdentity(y.ctx, peer, store.PeerIdentity{Source: source, ID: id, Crew: crew}, "jo")
+	if err != nil {
+		t.Fatalf("mapping %s in %s to %s@%s: %v", id, source, crew, peer, err)
+	}
+	return p
+}
+
+// The operator says that an id in a source is a crew member of the peer's
+// yard, and the link keeps it sorted by source, then crew. Giving the crew
+// member another id in that source replaces the first, and says which it
+// was. Taking it back leaves the rest. Each change is logged.
+func TestPeerIdentitySetReplaceRemove(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Identities != nil {
+		t.Fatalf("a new link maps %+v, %v", p.Identities, err)
+	}
+
+	y.mapPeer(t, "north", "talk", "T9", "mayor")
+	y.mapPeer(t, "north", "chat", "U8", "clerk")
+	p := y.mapPeer(t, "north", "chat", "U7", "mayor")
+	want := []store.PeerIdentity{{Source: "chat", ID: "U8", Crew: "clerk"}, {Source: "chat", ID: "U7", Crew: "mayor"}, {Source: "talk", ID: "T9", Crew: "mayor"}}
+	if !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("identities = %+v, want %+v", p.Identities, want)
+	}
+	if got := p.Identities[1].Speaker("north"); got != "mayor@north" {
+		t.Fatalf("the speaker = %q", got)
+	}
+	// As every reader of the link has it.
+	if ps, err := y.api.Peers(y.ctx); err != nil || !reflect.DeepEqual(ps[0].Identities, want) {
+		t.Fatalf("Peers: %+v, %v", ps, err)
+	}
+	if read, err := y.own.PeerIdentities(y.ctx); err != nil || !reflect.DeepEqual(read, map[string][]store.PeerIdentity{"north": want}) {
+		t.Fatalf("PeerIdentities = %+v, %v", read, err)
+	}
+	set := peerEvents(t, y.api, "peer_identity_set")
+	if last := set[len(set)-1]; len(set) != 3 || last.Actor != "jo" || last.Data["peer"] != "north" || last.Data["crew"] != "mayor" ||
+		last.Data["source"] != "chat" || last.Data["id"] != "U7" || last.Data["was"] != nil {
+		t.Fatalf("peer_identity_set = %+v", set)
+	}
+
+	// Another id for the same crew member in the same source replaces it.
+	p = y.mapPeer(t, "north", "chat", "U6", "mayor")
+	want[1].ID = "U6"
+	if !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("after a replace: %+v, want %+v", p.Identities, want)
+	}
+	set = peerEvents(t, y.api, "peer_identity_set")
+	if last := set[len(set)-1]; last.Data["id"] != "U6" || last.Data["was"] != "U7" {
+		t.Fatalf("peer_identity_set for a replace = %+v", last)
+	}
+	// The same again changes nothing a reader sees.
+	if p = y.mapPeer(t, "north", "chat", "U6", "mayor"); !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("after the same again: %+v", p.Identities)
+	}
+
+	p, err := y.api.RemovePeerIdentity(y.ctx, "north", "mayor", "chat", "jo")
+	want = []store.PeerIdentity{want[0], want[2]}
+	if err != nil || !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("after taking one back: %+v, %v", p, err)
+	}
+	removed := peerEvents(t, y.api, "peer_identity_removed")
+	if len(removed) != 1 || removed[0].Actor != "jo" || removed[0].Data["peer"] != "north" || removed[0].Data["crew"] != "mayor" ||
+		removed[0].Data["source"] != "chat" || removed[0].Data["id"] != "U6" {
+		t.Fatalf("peer_identity_removed = %+v", removed)
+	}
+	if _, err := y.api.RemovePeerIdentity(y.ctx, "north", "mayor", "chat", "jo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("taking back what is not there = %v, want not found", err)
+	}
+	if _, err := y.api.RemovePeerIdentity(y.ctx, "nowhere", "mayor", "chat", "jo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("taking back on a peer that is not there = %v, want not found", err)
+	}
+	if _, err := y.api.RemovePeerIdentity(y.ctx, "north", "clerk", "chat", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	p, err = y.api.RemovePeerIdentity(y.ctx, "north", "mayor", "talk", "jo")
+	if err != nil || p.Identities != nil {
+		t.Fatalf("with all taken back: %+v, %v", p, err)
+	}
+	if read, err := y.own.PeerIdentities(y.ctx); err != nil || len(read) != 0 {
+		t.Fatalf("PeerIdentities with none = %+v, %v", read, err)
+	}
+}
+
+// What cannot be a mapping is refused with why, and keeps the link as it was.
+func TestPeerIdentityRefusals(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	y.mapPeer(t, "north", "chat", "U7", "mayor")
+	for _, c := range []struct {
+		peer string
+		id   store.PeerIdentity
+		want string
+	}{
+		{"north", store.PeerIdentity{ID: "U1", Crew: "clerk"}, "identity: source is required"},
+		{"north", store.PeerIdentity{Source: "chat", Crew: "clerk"}, "identity: id is required"},
+		{"north", store.PeerIdentity{Source: "chat", ID: "U1"}, `crew member "" of a peer: use letters, digits`},
+		{"north", store.PeerIdentity{Source: "chat", ID: "U1", Crew: "clerk@north"}, `crew member "clerk@north" of a peer: use letters, digits`},
+		{"north", store.PeerIdentity{Source: "chat", ID: "U1", Crew: "two words"}, `crew member "two words" of a peer: use letters, digits`},
+		{"nowhere", store.PeerIdentity{Source: "chat", ID: "U1", Crew: "clerk"}, "peer nowhere: not found"},
+		{"north", store.PeerIdentity{Source: "nowhere", ID: "U1", Crew: "clerk"}, "peer north: nowhere is no source this yard declares"},
+		// A source that hears no sender by identity has no one to map.
+		{"north", store.PeerIdentity{Source: "plain", ID: "U1", Crew: "clerk"}, "peer north: plain hears no sender by identity"},
+		// Another crew member of the yard with the id the mayor has.
+		{"north", store.PeerIdentity{Source: "chat", ID: "U7", Crew: "clerk"}, "peer north: U7 in chat names mayor@north already: an id in a source names one speaker of the yard"},
+	} {
+		if _, err := y.api.SetPeerIdentity(y.ctx, c.peer, c.id, "jo"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("mapping %+v on %s = %v, want %q", c.id, c.peer, err, c.want)
+		}
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); !reflect.DeepEqual(p.Identities, []store.PeerIdentity{{Source: "chat", ID: "U7", Crew: "mayor"}}) {
+		t.Fatalf("a refused mapping changed the link: %+v", p.Identities)
+	}
+	if set := peerEvents(t, y.api, "peer_identity_set"); len(set) != 1 {
+		t.Fatalf("the refusals logged %d events", len(set)-1)
+	}
+}
+
+// One id names one speaker of the yard, a user or a crew member of a linked
+// yard. Whichever is written second is refused, by id or by key. A link that
+// has an id cannot give it to another crew member, and neither can another
+// link. The same id in another source is no clash.
+func TestPeerIdentityOneIdOneSpeaker(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	other, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(other)}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A user's id, or the key a user is known by in any case, is theirs.
+	if err := y.api.SetIdentity(y.ctx, "ada", "chat", store.Identity{ID: "U1", Key: "ada-key"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"U1", "ADA-key"} {
+		_, err := y.api.SetPeerIdentity(y.ctx, "north", store.PeerIdentity{Source: "chat", ID: id, Crew: "mayor"}, "jo")
+		if err == nil || !strings.Contains(err.Error(), "peer north: "+id+" in chat names ada already: an id in a source names one speaker of the yard") {
+			t.Errorf("mapping %s, which ada has = %v", id, err)
+		}
+	}
+	// The same id in another source is another sender's.
+	y.mapPeer(t, "north", "talk", "U1", "mayor")
+
+	// A crew member's mapped id is theirs: no user is given it, by id or by
+	// key in any case.
+	y.mapPeer(t, "north", "chat", "U2", "mayor")
+	for _, id := range []store.Identity{{ID: "U2"}, {Key: "u2"}, {ID: "U3", Key: "U2"}} {
+		err := y.api.SetIdentity(y.ctx, "ada", "chat", id, "jo")
+		if err == nil || !strings.Contains(err.Error(), "user ada: ") || !strings.Contains(err.Error(), " in chat names mayor@north already: an id in a source names one speaker of the yard") {
+			t.Errorf("giving ada %+v, which mayor@north has = %v", id, err)
+		}
+	}
+	if u, _ := y.api.GetUser(y.ctx, "ada"); u.Identities["chat"] != (store.Identity{ID: "U1", Key: "ada-key"}) {
+		t.Fatalf("a refused identity changed ada: %+v", u.Identities)
+	}
+	// Taking the mapping back frees the id.
+	if _, err := y.api.RemovePeerIdentity(y.ctx, "north", "mayor", "chat", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.SetIdentity(y.ctx, "ada", "chat", store.Identity{ID: "U2"}, "jo"); err != nil {
+		t.Fatalf("giving ada the id back from a mapping taken back: %v", err)
+	}
+
+	// Another link may not map an id a link has already.
+	y.mapPeer(t, "north", "chat", "U4", "mayor")
+	_, err = y.api.SetPeerIdentity(y.ctx, "south", store.PeerIdentity{Source: "chat", ID: "U4", Crew: "mayor"}, "jo")
+	if err == nil || !strings.Contains(err.Error(), "peer south: U4 in chat names mayor@north already") {
+		t.Fatalf("another link mapping U4 = %v", err)
+	}
+	y.mapPeer(t, "south", "talk", "U4", "mayor")
+	// The crew member replaced by its own id again clashes with nothing.
+	y.mapPeer(t, "north", "chat", "U4", "mayor")
+}
+
+// Removing a link takes its identities with it and says which they were, and
+// a yard added again under the name starts with none. Renaming it keeps them,
+// and the speaker follows the new name.
+func TestPeerIdentityGoesWithTheLink(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	y.mapPeer(t, "north", "chat", "U7", "mayor")
+	y.mapPeer(t, "north", "talk", "T7", "mayor")
+
+	p, err := y.api.RenamePeer(y.ctx, "north", "up", "jo")
+	want := []store.PeerIdentity{{Source: "chat", ID: "U7", Crew: "mayor"}, {Source: "talk", ID: "T7", Crew: "mayor"}}
+	if err != nil || !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("after a rename: %+v, %v", p, err)
+	}
+	if read, err := y.own.PeerIdentities(y.ctx); err != nil || !reflect.DeepEqual(read, map[string][]store.PeerIdentity{"up": want}) {
+		t.Fatalf("PeerIdentities after a rename = %+v, %v", read, err)
+	}
+
+	if err := y.api.DeletePeer(y.ctx, "up", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	gone := peerEvents(t, y.api, "peer_removed")
+	if len(gone) != 1 {
+		t.Fatalf("peer_removed = %+v", gone)
+	}
+	if got, _ := gone[0].Data["identities"].([]any); len(got) != 2 {
+		t.Fatalf("peer_removed says of the identities %+v", gone[0].Data["identities"])
+	}
+	if read, err := y.own.PeerIdentities(y.ctx); err != nil || len(read) != 0 {
+		t.Fatalf("PeerIdentities after the link was removed = %+v, %v", read, err)
+	}
+	// The ids are free for a user, and a yard added under the name starts with none.
+	if err := y.api.SetIdentity(y.ctx, "ada", "chat", store.Identity{ID: "U7"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "up", Key: y.key}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := y.api.GetPeer(y.ctx, "up"); err != nil || p.Identities != nil {
+		t.Fatalf("a yard added again under the name maps %+v, %v", p, err)
+	}
+}
+
+// Folding a source's records into another's (pack apply folds
+// <name>-declared into <name>) takes the link's identities along, as it does
+// the users' and the crew's. Left behind, they would map a sender in a source
+// no delivery names. A crew member with a different id under each name is
+// refused, and the same id under both is kept once.
+func TestMoveSourceRecordsMovesPeerIdentities(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	if _, err := y.api.PutSource(y.ctx, "chat-declared.yaml", identitySource("chat-declared"), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.mapPeer(t, "north", "chat-declared", "U7", "mayor")
+	y.mapPeer(t, "north", "chat-declared", "U8", "clerk")
+	y.mapPeer(t, "north", "talk", "T7", "mayor")
+	// The mayor has another id already in chat: the move is refused, and nothing moves.
+	y.mapPeer(t, "north", "chat", "U9", "mayor")
+	_, err := y.api.MoveSourceRecords(y.ctx, "chat-declared", "chat", "jo")
+	if err == nil || !strings.Contains(err.Error(), "mayor@north has one chat-declared identity and another chat identity") {
+		t.Fatalf("moving with two ids for the mayor = %v", err)
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); len(p.Identities) != 4 || p.Identities[0].Source != "chat" {
+		t.Fatalf("a refused move changed the link: %+v", p.Identities)
+	}
+
+	// The same id under both names is one identity afterwards.
+	if _, err := y.api.RemovePeerIdentity(y.ctx, "north", "mayor", "chat-declared", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.mapPeer(t, "north", "chat-declared", "U9", "mayor")
+	moved, err := y.api.MoveSourceRecords(y.ctx, "chat-declared", "chat", "jo")
+	if err != nil || moved.Identities != 2 {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	want := []store.PeerIdentity{
+		{Source: "chat", ID: "U8", Crew: "clerk"}, {Source: "chat", ID: "U9", Crew: "mayor"}, {Source: "talk", ID: "T7", Crew: "mayor"}}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); !reflect.DeepEqual(p.Identities, want) {
+		t.Fatalf("after the move: %+v, want %+v", p.Identities, want)
+	}
+	if again, err := y.api.MoveSourceRecords(y.ctx, "chat-declared", "chat", "jo"); err != nil || again.Moved() {
+		t.Fatalf("moving again = %+v, %v", again, err)
+	}
+}
+
+// A speaker with an "@" is a crew member of a linked yard and no user,
+// because no user's name has one. The inbox line frames it as information on
+// that ground (SpeakerIsForeign). This pins it for the ways a user gets a
+// name, and for a link's name, which the speaker is built from. A crew member
+// of this yard is never a speaker.
+func TestSpeakerIsForeign(t *testing.T) {
+	t.Parallel()
+	for speaker, want := range map[string]bool{
+		"mayor@yardr-plantime": true, "@north": true, "ada@": true,
+		"ada": false, "": false, store.SpeakerOutside: false,
+	} {
+		if got := store.SpeakerIsForeign(speaker); got != want {
+			t.Errorf("SpeakerIsForeign(%q) = %v, want %v", speaker, got, want)
+		}
+	}
+	y, _ := rosterYard(t)
+	for _, name := range []string{"ada@north", "@north", "ada@"} {
+		if _, err := y.api.AddUser(y.ctx, name, "jo"); err == nil {
+			t.Errorf("a user was added as %q", name)
+		}
+		if err := y.api.SetSetting(y.ctx, store.OperatorSetting, name, "jo"); err == nil {
+			t.Errorf("the operator was set to %q", name)
+		}
+		if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: name, Key: peerKey(t)}, "jo"); err == nil {
+			t.Errorf("a peer was added as %q", name)
+		}
+	}
+}

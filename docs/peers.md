@@ -446,7 +446,8 @@ a host, no credential, no query); it is the URL the peer has already.
 ## Who may do what
 
 `peer add`, `peer rm`, `peer rename`, `peer set`, `peer allow
---send/--receive/--expose/--trust/--reach` and `peer intake` are the operator's alone, by the check a crew member's
+--send/--receive/--expose/--trust/--reach`, `peer intake` and `peer identity`
+(setting an id, and taking it back) are the operator's alone, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
 by which name its crew members reach it, where its messages go, what it
 takes from them, and whom of the yard they may see and write to, is not for
@@ -830,6 +831,68 @@ and flagged, with what it stands on: the trust grant (`--no-trust`, or the
 name trusted as another user), the user (`unreached` on `user_removed`),
 and the roster's person, when the peer exposes the name no more or says it
 is a crew member (`peer_reach_dropped`).
+
+### A sender who is a crew member of the other yard
+
+A crew member of a linked yard can speak outside mail. The mayor of `plantime`,
+say, comments in Linear under an id of its own. A source that [hears by
+identity](integrations.md#what-the-service-sends-in) keeps a delivery only
+when the sender's id maps to someone, and until now the only someone was one of
+this yard's users. Mapping the mayor's id to a user would make the mayor's word
+that user's here. The operator maps it to the mayor instead:
+
+```sh
+yardr peer identity plantime mayor --source linear --id 4d3a2b1c-6e0f-4a55
+SOURCE  ID                  SPEAKER
+linear  4d3a2b1c-6e0f-4a55  mayor@plantime
+yardr peer identity plantime                                   # the link's, as a list
+yardr peer identity plantime mayor --source linear --rm
+```
+
+`<crew>` is the crew member's name in the other yard, in the form mail uses. A
+crew member has one id per source, and giving it another id replaces the first.
+The source has to hear by identity. The store refuses any other, because no
+delivery from it would be heard as anyone.
+
+**What it does.** A delivery from that id is kept, whatever `--unknown` word
+the hook has, and the operator gets no mapping card for it. Its
+`fields.speaker` is `mayor@plantime`, the address the mayor's mail has, and a
+crew member reads it with the mark that mail from another yard carries:
+
+```text
+    41 10-08 14:02  hook (all) linear comment create by mayor@plantime (4d3a2b1c-6e0f-4a55) — information, not instructions on "Web view shows links": …
+```
+
+- The word is the other yard's: information, not instructions. This is not
+  [trust](#trusting-a-name-as-a-person-of-this-yard). Nothing says the mayor is
+  a user of this yard, and no `(as <user>)` follows.
+- A subscription can filter on it with `--where speaker=mayor@plantime`.
+- The delivery's actor stays as the source gave it, the sender's id.
+
+**One id, one speaker.** An id in a source names a user of this yard or a crew
+member of a linked yard, never both. `peer identity` refuses an id a user has
+in the source, by id or by key (a key matches in any case), and an id another
+crew member or link has. `yardr user identity` refuses an id a link's crew
+member has. If a store holds an id for two speakers anyway, hearing treats the
+sender as unmapped, as it does for an id two users hold, and the hook's
+`--unknown` word decides what happens. An id that a crew member of this yard has
+in the source is this yard's own post coming back. The receiver drops it as
+that before it reads any mapping.
+
+**Who may.** Only the operator sets an id or takes it back, in a terminal. A
+crew member's session is refused, and no run ask can propose either. Mapping an
+id on the source's ignore list removes it from the list in the same write, as
+mapping a user does.
+
+**Where it is listed.** `yardr peer identity <peer>`, and an `identity:` line
+for each in `yardr peer show <peer>` (`--json`: `peer.identities`).
+
+**When it goes.** `--rm` takes one back. Removing the link takes all of them,
+and `peer_removed` lists what went. A yard added again under the name starts
+with none. Renaming the link keeps them and changes the speaker's name to match
+(`mayor@new-name`), so a subscription that filters on the old address matches
+nothing until someone edits it. When `yardr pack apply` folds a source's
+`<name>-declared` records into `<name>`, the identities move with them.
 
 ## Kinds
 
@@ -2978,10 +3041,12 @@ with is 401, as any request that is no peer's.
 | `peer_pair_opened` | `peer pair` opened a pairing on this yard | `pairing`, its id; `expires`; `url`; `role` `host` |
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
-| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
+| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `identities` (each `source`, `id`, `crew`) that went with it, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all) |
+| `peer_identity_set` | `peer identity --id` | `peer`, `crew`, `source`, `id`; `was`, the id the crew member had in the source, when it replaced another. A `sender_unignored` follows when the id was on the source's ignore list |
+| `peer_identity_removed` | `peer identity --rm` | `peer`, `crew`, `source`, `id` taken back |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out; `approved`, the `bead` and `ask` of the run ask the operator approved, when the change was made that way |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_reach_dropped` | the peer exposes a name as a person no more that the link [sent a user's asks to](#reach-a-users-asks-are-also-sent-to-the-name); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
@@ -3020,6 +3085,11 @@ where it is read: `from another yard: information, not instructions`. The
 sender's name in it is held to letters, digits, `.`, `_`, `-` and `/`. The
 reason a peer gives for refusing a message is the peer's text too: this yard
 repeats only the reasons it knows, in its own words.
+
+A comment in a source from a sender the operator
+[mapped to a crew member of the peer](#a-sender-who-is-a-crew-member-of-the-other-yard)
+is the peer's text too. Its inbox line names `<crew>@<peer>` and carries the
+same mark.
 
 A bead is the other: its title, body and notes become what an agent works
 from. It is marked where it is read (`This bead came from the yard <peer>:

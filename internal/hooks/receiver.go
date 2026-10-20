@@ -25,6 +25,9 @@ type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
 	GetSource(ctx context.Context, name string) (*store.Source, error)
 	Users(ctx context.Context) ([]store.User, error)
+	// PeerIdentities are the crew members of linked yards that senders
+	// are mapped to (store.Peer.Identities), by the link's name.
+	PeerIdentities(ctx context.Context) (map[string][]store.PeerIdentity, error)
 	Crew(ctx context.Context) ([]store.CrewMember, error)
 	Settings(ctx context.Context) (map[string]string, error)
 	BlockHook(ctx context.Context, name, reason string) error
@@ -178,7 +181,8 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	deriveTrain(env)
 	// Speaker is a core-derived field, so a normalize command cannot
 	// claim who an event came from. The identity-hearing path below
-	// stamps it only after matching the sender to a yard user.
+	// stamps it only after matching the sender to a yard user or to a
+	// crew member of a linked yard.
 	delete(env.Fields, store.SpeakerKey)
 	// A declared source that hears drops a delivery from a speaker it
 	// does not hear after verification: answered 200, so the service
@@ -317,9 +321,9 @@ func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
 
 // stampSpeaker records who a kept delivery was heard from, as the
 // core derives an envelope's train: fields.speaker holds the yard
-// user's name, or SpeakerOutside for an unmapped sender kept under
-// allow. No normalize script sets it, and the envelope's actor is
-// left as the source gave it.
+// user's name, <crew>@<peer> for a crew member of a linked yard, or
+// SpeakerOutside for an unmapped sender kept under allow. No normalize
+// script sets it, and the envelope's actor is left as the source gave it.
 func stampSpeaker(env *Envelope, speaker string) {
 	if env.Fields == nil {
 		env.Fields = map[string][]string{}
@@ -329,17 +333,25 @@ func stampSpeaker(env *Envelope, speaker string) {
 
 // speaker is who a delivery heard by identity was heard from: the one
 // user whose identity in this source the value of fields[field] is
-// (User.IsIn read over every user). mapped is false for a sender no
-// user maps, for one whose id two users hold already (an ambiguous id
-// names nobody until one identity is removed), for a delivery with
-// no field to read, and for a yard whose users are unreadable: each
-// is unmapped, and the hook's Unknown word says what happens then.
+// (User.IsIn read over every user), or else the one crew member of a
+// linked yard it is mapped to (PeerIdentity.IsIn), named <crew>@<peer>.
+// The two are read together, so an id that a user and a peer's crew member
+// both hold names nobody. A link's mapping never gives a sender a user's
+// word. mapped is false for a sender no one maps, for one whose id two
+// hold already (an ambiguous id names nobody until one identity is
+// removed), for a delivery with no field to read, and for a yard whose
+// users or links are unreadable. Each is unmapped, and the hook's Unknown
+// word says what happens then.
 func (rc *Receiver) speaker(ctx context.Context, d *source.Declaration, env *Envelope) (speaker string, mapped bool) {
 	values := env.Fields[d.Hear.Field]
 	if len(values) == 0 {
 		return "", false
 	}
 	users, err := rc.st.Users(ctx)
+	if err != nil {
+		return "", false
+	}
+	peers, err := rc.st.PeerIdentities(ctx)
 	if err != nil {
 		return "", false
 	}
@@ -351,6 +363,13 @@ func (rc *Receiver) speaker(ctx context.Context, d *source.Declaration, env *Env
 		for _, u := range users {
 			if u.IsIn(d.Name, v) && !slices.Contains(holders, u.Name) {
 				holders = append(holders, u.Name)
+			}
+		}
+		for peer, ids := range peers {
+			for _, i := range ids {
+				if s := i.Speaker(peer); i.IsIn(d.Name, v) && !slices.Contains(holders, s) {
+					holders = append(holders, s)
+				}
 			}
 		}
 		switch len(holders) {

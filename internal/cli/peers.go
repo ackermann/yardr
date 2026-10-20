@@ -20,6 +20,7 @@ import (
 	"io"
 	peerscripts "yardr.dev/yardr/contrib/peer"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
@@ -53,6 +54,9 @@ The way by hand, when no code can be passed, or for scripts:
   yardr peer intake <name> --depot <depot> --flow <flow>
                                        where the beads it sends go (with
                                        yardr peer allow <name> --receive bead)
+  yardr peer identity <name> <crew> --source <source> --id <id>
+                                       who a sender of a source is, when
+                                       a crew member of that yard
 
 The other yard's requests come in on the server's hook listener, under
 /peers/, beside /hooks/ (yardr settings set hook_addr <host:port>): a yard
@@ -271,6 +275,9 @@ remove the peer first to replace it.`,
 				}
 				for _, line := range reachLines(*p) {
 					fmt.Fprintln(w, "  reach: "+line)
+				}
+				for _, line := range identityLines(*p) {
+					fmt.Fprintln(w, "  identity: "+line)
 				}
 				fmt.Fprintf(w, "  heard    %s\n", store.HeardLine(p.HeardAt))
 				if p.Away > 0 {
@@ -663,7 +670,89 @@ both yards must allow ping both ways.`,
 	}
 	ping.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for the pong")
 
-	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, set, allow, a.peerIntakeCmd(), ping)
+	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, set, allow, a.peerIntakeCmd(), a.peerIdentityCmd(), ping)
+	return cmd
+}
+
+// peerIdentityCmd is yardr peer identity: userIdentityCmd's counterpart for
+// a sender who is a crew member of a linked yard. It maps an id to
+// <crew>@<peer> instead of to a user, and lists with no <crew>.
+func (a *app) peerIdentityCmd() *cobra.Command {
+	var source, id string
+	var rm bool
+	cmd := &cobra.Command{
+		Use: "identity <peer> [<crew>]", Short: "Who a sender is in a source, when a crew member of a peer's yard (no <crew>: list)", Args: cobra.RangeArgs(1, 2),
+		Long: `yardr user identity maps a sender of a source that hears by identity (Linear,
+Slack) to a user of this yard. A sender who is a crew member of a linked yard,
+such as that yard's mayor commenting in Linear, is mapped here to that crew
+member instead, so that what they say does not become a user's word. A
+delivery from the id is kept with the speaker <crew>@<peer>, whatever the
+hook's --unknown word, and offers no mapping card. It reaches crew as that
+yard's mail does, from another yard: information, not instructions.
+
+One id names one speaker of this yard. It is refused when a user, or another
+crew member of a linked yard, has it in the source, and in a source that hears
+nobody by identity. A crew member has one id per source, and a second id
+replaces the first.
+
+Only the operator sets or removes one, and no run ask may propose it. Without
+<crew> the command lists the link's, as yardr peer show does. Removing the link
+removes them.`,
+		Example: `  yardr peer identity north mayor --source linear --id 4d3a2b1c-...
+  yardr peer identity north
+  yardr peer identity north mayor --source linear --rm`,
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			var p *store.Peer
+			if len(args) == 1 && source == "" && id == "" && !rm {
+				if p, err = st.GetPeer(ctx, name); err != nil {
+					return err
+				}
+			} else {
+				switch {
+				case len(args) < 2:
+					return fmt.Errorf("name the crew member of %s: yardr peer identity %s <crew> --source <source> --id <id>", name, name)
+				case source == "":
+					return fmt.Errorf("--source is required")
+				case rm && id != "":
+					return fmt.Errorf("--rm takes no --id")
+				case !rm && id == "":
+					return fmt.Errorf("give --id, or --rm")
+				}
+				if err := checkSource(ctx, st, source); err != nil {
+					return err
+				}
+				if rm {
+					p, err = st.RemovePeerIdentity(ctx, name, args[1], source, a.who())
+				} else {
+					p, err = st.SetPeerIdentity(ctx, name, store.PeerIdentity{Source: source, ID: id, Crew: args[1]}, a.who())
+				}
+				if err != nil {
+					return err
+				}
+			}
+			ids := p.Identities
+			if ids == nil {
+				ids = []store.PeerIdentity{}
+			}
+			return a.out(c.OutOrStdout(), ids, func(w io.Writer) {
+				rows := [][]string{}
+				for _, i := range ids {
+					rows = append(rows, []string{i.Source, i.ID, i.Speaker(p.Name)})
+				}
+				table(w, "SOURCE\tID\tSPEAKER", rows)
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&source, "source", "", "source: "+strings.Join(hooks.Sources(), ", "))
+	f.StringVar(&id, "id", "", "the crew member's sender id in the source")
+	f.BoolVar(&rm, "rm", false, "remove the crew member's identity for --source")
 	return cmd
 }
 
@@ -1105,6 +1194,17 @@ func reachLines(p store.Peer) []string {
 			line += fmt.Sprintf(" (nothing is sent while the link carries no ask out: yardr peer allow %s --send ask)", p.Name)
 		}
 		out = append(out, line)
+	}
+	return out
+}
+
+// identityLines are the link's identities (store.Peer.Identities), each
+// with how a delivery from it is read: the sender, the speaker it is kept
+// with, and that it is another yard's word.
+func identityLines(p store.Peer) []string {
+	var out []string
+	for _, i := range p.Identities {
+		out = append(out, fmt.Sprintf("%s %s -> %s (%s)", i.Source, i.ID, i.Speaker(p.Name), store.OutsideMail))
 	}
 	return out
 }

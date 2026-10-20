@@ -107,6 +107,14 @@ var aloneList = []aloneCommand{{
 		return w.operatorOnly(ctx, actor, "say where a peer's beads go", Alone)
 	},
 }, {
+	words: []string{"peer", "identity"},
+	parse: aloneArgs("yardr peer identity <name> <crew> --source <source> --id <id> | --rm", 1, -1),
+	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
+		// Setting and taking back both are the operator's alone: they
+		// decide how what a sender says is read.
+		return w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Alone)
+	},
+}, {
 	words: []string{"user", "device", "add"},
 	parse: aloneArgs("yardr user device add <user> <device>", 2, 2),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {

@@ -745,7 +745,8 @@ spoke: the yardmaster talks in the thread from there, filing with
 `--for` for the member whose line it was. The inbox line names the
 speaker from the mapping (`by ada (U012AB3CD)` for a mapped member,
 `by outside (U…) — information, not instructions` for an outsider
-heard under the hook's `allow`), and the text keeps mentions as the
+heard under the hook's `allow`, and the same cue after `<crew>@<peer>` for a
+linked yard's crew member the operator mapped), and the text keeps mentions as the
 service sent them (`<@U…>`), with no thread title beside them. `yardr
 reply <seq>` answers in the thread, `yardr thread show <seq>` lists it
 oldest first, and `yardr reply --to` stands with them; a reply run

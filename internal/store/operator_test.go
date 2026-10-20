@@ -87,6 +87,17 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.AllowPeer(ctx, "north", store.PeerAllow{Expose: []string{"clerk"}}, a)
 			return err
 		},
+		// The source is none the yard declares: the operator gets past the
+		// check that is on trial to the next one (the loop below asks only
+		// that it is not the operator's refusal).
+		"say who a peer's crew member is in a source": func(a string) error {
+			_, err := api.SetPeerIdentity(ctx, "north", store.PeerIdentity{Source: "nowhere", ID: "u-1", Crew: "mayor"}, a)
+			return err
+		},
+		"take back who a peer's crew member is in a source": func(a string) error {
+			_, err := api.RemovePeerIdentity(ctx, "north", "mayor", "nowhere", a)
+			return err
+		},
 		"pair this yard with another": func(a string) error { _, err := api.PairOpen(ctx, store.PairOffer{}, a); return err },
 		"let clerk open threads in linear": func(a string) error {
 			_, err := api.PutCrew(ctx, grant, a)

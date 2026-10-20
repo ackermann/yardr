@@ -225,7 +225,13 @@ type Peer struct {
 	// are the names what the peer said just took out of it.
 	Reach     map[string]string `json:"reach,omitempty"`
 	unreached []string
-	AddedAt   time.Time `json:"added_at"`
+	// Identities say which senders of the sources this yard hears by
+	// identity are crew members of the peer's yard: a delivery from such a
+	// sender is kept with the speaker <crew>@<peer>, and read as that
+	// yard's mail is (peeridentity.go). Sorted by source, then crew. It goes
+	// with the link: a yard added under the name later starts with none.
+	Identities []PeerIdentity `json:"identities,omitempty"`
+	AddedAt    time.Time      `json:"added_at"`
 	// Since is the last event logged before the link was added, and Was
 	// the names it had before a rename, oldest first: together they say
 	// which events that name a peer mean this one (peerrename.go).
@@ -654,6 +660,12 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 			return err
 		}
 		data := map[string]any{"peer": name}
+		// The identities go with the record. The event says which, because
+		// those senders are heard as unmapped from now on, and a yard added
+		// again under the name starts with none.
+		if len(p.Identities) > 0 {
+			data["identities"] = p.Identities
+		}
 		if out := keys(w.Tx, bPeerOut, join(name, "")); len(out) > 0 {
 			data["messages_dropped"] = len(out)
 			for _, k := range out {

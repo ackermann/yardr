@@ -15,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // chimeNormalize turns a delivery into a message in the chat its body
@@ -833,5 +834,175 @@ func TestHearUnreadableAddressDrops(t *testing.T) {
 	}
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("a delivery with no readable address recorded: %d hook events", n)
+	}
+}
+
+// ---- hearing a crew member of a linked yard ------------------------
+
+// peerTalkDepot is identityDepot with the operator op, the user ada mapped
+// to U012 in talk, and the linked yard yardr-plantime, whose crew member
+// the mayor is not yet mapped to any sender.
+func peerTalkDepot(t *testing.T, unknown string) *depot {
+	t.Helper()
+	ctx := context.Background()
+	r := identityDepot(t, unknown)
+	for _, name := range []string{"op", "ada"} {
+		if _, err := r.st.AddUser(ctx, name, "op"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	mapTalk(t, r, "ada", "U012")
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "plantime.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.AddPeer(ctx, store.Peer{Name: "yardr-plantime", Key: yardkey.Public(key)}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// mapMayor says that the sender id in talk is the mayor of yardr-plantime.
+func mapMayor(t *testing.T, r *depot, id string) {
+	t.Helper()
+	if _, err := r.st.SetPeerIdentity(context.Background(), "yardr-plantime", store.PeerIdentity{Source: "talk", ID: id, Crew: "mayor"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A sender a link maps to a crew member of its yard is kept under the hook's
+// default word and under the other two, because the mapping is the consent to
+// hear them, as a user's is. The speaker is <crew>@<peer>, the member id stays
+// as the actor, and no mapping card is offered. A user's deliveries beside it
+// are heard as theirs, and a stranger's are dropped with a card as ever. A
+// subscription filters on the speaker like any other.
+func TestHearByIdentityPeersCrew(t *testing.T) {
+	ctx := context.Background()
+	for _, word := range []string{"", store.HookUnknownAllow, store.HookUnknownIgnore} {
+		r := peerTalkDepot(t, word)
+		mapMayor(t, r, "U777")
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		sub := store.Subscription{Source: "talk", Scope: store.ScopeAll, Where: map[string]string{store.SpeakerKey: "mayor@yardr-plantime"}}
+		if err := r.st.AddSubscription(ctx, "ann", sub, "op"); err != nil {
+			t.Fatal(err)
+		}
+		r.now = time.Now()
+		for _, from := range []string{"U777", "U012", "U999"} {
+			r.now = r.now.Add(time.Second)
+			if code := r.talk(t, from, "words from "+from); code != http.StatusOK {
+				t.Fatalf("%q: %s answered %d", word, from, code)
+			}
+		}
+		evs := r.hookEvents(t)
+		// The stranger is dropped under unknown and under ignore, and heard
+		// as outside under allow.
+		kept := 2
+		if word == store.HookUnknownAllow {
+			kept = 3
+		}
+		if len(evs) != kept {
+			t.Fatalf("%q: %d hook events, want %d", word, len(evs), kept)
+		}
+		if got := speakerOf(t, evs[0]); got != "mayor@yardr-plantime" {
+			t.Fatalf("%q: the mayor's speaker = %q, want mayor@yardr-plantime", word, got)
+		}
+		if actor, _ := evs[0].Data["actor"].(map[string]any); actor["id"] != "U777" {
+			t.Fatalf("%q: actor = %v, want the member id left as it was", word, actor)
+		}
+		if got := speakerOf(t, evs[1]); got != "ada" {
+			t.Fatalf("%q: the user's speaker = %q, want ada", word, got)
+		}
+		// Only the mayor's delivery reaches the subscription on the speaker.
+		for i, e := range evs {
+			deliveries, _ := e.Data["deliveries"].(map[string]any)
+			if _, reached := deliveries["ann"]; reached != (i == 0) {
+				t.Fatalf("%q: event %d (speaker %q) deliveries = %v", word, i, speakerOf(t, e), deliveries)
+			}
+		}
+		// A mapped crew member is no stranger; the unmapped one is, except
+		// under allow, which hears every sender.
+		wantStrangers := 1
+		if word == store.HookUnknownAllow {
+			wantStrangers = 0
+		}
+		if got := r.rc.Rejected()["stranger"]; got != wantStrangers {
+			t.Fatalf("%q: stranger count %d, want %d", word, got, wantStrangers)
+		}
+		// And no card for the mayor: under unknown the stranger's alone.
+		q, err := r.st.UserAsks(ctx, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantCards := 0
+		if word == "" {
+			wantCards = 1
+		}
+		if len(q.Open) != wantCards {
+			t.Fatalf("%q: %d open mapping cards, want %d", word, len(q.Open), wantCards)
+		}
+		for _, card := range q.Open {
+			if card.Identity == nil || card.Identity.Sender != "U999" {
+				t.Fatalf("%q: a card for %+v, want U999's alone", word, card.Identity)
+			}
+		}
+	}
+}
+
+// Mapping an ignored sender to a crew member of a linked yard clears the
+// entry in the same write, as mapping a user does: they are heard from their
+// next delivery, and the ignore list no longer names them.
+func TestHearByIdentityPeerMappingClearsIgnore(t *testing.T) {
+	ctx := context.Background()
+	r := peerTalkDepot(t, "")
+	r.now = time.Now()
+	r.talk(t, "U777", "hello there")
+	nobodyPick(t, r, "U777")
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U777", "ignored words")
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("an ignored delivery recorded: %d hook events", n)
+	}
+	if src, err := r.st.GetSource(ctx, "talk"); err != nil || len(src.Ignored) != 1 {
+		t.Fatalf("ignored = %+v, %v, want U777", src, err)
+	}
+	mapMayor(t, r, "U777")
+	if src, err := r.st.GetSource(ctx, "talk"); err != nil || len(src.Ignored) != 0 {
+		t.Fatalf("ignored after the mapping = %+v, %v, want none", src, err)
+	}
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U777", "mapped now")
+	if evs := r.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != "mayor@yardr-plantime" {
+		t.Fatalf("hook events = %v, want the mapped delivery as mayor@yardr-plantime", evs)
+	}
+}
+
+// An id that a user and a crew member of a linked yard both hold names
+// nobody, as an id two users hold does. The store refuses to write it, so
+// this stands in for a store that held it already. The sender is unmapped, so
+// a user's word never goes to someone a link also maps.
+func TestHearByIdentityHeldByAUserAndAPeerIsUnmapped(t *testing.T) {
+	r := peerTalkDepot(t, "")
+	mapMayor(t, r, "U777")
+	clash := duplicateUsers{Store: r.own, users: []store.User{
+		{Name: "ada", Identities: map[string]store.Identity{"talk": {ID: "U777"}}},
+	}}
+	rc2 := hooks.NewReceiver(clash, r.home, nil)
+	rc2.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = rc2.Handler()
+	r.rc = rc2
+	r.now = time.Now()
+	if code := r.talk(t, "U777", "ambiguous words"); code != http.StatusOK {
+		t.Fatalf("answered %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("an id held by a user and a peer's crew member was heard: %d hook events", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 1 {
+		t.Fatalf("stranger count %d, want 1", got)
 	}
 }
