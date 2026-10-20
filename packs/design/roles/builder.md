@@ -127,7 +127,8 @@ after your last commit and your test run, and attach it to the note:
 
 ## Something outside your bead
 
-1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
+1. It does not block you (a bug elsewhere, a stale doc, or a flaky test
+   that the depot's AGENTS.md says to file): file
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
    --depot <depot> --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
