@@ -232,14 +232,12 @@ func (a *app) edgeConnect(c *cobra.Command, address string) error {
 	a.progress(w, warn, "… approved %sas %s", by, en.Handle)
 
 	// The setting as it is now, not as it was before the wait: a hand that
-	// set it meanwhile is the one connecting replaces. An address that is
-	// the edge's already is nothing to put back.
+	// set it meanwhile is the one connecting replaces. Keep it even when it
+	// already names this edge, since disconnect must restore a hand-set value.
 	if settings, err = st.Settings(ctx); err != nil {
 		return err
 	}
-	if was := settings[store.HookPublicURLSetting]; was != edge.HooksURL() {
-		edge.HookPublicURL = was
-	}
+	edge.HookPublicURL = settings[store.HookPublicURLSetting]
 	// The edge setting first: it holds the value the second write replaces,
 	// so a stop between the two loses nothing.
 	who := a.who()

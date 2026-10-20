@@ -180,6 +180,25 @@ func TestEdgeDisconnectPutsBackAHookPublicURLSetByHand(t *testing.T) {
 	}
 }
 
+// A hand-set hook_public_url is still an earlier value when it already
+// matches the edge's address, so disconnect restores it instead of clearing
+// it as though it had been unset.
+func TestEdgeDisconnectRestoresMatchingHandSetHookPublicURL(t *testing.T) {
+	t.Parallel()
+	st, _, srv := edgeYard(t)
+	prior := srv.URL + "/hooks/mckean"
+	mustAs(t, st, "jo", "settings", "set", store.HookPublicURLSetting, prior)
+
+	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
+	if got := edgeSetting(t, st).HookPublicURL; got != prior {
+		t.Fatalf("edge setting kept %q as the replaced hook_public_url, want %q", got, prior)
+	}
+	mustEdge(t, st, srv.Client(), "edge", "disconnect")
+	if got := settingsOf(t, st)[store.HookPublicURLSetting]; got != prior {
+		t.Errorf("hook_public_url after disconnect = %q, want the hand-set value %q", got, prior)
+	}
+}
+
 // Where hook_public_url was not set before connecting, disconnect clears it
 // rather than leave an address of an edge the yard has left.
 func TestEdgeDisconnectClearsAHookPublicURLThatWasNotSet(t *testing.T) {
