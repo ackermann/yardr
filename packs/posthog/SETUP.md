@@ -81,13 +81,13 @@ in PostHog's pages.
      ```json
      {"event": "{event}", "person": "{person}", "project": "{project}"}
      ```
-   - **Secret headers**: `X-Yardr-Secret` with the secret step 6 made.
-     Leave the destination's own Signing secret empty: the yard
-     verifies this header, not a signature.
+   - **Headers**: add `X-Yardr-Secret` with the secret step 6 made. The
+     destination sends this header as-is; the yard verifies it instead
+     of a signature.
    - **Filters**: match the event `$error_tracking_issue_created`, and
      nothing else: the yard hears a new issue, not a reopened or
      spiking one.
-   
+
    Create & Enable, then Test function: the hook answers 200, which
    proves the URL and the secret.
 8. **Hear new issues, and file beads for them.** A subscription hears
