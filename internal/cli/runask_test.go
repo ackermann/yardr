@@ -279,6 +279,90 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	}
 }
 
+// A crew member proposes where a peer's beads go, and who a peer's crew member
+// is, as run asks: the card prime shows names the depot, the flow, who works
+// the first stage, and what the link has now; the operator's approval makes
+// the change and prints what the command prints; and a card about a link is
+// refused when it arrives through that peer's own reach.
+func TestBeadAskRunPeerIntakeAndIdentity(t *testing.T) {
+	t.Parallel()
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	seedIntake(t, y)
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "talk.yaml", runTalk, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Take airy's beads into web?",
+		"--context", "airy works the footplate stage for us", "--run", "peer intake airy --depot web --flow incoming --limit 3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr peer intake airy --depot web --flow incoming --limit 3\n"; out != want {
+		t.Fatalf("bead ask --run peer intake printed %q, want %q", out, want)
+	}
+	out, err = y.as(t, "yardmaster", "ask", b.ID, "Hear airy's mayor in Talk?",
+		"--context", "its mayor comments there under an id of its own", "--run", "peer identity airy mayor --source talk --id U1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 2 on " + b.ID + " for jo: to approve, yardr peer identity airy mayor --source talk --id U1\n"; out != want {
+		t.Fatalf("bead ask --run peer identity printed %q, want %q", out, want)
+	}
+	for _, c := range []struct{ command, want string }{
+		{"peer intake airy --depot web --none", "needs no approval: run it yourself"},
+		{"peer identity airy mayor --source talk --rm", "peer identity with --rm is the operator's to type in a terminal"},
+		{"peer add north abc", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"peer set airy --url http://airy.example:8790", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"peer rm airy", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
+	} {
+		if _, err := y.as(t, "yardmaster", "ask", b.ID, "May I?", "--context", "why", "--run", c.command); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
+		}
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"      yardr peer intake airy --depot web --flow incoming --limit 3",
+		"  what the command does: Say where the beads a peer sends go: the depot and the flow",
+		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) takes its beads for the depot web as beads of this yard there, pinned to the flow incoming and labelled from-airy: at most 3 of them are open at once.",
+		"  the yard says: Its beads arrive in the stage arrived, which the script of the group builders works: it runs on each unseen.",
+		"  the yard says: It has no intake for the depot web now.",
+		"  anyone can take it back: yardr peer intake airy --depot web --none",
+		"      yardr peer identity airy mayor --source talk --id U1",
+		"  the yard says: mayor@airy has no id in talk now.",
+		"  only the operator can take it back: yardr peer identity airy mayor --source talk --rm",
+	} {
+		if !strings.Contains(shown, want+"\n") {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "1", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"jo approved it, and the yard ran it:\n",
+		"peer airy: depot web, flow incoming (default): its beads arrive in the stage arrived, which the script of the group builders works: it runs on each unseen; at most 3 open, 0 now. The link does not take its beads yet: yardr peer allow airy --receive bead\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the intake approval printed %q, which lacks %q", out, want)
+		}
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "2", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "mayor@airy is U1 in talk\n") {
+		t.Errorf("the identity approval printed %q", out)
+	}
+	if p, err := y.st.GetPeer(ctx, "airy"); err != nil || len(p.Intakes) != 1 || len(p.Identities) != 1 {
+		t.Fatalf("the link after the approvals = %+v, %v", p, err)
+	}
+}
+
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
