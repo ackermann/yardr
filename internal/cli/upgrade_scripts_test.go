@@ -466,6 +466,14 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
+	// The scene's store is in its own temp dir while the run backs up into
+	// the yard home's, as the daemon does; the store writes a backup only
+	// in its directories of them, so the home's is named. The store stays
+	// out of the home on purpose: the rollback path opens the home's store
+	// file itself, which must not be this open one.
+	if err := st.SetSetting(ctx, store.BackupDirSetting, filepath.Join(home, "backups"), "jo"); err != nil {
+		t.Fatal(err)
+	}
 	checkout := scriptsCheckout(t, map[string]string{"merge-local": scriptNew})
 	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: checkout}, "jo"); err != nil {
 		t.Fatal(err)
