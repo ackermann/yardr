@@ -1,7 +1,8 @@
 # PostHog as a pack of kind source: the integration, imported into the yard
-# and into no depot. What PostHog is: HogQL queries and error tracking
-# issues an agent reads through `yardr call`, and the webhook that hears a
-# new error issue. Nothing here writes to PostHog.
+# and into no depot. What PostHog is: HogQL queries, error tracking
+# issues, session recordings and Replay Vision observations an agent reads
+# through `yardr call`, and the webhook that hears a new error issue.
+# Nothing here writes to PostHog.
 #
 #   yardr pack apply posthog
 #

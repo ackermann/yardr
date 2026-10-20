@@ -8,11 +8,12 @@
 # template's default {event, person} with the project added
 # ({"event": "{event}", "person": "{person}", "project": "{project}"}),
 # since the default names no project. An $error_tracking_issue_created
-# event becomes type error_issue in the thread of its issue; any other
-# body becomes type event, so a delivery the destination was not matched
-# for (a test from its page) is recorded and routed as today, and never
-# refused with a 400 the service retries. Nothing of the body is ever
-# printed to stderr.
+# event becomes type error_issue in the thread of its issue, with the
+# triggering exception's session and its replay link in its fields when
+# the event carries one; any other body becomes type event, so a delivery
+# the destination was not matched for (a test from its page) is recorded
+# and routed as today, and never refused with a 400 the service retries.
+# Nothing of the body is ever printed to stderr.
 exec jq -c '
 def obj: if type == "object" then . else {} end;
 def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
@@ -39,13 +40,25 @@ def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " "))
     # fragment, makes no link; the issue is still heard, unlinked.
     | (if ($base | test("^https://[^[:space:]]+$")) and ($id | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
        then "\($base)/error-tracking/\($id)" else "" end) as $url
+    # The session is the $session_id of the triggering exception, which
+    # the event carries under exception_props when the SDK set one (and
+    # nowhere when the message was too large to carry it). The replay
+    # link is made under the same guard as the issue link: an https
+    # project URL and a UUID session. Another shape is still heard as
+    # the session, with no link for a reader to follow.
+    | ((($e.properties | obj).exception_props | obj)["$session_id"] | if type == "string" then . else "" end) as $session
+    | (if ($base | test("^https://[^[:space:]]+$")) and ($session | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
+       then "\($base)/replay/\($session)" else "" end) as $replay
+    | ((if $fields == null then {} else $fields end)
+       | (if $session != "" then . + {session: [$session]} else . end)
+       | (if $replay != "" then . + {replay: [$replay]} else . end)) as $all
     # No mentions: the description is an error message, and an @word in
     # one names nobody. The entity is the issue, whose description
     # persists across its deliveries.
     | {source: "posthog", type: "error_issue", action: "created",
        actor: {}, thread: {id: $id, title: $name, url: $url},
        text: $text, url: $url, entity: $id, mentions: []}
-    | if $fields == null then . else . + {fields: $fields} end
+    | if ($all | length) == 0 then . else . + {fields: $all} end
   else
     {source: "posthog", type: "event", actor: {}, thread: {}, mentions: []}
     | if $fields == null then . else . + {fields: $fields} end

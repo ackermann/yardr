@@ -2,24 +2,27 @@
 
 The pack wires PostHog into the yard as the declared source `posthog`:
 an agent reads it through `yardr call` (HogQL queries, error tracking
-issues), and a webhook hears a new error issue. Nothing here writes to
+issues, session recordings, a session's Replay Vision observations),
+and a webhook hears a new error issue. Nothing here writes to
 PostHog: every call is a read, and resolving or assigning an issue stays
 in PostHog's pages.
 
 1. **A personal API key.** In PostHog, your user settings → Personal API
    keys (Settings → Personal API keys,
    `https://us.posthog.com/settings/user-api-keys#personal-api-keys`):
-   create one with the scopes `query:read`, `error_tracking:read` and
-   `user:read`, for the queries, the issues and the check below. The
-   yard sends it as `Authorization: Bearer`, read from the variable
-   `POSTHOG_API_KEY`, the name and never the value.
+   create one with the scopes `query:read`, `error_tracking:read`,
+   `user:read`, `session_recording:read` and `replay_scanner:read`, for
+   the queries, the issues, the check, the recordings and the
+   observations below. The yard sends it as `Authorization: Bearer`,
+   read from the variable `POSTHOG_API_KEY`, the name and never the
+   value.
 2. **The project id.** In PostHog, the project's settings → Project ID
    (`https://us.posthog.com/settings/project#variables`): the number,
    which every call below takes as `project`.
 3. **Apply the pack.** As the operator:
    ```sh
    yardr pack apply posthog
-   # source posthog is declared: 4 calls under https://us.posthog.com (yardr source show posthog)
+   # source posthog is declared: 7 calls under https://us.posthog.com (yardr source show posthog)
    ```
 4. **Give the yard the key.** No file is written by hand: the command
    asks for the key and shows nothing as it is typed or pasted, and the
@@ -31,7 +34,7 @@ in PostHog's pages.
    Or have a crew member ask for it, and answer on its card, in
    footplate or in `yardr chat` (`ctrl+o`), where the field shows dots:
    ```sh
-   yardr bead ask <bead> "PostHog's personal API key" --secret posthog --context "Settings → Personal API keys, scopes query:read, error_tracking:read, user:read."
+   yardr bead ask <bead> "PostHog's personal API key" --secret posthog --context "Settings → Personal API keys, scopes query:read, error_tracking:read, user:read, session_recording:read, replay_scanner:read."
    ```
    The key goes nowhere else: not into mail, chat, a bead or a pack.
 5. **Grant the calls and test them.** Reading is the operator's to
@@ -47,11 +50,34 @@ in PostHog's pages.
    yardr call posthog issues project=<id>
    yardr call posthog issue project=<id> id=<an issue's id>
    yardr call posthog query project=<id> hogql="select event, count() from events group by event order by count() desc limit 10"
+   yardr call posthog recordings project=<id>
+   yardr call posthog recording project=<id> id=<a session's id>
+   yardr call posthog observations project=<id> session_id=<a session's id>
    ```
    The issues come 25 by default (`limit`, at most 100, `offset` pages);
    the list takes no status filter, so every status comes back. A query
    answers its columns and rows; PostHog refuses `OFFSET` on API keys,
-   so page on `timestamp` instead.
+   so page on `timestamp` instead. The recordings come 50 by default
+   (`limit`, at most 50, `after` pages with the previous answer's
+   `next_cursor`); `person_uuid`, `session_ids` (a JSON list, such as
+   `["<a session's id>"]`), `date_from` and `date_to` narrow them.
+   An issue's sessions come through `query`: every `$exception` carries
+   its issue's id, so one query names the sessions behind an issue:
+   ```sh
+   yardr call posthog query project=<id> hogql="select distinct properties.\$session_id from events where event='\$exception' and properties.\$exception_issue_id='<an issue's id>'"
+   ```
+   Then `observations` reads what PostHog already wrote about one of
+   those sessions in words, and the replay link is where a person
+   watches it:
+   ```sh
+   yardr call posthog observations project=<id> session_id=<a session's id>
+   # https://us.posthog.com/project/<id>/replay/<a session's id>
+   ```
+   (`?t=<seconds>` starts the replay at an offset.) Observations exist
+   only for sessions a Replay Vision scanner has run on: a summarizer
+   scanner is set up in PostHog, where running it costs PostHog
+   credits, and reading what it wrote costs nothing here. The pack
+   never asks PostHog to run one.
 6. **The hook and its secret.** The secret is the operator's to make:
    PostHog holds whatever the destination is given, and the yard keeps
    the same in the file the hook names, so make one and put it in both
@@ -95,10 +121,13 @@ in PostHog's pages.
    ```sh
    yardr subscribe <hearer> posthog --scope all --where type=error_issue
    ```
-   A makes line on the hook files a bead for each new issue instead,
-   with the issue's title, its description and a link to it. `hook add`
-   replaces the definition, so the secret file is given again, and the
-   line names the depot, since the event names no repository:
+   When the delivery carries the triggering exception's session, the
+   event's fields carry the session and its replay link beside the
+   project, for a subscription's `--where` to name. A makes line on the
+   hook files a bead for each new issue instead, with the issue's title,
+   its description and a link to it. `hook add` replaces the definition,
+   so the secret file is given again, and the line names the depot,
+   since the event names no repository:
    ```sh
    yardr hook add posthog --source posthog --secret-file ~/.yardr/posthog.secret --makes "action=created event=error_issue -> task:new@<depot>"
    # hook posthog saved: POST /hooks/posthog (posthog)
@@ -112,6 +141,6 @@ set` sets no base, so copy the pack's directory from a yardr checkout,
 change `base:` in `posthog.yaml`, and add it after the pack is applied
 (`yardr source add <copy>/posthog.yaml`, beside its `posthog/`
 directory, which the add copies with it). The hook needs no such copy:
-the issue's URL is built from the `project.url` the delivery carries,
-on whichever host sent it. Applying the pack again replaces the
-declaration with the US base, so add the copy again after.
+the issue's and the replay's URLs are built from the `project.url` the
+delivery carries, on whichever host sent it. Applying the pack again
+replaces the declaration with the US base, so add the copy again after.

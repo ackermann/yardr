@@ -92,7 +92,7 @@ app from ([An integration pack](#an-integration-pack-kind-source)).
 | `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 | `slack` | mentions and direct messages in a Slack workspace, answered in their threads, in the yard | none: `kind: source` | of none: `yardr pack apply slack` |
-| `posthog` | PostHog itself, in the yard: HogQL queries and error tracking issues read, a new error issue heard | none: `kind: source` | of none: `yardr pack apply posthog` |
+| `posthog` | PostHog itself, in the yard: HogQL queries, error tracking issues, session recordings and Replay Vision observations read, a new error issue heard | none: `kind: source` | of none: `yardr pack apply posthog` |
 
 ```
 packs/starter/

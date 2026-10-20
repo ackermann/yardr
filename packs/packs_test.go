@@ -1349,10 +1349,12 @@ func TestSlackPack(t *testing.T) {
 }
 
 // The posthog pack is PostHog as an integration: of kind source, one
-// declared source with the read calls an agent makes of it and the hook
-// key that hears a new error issue. The source is named posthog. Nothing
-// of it writes: every call is a read, and it has no thread, notify or
-// link key.
+// declared source with the read calls an agent makes of it (a HogQL
+// query, the error issues, one issue, the session recordings, one
+// recording, a session's Replay Vision observations) and the hook key
+// that hears a new error issue. The source is named posthog. Nothing of
+// it writes: every call is a read, and it has no thread, notify or link
+// key.
 func TestPostHogPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, "posthog")
 	if err != nil {
@@ -1449,6 +1451,69 @@ func TestPostHogPack(t *testing.T) {
 	if len(one.Answer.Select) != 0 {
 		t.Fatalf("issue select = %+v, want the whole issue", one.Answer.Select)
 	}
+	recs, ok := d.Call("recordings")
+	if !ok || recs.Kind != source.Read || recs.Request.Method != "GET" || recs.Request.Path != "/api/projects/{project}/session_recordings/" {
+		t.Fatalf("recordings call = %+v", recs)
+	}
+	project(recs)
+	rp := params(recs)
+	if pu, ok := rp["person_uuid"]; !ok || pu.Type != "string" || pu.Max != 36 || !pu.Optional || pu.Log {
+		t.Fatalf("recordings person_uuid = %+v, want an optional unlogged string of at most 36", pu)
+	}
+	if si, ok := rp["session_ids"]; !ok || si.Type != "string" || si.Max != 2048 || !si.Optional || si.Log {
+		t.Fatalf("recordings session_ids = %+v, want an optional unlogged string of at most 2048", si)
+	}
+	if df, ok := rp["date_from"]; !ok || df.Type != "string" || df.Max != 64 || !df.Optional || df.Log {
+		t.Fatalf("recordings date_from = %+v, want an optional unlogged string of at most 64", df)
+	}
+	if dt, ok := rp["date_to"]; !ok || dt.Type != "string" || dt.Max != 64 || !dt.Optional || dt.Log {
+		t.Fatalf("recordings date_to = %+v, want an optional unlogged string of at most 64", dt)
+	}
+	if l, ok := rp["limit"]; !ok || l.Type != "string" || l.Pattern != "^([1-9]|[1-4][0-9]|50)$" || !l.Optional {
+		t.Fatalf("recordings limit = %+v, want optional 1 to 50", l)
+	}
+	if a, ok := rp["after"]; !ok || a.Type != "string" || a.Max != 512 || !a.Optional || a.Log {
+		t.Fatalf("recordings after = %+v, want an optional unlogged string of at most 512", a)
+	}
+	var rquery []string
+	for _, kv := range recs.Request.Query {
+		rquery = append(rquery, kv.Key+"="+kv.Value)
+	}
+	if !slices.Equal(rquery, []string{"person_uuid={person_uuid}", "session_ids={session_ids}", "date_from={date_from}", "date_to={date_to}", "limit={limit}", "after={after}"}) {
+		t.Fatalf("recordings query = %q", rquery)
+	}
+	if !reflect.DeepEqual(recs.Answer.Select, []string{"results", "has_next", "next_cursor"}) {
+		t.Fatalf("recordings select = %+v", recs.Answer.Select)
+	}
+	rec, ok := d.Call("recording")
+	if !ok || rec.Kind != source.Read || rec.Request.Method != "GET" || rec.Request.Path != "/api/projects/{project}/session_recordings/{id}/" {
+		t.Fatalf("recording call = %+v", rec)
+	}
+	project(rec)
+	if id, ok := params(rec)["id"]; !ok || id.Type != "string" || id.Max != 36 || id.Optional || !id.Log {
+		t.Fatalf("recording id = %+v, want a required logged string", id)
+	}
+	if len(rec.Answer.Select) != 0 {
+		t.Fatalf("recording select = %+v, want the whole recording", rec.Answer.Select)
+	}
+	obs, ok := d.Call("observations")
+	if !ok || obs.Kind != source.Read || obs.Request.Method != "GET" || obs.Request.Path != "/api/projects/{project}/vision/observations/" {
+		t.Fatalf("observations call = %+v", obs)
+	}
+	project(obs)
+	if sid, ok := params(obs)["session_id"]; !ok || sid.Type != "string" || sid.Max != 36 || sid.Optional || !sid.Log {
+		t.Fatalf("observations session_id = %+v, want a required logged string", sid)
+	}
+	var oquery []string
+	for _, kv := range obs.Request.Query {
+		oquery = append(oquery, kv.Key+"="+kv.Value)
+	}
+	if !slices.Equal(oquery, []string{"session_id={session_id}"}) {
+		t.Fatalf("observations query = %q", oquery)
+	}
+	if !reflect.DeepEqual(obs.Answer.Select, []string{"count", "next", "results"}) {
+		t.Fatalf("observations select = %+v", obs.Answer.Select)
+	}
 	// The check call reads who the key acts as, a read without
 	// parameters, as a check must be.
 	if d.Check != "whoami" {
@@ -1468,7 +1533,7 @@ func TestPostHogPack(t *testing.T) {
 	// arrives, and a repeated delivery is told by the event's own id.
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
 		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Body != "event.uuid" ||
-		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project"}) ||
+		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project", "session", "replay"}) ||
 		!reflect.DeepEqual(h.Normalize, []string{"posthog/normalize"}) || h.Register != nil {
 		t.Fatalf("hook = %+v", d.Hook)
 	}
@@ -1486,9 +1551,12 @@ func TestPostHogPack(t *testing.T) {
 		"query:read",
 		"error_tracking:read",
 		"user:read",
+		"session_recording:read",
+		"replay_scanner:read",
 		"POSTHOG_API_KEY",
 		"Project ID",
 		"yardr pack apply posthog\n",
+		"7 calls under https://us.posthog.com",
 		"~/.yardr/sources/posthog.env",
 		"yardr source key posthog ",
 		"--secret posthog --context",
@@ -1499,6 +1567,16 @@ func TestPostHogPack(t *testing.T) {
 		"yardr call posthog issues project=<id>",
 		"yardr call posthog issue project=<id> id=<an issue's id>",
 		"yardr call posthog query project=<id> hogql=",
+		"yardr call posthog recordings project=<id>",
+		"yardr call posthog recording project=<id> id=<a session's id>",
+		"yardr call posthog observations project=<id> session_id=<a session's id>",
+		"select distinct properties.\\$session_id from events where event='\\$exception' and properties.\\$exception_issue_id='<an issue's id>'",
+		"https://us.posthog.com/project/<id>/replay/<a session's id>",
+		"?t=<seconds>",
+		"only for sessions a Replay Vision scanner has run on",
+		"reading what it wrote costs nothing here",
+		"never asks PostHog to run one",
+		"carry the session and its replay link beside the",
 		"umask 077",
 		"openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/posthog.secret",
 		"chmod 600 ~/.yardr/posthog.secret",

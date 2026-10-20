@@ -66,9 +66,10 @@ func posthogDecl(t *testing.T) hooks.Declared {
 }
 
 // The pack declares what the setup needs: a hook verified by the secret
-// in its header, deduped by the event's own id, with the project as its
-// one key. No hear key: every verified delivery is kept. No thread or
-// link key: the yard writes nothing to PostHog.
+// in its header, deduped by the event's own id, with the project, the
+// session and the replay link as its keys. No hear key: every verified
+// delivery is kept. No thread or link key: the yard writes nothing to
+// PostHog.
 func TestPostHogPackDeclaration(t *testing.T) {
 	d, _, _ := posthogParse(t)
 	if d.Name != "posthog" {
@@ -90,8 +91,8 @@ func TestPostHogPackDeclaration(t *testing.T) {
 	if strings.Join(h.Normalize, " ") != "posthog/normalize" {
 		t.Errorf("normalize = %q", h.Normalize)
 	}
-	if strings.Join(h.Keys, ",") != "project" {
-		t.Errorf("keys = %q, want project", h.Keys)
+	if strings.Join(h.Keys, ",") != "project,session,replay" {
+		t.Errorf("keys = %q, want project,session,replay", h.Keys)
 	}
 	if h.Register != nil {
 		t.Errorf("register = %+v, want none: the operator puts the secret in the destination by hand", h.Register)
@@ -103,7 +104,8 @@ func TestPostHogPackDeclaration(t *testing.T) {
 
 // The envelope for the recorded issue-created body: type error_issue in
 // the thread of its issue, with the issue's id, name, description and
-// URL, and the project it came from.
+// URL, and the project it came from. The recorded body carries no
+// session, so the envelope carries no session field either.
 func TestPostHogPackNormalize(t *testing.T) {
 	ad := posthogDecl(t)
 	may := append(append([]string{}, store.WhereKeys...), ad.D.Hook.Keys...)
@@ -133,11 +135,50 @@ func TestPostHogPackNormalize(t *testing.T) {
 	}
 }
 
+// The envelope for the recorded issue-created body that carries a
+// session: the triggering exception's $session_id, which the
+// destination's {event} renders under exception_props (the issue-created
+// workflow puts the exception's properties there), becomes the session
+// field, and the replay link beside the project. The issue's own id,
+// name, description and URL are as without one.
+func TestPostHogPackNormalizeSession(t *testing.T) {
+	ad := posthogDecl(t)
+	may := append(append([]string{}, store.WhereKeys...), ad.D.Hook.Keys...)
+	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
+	const session = "019f7c3b-4d5e-7a1b-8c2d-9e0f1a2b3c4d"
+	const url = "https://us.posthog.com/project/48291/error-tracking/" + id
+	const replay = "https://us.posthog.com/project/48291/replay/" + session
+	want := hooks.Envelope{Source: "posthog", Type: "error_issue", Action: "created",
+		Thread:   hooks.Thread{ID: id, Title: "TypeError: Cannot read properties of undefined", URL: url},
+		Mentions: []string{}, Text: "TypeError: Cannot read properties of undefined (reading 'id')",
+		URL: url, Entity: id, Fields: map[string][]string{"project": {"48291"}, "session": {session}, "replay": {replay}}}
+	got, err := ad.Normalize(nil, fixture(t, "posthog_issue_created_with_session.json"))
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if !reflect.DeepEqual(got, &want) {
+		wantRaw, _ := json.MarshalIndent(want, "", "  ")
+		gotRaw, _ := json.MarshalIndent(got, "", "  ")
+		t.Fatalf("got %s\nwant %s", gotRaw, wantRaw)
+	}
+	for k := range got.Fields {
+		found := false
+		for _, k2 := range may {
+			found = found || k == k2
+		}
+		if !found {
+			t.Errorf("field %q is in neither hook.keys nor store.WhereKeys", k)
+		}
+	}
+}
+
 // The shapes around the recorded body: a destination left at its default
 // names no project, a null name or description reads as empty, a long
 // description is cut, anything but an issue-created event is type event,
-// and the issue id falls back to the properties' own. The person the
-// default body carries is ignored: an internal event has none.
+// and the issue id falls back to the properties' own. A session arrives
+// under exception_props, and nowhere when the message was too large to
+// carry it. The person the default body carries is ignored: an internal
+// event has none.
 func TestPostHogPackNormalizeShapes(t *testing.T) {
 	ad := posthogDecl(t)
 	event := `"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","distinct_id":"019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e","timestamp":"2026-10-20T14:32:02.000000+00:00"`
@@ -147,7 +188,9 @@ func TestPostHogPackNormalizeShapes(t *testing.T) {
 	}
 	long := strings.Repeat("word ", 200) // 1000 characters, collapsed and cut
 	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
+	const session = "019f7c3b-4d5e-7a1b-8c2d-9e0f1a2b3c4d"
 	const url = "https://us.posthog.com/project/48291/error-tracking/" + id
+	const replay = "https://us.posthog.com/project/48291/replay/" + session
 	for _, tc := range []struct {
 		name       string
 		body       []byte
@@ -182,6 +225,22 @@ func TestPostHogPackNormalizeShapes(t *testing.T) {
 			[]byte(`{"event":{` + event + `,"properties":{"name":"boom","description":"it went boom"}},"person":{"id":"1","name":"Ada"},` + project + `}`),
 			"error_issue", "created", "it went boom",
 			hooks.Thread{ID: id, Title: "boom", URL: url}, map[string][]string{"project": {"48291"}}, url},
+		{"a session under exception_props",
+			created(`"name":"boom","description":"it went boom","exception_props":{"$session_id":"`+session+`"}`, ","+project),
+			"error_issue", "created", "it went boom",
+			hooks.Thread{ID: id, Title: "boom", URL: url}, map[string][]string{"project": {"48291"}, "session": {session}, "replay": {replay}}, url},
+		{"a message too large carries no session",
+			created(`"name":"boom","description":"it went boom","message_was_too_large":true`, ","+project),
+			"error_issue", "created", "it went boom",
+			hooks.Thread{ID: id, Title: "boom", URL: url}, map[string][]string{"project": {"48291"}}, url},
+		{"a session id that is no string",
+			created(`"name":"boom","description":"it went boom","exception_props":{"$session_id":42}`, ","+project),
+			"error_issue", "created", "it went boom",
+			hooks.Thread{ID: id, Title: "boom", URL: url}, map[string][]string{"project": {"48291"}}, url},
+		{"a session without a project is heard with no link",
+			created(`"name":"boom","description":"it went boom","exception_props":{"$session_id":"`+session+`"}`, ""),
+			"error_issue", "created", "it went boom",
+			hooks.Thread{ID: id, Title: "boom"}, map[string][]string{"session": {session}}, ""},
 		{"another event is type event",
 			[]byte(`{"event":{"event":"$error_tracking_issue_reopened","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708193","distinct_id":"` + id + `","properties":{"name":"boom"}},` + project + `}`),
 			"event", "", "",
@@ -253,6 +312,54 @@ func TestPostHogPackNormalizeLinks(t *testing.T) {
 	}
 }
 
+// The replay link is built from the same body's project.url and session
+// id, under the same guard as the issue link: only an https base and a
+// UUID session, as PostHog sends them, make a link. Anything else is
+// still an error_issue, heard as the session, with no link for a bead or
+// an inbox to carry a reader somewhere the body chose.
+func TestPostHogPackNormalizeReplay(t *testing.T) {
+	ad := posthogDecl(t)
+	const session = "019f7c3b-4d5e-7a1b-8c2d-9e0f1a2b3c4d"
+	body := func(sess, projectURL string) []byte {
+		return []byte(`{"event":{"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","distinct_id":"019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e","properties":{"name":"boom","description":"it went boom","exception_props":{"$session_id":"` + sess + `"}}},"project":{"id":48291,"url":"` + projectURL + `"}}`)
+	}
+	for _, tc := range []struct {
+		name        string
+		body        []byte
+		wantReplay  string
+		wantSession string // the session the fields still carry
+	}{
+		{"an https project and a UUID session",
+			body(session, "https://us.posthog.com/project/48291"),
+			"https://us.posthog.com/project/48291/replay/" + session, session},
+		{"a script scheme in the project url",
+			body(session, "javascript:alert(1)//evil"),
+			"", session},
+		{"a plain http project url",
+			body(session, "http://us.posthog.com/project/48291"),
+			"", session},
+		{"a session id that leaves its segment",
+			body("abc/../../x?y=1#frag", "https://us.posthog.com/project/48291"),
+			"", "abc/../../x?y=1#frag"},
+	} {
+		got, err := ad.Normalize(nil, tc.body)
+		if err != nil {
+			t.Errorf("%s: normalize: %v", tc.name, err)
+			continue
+		}
+		var replay, sess string
+		if len(got.Fields["replay"]) > 0 {
+			replay = got.Fields["replay"][0]
+		}
+		if len(got.Fields["session"]) > 0 {
+			sess = got.Fields["session"][0]
+		}
+		if got.Type != "error_issue" || replay != tc.wantReplay || sess != tc.wantSession {
+			t.Errorf("%s: got type %q replay %q session %q", tc.name, got.Type, replay, sess)
+		}
+	}
+}
+
 // A normalize that exits non-zero is answered 400, which the service
 // retries. So the script answers an envelope for every object body and
 // never prints any of it: on success it prints nothing to stderr at all,
@@ -283,7 +390,10 @@ func TestPostHogPackNormalizeNeverPrintsBody(t *testing.T) {
 		return stdout.String(), stderr.String(), code
 	}
 	const marker = "MARKER-zz07-never-printed"
-	bodies := map[string][]byte{"recorded": fixture(t, "posthog_issue_created.json")}
+	bodies := map[string][]byte{
+		"recorded":              fixture(t, "posthog_issue_created.json"),
+		"recorded with session": fixture(t, "posthog_issue_created_with_session.json"),
+	}
 	bodies["free text"] = []byte(`{"event":{"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","properties":{"name":"` + marker + `","description":"` + marker + `"}},"project":{"id":1,"url":"https://us.posthog.com/project/1"}}`)
 	for name, body := range bodies {
 		stdout, stderr, code := run(body)

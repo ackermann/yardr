@@ -1,32 +1,39 @@
 # PostHog as a declared source: what an agent may ask of it through
-# `yardr call` (a HogQL query, the error tracking issues, one issue), and
-# what it sends in (a new error issue). Every call is a read; the pack has
-# no thread, notify or link key, so the yard writes nothing to PostHog.
+# `yardr call` (a HogQL query, the error tracking issues, one issue, the
+# session recordings, one recording, a session's Replay Vision
+# observations), and what it sends in (a new error issue). Every call is a
+# read; the pack has no thread, notify or link key, so the yard writes
+# nothing to PostHog.
 #
 # Checked against PostHog's docs and source on 20 October 2026: the query
 # endpoint (posthog.com/docs/api/queries, and the generated query_create),
 # the issues endpoints
 # (products/error_tracking/backend/presentation/views/issues.py, routes.py,
-# pagination.py), the users endpoint (posthog/api/user.py), the personal
-# API key scopes (posthog/scopes.py, frontend/src/lib/scopes.tsx), the
-# webhook destination template
-# (nodejs/src/cdp/templates/_destinations/webhook/webhook.template.ts), the
-# issue-created event (products/error_tracking/backend/temporal/lifecycle/
-# side_effects.py, products/cdp/backend/internal_events.py), the
+# pagination.py), the users endpoint (posthog/api/user.py), the recordings
+# endpoints (posthog/session_recordings/session_recording_api.py, the
+# RecordingsQuery in posthog/schema.py), the observations endpoint
+# (products/replay_vision/backend/api/observations.py, routes in
+# products/replay_vision/backend/routes.py), the personal API key scopes
+# (posthog/scopes.py, frontend/src/lib/scopes.tsx), the webhook destination
+# template (nodejs/src/cdp/templates/_destinations/webhook/
+# webhook.template.ts), the issue-created event, whose exception_props carry
+# the triggering exception's $session_id
+# (products/error_tracking/backend/temporal/lifecycle/side_effects.py and
+# event_properties.py, products/cdp/backend/internal_events.py), the
 # destination globals (posthog.com/docs/cdp/destinations/
-# customizing-destinations) and the issue's route
-# (products/error_tracking/manifest.tsx).
+# customizing-destinations) and the issue's and the replay's routes
+# (products/error_tracking/manifest.tsx, products/replay/manifest.tsx).
 #
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
 name: posthog
-about: PostHog analytics and error tracking. Answers HogQL queries, lists error issues, hears a new error issue.
+about: PostHog analytics and error tracking. Answers HogQL queries, lists error issues and session recordings, reads a session's Replay Vision observations, hears a new error issue.
 
 # The name of the variable, never the value. A personal API key with the
-# scopes query:read, error_tracking:read and user:read, sent as a Bearer [REDACTED]
-# (posthog.com/docs/api/personal-api-keys). hook.normalize is handed no
-# credential at all.
+# scopes query:read, error_tracking:read, user:read, session_recording:read
+# and replay_scanner:read, sent as a Bearer [REDACTED] (posthog.com/docs/api/
+# personal-api-keys). hook.normalize is handed no credential at all.
 credential:
   env: POSTHOG_API_KEY
   header: "Authorization: Bearer {credential}"
@@ -55,8 +62,11 @@ hook:
   # The keys its events' fields may carry: a subscription's --where may
   # name them beside type, action, team, project, repo and label. project
   # is the id the destination's body carries under project (the setup adds
-  # it beside the default {event, person}, which names no project).
-  keys: [project]
+  # it beside the default {event, person}, which names no project). session
+  # is the triggering exception's $session_id, which the issue-created
+  # event carries under exception_props when the SDK set one, and replay
+  # the replay link built from it, on the host that sent the delivery.
+  keys: [project, session, replay]
 
 # ---- (today) what an agent may ask of it, through `yardr call` ------------
 # Declared HTTPS requests, granted one by one. A command is never something
@@ -112,6 +122,60 @@ calls:
     # The whole issue, as the read serializer has it: id, status,
     # severity, name, description, first_seen, assignee, external_issues
     # and cohort. One issue never nears the 64 KB a call returns.
+  recordings:
+    kind: read
+    about: List the session recordings, 50 by default
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      person_uuid: { type: string, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", max: 36, optional: true }   # one person's UUID
+      session_ids: { type: string, max: 2048, optional: true }   # a JSON list of session UUIDs, ["<id>"]: the list reads each query value as JSON
+      date_from: { type: string, max: 64, optional: true }   # ISO or relative (-3d, the default when left out)
+      date_to: { type: string, max: 64, optional: true }
+      limit: { type: string, pattern: "^([1-9]|[1-4][0-9]|50)$", optional: true }   # 1 to 50; PostHog's own default is 50
+      after: { type: string, max: 512, optional: true }   # the cursor the previous answer's next_cursor holds
+    request:
+      method: GET
+      path: /api/projects/{project}/session_recordings/
+      query:
+        person_uuid: "{person_uuid}"
+        session_ids: "{session_ids}"
+        date_from: "{date_from}"
+        date_to: "{date_to}"
+        limit: "{limit}"
+        after: "{after}"
+    # {results, has_next, next_cursor}: the recordings' metadata (id,
+    # distinct_id, person, duration, times, start_url, counts, ongoing),
+    # whether more follow, and the cursor for them. A page runs past the
+    # 64 KB a call otherwise returns.
+    answer: { select: [results, has_next, next_cursor], max: 262144 }
+  recording:
+    kind: read
+    about: Read one session recording's metadata
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      id: { type: string, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", max: 36, log: true }   # the session's UUID
+    request:
+      method: GET
+      path: /api/projects/{project}/session_recordings/{id}/
+    # The whole recording, as the read serializer has it: id, distinct_id,
+    # person, duration, times, start_url, counts, ongoing and the rest.
+    # One recording never nears the 64 KB a call returns.
+  observations:
+    kind: read
+    about: Read a session's Replay Vision observations, in words
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      session_id: { type: string, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", max: 36, log: true }   # the session's UUID
+    request:
+      method: GET
+      path: /api/projects/{project}/vision/observations/
+      query: { session_id: "{session_id}" }
+    # The standard {count, next, previous, results} page; each observation
+    # carries its scanner's result in words (scanner_result.model_output's
+    # title and summary) beside its one-line summary_line. A page runs
+    # past the 64 KB a call otherwise returns. Only sessions a Replay
+    # Vision scanner has run on have any.
+    answer: { select: [count, next, results], max: 262144 }
   whoami:
     kind: read
     about: Whose personal API key the credential is
