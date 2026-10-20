@@ -267,7 +267,7 @@ func ParseAnswer(n Note) (Answer, error) {
 // session's actor or that crew member, whatever actor says; from anywhere
 // else, as given (paneAuthor).
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
-	add, err := newAsk(ctx, ask, actor)
+	add, err := s.newAsk(ctx, ask, actor)
 	if err != nil {
 		return 0, err
 	}
@@ -303,7 +303,7 @@ func foldQuestion(q string) string {
 
 // newAsk checks ask as far as it can be checked outside a write and answers
 // what stores it on the bead id inside one (AddAsk, AskNew).
-func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string) (uint64, error), error) {
+func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string) (uint64, error), error) {
 	// The yard's own values for a stage ask, whatever the writer sent, as
 	// secret and run asks are stored with the yard's own values: a person
 	// asking by hand puts no stage ask.
@@ -371,6 +371,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		}
 	}
 	to, peer, outside := strings.Cut(ask.To, "@")
+	var repos map[string]*RepoFlows
 	if ask.Secret != nil {
 		switch {
 		case len(ask.Options) > 0 || ask.Recommend != 0:
@@ -397,9 +398,16 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		// What can be refused without the yard's records is refused before
 		// the write: a command no row reads. What names no row is told
 		// apart inside, with the records: the asker's own to run, the
-		// operator's alone, or none the yard runs from a card.
-		if _, _, err := parseRow(ask.Run.Argv); err != nil && err != errNotRow {
+		// operator's alone, or none the yard runs from a card. A row whose
+		// card reads git has it read here, before the write.
+		c, argv, err := parseRow(ask.Run.Argv)
+		if err != nil && err != errNotRow {
 			return nil, err
+		}
+		if err == nil && c.ready != nil {
+			if repos, err = c.ready(ctx, s, argv); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if ask.Setup != nil {
@@ -430,6 +438,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		}
 	}
 	return func(w *wtx, id string) (uint64, error) {
+		w.repos = repos
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {
 			return 0, err
@@ -625,7 +634,7 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 	if nb.Stage == "" && nb.Type == "" {
 		nb.Type = TypeQuestion
 	}
-	add, err := newAsk(ctx, ask, actor)
+	add, err := s.newAsk(ctx, ask, actor)
 	if err != nil {
 		return nil, err
 	}

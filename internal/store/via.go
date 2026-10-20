@@ -20,6 +20,38 @@ func WithVia(ctx context.Context, user, device string) context.Context {
 	return context.WithValue(ctx, viaKey{}, via{user, device})
 }
 
+// The way a call came in is on its context, set by the door it came through
+// and by no argument of the call: the socket marks it with the process at
+// its other end (WithCaller), the listener with the token of the device that
+// made it (WithVia), and a door that took a call over a link marks it with
+// the link (WithReach). An approval reads it to know its own path
+// (approveAsk). It is a statement by the door, as the pid is: a call that
+// names a user or a peer in its arguments says nothing of how it came.
+type reachKey struct{}
+
+// WithReach records on ctx that the call came through the reach of the link
+// with peer: a name of that yard, taken as a user of this one by the link's
+// grant (Peer.Reach, peertrust.go), made it. It is what a door sets that
+// takes a user's word from another yard, and it is the one mark that says
+// so: the user and the device the call is made as are this yard's own, and
+// the link would otherwise be lost behind them.
+//
+// No door takes an approval over a link today: ApproveAsk is refused for a
+// bead of another yard, and an answer that comes home over a link cannot
+// approve (answerable). The mark is for the day one does, and for the
+// approvals that must still be refused then: those of what changes the link
+// they came through (runCommand.link).
+func WithReach(ctx context.Context, peer string) context.Context {
+	return context.WithValue(ctx, reachKey{}, peer)
+}
+
+// reachOf is the peer whose reach the call came through, "" for a call that
+// came through none: the socket's, and a device's on the listener.
+func reachOf(ctx context.Context) string {
+	peer, _ := ctx.Value(reachKey{}).(string)
+	return peer
+}
+
 // writeVia is write for a call a device may make: what it writes as the
 // device's user is marked (wtx.event, wtx.addNoted).
 func (s *Store) writeVia(ctx context.Context, fn func(*wtx) error) error {

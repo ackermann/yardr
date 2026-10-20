@@ -55,9 +55,10 @@ func comparePeerIdentity(a, b PeerIdentity) int {
 // sender is never also ignored, and the operator has answered for this one
 // anew.
 //
-// Only the operator says who a sender is (operatorOnly, Alone): the mapping
-// is the consent to hear the sender, and it decides how their words are
-// read. Taking one back is the operator's too.
+// Only the operator says who a sender is (operatorOnly): the mapping is the
+// consent to hear the sender, and it decides how their words are read. A
+// run ask may propose it, for the operator to approve (peer identity in
+// runask.go); taking one back is the operator's alone.
 func (s *Store) SetPeerIdentity(ctx context.Context, name string, id PeerIdentity, actor string) (*Peer, error) {
 	switch {
 	case id.Source == "":
@@ -69,54 +70,81 @@ func (s *Store) SetPeerIdentity(ctx context.Context, name string, id PeerIdentit
 	}
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
-		// Alone: it decides whose word a sender's is, which no card may.
-		if err := w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Alone); err != nil {
-			return err
-		}
-		if p, err = loadPeer(w.Tx, name); err != nil {
-			return err
-		}
-		// A builtin source has no declaration, and none hears by identity.
-		switch _, d, err := sourceIn(w.Tx, id.Source); {
-		case errors.Is(err, ErrNotFound):
-			return fmt.Errorf("peer %s: %s is no source this yard declares, and only a declared source hears by identity (yardr source add)", name, id.Source)
-		case err != nil:
-			return err
-		case !d.HearsByIdentity():
-			return fmt.Errorf("peer %s: %s hears no sender by identity (its declaration has no hear key with by: identity), so a delivery from it is not heard as %s@%s", name, id.Source, id.Crew, name)
-		}
-		holder, err := speakerHolding(w.Tx, id.Source, id.ID, name, id.Crew)
-		if err != nil {
-			return err
-		} else if holder != "" {
-			return fmt.Errorf("peer %s: %s in %s names %s already: an id in a source names one speaker of the yard", name, id.ID, id.Source, holder)
-		}
-		data := map[string]any{"peer": name, "crew": id.Crew, "source": id.Source, "id": id.ID}
-		at := slices.IndexFunc(p.Identities, func(have PeerIdentity) bool { return have.Source == id.Source && have.Crew == id.Crew })
-		if at < 0 {
-			p.Identities = append(p.Identities, id)
-		} else {
-			if was := p.Identities[at].ID; was != id.ID {
-				data["was"] = was
-			}
-			p.Identities[at] = id
-		}
-		slices.SortFunc(p.Identities, comparePeerIdentity)
-		if err := put(w.Tx, bPeers, name, p); err != nil {
-			return err
-		}
-		if err := w.event("", "peer_identity_set", actor, data); err != nil {
-			return err
-		}
-		if _, err := w.clearIgnored(id.Source, id.ID, actor, nil); err != nil {
-			return err
-		}
-		return outboxOf(w.Tx, p)
+		p, err = w.setPeerIdentity(ctx, name, id, actor, nil)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+// peerIdentityFor is the link with the peer name when id may be set on it:
+// the source is one this yard declares that hears senders by identity, and
+// no other speaker of the yard has the id in it. The command and the card
+// of its run ask read it both, so each refuses in the same words.
+func (w *wtx) peerIdentityFor(name string, id PeerIdentity) (*Peer, error) {
+	p, err := loadPeer(w.Tx, name)
+	if err != nil {
+		return nil, err
+	}
+	// A builtin source has no declaration, and none hears by identity.
+	switch _, d, err := sourceIn(w.Tx, id.Source); {
+	case errors.Is(err, ErrNotFound):
+		return nil, fmt.Errorf("peer %s: %s is no source this yard declares, and only a declared source hears by identity (yardr source add)", name, id.Source)
+	case err != nil:
+		return nil, err
+	case !d.HearsByIdentity():
+		return nil, fmt.Errorf("peer %s: %s hears no sender by identity (its declaration has no hear key with by: identity), so a delivery from it is not heard as %s@%s", name, id.Source, id.Crew, name)
+	}
+	holder, err := speakerHolding(w.Tx, id.Source, id.ID, name, id.Crew)
+	if err != nil {
+		return nil, err
+	} else if holder != "" {
+		return nil, fmt.Errorf("peer %s: %s in %s names %s already: an id in a source names one speaker of the yard", name, id.ID, id.Source, holder)
+	}
+	return p, nil
+}
+
+// setPeerIdentity is SetPeerIdentity inside the transaction, so that an
+// approved run ask makes the change in the write that records its approval
+// (ApproveAsk): by is then the ask it was approved on, which the event
+// carries.
+func (w *wtx) setPeerIdentity(ctx context.Context, name string, id PeerIdentity, actor string, by *approvedOn) (*Peer, error) {
+	// Askable: it decides whose word a sender's is, so the card says which
+	// speaker the sender becomes and what stood, and an approval through the
+	// peer's own reach is refused (approveAsk).
+	if err := w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Askable); err != nil {
+		return nil, err
+	}
+	p, err := w.peerIdentityFor(name, id)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{"peer": name, "crew": id.Crew, "source": id.Source, "id": id.ID}
+	at := slices.IndexFunc(p.Identities, func(have PeerIdentity) bool { return have.Source == id.Source && have.Crew == id.Crew })
+	if at < 0 {
+		p.Identities = append(p.Identities, id)
+	} else {
+		if was := p.Identities[at].ID; was != id.ID {
+			data["was"] = was
+		}
+		p.Identities[at] = id
+	}
+	slices.SortFunc(p.Identities, comparePeerIdentity)
+	if err := put(w.Tx, bPeers, name, p); err != nil {
+		return nil, err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "peer_identity_set", actor, data); err != nil {
+		return nil, err
+	}
+	if _, err := w.clearIgnored(id.Source, id.ID, actor, by); err != nil {
+		return nil, err
+	}
+	return p, outboxOf(w.Tx, p)
 }
 
 // RemovePeerIdentity takes back who the crew member of the peer name's yard

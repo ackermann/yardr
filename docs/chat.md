@@ -325,7 +325,9 @@ or decline it. The command is one of a fixed list:
 | the command | what it is for | who takes it back |
 |---|---|---|
 | `peer allow <peer> --mail-limit <n>` | a link that should take more mail in an hour | anyone, with a lower number |
-| `peer allow <peer> --send <kinds>`, `--receive <kinds>` | what a link may carry each way | anyone where kinds were given, only the operator where they were taken, with the kinds that stood, which the card names |
+| `peer allow <peer> --send <kinds>`, `--receive <kinds>` | what a link may carry each way, of any kind (`ask`, `bead`, `file`, `mail`, `ping`, `thread`): the card names what it carries in and out after the command and before it | anyone where kinds were given, only the operator where they were taken, with the kinds that stood, which the card names |
+| `peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]` | where the beads a peer sends go: the card names the depot, the flow, the stage they arrive in and who works it (where agents do, work starts on the other yard's text), and what the link has for the depot now; the approval does not install `return-branch`, as the command at a terminal does | only the operator, with the intake that stood, which the card names, or `peer intake <peer> --depot <depot> --none` (anyone's) where none did |
+| `peer identity <peer> <crew> --source <source> --id <id>` | who a sender is in a source that hears by identity, when they are a crew member of a peer's yard: a delivery from the id is then kept with the speaker `<crew>@<peer>`, information and not instructions, and it is no user of this yard | only the operator, with the id that stood, which the card names, or `--rm` where none did |
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call>\|--preset <preset> --group <group>\|--crew <crew member> [--as <user>]` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change; with `--preset <name>` the preset's calls of the pack that declares the source, named on the card with the pack; with `--as <user>` the call is made as that user, and that user alone approves it | anyone, with `yardr source revoke` by the same words, one call at a time |
 | `source add <file>` | a new source the file declares: the ask carries the declaration and each command file it names, and the card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it | only the operator, with `yardr source rm <name>` |
@@ -346,16 +348,22 @@ or decline it. The command is one of a fixed list:
 
 Anything else that is the operator's is still typed by you: a replacement
 by `source add`, a hook's replacement and its `--map` and `--as`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
-`--reach`, `--expose`, or `--send`/`--receive` of a kind other than mail
-or ping, a user's `notify` and `env_file`, `group add` with `--runner exec`
-or `cmd=`, `group set` with `cmd=`, the `operator` setting and the settings
-of where the yard reads and serves from, and every other command.
+`--reach` or `--expose`, `peer add`, `peer set --url` and `peer rm`, taking a
+peer's identity back (`peer identity --rm`), a user's `notify` and `env_file`,
+`group add` with `--runner exec` or `cmd=`, `group set` with `cmd=`, the
+`operator` setting and the settings of where the yard reads and serves from,
+and every other command.
 `hook_public_url` is the exception among the addresses: it binds nothing,
 only says where the yard is reached from outside, so a crew member may
 propose it and its card shows the whole URL each hook is registered at.
 A command that mixes a flag of the list with one that is not is refused
 whole, and the limit and the kinds of `peer allow` are two asks: one
-command carries one or the other. The subscription, the `tell` and the
+command carries one or the other. A card about a link (`peer allow`, `peer
+intake`, `peer identity`) is approved from this yard, in a terminal or in
+footplate paired with it, and an approval that arrives through the reach of
+the peer the card is about is refused: a peer must not widen its own link,
+say where its own beads go or say who its own crew is here
+([peers.md](peers.md#who-may-do-what)). The subscription, the `tell` and the
 user identity rows are not the operator's alone: a subscription, what a
 user's phone is told of
 ([users.md](users.md#told-outside-the-yard)) and who the user is in a

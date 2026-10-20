@@ -144,6 +144,29 @@ func seedTalkIgnored(t *testing.T, y *cliYard) {
 	}
 }
 
+// seedIntake gives the yard what an intake for the peer airy names: the
+// depot web, the flow incoming of the store, and a route that sends the
+// beads from airy to the group builders in its first stage.
+func seedIntake(t *testing.T, y *cliYard) {
+	t.Helper()
+	ctx := context.Background()
+	if err := y.st.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("arrived -> build | returned on refused\nbuild -> returned on done | returned on failed | gave-up\nreturned terminal\ngave-up terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "incoming"
+	if _, err := y.st.PutFlow(ctx, *f, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	label := "from-airy"
+	if _, err := y.st.AddRoute(ctx, store.Route{Stage: "arrived", Label: &label, Group: "builders"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // runPush is a source that tells a user, for the user key row: the
 // address a delivery claims is given typed, as the approval writes it.
 const runPush = `name: pushover
@@ -280,6 +303,13 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>": {
 			"peer allow airy --mail-limit 300",
 			"peer allow airy --send mail --receive mail,ping",
+			"peer allow airy --send bead --receive ask,bead,file,thread",
+		},
+		"yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]": {
+			"peer intake airy --depot web --flow incoming --limit 3 --default",
+		},
+		"yardr peer identity <peer> <crew> --source <source> --id <id>": {
+			"peer identity airy mayor --source talk --id U1",
 		},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":                                            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
@@ -342,6 +372,18 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				// card's nobody pick, as only that pick adds one.
 				for _, y := range []*cliYard{approved, typed} {
 					seedTalkIgnored(t, y)
+				}
+			}
+			if use == "yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]" {
+				for _, y := range []*cliYard{approved, typed} {
+					seedIntake(t, y)
+				}
+			}
+			if use == "yardr peer identity <peer> <crew> --source <source> --id <id>" {
+				for _, y := range []*cliYard{approved, typed} {
+					if _, err := y.st.PutSource(context.Background(), "talk.yaml", runTalk, "jo"); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			if use == "yardr pack apply <name>" {
@@ -540,7 +582,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_ignored", "sender_unignored"} {
+					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_ignored", "sender_unignored", "peer_intake", "peer_identity_set"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)

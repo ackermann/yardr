@@ -809,31 +809,9 @@ func (s *Store) arrive(ctx context.Context, p *Peer) {
 		st := PeerIntakeArrive{Depot: in.Depot}
 		repo, err := s.repoFor(ctx, &in.Depot, peerBeadTypes[0], in.Flow)
 		if err == nil {
-			err = s.read(func(tx *bolt.Tx) error {
-				_, stage, err := intakeStage(tx, &in, repo)
-				if err != nil {
-					return changedMeanwhile(err)
-				}
-				var routes []Route
-				if err := each(tx, bRoutes, "", func(_ []byte, r *Route) error {
-					routes = append(routes, *r)
-					return nil
-				}); err != nil {
-					return err
-				}
-				SortRoutes(routes)
-				for _, typ := range peerBeadTypes {
-					w, err := stageWork(tx, routes, Bead{Type: typ, Depot: &in.Depot, Labels: []string{"from-" + p.Name}, Priority: DefaultPriority}, stage)
-					if err != nil {
-						return err
-					}
-					if i := slices.IndexFunc(st.Arrive, func(a PeerArrive) bool { return a.same(w) }); i >= 0 {
-						st.Arrive[i].Types = append(st.Arrive[i].Types, typ)
-					} else {
-						st.Arrive = append(st.Arrive, PeerArrive{Types: []string{typ}, StageWork: w})
-					}
-				}
-				return nil
+			err = s.read(func(tx *bolt.Tx) (err error) {
+				st, err = intakeArrive(tx, p.Name, in, repo)
+				return err
 			})
 		}
 		if err != nil {
@@ -841,6 +819,37 @@ func (s *Store) arrive(ctx context.Context, p *Peer) {
 		}
 		p.ArriveByDepot = append(p.ArriveByDepot, st)
 	}
+}
+
+// intakeArrive is who works the beads the intake in takes from the peer
+// called peer, as arrive reads it: repo is the depot's repository flows
+// when the intake's flow is one of them (repoFor).
+func intakeArrive(tx *bolt.Tx, peer string, in PeerIntake, repo *RepoFlows) (PeerIntakeArrive, error) {
+	st := PeerIntakeArrive{Depot: in.Depot}
+	_, stage, err := intakeStage(tx, &in, repo)
+	if err != nil {
+		return st, changedMeanwhile(err)
+	}
+	var routes []Route
+	if err := each(tx, bRoutes, "", func(_ []byte, r *Route) error {
+		routes = append(routes, *r)
+		return nil
+	}); err != nil {
+		return st, err
+	}
+	SortRoutes(routes)
+	for _, typ := range peerBeadTypes {
+		w, err := stageWork(tx, routes, Bead{Type: typ, Depot: &in.Depot, Labels: []string{"from-" + peer}, Priority: DefaultPriority}, stage)
+		if err != nil {
+			return st, err
+		}
+		if i := slices.IndexFunc(st.Arrive, func(a PeerArrive) bool { return a.same(w) }); i >= 0 {
+			st.Arrive[i].Types = append(st.Arrive[i].Types, typ)
+		} else {
+			st.Arrive = append(st.Arrive, PeerArrive{Types: []string{typ}, StageWork: w})
+		}
+	}
+	return st, nil
 }
 
 // ArriveFor is the arrival of the intake for the depot, or nil.
@@ -871,6 +880,31 @@ func (a PeerIntakeArrive) ArriveLine(peer string) string {
 	return fmt.Sprintf("its beads arrive in the stage %s, by their type: %s", first.Stage, strings.Join(parts, "; "))
 }
 
+// IntakeLine is the line for one of the peer's intakes: its depot and flow,
+// how its beads arrive (ArriveLine), how many may be open at once and how
+// many are, and where the link does not take its beads yet, how it comes to.
+// p is read with its arrivals (Store.arrive) and its open beads (beadsOf).
+func (p Peer) IntakeLine(in PeerIntake) string {
+	how := ""
+	if st := p.ArriveFor(in.Depot); st != nil {
+		how = st.ArriveLine(p.Name)
+		if how == "" {
+			how = "its beads are refused (no_intake) until this reads again: " + or(st.Error, "who works the flow's first stage was not read")
+		}
+	} else {
+		how = "its beads are refused (no_intake) until this reads again: who works the flow's first stage was not read"
+	}
+	def := ""
+	if in.Default {
+		def = " (default)"
+	}
+	line := fmt.Sprintf("depot %s, flow %s%s: %s; at most %d open, %d now", in.Depot, in.Flow, def, how, in.Most(), p.OpenByDepot[in.Depot])
+	if !slices.Contains(p.Receive, PeerBead) {
+		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
+	}
+	return line
+}
+
 // Untold are the groups of people that work a bead the peer sends when it
 // arrives, in any intake, and have no wait set: nobody is told of a bead
 // that waits there.
@@ -892,6 +926,9 @@ func (p Peer) Untold() []string {
 // flow does not resolve for the depot or has no stage to start in, is
 // refused: every bead for it would be. Marking one default takes the mark
 // off the one that had it.
+//
+// Saying where a peer's beads go is the operator's to say, and a run ask
+// may propose it, for the operator to approve (peer intake in runask.go).
 func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, actor string) (*Peer, error) {
 	var repo *RepoFlows
 	if in != nil {
@@ -912,68 +949,82 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 	}
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
-		// Taking a peer's beads starts this yard's agents on another
-		// yard's text: the operator's to say. Taking none is anyone's.
-		if in != nil {
-			// Alone: taking a peer's beads starts this yard's agents on
-			// another yard's text, so the operator types it.
-			if err := w.operatorOnly(ctx, actor, "say where a peer's beads go", Alone); err != nil {
-				return err
-			}
-		}
-		if p, err = loadPeer(w.Tx, name); err != nil {
-			return err
-		}
-		data := map[string]any{"peer": name}
-		if in == nil {
-			data["none"] = true
-			p.Intakes = nil
-		} else {
-			if _, _, err := intakeStage(w.Tx, in, repo); err != nil {
-				return changedMeanwhile(err)
-			}
-			data["depot"], data["flow"], data["limit"] = in.Depot, in.Flow, in.Most()
-			at := slices.IndexFunc(p.Intakes, func(have PeerIntake) bool { return have.Depot == in.Depot })
-			switch {
-			case in.Default:
-				// Marked: the default moves here.
-			case at >= 0:
-				// Unmarked: a replace keeps what the intake had.
-				in.Default = p.Intakes[at].Default
-			case len(p.Intakes) == 0:
-				// The first intake takes the beads that name no
-				// remote, as the one intake did.
-				in.Default = true
-			}
-			if at < 0 {
-				p.Intakes = append(p.Intakes, *in)
-			} else {
-				p.Intakes[at] = *in
-			}
-			if in.Default {
-				for i := range p.Intakes {
-					p.Intakes[i].Default = p.Intakes[i].Depot == in.Depot
-				}
-			}
-			data["default"] = in.Default
-			slices.SortFunc(p.Intakes, func(a, b PeerIntake) int { return strings.Compare(a.Depot, b.Depot) })
-		}
-		if err := put(w.Tx, bPeers, name, p); err != nil {
-			return err
-		}
-		if err := w.event("", "peer_intake", actor, data); err != nil {
-			return err
-		}
-		if err := outboxOf(w.Tx, p); err != nil {
-			return err
-		}
-		return beadsOf(w.Tx, p)
+		p, err = w.setPeerIntake(ctx, name, in, repo, actor, nil)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.arrive(ctx, p)
 	return p, nil
+}
+
+// setPeerIntake is SetPeerIntake inside the transaction, so that an approved
+// run ask makes the change in the write that records its approval
+// (ApproveAsk): by is then the ask it was approved on, which the event
+// carries. repo is the depot's repository flows when the intake's flow is
+// one of them, read before the write.
+func (w *wtx) setPeerIntake(ctx context.Context, name string, in *PeerIntake, repo *RepoFlows, actor string, by *approvedOn) (p *Peer, err error) {
+	// Taking a peer's beads starts this yard's agents on another yard's
+	// text: the operator's to say. Taking none is anyone's.
+	if in != nil {
+		// Askable: the card names the depot, the flow and who works the
+		// first stage, and an approval through the peer's own reach is
+		// refused (approveAsk).
+		if err := w.operatorOnly(ctx, actor, "say where a peer's beads go", Askable); err != nil {
+			return nil, err
+		}
+	}
+	if p, err = loadPeer(w.Tx, name); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"peer": name}
+	if in == nil {
+		data["none"] = true
+		p.Intakes = nil
+	} else {
+		if _, _, err := intakeStage(w.Tx, in, repo); err != nil {
+			return nil, changedMeanwhile(err)
+		}
+		data["depot"], data["flow"], data["limit"] = in.Depot, in.Flow, in.Most()
+		at := slices.IndexFunc(p.Intakes, func(have PeerIntake) bool { return have.Depot == in.Depot })
+		switch {
+		case in.Default:
+			// Marked: the default moves here.
+		case at >= 0:
+			// Unmarked: a replace keeps what the intake had.
+			in.Default = p.Intakes[at].Default
+		case len(p.Intakes) == 0:
+			// The first intake takes the beads that name no
+			// remote, as the one intake did.
+			in.Default = true
+		}
+		if at < 0 {
+			p.Intakes = append(p.Intakes, *in)
+		} else {
+			p.Intakes[at] = *in
+		}
+		if in.Default {
+			for i := range p.Intakes {
+				p.Intakes[i].Default = p.Intakes[i].Depot == in.Depot
+			}
+		}
+		data["default"] = in.Default
+		slices.SortFunc(p.Intakes, func(a, b PeerIntake) int { return strings.Compare(a.Depot, b.Depot) })
+	}
+	if err := put(w.Tx, bPeers, name, p); err != nil {
+		return nil, err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "peer_intake", actor, data); err != nil {
+		return nil, err
+	}
+	if err := outboxOf(w.Tx, p); err != nil {
+		return nil, err
+	}
+	return p, beadsOf(w.Tx, p)
 }
 
 // RemovePeerIntake removes the intake for the depot from the link with the

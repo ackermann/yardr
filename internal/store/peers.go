@@ -738,7 +738,8 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // link that stops carrying beads out carries no return in either, so the
 // beads of this yard that are at the peer end their stage as undelivered.
 // A kind the link is to carry from now is the operator's to allow
-// (operatorOnly); stopping one is anyone's.
+// (operatorOnly), a run ask may propose it, whichever the kind, for the
+// operator to approve (runask.go); stopping one is anyone's.
 //
 // It changes whom of this yard the peer may see and write to as well
 // (Peer.Expose): to expose a name is the operator's too, and the name must
@@ -772,21 +773,6 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 	return p, nil
 }
 
-// allowKindsAsk is whether carrying send and receive kinds of a peer may
-// be proposed as a run ask: mail and ping may, and ask, file, bead and
-// thread are the operator's alone. Bead lets another yard start work
-// here, and ask, file and thread carry its words deeper into the yard.
-func allowKindsAsk(send, receive []string) AskClass {
-	for _, k := range append(slices.Clone(send), receive...) {
-		switch k {
-		case PeerMail, PeerPing:
-		default:
-			return Alone
-		}
-	}
-	return Askable
-}
-
 type peerAllowPermission struct {
 	send, receive []string
 	expose, trust bool
@@ -815,7 +801,13 @@ func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPe
 		}
 	}
 	if len(check.send)+len(check.receive) > 0 {
-		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", allowKindsAsk(check.send, check.receive)); err != nil {
+		// Askable, whichever the kind. Bead lets another yard start work
+		// here, and ask, file and thread carry its words deeper into the
+		// yard, which is why they were alone: the card names what the link
+		// carries before and after, and an approval that reaches the yard
+		// through that peer's own reach is refused (approveAsk), so a peer
+		// cannot widen its own link.
+		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", Askable); err != nil {
 			return nil, err
 		}
 	}
@@ -829,6 +821,20 @@ func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPe
 		}
 	}
 	return p, nil
+}
+
+// changeList is the list have with add put in and drop taken out, sorted,
+// each once: what a link carries or exposes after a peer allow, which the
+// write stores and a run ask's card names beside what it holds now.
+func changeList(have, add, drop []string) []string {
+	out := []string{}
+	for _, k := range append(slices.Clone(have), add...) {
+		if !slices.Contains(drop, k) && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // allowPeer is AllowPeer inside the transaction, so that an approved run
@@ -849,16 +855,7 @@ func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor st
 	if err != nil {
 		return nil, err
 	}
-	change := func(have, add, drop []string) []string {
-		out := []string{}
-		for _, k := range append(slices.Clone(have), add...) {
-			if !slices.Contains(drop, k) && !slices.Contains(out, k) {
-				out = append(out, k)
-			}
-		}
-		slices.Sort(out)
-		return out
-	}
+	change := changeList
 	if ch.MailLimit > 0 && ch.MailLimit != p.MailsAnHour() {
 		// The default is kept as no setting, so it is the default's
 		// still should that change.

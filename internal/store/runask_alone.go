@@ -1,7 +1,11 @@
 // What is the operator's alone, as a run ask is refused it (askedRun):
 // commands the yard refuses anyone but the operator that no card may
 // propose. Alone are what defines what the yard runs or whom it trusts,
-// takes a file path, or reaches another yard.
+// takes a file path, or reaches another yard. What a linked yard may do
+// through a link that is made already is not: what the link carries, where
+// its beads go and who its crew is here are the rows of runList, and the
+// approval of one that came through that peer's own reach is refused
+// (runCommand.link). A link itself, its address and its removal are alone.
 package store
 
 import (
@@ -82,37 +86,6 @@ var aloneList = []aloneCommand{{
 	parse: aloneArgs("yardr peer rm <name>", 1, 1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
 		return w.operatorOnly(ctx, actor, "remove a peer", Alone)
-	},
-}, {
-	words: []string{"peer", "intake"},
-	parse: aloneArgs("yardr peer intake <name> [--depot <depot> --flow <flow> [--limit <n>] [--default] | --depot <depot> --none | --none]", 1, -1),
-	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		// Taking none, of one depot or of all, is anyone's to run, as
-		// the store checks nothing for it; saying where beads go is
-		// the operator's alone, as taking a peer's beads starts this
-		// yard's agents on another yard's text.
-		none := false
-		for _, word := range argv[3:] {
-			if word == "--none" || strings.HasPrefix(word, "--none=") {
-				none = true
-			}
-			if word == "--flow" || word == "--limit" || word == "--default" ||
-				strings.HasPrefix(word, "--flow=") || strings.HasPrefix(word, "--limit=") || strings.HasPrefix(word, "--default=") {
-				none = false
-			}
-		}
-		if none {
-			return nil
-		}
-		return w.operatorOnly(ctx, actor, "say where a peer's beads go", Alone)
-	},
-}, {
-	words: []string{"peer", "identity"},
-	parse: aloneArgs("yardr peer identity <name> <crew> --source <source> --id <id> | --rm", 1, -1),
-	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		// Setting and taking back both are the operator's alone: they
-		// decide how what a sender says is read.
-		return w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Alone)
 	},
 }, {
 	words: []string{"user", "device", "add"},

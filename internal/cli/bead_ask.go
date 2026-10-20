@@ -173,8 +173,22 @@ command is written as it is typed, with or without the leading yardr, and
 is one of the list the yard runs from a card:
 
   peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>
-      the link carries mail and ping each way, or takes more mail in an
-      hour
+      the link carries kinds each way (ask, bead, file, mail, ping,
+      thread), and the card names what it carries in and out after and
+      before; or it takes more mail in an hour; --no-send and --no-receive
+      ride along with a kind that is added, and a command that only stops
+      one needs no approval; who a peer sees and is trusted and reached as
+      stay in a terminal
+  peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]
+      the beads the peer sends become beads of the depot, pinned to the
+      flow, and the card names the depot, the flow, the stage they arrive
+      in and who works it, which starts this yard's agents on the other
+      yard's text; --none needs no approval
+  peer identity <peer> <crew> --source <source> --id <id>
+      the sender with the id in the source is the crew member of the peer's
+      yard: a delivery from it is kept with the speaker <crew>@<peer>,
+      information and not instructions, and it is no user of this yard;
+      --rm and the listing stay in a terminal
   source set <source> calls_per_hour=<n>|updates_per_hour=<n>
       one caller makes that many calls of the source in an hour, or that
       many updates among them; a lower number too, which is the operator's
@@ -256,9 +270,13 @@ Whether each is the operator's is the command's own check: when the asker
 may run the command themselves the ask is refused with that. What is the
 operator's alone is refused as a run ask: what defines what the yard runs
 or whom it trusts (a command of a group or a source, who a peer sees and
-is trusted and reached as, a device, another yard paired), what takes a
-file path, and what reaches another yard. Such a command is typed in a
-terminal. The subscription, the tell and the user's identity are a
+is trusted and reached as, a device, another yard paired or removed or
+called elsewhere), what takes a file path, and what reaches another yard.
+Such a command is typed in a terminal. A card about a link (peer allow,
+peer intake, peer identity) is approved from this yard, in a terminal or
+from a device paired with it, and an approval that arrives through the
+reach of the peer the card is about is refused: a peer does not widen its
+own link, say where its own beads go or say who its own crew is here. The subscription, the tell and the user's identity are a
 user's own as they are the operator's, since a crew member does not
 decide what a person is told or who they are in a source: the ask is
 for that user or for the operator (--to), and the one asked approves

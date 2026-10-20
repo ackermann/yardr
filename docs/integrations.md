@@ -1084,7 +1084,10 @@ A sender can also be a crew member of a linked yard, such as the mayor of
 that yard commenting in Linear. Mapping their id to one of this yard's users
 would make their word a user's here, so the operator maps it on the link
 instead, with `yardr peer identity <peer> <crew> --source <source> --id <id>`
-([peers.md](peers.md#a-sender-who-is-a-crew-member-of-the-other-yard)).
+([peers.md](peers.md#a-sender-who-is-a-crew-member-of-the-other-yard)), which
+a crew member that knows the id proposes with a run ask of its own
+(`--run "peer identity ..."`, [chat.md](chat.md#questions-for-you)) and the
+operator approves from this yard.
 A delivery from that id is kept whatever the hook's unknown word says, and the
 operator gets no mapping card for it. Its speaker is `<crew>@<peer>`, and
 `--where speaker=<crew>@<peer>` filters on it. The inbox line carries the cue

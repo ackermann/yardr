@@ -585,11 +585,12 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"peer allow airy --trust mckean@airy=mckean", alone},
 		{"peer allow airy --reach mckean=mckean", alone},
 		{"peer allow airy --reach mckean@airy=mckean", alone},
-		{"peer allow airy --receive bead", alone},
+		{"peer allow airy --send bead --expose mckean", alone},
 		{"peer allow airy --expose mckean", alone},
+		{"peer add north abc", alone},
+		{"peer set airy --url http://airy.example:8790", alone},
 		{"peer rm airy", alone},
-		{"peer identity airy mayor --source linear --id u-1", alone},
-		{"peer identity airy mayor --source linear --rm", alone},
+		{"peer identity airy mayor --source linear --rm", "peer identity with --rm is the operator's to type in a terminal"},
 		{"peer allow airy --mail-limit 300 --expose mckean", "is two asks: propose the limit and the rest apart"},
 		{"peer allow airy --mail-limit 300 --reach mckean=mckean", "is two asks: propose the limit and the rest apart"},
 		{"peer allow airy --mail-limit 300 --no-send mail", "is two asks: propose the limit and the rest apart"},
@@ -642,6 +643,11 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"group add builders --runner exec --set cmd=make,check", "group add with runner exec defines what the yard runs: " + alone},
 		{"group add builders --runner herdr --set cmd=make", "group add with cmd defines what the yard runs: " + alone},
 		{"group set builders runner=herdr", "anything else is run directly, or typed by the operator in a terminal"},
+		// A group that sends beads to a linked yard, and a route to it, are
+		// anyone's to add (PutGroup and AddRoute check no one): the asker's
+		// own to run, so no card.
+		{"group add exchange --runner peer --set peer=airy", "anything else is run directly, or typed by the operator in a terminal"},
+		{"route add --stage arrived --group exchange", "anything else is run directly, or typed by the operator in a terminal"},
 		{"user key mckean crm", "source crm: its declaration has no notify key"},
 	} {
 		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {

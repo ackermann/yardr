@@ -452,6 +452,13 @@ the peer has already.`,
 it. Nothing is allowed until this says so, and only the operator may allow.
 --no-send and --no-receive stop a kind again, which anyone may.
 
+A crew member that needs a kind allowed proposes the command with a run ask
+(yardr bead ask --help), whichever the kind: the card says what the link
+carries in and out after the command and before it. The operator approves it
+from this yard, and an approval that arrives through the reach of the peer it
+is about is refused, since a peer must not widen its own link. --expose,
+--trust and --reach stay in a terminal.
+
 Each yard tells the other which kinds its yardr understands (yardr peer show).
 --send for a kind the peer has said it does not understand, or for a peer
 that has not said, is allowed and warns: what a peer said may be stale, and a
@@ -695,9 +702,12 @@ crew member of a linked yard, has it in the source, and in a source that hears
 nobody by identity. A crew member has one id per source, and a second id
 replaces the first.
 
-Only the operator sets or removes one, and no run ask may propose it. Without
-<crew> the command lists the link's, as yardr peer show does. Removing the link
-removes them.`,
+Only the operator sets or removes one. A crew member proposes setting one with
+a run ask (yardr bead ask --help), and the operator approves it from this
+yard: an approval that arrives through the reach of the peer it is about is
+refused, since a peer must not say who its own crew is here. Removing one is
+typed in a terminal. Without <crew> the command lists the link's, as yardr
+peer show does. Removing the link removes them.`,
 		Example: `  yardr peer identity north mayor --source linear --id 4d3a2b1c-...
   yardr peer identity north
   yardr peer identity north mayor --source linear --rm`,
@@ -803,9 +813,13 @@ its subscribers of a bead that waits there (yardr group set <group>
 wait=1d); the bead ends when someone moves or closes it.
 
 Only the operator may set an intake, as only the operator allows what a link
-carries. --none with --depot removes that depot's intake, without it every
-intake, which anyone may. Refused when the depot is none of the yard's or
-the flow does not resolve for it.`,
+carries. A crew member proposes one with a run ask (yardr bead ask --help),
+and the card names the depot, the flow, the stage its beads arrive in and who
+works it; the approval is the operator's from this yard, and refused through
+the reach of the peer it is about. It does not install return-branch, as this
+command does. --none with --depot removes that depot's intake, without it
+every intake, which anyone may. Refused when the depot is none of the yard's
+or the flow does not resolve for it.`,
 		Example: `  yardr peer allow north --receive bead
   yardr peer intake north --depot web --flow incoming
   yardr peer intake north --depot web --flow incoming --limit 3
@@ -935,28 +949,9 @@ func intakeLines(p store.Peer) []string {
 	return out
 }
 
-// intakeLineFor is the line for one of the peer's intakes.
-func intakeLineFor(p store.Peer, in store.PeerIntake) string {
-	takes := slices.Contains(p.Receive, store.PeerBead)
-	how := ""
-	if st := p.ArriveFor(in.Depot); st != nil {
-		how = st.ArriveLine(p.Name)
-		if how == "" {
-			how = "its beads are refused (no_intake) until this reads again: " + or(st.Error, "who works the flow's first stage was not read")
-		}
-	} else {
-		how = "its beads are refused (no_intake) until this reads again: who works the flow's first stage was not read"
-	}
-	def := ""
-	if in.Default {
-		def = " (default)"
-	}
-	line := fmt.Sprintf("depot %s, flow %s%s: %s; at most %d open, %d now", in.Depot, in.Flow, def, how, in.Most(), p.OpenByDepot[in.Depot])
-	if !takes {
-		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
-	}
-	return line
-}
+// intakeLineFor is the line for one of the peer's intakes, as the store
+// words it for a card too (store.Peer.IntakeLine).
+func intakeLineFor(p store.Peer, in store.PeerIntake) string { return p.IntakeLine(in) }
 
 // arriveNotes are what yardr doctor notes of a peer's intakes: each first
 // stage in which nobody this yard named looks at a bead before something

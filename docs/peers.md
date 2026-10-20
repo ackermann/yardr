@@ -447,7 +447,7 @@ a host, no credential, no query); it is the URL the peer has already.
 
 `peer add`, `peer rm`, `peer rename`, `peer set`, `peer allow
 --send/--receive/--expose/--trust/--reach`, `peer intake` and `peer identity`
-(setting an id, and taking it back) are the operator's alone, by the check a crew member's
+(setting an id, and taking it back) are the operator's to give, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
 by which name its crew members reach it, where its messages go, what it
 takes from them, and whom of the yard they may see and write to, is not for
@@ -457,6 +457,56 @@ no longer (`--no-trust`), sending a user's asks to one no longer
 (`--no-reach`) and `peer intake --none`, for one depot or for all, only
 narrow, and anyone may.
 Like that check it is a line, not a wall.
+
+**A crew member proposes some of them, and the operator approves.** What a
+link that is made carries, where the beads a peer sends go and who a peer's
+crew member is in a source go on a run ask ([chat.md](chat.md#questions-for-you)),
+as `peer rename` does: `peer allow <peer> --send <kinds>` and `--receive
+<kinds>` of any kind (and `--mail-limit`), `peer intake <peer> --depot <depot>
+--flow <flow>` and `peer identity <peer> <crew> --source <source> --id <id>`.
+The operator approves the card from this yard, in a terminal or in footplate
+paired with it, and the yard runs the command as the operator, under the
+command's own check. The card says what the command does to the link:
+
+- `peer allow` says what the link will carry to the peer and take from it
+  after the command, and what it carries and takes now, then which kinds the
+  command adds and stops: `the link with airy (…) will carry bead to it and
+  take mail from it. It carries mail to it and takes mail from it now.`
+- `peer intake` says which depot the peer's beads become beads of, which flow
+  they follow, the stage they arrive in and who works it, as `yardr peer
+  intake` prints it, and what the link has for that depot now. A flow of the
+  depot's repository is read from the repository when the ask is written and
+  again when it is approved. The command prints more at a terminal than the
+  approval does: it also installs `return-branch` (see [code that comes
+  back](#code-that-comes-back)), which an approval does not.
+- `peer identity` says whose word a delivery from the id is then taken as,
+  `<crew>@<peer>` and no user of this yard, and what the crew member has in the
+  source now.
+
+**Never through the peer's own reach.** A peer does not widen its own link,
+say where its own beads go or say who its own crew is on its own word. So an
+approval of a card about the link with a peer that arrives through that
+peer's reach (`mckean@airy` taken as `mckean`, [reach](#reach-a-users-asks-are-also-sent-to-the-name))
+is refused, whoever it is taken to be, and the ask stays open for the
+operator's approval from this yard:
+
+```text
+ask 4: this approval arrived through the reach of airy (a name of airy taken as mckean), and a peer must not widen its own link. Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open
+```
+
+The yard knows the way an approval came from the door it came through, never
+from the words of the call: the socket knows the process at its other end, the
+listener the token of the device, and a door that takes a call over a link marks
+the call with that link. The store reads the mark where it approves. No door
+takes an approval over a link today: `ApproveAsk` is refused for a
+`bead@peer`, and an answer from a link cannot approve a run ask, so the
+refusal is the last line, kept for the day one does.
+
+Still typed in a terminal and refused as a card: `peer add`, a pairing, `peer
+set --url`, `peer rm`, `--expose`, `--trust` and `--reach` (alone or beside a
+kind), and taking an id back (`peer identity --rm`). A command that only
+narrows (`--no-send`, `--no-receive`, `peer intake --none`) needs no approval,
+and is refused as a card for that.
 
 ### The roster: whom a peer may see and write to
 
@@ -879,10 +929,16 @@ sender as unmapped, as it does for an id two users hold, and the hook's
 in the source is this yard's own post coming back. The receiver drops it as
 that before it reads any mapping.
 
-**Who may.** Only the operator sets an id or takes it back, in a terminal. A
-crew member's session is refused, and no run ask can propose either. Mapping an
-id on the source's ignore list removes it from the list in the same write, as
-mapping a user does.
+**Who may.** Only the operator sets an id or takes it back. A crew member's
+session is refused, and takes back none: `--rm` is typed in a terminal. Setting
+one can be proposed with a run ask, `--run "peer identity <peer> <crew>
+--source <source> --id <id>"` ([chat.md](chat.md#questions-for-you)), which
+the operator approves from this yard: the card says whose word the sender is
+then, `<crew>@<peer>` and no user, and what the crew member has in the source
+now, and an approval that arrives through that peer's own reach is refused, since
+a peer must not say who its own crew is here ([who may do
+what](#who-may-do-what)). Mapping an id on the source's ignore list removes it
+from the list in the same write, as mapping a user does.
 
 **Where it is listed.** `yardr peer identity <peer>`, and an `identity:` line
 for each in `yardr peer show <peer>` (`--json`: `peer.identities`).
@@ -1110,15 +1166,15 @@ mail: takes 100 mails and asks an hour, and 800 files
   member that wants the link to take more proposes the command for the
   operator to approve, with a run ask (`yardr bead ask --run "peer allow
   <peer> --mail-limit <n>"`, [chat.md](chat.md#questions-for-you)), and
-  one that wants the link to carry mail or ping proposes that apart from
-  the limit: the kinds and the limit are two asks. Only widening mail or
-  ping is askable; `--send` or `--receive` of any other kind is refused
-  as the operator's alone, as is `peer allow` with `--trust`, `--reach`
-  or `--expose`, alone or beside either. So are `peer add`, a pairing,
-  `peer url` and `peer
-  rm`: who speaks and answers as a person of this yard, and where another
-  yard is, are the operator's to type in a terminal. Renaming the link is
-  proposed the same way (`peer rename <old> <new>`).
+  one that wants the link to carry a kind proposes that apart from
+  the limit: the kinds and the limit are two asks. A kind of any sort is
+  askable, each way ([who may do what](#who-may-do-what)); `peer allow`
+  with `--trust`, `--reach` or `--expose`, alone or beside either, is
+  refused as the operator's alone. So are `peer add`, a pairing, `peer
+  set --url` and `peer rm`: who speaks and answers as a person of this
+  yard, and where another yard is, are the operator's to type in a
+  terminal. Renaming the link is proposed the same way (`peer rename
+  <old> <new>`).
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the
@@ -1760,8 +1816,13 @@ none: a bead it sends is refused`.
   It is no setting.
 
 `--depot` with `--none` removes that depot's intake; `--none` on its own
-removes every intake. Setting an intake is the operator's alone, as
-allowing what the link carries is; removing one or all is anyone's.
+removes every intake. Setting an intake is the operator's, as allowing what
+the link carries is; a crew member proposes it with a run ask (`yardr bead ask
+--run "peer intake <peer> --depot <depot> --flow <flow>"`,
+[chat.md](chat.md#questions-for-you)), whose card names the depot, the flow,
+the stage the beads arrive in and who works it, and which the operator
+approves from this yard, never through the reach of that peer ([who may do
+what](#who-may-do-what)). Removing one or all is anyone's.
 
 A flow and a group for a yard that looks at each bead:
 
@@ -3044,8 +3105,8 @@ with is 401, as any request that is no peer's.
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `identities` (each `source`, `id`, `crew`) that went with it, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
-| `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all) |
-| `peer_identity_set` | `peer identity --id` | `peer`, `crew`, `source`, `id`; `was`, the id the crew member had in the source, when it replaced another. A `sender_unignored` follows when the id was on the source's ignore list |
+| `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all); `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way |
+| `peer_identity_set` | `peer identity --id` | `peer`, `crew`, `source`, `id`; `was`, the id the crew member had in the source, when it replaced another; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way. A `sender_unignored` follows when the id was on the source's ignore list |
 | `peer_identity_removed` | `peer identity --rm` | `peer`, `crew`, `source`, `id` taken back |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out; `approved`, the `bead` and `ask` of the run ask the operator approved, when the change was made that way |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |

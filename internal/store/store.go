@@ -297,6 +297,10 @@ type wtx struct {
 	// via is the device this write came through and whose it is; the zero
 	// value for a write that came through none (writeVia).
 	via via
+	// repos are the repository flows, by depot, that a run ask's card needs
+	// and that were read before the write, since git must not run inside
+	// one (runCommand.ready); nil for a write that needs none.
+	repos map[string]*RepoFlows
 }
 
 // write runs fn in a batched write transaction, then nudges the pump to

@@ -361,6 +361,17 @@ type runCommand struct {
 	// a user is that user's alone). It takes the place of whose and of
 	// the operator's leg wherever it answers a name.
 	sole func(argv []string) string
+	// link is the peer whose link the command changes, and what a peer must
+	// not do to its own link, in the words that follow "a peer must not":
+	// "" and "" where the command is about no peer's link. An approval that
+	// reaches the yard through that same peer's reach is refused (approveAsk,
+	// WithReach), whoever is taken to approve, since the peer would then
+	// change the link it speaks through on its own word.
+	link func(argv []string) (peer, rule string)
+	// ready reads before the write what the card needs of git, which must
+	// not run inside one: the repository flows, by depot, of the depot the
+	// command names (wtx.repos). nil for a command whose card reads none.
+	ready func(ctx context.Context, s *Store, argv []string) (map[string]*RepoFlows, error)
 	// commas says a word of the command is a list with commas between, as
 	// the parts of tell= are. No other command takes the character.
 	commas bool
@@ -383,7 +394,29 @@ var runList = []runCommand{{
 	card:        (*wtx).peerAllowCard,
 	stale:       (*wtx).peerAllowStale,
 	run:         runPeerAllow,
+	link:        func(argv []string) (string, string) { return argv[2], "widen its own link" },
 	commas:      true,
+}, {
+	words:       []string{"peer", "intake"},
+	use:         "yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]",
+	description: "Say where the beads a peer sends go: the depot and the flow",
+	parse:       parsePeerIntake,
+	check:       checkPeerIntake,
+	card:        (*wtx).peerIntakeCard,
+	stale:       (*wtx).peerIntakeStale,
+	run:         runPeerIntake,
+	link:        func(argv []string) (string, string) { return argv[2], "say where its own beads go" },
+	ready:       readyPeerIntake,
+}, {
+	words:       []string{"peer", "identity"},
+	use:         "yardr peer identity <peer> <crew> --source <source> --id <id>",
+	description: "Who a sender is in a source, when a crew member of a peer's yard (no <crew>: list)",
+	parse:       parsePeerIdentity,
+	check:       checkPeerIdentity,
+	card:        (*wtx).peerIdentityCard,
+	stale:       (*wtx).peerIdentityStale,
+	run:         runPeerIdentity,
+	link:        func(argv []string) (string, string) { return argv[2], "say who its own crew is here" },
 }, {
 	words:       []string{"source", "set"},
 	use:         "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",
@@ -809,13 +842,18 @@ func peerAs(p *Peer) string {
 	return as
 }
 
+// kindsSay is the kinds a link carries one way as a card names them:
+// "nothing" for none.
+func kindsSay(kinds []string) string { return or(strings.Join(kinds, ", "), "nothing") }
+
 // peerAllowCard is the card of peer allow: the limit it sets, and the
-// kinds it carries each way and stops. The peer is named with what it
-// calls itself and the start of its key, and the approval is held to the
-// key whole and to what the link carries (Seen). Asking refuses a limit
-// the link has already, and one below it: to take less mail is anyone's,
-// and needs no approval. It refuses kinds that change nothing the same
-// way.
+// kinds it carries each way and stops, with what the link carries in and
+// out after the command beside what it carries now. The peer is named with
+// what it calls itself and the start of its key, and the approval is held
+// to the key whole and to what the link carries (Seen). Asking refuses a
+// limit the link has already, and one below it: to take less mail is
+// anyone's, and needs no approval. It refuses kinds that change nothing the
+// same way.
 func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 	al := peerAllowOf(argv)
 	p, err := loadPeer(w.Tx, al.name)
@@ -845,30 +883,45 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 	if asking && kinds && len(addedSend)+len(addedReceive)+len(removedSend)+len(removedReceive) == 0 {
 		return AskRun{}, fmt.Errorf("peer %s: the link carries %s to it and takes %s from it already, so the command would change nothing", al.name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
 	}
-	if len(addedSend) > 0 {
-		does = append(does, fmt.Sprintf("the link with %s (%s) carries %s to it. It carries %s now.", al.name, peerAs(p), strings.Join(addedSend, ", "), or(strings.Join(p.Send, ", "), "nothing")))
-		for _, k := range addedSend {
-			back = append(back, "--no-send", k)
+	if kinds {
+		// What the link carries each way after the command and before it,
+		// whole, so the person reads the link as it will be beside the
+		// link as it is, then which kinds the command adds and stops.
+		does = append(does, fmt.Sprintf("the link with %s (%s) will carry %s to it and take %s from it. It carries %s to it and takes %s from it now.",
+			al.name, peerAs(p),
+			kindsSay(changeList(p.Send, al.send, al.nosend)), kindsSay(changeList(p.Receive, al.receive, al.noreceive)),
+			kindsSay(p.Send), kindsSay(p.Receive)))
+		var delta []string
+		if len(addedSend) > 0 {
+			delta = append(delta, "adds "+strings.Join(addedSend, ", ")+" to what it carries to it")
+		}
+		if len(addedReceive) > 0 {
+			delta = append(delta, "adds "+strings.Join(addedReceive, ", ")+" to what it takes from it")
+		}
+		if len(removedSend) > 0 {
+			delta = append(delta, "stops carrying "+strings.Join(removedSend, ", ")+" to it")
+		}
+		if len(removedReceive) > 0 {
+			delta = append(delta, "stops taking "+strings.Join(removedReceive, ", ")+" from it")
+		}
+		// None left when the link changed since the card was written: the
+		// approval is then refused as stale, in the card's first sentence.
+		if len(delta) > 0 {
+			does = append(does, "That "+andList(delta)+".")
 		}
 	}
-	if len(addedReceive) > 0 {
-		does = append(does, fmt.Sprintf("the link with %s (%s) takes %s from it. It takes %s now.", al.name, peerAs(p), strings.Join(addedReceive, ", "), or(strings.Join(p.Receive, ", "), "nothing")))
-		for _, k := range addedReceive {
-			back = append(back, "--no-receive", k)
-		}
+	for _, k := range addedSend {
+		back = append(back, "--no-send", k)
 	}
-	if len(removedSend) > 0 {
-		does = append(does, fmt.Sprintf("the link with %s stops carrying %s to it.", al.name, strings.Join(removedSend, ", ")))
-		for _, k := range removedSend {
-			back = append(back, "--send", k)
-		}
+	for _, k := range addedReceive {
+		back = append(back, "--no-receive", k)
+	}
+	for _, k := range removedSend {
+		back = append(back, "--send", k)
 		backBy = "only the operator"
 	}
-	if len(removedReceive) > 0 {
-		does = append(does, fmt.Sprintf("the link with %s stops taking %s from it.", al.name, strings.Join(removedReceive, ", ")))
-		for _, k := range removedReceive {
-			back = append(back, "--receive", k)
-		}
+	for _, k := range removedReceive {
+		back = append(back, "--receive", k)
 		backBy = "only the operator"
 	}
 	finger := map[string]string{"peer " + al.name: p.Key}
@@ -1118,7 +1171,10 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // operator and to no other caller (rpc.OperatorCalls): the answer and the
 // events of an approval that came so say how it came, as a device's other
 // writes do (writeVia). No answer that comes over a link approves
-// (answerable).
+// (answerable), and an approval that a door took through the reach of a
+// peer is refused where it changes that peer's own link, or its own
+// intake, or says who its own crew is (runCommand.link, WithReach): the
+// path is the context's, set by the door.
 func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
@@ -1131,8 +1187,14 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		defer unlockHook()
 		return s.approveHookRegister(ctx, id, ask, actor)
 	}
+	// What the ask's card needs of git is read before the write.
+	repos, err := s.approvalRepos(ctx, id, ask)
+	if err != nil {
+		return nil, fmt.Errorf("ask %d: %w. %s", ask, err, nothingRan)
+	}
 	var out *AskApproved
-	err := s.writeVia(ctx, func(w *wtx) (err error) {
+	err = s.writeVia(ctx, func(w *wtx) (err error) {
+		w.repos = repos
 		out, err = w.approveAsk(ctx, id, ask, actor)
 		return err
 	})
@@ -1140,6 +1202,30 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		return nil, err
 	}
 	return out, nil
+}
+
+// approvalRepos reads, before the write that approves the run ask seq on
+// the bead id, what its row's card needs of git (runCommand.ready). An ask
+// that cannot be read here (no bead, no run) is left to the write, which
+// refuses it in its own words.
+func (s *Store) approvalRepos(ctx context.Context, id string, seq uint64) (map[string]*RepoFlows, error) {
+	notes, err := s.Notes(ctx, id)
+	if err != nil {
+		return nil, nil
+	}
+	for _, n := range notes {
+		if n.Seq != seq || n.Kind != NoteAsk {
+			continue
+		}
+		ask, err := ParseAsk(n)
+		if err != nil || ask.Run == nil {
+			return nil, nil
+		}
+		if c, argv, err := parseRow(ask.Run.Argv); err == nil && c.ready != nil {
+			return c.ready(ctx, s, argv)
+		}
+	}
+	return nil, nil
 }
 
 // approveAsk is ApproveAsk inside the transaction. A batch may run it twice
@@ -1201,6 +1287,17 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
+	}
+	// A peer does not change its own link on its own word. The path the
+	// approval came by is on the context, set by the door (WithReach): one
+	// that came through the reach of the peer the command is about is
+	// refused, whoever it takes the approver to be, before the card is read.
+	// This yard's own approval of the same card, in a terminal here or from
+	// a device paired with this yard directly, carries no such mark.
+	if c.link != nil {
+		if peer, rule := c.link(argv); peer != "" && reachOf(ctx) == peer {
+			return nil, fmt.Errorf("ask %d: this approval arrived through the reach of %s (a name of %s taken as %s), and a peer must not %s. Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open", seq, peer, peer, actor, rule)
+		}
 	}
 	var card AskRun
 	if c.cardRun != nil {
