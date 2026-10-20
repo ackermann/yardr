@@ -71,14 +71,19 @@ inner=$kind
 agent=$group
 [ -n "$inner" ] && agent="$group ($inner)"
 
-# Drop every harness trailer. One interpret-trailers pass replaces one
-# same-key trailer, so loop until git's own parse shows none left; bounded,
-# since harnesses add a few at most.
-i=0
-while [ "$i" -lt 10 ] && git interpret-trailers --parse < "$msg" 2>/dev/null | grep -qiE '^(co-authored-by|signed-off-by)[[:space:]:]'; do
-	git interpret-trailers --trim-empty --if-exists replace --trailer 'Co-Authored-By:' --trailer 'Signed-off-by:' --in-place "$msg" || exit $?
-	i=$((i + 1))
-done
+# One interpret-trailers pass replaces one same-key trailer, so remove each
+# kind until git's own parse shows none left. Do the same for old Yardr
+# trailers: replace would otherwise leave an earlier duplicate behind.
+drop_trailers() {
+	token=$1
+	while git interpret-trailers --parse < "$msg" 2>/dev/null | grep -qiE "^${token}[[:space:]:]"; do
+		git interpret-trailers --trim-empty --if-exists replace --trailer "$token:" --in-place "$msg" || exit $?
+	done
+}
+drop_trailers 'Co-Authored-By'
+drop_trailers 'Signed-off-by'
+drop_trailers 'Yardr-Bead'
+drop_trailers 'Yardr-Agent'
 
 # The yard's own trailers, replacing whatever is there (a hand-written
 # value, another session's on amend), so they never duplicate.

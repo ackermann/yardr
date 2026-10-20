@@ -201,6 +201,37 @@ func TestSessionCommitAmendKeepsSingleTrailers(t *testing.T) {
 	}
 }
 
+// Every matching trailer is removed, however many the message contains,
+// and duplicate Yardr trailers are replaced by exactly the current pair.
+func TestSessionCommitNormalizesDuplicateTrailers(t *testing.T) {
+	repo := sessionRepo(t)
+	home := t.TempDir()
+	job := sessionJob("web-3", "builders", "muse", "spark")
+	env := (&Herdr{YardHome: home}).agentEnv(job, "web-3-new")
+
+	var msg strings.Builder
+	msg.WriteString("web-3: normalize all trailers\n\n")
+	for i := 0; i < 12; i++ {
+		msg.WriteString("Co-Authored-By: harness <h@example.com>\n")
+		msg.WriteString("Signed-off-by: operator <o@example.com>\n")
+	}
+	msg.WriteString("Yardr-Bead: old-one\nYardr-Bead: old-two\n")
+	msg.WriteString("Yardr-Agent: old-one\nYardr-Agent: old-two\n")
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", msg.String())
+
+	body := sessionLog(t, repo, env)
+	for _, gone := range []string{"co-authored-by", "signed-off-by", "Yardr-Bead: old-", "Yardr-Agent: old-"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(gone)) {
+			t.Errorf("%q survived:\n%s", gone, body)
+		}
+	}
+	for _, want := range []string{"Yardr-Bead: web-3", "Yardr-Agent: builders (muse spark)"} {
+		if n := strings.Count(body, want); n != 1 {
+			t.Errorf("%q %d times, want once:\n%s", want, n, body)
+		}
+	}
+}
+
 // The repo's own commit-msg hook still runs: what it adds stays beside the
 // yard's trailers, and one that refuses the message fails the commit.
 func TestSessionCommitRunsRepoHook(t *testing.T) {

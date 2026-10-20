@@ -26,9 +26,10 @@ Check the diff (`git diff <base>...HEAD`) against this list:
 A change that touches none of this is passed quickly: the note is one line
 saying so, and the outcome is `done`.
 
-A small finding is fixed on the branch (commits starting `review:`), not
-sent back, with a regression test. Before the bead leaves, the depot's test
-command has passed on the branch as it now is: the last test line on the
+A small finding is fixed on the branch (commits subject
+"<bead id> review: <what>"), not sent back, with a regression test. Before
+the bead leaves, the depot's test command has passed on the branch as it now
+is: the last test line on the
 bead names the commit under review and you committed nothing, or you ran it
 yourself (`sh .yardr/test` in the worktree) and your note ends with its
 line, `test: <command> @ <commit>: pass`. The whole suite is not this

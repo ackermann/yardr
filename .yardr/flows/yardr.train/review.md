@@ -17,9 +17,10 @@ name each in your note.
    (shared types, duplicated helpers, one child's assumption another broke),
    do the docs describe the end state, is anything a child left "for a later
    child" actually done.
-3. Fix forward as for any bead, in commits starting `review:`, on the train
-   branch. Run `YARDR_LANDING=1 sh .yardr/test` after your changes. It runs
-   the selection plus the six black-box suites when the train changed
+3. Fix forward as for any bead, in commits subject "<bead id> review: <what>"
+   on the train branch. Run `YARDR_LANDING=1 sh .yardr/test` after your
+   changes. It runs the selection plus the six black-box suites when the
+   train changed
    compiled content; when nothing compiled changed, it runs the plain
    selection alone instead (docs/line.md, "The landing run, and the whole
    suite on a quiet machine").

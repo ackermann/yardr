@@ -3,7 +3,7 @@ summary: The finished bead is reviewed against its goal; what the reviewer can f
 The finished bead is reviewed here, on its branch `yard/<bead>`, against the
 bead: its goal, its "done when" and the builder's notes. The review is
 forward: what the reviewer can fix with confidence is fixed on the branch
-(commits starting `review:`), not sent back.
+(commits subject "<bead id> review: <what>"), not sent back.
 
 Approval here is the last review of whether the bead does what it says: no
 human reviews after it, so be thorough. Whether a second review follows, for

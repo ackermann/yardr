@@ -276,8 +276,8 @@ binary. For the rest the builder previews the landing itself,
 which is the selection plus the six for a branch that changes
 something compiled, as these do. An edit to `.yardr/test` on a branch
 is tested by the builder's own run alone: the assembly runs the copy
-`main` has. A reviewer's `review:` commits get a plain run too, so a
-fault in one of them is the assembly's to find.
+`main` has. A reviewer's commits subject "<bead id> review: <what>" get a
+plain run too, so a fault in one of them is the assembly's to find.
 
 How many landing runs go at once is the assembly group's `limit`:
 every depot of this yard lands through one group
@@ -303,10 +303,10 @@ script. The builder's run and the assembly's are the same in this.
 home (`~/.yardr/roles/reviewer.md`, since the depot keeps no role of its
 own), and the stage file `.yardr/flows/default/review.md` (when each
 outcome applies). It is the last review of whether the bead does what it
-says, so it fixes what it can on the branch (commits starting
-`review:`) rather than only reporting, tries the change, runs the depot's
-test command if it committed or the builder's test line is not for the
-commit under review (the landing run is the assembly's), and then:
+says, so it fixes what it can on the branch (commits subject
+"<bead id> review: <what>") rather than only reporting, tries the change,
+runs the depot's test command if it committed or the builder's test line is
+not for the commit under review (the landing run is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `review-security`) when the diff touches anything
@@ -350,9 +350,10 @@ reviewer asked for everything reads for the feature first and for what it
 opens last, with what attention is left.
 
 The second review works as the first: it fixes a small finding on the
-branch (`review:` commits) and then runs the depot's test command, sends
-anything larger back to `new` with `changes` (the bead then passes `review`
-again), and takes a question to `decide`. It is kept from becoming a second
+branch (commits subject "<bead id> review: <what>") and then runs the depot's
+test command, sends anything larger back to `new` with `changes` (the bead
+then passes `review` again), and takes a question to `decide`. It is kept
+from becoming a second
 general review: a change that touches nothing on the list is passed with
 one line saying so, and the tests are not run again for a branch it did not
 change. A diff that touches nothing on the list goes straight from `review`

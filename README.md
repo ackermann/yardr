@@ -130,7 +130,9 @@ The repository takes no outside contributions yet. When it does, every
 outside contribution must carry a `Signed-off-by` line with the author's name
 and email address (`git commit -s`): it certifies the Developer Certificate of
 Origin, <https://developercertificate.org>, that the author wrote the change,
-or may submit it, under the project's licence.
+or may submit it, under the project's licence. A yardr agent session instead
+writes the `Yardr-Bead` and `Yardr-Agent` trailers described in
+[groups.md](docs/groups.md#runners).
 
 ## Licence
 
