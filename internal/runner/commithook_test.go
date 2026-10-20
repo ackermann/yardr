@@ -131,6 +131,135 @@ func TestEnsureCommitHook(t *testing.T) {
 	}
 }
 
+// The yard's hooks directory holds a pass-through for every other hook
+// git looks up by name (see passthroughHooks): each is the shim, executable
+// and syntactically sound, and an outdated or unexecutable one is repaired
+// as the commit-msg hook is.
+func TestEnsureCommitHookInstallsPassthroughs(t *testing.T) {
+	home := t.TempDir()
+	dir, err := EnsureCommitHook(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range passthroughHooks {
+		hook := filepath.Join(dir, name)
+		body, err := os.ReadFile(hook)
+		if err != nil || string(body) != passthroughHook {
+			t.Fatalf("%s = %q, %v", name, body, err)
+		}
+		if st, err := os.Stat(hook); err != nil || st.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("%s not executable: %v", name, st)
+		}
+		if out, err := exec.Command("sh", "-n", hook).CombinedOutput(); err != nil {
+			t.Fatalf("%s: sh -n: %v\n%s", name, err, out)
+		}
+	}
+	one := filepath.Join(dir, "pre-commit")
+	if err := os.WriteFile(one, []byte("# old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "pre-push")
+	if err := os.Chmod(other, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureCommitHook(home); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := os.ReadFile(one); string(body) != passthroughHook {
+		t.Error("an outdated pass-through was not replaced")
+	}
+	if st, _ := os.Stat(other); st.Mode().Perm()&0o111 == 0 {
+		t.Error("an unexecutable pass-through was not repaired")
+	}
+}
+
+// The repo's other hooks still run in a session, not only its commit-msg:
+// a pre-commit that refuses blocks the session's commit as it would
+// without the yard's hook, prepare-commit-msg runs, and a commit the
+// repo's hooks allow still carries the yard's trailers. A depot that
+// points its own core.hooksPath elsewhere has its pre-commit run from
+// there too.
+func TestSessionCommitRunsOtherRepoHooks(t *testing.T) {
+	repo := sessionRepo(t)
+	home := t.TempDir()
+	hooks := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	preRan := filepath.Join(repo, ".git", "pre-commit.ran")
+	prepareRan := filepath.Join(repo, ".git", "prepare-commit-msg.ran")
+	writeHook := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(hooks, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeHook("pre-commit", "#!/bin/sh\necho ran > "+preRan+"\nexit 1\n")
+	writeHook("prepare-commit-msg", "#!/bin/sh\necho ran > "+prepareRan+"\n")
+	job := sessionJob("web-3", "builders", "claude", "opus")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused"); err == nil {
+		t.Fatalf("a refusing repo pre-commit committed:\n%s", out)
+	}
+	if _, err := os.Stat(preRan); err != nil {
+		t.Fatal("the repo's pre-commit hook did not run")
+	}
+	writeHook("pre-commit", "#!/bin/sh\necho ran > "+preRan+"\n")
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: allowed")
+	if _, err := os.Stat(prepareRan); err != nil {
+		t.Fatal("the repo's prepare-commit-msg hook did not run")
+	}
+	if body := sessionLog(t, repo, env); strings.Count(body, "Yardr-Bead: web-3") != 1 ||
+		strings.Count(body, "Yardr-Agent: builders (claude opus)") != 1 {
+		t.Fatalf("yard trailers missing beside repo hooks:\n%s", body)
+	}
+
+	// From a depot-configured hooksPath, as for commit-msg.
+	custom := filepath.Join(repo, "myhooks")
+	if err := os.MkdirAll(custom, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	customRan := filepath.Join(repo, ".git", "custom-pre-commit.ran")
+	if err := os.WriteFile(filepath.Join(custom, "pre-commit"),
+		[]byte("#!/bin/sh\necho ran > "+customRan+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "config", "core.hooksPath", "myhooks")
+	if out, err := sessionGit(t, repo, env, "commit", "--allow-empty", "-m", "web-3: refused again"); err == nil {
+		t.Fatalf("a refusing configured pre-commit committed:\n%s", out)
+	}
+	if _, err := os.Stat(customRan); err != nil {
+		t.Fatal("the depot's configured pre-commit hook did not run")
+	}
+}
+
+// A repo pre-push hook still guards a session's push: one that refuses
+// leaves the remote where it was, one that allows lets the push through.
+func TestSessionPushRunsRepoPrePush(t *testing.T) {
+	repo := sessionRepo(t)
+	home := t.TempDir()
+	bare := t.TempDir()
+	gitT(t, bare, "init", "-q", "--bare", "-b", "main")
+	ran := filepath.Join(repo, ".git", "pre-push.ran")
+	hook := filepath.Join(repo, ".git", "hooks", "pre-push")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran > "+ran+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	job := sessionJob("web-3", "builders", "codex", "luna")
+	env := sessionHerdrEnv(t, home, job, "web-3-new")
+	sessionGitT(t, repo, env, "commit", "-q", "--allow-empty", "-m", "web-3: to push")
+	if out, err := sessionGit(t, repo, env, "push", bare, "main"); err == nil {
+		t.Fatalf("a refusing repo pre-push pushed:\n%s", out)
+	}
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatal("the repo's pre-push hook did not run")
+	}
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran > "+ran+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionGitT(t, repo, env, "push", bare, "main")
+}
+
 // A runner does not start work when it cannot install the hook that gives
 // session commits their trailers.
 func TestRunnerDoesNotStartWithoutCommitHook(t *testing.T) {

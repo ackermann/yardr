@@ -854,7 +854,10 @@ trailers go on in their place, idempotent on amend:
     Yardr-Agent: <group> (<kind> <model>)
 
 The repo's own commit-msg hook, when one exists, runs first, so a depot's
-hooks still run. The author stays the operator's git identity.
+hooks still run. Git's other hooks run too: the yard's hooks directory
+carries a pass-through for each of them, so a repo's `pre-commit`,
+`pre-push` and the rest run as they would without the yard's hook, with
+the same power to refuse. The author stays the operator's git identity.
 
 What an exec session's command prints, stdout and stderr, is appended to
 the group's `log`, one file for all its sessions. A group with no `log`

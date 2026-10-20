@@ -24,7 +24,9 @@ import (
 // YARDR_KIND, YARDR_MODEL). Outside a session, with no YARDR_BEAD, the
 // message stands as written. The repo's own commit-msg hook, when one
 // exists, runs first, so a depot's hooks still run; one that refuses the
-// message fails the commit before the yard normalizes it.
+// message fails the commit before the yard normalizes it. The repo's other
+// hooks still run through passthroughHook, since core.hooksPath would
+// otherwise hide every one of them behind this directory.
 const commitHook = `#!/bin/sh
 # The yard's commit-msg hook: every commit an agent makes in a session ends
 # the same way. Harness trailers (Co-Authored-By, Signed-off-by) go, whatever
@@ -89,24 +91,95 @@ drop_trailers 'Yardr-Agent'
 exec git interpret-trailers --if-exists replace --trailer "Yardr-Bead: $bead" --trailer "Yardr-Agent: $agent" --in-place "$msg"
 `
 
-// EnsureCommitHook writes the yard's commit-msg hook under home
-// (config.GitHooks) when it is missing or outdated, and returns the hooks
-// directory the session's core.hooksPath points at. The write is atomic (a
-// temp file plus rename), so sessions starting together never leave a
-// half-written hook for a commit to run.
+// passthroughHooks are git's other hooks, besides commit-msg: the hooks a
+// session's git would have run from the repo's own hooks directory before
+// the yard pointed core.hooksPath at its own. core.hooksPath names one
+// directory for every hook, so a yard directory holding only commit-msg
+// would silently skip a repo's pre-commit, pre-push and the rest — checks
+// that can refuse a commit or a push. Each name below gets the
+// passthroughHook shim instead, which runs the repo's hook of the same
+// name as git would have. fsmonitor-watchman is the one name left out:
+// its stdout is a protocol (the paths that changed), so a shim that finds
+// no repo hook must not answer in its place with nothing changed.
+var passthroughHooks = []string{
+	"applypatch-msg", "pre-applypatch", "post-applypatch",
+	"pre-commit", "pre-merge-commit", "prepare-commit-msg",
+	"post-commit", "pre-rebase", "post-checkout", "post-merge",
+	"pre-push", "pre-receive", "update", "proc-receive",
+	"post-receive", "post-update", "reference-transaction",
+	"push-to-checkout", "pre-auto-gc", "post-rewrite",
+	"sendemail-validate", "post-index-change",
+}
+
+// passthroughHook is the shim the yard installs for every hook in
+// passthroughHooks: it runs the repo's own hook of the same name (what git
+// would run without the session's core.hooksPath override, read past that
+// override as the commit-msg hook reads it), with the same arguments and
+// stdin, and git sees that hook's exit status. With no repo hook it exits
+// 0, as a missing hook does. It never alters a commit message; only
+// commit-msg does that.
+const passthroughHook = `#!/bin/sh
+# The yard's pass-through for a repo hook other than commit-msg: pointing
+# the session's git at the yard's hooks for commit-msg must not skip the
+# repo's other hooks, so this runs the repo's hook of the same name as git
+# would have run it, and git sees its exit status.
+set -u
+hook=${0##*/}
+
+# What git would run without the yard's hook, read past this session's
+# core.hooksPath override: --git-path honours a configured hooksPath (a
+# relative one it returns relative to here, where git runs hooks), and
+# otherwise names the git dir's hooks, in a linked worktree the common
+# dir's. One git call, since hooks like reference-transaction fire often.
+repo_hooks=$(env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 git rev-parse --git-path hooks 2>/dev/null || true)
+if [ -n "${repo_hooks:-}" ] && [ -x "$repo_hooks/$hook" ] && [ ! "$repo_hooks/$hook" -ef "$0" ]; then
+	exec "$repo_hooks/$hook" "$@"
+fi
+exit 0
+`
+
+type hookFile struct{ name, body string }
+
+// hookFiles is every file EnsureCommitHook keeps in the yard's hooks
+// directory: the commit-msg hook, then a pass-through for each other hook.
+func hookFiles() []hookFile {
+	files := []hookFile{{"commit-msg", commitHook}}
+	for _, name := range passthroughHooks {
+		files = append(files, hookFile{name, passthroughHook})
+	}
+	return files
+}
+
+// EnsureCommitHook writes the yard's hooks under home (config.GitHooks)
+// when they are missing or outdated, and returns the hooks directory the
+// session's core.hooksPath points at. Each write is atomic (a temp file
+// plus rename), so sessions starting together never leave a half-written
+// hook for a commit to run.
 func EnsureCommitHook(home string) (string, error) {
 	dir := config.At(home).GitHooks()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("git hooks dir %s: %w", dir, err)
 	}
-	path := filepath.Join(dir, "commit-msg")
-	if cur, err := os.ReadFile(path); err != nil || string(cur) != commitHook {
-		tmp, err := os.CreateTemp(dir, ".commit-msg-*")
+	for _, f := range hookFiles() {
+		if err := ensureHookFile(dir, f); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// ensureHookFile writes one hook file (name, body) in dir when it is
+// missing or outdated, atomically, and repairs a hook that lost its
+// execute bit (a restore, a copy): git runs a hook only when it executes.
+func ensureHookFile(dir string, f hookFile) error {
+	path := filepath.Join(dir, f.name)
+	if cur, err := os.ReadFile(path); err != nil || string(cur) != f.body {
+		tmp, err := os.CreateTemp(dir, "."+f.name+"-*")
 		if err != nil {
-			return "", fmt.Errorf("git commit-msg hook: %w", err)
+			return fmt.Errorf("git %s hook: %w", f.name, err)
 		}
 		name := tmp.Name()
-		_, werr := tmp.WriteString(commitHook)
+		_, werr := tmp.WriteString(f.body)
 		cerr := tmp.Chmod(0o755) // git runs a hook only when it executes
 		xerr := tmp.Close()
 		rerr := error(nil)
@@ -115,18 +188,17 @@ func EnsureCommitHook(home string) (string, error) {
 		}
 		if werr != nil || cerr != nil || xerr != nil || rerr != nil {
 			os.Remove(name)
-			return "", fmt.Errorf("git commit-msg hook: %w",
+			return fmt.Errorf("git %s hook: %w", f.name,
 				cmp.Or(werr, cerr, xerr, rerr))
 		}
-		return dir, nil
+		return nil
 	}
 	if st, err := os.Stat(path); err != nil || st.Mode().Perm()&0o111 == 0 {
-		// Ours in content but no longer executable (a restore, a copy).
 		if err := os.Chmod(path, 0o755); err != nil {
-			return "", fmt.Errorf("git commit-msg hook %s: %w", path, err)
+			return fmt.Errorf("git %s hook %s: %w", f.name, path, err)
 		}
 	}
-	return dir, nil
+	return nil
 }
 
 // sessionModel is the agent model the session runs: the bead's
