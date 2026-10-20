@@ -19,7 +19,6 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
-	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -46,13 +45,7 @@ func newTrainYard(t *testing.T, check string) *yard {
 		t.Fatal(err)
 	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
-	t.Cleanup(func() {
-		// Stop by pid (the pidfile), then remove the state.
-		if err := server.Stop(&config.Config{Home: home}); err != nil {
-			t.Log(err)
-		}
-		os.RemoveAll(home)
-	})
+	t.Cleanup(func() { os.RemoveAll(home) })
 	// The test names itself to the servers it starts, so a run killed by its
 	// timeout leaves none behind (storetest.TestOwnerEnv).
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
@@ -64,8 +57,9 @@ func newTrainYard(t *testing.T, check string) *yard {
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
 
-	// One CLI to start the server; the setup goes over rpc, as newYard's.
-	y.yardr("server", "start")
+	// The yard's store API is served in this process; the setup goes over
+	// rpc, as newYard's.
+	serveYard(t, home)
 	y.initStore()
 	y.putDepot("r", y.repo, "main", check)
 	y.putFlow("code", childFlow)
@@ -96,13 +90,9 @@ func newTrainYardCLI(t *testing.T, check string) *yard {
 		t.Fatal(err)
 	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
-	t.Cleanup(func() {
-		if err := server.Stop(&config.Config{Home: home}); err != nil {
-			t.Log(err)
-		}
-		os.RemoveAll(home)
-	})
+	t.Cleanup(func() { os.RemoveAll(home) })
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	serveYard(t, home)
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")

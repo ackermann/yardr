@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -594,6 +595,10 @@ func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub(t, &loginShell, func() string { return shell })
+	// A loaded machine can spend the login shell's five seconds starting
+	// the script alone; the test is about what it finds, not the bound,
+	// so it gets thirty, as fake tools get for a version flag.
+	stub(t, &loginShellTimeout, 30*time.Second)
 	t.Setenv("PATH", "/usr/bin:/bin")
 	stub(t, &spawnHerdr, func(bin, _ string) (<-chan error, error) {
 		if bin != herdr {
@@ -722,6 +727,10 @@ func TestLoginShellPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub(t, &loginShell, func() string { return shell })
+	// A loaded machine can spend the login shell's five seconds starting
+	// the script alone; the test is about the PATH it answers, not the
+	// bound, so it gets thirty, as fake tools get for a version flag.
+	stub(t, &loginShellTimeout, 30*time.Second)
 	if got := loginShellPATH(context.Background()); got != "/a:/b" {
 		t.Fatalf("PATH = %q", got)
 	}

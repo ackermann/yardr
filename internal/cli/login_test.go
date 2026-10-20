@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
@@ -570,6 +571,10 @@ func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub(t, &loginShell, func() string { return shell })
+	// A loaded machine can spend the login shell's five seconds starting
+	// the script alone; the test is about the PATH it answers, not the
+	// bound, so it gets thirty, as fake tools get for a version flag.
+	stub(t, &loginShellTimeout, 30*time.Second)
 	// A run with an environment of its own, as Execute gives one, taken
 	// before up --login merges PATH.
 	x := a(false)
@@ -592,6 +597,10 @@ func TestUseLoginPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub(t, &loginShell, func() string { return shell })
+	// A loaded machine can spend the login shell's five seconds starting
+	// the script alone; the test is about the PATH it answers, not the
+	// bound, so it gets thirty, as fake tools get for a version flag.
+	stub(t, &loginShellTimeout, 30*time.Second)
 	t.Setenv("PATH", "/usr/bin:/bin:/Applications/Yard.app/bin")
 	useLoginPATH(context.Background())
 	if got, want := os.Getenv("PATH"), "/home/jo/.local/bin:/usr/bin:/bin:/Applications/Yard.app/bin"; got != want {

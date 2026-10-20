@@ -121,7 +121,7 @@ func TestMergeLocalCopiesIdentical(t *testing.T) {
 // names them, so a fix landed in merge-local is live for the next landing
 // with no hand step; a script the yard lacks is not added.
 func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
-	y := newYard(t)
+	y := newYardServer(t)
 	y.tests("true")
 	y.commit(y.wt, "b.txt", "bead\n")
 	const old, landed = "#!/bin/sh\necho old\n", "#!/bin/sh\necho landed\n"
@@ -306,7 +306,7 @@ func TestMergeLocalUpgradeLockRefusedStillMerges(t *testing.T) {
 // is not merged, and the session fails with the install's lines and the
 // refused calls in its log, beside the marker the install wrote.
 func TestMergeLocalDeadYardFailsWithoutAdvance(t *testing.T) {
-	y := newYard(t)
+	y := newYardServer(t)
 	y.tests("true")
 	y.commit(y.wt, "b.txt", "bead\n")
 	y.upgradeFrom("r")

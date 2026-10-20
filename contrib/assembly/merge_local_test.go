@@ -11,6 +11,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,7 +117,39 @@ type yard struct {
 	log            string // what the last run wrote to its group's log
 }
 
-func newYard(t *testing.T) *yard {
+// serveYard serves the home's store on its socket in this process, the
+// same handler and wire a yardr server runs, and closes it when the test
+// ends. The scripts still drive the built yardr, which connects over the
+// socket as it would to a server; what this skips is a server process per
+// test, with its start, boot and stop, which is the fixture's slowest
+// work under load.
+func serveYard(t *testing.T, home string) {
+	t.Helper()
+	cfg := &config.Config{Home: home}
+	st := storetest.Open(t, cfg.DBPath())
+	// This test owns the home, so a socket file left behind is stale.
+	_ = os.Remove(cfg.Socket())
+	ln, err := net.Listen("unix", cfg.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(cfg.Socket(), 0o600); err != nil {
+		ln.Close()
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: rpc.Handler(st, nil), ConnContext: rpc.ConnContext}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+}
+
+func newYard(t *testing.T) *yard { return newYardInner(t, false) }
+
+// newYardServer is newYard with a real yardr server process, for the tests
+// whose subject is the server itself: its stop/start lifecycle, and the
+// upgrade health check's reading of its build.
+func newYardServer(t *testing.T) *yard { return newYardInner(t, true) }
+
+func newYardInner(t *testing.T, realServer bool) *yard {
 	t.Helper()
 	// A test with a yard shares nothing with another's (TestMain), so it
 	// runs beside them from here on.
@@ -124,13 +158,17 @@ func newYard(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		// Stop by pid (the pidfile), then remove the state.
-		if err := server.Stop(&config.Config{Home: home}); err != nil {
-			t.Log(err)
-		}
-		os.RemoveAll(home)
-	})
+	if realServer {
+		t.Cleanup(func() {
+			// Stop by pid (the pidfile), then remove the state.
+			if err := server.Stop(&config.Config{Home: home}); err != nil {
+				t.Log(err)
+			}
+			os.RemoveAll(home)
+		})
+	} else {
+		t.Cleanup(func() { os.RemoveAll(home) })
+	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
 	// The test names itself to the servers it starts, so a run killed by its
@@ -139,10 +177,14 @@ func newYard(t *testing.T) *yard {
 
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
-	// One CLI to start the server; the setup goes over rpc, the same
-	// store.API the CLI uses, with the same actor. newYardCLI keeps the
-	// real CLI path end to end for one test.
-	y.yardr("server", "start")
+	// The yard's store API is served in this process; the setup goes over
+	// rpc, the same store.API the CLI uses, with the same actor.
+	// newYardCLI keeps the real CLI path end to end for one test.
+	if realServer {
+		y.yardr("server", "start")
+	} else {
+		serveYard(t, home)
+	}
 	y.initStore()
 	// The tests are red when the tree has a file RED.
 	y.putDepot("r", y.repo, "main", "test ! -e RED")
@@ -163,15 +205,11 @@ func newYardCLI(t *testing.T) *yard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := server.Stop(&config.Config{Home: home}); err != nil {
-			t.Log(err)
-		}
-		os.RemoveAll(home)
-	})
+	t.Cleanup(func() { os.RemoveAll(home) })
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	serveYard(t, home)
 
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
