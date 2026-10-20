@@ -160,7 +160,8 @@ func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", "nowhere"); err == nil || !strings.Contains(err.Error(), `BDP address "nowhere": want host:port`) {
 		t.Errorf("settings set bdp_addr nowhere = %v", err)
 	}
-	// The BDP server's --addr takes any interface, and so does its setting.
+	// The BDP server's setting takes any host:port: it is yardr bdp serve
+	// that holds the address to loopback (TestBDPServeRefusesNonLoopback...).
 	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", ":8080"); err != nil {
 		t.Error(err)
 	}

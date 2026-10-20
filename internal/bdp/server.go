@@ -40,6 +40,15 @@ type Server struct {
 	limits    Limits
 	log       *slog.Logger
 	pages     *pageCache
+	// scopeHost is the Scope URL's host, in lower case: the name its
+	// clients reach the server by, so a request that names it is answered
+	// (host.go). network is set when the server is served off loopback
+	// (--unsafe): a request may then name any IP in its Host header. names
+	// are the host names a request may name besides, in lower case: the
+	// ones the operator gave (--host) and, with network, the machine's own.
+	scopeHost string
+	network   bool
+	names     []string
 }
 
 // NewServer serves the Scope at scope (an absolute http(s) URL ending in
@@ -60,7 +69,7 @@ func NewServer(scope string, sources []string, load func(ctx context.Context) (*
 		log = slog.Default()
 	}
 	return &Server{scope: scope, sources: sources, scopePath: u.EscapedPath(), origin: u.Scheme + "://" + u.Host,
-		load: load, limits: limits, log: log,
+		load: load, limits: limits, log: log, scopeHost: strings.ToLower(u.Hostname()),
 		pages: newPageCache(10*time.Minute, 2000)}, nil
 }
 
@@ -94,6 +103,17 @@ type response struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// A Host that is not one the server answers to is refused before
+	// anything else, 421 with no body as the other rejections that are no
+	// part of the Read profile are (host.go says why). An absolute-form
+	// target names an authority of its own, which net/http reports as
+	// r.Host in place of the header and route ignores, and a browser sends
+	// that form to a proxy only: it is not what rebinding sends.
+	if r.URL.Host == "" && !s.knownHost(r.Host) {
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusMisdirectedRequest)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Length", "0")

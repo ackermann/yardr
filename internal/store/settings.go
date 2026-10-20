@@ -305,6 +305,7 @@ var KnownSettings = []Setting{
 			return nil
 		}},
 	{Key: BDPAddrSetting, Help: "the address the BDP server listens on when YARDR_BDP_ADDR is not set and yardr bdp serve, start or install is given no --addr; " +
+		"the server listens on loopback only, so one off it is refused by yardr bdp serve unless it is given --unsafe, and by start and install always; " +
 		"a server that runs keeps its address, and a login service the one in its file until it is installed again",
 		Default: DefaultBDPAddr, Env: "BDP_ADDR", Check: func(v string) error { return checkHostPort("BDP address", v, DefaultBDPAddr) }},
 	{Key: TimerLimitSetting, Help: "how many live timers one crew member or user may have set (yardr timer)",
@@ -730,6 +731,13 @@ func checkHostPort(what, addr, example string) error {
 // address. It is here for the web_addr setting, which is held to what the
 // view's --addr is (web.CheckAddr).
 func CheckWebAddr(whose, addr string, unsafe bool) error {
+	return CheckLoopbackAddr("yardr web", whose, addr, unsafe)
+}
+
+// CheckLoopbackAddr is CheckWebAddr for any server of the yard that has no
+// authentication: who is the command whose server it is, as the refusal
+// names it ("yardr web", "yardr bdp").
+func CheckLoopbackAddr(who, whose, addr string, unsafe bool) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", whose, addr, err)
@@ -739,11 +747,11 @@ func CheckWebAddr(whose, addr string, unsafe bool) error {
 	}
 	switch ip := net.ParseIP(host); {
 	case host == "":
-		return WebAddrRefused(whose, addr, "an address with no host listens on every interface")
+		return LoopbackAddrRefused(who, whose, addr, "an address with no host listens on every interface")
 	case ip == nil && !strings.EqualFold(host, "localhost"):
-		return WebAddrRefused(whose, addr, host+" is not a loopback address")
+		return LoopbackAddrRefused(who, whose, addr, host+" is not a loopback address")
 	case ip != nil && !ip.IsLoopback():
-		return WebAddrRefused(whose, addr, host+" is not a loopback address")
+		return LoopbackAddrRefused(who, whose, addr, host+" is not a loopback address")
 	}
 	return nil
 }
@@ -751,8 +759,14 @@ func CheckWebAddr(whose, addr string, unsafe bool) error {
 // WebAddrRefused is the refusal of addr as the web view's, for why, as
 // whose refused it (the flag that gave it: --addr, --pages-addr).
 func WebAddrRefused(whose, addr, why string) error {
-	return fmt.Errorf("%s %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
-		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", whose, addr, why)
+	return LoopbackAddrRefused("yardr web", whose, addr, why)
+}
+
+// LoopbackAddrRefused is the refusal of addr as who's, for why, as whose
+// refused it (the flag that gave it).
+func LoopbackAddrRefused(who, whose, addr, why string) error {
+	return fmt.Errorf("%s %s refused: %s, and %s has no authentication yet, so whoever reaches it reads the whole yard. "+
+		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", whose, addr, why, who)
 }
 
 // CheckWebHost returns name as a request's Host header is compared with

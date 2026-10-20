@@ -656,6 +656,47 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 	wantText(t, out, "web view        started (pid ", "): http://127.0.0.1:1/\n")
 }
 
+// up does not start the BDP server on an address yardr bdp serve would
+// refuse (the bdp_addr setting takes any host:port): it says why and starts
+// nothing, as it does for the web view, instead of waiting out a server that
+// ends at once.
+func TestUpRefusesTheBDPServerOffLoopback(t *testing.T) {
+	_, st, a, _, _ := upYard(t, true)
+	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "0.0.0.0:8765", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	var started []string
+	stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		started = append(started, k.Name+" "+strings.Join(args, " "))
+		if k.Name == svcDaemon {
+			unlock, err := lockDaemon(cfg.DaemonLock(), 0)
+			if err != nil {
+				return 0, nil, nil, err
+			}
+			t.Cleanup(unlock)
+		}
+		return os.Getpid(), nil, func() error { return nil }, nil
+	})
+	stub(t, &answers, func(string) bool { return true })
+	out, err := run(t, a(true).rootCmd(), "up", "--json")
+	var rep upReport
+	if jerr := json.Unmarshal([]byte(out), &rep); jerr != nil {
+		t.Fatalf("up --json: %v %v\n%s", err, jerr, out)
+	}
+	var part yardPart
+	for _, p := range rep.Parts {
+		if p.Part == svcBDP {
+			part = p
+		}
+	}
+	if part.Running || part.Started || !strings.Contains(part.Error, "--addr 0.0.0.0:8765 refused") || !strings.Contains(part.Error, "yardr bdp has no authentication") {
+		t.Errorf("the BDP part: %+v", part)
+	}
+	if want := []string{"daemon "}; !slices.Equal(started, want) {
+		t.Errorf("up started %q, want %q", started, want)
+	}
+}
+
 // On a home with no yard up and down say so, start nothing and exit 2, as
 // yardr status does: a window calls them, and gets no onboarding.
 func TestUpAndDownOnNoYard(t *testing.T) {

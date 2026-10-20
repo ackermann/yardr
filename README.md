@@ -126,11 +126,11 @@ Thank you to everyone who built them.
 
 ## Contributing
 
-Until the first release the repository is private and takes no outside
-contributions. Every commit carries a `Signed-off-by` line with the author's
-name and email address (`git commit -s`): it certifies the Developer
-Certificate of Origin, <https://developercertificate.org>, that the author
-wrote the change, or may submit it, under the project's licence.
+The repository takes no outside contributions yet. When it does, every
+outside contribution must carry a `Signed-off-by` line with the author's name
+and email address (`git commit -s`): it certifies the Developer Certificate of
+Origin, <https://developercertificate.org>, that the author wrote the change,
+or may submit it, under the project's licence.
 
 ## Licence
 

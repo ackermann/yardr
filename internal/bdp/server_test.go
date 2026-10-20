@@ -73,6 +73,12 @@ func (f *fixture) do(method, target string, headers ...string) resp {
 	}
 	req.URL.Opaque = target // send the target byte for byte
 	for i := 0; i+1 < len(headers); i += 2 {
+		if strings.EqualFold(headers[i], "Host") {
+			// The client sends the Host header from the request's field,
+			// never from its headers.
+			req.Host = headers[i+1]
+			continue
+		}
 		req.Header.Add(headers[i], headers[i+1])
 	}
 	r, err := http.DefaultClient.Do(req)

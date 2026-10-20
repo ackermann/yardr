@@ -2,9 +2,44 @@ package bdp
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"regexp"
+
+	"yardr.dev/yardr/internal/store"
 )
+
+// refusedAs names the command whose server refuses an address, as its
+// refusal says it.
+const refusedAs = "yardr bdp"
+
+// CheckAddr refuses a listen address that is not on the loopback interface,
+// saying why as whose refused it (the flag that gave it). The server has no
+// authentication, so it listens on loopback only, as the web view does
+// (web.CheckAddr). With unsafe it refuses only what is no address.
+func CheckAddr(whose, addr string, unsafe bool) error {
+	return store.CheckLoopbackAddr(refusedAs, whose, addr, unsafe)
+}
+
+// Listen opens addr for the server, on loopback only unless unsafe: any
+// other address is refused, and so is a name that turns out to listen
+// elsewhere (web.Listen). whose is the flag that gave the address, as a
+// refusal names it.
+func Listen(whose, addr string, unsafe bool) (net.Listener, error) {
+	if err := CheckAddr(whose, addr, unsafe); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	// localhost is a name, and a hosts file may point it anywhere.
+	if tcp, ok := ln.Addr().(*net.TCPAddr); !unsafe && (!ok || !tcp.IP.IsLoopback()) {
+		_ = ln.Close()
+		return nil, store.LoopbackAddrRefused(refusedAs, whose, addr, fmt.Sprintf("it listens on %s", ln.Addr()))
+	}
+	return ln, nil
+}
 
 // BodylessTransportErrors wraps a listener so the plain-text error responses
 // net/http writes for requests it rejects before any handler runs (a control

@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/bdp"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
@@ -381,8 +382,11 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 			}
 		} else if addr != "" {
 			err := error(nil)
-			if k.Name == svcWeb {
+			switch k.Name {
+			case svcWeb:
 				err = store.CheckWebAddr("--addr", addr, false)
+			case svcBDP:
+				err = bdp.CheckAddr("--addr", addr, false)
 			}
 			var pid int
 			args, started := []string{"--" + k.Addr, addr}, false
