@@ -68,7 +68,7 @@ re-entered.
 **How agents are attributed.** The agent runs in a herdr tab created with
 its identity in the environment: `YARDR_ACTOR` (the agent's name,
 `<bead>-<stage>`), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`,
-`YARDR_GROUP`, `YARDR_KIND`, `YARDR_MODEL`, `YARDR_HOME` and `YARDR_BIN`.
+`YARDR_GROUP`, `YARDR_KIND`, `YARDR_MODEL`, `YARDR_GIT_SYSTEM_CLEAN`, `YARDR_HOME` and `YARDR_BIN`.
 Nothing depends on the agent exporting anything: every event its `yardr`
 commands log names it as actor.
 Every move (`yardr bead done`, `advance`, `close`, `hold`, `release` and

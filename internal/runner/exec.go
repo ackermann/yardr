@@ -50,6 +50,10 @@ import (
 //	                yard's commit-msg hook writes into Yardr-Agent
 //	YARDR_MODEL     the agent model: the bead's metadata.model, else the
 //	                group's config.model
+//	YARDR_GIT_SYSTEM_CLEAN  1 when the install's system gitconfig names
+//	                no core.hooksPath and no include (checked once per
+//	                session), else 0: the hooks' word for the one file
+//	                they cannot read themselves (see systemGitconfigClean)
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
 //
@@ -213,16 +217,19 @@ func withUser(env []string) []string {
 // command gets from neither: the settings of the yard's server, which are
 // not the work's (config.WithoutServerSettings); a test command, so that one
 // the daemon was itself started with cannot read as the depot's, which may
-// have none; for a dir depot's bead, which has no base, branch or worktree,
-// any of those too; and git's GIT_CONFIG_COUNT/KEY_n/VALUE_n, which would
-// otherwise win over (or add to) the core.hooksPath the session points at
-// its own commit-msg hook with (see commitHookEnv): a repeated variable is
-// answered with its first, so one inherited from the daemon would beat the
-// session's appended one. GIT_CONFIG_PARAMETERS is command-line config and
-// has higher precedence still, so the session clears it as well.
+// have none; the yard's word about the system gitconfig, so that one the
+// daemon was itself started with cannot read as this session's (see
+// systemGitconfigClean); for a dir depot's bead, which has no base, branch
+// or worktree, any of those too; and git's GIT_CONFIG_COUNT/KEY_n/VALUE_n,
+// which would otherwise win over (or add to) the core.hooksPath the session
+// points at its own commit-msg hook with (see commitHookEnv): a repeated
+// variable is answered with its first, so one inherited from the daemon
+// would beat the session's appended one. GIT_CONFIG_PARAMETERS is
+// command-line config and has higher precedence still, so the session
+// clears it as well.
 func withheld(job dispatch.Job, environ []string) []string {
 	env := config.WithoutServerSettings(environ)
-	names := []string{"TEST"}
+	names := []string{"TEST", "GIT_SYSTEM_CLEAN"}
 	if job.Depot != nil && job.Depot.IsDir() {
 		names = append(names, "BASE", "BRANCH", "WORKTREE")
 	}
