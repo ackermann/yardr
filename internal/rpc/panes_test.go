@@ -79,6 +79,9 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 	sess, err := st.Claim(ctx, b.ID, "builders", "new", "yard")
 	must(err)
 	must(st.MarkRunning(ctx, sess.ID, thisPane(t, "yard-one-new")))
+	if kind, err := st.CallerOf(store.WithCaller(ctx, os.Getpid())); err != nil || kind != store.CallerBead {
+		t.Fatalf("this process is %v, %v: want a bead's pane", kind, err)
+	}
 
 	backups := filepath.Join(home, "backups")
 	must(os.MkdirAll(backups, 0o700))
@@ -159,6 +162,9 @@ func TestSocketServesACrewPaneTheYardsRouting(t *testing.T) {
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
 	must(err)
 	must(st.CrewStartedFor(ctx, "yardmaster", "", thisPane(t, "yard-yardmaster")))
+	if kind, err := st.CallerOf(store.WithCaller(ctx, os.Getpid())); err != nil || kind != store.CallerCrew {
+		t.Fatalf("this process is %v, %v: want a crew member's pane", kind, err)
+	}
 
 	if err := c.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "yardmaster"); err != nil {
 		t.Errorf("PutGroup from a crew pane: %v", err)
@@ -177,5 +183,44 @@ func TestSocketServesACrewPaneTheYardsRouting(t *testing.T) {
 	}
 	if err := c.MarkStopped(ctx, "nope"); err == nil || err.Error() != "MarkStopped is the daemon's alone" {
 		t.Errorf("MarkStopped from a crew pane = %v, want it the daemon's alone", err)
+	}
+}
+
+// An exec session's command is the operator's own, run as its group (the
+// assembly that lands a bead and installs the build): it is served what a
+// person's terminal is, not held to an agent's calls.
+func TestSocketServesAnExecSessionAsTheOperatorsCommand(t *testing.T) {
+	st, c, home := paneYard(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutGroup(ctx, store.Group{Name: "assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}, "me"))
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "one"}, "me")
+	must(err)
+	sess, err := st.Claim(ctx, b.ID, "assembly", b.Stage, "yard")
+	must(err)
+	me, err := peer.Describe(os.Getpid())
+	if err != nil {
+		t.Skipf("the OS does not describe this process: %v", err)
+	}
+	must(st.MarkRunning(ctx, sess.ID, map[string]any{"pid": os.Getpid(), "start": me.Start}))
+	if kind, err := st.CallerOf(store.WithCaller(ctx, os.Getpid())); err != nil || kind != store.CallerScript {
+		t.Fatalf("this process is %v, %v: want an exec session's command", kind, err)
+	}
+
+	backups := filepath.Join(home, "backups")
+	must(os.MkdirAll(backups, 0o700))
+	if _, err := c.Backup(ctx, filepath.Join(backups, "before-install.db")); err != nil {
+		t.Errorf("Backup from an exec session: %v", err)
+	}
+	if err := c.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"); err != nil {
+		t.Errorf("PutGroup from an exec session: %v", err)
+	}
+	if err := c.MarkStopped(ctx, sess.ID); err == nil || err.Error() != "MarkStopped is the daemon's alone" {
+		t.Errorf("MarkStopped from an exec session = %v, want it the daemon's alone", err)
 	}
 }

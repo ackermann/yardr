@@ -235,14 +235,20 @@ const (
 	// CallerPerson is a process in no pane of the yard's: a person's
 	// terminal, a script, a client that is not yardr.
 	CallerPerson
-	// CallerBead is the pane of a bead's session (paneSession, a manual
-	// session aside), or a call that names a session still starting,
-	// which has no pane on record yet (startingRefused).
+	// CallerBead is the pane of a bead's agent: a session's (paneSession)
+	// whose runner starts an agent, or a call that names such a session
+	// still starting, which has no pane on record yet (startingRefused).
 	CallerBead
 	// CallerCrew is a crew member's pane (paneCrew).
 	CallerCrew
 	// CallerDaemon is the process that holds the daemon lock (daemonOnly).
 	CallerDaemon
+	// CallerScript is the process of an exec session: the command the
+	// operator gave its group, run by the daemon as the group (the
+	// assembly that lands a bead, a test, an install). It is the
+	// operator's own program, not an agent, and is served as a person's
+	// terminal is; the store's checks of a session's pane still hold it.
+	CallerScript
 )
 
 func (k CallerKind) String() string {
@@ -255,6 +261,8 @@ func (k CallerKind) String() string {
 		return "a crew member's pane"
 	case CallerDaemon:
 		return "the daemon"
+	case CallerScript:
+		return "an exec session's command"
 	}
 	return "the yard's own process"
 }
@@ -276,7 +284,7 @@ func (s *Store) CallerOf(ctx context.Context) (CallerKind, error) {
 		if sess, err := paneSession(tx, pid); err != nil {
 			return err
 		} else if sess != nil && !sess.Manual() {
-			kind = CallerBead
+			kind = sessionCaller(sess)
 			return nil
 		}
 		if r, err := paneCrew(tx, pid); err != nil {
@@ -292,10 +300,19 @@ func (s *Store) CallerOf(ctx context.Context) (CallerKind, error) {
 			if ok, err := get(tx, bSessions, id, sess); err != nil {
 				return err
 			} else if ok && !sess.Manual() && sess.State == "starting" {
-				kind = CallerBead
+				kind = sessionCaller(sess)
 			}
 		}
 		return nil
 	})
 	return kind, err
+}
+
+// sessionCaller is the kind of a call from the session sess: its exec
+// command's, or its agent's.
+func sessionCaller(sess *Session) CallerKind {
+	if sess.RunnerName() == "exec" {
+		return CallerScript
+	}
+	return CallerBead
 }

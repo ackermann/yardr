@@ -33,16 +33,16 @@ func TestAccessClassesEveryServedMethod(t *testing.T) {
 // the operator's and the daemon's, and the daemon's calls to the daemon.
 func TestClassAllows(t *testing.T) {
 	t.Parallel()
-	kinds := []store.CallerKind{store.CallerOwner, store.CallerPerson, store.CallerBead, store.CallerCrew, store.CallerDaemon}
+	kinds := []store.CallerKind{store.CallerOwner, store.CallerPerson, store.CallerBead, store.CallerCrew, store.CallerDaemon, store.CallerScript}
 	want := map[Class][]bool{
-		// owner, person, bead, crew, daemon
-		Unclassed:        {true, false, false, false, false},
-		Read:             {true, true, true, true, true},
-		Agent:            {true, true, true, true, true},
-		Admin:            {true, true, false, true, true},
-		Operator:         {true, true, false, false, true},
-		Daemon:           {true, false, false, false, true},
-		DaemonOrOperator: {true, true, false, false, true},
+		// owner, person, bead, crew, daemon, script
+		Unclassed:        {true, false, false, false, false, false},
+		Read:             {true, true, true, true, true, true},
+		Agent:            {true, true, true, true, true, true},
+		Admin:            {true, true, false, true, true, true},
+		Operator:         {true, true, false, false, true, true},
+		Daemon:           {true, false, false, false, true, false},
+		DaemonOrOperator: {true, true, false, false, true, true},
 	}
 	for c, row := range want {
 		for i, k := range kinds {

@@ -40,7 +40,9 @@ The socket knows one thing more of a caller than its `actor`: the process
 that opened the connection, which the operating system tells it. From that
 process and the processes above it the yard knows whether a call comes from
 the pane of a bead's session, from a crew member's pane, from the daemon, or
-from none of these (a person's terminal, or a program such as yours). Every
+from none of these (a person's terminal, or a program such as yours). An
+exec session's command is the operator's own program, run as its group,
+and is served as a person's terminal is. Every
 method the socket serves has a class that says which of them may make it,
 and a call its class does not let through is refused before the yard looks
 at its arguments, with code `error`:
@@ -48,7 +50,7 @@ at its arguments, with code `error`:
 | class | who may make it |
 |---|---|
 | read | anyone: it changes nothing |
-| agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move by an outcome, a hold, a source call its grants allow) |
+| agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move its flow allows, a hold, a source call its grants allow) |
 | admin | anyone but a bead's agent: what defines how the yard works, such as groups, routes, flows, crew, depots, settings and packs; the crew, the yardmaster among them, keeps it |
 | operator | the operator alone, from no agent's pane, a crew member's included |
 | daemon | the daemon alone, as the yard checks it by the daemon's lock: the session records the pane checks read |

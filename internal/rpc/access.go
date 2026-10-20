@@ -60,9 +60,10 @@ func (c Class) String() string {
 }
 
 // allows reports whether a caller of kind may make a call of class c.
-// The yard's own process and a person outside every pane are let through
-// to the store's checks, but for the daemon's calls; a bead's pane only to
-// what is read or marked for agents, and a crew member's to all but the
+// The yard's own process and a person outside every pane (or an exec
+// session's command, the operator's own) are let through to the store's
+// checks, but for the daemon's calls; a bead's agent's pane only to what
+// is read or marked for agents, and a crew member's to all but the
 // operator's and the daemon's.
 func (c Class) allows(kind store.CallerKind) bool {
 	switch kind {
@@ -70,6 +71,10 @@ func (c Class) allows(kind store.CallerKind) bool {
 		return true
 	case store.CallerDaemon:
 		return c != Unclassed
+	case store.CallerScript:
+		// The operator's command, as the group: served as a person's
+		// terminal is (store.CallerScript).
+		kind = store.CallerPerson
 	}
 	switch c {
 	case Read, Agent:
@@ -118,10 +123,10 @@ var Access = map[string]Class{
 	"Waiting":      Read,
 	"Dispatchable": Read,
 	"UpdateBead":   Agent, // but a pin of its flow (store.UpdateBead)
-	// A move to a stage of one's choosing is for whoever routes the work:
-	// an agent moves its bead by the outcomes its stage offers (Done).
-	"Advance":     Admin,
-	"AdvanceNote": Admin,
+	// A move is held by the store to the edges its flow allows, and to the
+	// members of the stage's group: it is no wider than an outcome.
+	"Advance":     Agent,
+	"AdvanceNote": Agent,
 	"Done":        Agent,
 	"CloseBead":   Agent,
 	"Reopen":      Admin,
