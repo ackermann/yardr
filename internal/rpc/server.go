@@ -90,6 +90,12 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 			writeJSON(w, reply{Error: toWire(fmt.Errorf("arguments: %w", err))})
 			return
 		}
+		// Who may make the call is asked before it is made (Access): the
+		// store's own check of it, if it has one, comes after.
+		if err := allowed(callerCtx(r), st, r.PathValue("method")); err != nil {
+			writeJSON(w, reply{Error: toWire(err)})
+			return
+		}
 		a.call(w, r, r.PathValue("method"), body)
 	})
 	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) { a.events(w, r, nil, 0) })
@@ -142,16 +148,22 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	ctx := r.Context()
-	if id := r.Header.Get(SessionHeader); id != "" {
-		ctx = store.WithSession(ctx, id)
-	}
-	result, more, err := invoke(ctx, m, body)
+	result, more, err := invoke(callerCtx(r), m, body)
 	if err != nil {
 		writeJSON(w, reply{Error: toWire(err)})
 		return
 	}
 	writeJSON(w, reply{Result: result, More: more})
+}
+
+// callerCtx is the request's context with the session the call says it is
+// of, as the store reads a caller (store.WithSession).
+func callerCtx(r *http.Request) context.Context {
+	ctx := r.Context()
+	if id := r.Header.Get(SessionHeader); id != "" {
+		ctx = store.WithSession(ctx, id)
+	}
+	return ctx
 }
 
 func noSuchMethod(name string) reply {

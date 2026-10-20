@@ -34,6 +34,40 @@ process that can open the socket is trusted as every party of the yard,
 and a call that takes an `actor` takes it at its word. A client sends the
 name of the user it runs for and no other.
 
+### Who may make a call
+
+The socket knows one thing more of a caller than its `actor`: the process
+that opened the connection, which the operating system tells it. From that
+process and the processes above it the yard knows whether a call comes from
+the pane of a bead's session, from a crew member's pane, from the daemon, or
+from none of these (a person's terminal, or a program such as yours). Every
+method the socket serves has a class that says which of them may make it,
+and a call its class does not let through is refused before the yard looks
+at its arguments, with code `error`:
+
+| class | who may make it |
+|---|---|
+| read | anyone: it changes nothing |
+| agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move by an outcome, a hold, a source call its grants allow) |
+| admin | anyone but a bead's agent: what defines how the yard works, such as groups, routes, flows, crew, depots, settings and packs; the crew, the yardmaster among them, keeps it |
+| operator | the operator alone, from no agent's pane, a crew member's included |
+| daemon | the daemon alone, as the yard checks it by the daemon's lock: the session records the pane checks read |
+| daemon or operator | the daemon, or the operator from no agent's pane: a copy of the store, a prune |
+
+A method a bead's agent has no class for is refused to it: what is not
+marked read or agent is not an agent's. The class is a first line, and the
+yard's own checks of a call come after it: a call it lets through may still
+be refused there, for its `actor` or for what it asks (an agent may update
+its bead, but not pin the flow the bead goes by). Every call this page names
+is read or agent but those of [`OperatorCalls`](#over-the-network), which
+are admin.
+
+It is a line against mistakes, not a wall. Every agent runs as the one OS
+user the yard runs as, and the pane is told by the process tree: an agent
+that starts a process outside its pane's tree, and calls from there, is
+taken for a person at a terminal. The classes stop an agent that calls
+the yard as it was given to, not one that sets out to escape.
+
 The server is started by yardr, not by the client. When nothing listens
 (the file is missing, or the connection is refused), a yardr command that
 reads the yard starts it: `yardr user list`.

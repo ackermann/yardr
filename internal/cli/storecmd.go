@@ -146,14 +146,16 @@ complete.`,
 		Long: `Write a copy of yard.db to path through the running server: one read
 transaction copies the store as of a single commit while writes go on, so
 nothing needs stopping. The copy lands beside path and is renamed into place
-once complete; an existing file at path is replaced.
+once complete; an existing file at path is replaced, so path must be in the
+yard's backups: <home>/backups, or the directory the setting backup_dir
+names.
 
 The daemon makes dated copies this way by itself once the setting
 backup_every says how often (yardr settings).
 
 Restore by stopping the yard (yardr down) and copying the backup over
 yard.db.`,
-		Example: `  yardr store backup ~/backups/yard-$(date +%F).db`,
+		Example: `  yardr store backup ~/.yardr/backups/yard-$(date +%F).db`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			// The server writes the file, from its own working directory.

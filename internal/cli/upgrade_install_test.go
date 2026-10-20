@@ -326,7 +326,8 @@ func TestUpgradeHatch(t *testing.T) {
 	if _, err := st.SetUser(ctx, "jo", map[string]string{"notify": "pushover"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	home := t.TempDir()
+	// The store's own home: a backup is written in its backups alone.
+	home := filepath.Dir(path)
 	backup := config.At(home).BeforeInstallBackup()
 	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
 		t.Fatal(err)

@@ -13,12 +13,13 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// backupYard is a dispatcher on a store, with a home of its own and a clock
-// the test moves.
+// backupYard is a dispatcher on a store, in the store's home as the
+// daemon is, with a clock the test moves.
 func backupYard(t *testing.T) (store.API, *dispatch.Dispatcher, *time.Time) {
 	t.Helper()
-	s := storetest.New(t)
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{}, Home: t.TempDir()}
+	home := t.TempDir()
+	s := storetest.NewIn(t, home)
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{}, Home: home}
 	now := time.Date(2026, 10, 13, 14, 0, 0, 0, time.UTC)
 	dispatch.SetClock(d, func() time.Time { return now })
 	return s, d, &now

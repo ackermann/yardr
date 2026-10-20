@@ -364,8 +364,17 @@ func (b *bench) engine(r *Round, f *Fill) error {
 		}
 		defer os.RemoveAll(dir)
 	}
-	path := filepath.Join(pruned, "yard.db")
-	if _, err := b.yardr("store", "backup", path); err != nil {
+	// The server writes a copy in the yard's backups alone, so it is made
+	// there and moved into the home it is taken apart in.
+	backups := filepath.Join(b.home, "backups")
+	if err := os.MkdirAll(backups, 0o700); err != nil {
+		return err
+	}
+	copied, path := filepath.Join(backups, "bench.db"), filepath.Join(pruned, "yard.db")
+	if _, err := b.yardr("store", "backup", copied); err != nil {
+		return err
+	}
+	if err := os.Rename(copied, path); err != nil {
 		return err
 	}
 	e.BackupMB = fileMB(path)

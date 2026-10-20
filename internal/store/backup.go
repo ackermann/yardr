@@ -29,9 +29,20 @@ type BackupResult struct {
 // written by the process that owns the store, so it must be absolute; the
 // copy goes to a temporary file beside it and is renamed into place only
 // once complete, so an interrupted backup never leaves a torn file at path.
+// path must be a file directly in a directory of backups (backupDirs): the
+// rename replaces whatever is there, and anywhere else that may be a file
+// the yard does not own (a shell's rc file).
 func (s *Store) Backup(ctx context.Context, path string) (*BackupResult, error) {
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("backup path %q is not absolute", path)
+	}
+	dirs, err := s.backupDirs()
+	if err != nil {
+		return nil, err
+	}
+	if !inDirs(filepath.Dir(filepath.Clean(path)), dirs) {
+		return nil, fmt.Errorf("backup path %s is not in a directory of backups (%s); set %s to keep them elsewhere",
+			path, strings.Join(dirs, " or "), BackupDirSetting)
 	}
 	if same, err := sameFile(path, s.db.Path()); err != nil {
 		return nil, err
@@ -65,6 +76,46 @@ func (s *Store) Backup(ctx context.Context, path string) (*BackupResult, error) 
 		return nil, err
 	}
 	return res, nil
+}
+
+// backupDirs are the directories a backup may be written in: the one the
+// setting backup_dir names (BackupPlanOf), and <home>/backups, where the
+// upgrade keeps its copy whatever the setting says. A file in a directory
+// below them is not one of theirs: a link there could lead anywhere.
+func (s *Store) backupDirs() ([]string, error) {
+	var dir string
+	if err := s.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bSettings, BackupDirSetting, &dir)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	dirs := []string{}
+	if s.home != "" {
+		dirs = append(dirs, filepath.Join(s.home, "backups"))
+	}
+	if dir != "" && !slices.Contains(dirs, filepath.Clean(dir)) {
+		dirs = append(dirs, filepath.Clean(dir))
+	}
+	return dirs, nil
+}
+
+// inDirs reports whether dir is one of dirs, by its name or once links
+// are followed in both (a home under /var on macOS is under /private/var).
+func inDirs(dir string, dirs []string) bool {
+	if slices.Contains(dirs, dir) {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	for _, d := range dirs {
+		if r, err := filepath.EvalSymlinks(d); err == nil && r == real {
+			return true
+		}
+	}
+	return false
 }
 
 // sameFile reports whether a and b name the same existing file.

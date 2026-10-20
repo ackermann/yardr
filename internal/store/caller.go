@@ -220,3 +220,82 @@ func uintIn(v any) (uint64, bool) {
 	}
 	return 0, false
 }
+
+// CallerKind is who a call over the socket is, as the store's records of
+// panes and of the daemon tell it (CallerOf). rpc reads it to refuse a call
+// before it reaches the store (rpc.Access); the store's own checks are read
+// from the same records and stay where they are.
+type CallerKind int
+
+const (
+	// CallerOwner is a call with no caller: the owning process, or a
+	// connection whose peer the OS did not tell. The store serves it as
+	// it serves its own (daemonOnly passes it too).
+	CallerOwner CallerKind = iota
+	// CallerPerson is a process in no pane of the yard's: a person's
+	// terminal, a script, a client that is not yardr.
+	CallerPerson
+	// CallerBead is the pane of a bead's session (paneSession, a manual
+	// session aside), or a call that names a session still starting,
+	// which has no pane on record yet (startingRefused).
+	CallerBead
+	// CallerCrew is a crew member's pane (paneCrew).
+	CallerCrew
+	// CallerDaemon is the process that holds the daemon lock (daemonOnly).
+	CallerDaemon
+)
+
+func (k CallerKind) String() string {
+	switch k {
+	case CallerPerson:
+		return "a person"
+	case CallerBead:
+		return "the pane of a bead's session"
+	case CallerCrew:
+		return "a crew member's pane"
+	case CallerDaemon:
+		return "the daemon"
+	}
+	return "the yard's own process"
+}
+
+// CallerOf is the kind of caller ctx carries (WithCaller, WithSession).
+// The daemon is asked first, since its process is in no pane; then a
+// bead's session, as paneAuthor asks, so a session's agent is never taken
+// for the crew member whose tab it may have been started from.
+func (s *Store) CallerOf(ctx context.Context) (CallerKind, error) {
+	pid := callerOf(ctx)
+	if pid <= 0 {
+		return CallerOwner, nil
+	}
+	if s.daemonOnly(ctx, "") == nil {
+		return CallerDaemon, nil
+	}
+	kind := CallerPerson
+	err := s.read(func(tx *bolt.Tx) error {
+		if sess, err := paneSession(tx, pid); err != nil {
+			return err
+		} else if sess != nil && !sess.Manual() {
+			kind = CallerBead
+			return nil
+		}
+		if r, err := paneCrew(tx, pid); err != nil {
+			return err
+		} else if r != nil {
+			kind = CallerCrew
+			return nil
+		}
+		// A bead's agent may call before its pane is recorded; it says
+		// which session it is, and that is believed when it restricts.
+		if id := sessionOf(ctx); id != "" {
+			sess := new(Session)
+			if ok, err := get(tx, bSessions, id, sess); err != nil {
+				return err
+			} else if ok && !sess.Manual() && sess.State == "starting" {
+				kind = CallerBead
+			}
+		}
+		return nil
+	})
+	return kind, err
+}

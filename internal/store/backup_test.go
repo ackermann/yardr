@@ -22,8 +22,12 @@ func TestBackupWhileServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir := t.TempDir()
+	if err := s.SetSetting(ctx, store.BackupDirSetting, dir, "me"); err != nil {
+		t.Fatal(err)
+	}
 	head, _ := s.Head(ctx)
-	path := filepath.Join(t.TempDir(), "backup.db")
+	path := filepath.Join(dir, "backup.db")
 	if err := os.WriteFile(path, []byte("old backup"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +59,38 @@ func TestBackupWhileServing(t *testing.T) {
 
 	if _, err := s.Backup(ctx, "relative.db"); err == nil || !strings.Contains(err.Error(), "not absolute") {
 		t.Fatalf("relative path: %v", err)
+	}
+}
+
+// A backup is written in a directory of backups and nowhere else: its
+// rename replaces what is at the path, which elsewhere may be a file of
+// the operator's (a shell's rc file). A directory below backup_dir is not
+// one, since a link there may lead anywhere.
+func TestBackupRefusesAPathOutsideTheBackups(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	backups, elsewhere := t.TempDir(), t.TempDir()
+	if err := s.SetSetting(ctx, store.BackupDirSetting, backups, "me"); err != nil {
+		t.Fatal(err)
+	}
+	rc := filepath.Join(elsewhere, ".bashrc")
+	if err := os.WriteFile(rc, []byte("export PATH\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(backups, "below"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{rc, filepath.Join(backups, "below", "yard.db"), filepath.Join(backups, "..", filepath.Base(elsewhere), ".bashrc")} {
+		if _, err := s.Backup(ctx, path); err == nil || !strings.Contains(err.Error(), "not in a directory of backups") {
+			t.Errorf("backup to %s = %v, want it refused as outside the backups", path, err)
+		}
+	}
+	if b, err := os.ReadFile(rc); err != nil || string(b) != "export PATH\n" {
+		t.Errorf("the file outside the backups = %q, %v: want it untouched", b, err)
+	}
+	if _, err := s.Backup(ctx, filepath.Join(backups, "yard.db")); err != nil {
+		t.Errorf("backup into backup_dir: %v", err)
 	}
 }
 

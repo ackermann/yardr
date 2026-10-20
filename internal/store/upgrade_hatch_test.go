@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -83,7 +84,10 @@ func TestOpenHatchCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A backup is the copy the hatch reads.
-	backup := path + ".copy.db"
+	backup := filepath.Join(filepath.Dir(path), "backups", "yard.db.copy")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	res, err := st.Backup(ctx, backup)
 	if err != nil || res.Path != backup {
 		t.Fatalf("backup = %+v, %v", res, err)

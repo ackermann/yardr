@@ -50,7 +50,20 @@ func New(t testing.TB) store.API {
 // event kind) while the test reads back through the API.
 func NewOwned(t testing.TB) (store.API, *store.Store) {
 	t.Helper()
-	home := t.TempDir()
+	return newIn(t, t.TempDir())
+}
+
+// NewIn is New on a fresh file in home, for a test whose other parts read
+// the yard's home too (the daemon's backups, which the store writes only
+// in that home's directory of them).
+func NewIn(t testing.TB, home string) store.API {
+	t.Helper()
+	api, _ := newIn(t, home)
+	return api
+}
+
+func newIn(t testing.TB, home string) (store.API, *store.Store) {
+	t.Helper()
 	s := Open(t, filepath.Join(home, "yard.db"))
 	if config.Getenv("TEST_RPC") == "" {
 		return s, s

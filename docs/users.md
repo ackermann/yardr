@@ -92,6 +92,15 @@ any actor. A grant made as a user (`yardr source grant … --as <user>`) is
 the same line, not a wall: only that user may give it, and the refusal
 catches a mistake, not a terminal that claims their name.
 
+An agent's command is known by more than its actor: the yard tells the
+pane of a bead's session, and a crew member's, by the process that called
+it, and takes the pane's actor whatever the command says. What a bead's
+agent may call at all is the class of each call ([api.md](api.md#who-may-make-a-call)):
+it notes, asks and works its bead, and does not change groups, routes,
+flows or crew. That too is a line, not a wall: every agent runs as the
+OS user the yard runs as, and one that starts a process outside its
+pane's process tree is believed about who it is.
+
 When the actor is the login name (neither `--actor` nor `$YARDR_ACTOR`
 given) and it is neither a user nor a crew member, a command that acts as
 one (`inbox`, `mail`, `reply`, `chat`) refuses in one line: who acts and

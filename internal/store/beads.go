@@ -1184,6 +1184,16 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			return err
 		}
 		actor = resolved
+		// A pin chooses the flow the bead goes by (PinnedFlow): set from a
+		// bead's own pane it would let the agent choose a flow with no
+		// review in it. Pinning is for whoever routes the work.
+		if _, pins := p.Metadata["flow"]; pins {
+			if sess, err := paneSession(w.Tx, callerOf(ctx)); err != nil {
+				return err
+			} else if sess != nil && !sess.Manual() {
+				return fmt.Errorf("bead %s: the session %s of a bead's agent may not pin a bead's flow (metadata flow)", id, sess.ID)
+			}
+		}
 		if p.Originator != nil {
 			if err := w.setOriginator(ctx, id, *p.Originator, exp, actor, nil); err != nil {
 				return err

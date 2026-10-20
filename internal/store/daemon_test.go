@@ -88,11 +88,18 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		"MarkNotifiedFor": func() error {
 			return s.MarkNotifiedFor(other, "nope", "", 1)
 		},
+		"EndSession": func() error {
+			return s.EndSession(other, "no-such-session", "died", "gone")
+		},
+		"MarkStopped": func() error {
+			return s.MarkStopped(other, "no-such-session")
+		},
 	}
 	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "MarkCleaned", "CrewStartingFor",
 		"CrewStartedFor", "CrewSettledFor", "CrewStatusFor", "SetCrewHandleFor",
 		"CrewGoneFor", "CrewLeftFor", "CrewStartFailedFor",
-		"MarkRotationAskedFor", "MarkContextAskedFor", "SetContextFor", "MarkNotifiedFor"} {
+		"MarkRotationAskedFor", "MarkContextAskedFor", "SetContextFor", "MarkNotifiedFor",
+		"EndSession", "MarkStopped"} {
 		err := calls[method]()
 		if err == nil || err.Error() != method+" is the daemon's alone" {
 			t.Errorf("%s from another caller = %v, want %q", method, err, method+" is the daemon's alone")
@@ -105,12 +112,6 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		t.Errorf("clearing a starting handle from another caller = %v, want no daemon refusal", err)
 	}
 
-	// What the daemon does not alone make is not refused as its own:
-	// ending a session stays any caller's (yardr down ends them).
-	if err := s.EndSession(other, "no-such-session", "died", "gone"); err == nil ||
-		err.Error() == "EndSession is the daemon's alone" {
-		t.Errorf("EndSession from another caller = %v, want no daemon refusal", err)
-	}
 }
 
 // Pruning the store and asking a crew member's session to restart pass

@@ -520,7 +520,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 
 | path | what |
 |---|---|
-| `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit), or have the daemon keep dated copies ([Copies of the store](#copies-of-the-store), which says how to restore one) |
+| `yard.db` | the store (bbolt); back it up with `yardr store backup <path>`, a path in `backups/` or in `backup_dir`, while it serves (one read transaction, so the copy is the store as of one commit), or have the daemon keep dated copies ([Copies of the store](#copies-of-the-store), which says how to restore one) |
 | `backups/` | the dated copies of the store the daemon keeps once `backup_every` is set, unless `backup_dir` names another directory |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.pid.start`, `server.log` | the running server |
@@ -1334,6 +1334,12 @@ yardr settings set backup_keep 14             # default 7
 yardr settings set backup_dir /Volumes/nas/yard   # default <home>/backups
 ```
 
+A copy is written in one of two directories and nowhere else: the one
+`backup_dir` names, and `<home>/backups`, where `yardr upgrade` keeps its
+copy whatever the setting says. `yardr store backup <path>` refuses a path
+in any other directory, a directory below them included: the copy replaces
+whatever is at the path.
+
 The daemon makes the copy on the pass on which the newest one is older than
 `backup_every`, the way `yardr store backup` does: through the running
 server, in one read transaction, so nothing stops and the copy is the store
@@ -1401,7 +1407,9 @@ names; `operator`, `edge` and the settings of where the yard reads and serves
 from stay the operator's to type. `hook_public_url` binds nothing and is a run
 ask's: its card shows the whole URL each hook is registered at. Like the other things only the operator does
 (adding a user or a peer), this is a line against mistakes, not a wall:
-nothing checks who is at the keyboard.
+nothing checks who is at the keyboard, and an agent is known by its pane's
+process tree, which one that sets out to can leave
+([api.md](api.md#who-may-make-a-call)).
 
 A yard that names no operator yet has nobody to hold a setting to. It
 takes one from anyone who is no agent of its own: no crew member, and no

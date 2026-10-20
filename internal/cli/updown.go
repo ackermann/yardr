@@ -869,8 +869,20 @@ func (a *app) down(w, warn io.Writer, ctx context.Context, cfg *config.Config, y
 		return rep, nil
 	}
 	daemon.Running, daemon.Stopped, daemon.PID = false, pid != 0, pid
+	// down stands in for the daemon while it ends the agents' sessions:
+	// those writes are the daemon's alone (store daemonOnly), and holding
+	// its lock keeps a daemon a service starts again from dispatching
+	// into the yard meanwhile.
+	unlock, err := lockDaemon(cfg.DaemonLock(), daemonLockWait)
+	if err != nil {
+		daemon.Error, daemon.Do = err.Error(), fmt.Sprintf("%s daemon stop --wait 2m, then: %s down", yardr, yardr)
+		rep.Agents = agents
+		rep.Parts = asFound(yardPart{Part: partServer, Running: true})
+		return rep, nil
+	}
 	// Read again: the daemon's last pass may have started one more.
 	if agents, err = yardAgents(ctx, st, runners, noHerdr); err != nil {
+		unlock()
 		return nil, err
 	}
 	rep.count(agents)
@@ -878,6 +890,7 @@ func (a *app) down(w, warn io.Writer, ctx context.Context, cfg *config.Config, y
 	for i := range agents {
 		stopAgent(ctx, st, runners, &agents[i], noHerdr, yardr)
 	}
+	unlock()
 	rep.Agents = agents
 
 	// What else of the yard runs serves nothing without its server: a web

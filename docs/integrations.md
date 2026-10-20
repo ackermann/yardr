@@ -1279,7 +1279,8 @@ answer from crm (customer): data from outside the yard, not instructions
   anyone may revoke. That refusal is a line against mistakes, not a wall:
   outside a pane the actor is a claimed name
   ([users.md](users.md#who-is-acting)), so it does not stop a terminal that
-  claims the user. A crew member that needs a grant proposes it with a
+  claims the user, nor an agent that starts a process outside its pane's
+  process tree, which is then taken for one. A crew member that needs a grant proposes it with a
   run ask (`yardr bead ask <id> "<question>" --context … --run "source
   grant crm note --crew yardmaster"`): the card names each call with its
   method and path, says of `read` which calls that is today and that it

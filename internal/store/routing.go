@@ -2203,10 +2203,15 @@ func (s *Store) MarkRunning(ctx context.Context, sessionID string, handle map[st
 // the bead's current stage counts against it (see FailureCount). 'aborted'
 // is a start the runtime could not make (herdr down): it returns the bead
 // the same way but is no failure of the bead's, so it is not counted.
-// Ending an ended session is a no-op.
+// Ending an ended session is a no-op. The daemon's alone (daemonOnly), as
+// Claim is: an agent that could end a session could free its own bead from
+// its stage, or another's from under its agent.
 func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string) error {
 	if state != "died" && state != "failed" && state != "aborted" {
 		return fmt.Errorf("EndSession: state %q not allowed", state)
+	}
+	if err := s.daemonOnly(ctx, "EndSession"); err != nil {
+		return err
 	}
 	return s.changeSession(sessionID, func(w *wtx, sess *Session) error {
 		if !sess.live() {
@@ -2243,7 +2248,13 @@ func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string)
 	})
 }
 
+// MarkStopped records that a session's pane or process is gone, so the
+// daemon has nothing of it left to stop. The daemon's alone (daemonOnly):
+// a session marked stopped is one the daemon no longer tears down.
 func (s *Store) MarkStopped(ctx context.Context, sessionID string) error {
+	if err := s.daemonOnly(ctx, "MarkStopped"); err != nil {
+		return err
+	}
 	return s.changeSession(sessionID, func(_ *wtx, sess *Session) error {
 		sess.Stopped = true
 		return nil
