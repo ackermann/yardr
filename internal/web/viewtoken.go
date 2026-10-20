@@ -7,7 +7,8 @@ package web
 // such a view therefore asks for a secret of its own, one per serve:
 //
 //   - the token: 256 random bits that the command writes to a file only the
-//     operator reads and prints once in a URL (/?token=...);
+//     operator reads and prints once, in a URL (/?token=...), to a terminal:
+//     a log is read by more than the operator;
 //   - the cookie the token buys: a GET carrying it is answered with an
 //     HttpOnly, SameSite=Strict cookie and a redirect to the same URL without
 //     it, so the token does not stay in the address bar or the history;
@@ -39,7 +40,7 @@ import (
 // values a browser holds once it has shown it.
 type viewToken struct {
 	// secret is the token itself, in hex. It is in the file the command
-	// writes and the URL it prints, and in no response.
+	// writes and the URL it prints to a terminal, and in no response.
 	secret string
 	// cookie and csrf are keyed hashes of the secret, each for one purpose:
 	// neither gives away the other or the token, which a URL in a history

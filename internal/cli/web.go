@@ -295,7 +295,11 @@ this machine. Both answers carry Retry-After.`,
 			}
 			log.Info("serving the yard", at...)
 			if token != "" {
-				if w := c.ErrOrStderr(); isTerminal(w) {
+				tty := a.isTerm
+				if tty == nil {
+					tty = isTerminal
+				}
+				if w := c.ErrOrStderr(); tty(w) {
 					// Once, on a line of its own so that a terminal makes it a
 					// link, as Jupyter prints its own. yardr web open opens it
 					// again from the view's record.
@@ -560,8 +564,8 @@ func webAnswersTo(unsafe bool, names []string) string {
 
 // isTerminal reports whether w is a terminal, which a person reads and
 // nothing keeps, as it does a file or a pipe, which whoever reads the log
-// does too. Tests replace it.
-var isTerminal = func(w io.Writer) bool {
+// does too.
+func isTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false

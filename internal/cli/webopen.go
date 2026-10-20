@@ -22,10 +22,10 @@ func (v webView) openURL() string {
 	return v.URL + "?token=" + v.token
 }
 
-// openBrowser opens url in this machine's browser; tests replace it. The
-// opener is not waited for: one that stays until the browser it started
-// ends would hold the command with it.
-var openBrowser = func(url string) error {
+// openBrowser opens url in this machine's browser. The opener is not waited
+// for: one that stays until the browser it started ends would hold the
+// command with it.
+func openBrowser(url string) error {
 	name := "xdg-open"
 	if runtime.GOOS == "darwin" {
 		name = "open"
@@ -69,11 +69,13 @@ func (a *app) webOpenCmd() *cobra.Command {
 
 A view that acts as a user (--as, YARDR_WEB_AS or the web_as setting) takes
 its writes only from a browser that holds its cookie, which a URL with the
-view's token buys once. The view prints that URL when it starts; this
-command opens it again, from the view's record in <home>/webviews, a file
-only you can read. The cookie lasts as long as the browser's session, and
-the token as long as the view runs: a view that is started again has a
-token of its own. A view that does not act is opened at its plain address.
+view's token buys once. The view prints that URL in the terminal it runs in
+when it starts, and prints none where no terminal runs it (yardr web start,
+the login service); this command opens it from the view's record in
+<home>/webviews, a file only you can read. The cookie lasts as long as the
+browser's session, and the token as long as the view runs: a view that is
+started again has a token of its own. A view that does not act is opened at
+its plain address.
 
 Where no browser opens (a machine with no display, an ssh session), the URL
 is printed instead, and it is the one to open in a browser on this machine.
@@ -94,8 +96,12 @@ host:port it listens on (the error that lists them says them so).`,
 			if err != nil {
 				return err
 			}
+			open := a.browser
+			if open == nil {
+				open = openBrowser
+			}
 			url := v.openURL()
-			opened := openBrowser(url)
+			opened := open(url)
 			res := map[string]any{"address": v.Addr, "url": url, "opened": opened == nil}
 			if v.As != "" {
 				res["acts_as"] = v.As

@@ -37,7 +37,15 @@ type app struct {
 	// stdin is where a command a program leads reads its answers; tests
 	// hand their own. Nil means the process's standard input.
 	stdin io.Reader
-	actor string
+	// browser opens a URL in this machine's browser, for yardr web open;
+	// tests hand their own, so that none opens. Nil means the machine's
+	// (openBrowser).
+	browser func(url string) error
+	// isTerm tells whether a stream is a terminal, for what a command
+	// shows a person and keeps out of a log (the token URL of yardr web
+	// serve); tests hand their own. Nil means the real check (isTerminal).
+	isTerm func(w io.Writer) bool
+	actor  string
 	// actingAs is the actor resolved once by PersistentPreRunE, so a later
 	// lookup cannot time out and silently change this run's attribution.
 	actingAs    string

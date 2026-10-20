@@ -15,19 +15,37 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
-// serveWeb runs yardr web serve on loopback with args, in the background,
-// until stop is called. It returns once the view serves: it has recorded
-// itself and answers, so everything it prints at start is printed, and the
-// view that its record names and what it printed to its stderr come with
-// it.
-func serveWeb(t *testing.T, st store.API, cfg *config.Config, args ...string) (v webView, stderr *lockedBuffer, stop func()) {
+// webYard is a yard with the user Jo and a home of its own, which is all
+// the tests of serve need of one: a store, and where its views record
+// themselves. It stubs nothing and sets no variable (YARDR_WEB_AS is blank
+// in the process already, TestMain), so the tests that use it run beside
+// the rest.
+func webYard(t *testing.T) (store.API, *config.Config) {
 	t.Helper()
-	cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+	st := storetest.New(t)
+	if _, err := st.AddUser(context.Background(), "Jo", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	return st, &config.Config{Home: newHomeDir(t)}
+}
+
+// serveWeb runs yardr web serve on loopback with args, in the background,
+// until stop is called, with its stderr a terminal where terminal says so.
+// It returns once the view serves: it has recorded itself and answers, so
+// everything it prints at start is printed, and the view that its record
+// names and what it printed to its stderr come with it.
+func serveWeb(t *testing.T, st store.API, cfg *config.Config, terminal bool, args ...string) (v webView, stderr *lockedBuffer, stop func()) {
+	t.Helper()
+	a := appOn(st)
+	a.cfg, a.actor = cfg, "me"
+	a.isTerm = func(io.Writer) bool { return terminal }
+	cmd := a.webCmd()
 	stderr = &lockedBuffer{}
 	cmd.SetErr(stderr)
-	cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}, args...))
+	cmd.SetArgs(append([]string{"serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}, args...))
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -70,54 +88,76 @@ func serveWeb(t *testing.T, st store.API, cfg *config.Config, args ...string) (v
 	return v, stderr, stop
 }
 
-// --unsafe with a view that acts is refused outside JWT mode, whichever of
-// --as, YARDR_WEB_AS and web_as names the user, and says why and what to do
-// instead. In JWT mode the acting user is refused first, for its own
-// reason. Nothing is served.
-func TestWebServeUnsafeAsRefused(t *testing.T) {
-	home, st, a := statusYard(t, "abcdef123456")
-	ctx := context.Background()
+// The refusal of --unsafe for a view that acts names the user and where the
+// name came from, whichever of the flag, YARDR_WEB_AS and the web_as
+// setting it was, says why, and says what to do instead (each of them its
+// own way to stop acting).
+func TestWebUnsafeAsRefusedNamesItsSource(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
-		env, setting string
-		args         []string
-		whose        string
+		from, whose, unset string
 	}{
-		{"", "", []string{"--as", "Jo"}, "--as Jo"},
-		{"Jo", "", nil, "YARDR_WEB_AS Jo"},
-		{"", "Jo", nil, "web_as Jo"},
+		{"", "--as Jo", "start without --as"},
+		{store.FromEnvironment, "YARDR_WEB_AS Jo", "unset YARDR_WEB_AS"},
+		{store.FromSet, "web_as Jo", "unset web_as"},
 	} {
-		t.Setenv("YARDR_WEB_AS", c.env)
-		if err := st.SetSetting(ctx, store.WebAsSetting, c.setting, "Jo"); err != nil {
-			t.Fatal(err)
-		}
-		_, err := run(t, a().webCmd(), append([]string{"serve", "--unsafe", "--addr", "127.0.0.1:0"}, c.args...)...)
-		if err == nil {
-			t.Fatalf("%s with --unsafe: served", c.whose)
-		}
-		for _, want := range []string{"--unsafe refused", "acts as Jo", "(" + c.whose + ")", "token and a cookie", "plain HTTP", "Drop --unsafe", "JWT mode"} {
+		err := webUnsafeAsRefused("Jo", c.from)
+		for _, want := range []string{"--unsafe refused", "acts as Jo", "(" + c.whose + ")", "token and a cookie", "plain HTTP", "Drop --unsafe", c.unset, "JWT mode"} {
 			if !strings.Contains(err.Error(), want) {
-				t.Errorf("%s with --unsafe: the refusal lacks %q: %v", c.whose, want, err)
+				t.Errorf("from %q: the refusal lacks %q: %v", c.from, want, err)
 			}
 		}
-		if views := webViews(&config.Config{Home: home}); len(views) != 0 {
-			t.Errorf("%s with --unsafe: a view runs: %+v", c.whose, views)
+	}
+}
+
+// --unsafe with a view that acts is refused outside JWT mode, whether --as
+// or the web_as setting names the user, before anything listens. In JWT
+// mode the acting user is refused first, for its own reason.
+func TestWebServeUnsafeAsRefused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cfg := webYard(t)
+	serve := func(st store.API, cfg *config.Config, args ...string) error {
+		t.Helper()
+		a := appOn(st)
+		a.cfg = cfg
+		_, err := run(t, a.webCmd(), append([]string{"serve", "--unsafe", "--addr", "127.0.0.1:0"}, args...)...)
+		return err
+	}
+	refused := func(err error, whose string) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s with --unsafe: served", whose)
+		}
+		for _, want := range []string{"--unsafe refused", "acts as Jo", "(" + whose + ")", "plain HTTP"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s with --unsafe: the refusal lacks %q: %v", whose, want, err)
+			}
+		}
+		if views := webViews(cfg); len(views) != 0 {
+			t.Errorf("%s with --unsafe: a view runs: %+v", whose, views)
 		}
 	}
+	refused(serve(st, cfg, "--as", "Jo"), "--as Jo")
+	if err := st.SetSetting(ctx, store.WebAsSetting, "Jo", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	refused(serve(st, cfg), "web_as Jo")
+
 	// In JWT mode --as is refused for its own reason, before --unsafe is
 	// looked at.
-	t.Setenv("YARDR_WEB_AS", "")
+	jst, jcfg := webYard(t)
 	for k, v := range map[string]string{
-		store.WebAsSetting:          "",
 		store.WebJWTIssuerSetting:   "https://team.example.net",
 		store.WebJWTAudienceSetting: "aud-tag",
 		store.WebJWTJWKSSetting:     "https://team.example.net/certs",
 		store.WebJWTUsersSetting:    "jo@example.net=Jo",
 	} {
-		if err := st.SetSetting(ctx, k, v, "Jo"); err != nil {
+		if err := jst.SetSetting(ctx, k, v, "Jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err := run(t, a().webCmd(), "serve", "--unsafe", "--addr", "127.0.0.1:0", "--as", "Jo")
+	err := serve(jst, jcfg, "--as", "Jo")
 	if err == nil || !strings.Contains(err.Error(), "JWT mode") || !strings.Contains(err.Error(), "takes no acting user") || strings.Contains(err.Error(), "--unsafe refused") {
 		t.Errorf("--as and --unsafe in JWT mode: %v, want the refusal of the acting user", err)
 	}
@@ -131,12 +171,10 @@ func TestWebServeUnsafeAsRefused(t *testing.T) {
 // A view that does not act has none and prints none. The record goes with
 // the view.
 func TestWebServeActsBehindItsToken(t *testing.T) {
-	home, st, a := statusYard(t, "abcdef123456")
-	t.Setenv("YARDR_WEB_AS", "")
-	cfg := &config.Config{Home: home}
-	stub(t, &isTerminal, func(io.Writer) bool { return true })
+	t.Parallel()
+	st, cfg := webYard(t)
 
-	v, stderr, stop := serveWeb(t, st, cfg, "--as", "Jo")
+	v, stderr, stop := serveWeb(t, st, cfg, true, "--as", "Jo")
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(v.token) {
 		t.Fatalf("token %q, want 256 bits in hex", v.token)
 	}
@@ -154,13 +192,11 @@ func TestWebServeActsBehindItsToken(t *testing.T) {
 	if out := stderr.String(); strings.Count(out, wantURL) != 1 || !strings.Contains(out, "To act as Jo") {
 		t.Errorf("stderr:\n%s\nwant the URL %s once, for Jo", out, wantURL)
 	}
-	// What status prints holds no token.
+	// What status and doctor print of a view is its struct as JSON, and
+	// that holds no token.
 	shown, err := json.Marshal(webViews(cfg))
-	if err != nil || strings.Contains(string(shown), v.token) {
-		t.Errorf("the views as status prints them hold the token: %s (%v)", shown, err)
-	}
-	if out, err := run(t, a().rootCmd(), "status", "--json"); err != nil || strings.Contains(out, v.token) || !strings.Contains(out, `"as": "Jo"`) {
-		t.Errorf("yardr status --json (%v) holds the token, or does not say who the view acts as:\n%s", err, out)
+	if err != nil || strings.Contains(string(shown), v.token) || !strings.Contains(string(shown), `"as":"Jo"`) {
+		t.Errorf("the views as status prints them (%v): %s, want who each acts as and no token", err, shown)
 	}
 
 	// The view takes this token, not another: a write with no cookie is
@@ -183,21 +219,19 @@ func TestWebServeActsBehindItsToken(t *testing.T) {
 	if views := webViews(cfg); len(views) != 0 {
 		t.Errorf("the view ended and its record stands: %+v", views)
 	}
-	if _, err := os.Stat(cfg.WebViews()); err == nil {
-		if left, _ := os.ReadDir(cfg.WebViews()); len(left) != 0 {
-			t.Errorf("the view ended and left %d files with its token", len(left))
-		}
+	if left, _ := os.ReadDir(cfg.WebViews()); len(left) != 0 {
+		t.Errorf("the view ended and left %d files with its token", len(left))
 	}
 
 	// Another serve is another view with a token of its own.
-	again, _, stopAgain := serveWeb(t, st, cfg, "--as", "Jo")
+	again, _, stopAgain := serveWeb(t, st, cfg, true, "--as", "Jo")
 	stopAgain()
 	if again.token == "" || again.token == v.token {
 		t.Errorf("a second serve has token %q after the first's %q, want one of its own", again.token, v.token)
 	}
 
 	// A view that does not act has none, and prints none.
-	plain, stderr, stopPlain := serveWeb(t, st, cfg, "--as=")
+	plain, stderr, stopPlain := serveWeb(t, st, cfg, true, "--as=")
 	defer stopPlain()
 	if plain.token != "" || strings.Contains(stderr.String(), "token") {
 		t.Errorf("a view that does not act: token %q, stderr %q", plain.token, stderr.String())
@@ -209,11 +243,9 @@ func TestWebServeActsBehindItsToken(t *testing.T) {
 // is read by more than the operator, and the record has the token for yardr
 // web open.
 func TestWebServeKeepsTheTokenOutOfALog(t *testing.T) {
-	home, st, _ := statusYard(t, "abcdef123456")
-	t.Setenv("YARDR_WEB_AS", "")
-	cfg := &config.Config{Home: home}
-	stub(t, &isTerminal, func(io.Writer) bool { return false })
-	v, stderr, stop := serveWeb(t, st, cfg, "--as", "Jo")
+	t.Parallel()
+	st, cfg := webYard(t)
+	v, stderr, stop := serveWeb(t, st, cfg, false, "--as", "Jo")
 	defer stop()
 	if v.token == "" || strings.Contains(stderr.String(), v.token) || strings.Contains(stderr.String(), "?token=") {
 		t.Errorf("token %q, stderr %q: want a token in the record and none printed", v.token, stderr.String())
@@ -225,18 +257,21 @@ func TestWebServeKeepsTheTokenOutOfALog(t *testing.T) {
 // a browser took it, prints it where none did, and names the views when it
 // cannot tell which to open.
 func TestWebOpen(t *testing.T) {
+	t.Parallel()
 	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	var opened []string
 	var openErr error
-	stub(t, &openBrowser, func(url string) error {
-		opened = append(opened, url)
-		return openErr
-	})
+	command := func(json bool) *app {
+		return &app{cfg: cfg, json: json, browser: func(url string) error {
+			opened = append(opened, url)
+			return openErr
+		}}
+	}
 	open := func(args ...string) (string, error) {
 		t.Helper()
 		opened = nil
-		return run(t, (&app{cfg: cfg}).webCmd(), append([]string{"open"}, args...)...)
+		return run(t, command(false).webCmd(), append([]string{"open"}, args...)...)
 	}
 	// view starts a view that runs, in the sense of its record, for the test.
 	view := func(addr, as, token string) {
@@ -275,7 +310,7 @@ func TestWebOpen(t *testing.T) {
 
 	// The JSON says what was opened.
 	opened = nil
-	jsonOut, err := run(t, (&app{cfg: cfg, json: true}).webCmd(), "open")
+	jsonOut, err := run(t, command(true).webCmd(), "open")
 	var got struct {
 		Address string `json:"address"`
 		URL     string `json:"url"`
