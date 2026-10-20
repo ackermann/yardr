@@ -613,7 +613,7 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 		return "", err
 	}
 	if outcome != "" {
-		if _, err := w.move(row.UUID, by, tk.flows[row.UUID], tk.homes[row.UUID], nil, donePick(outcome)); err != nil {
+		if _, err := w.move(row.UUID, by, tk.flows[row.UUID], tk.homes[row.UUID], nil, donePick(outcome, nil)); err != nil {
 			return "", err
 		}
 	}

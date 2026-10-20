@@ -574,7 +574,7 @@ func (w *wtx) stageOutcome(row *beadRow, outcome string, repo *RepoFlows) error 
 	if err != nil {
 		return err
 	}
-	to, err := donePick(outcome)(f, row, map[string]any{})
+	to, err := donePick(outcome, nil)(f, row, map[string]any{})
 	if err != nil {
 		return err
 	}

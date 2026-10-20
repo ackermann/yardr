@@ -1441,21 +1441,26 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // write like AdvanceNote. The outcome is recorded on the advanced event.
 // A bead no flow governs has no outcomes: it is moved with Advance.
 // The session's own done is refused while a note on the bead names that
-// session and is not acked (see checkUnread). From a session's or a crew
-// member's pane the move and its note are recorded as that session's
-// actor or that crew member, whatever actor says; from anywhere else, as
-// given (paneAuthor).
+// session and is not acked (see checkUnread). DoneSafe is refused while the
+// bead's diff touches a path the depot lists (SecurityPathsFile). From a
+// session's or a crew member's pane the move and its note are recorded as
+// that session's actor or that crew member, whatever actor says; from
+// anywhere else, as given (paneAuthor).
 func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
 	command := DoneCommand(id, outcome)
-	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome))
+	// Read before the write: git must not run inside one.
+	safe := s.checkDoneSafe(ctx, id, outcome)
+	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome, safe))
 	return b, s.refused(ctx, id, command, exp, actor, err)
 }
 
 // donePick reports outcome through the flow governing the bead, as Done
 // does: the stage it sends a bead in its stage to, with the outcome on the
-// event. An answer on a stage ask moves the bead through the same pick.
-func donePick(outcome string) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+// event. A report of DoneSafe that safe holds (checkDoneSafe) is refused
+// once the flow has the outcome. An answer on a stage ask moves the bead
+// through the same pick, with no safe: a person answers it.
+func donePick(outcome string, safe *safeCheck) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 	return func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
@@ -1463,6 +1468,9 @@ func donePick(outcome string) func(f *Flow, b *beadRow, data map[string]any) (st
 		to, err := f.Resolve(b.Stage, outcome)
 		if err != nil {
 			return "", fmt.Errorf("bead %s: %w", b.ID, err)
+		}
+		if err := safe.refusal(f, b.ID, b.Stage); err != nil {
+			return "", err
 		}
 		data["outcome"] = outcome
 		return to, nil

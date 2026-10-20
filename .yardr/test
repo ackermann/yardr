@@ -1162,6 +1162,7 @@ packs/github/                  internal/hooks
 packs/slack/                   internal/hooks
 packs/template/                internal/pack packs
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
+.yardr/security_paths          internal/store
 .yardr/test                    .
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli

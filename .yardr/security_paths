@@ -1,0 +1,29 @@
+# The paths a bead's diff may not touch if its reviewer is to report done-safe
+# and the bead is to skip review-security. The store refuses done-safe for a
+# diff that touches one, naming the files, and the reviewer reports done
+# instead. One git pathspec a line, read as a glob from the repository's root:
+# ** crosses directories, * stays in one, # starts a comment. It is read at the
+# tip of main, never from a bead's branch, so a bead cannot loosen the list
+# that holds it; the file is on its own list, so a change to it is reviewed
+# twice. docs/flows.md has the rules.
+
+# Who may write what, and what a write records of who did it.
+internal/store/**
+# What listens, and on what address: the store's API over the socket.
+internal/rpc/**
+# Who a web request is trusted as.
+internal/web/**
+# What a hook may do, and no secret in what it records.
+internal/hooks/**
+# Linked yards and devices, and who one is trusted as.
+internal/peer/**
+internal/pairing/**
+internal/yards/**
+# Declared sources: where a credential is sent, and what a call may do.
+internal/source*/**
+# New dependencies.
+go.mod
+go.sum
+# What judges a bead (the flows, the roles, the test gate) and what lands it.
+.yardr/**
+contrib/assembly/**

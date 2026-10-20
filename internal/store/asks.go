@@ -802,7 +802,7 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 			if homeErr != nil {
 				return homeErr
 			}
-			if _, err := w.move(row.UUID, actor, repo, home, nil, donePick(outcome)); err != nil {
+			if _, err := w.move(row.UUID, actor, repo, home, nil, donePick(outcome, nil)); err != nil {
 				return err
 			}
 		}
