@@ -187,6 +187,28 @@ func TestMergeLocalTestsDeadlineExcludesRaceLockWait(t *testing.T) {
 	}
 }
 
+// A lock wait longer than LIMIT is still excluded before the gate can print
+// its final wait line. Here it marks the wait at the start, waits 4 seconds,
+// then runs for 1 second: 5 seconds total is within LIMIT+the wait (7).
+func TestMergeLocalTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T) {
+	y := newYard(t)
+	tip := y.commit(y.wt, "b.txt", "bead\n")
+	y.tests(`echo "test: race lock wait started at $(date +%s)"; sleep 4; echo "test: waited 4 s for the race lock"; sleep 1`)
+	y.opts = "YARDR_TEST_TIMEOUT=3"
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" || b.Hold {
+		t.Fatalf("bead %s/%s hold=%v, want merged and closed", b.Stage, b.Status, b.Hold)
+	}
+	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
+		t.Fatalf("main %s, want the tested commit %s", main, tip)
+	}
+	if notes := y.notes(); strings.Contains(notes, "ran past their deadline") {
+		t.Fatalf("a lock wait longer than the deadline was not credited:\n%s", notes)
+	}
+}
+
 // Past LIMIT plus its waited seconds, the run is killed as before: here
 // LIMIT is 2, the wait 2, and the run 10, killed at 4.
 func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {

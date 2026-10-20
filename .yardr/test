@@ -460,6 +460,7 @@ $SIG{TERM} = sub { cleanup(); exit(143); };
 $SIG{INT} = sub { cleanup(); exit(130); };
 $t = time;
 $mine = mkticket();
+$waiting = 0;
 $status_at = 0;
 for (;;) {
   if (!-e "$qdir/$mine") {
@@ -483,6 +484,12 @@ for (;;) {
       die "test: cannot lock $lock: $e\n";
     }
   }
+  if (!$waiting) {
+    # The landing timeout needs to credit a lock wait even when it lasts
+    # longer than the timeout, before this process can print its final wait.
+    warn "test: race lock wait started at $t\n";
+    $waiting = 1;
+  }
   if ($status_at == 0 || time - $status_at >= 60) {
     status_line($mine);
     $status_at = time;
@@ -490,7 +497,7 @@ for (;;) {
   sleep(1);
 }
 $w = time - $t;
-warn "test: waited $w s for the race lock\n" if $w > 0;
+warn "test: waited $w s for the race lock\n" if $w > 0 || $waiting;
 write_holder();
 $ENV{YARDR_RACE_HELD} = 1;
 $ENV{YARDR_TEST_RACE_LEG} = 1;

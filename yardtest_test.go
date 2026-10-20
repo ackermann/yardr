@@ -1207,6 +1207,9 @@ fi
 	if len(waits) != 1 {
 		t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), out)
 	}
+	if !regexp.MustCompile(`(?m)^test: race lock wait started at \d+$`).Match(out) {
+		t.Errorf("the output has no start marker for the active race-lock wait:\n%s", out)
+	}
 	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
 	if !summary.MatchString(string(out)) {
 		t.Errorf("the summary does not include the race-lock wait:\n%s", out)

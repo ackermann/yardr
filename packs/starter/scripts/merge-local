@@ -361,8 +361,9 @@ runtest() {
     # landing late in the queue would otherwise be killed with every test
     # green. Sleep $LIMIT, then sleep again for the waited seconds not yet
     # credited, repeating until no new wait is found; only then mark late
-    # and kill. The waited seconds are the `test: waited N s` lines the run
-    # printed, summed as the gate's waitcount does.
+    # and kill. The gate prints a start marker while it waits and a final
+    # `test: waited N s` line when it acquires the lock; account for the
+    # elapsed active wait too, since it may outlast LIMIT.
     credited=0
     wait_for=$LIMIT
     while :; do
@@ -370,7 +371,11 @@ runtest() {
       nap=$!
       echo "$nap" >"$napfile"
       wait "$nap"
-      waited=$(grep -E '^test: waited [0-9]+ s for the race lock$' "$log" 2>/dev/null | awk '{s+=$3} END {print s+0}')
+      waited=$(awk -v now="$(date +%s)" '
+        /^test: race lock wait started at [0-9]+$/ { active=$NF; next }
+        /^test: waited [0-9]+ s for the race lock$/ { total+=$3; active="" }
+        END { if (active != "") total += now-active; print total+0 }
+      ' "$log" 2>/dev/null)
       case "$waited" in ''|*[!0-9]*) waited=0 ;; esac
       extra=$((waited - credited))
       if [ "$extra" -le 0 ]; then
