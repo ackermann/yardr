@@ -994,7 +994,8 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	out := filepath.Join(dir, "env")
-	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	home := t.TempDir()
+	e := &Exec{Home: home, Bin: "/bin/yardr"}
 	// Through the shell, not printenv: macOS's prints the first name only.
 	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME"
 	job := dispatch.Job{
@@ -1006,7 +1007,7 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	if _, err := e.Start(ctx, job); err != nil {
 		t.Fatal(err)
 	}
-	want := "yd-7 assembly web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh"
+	want := "yd-7 assembly web " + dir + " main yard/yd-7 " + filepath.Join(home, "worktrees/web/yd-7") + " /bin/yardr " + home
 	var got string
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		b, _ := os.ReadFile(out)
@@ -1024,7 +1025,7 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 func TestExecEnvTest(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("YARDR_TEST", "from-the-daemon")
-	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	e := &Exec{Home: t.TempDir(), Bin: "/bin/yardr"}
 	for _, tc := range []struct {
 		name  string
 		depot *store.Depot
@@ -1474,7 +1475,8 @@ func TestHerdrStartPutsAgentEnvOnItsTab(t *testing.T) {
 	gitT(t, wt, "init", "-q", "-b", "main")
 	for _, open := range []bool{false, true} {
 		log := filepath.Join(t.TempDir(), "calls")
-		h := &Herdr{YardHome: "/y", YardBin: "/bin/yardr", Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+		home := t.TempDir()
+		h := &Herdr{YardHome: home, YardBin: "/bin/yardr", Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":`+fmt.Sprint(open)+`}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
@@ -1507,7 +1509,7 @@ esac`)}
 		raw, _ := os.ReadFile(log)
 		calls := string(raw)
 		env := envOf(apiCall(t, calls, "tab.create"))
-		for k, v := range map[string]string{"YARDR_ACTOR": "yard-13-new", "YARDR_HOME": "/y", "YARDR_BEAD": "yard-13",
+		for k, v := range map[string]string{"YARDR_ACTOR": "yard-13-new", "YARDR_HOME": home, "YARDR_BEAD": "yard-13",
 			"YARDR_SESSION": "s1", "YARDR_BIN": "/bin/yardr"} {
 			if env[k] != v {
 				t.Errorf("already_open=%v: tab.create env lacks %s=%s: %v", open, k, v, env)
@@ -1788,8 +1790,9 @@ func TestHerdrDirDepot(t *testing.T) {
 	root := t.TempDir()
 	// The sessions here are made up, not claimed: a store that only notes
 	// the pane a start puts on record takes them.
+	home := t.TempDir()
 	h := &Herdr{Bin: dirHerdr(t, log, state), Socket: fakeHerdrAPI(t, log), WorktreeRoot: root,
-		Store: &paneStore{API: s, t: t, calls: log}, YardHome: "/y", YardBin: "/bin/yardr"}
+		Store: &paneStore{API: s, t: t, calls: log}, YardHome: home, YardBin: "/bin/yardr"}
 	start := func(stage string, group store.Group) (map[string]any, string) {
 		t.Helper()
 		b, err := s.GetBead(ctx, "docs-1")
@@ -1829,7 +1832,7 @@ func TestHerdrDirDepot(t *testing.T) {
 		t.Fatalf("agent's tab not in the directory: %v", tab)
 	}
 	env := envOf(tab)
-	for k, v := range map[string]string{"YARDR_DEPOT_PATH": dir, "YARDR_DEPOT": "docs", "YARDR_ACTOR": "docs-1-new", "YARDR_HOME": "/y"} {
+	for k, v := range map[string]string{"YARDR_DEPOT_PATH": dir, "YARDR_DEPOT": "docs", "YARDR_ACTOR": "docs-1-new", "YARDR_HOME": home} {
 		if env[k] != v {
 			t.Errorf("tab env lacks %s=%s: %v", k, v, env)
 		}
@@ -1931,7 +1934,7 @@ func TestExecEnvDirDepot(t *testing.T) {
 	}
 	dir := t.TempDir()
 	out := filepath.Join(t.TempDir(), "env")
-	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	e := &Exec{Home: t.TempDir(), Bin: "/bin/yardr"}
 	job := dispatch.Job{
 		Bead: store.Bead{ID: "docs-7", Stage: "new"},
 		// Written whole, then named: env writes a large environment (CI's)

@@ -33,6 +33,7 @@ func TestHerdrSessionGetsTraceContext(t *testing.T) {
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
 	h, calls, _ := envHerdr(t, wt)
+	h.YardHome = t.TempDir()
 	file := filepath.Join(t.TempDir(), "env")
 	if err := os.WriteFile(file, []byte("CLAUDE_CODE_ENABLE_TELEMETRY=1\nTRACEPARENT=00-bad\nOTEL_RESOURCE_ATTRIBUTES=team=core\n"), 0o600); err != nil {
 		t.Fatal(err)

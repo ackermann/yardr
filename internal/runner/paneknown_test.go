@@ -118,6 +118,7 @@ func TestStartDoesNotRunAgentWithoutARecordedPane(t *testing.T) {
 		"dir": {Name: "notes", Path: t.TempDir(), Kind: store.DepotDir},
 	} {
 		h, st := shellHerdr(t, wt)
+		h.YardHome = t.TempDir()
 		h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+st.calls+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
@@ -170,6 +171,7 @@ func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 			Session: store.Session{ID: "s1"},
 		}
 		h, st := shellHerdr(t, wt)
+		h.YardHome = t.TempDir()
 		if _, err := h.Start(ctx, job); err != nil {
 			t.Fatalf("%s depot: %v", name, err)
 		}
@@ -181,6 +183,7 @@ func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 		}
 
 		h, st = shellHerdr(t, wt)
+		h.YardHome = t.TempDir()
 		st.refuse = errors.New("the store is away")
 		handle, err := h.Start(ctx, job)
 		if err == nil || !strings.Contains(err.Error(), "the store is away") || strings.Contains(readCalls(t, st.calls), "agent start") {

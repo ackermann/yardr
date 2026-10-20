@@ -96,6 +96,7 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
 	h, calls, logs := envHerdr(t, wt)
+	h.YardHome = t.TempDir()
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Stage: "review"},
 		Group:   store.Group{Name: "yard-review", Config: map[string]any{"env_file": envFileT(t, 0o600)}},
@@ -122,6 +123,7 @@ func TestHerdrStartSetsTrustEnv(t *testing.T) {
 		wt := t.TempDir()
 		gitT(t, wt, "init", "-q", "-b", "main")
 		h, calls, _ := envHerdr(t, wt)
+		h.YardHome = t.TempDir()
 		job := dispatch.Job{
 			Bead:    store.Bead{ID: "yard-13", Stage: "build"},
 			Group:   store.Group{Name: "g", Config: cfg},
@@ -192,6 +194,7 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 		h, calls, logs := envHerdr(t, "")
 		cfg := map[string]any{"env_file": path}
 		_, rerr := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg}, "")
+		h.YardHome = t.TempDir()
 		_, gerr := h.Start(context.Background(), dispatch.Job{Bead: store.Bead{ID: "yard-13", Stage: "new"},
 			Group: store.Group{Name: "g", Config: cfg}, Depot: &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"}})
 		for who, err := range map[string]error{"crew": rerr, "group": gerr} {
@@ -431,6 +434,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
 	h, calls, _ := envHerdr(t, wt)
+	h.YardHome = t.TempDir()
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Stage: "new"},
 		Group:   store.Group{Name: "yard-builders", Config: map[string]any{"env_file": envFile}},
@@ -473,7 +477,7 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 			Depot:   depot,
 			Session: store.Session{ID: "s1"},
 		}
-		if _, err := (&Exec{Home: "/yh", Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
+		if _, err := (&Exec{Home: t.TempDir(), Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
 			t.Fatal(err)
 		}
 		var got string
@@ -513,7 +517,7 @@ func execEnvJob(t *testing.T, depot *store.Depot, envFile string) (dispatch.Job,
 func TestExecStartLoadsGroupEnvFile(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "the-daemons")
 	var logs bytes.Buffer
-	e := &Exec{Home: "/yh", Bin: "/bin/yardr",
+	e := &Exec{Home: t.TempDir(), Bin: "/bin/yardr",
 		Log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 	job, out := execEnvJob(t, &store.Depot{Name: "web", Path: t.TempDir(), Base: "main"}, envFileT(t, 0o600))
 	handle, err := e.Start(context.Background(), job)
@@ -551,7 +555,7 @@ func TestExecEnvFileGivesNoWithheldVariable(t *testing.T) {
 		t.Fatal(err)
 	}
 	job, out := execEnvJob(t, &store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, p)
-	if _, err := (&Exec{Home: "/yh", Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
+	if _, err := (&Exec{Home: t.TempDir(), Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
 	got := waitFile(t, out)
@@ -570,7 +574,7 @@ func TestExecEnvFileRefusedBlocksStart(t *testing.T) {
 	for name, path := range map[string]string{"0644": envFileT(t, 0o644), "0640": envFileT(t, 0o640),
 		"missing": filepath.Join(t.TempDir(), "nope.env"), "directory": t.TempDir()} {
 		var logs bytes.Buffer
-		e := &Exec{Home: "/yh", Log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+		e := &Exec{Home: t.TempDir(), Log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 		job, out := execEnvJob(t, &store.Depot{Name: "web", Path: t.TempDir(), Base: "main"}, path)
 		handle, err := e.Start(context.Background(), job)
 		if !dispatch.IsBlocked(err) {
