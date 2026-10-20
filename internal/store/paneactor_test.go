@@ -166,11 +166,13 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 		if x := lastEventActor(t, s, ctx, b.ID, "held"); x != actor {
 			t.Fatalf("held event actor = %q, want %q", x, actor)
 		}
-		if _, err := s.SetHold(pane, b.ID, false, store.Expect{}, "op"); err != nil {
-			t.Fatal(err)
+		// Lifting a hold is for a person or a crew member, not a bead's
+		// agent (see SetHold). The bead stays held by the pane that held it.
+		if _, err := s.SetHold(pane, b.ID, false, store.Expect{}, "op"); err == nil || !strings.Contains(err.Error(), "may hold a bead but not lift a hold") {
+			t.Fatalf("unhold from a session's pane = %v, want it refused", err)
 		}
-		if x := lastEventActor(t, s, ctx, b.ID, "unheld"); x != actor {
-			t.Fatalf("unheld event actor = %q, want %q", x, actor)
+		if got, err := s.GetBead(ctx, b.ID); err != nil || !got.Hold || got.HeldBy != actor {
+			t.Fatalf("bead after the refused unhold = %+v, %v: want it held by %q", got, err, actor)
 		}
 		// A release that changes nothing logs nothing, so the pane
 		// releases its own bead, ending its session.
@@ -212,6 +214,30 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 		notes, _ := s.Notes(ctx, b.ID)
 		if len(notes) == 0 || notes[len(notes)-1].Author != "yardmaster" {
 			t.Fatalf("move note = %+v, want author yardmaster", notes)
+		}
+		// A crew member may take away what a bead's agent may not. The hold
+		// it lifts and the edge it removes are recorded as its own writes.
+		other, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetHold(pane, other.ID, true, store.Expect{}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetHold(pane, other.ID, false, store.Expect{}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		if a := lastEventActor(t, s, ctx, other.ID, "unheld"); a != "yardmaster" {
+			t.Fatalf("unheld event actor = %q, want yardmaster", a)
+		}
+		if err := s.AddDep(pane, b.ID, other.ID, store.DepBlocks, "", "", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveDep(pane, b.ID, other.ID, store.DepBlocks, "", "", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if a := lastEventActor(t, s, ctx, other.ID, "dep_removed"); a != "yardmaster" {
+			t.Fatalf("dep_removed event actor = %q, want yardmaster", a)
 		}
 	})
 
@@ -305,7 +331,15 @@ func TestBeadWriteFromAPaneIsThatPanesActor(t *testing.T) {
 		if x := lastEventActor(t, s, ctx, a.ID, "unlinked"); x != actor {
 			t.Fatalf("unlinked event actor = %q, want %q", x, actor)
 		}
-		if err := s.RemoveDep(pane, a.ID, made.ID, store.DepBlocks, "", "", "op"); err != nil {
+		// A bead's agent never removes a blocks edge (see RemoveDep). It does
+		// remove an edge that only records something, as the pane's actor.
+		if err := s.RemoveDep(pane, a.ID, made.ID, store.DepBlocks, "", "", "op"); err == nil || !strings.Contains(err.Error(), "may add edges but not remove a blocks edge") {
+			t.Fatalf("RemoveDep of a blocks edge from a session's pane = %v, want it refused", err)
+		}
+		if err := s.AddDep(pane, a.ID, made.ID, "related", "", "", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveDep(pane, a.ID, made.ID, "related", "", "", "op"); err != nil {
 			t.Fatal(err)
 		}
 		if x := lastEventActor(t, s, ctx, made.ID, "dep_removed"); x != actor {

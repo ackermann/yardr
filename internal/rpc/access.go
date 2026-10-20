@@ -25,7 +25,9 @@ const (
 	Read
 	// Agent is what a bead's agent may do from its session's pane, the
 	// work itself: note, ask, mail, create and update beads, move its own
-	// with an outcome, hold or close it, call a source its grants allow.
+	// with an outcome, hold or close it, add an edge, call a source its
+	// grants allow. What it adds it may not take away. The store refuses it
+	// lifting a hold or removing a blocks edge.
 	Agent
 	// Admin is what defines how the yard works (groups, routes, flows,
 	// crew, depots, packs): the operator's and the crew's, the yardmaster
@@ -135,11 +137,11 @@ var Access = map[string]Class{
 	"Done":        Agent,
 	"CloseBead":   Agent,
 	"Reopen":      Admin,
-	"SetHold":     Agent,
+	"SetHold":     Agent, // but not to lift a hold (store.SetHold)
 	"Release":     Agent,
 
 	"AddDep":            Agent,
-	"RemoveDep":         Agent,
+	"RemoveDep":         Agent, // but not a blocks edge (store.RemoveDep)
 	"Deps":              Read,
 	"AllDeps":           Read,
 	"OpenBlockers":      Read,

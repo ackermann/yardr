@@ -97,9 +97,7 @@ func TestHoldRecordsWhoHeld(t *testing.T) {
 		if a := lastEventActor(t, s, ctx, b.ID, "held"); a != actor {
 			t.Fatalf("held event actor = %q, want %q", a, actor)
 		}
-		// The hold ended the session, so lifting it is no pane's: another
-		// bead no session owns is held and lifted from the pane instead,
-		// since over the socket every call of this process is the pane's.
+		// Another bead no session owns is held from the pane as well.
 		other, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "op")
 		if err != nil {
 			t.Fatal(err)
@@ -107,7 +105,16 @@ func TestHoldRecordsWhoHeld(t *testing.T) {
 		if got := holdBy(t, s, pane, other, store.Expect{}, "op"); got.HeldBy != actor {
 			t.Fatalf("held from the pane of %s = %+v, want it held by %q", b.ID, got, actor)
 		}
-		unhold(t, s, pane, other)
+		// A bead's agent never lifts a hold (SetHold), whichever bead it is
+		// on and whoever held it. Each stays held by the pane that held it.
+		for _, held := range []*store.Bead{b, other} {
+			if _, err := s.SetHold(pane, held.ID, false, store.Expect{}, "op"); err == nil || !strings.Contains(err.Error(), "may hold a bead but not lift a hold") {
+				t.Fatalf("unhold of %s from a session's pane = %v, want it refused", held.ID, err)
+			}
+			if got, err := s.GetBead(ctx, held.ID); err != nil || !got.Hold || got.HeldBy != actor {
+				t.Fatalf("%s after the refused unhold = %+v, %v: want it held by %q", held.ID, got, err, actor)
+			}
+		}
 	})
 
 	t.Run("a crew member's pane", func(t *testing.T) {

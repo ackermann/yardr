@@ -256,4 +256,250 @@ func TestSocketServesAnExecSessionAsTheOperatorsCommand(t *testing.T) {
 	if err := c.MarkStopped(ctx, sess.ID); err == nil || err.Error() != "MarkStopped is the daemon's alone" {
 		t.Errorf("MarkStopped from an exec session = %v, want it the daemon's alone", err)
 	}
+
+	// The operator's own program may take away what a bead's agent may not,
+	// a hold and a blocks edge, as a person at a terminal may.
+	held, err := st.CreateBead(ctx, store.NewBead{Title: "held"}, "me")
+	must(err)
+	next, err := st.CreateBead(ctx, store.NewBead{Title: "next"}, "me")
+	must(err)
+	_, err = st.SetHold(ctx, held.ID, true, store.Expect{}, "me")
+	must(err)
+	must(st.AddDep(ctx, held.ID, next.ID, store.DepBlocks, "", "", "me"))
+	if _, err := c.SetHold(ctx, held.ID, false, store.Expect{}, "me"); err != nil {
+		t.Errorf("SetHold(false) from an exec session: %v", err)
+	}
+	if err := c.RemoveDep(ctx, held.ID, next.ID, store.DepBlocks, "", "", "me"); err != nil {
+		t.Errorf("RemoveDep of a blocks edge from an exec session: %v", err)
+	}
+	if isHeld(t, st, held) || edgesOf(t, st, next) != 0 {
+		t.Error("the hold or the edge stands after an exec session took it away")
+	}
+}
+
+// holdBeads are the beads the tests below work on, made by holdYard.
+type holdBeads struct {
+	mine, other, held, blocker, target, train, child *store.Bead
+}
+
+// holdYard is a paneYard with an operator, a builders group and holdBeads:
+// one is held, one blocks another, and a train has a child. The yard makes
+// the hold and the edges itself, as an earlier stage leaves them.
+func holdYard(t *testing.T) (*store.Store, *rpc.Client, holdBeads) {
+	t.Helper()
+	st, c, _ := paneYard(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 3}, "jo"))
+	bead := func(title, typ string) *store.Bead {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Type: typ}, "jo")
+		must(err)
+		return b
+	}
+	y := holdBeads{mine: bead("mine", ""), other: bead("other", ""), held: bead("held", ""),
+		blocker: bead("blocker", ""), target: bead("target", ""),
+		train: bead("train", store.TypeTrain), child: bead("child", "")}
+	_, err := st.SetHold(ctx, y.held.ID, true, store.Expect{}, "jo")
+	must(err)
+	must(st.AddDep(ctx, y.blocker.ID, y.target.ID, store.DepBlocks, "", "", "jo"))
+	must(st.AddDep(ctx, y.train.ID, y.child.ID, store.DepParent, "", "", "jo"))
+	return st, c, y
+}
+
+// isHeld is whether the store has the bead on hold.
+func isHeld(t *testing.T, st *store.Store, b *store.Bead) bool {
+	t.Helper()
+	got, err := st.GetBead(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got.Hold
+}
+
+// edgesOf is how many edges touch the bead, in either direction.
+func edgesOf(t *testing.T, st *store.Store, b *store.Bead) int {
+	t.Helper()
+	ds, err := st.Deps(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(ds)
+}
+
+// A bead's agent may add holds and edges and may not take them away. SetHold
+// and RemoveDep are agent calls, so the socket's classes cannot say so and
+// the store does. From a bead's pane a hold and an edge are served. Lifting a
+// hold, removing a blocks edge and taking a child off its train are refused
+// for any beads. Edges of other kinds are still the agent's to remove, and
+// Release leaves a hold where it is.
+func TestSocketRefusesABeadsPaneTakingAHoldOrABlocksEdgeAway(t *testing.T) {
+	st, c, y := holdYard(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	sess, err := st.Claim(ctx, y.mine.ID, "builders", "new", "yard")
+	must(err)
+	must(st.MarkRunning(ctx, sess.ID, thisPane(t, "yard-mine-new")))
+	if kind, err := st.CallerOf(store.WithCaller(ctx, os.Getpid())); err != nil || kind != store.CallerBead {
+		t.Fatalf("this process is %v, %v: want a bead's pane", kind, err)
+	}
+
+	// Adding is served: a hold on another bead and on its own, and edges.
+	if _, err := c.SetHold(ctx, y.other.ID, true, store.Expect{}, "jo"); err != nil {
+		t.Errorf("SetHold(true) of another bead from a bead's pane: %v", err)
+	}
+	if _, err := c.SetHold(ctx, y.mine.ID, true, store.Expect{Session: sess.ID}, "jo"); err != nil {
+		t.Errorf("SetHold(true) of its own bead from a bead's pane: %v", err)
+	}
+	if err := c.AddDep(ctx, y.other.ID, y.target.ID, store.DepBlocks, "", "", "jo"); err != nil {
+		t.Errorf("AddDep of a blocks edge from a bead's pane: %v", err)
+	}
+	if err := c.AddDep(ctx, y.blocker.ID, y.target.ID, store.DepBlocks, "approved", "", "jo"); err != nil {
+		t.Errorf("AddDep of a staged blocks edge from a bead's pane: %v", err)
+	}
+
+	// Release ends a session and holds nothing, so it cannot lift a hold. It
+	// runs before any unhold, so the hold it leaves is its own doing.
+	if _, err := c.Release(ctx, y.held.ID, "again", store.Expect{}, "jo"); err != nil {
+		t.Errorf("Release of a held bead from a bead's pane: %v", err)
+	}
+	if !isHeld(t, st, y.held) {
+		t.Error("Release from a bead's pane lifted a hold")
+	}
+
+	// Lifting a hold is refused: one the yard put on, one this agent put on
+	// its own bead, one on another's, and a bead that is not held at all.
+	for _, b := range []struct {
+		bead *store.Bead
+		held bool
+	}{{y.held, true}, {y.mine, true}, {y.other, true}, {y.child, false}} {
+		_, err := c.SetHold(ctx, b.bead.ID, false, store.Expect{}, "jo")
+		if err == nil || !strings.Contains(err.Error(), "may hold a bead but not lift a hold") {
+			t.Errorf("SetHold(%s, false) from a bead's pane = %v, want it refused", b.bead.ID, err)
+		}
+		if got := isHeld(t, st, b.bead); got != b.held {
+			t.Errorf("%s held = %v after the refused unhold, want %v", b.bead.ID, got, b.held)
+		}
+	}
+
+	// Removing a blocks edge is refused: plain, staged, between other beads,
+	// and one that is not there. So is taking a child off its train, which
+	// takes its blocks edge too.
+	target, train := edgesOf(t, st, y.target), edgesOf(t, st, y.train)
+	for _, r := range []struct {
+		what, kind, at string
+		from, to       *store.Bead
+		not            string
+	}{
+		{"a blocks edge", store.DepBlocks, "", y.blocker, y.target, "a blocks edge"},
+		{"a staged blocks edge", store.DepBlocks, "approved", y.blocker, y.target, "a blocks edge"},
+		{"a blocks edge between other beads", store.DepBlocks, "", y.other, y.target, "a blocks edge"},
+		{"a blocks edge that is not there", store.DepBlocks, "", y.child, y.mine, "a blocks edge"},
+		{"a child from its train", store.DepParent, "", y.train, y.child, "a child from its train"},
+	} {
+		err := c.RemoveDep(ctx, r.from.ID, r.to.ID, r.kind, r.at, "", "jo")
+		if err == nil || !strings.Contains(err.Error(), "may add edges but not remove "+r.not) {
+			t.Errorf("RemoveDep of %s from a bead's pane = %v, want it refused", r.what, err)
+		}
+	}
+	if got := edgesOf(t, st, y.target); got != target {
+		t.Errorf("the target has %d edges after the refused removals, had %d", got, target)
+	}
+	if got := edgesOf(t, st, y.train); got != train || got != 2 {
+		t.Errorf("the train has %d edges after the refused removal, had %d: want the parent edge and its child's blocks edge", got, train)
+	}
+
+	// The other kinds decide no readiness and stay the agent's to remove.
+	for _, kind := range []string{"related", store.DepDiscoveredFrom} {
+		if err := c.AddDep(ctx, y.blocker.ID, y.other.ID, kind, "", "", "jo"); err != nil {
+			t.Errorf("AddDep of a %s edge from a bead's pane: %v", kind, err)
+		}
+		if err := c.RemoveDep(ctx, y.blocker.ID, y.other.ID, kind, "", "", "jo"); err != nil {
+			t.Errorf("RemoveDep of a %s edge from a bead's pane: %v", kind, err)
+		}
+	}
+}
+
+// A person and a crew member's pane lift holds and remove edges. This is how
+// the yardmaster removes the edge an agent noted as wrong and unholds what an
+// agent held.
+func TestSocketServesAPersonAndACrewPaneTakingAHoldOrAnEdgeAway(t *testing.T) {
+	for _, who := range []string{"a person", "a crew member's pane"} {
+		t.Run(who, func(t *testing.T) {
+			st, c, y := holdYard(t)
+			ctx := context.Background()
+			want := store.CallerPerson
+			if who != "a person" {
+				if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+					t.Fatal(err)
+				}
+				if err := st.CrewStartedFor(ctx, "yardmaster", "", thisPane(t, "yard-yardmaster")); err != nil {
+					t.Fatal(err)
+				}
+				want = store.CallerCrew
+			}
+			if kind, err := st.CallerOf(store.WithCaller(ctx, os.Getpid())); err != nil || kind != want {
+				t.Fatalf("this process is %v, %v: want %v", kind, err, want)
+			}
+
+			if _, err := c.SetHold(ctx, y.held.ID, false, store.Expect{}, "jo"); err != nil {
+				t.Errorf("SetHold(false) from %s: %v", who, err)
+			}
+			if isHeld(t, st, y.held) {
+				t.Errorf("the hold stands after SetHold(false) from %s", who)
+			}
+			if err := c.RemoveDep(ctx, y.blocker.ID, y.target.ID, store.DepBlocks, "", "", "jo"); err != nil {
+				t.Errorf("RemoveDep of a blocks edge from %s: %v", who, err)
+			}
+			if got := edgesOf(t, st, y.target); got != 0 {
+				t.Errorf("the target has %d edges after RemoveDep from %s, want none", got, who)
+			}
+			if err := c.RemoveDep(ctx, y.train.ID, y.child.ID, store.DepParent, "", "", "jo"); err != nil {
+				t.Errorf("RemoveDep of a child from its train from %s: %v", who, err)
+			}
+			if got := edgesOf(t, st, y.train); got != 0 {
+				t.Errorf("the train has %d edges after its child was removed by %s, want none", got, who)
+			}
+		})
+	}
+}
+
+// A runner can call before its pane is recorded, naming its session. The
+// socket classes that call as a bead's agent, so the store must refuse the
+// same unholds and edge removals it refuses a pane.
+func TestSocketRefusesAStartingBeadSessionTakingAHoldOrABlocksEdgeAway(t *testing.T) {
+	st, c, y := holdYard(t)
+	ctx := context.Background()
+	sess, err := st.Claim(ctx, y.mine.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Session = sess.ID
+
+	if _, err := c.SetHold(ctx, y.held.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "may hold a bead but not lift a hold") {
+		t.Errorf("SetHold(false) from a starting session = %v, want it refused", err)
+	}
+	if !isHeld(t, st, y.held) {
+		t.Error("a starting session lifted a hold")
+	}
+	if err := c.RemoveDep(ctx, y.blocker.ID, y.target.ID, store.DepBlocks, "", "", "jo"); err == nil || !strings.Contains(err.Error(), "may add edges but not remove a blocks edge") {
+		t.Errorf("RemoveDep of a blocks edge from a starting session = %v, want it refused", err)
+	}
+	if err := c.RemoveDep(ctx, y.train.ID, y.child.ID, store.DepParent, "", "", "jo"); err == nil || !strings.Contains(err.Error(), "may add edges but not remove a child from its train") {
+		t.Errorf("RemoveDep of a child from its train from a starting session = %v, want it refused", err)
+	}
+	if got, want := edgesOf(t, st, y.target)+edgesOf(t, st, y.train), 1+2; got != want {
+		t.Errorf("%d edges stand after the refused removals, want %d", got, want)
+	}
 }

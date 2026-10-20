@@ -570,7 +570,7 @@ the `conflict` outcome there, having asked the flow first, and reports
 
 ## Holds
 
-A held bead is never routed; it waits until someone runs
+A held bead is never routed; it waits until a person or a crew member runs
 `yardr bead unhold`, which routes it again from its stage (with fresh
 attempts). Holding a bead ends the session working it (state `held`, not a
 failure), so the daemon closes the agent's tab and the group's slot goes to
@@ -586,6 +586,12 @@ the next ready bead at once; the worktree and its branch stay. Beads get held:
 
 The yardmaster watches held beads, finds out why, and either fixes the cause and
 unholds, sends it back to `backlog` to be reshaped, or sends it to `decide`.
+
+A bead's agent can hold a bead and cannot unhold one. `yardr bead unhold`
+from the pane of an agent's session is refused for every bead, its own
+included, whoever held it. What an agent held waits for the yardmaster or a
+person. An agent that thinks a hold can go says so in a note on the bead.
+`yardr bead release` takes a bead from its group and lifts no hold.
 
 Not every failure is the bead's. If herdr is missing or down, no bead is
 held for it: the group logs one `runtime_down`, backs off (30s, doubling to
@@ -744,6 +750,16 @@ and the new bead inherits nothing from it. `yardr bead show` says
 (`-a` for the closed too), and `yardr dep rm <origin> <found> -k
 discovered-from` removes it. It never affects `yardr ready`, routing, a
 train's children or what lands.
+
+A bead's agent can add edges and cannot take a `blocks` edge away. From an
+agent's session pane `yardr dep add` works, and the security stage uses it to
+make a bead wait for the weakness it filed. `yardr dep rm` is refused for any
+`blocks` edge, plain or staged, between any two beads. It is refused for
+`-k parent` on a train's child too, because that also removes the child's
+`blocks` edge. Edges of any other kind are removed as before. An agent that
+filed a wrong edge says so in a note on the bead, and the yardmaster or a
+person removes it. Otherwise a builder could remove the edge a reviewer filed
+and land its bead with the weakness still open.
 
 A `blocks` edge can hold only where it matters: with `--at <stage>` the
 bead waits only while it is in that stage, and with `--until <stage>` its

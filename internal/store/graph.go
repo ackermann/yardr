@@ -503,6 +503,17 @@ func newEdgeID() string {
 // two is left alone. From a session's or a crew member's pane the removal
 // is recorded as that session's actor or that crew member, whatever actor
 // says; from anywhere else, as given (paneAuthor).
+//
+// A bead's agent may add edges and may not take a blocks edge away. The
+// security stage makes a bead wait for the weakness it filed with one, and an
+// agent that could remove it would land the bead with the weakness open.
+// Taking a child off its train removes the child's blocks edge too, so that
+// is refused the same way. Edges of any other kind decide no readiness and
+// stay the agent's to remove. The refusal covers any two beads, any stage and
+// an edge that is not there. The socket's classes cannot state it, because
+// RemoveDep is an agent's call for those other kinds, so the store does
+// (beadAgent). An agent that filed a wrong edge says so in a note and the
+// yardmaster removes it.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
@@ -535,6 +546,20 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, 
 		toRow, err := w.loadBead(toRef)
 		if err != nil {
 			return err
+		}
+		// Taking a train's child off it removes the child's blocks edge too
+		// (below), so it faces the same check.
+		if kind == DepBlocks || (kind == DepParent && fromRow.Type == TypeTrain) {
+			if sess, err := beadAgent(w.Tx, ctx); err != nil {
+				return err
+			} else if sess != nil {
+				what := "a blocks edge"
+				if kind == DepParent {
+					what = "a child from its train, which takes the child's blocks edge with it"
+				}
+				return fmt.Errorf("%s -%s-> %s: the session %s of a bead's agent may add edges but not remove %s, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which edge is wrong, and why\"",
+					fromRow.ID, kind, toRow.ID, sess.ID, what, toRow.ID)
+			}
 		}
 		if kind == DepBlocks {
 			before := gateHolders(w.Tx, &toRow.Bead, look)

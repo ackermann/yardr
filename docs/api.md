@@ -51,7 +51,7 @@ identify the peer, only read calls are allowed:
 | class | who may make it |
 |---|---|
 | read | anyone: it changes nothing |
-| agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move its flow allows, a hold, a source call its grants allow) |
+| agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move its flow allows, a hold, an edge, a source call its grants allow) |
 | admin | anyone but a bead's agent: what defines how the yard works, such as groups, routes, flows, crew, depots, settings and packs; the crew, the yardmaster among them, keeps it |
 | operator | the operator alone, from no agent's pane, a crew member's included |
 | daemon | the daemon alone, as the yard checks it by the daemon's lock: the session records the pane checks read |
@@ -60,10 +60,11 @@ identify the peer, only read calls are allowed:
 A method a bead's agent has no class for is refused to it: what is not
 marked read or agent is not an agent's. The class is a first line, and the
 yard's own checks of a call come after it: a call it lets through may still
-be refused there, for its `actor` or for what it asks (an agent may update
-its bead, but not pin the flow the bead goes by). Every call this page names
-is read or agent but those of [`OperatorCalls`](#over-the-network), which
-are admin.
+be refused there, for its `actor` or for what it asks. An agent may update
+its bead but not pin the flow the bead goes by. It may hold a bead and add an
+edge but not lift a hold or remove a `blocks` edge, which only a person or a
+crew member does. Every call this page names is read or agent but those of
+[`OperatorCalls`](#over-the-network), which are admin.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
 user the yard runs as, and the pane is told by the process tree: an agent

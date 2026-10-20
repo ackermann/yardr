@@ -297,33 +297,59 @@ func (s *Store) CallerOf(ctx context.Context) (CallerKind, error) {
 	if s.daemonOnly(ctx, "") == nil {
 		return CallerDaemon, nil
 	}
-	kind := CallerPerson
-	err := s.read(func(tx *bolt.Tx) error {
-		if sess, err := paneSession(tx, pid); err != nil {
-			return err
-		} else if sess != nil && !sess.Manual() {
-			kind = sessionCaller(sess)
-			return nil
-		}
-		if r, err := paneCrew(tx, pid); err != nil {
-			return err
-		} else if r != nil {
-			kind = CallerCrew
-			return nil
-		}
-		// A bead's agent may call before its pane is recorded; it says
-		// which session it is, and that is believed when it restricts.
-		if id := sessionOf(ctx); id != "" {
-			sess := new(Session)
-			if ok, err := get(tx, bSessions, id, sess); err != nil {
-				return err
-			} else if ok && !sess.Manual() && sess.State == "starting" {
-				kind = sessionCaller(sess)
-			}
-		}
-		return nil
+	var kind CallerKind
+	err := s.read(func(tx *bolt.Tx) (err error) {
+		kind, _, err = callerIn(tx, ctx)
+		return err
 	})
 	return kind, err
+}
+
+// callerIn reads the store's records for what CallerOf answers once it has
+// ruled out the owning process and the daemon: the kind of caller, and the
+// session where the caller is a session's (a bead's agent, or an exec
+// command). It runs inside a transaction, so a write asks the same question
+// the socket does and the two cannot disagree about who a bead's agent is.
+func callerIn(tx *bolt.Tx, ctx context.Context) (CallerKind, *Session, error) {
+	pid := callerOf(ctx)
+	if sess, err := paneSession(tx, pid); err != nil {
+		return CallerPerson, nil, err
+	} else if sess != nil && !sess.Manual() {
+		return sessionCaller(sess), sess, nil
+	}
+	if r, err := paneCrew(tx, pid); err != nil {
+		return CallerPerson, nil, err
+	} else if r != nil {
+		return CallerCrew, nil, nil
+	}
+	// A bead's agent may call before its pane is recorded; it says
+	// which session it is, and that is believed when it restricts.
+	if id := sessionOf(ctx); id != "" {
+		sess := new(Session)
+		if ok, err := get(tx, bSessions, id, sess); err != nil {
+			return CallerPerson, nil, err
+		} else if ok && !sess.Manual() && sess.State == "starting" {
+			return sessionCaller(sess), sess, nil
+		}
+	}
+	return CallerPerson, nil, nil
+}
+
+// beadAgent is the session of the bead's agent that made the call ctx
+// carries: the one whose pane the caller runs in, or the starting one the
+// call names (callerIn). It is nil for anyone else. An exec session's command
+// and a call made in the owning process are served as a person is. A write
+// asks it to hold an agent to a rule the socket's classes cannot state,
+// because the rule turns on what the call asks for.
+func beadAgent(tx *bolt.Tx, ctx context.Context) (*Session, error) {
+	if callerOf(ctx) <= 0 {
+		return nil, nil
+	}
+	kind, sess, err := callerIn(tx, ctx)
+	if err != nil || kind != CallerBead {
+		return nil, err
+	}
+	return sess, nil
 }
 
 // sessionCaller is the kind of a call from the session sess: its exec

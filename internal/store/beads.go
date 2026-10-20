@@ -2013,8 +2013,22 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 // recorded as that session's actor or that crew member, whatever actor
 // says; from anywhere else, as given (paneAuthor). That actor is the
 // bead's HeldBy until the hold is lifted.
+//
+// A bead's agent may hold any bead and may not lift a hold. A hold is how an
+// agent gets the yardmaster to look, and an agent that could lift its own
+// would send the bead on unseen. Only a person or a crew member unholds. The
+// refusal covers every bead, held or not, whatever exp says. The socket's
+// classes cannot state this, because SetHold is an agent's call to hold, so
+// the store does (beadAgent).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	b, err := s.changeBead(ctx, id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if !hold {
+			if sess, err := beadAgent(w.Tx, ctx); err != nil {
+				return "", nil, err
+			} else if sess != nil {
+				return "", nil, fmt.Errorf("bead %s: the session %s of a bead's agent may hold a bead but not lift a hold, whatever actor the command names; ask the yardmaster: yardr bead note %s \"why it can go on\"", b.ID, sess.ID, b.ID)
+			}
+		}
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
