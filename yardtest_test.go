@@ -2137,6 +2137,18 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 // and the lock holder alive after go test exits.
 func TestYardTestRaceLegLockDiesWithOrphan(t *testing.T) {
 	t.Parallel()
+	testYardTestRaceLegLockDiesWithOrphan(t, false)
+}
+
+// The deadline case holds the fake test at a marker, then exercises the same
+// timeout branch as the orphan test without waiting for the full ten seconds.
+func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
+	t.Parallel()
+	testYardTestRaceLegLockDiesWithOrphan(t, true)
+}
+
+func testYardTestRaceLegLockDiesWithOrphan(t *testing.T, forceDeadline bool) {
+	t.Helper()
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
 	}
@@ -2148,6 +2160,12 @@ func TestYardTestRaceLegLockDiesWithOrphan(t *testing.T) {
 	for name, text := range map[string]string{
 		"go": `#!/bin/sh
 if [ "$1" = test ]; then
+  if [ "$FORCE_ORPHAN_DEADLINE" = true ]; then
+    : >"$FAKE/fixture-ready"
+    while [ ! -f "$FAKE/allow-barrier" ]; do sleep 0.1; done
+    : >"$FAKE/barrier-reached"
+    while [ ! -f "$FAKE/release" ]; do sleep 0.1; done
+  fi
   sleep 300 &
   echo $! >"$FAKE/sleeper"
   echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
@@ -2178,9 +2196,11 @@ fi
 	}
 	cmd := exec.Command("sh", ".yardr/test")
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(scriptEnv(),
 		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_BASE="+base, "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
+		"YARDR_BASE="+base, "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake,
+		"FORCE_ORPHAN_DEADLINE="+strconv.FormatBool(forceDeadline))
 	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan")
 	if err != nil {
 		t.Fatal(err)
@@ -2194,22 +2214,80 @@ fi
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	pidPath := filepath.Join(fake, "sleeper")
+	runFinished := false
 	t.Cleanup(func() {
+		if !runFinished {
+			killProcessTree(proc.Pid)
+		}
 		if b, err := os.ReadFile(pidPath); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
 			}
 		}
 	})
-	deadline := time.Now().Add(10 * time.Second)
+	waitDone := func() error {
+		err := <-done
+		runFinished = true
+		return err
+	}
+	if forceDeadline {
+		readyDeadline := time.Now().Add(30 * time.Second)
+		for {
+			if _, err := os.Stat(filepath.Join(fake, "fixture-ready")); err == nil {
+				break
+			}
+			if time.Now().After(readyDeadline) {
+				killProcessTree(proc.Pid)
+				waitDone()
+				t.Fatalf("the race leg never reached the fixture barrier")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err := os.WriteFile(filepath.Join(fake, "allow-barrier"), nil, 0o600); err != nil {
+			killProcessTree(proc.Pid)
+			waitDone()
+			t.Fatal(err)
+		}
+		barrierDeadline := time.Now().Add(30 * time.Second)
+		for {
+			if _, err := os.Stat(filepath.Join(fake, "barrier-reached")); err == nil {
+				break
+			}
+			if time.Now().After(barrierDeadline) {
+				killProcessTree(proc.Pid)
+				waitDone()
+				t.Fatalf("the fixture never reached its blocking barrier")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	deadline := 10 * time.Second
+	if forceDeadline {
+		deadline = 2 * time.Second
+	}
+	deadlineAt := time.Now().Add(deadline)
 	for {
 		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+			if forceDeadline {
+				killProcessTree(proc.Pid)
+				waitDone()
+				t.Fatalf("test-done appeared before the forced deadline")
+			}
 			break
 		}
-		if time.Now().After(deadline) {
-			proc.Kill()
-			<-done
-			t.Fatalf("the race leg never reached go test")
+		if time.Now().After(deadlineAt) {
+			killProcessTree(proc.Pid)
+			err := waitDone()
+			if forceDeadline {
+				if err == nil {
+					t.Fatal("the forced deadline run exited without being killed")
+				}
+				if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+					t.Fatal("test-done appeared after the forced deadline")
+				}
+				return
+			}
+			t.Fatalf("the race leg never reached go test: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -2245,8 +2323,9 @@ fi
 		}
 		select {
 		case <-done:
+			runFinished = true
 		case <-time.After(10 * time.Second):
-			proc.Kill()
+			killProcessTree(proc.Pid)
 		}
 		outFile.Seek(0, 0)
 		b, _ := io.ReadAll(outFile)
@@ -2260,13 +2339,14 @@ fi
 	}
 	select {
 	case err := <-done:
+		runFinished = true
 		if err != nil {
 			outFile.Seek(0, 0)
 			b, _ := io.ReadAll(outFile)
 			t.Fatalf("run failed: %v\n%s", err, b)
 		}
 	case <-time.After(10 * time.Second):
-		proc.Kill()
+		killProcessTree(proc.Pid)
 		t.Fatal("race-leg worker did not finish after releasing the lock")
 	}
 }
@@ -2325,119 +2405,6 @@ func killProcessTree(root int) {
 	}
 	for pid := range seen {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
-	}
-}
-
-// The orphan test's deadline path, forced deterministically: the fake go
-// writes a barrier marker and waits for a release the test never creates,
-// so the wait for test-done times out and the test kills the run through
-// the published handle. The kill uses Start in this goroutine and Wait in
-// the done goroutine, never Cmd concurrently with Run, so the race
-// detector stays silent. The whole tree dies with the kill, the worker's
-// group with it, leaving no perl, worker or sleeper behind.
-func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, fake, dir, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
-	for name, text := range map[string]string{
-		"go": `#!/bin/sh
-if [ "$1" = test ]; then
-  : >"$FAKE/barrier-reached"
-  while [ ! -f "$FAKE/release" ]; do sleep 0.1; done
-  sleep 300 &
-  echo $! >"$FAKE/sleeper"
-  echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
-  : >"$FAKE/test-done"
-fi
-`,
-		"gofmt": "#!/bin/sh\n",
-	} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
-	base := gitT(t, dir, "rev-parse", "HEAD")
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("sh", ".yardr/test")
-	cmd.Dir = dir
-	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_BASE="+base, "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan-deadline")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer outFile.Close()
-	cmd.Stdout, cmd.Stderr = outFile, outFile
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	proc := cmd.Process
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	t.Cleanup(func() {
-		killProcessTree(proc.Pid)
-		if b, err := os.ReadFile(filepath.Join(fake, "sleeper")); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-			}
-		}
-	})
-	barrierDeadline := time.Now().Add(30 * time.Second)
-	for {
-		if _, err := os.Stat(filepath.Join(fake, "barrier-reached")); err == nil {
-			break
-		}
-		if time.Now().After(barrierDeadline) {
-			killProcessTree(proc.Pid)
-			<-done
-			t.Fatalf("the race leg never reached go test")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	// The release never comes: a short deadline forces the same path the
-	// ten-second deadline takes in the orphan test above.
-	forced := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
-			killProcessTree(proc.Pid)
-			<-done
-			t.Fatalf("test-done appeared without the release")
-		}
-		if time.Now().After(forced) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	killProcessTree(proc.Pid)
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the killed run never exited")
-	}
-	if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
-		t.Errorf("test-done appeared after the kill")
 	}
 }
 
