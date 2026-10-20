@@ -7,8 +7,8 @@ import (
 )
 
 // Every page the binary carries is listed, and every listed name is a
-// page: a .md added beside docs.go without its name in Order, or a
-// rename that leaves one behind, fails here.
+// page: a .md added beside docs.go without its row in README.md's
+// index, or a rename that leaves one behind, fails here.
 func TestOrderListsEveryPage(t *testing.T) {
 	entries, err := fs.ReadDir(FS, ".")
 	if err != nil {

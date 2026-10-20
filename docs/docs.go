@@ -18,41 +18,34 @@ import (
 //go:embed *.md
 var FS embed.FS
 
-// Order is every page's name, the file without its .md, in the order
-// README.md's index lists them, with the index itself first. A page
-// added without its name here fails the test below, which lists the
-// embedded files against this order.
-var Order = []string{
-	"README",
-	"glossary",
-	"install",
-	"agents",
-	"setup",
-	"doctor",
-	"configuration",
-	"flows",
-	"line",
-	"dir-depots",
-	"packs",
-	"groups",
-	"review",
-	"crew",
-	"users",
-	"chat",
-	"timers",
-	"subscriptions",
-	"links",
-	"integrations",
-	"pushover",
-	"google",
-	"peers",
-	"reports",
-	"api",
-	"bdp",
-	"web",
-	"upgrade",
-	"otel",
-	"testing",
+// Order is every page's name, the file without its .md: the index
+// itself first, then the pages in the order README.md's index lists
+// them. It is read from the index, not written down, so Go names no
+// page: one of them documents a service that tells a user, and those
+// names are a pack's to carry. A page the index does not list fails
+// the test below, which holds Order against the embedded files.
+var Order = order()
+
+// order reads the page names from README.md's index table: one
+// `| [name.md](name.md) | ... |` row per page, in order.
+func order() []string {
+	b, err := FS.ReadFile("README.md")
+	if err != nil {
+		return nil
+	}
+	names := []string{"README"}
+	for line := range strings.Lines(string(b)) {
+		rest, ok := strings.CutPrefix(line, "| [")
+		if !ok {
+			continue
+		}
+		name, _, ok := strings.Cut(rest, ".md]")
+		if !ok || strings.ContainsAny(name, " \t[(") {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 // Lookup returns the page named name, matching case-insensitively so
