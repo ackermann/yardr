@@ -209,6 +209,10 @@ is one of the list the yard runs from a card:
       a sender ignored in the source is heard again: their next message
       follows the hook's word, a fresh mapping card under unknown, heard
       as an outsider under allow
+  source check <source> --user <user>
+      one real test message to the user through the source, sent when
+      the user or the operator approves; a check without --user needs
+      no approval and is run directly
   pack apply <name>
       a pack yardr embeds, with no flag: of kind source, or of a depot
       kind re-applied to the one depot that holds it where its plan
@@ -276,11 +280,11 @@ Such a command is typed in a terminal. A card about a link (peer allow,
 peer intake, peer identity) is approved from this yard, in a terminal or
 from a device paired with it, and an approval that arrives through the
 reach of the peer the card is about is refused: a peer does not widen its
-own link, say where its own beads go or say who its own crew is here. The subscription, the tell and the user's identity are a
-user's own as they are the operator's, since a crew member does not
-decide what a person is told or who they are in a source: the ask is
-for that user or for the operator (--to), and the one asked approves
-it. The yard splits the command at spaces and nowhere else, so
+own link, say where its own beads go or say who its own crew is here. The subscription, the tell, the user's identity and the test
+message to them are a user's own as they are the operator's, since a
+crew member does not decide what a person is told or who they are in
+a source: the ask is for that user or for the operator (--to), and
+the one asked approves it. The yard splits the command at spaces and nowhere else, so
 nothing is quoted: a quote, a backslash, ;, |, &, $ or a line break is
 refused, and a comma anywhere but in a list the command takes (the parts
 of tell=, the kinds peer allow carries, the grants crew set gives). It checks the
@@ -304,8 +308,8 @@ timer.
 A run ask takes no --option, --recommend or --about, and at most five
 --context lines: why the asker wants it. It is refused, and nothing is
 stored, for --to anyone but the operator (for a user's subscription,
-tell or identity, that user or the operator) and for --to <person>@<peer>;
-no copy goes to a
+tell, identity or test message, that user or the operator) and for
+--to <person>@<peer>; no copy goes to a
 linked yard. A crew member or a user writes one. An agent
 working a bead does not: it says what it needs in a note on the bead.
 

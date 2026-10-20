@@ -85,16 +85,23 @@ the operator writes to the bot reaches the yardmaster's inbox.
    chat id is written, step 7's test message can be sent, and the
    next message from that chat is heard by the named crew member, when
    `hearer` names one (step 13).
-7. **One test message.**
+7. **One test message, on a card.** A crew member asks for it with one
+   ask on one bead:
+   ```sh
+   yardr bead ask <bead> "May the yard send the test message?" --run "source check telegram --user mckean"
+   ```
+   Its card says it will send one real test message to the operator's
+   chat, with the message whole, and on approval the yard sends it. The
+   phone shows "yardr: a test", and the approval records `telegram:
+   told mckean: 200 in …ms`. This is one real message through Telegram.
+   Anything but 200 fails the approval with the status, and the ask
+   stays open: 401 is a token it does not take, 400 a chat id it does
+   not take or a chat that never wrote to the bot, so look at steps 1,
+   2, 4 and 5 again; approving again retries it. By hand it is yours
+   instead:
    ```sh
    yardr source check telegram --user mckean
    ```
-   The phone shows "yardr: a test", and the command prints `telegram:
-   told mckean: 200 in …ms`. This is one real message through Telegram,
-   sent by the command itself. Anything but 200 fails the command with
-   the status: 401 is a token it does not take, 400 a chat id it does
-   not take or a chat that never wrote to the bot, so look at steps 1,
-   2, 4 and 5 again.
 
 Where the operator is told through telegram, mail to the user and
 their own timers are told from now on. To see who is told through what:

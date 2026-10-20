@@ -1347,7 +1347,8 @@ With --user it tells that user through the source instead: one real
 message, a line that says it is a test, sent as everything the yard tells
 them will be, with the address their env_file sets. It is the user's own to
 ask for, or the operator's, and works before the user names the source as
-their notify, to try it first. A source yardr has built in is checked this
+their notify, to try it first. A crew member that needs one sent proposes
+it with a run ask. A source yardr has built in is checked this
 way too, once one can tell a person.
 
 The call is made by this command, with the credential read into this
@@ -1533,10 +1534,8 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 	} else if !is && a.who() != u.Name {
 		return fmt.Errorf("a test message to %s is theirs to ask for, or the operator's (%s); this is %s", u.Name, operator, a.who())
 	}
-	sent, err := notify.Through(ctx, st, name, u, notify.Message{
-		Title: "yardr: a test",
-		Text:  fmt.Sprintf("%s is told here by the yard, through the source %s. Sent by yardr source check %s --user %s.", u.Name, name, name, u.Name),
-	})
+	title, text := store.SourceCheckMessage(name, u.Name)
+	sent, err := notify.Through(ctx, st, name, u, notify.Message{Title: title, Text: text})
 	if err != nil {
 		return err
 	}

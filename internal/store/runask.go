@@ -465,6 +465,16 @@ var runList = []runCommand{{
 	stale:       (*wtx).sourceIgnoreStale,
 	run:         runSourceIgnore,
 }, {
+	words:       []string{"source", "check"},
+	use:         "yardr source check <source> --user <user>",
+	description: "See that a source's credential is set up, make its check call, and ask its limits command",
+	parse:       parseSourceCheck,
+	check:       checkSourceCheck,
+	card:        (*wtx).sourceCheckCard,
+	stale:       (*wtx).sourceCheckStale,
+	run:         runSourceCheck,
+	whose:       func(argv []string) string { _, user, _ := sourceCheckOf(argv); return user },
+}, {
 	words:       []string{"pack", "apply"},
 	use:         "yardr pack apply <name>",
 	description: "Import a pack into a depot: set the yard to what the pack says",
@@ -1189,6 +1199,11 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		defer unlockHook()
 		return s.approveHookRegister(ctx, id, ask, actor)
 	}
+	if s.sourceCheckTarget(id, ask) {
+		unlockAsk := s.askLocks.lock(askLockKey(id, ask))
+		defer unlockAsk()
+		return s.approveSourceCheck(ctx, id, ask, actor)
+	}
 	// What the ask's card needs of git is read before the write.
 	repos, err := s.approvalRepos(ctx, id, ask)
 	if err != nil {
@@ -1342,6 +1357,55 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		return nil, err
 	}
 	return &AskApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Argv: argv, Does: was.Does, Result: result}, nil
+}
+
+// finishPhasedRun is the last write of a phased approval
+// (approveHookRegister, approveSourceCheck): it records the approval's
+// answer, as approveAsk does, holding that the ask is still open. The
+// command ran between the writes, so a taken-back or answered ask here
+// refuses the recording, not the run.
+func (w *wtx) finishPhasedRun(ctx context.Context, id string, seq uint64, actor, asker string, argv, does []string, result string) (*AskApproved, error) {
+	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return nil, err
+	}
+	actor = who
+	row, err := w.loadBead(id)
+	if err != nil {
+		return nil, err
+	}
+	notes, err := beadNotes(w.Tx, row.UUID)
+	if err != nil {
+		return nil, err
+	}
+	var ask *ResolvedAsk
+	resolved := ResolveAsks(notes, now())
+	for i := range resolved {
+		if resolved[i].Note.Seq == seq {
+			ask = &resolved[i]
+			break
+		}
+	}
+	switch {
+	case ask == nil:
+		return nil, fmt.Errorf("bead %s has no ask %d", row.ID, seq)
+	case ask.AskErr != nil:
+		return nil, ask.AskErr
+	case ask.State == AskDeclined:
+		return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*ask.Current))
+	case ask.State == AskTakenBack:
+		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*ask.Current))
+	case ask.State == AskAnswered:
+		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, ask.Current.Note.Author)
+	}
+	text, err := json.Marshal(Answer{Ask: seq, Ran: &AskRan{Argv: argv, Result: result}})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+		return nil, err
+	}
+	return &AskApproved{Bead: row.ID, Ask: seq, Asker: asker, Argv: argv, Does: does, Result: result}, nil
 }
 
 func sameMap(a, b map[string]string) bool {

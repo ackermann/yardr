@@ -3,6 +3,7 @@ package source
 import (
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -23,6 +24,45 @@ type Notify struct {
 	Title string `json:"title,omitempty"`
 	Text  string `json:"text,omitempty"`
 	Link  string `json:"link,omitempty"`
+}
+
+// TellParams are the parameters of the call Notify names to tell the
+// person at address with title, text and link: the address under its
+// parameter, and each of the three under its own where the call has one
+// for it. A value longer than its parameter's max is cut with an
+// ellipsis, except a link, which is left out instead: half a link opens
+// nothing, or something else. A value there is none of is not given to
+// a parameter that may be left out; a required one gets it empty, which
+// is the call's to refuse. Telling at a terminal and from an approved
+// card send the same parameters through this one place.
+func (d *Declaration) TellParams(address, title, text, link string) map[string]string {
+	n := d.Notify
+	if n == nil {
+		return nil
+	}
+	c, _ := d.Call(n.Call)
+	params := map[string]string{n.Address: address}
+	set := func(name, value string, cut bool) {
+		for _, par := range c.Params {
+			if par.Name != name {
+				continue
+			}
+			if par.Max > 0 && utf8.RuneCountInString(value) > par.Max {
+				if !cut {
+					value = ""
+				} else {
+					value = string([]rune(value)[:par.Max-1]) + "…"
+				}
+			}
+			if value != "" || !par.Optional {
+				params[name] = value
+			}
+		}
+	}
+	set(n.Title, title, true)
+	set(n.Text, text, true)
+	set(n.Link, link, false)
+	return params
 }
 
 // Hear says which deliveries of the source the yard keeps. By address

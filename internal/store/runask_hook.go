@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -448,7 +447,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 	var out *AskApproved
 	err = s.writeVia(ctx, func(w *wtx) error {
 		var err error
-		out, err = w.finishHookRegister(ctx, id, seq, actor, job, result)
+		out, err = w.finishPhasedRun(ctx, id, seq, actor, job.asker, job.argv, job.does, result)
 		return err
 	})
 	if err != nil {
@@ -595,53 +594,6 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	}
 	return &hookRegisterJob{bead: row.ID, asker: r.Note.Author, ask: seq, argv: argv, does: was.Does,
 		name: name, src: src, d: d, publicURL: publicURL, secret: string(secret)}, nil
-}
-
-// finishHookRegister is the last write of approveHookRegister: it
-// records the approval's answer, as approveAsk does, holding that
-// the ask is still open.
-func (w *wtx) finishHookRegister(ctx context.Context, id string, seq uint64, actor string, job *hookRegisterJob, result string) (*AskApproved, error) {
-	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return nil, err
-	}
-	actor = who
-	row, err := w.loadBead(id)
-	if err != nil {
-		return nil, err
-	}
-	notes, err := beadNotes(w.Tx, row.UUID)
-	if err != nil {
-		return nil, err
-	}
-	var ask *ResolvedAsk
-	resolved := ResolveAsks(notes, now())
-	for i := range resolved {
-		if resolved[i].Note.Seq == seq {
-			ask = &resolved[i]
-			break
-		}
-	}
-	switch {
-	case ask == nil:
-		return nil, fmt.Errorf("bead %s has no ask %d", row.ID, seq)
-	case ask.AskErr != nil:
-		return nil, ask.AskErr
-	case ask.State == AskDeclined:
-		return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*ask.Current))
-	case ask.State == AskTakenBack:
-		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*ask.Current))
-	case ask.State == AskAnswered:
-		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, ask.Current.Note.Author)
-	}
-	text, err := json.Marshal(Answer{Ask: seq, Ran: &AskRan{Argv: job.argv, Result: result}})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
-		return nil, err
-	}
-	return &AskApproved{Bead: row.ID, Ask: seq, Asker: job.asker, Argv: job.argv, Does: job.does, Result: result}, nil
 }
 
 // hookSecretAskBefore holds a hook approval to the newest earlier secret

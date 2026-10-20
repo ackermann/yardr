@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
@@ -191,33 +190,7 @@ func (p declared) send(ctx context.Context, env map[string]string, m Message) (i
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
 	}
 	n := p.d.Notify
-	c, _ := p.d.Call(n.Call)
-	params := map[string]string{n.Address: env[n.AddressEnv]}
-	// set gives value to the parameter name, where the call has one for it.
-	// A value there is none of is not given to a parameter that may be left
-	// out; a required one gets it empty, which is the call's to refuse.
-	set := func(name, value string, cut bool) {
-		for _, par := range c.Params {
-			if par.Name != name {
-				continue
-			}
-			if par.Max > 0 && utf8.RuneCountInString(value) > par.Max {
-				if !cut {
-					// Half a link opens nothing, or something else.
-					value = ""
-				} else {
-					value = string([]rune(value)[:par.Max-1]) + "…"
-				}
-			}
-			if value != "" || !par.Optional {
-				params[name] = value
-			}
-		}
-	}
-	set(n.Title, m.Title, true)
-	set(n.Text, m.Text, true)
-	set(n.Link, m.Link, false)
-	res, err := source.Do(ctx, p.d, n.Call, params, cred)
+	res, err := source.Do(ctx, p.d, n.Call, p.d.TellParams(env[n.AddressEnv], m.Title, m.Text, m.Link), cred)
 	if err != nil {
 		return 0, err
 	}

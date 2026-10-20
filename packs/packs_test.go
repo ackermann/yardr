@@ -1072,6 +1072,7 @@ func TestTelegramPack(t *testing.T) {
 		"yardr source key telegram ",
 		"yardr user key mckean telegram ",
 		"--secret telegram --for-user mckean",
+		`--run "source check telegram --user mckean"`,
 		"yardr source check telegram --user mckean",
 		"From the operator's Telegram account",
 		"mckean` as the operator's user name",

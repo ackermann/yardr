@@ -400,7 +400,13 @@ the yard by two more, typed unseen and written to no file by hand:
 yardr pack apply telegram --notify mckean=telegram
 yardr source key telegram                     # the bot's token: the yard's, the operator's to give
 yardr user key mckean telegram                # the chat id: the person's own, theirs or the operator's to give
-yardr source check telegram --user mckean     # one real test message
+```
+
+A crew member then asks for the test message on a card, and approving
+it sends one real test message to the chat:
+
+```sh
+yardr bead ask <bead> "May the yard send the test message?" --run "source check telegram --user mckean"
 ```
 
 `yardr pack show telegram` (or `pushover`) has the setup notes: what to

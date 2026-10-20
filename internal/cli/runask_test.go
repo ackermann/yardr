@@ -3,10 +3,15 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -401,6 +406,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr source ignore <source> --rm <id>": {
 			"source ignore talk --rm U999",
 		},
+		"yardr source check <source> --user <user>": {
+			"source check pushover --user ada",
+		},
 		"yardr pack apply <name>": {"pack apply telegram"},
 		"yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]": {"hook add linear --source linear"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                     {"subscribe jo yardr --where label=ui --done --where label=web"},
@@ -500,6 +508,92 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
 				if err != nil || done.Result != "approved, to be carried out" {
 					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				continue
+			}
+			if use == "yardr source check <source> --user <user>" {
+				ctx := context.Background()
+				// The approval sends the test message itself, in phases as
+				// a hook registration does, so the two yards' stand-in
+				// takes one message from the approval and one from the
+				// typed command, the same message twice. Either prints
+				// what the other printed but for the milliseconds, and
+				// neither changes a record of its yard.
+				var mu sync.Mutex
+				var hits []map[string]any
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					raw, _ := io.ReadAll(r.Body)
+					var body map[string]any
+					_ = json.Unmarshal(raw, &body)
+					mu.Lock()
+					hits = append(hits, body)
+					mu.Unlock()
+					w.WriteHeader(http.StatusOK)
+					_, _ = io.WriteString(w, `{"status":1}`)
+				}))
+				defer srv.Close()
+				standing := func(y *cliYard) {
+					t.Helper()
+					if _, err := y.st.PutSource(ctx, "pushover.yaml", strings.Replace(runPush, "https://api.pushover.net/1", srv.URL, 1), "jo"); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := y.st.SetSource(ctx, "pushover", "env_file", envFile(t, "PUSHOVER_TOKEN=approval-token\n", 0o600), "jo"); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := y.st.SetUser(ctx, "ada", map[string]string{"env_file": envFile(t, "PUSHOVER_USER=approval-user\n", 0o600)}, "jo"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				standing(approved)
+				standing(typed)
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				root := runCLI(typed.a)[strings.Fields(use)[1]]
+				helpCmd, _, err := root.Find(strings.Fields(command)[1:])
+				if err != nil {
+					t.Fatalf("%s: find help for %q: %v", use, command, err)
+				}
+				if description != helpCmd.Short {
+					t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				out, err := run(t, typed.a.sourceCmd(), "check", "pushover", "--user", "ada")
+				if err != nil {
+					t.Fatalf("yardr source check pushover --user ada: %v", err)
+				}
+				for _, said := range []string{done.Result, out} {
+					if !strings.Contains(said, "pushover: told ada: 200 in ") || !strings.Contains(said, "next: yardr user set ada notify=pushover") {
+						t.Errorf("%s printed %q", use, said)
+					}
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if len(hits) != 2 {
+					t.Fatalf("%s: the stand-in took %d messages, want one from the approval and one from the terminal", use, len(hits))
+				}
+				for _, hit := range hits {
+					if hit["user"] != "approval-user" || hit["token"] != "approval-token" || hit["message"] == "" {
+						t.Errorf("%s: the stand-in took %v", use, hit)
+					}
+				}
+				if fmt.Sprint(hits[0]) != fmt.Sprint(hits[1]) {
+					t.Errorf("%s: the approval sent %v and the terminal %v", use, hits[0], hits[1])
 				}
 				continue
 			}
