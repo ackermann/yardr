@@ -59,6 +59,8 @@ type EdgeLink struct {
 	ids     int
 	waiting map[string]chan EdgeAnswer
 	answers []EdgeAnswer
+	acks    []string
+	ackCh   chan string
 	silent  bool
 	pongs   int
 	pongCh  chan struct{}
@@ -138,7 +140,7 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusPolicyViolation, "the hello does not answer this challenge")
 		return
 	}
-	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{}, pongCh: make(chan struct{}, 64)}
+	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{}, ackCh: make(chan string, 64), pongCh: make(chan struct{}, 64)}
 	if err := writeFrame(ctx, c, map[string]string{"type": "welcome"}); err != nil {
 		return
 	}
@@ -178,6 +180,14 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 			l.mu.Unlock()
 			if ch != nil {
 				ch <- f.EdgeAnswer
+			}
+		case "ack":
+			l.mu.Lock()
+			l.acks = append(l.acks, f.ID)
+			l.mu.Unlock()
+			select {
+			case l.ackCh <- f.ID:
+			default:
 			}
 		}
 	}
@@ -252,6 +262,17 @@ func (l *EdgeLink) Answers() []EdgeAnswer {
 	defer l.mu.Unlock()
 	return append([]EdgeAnswer(nil), l.answers...)
 }
+
+// Acks are the ids the yard acked on this link so far, in the order they
+// came: one per queued delivery it recorded or refused.
+func (l *EdgeLink) Acks() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.acks...)
+}
+
+// AckEvents signals each id the yard acks.
+func (l *EdgeLink) AckEvents() <-chan string { return l.ackCh }
 
 // Silence has the stand-in hear nothing more on the link and send nothing,
 // with no close: a laptop's network gone with neither end told.

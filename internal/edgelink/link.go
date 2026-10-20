@@ -23,6 +23,7 @@ import (
 	"github.com/coder/websocket"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -43,6 +44,9 @@ import (
 //	edge → yard           {"type":"request","id","seq","method","path",
 //	                      "header","body","received","queued","sig"}
 //	yard → edge           {"type":"response","id","status","header","body"}
+//	                      (a live request, for its sender)
+//	yard → edge           {"type":"ack","id"}   (a queued request, once
+//	                      served: the edge deletes it on the ack)
 //	either way            {"type":"ping"} and {"type":"pong"}
 //
 // The yard checks the challenge against the key it pinned when it
@@ -252,6 +256,11 @@ type responseFrame struct {
 	Body   []byte      `json:"body"`
 }
 
+type ackFrame struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
 // once dials the link and serves it until it ends. It returns how long the
 // link was up (zero when it never came up) and why it ended.
 func (l *Link) once(ctx context.Context) (upFor time.Duration, reason, detail string) {
@@ -418,8 +427,12 @@ func (l *Link) check(session string, last uint64, f frameIn) string {
 }
 
 // answer serves one request with the listener's handler and sends its
-// answer back. The request is the sender's as the edge signed it, from
-// RemoteAddr; its context ends with the link.
+// answer back: a response for a live frame, which the edge passes to the
+// sender, and an ack for a queued one, whose sender was answered long ago
+// and which the edge deletes on the ack. Either goes once the handler is
+// done, so a queued delivery is acked after it is recorded or refused. The
+// request is the sender's as the edge signed it, from RemoteAddr; its
+// context ends with the link.
 func (l *Link) answer(ctx context.Context, c *websocket.Conn, f frameIn) {
 	w := &answerWriter{header: http.Header{}}
 	func() {
@@ -439,6 +452,12 @@ func (l *Link) answer(ctx context.Context, c *websocket.Conn, f frameIn) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
+	if f.Queued {
+		if err := l.write(ctx, c, ackFrame{Type: "ack", ID: f.ID}); err != nil && ctx.Err() == nil {
+			l.Log.Warn("edge link: an ack not sent", "id", text(f.ID), "err", err)
+		}
+		return
+	}
 	if err := l.write(ctx, c, responseFrame{Type: "response", ID: f.ID, Status: w.status, Header: w.header, Body: w.body}); err != nil && ctx.Err() == nil {
 		l.Log.Warn("edge link: an answer not sent", "id", text(f.ID), "err", err)
 	}
@@ -446,11 +465,21 @@ func (l *Link) answer(ctx context.Context, c *websocket.Conn, f frameIn) {
 
 // request is the frame as the request a handler serves. Its headers are
 // put in Go's form, so a handler finds a name however the sender wrote it;
-// what was signed was the frame's own.
+// what was signed was the frame's own. A queued frame's request is marked
+// with the edge-signed time the edge received it, which a declared
+// source's window is checked against instead of the yard's clock; a queued
+// frame whose received is no time is served unmarked, as a live one is.
 func (l *Link) request(ctx context.Context, f frameIn) (*http.Request, error) {
 	u, err := url.ParseRequestURI(f.Path)
 	if err != nil || !strings.HasPrefix(f.Path, "/") {
 		return nil, fmt.Errorf("path %q is no request's", text(f.Path))
+	}
+	if f.Queued {
+		if received, err := time.Parse(time.RFC3339, f.Received); err == nil {
+			ctx = hooks.WithEdgeReceived(ctx, received)
+		} else {
+			l.Log.Warn("edge link: a queued frame whose received is no time, served as live", "id", text(f.ID), "received", text(f.Received))
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, f.Method, u.String(), bytes.NewReader(f.Body))
 	if err != nil {

@@ -98,6 +98,29 @@ var (
 	_ Repoer    = Declared{}
 )
 
+// A delivery that came down the yard's link to its edge after the edge
+// kept it while the yard was away is checked against when the edge
+// received it, not against the yard's clock: the sender's timestamp would
+// otherwise be outside the window for every delivery that waited (design
+// yardr-hosted-050n, 3.4). The link marks the request with the frame's
+// edge-signed received time, whose signature it checked first; a request
+// on the listener carries no mark, so it is checked against now as before.
+// The mark is the door's, on the request's context, never a header a
+// sender could set.
+type edgeReceivedKey struct{}
+
+// WithEdgeReceived marks ctx with received, when the edge received the
+// delivery the request carries, as its signed frame said it. It is what
+// the link sets for a queued frame, and nothing else sets.
+func WithEdgeReceived(ctx context.Context, received time.Time) context.Context {
+	return context.WithValue(ctx, edgeReceivedKey{}, received)
+}
+
+func edgeReceived(ctx context.Context) (time.Time, bool) {
+	at, ok := ctx.Value(edgeReceivedKey{}).(time.Time)
+	return at, ok
+}
+
 // Declared is the adapter for a declared source: one adapter in Go for
 // every declared source, built from its declaration. Verify checks the
 // delivery as hook.verify says, without running anything: the signing
@@ -155,12 +178,16 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", err
 		}
 		window, _ := time.ParseDuration(t.Window) // the reader refused anything else
+		against, clock := now, "now"
+		if received, ok := edgeReceived(r.Context()); ok {
+			against, clock = received, "when the edge received it"
+		}
 		// Compare against each boundary instead of subtracting: Time.Sub
 		// saturates at the largest duration, so a far-away timestamp could
 		// otherwise pass when window is that same largest duration.
-		if at.After(now) && at.After(now.Add(window)) || at.Before(now) && now.After(at.Add(window)) {
-			dd := now.Sub(at)
-			return "", unauthorized("its timestamp is %s away from now", dd.Round(time.Second))
+		if at.After(against) && at.After(against.Add(window)) || at.Before(against) && against.After(at.Add(window)) {
+			dd := against.Sub(at)
+			return "", unauthorized("its timestamp is %s away from %s", dd.Round(time.Second), clock)
 		}
 	}
 	return d.deliveryID(r, body), nil

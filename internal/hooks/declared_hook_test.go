@@ -728,6 +728,47 @@ func TestDeclaredVerify(t *testing.T) {
 	}
 }
 
+// A delivery the edge kept while the yard was away is checked against
+// when the edge received it, which the link marked on the request, and
+// not against the yard's clock: a timestamp ten minutes old verifies
+// against a received of ten minutes ago, and the same delivery with no
+// mark is refused. A refusal against the edge's time says whose clock
+// the timestamp missed.
+func TestDeclaredWindowAgainstTheEdgesTime(t *testing.T) {
+	d, err := source.Parse("q.yaml", []byte("name: q\nhook:\n  verify:\n"+
+		"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n"+
+		"    delivery: { header: Q-Delivery }\n    timestamp: { body: sent, unit: ms, window: 1m }\n"+
+		"  bodies: unique\n  normalize: [normalize]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := hooks.Declared{D: d}
+	now := time.Now()
+	sent := now.Add(-10 * time.Minute)
+	body := []byte(`{"sent":` + fmt.Sprint(sent.UnixMilli()) + `}`)
+	signature := sign(secret, body)
+	verify := func(t *testing.T, received time.Time, marked bool) (string, error) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(string(body)))
+		req.Header.Set("Q-Sig", signature)
+		req.Header.Set("Q-Delivery", "q-1")
+		if marked {
+			req = req.WithContext(hooks.WithEdgeReceived(req.Context(), received))
+		}
+		return ad.Verify(req, body, []byte(secret), now)
+	}
+	if delivery, err := verify(t, sent, true); err != nil || delivery != "q-1" {
+		t.Errorf("marked with the edge's received: delivery %q, err %v", delivery, err)
+	}
+	if _, err := verify(t, time.Time{}, false); !errors.Is(err, hooks.ErrUnauthorized) {
+		t.Errorf("unmarked: err = %v, want unauthorized", err)
+	}
+	_, err = verify(t, sent.Add(-10*time.Minute), true)
+	if !errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), "when the edge received it") {
+		t.Errorf("stale against the edge's time: err = %v", err)
+	}
+}
+
 // A signature over timestamp and body together: the basestring is the
 // template with the header's raw timestamp string and the raw body
 // filled in, so a signature over the body alone, a bad signature and a
