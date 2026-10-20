@@ -2271,13 +2271,70 @@ fi
 	}
 }
 
+// killProcessTree SIGKILLs root and every process descended from it. The
+// gate's perl starts its worker in a new process group (setpgid), so
+// killing root's group alone leaves the worker, a fake go waiting on its
+// barrier, and the sleeper behind. ps names every pid with its parent and
+// group; the groups named are the tree's own, so killing them reaches
+// nothing else. A process born between the listing and the kill is the
+// only miss, and a barrier sleep born then exits on its own within a
+// tenth of a second.
+func killProcessTree(root int) {
+	out, err := exec.Command("ps", "-axo", "pid=,ppid=,pgid=").Output()
+	if err != nil {
+		_ = syscall.Kill(-root, syscall.SIGKILL)
+		_ = syscall.Kill(root, syscall.SIGKILL)
+		return
+	}
+	children := map[int][]int{}
+	pgidOf := map[int]int{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		ppid, err2 := strconv.Atoi(f[1])
+		pgid, err3 := strconv.Atoi(f[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+		children[ppid] = append(children[ppid], pid)
+		pgidOf[pid] = pgid
+	}
+	seen := map[int]bool{root: true}
+	stack := []int{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, c := range children[n] {
+			if !seen[c] {
+				seen[c] = true
+				stack = append(stack, c)
+			}
+		}
+	}
+	groups := map[int]bool{}
+	for pid := range seen {
+		if g, ok := pgidOf[pid]; ok && g > 0 {
+			groups[g] = true
+		}
+	}
+	for g := range groups {
+		_ = syscall.Kill(-g, syscall.SIGKILL)
+	}
+	for pid := range seen {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
 // The orphan test's deadline path, forced deterministically: the fake go
 // writes a barrier marker and waits for a release the test never creates,
 // so the wait for test-done times out and the test kills the run through
 // the published handle. The kill uses Start in this goroutine and Wait in
 // the done goroutine, never Cmd concurrently with Run, so the race
-// detector stays silent. The group dies with the kill, leaving no perl,
-// worker or sleeper behind.
+// detector stays silent. The whole tree dies with the kill, the worker's
+// group with it, leaving no perl, worker or sleeper behind.
 func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
@@ -2340,7 +2397,7 @@ fi
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	t.Cleanup(func() {
-		_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+		killProcessTree(proc.Pid)
 		if b, err := os.ReadFile(filepath.Join(fake, "sleeper")); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
@@ -2353,7 +2410,7 @@ fi
 			break
 		}
 		if time.Now().After(barrierDeadline) {
-			_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+			killProcessTree(proc.Pid)
 			<-done
 			t.Fatalf("the race leg never reached go test")
 		}
@@ -2364,7 +2421,7 @@ fi
 	forced := time.Now().Add(2 * time.Second)
 	for {
 		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
-			_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+			killProcessTree(proc.Pid)
 			<-done
 			t.Fatalf("test-done appeared without the release")
 		}
@@ -2373,7 +2430,7 @@ fi
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
+	killProcessTree(proc.Pid)
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
