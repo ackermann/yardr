@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,9 +36,19 @@ func TestMain(m *testing.M) {
 // and a token hook, with the link's handler being the receiver's.
 type queuedYard struct {
 	*linked
-	st  store.API
-	rc  *hooks.Receiver
-	now time.Time
+	st     store.API
+	rc     *hooks.Receiver
+	now    time.Time
+	served chan struct{}
+}
+
+// handlerBarrier holds the first handler after it has finished, which has
+// already recorded the delivery, so the test can close the link before its
+// ack is sent.
+type handlerBarrier struct {
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
 }
 
 const queuedNormalize = `#!/bin/sh
@@ -66,6 +77,10 @@ const (
 )
 
 func queuedLink(t *testing.T) *queuedYard {
+	return queuedLinkWithBarrier(t, nil)
+}
+
+func queuedLinkWithBarrier(t *testing.T, barrier *handlerBarrier) *queuedYard {
 	t.Helper()
 	home := t.TempDir()
 	st, own := storetest.NewOwned(t)
@@ -104,8 +119,20 @@ func queuedLink(t *testing.T) *queuedYard {
 	now := time.Now()
 	rc := hooks.NewReceiver(own, home, nil)
 	rc.SetClock(func() time.Time { return now })
-	y := linkTo(t, func(l *Link) { l.Handler = rc.Handler() }, nil)
-	return &queuedYard{linked: y, st: st, rc: rc, now: now}
+	served := make(chan struct{}, 8)
+	handler := rc.Handler()
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r)
+		served <- struct{}{}
+		if barrier != nil {
+			barrier.once.Do(func() {
+				close(barrier.entered)
+				<-barrier.release
+			})
+		}
+	})
+	y := linkTo(t, func(l *Link) { l.Handler = wrapped }, nil)
+	return &queuedYard{linked: y, st: st, rc: rc, now: now, served: served}
 }
 
 func queuedSign(body []byte) string {
@@ -157,19 +184,38 @@ func (y *queuedYard) hookEvents(t *testing.T) []store.Event {
 	return out
 }
 
-// recorded waits for the yard to have recorded n deliveries: the store is
-// written by the handler, and the test that closes the link before the ack
-// waits on this instead.
+// recorded waits for a completed hook handler, whose store write is already
+// durable, then checks the number of deliveries recorded so far.
 func (y *queuedYard) recorded(t *testing.T, n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if evs := y.hookEvents(t); len(evs) == n {
-			return
-		} else if time.Now().After(deadline) {
-			t.Fatalf("want %d recorded deliveries, have %d", n, len(evs))
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-y.served:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hook handler did not finish")
+	}
+	if evs := y.hookEvents(t); len(evs) != n {
+		t.Fatalf("want %d recorded deliveries, have %d: %+v", n, len(evs), evs)
+	}
+}
+
+func closeLinkBeforeAck(t *testing.T, l *standin.EdgeLink, barrier *handlerBarrier) {
+	t.Helper()
+	defer close(barrier.release)
+	// The handler has recorded the delivery and is held before answer can
+	// send its ack. Closing the edge side cancels the request context first.
+	select {
+	case <-barrier.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the handler did not reach the ack barrier")
+	}
+	l.Close()
+	select {
+	case <-l.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the edge did not observe the closed link")
+	}
+	if got := l.Acks(); len(got) != 0 {
+		t.Fatalf("the first ack was not lost: %v", got)
 	}
 }
 
@@ -243,7 +289,8 @@ func TestLinkAcksAQueuedDeliveryItRefuses(t *testing.T) {
 // the second.
 func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 	t.Parallel()
-	y := queuedLink(t)
+	barrier := &handlerBarrier{entered: make(chan struct{}), release: make(chan struct{})}
+	y := queuedLinkWithBarrier(t, barrier)
 	first := y.next(t)
 	sent := y.now
 	body := queuedBody(sent)
@@ -254,7 +301,7 @@ func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 	// The ack was lost with the socket: the test closes the link without
 	// waiting for it, and plays the edge sending the kept entry again on
 	// the next connect, under its own id.
-	first.Close()
+	closeLinkBeforeAck(t, first, barrier)
 	second := y.next(t)
 	g := queued(t, second, "/hooks/acme", h, body, sent)
 	g.ID = f.ID
@@ -277,7 +324,8 @@ func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 // pinned exactly, so a change to at-least-once is seen.
 func TestLinkRecordsATokenDeliveryTwiceAfterALostAck(t *testing.T) {
 	t.Parallel()
-	y := queuedLink(t)
+	barrier := &handlerBarrier{entered: make(chan struct{}), release: make(chan struct{})}
+	y := queuedLinkWithBarrier(t, barrier)
 	first := y.next(t)
 	body := []byte(`{"text":"backup ok"}`)
 	h := http.Header{}
@@ -286,7 +334,7 @@ func TestLinkRecordsATokenDeliveryTwiceAfterALostAck(t *testing.T) {
 	f := queued(t, first, "/hooks/cron", h, body, y.now)
 	send(t, first, f)
 	y.recorded(t, 1)
-	first.Close()
+	closeLinkBeforeAck(t, first, barrier)
 	second := y.next(t)
 	g := queued(t, second, "/hooks/cron", h, body, y.now)
 	g.ID = f.ID
