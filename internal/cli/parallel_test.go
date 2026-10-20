@@ -20,6 +20,7 @@ import (
 var allowSerial = map[string]string{
 	"TestAddrSettingsAreCheckedAsTheFlag":                   "newHome,stubWeb,t.Setenv",
 	"TestBDPAndOTelStartStop":                               "running,stub:answers,stub:spawn,t.Setenv",
+	"TestBDPStartAndInstallStayOnLoopback":                  "stub:answers,stub:spawn,stubServices",
 	"TestBareYardr":                                         "holdDaemon,setInteractive,stubAsk,stubFocus,stubLookPath,stubPane,stubStart",
 	"TestBareYardrFinishesAYardWithoutDefaultKind":          "resumeYard,startsYardmaster,stubPane",
 	"TestBareYardrLeavesOtherYardsAlone":                    "holdDaemon,resumeYard,setInteractive,startsYardmaster",
@@ -321,6 +322,7 @@ var allowSerial = map[string]string{
 	"TestUpLoginLeavesAServiceThatIsNotYardrs":                "stubLogin,upYard",
 	"TestUpLoginWritesTheLoginShellsPATH":                     "stub:loginShell,stubLogin,upYard",
 	"TestUpReadsHistoryOnlyWhenThePromptLeftTheScreen":        "stub:paneHistory,stub:paneTail",
+	"TestUpRefusesTheBDPServerOffLoopback":                    "stub:answers,stub:spawn,upYard",
 	"TestUpStartsTheWebViewTheYardNames":                      "stub:answers,stub:spawn,upYard",
 	"TestUpStartsWhatDoesNotRun":                              "stub:serverRunning,upYard",
 	"TestUpWithoutHerdr":                                      "stubLookPath,t.Setenv,upYard",

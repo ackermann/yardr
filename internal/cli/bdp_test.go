@@ -45,9 +45,10 @@ func TestBDPServeRefusesNonLoopback(t *testing.T) {
 // bounded: were the refusal missing, serve would fail to listen at once, not
 // serve the yard to the network until the test ended.
 func TestBDPServeRefusesNonLoopbackFromEnvironmentAndSetting(t *testing.T) {
-	home, st, _ := statusYard(t, "abcdef123456")
-	cfg := &config.Config{Home: home}
-	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
+	t.Parallel()
+	home := newHomeDir(t)
+	env := testEnv(t, home)
+	st := storetest.New(t)
 	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "203.0.113.7:8765", "Jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -55,11 +56,11 @@ func TestBDPServeRefusesNonLoopbackFromEnvironmentAndSetting(t *testing.T) {
 		{"the setting", "", "203.0.113.7:8765"},
 		{"the environment", "198.51.100.9:8766", "198.51.100.9:8766"},
 	} {
-		cfg.BDPAddr = c.env
+		a := &app{st: st, cfg: &config.Config{Home: home, BDPAddr: c.env}, env: env}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		cmd := a().rootCmd()
+		cmd := a.bdpCmd()
 		cmd.SetContext(ctx)
-		_, err := run(t, cmd, "bdp", "serve")
+		_, err := run(t, cmd, "serve")
 		cancel()
 		if err == nil || !strings.Contains(err.Error(), "--addr "+c.addr+" refused") || !strings.Contains(err.Error(), "--unsafe") {
 			t.Errorf("serve on %s: %v, want %s refused", c.from, err, c.addr)
