@@ -1063,8 +1063,18 @@ with empty, invalid or taken words the answer is refused and the card
 stays open. Picking nobody ignores the sender: their later messages
 are dropped without a second card under either unknown or allow, until
 the entry is removed or the sender is mapped. Declining writes
-nothing, and the next message offers again. A mapping written by hand
-meanwhile makes the card stale, not overwritten.
+nothing, and the next message offers again.
+
+A pick that writes closes the card's question bead, with the reason
+saying what was written (`U012AB3CD is ada in slack`, `U012AB3CD is
+ignored in slack`). A decline closes it as `declined by <user>`. Putting
+a card aside and picking You decide leave it open. Settling the sender
+any other way ends their card too: `yardr user identity` typed in a
+terminal or approved on a run ask, `yardr peer identity`, or an ignore
+entry. The card's bead closes with the mapping as the reason, and the
+yard takes the card's question back, so it leaves your open questions.
+A pick on a card whose sender is mapped already is stale and writes
+nothing.
 
 The ignored senders of a source are listed by `yardr source show
 <source>` and `yardr source ignore <source>`, and removed by `yardr

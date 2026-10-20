@@ -1709,7 +1709,6 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 // session's actor or that crew member, whatever actor says; from anywhere
 // else, as given (paneAuthor).
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
-	close := closeWith(reason)
 	// The repository flows the close's gate evaluation resolves blockers'
 	// flows through, read before the write: git must not run inside one.
 	look := &untilLooks{repos: s.gateRepos(ctx, s.blocksTargets(ctx, id)...), memo: flowMemo{}}
@@ -1724,32 +1723,42 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 		if err != nil {
 			return err
 		}
-		rows, before := openTargets(w.Tx, cur, look)
-		b, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-			if err := w.check(ctx, exp, b); err != nil {
-				return "", nil, err
-			}
-			return close(w, b)
-		})
-		if err != nil || b.Status != "closed" {
+		if err := w.check(ctx, exp, cur); err != nil {
 			return err
 		}
-		if row, err := w.loadBead(b.UUID); err != nil {
-			return err
-		} else if err := w.takeBackAllStageAsks(row, "closed"); err != nil {
-			return err
-		}
-		if row, err := w.loadBead(b.UUID); err != nil {
-			return err
-		} else {
-			b = &row.Bead
-		}
-		if err := w.logTargetsFlips(rows, before, look, actor); err != nil {
-			return err
-		}
-		return w.returnPeerBead(b, OutcomeRefused, &reason, actor)
+		b, err = w.closeBead(cur, reason, actor, look)
+		return err
 	})
 	return b, s.refused(ctx, id, "yardr bead close "+id, exp, actor, err)
+}
+
+// closeBead is CloseBead's write inside the caller's transaction, for the
+// bead cur as loadBead read it: the close itself, the stage asks it takes
+// back, the gates it flips and the return of a bead from another yard. It
+// checks nothing about who closes: a caller that holds an Expect checks it
+// first. look is how the gates are read (see CloseBead); a caller with no
+// repository flows to give passes none, and a gate that needs one then
+// matches its until stage exactly, as gateRepos says.
+func (w *wtx) closeBead(cur *beadRow, reason, actor string, look *untilLooks) (*Bead, error) {
+	rows, before := openTargets(w.Tx, cur, look)
+	b, err := w.changeBead(cur.UUID, actor, closeWith(reason))
+	if err != nil || b.Status != "closed" {
+		return b, err
+	}
+	if row, err := w.loadBead(b.UUID); err != nil {
+		return b, err
+	} else if err := w.takeBackAllStageAsks(row, "closed"); err != nil {
+		return b, err
+	}
+	if row, err := w.loadBead(b.UUID); err != nil {
+		return b, err
+	} else {
+		b = &row.Bead
+	}
+	if err := w.logTargetsFlips(rows, before, look, actor); err != nil {
+		return b, err
+	}
+	return b, w.returnPeerBead(b, OutcomeRefused, &reason, actor)
 }
 
 // Expect is what a caller believes about a bead it changes: the session it

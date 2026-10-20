@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // talkFile is a source that hears by identity: fields.sender holds a
@@ -67,10 +69,98 @@ func pickFor(t *testing.T, y *askYard, bead string, label string) int {
 	return 0
 }
 
+// claimCard offers the mapping card for the sender in talk and returns it
+// as the operator's queue holds it.
+func claimCard(t *testing.T, y *askYard, sender string) OpenAsk {
+	t.Helper()
+	if created, err := y.ClaimIdentity(y.ctx, "talk", sender, "C1", "hi"); err != nil || !created {
+		t.Fatalf("ClaimIdentity for %s = %v, %v", sender, created, err)
+	}
+	var card *OpenAsk
+	for _, o := range mappingQueue(t, y).Open {
+		if o.Identity != nil && o.Identity.Sender == sender {
+			c := o
+			card = &c
+		}
+	}
+	if card == nil {
+		t.Fatalf("no card for %s", sender)
+	}
+	return *card
+}
+
+// wantCardClosed checks that the card's bead is closed with reason.
+func wantCardClosed(t *testing.T, y *askYard, bead, reason string) {
+	t.Helper()
+	b, err := y.GetBead(y.ctx, bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != reason {
+		got := "no reason"
+		if b.CloseReason != nil {
+			got = *b.CloseReason
+		}
+		t.Fatalf("card bead %s is %s with %q, want it closed with %q", bead, b.Status, got, reason)
+	}
+}
+
+// wantCardOpen checks that the card's bead is still open.
+func wantCardOpen(t *testing.T, y *askYard, bead string) {
+	t.Helper()
+	b, err := y.GetBead(y.ctx, bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "open" {
+		t.Fatalf("card bead %s is %s, want it open", bead, b.Status)
+	}
+}
+
+// wantDecided checks that the operator's decided list holds the card's ask
+// in state, and answers the row.
+func wantDecided(t *testing.T, y *askYard, bead, state string) DecidedAsk {
+	t.Helper()
+	q, err := y.UserAsks(y.ctx, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range q.Decided {
+		if d.Bead == bead {
+			if d.State != state {
+				t.Fatalf("card %s is %s among the decided, want %s", bead, d.State, state)
+			}
+			return d
+		}
+	}
+	t.Fatalf("card %s is not among the decided: %+v", bead, q.Decided)
+	return DecidedAsk{}
+}
+
+// mapBehindTheCards writes the user's identity in the source as the store
+// held it before a mapping ended the cards for its sender: through no
+// setter, so the card stays open for a sender who is mapped, as the
+// stale pick (mappingStale) is for.
+func mapBehindTheCards(t *testing.T, y *askYard, user, source string, id Identity) {
+	t.Helper()
+	err := y.write(func(w *wtx) error {
+		u, err := getUser(w.Tx, user)
+		if err != nil {
+			return err
+		}
+		u.Identities = map[string]Identity{source: id}
+		return put(w.Tx, bUsers, user, u)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A dropped delivery's sender stands one mapping card for the
 // operator showing the member id, the channel and at most 80
-// characters of the message; picking a user writes their identity
-// and the sender offers no second card, by then or once mapped.
+// characters of the message; picking a user writes their identity,
+// closes the card's bead with what was written, and the sender offers
+// no second card, by then or once mapped.
 func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
@@ -101,11 +191,13 @@ func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 	if q := mappingQueue(t, y); len(q.Open) != 2 {
 		t.Fatalf("open asks = %d, want 2", len(q.Open))
 	}
-	// Only the operator picks who a sender is.
+	// Only the operator picks who a sender is, and a refusal leaves the
+	// card's bead open.
 	pick := pickFor(t, y, open.Bead, "ada")
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "ada"); err == nil {
 		t.Fatal("ada picked who a sender is")
 	}
+	wantCardOpen(t, y, open.Bead)
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
@@ -116,15 +208,24 @@ func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 	if !u.IsIn("talk", "U999") {
 		t.Fatalf("ada = %+v, want U999 mapped in talk", u.Identities)
 	}
+	// The pick ended the card: its bead is closed with what was written,
+	// and its ask stands answered, not taken back. The other sender's card
+	// stands.
+	wantCardClosed(t, y, open.Bead, "U999 is ada in talk")
+	wantDecided(t, y, open.Bead, "answered")
+	if q := mappingQueue(t, y); len(q.Open) != 1 || q.Open[0].Identity.Sender != "U888" {
+		t.Fatalf("open asks after the pick = %+v, want U888's card alone", q.Open)
+	}
 	// Once mapped, the sender offers no card.
 	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "again"); err != nil || created {
 		t.Fatalf("a card for a mapped sender = %v, %v", created, err)
 	}
 }
 
-// A mapping written by hand meanwhile makes the card stale: its pick
-// writes nothing and leaves it open. Declining it leaves the sender
-// unmapped, and their next delivery offers a card again. A source
+// A card that stands for a sender mapped since (one from before a
+// mapping ended its cards) is stale: its pick writes nothing and leaves
+// it open. Declining a card closes its bead as declined, leaves the
+// sender unmapped, and their next delivery offers a new card. A source
 // with no identity hearing, no sender and a sender with a control
 // character offer none, and no writer may forge a mapping ask.
 func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
@@ -156,9 +257,7 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{ID: "U777"}, "mckean"); err != nil {
-		t.Fatal(err)
-	}
+	mapBehindTheCards(t, y, "bo", "talk", Identity{ID: "U777"})
 	pick := pickFor(t, y, open.Bead, "ada")
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale pick = %v, want a stale refusal", err)
@@ -169,33 +268,43 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 	if q := mappingQueue(t, y); len(q.Open) != 1 {
 		t.Fatalf("open asks after a stale pick = %d, want the card left open", len(q.Open))
 	}
-	// Declining a card for a sender still unmapped offers a card
-	// again on their next delivery.
-	if created, err := y.ClaimIdentity(y.ctx, "talk", "U555", "C1", "hi"); err != nil || !created {
-		t.Fatalf("ClaimIdentity = %v, %v", created, err)
-	}
-	var declined *OpenAsk
-	for _, o := range mappingQueue(t, y).Open {
-		if o.Identity != nil && o.Identity.Sender == "U555" {
-			c := o
-			declined = &c
-		}
-	}
-	if declined == nil {
-		t.Fatal("no card for U555")
-	}
-	if err := y.AddAnswer(y.ctx, declined.Bead, Answer{Ask: declined.Ask, Decline: true, Words: "not now"}, "mckean"); err != nil {
+	wantCardOpen(t, y, open.Bead)
+	// Declining a card for a sender still unmapped closes its bead as
+	// declined, writes nothing, and offers a new card on their next
+	// delivery.
+	declined := claimCard(t, y, "U555")
+	if err := y.DeclineAsk(y.ctx, declined.Bead, declined.Ask, "not now", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if created, err := y.ClaimIdentity(y.ctx, "talk", "U555", "C1", "me again"); err != nil || !created {
-		t.Fatalf("a card after a decline = %v, %v", created, err)
+	wantCardClosed(t, y, declined.Bead, "declined by mckean")
+	wantDecided(t, y, declined.Bead, "declined")
+	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
+		t.Fatalf("ignored after a decline = %+v, %v", src, err)
 	}
+	if holders, err := mappedTo(y, "talk", "U555"); err != nil || len(holders) != 0 {
+		t.Fatalf("U555 is mapped to %v after a decline, %v", holders, err)
+	}
+	again := claimCard(t, y, "U555")
+	if again.Bead == declined.Bead {
+		t.Fatalf("the next delivery's card is the declined one, %s", again.Bead)
+	}
+	wantCardOpen(t, y, again.Bead)
+	wantCardClosed(t, y, declined.Bead, "declined by mckean")
+}
+
+// mappedTo is the users who hold the sender's id in the source.
+func mappedTo(y *askYard, source, sender string) (holders []string, err error) {
+	err = y.read(func(tx *bolt.Tx) (err error) {
+		holders, err = identityHolders(tx, source, sender)
+		return err
+	})
+	return holders, err
 }
 
 // Someone new with a valid new name in the pick's words adds that user
-// and writes their identity in the one answering write; empty, invalid
-// and taken words refuse the answer and leave the card open, no user
-// added.
+// and writes their identity in the one answering write, closing the
+// card's bead; empty, invalid and taken words refuse the answer and leave
+// the card open, no user added.
 func TestClaimIdentitySomeoneNew(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
@@ -216,6 +325,7 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 	if q := mappingQueue(t, y); len(q.Open) != 1 {
 		t.Fatalf("open asks after refused picks = %d, want the card left open", len(q.Open))
 	}
+	wantCardOpen(t, y, open.Bead)
 	if _, err := y.GetUser(y.ctx, "bo"); err == nil {
 		t.Fatal("a refused pick added its user")
 	}
@@ -229,14 +339,16 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 	if !u.IsIn("talk", "U999") {
 		t.Fatalf("bo = %+v, want U999 mapped in talk", u.Identities)
 	}
+	wantCardClosed(t, y, open.Bead, "U999 is bo in talk")
+	wantDecided(t, y, open.Bead, "answered")
 	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "again"); err != nil || created {
 		t.Fatalf("a card for a mapped sender = %v, %v", created, err)
 	}
 }
 
-// Nobody ignores the sender: no second card stands for them, and none
-// is offered again until the entry is removed or the sender is mapped
-// directly, which clears it in the same write.
+// Nobody ignores the sender and closes the card's bead: no second card
+// stands for them, and none is offered again until the entry is removed
+// or the sender is mapped directly, which clears it in the same write.
 func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
@@ -248,12 +360,15 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "ada"); err == nil {
 		t.Fatal("ada ignored a sender")
 	}
+	wantCardOpen(t, y, open.Bead)
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U999"}) {
 		t.Fatalf("ignored = %+v, %v", src, err)
 	}
+	wantCardClosed(t, y, open.Bead, "U999 is ignored in talk")
+	wantDecided(t, y, open.Bead, "answered")
 	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "again"); err != nil || created {
 		t.Fatalf("a card for an ignored sender = %v, %v", created, err)
 	}
@@ -307,9 +422,9 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	}
 }
 
-// A mapping written by hand meanwhile makes the someone-new and nobody
-// picks stale too: no user is added, nothing is ignored, and the card
-// stays open.
+// A card for a sender mapped since (one from before a mapping ended its
+// cards) makes the someone-new and nobody picks stale too: no user is
+// added, nothing is ignored, and the card stays open.
 func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
@@ -320,9 +435,7 @@ func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{ID: "U777"}, "mckean"); err != nil {
-		t.Fatal(err)
-	}
+	mapBehindTheCards(t, y, "bo", "talk", Identity{ID: "U777"})
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingSomeoneNew), "hal", "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale someone-new pick = %v, want a stale refusal", err)
 	}
@@ -338,6 +451,7 @@ func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 	if q := mappingQueue(t, y); len(q.Open) != 1 {
 		t.Fatalf("open asks after stale picks = %d, want the card left open", len(q.Open))
 	}
+	wantCardOpen(t, y, open.Bead)
 }
 
 // Two cards answered together write one identity at most: the same
@@ -380,4 +494,151 @@ func TestClaimIdentitySomeoneNewNameTakenBetweenCards(t *testing.T) {
 	if q := mappingQueue(t, y); len(q.Open) != 1 || q.Open[0].Identity.Sender != "U222" {
 		t.Fatalf("open asks = %+v, want the second card left open", q.Open)
 	}
+}
+
+// A sender mapped from a terminal ends the card that asks who they are:
+// its bead closes with a reason naming the mapping, and its ask is taken
+// back by the yard, so the operator's queue holds no card for someone who
+// is mapped and the card no longer stands in the way of a fresh one. The
+// id or the key names the sender, as hearing reads it, and another
+// sender's card stands.
+func TestMappingByHandEndsTheCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	card := claimCard(t, y, "U777")
+	keyed := claimCard(t, y, "Dana")
+	other := claimCard(t, y, "U888")
+	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{ID: "U777"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, card.Bead, "U777 is bo in talk")
+	if d := wantDecided(t, y, card.Bead, "taken back"); d.By != stageAskAuthor || d.Words != "U777 is bo in talk" {
+		t.Fatalf("the card's ask ended as %+v, want taken back by the yard with the mapping as the reason", d)
+	}
+	// A key names the sender in any case.
+	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{Key: "dana"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, keyed.Bead, "Dana is ada in talk")
+	wantCardOpen(t, y, other.Bead)
+	if q := mappingQueue(t, y); len(q.Open) != 1 || q.Open[0].Bead != other.Bead {
+		t.Fatalf("open asks = %+v, want U888's card alone", q.Open)
+	}
+	// The card takes no answer now.
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, "ada"), "", "mckean"); err == nil || !strings.Contains(err.Error(), "asked no more") {
+		t.Fatalf("a pick on the ended card = %v, want it refused as asked no more", err)
+	}
+	// And it no longer counts as pending: once the sender is unmapped, their
+	// next delivery offers a fresh card.
+	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if again := claimCard(t, y, "U777"); again.Bead == card.Bead {
+		t.Fatalf("the next delivery's card is the ended one, %s", again.Bead)
+	}
+}
+
+// A mapping an approved run ask makes ends the card as a terminal one
+// does. The bead the run ask stands on is no card and stays open.
+func TestMappingByRunAskEndsTheCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	card := claimCard(t, y, "U999")
+	seq := y.ask(t, listAsk("mckean", `user identity ada --source talk --id U999`), "yardmaster")
+	wantCardOpen(t, y, card.Bead)
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, card.Bead, "U999 is ada in talk")
+	wantCardOpen(t, y, y.bead)
+}
+
+// Later puts the card aside and You decide leaves it to the yard: neither
+// closes its bead. A sender settled afterwards ends the card either way,
+// taking the ask back where it still waited, and a You decide pick lets
+// the next delivery offer a second card, which the answer to it ends with
+// the first.
+func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	later := claimCard(t, y, "U111")
+	if err := y.DeferAsk(y.ctx, later.Bead, later.Ask, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardOpen(t, y, later.Bead)
+	wantDecided(t, y, later.Bead, "put aside")
+
+	decide := claimCard(t, y, "U222")
+	if err := y.AnswerAsk(y.ctx, decide.Bead, decide.Ask, pickFor(t, y, decide.Bead, YouDecide), "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardOpen(t, y, decide.Bead)
+	wantDecided(t, y, decide.Bead, "answered")
+	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
+		t.Fatalf("ignored after You decide = %+v, %v", src, err)
+	}
+
+	// Mapped from a terminal later, the put-aside card ends with its ask
+	// taken back.
+	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{ID: "U111"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, later.Bead, "U111 is ada in talk")
+	wantDecided(t, y, later.Bead, "taken back")
+	wantCardOpen(t, y, decide.Bead)
+
+	// The answered card does not stand in the way of a second one, and
+	// ignoring the sender on that ends both.
+	second := claimCard(t, y, "U222")
+	if second.Bead == decide.Bead {
+		t.Fatalf("the next delivery's card is the answered one, %s", second.Bead)
+	}
+	if err := y.AnswerAsk(y.ctx, second.Bead, second.Ask, pickFor(t, y, second.Bead, MappingNobody), "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, second.Bead, "U222 is ignored in talk")
+	wantCardClosed(t, y, decide.Bead, "U222 is ignored in talk")
+	wantDecided(t, y, decide.Bead, "answered")
+}
+
+// An ignore entry written for a sender ends the card that asks who they
+// are, taking its ask back; so does the entry of an id already on the
+// list, which a card from before entries ended cards can stand beside.
+func TestIgnoreEntryEndsTheCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	card := claimCard(t, y, "U123")
+	ignore := func(sender string) {
+		t.Helper()
+		if err := y.write(func(w *wtx) error { return w.ignoreSender(y.ctx, "talk", sender, "mckean", nil) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ignore("U123")
+	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U123"}) {
+		t.Fatalf("ignored = %+v, %v", src, err)
+	}
+	wantCardClosed(t, y, card.Bead, "U123 is ignored in talk")
+	if d := wantDecided(t, y, card.Bead, "taken back"); d.By != stageAskAuthor || d.Words != "U123 is ignored in talk" {
+		t.Fatalf("the card's ask ended as %+v, want taken back by the yard with the entry as the reason", d)
+	}
+
+	stale := claimCard(t, y, "U124")
+	err := y.write(func(w *wtx) error {
+		src := new(Source)
+		if _, err := get(w.Tx, bSources, "talk", src); err != nil {
+			return err
+		}
+		src.Ignored = append(src.Ignored, "U124")
+		return put(w.Tx, bSources, "talk", src)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCardOpen(t, y, stale.Bead)
+	ignore("U124")
+	wantCardClosed(t, y, stale.Bead, "U124 is ignored in talk")
 }

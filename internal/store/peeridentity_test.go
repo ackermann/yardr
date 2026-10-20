@@ -137,6 +137,55 @@ func TestPeerIdentitySetReplaceRemove(t *testing.T) {
 	}
 }
 
+// A sender mapped to a crew member of a linked yard ends the mapping card
+// that asks who they are, as mapping a user does: the card's bead closes
+// with a reason naming the speaker, and its ask is taken back, so the
+// operator's queue holds no card for a sender who is mapped. Another
+// sender's card stands.
+func TestPeerIdentityEndsTheMappingCard(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	for _, sender := range []string{"T9", "T8"} {
+		if created, err := y.own.ClaimIdentity(y.ctx, "talk", sender, "C1", "hi"); err != nil || !created {
+			t.Fatalf("ClaimIdentity for %s = %v, %v", sender, created, err)
+		}
+	}
+	queue, err := y.api.UserAsks(y.ctx, "jo")
+	if err != nil || len(queue.Open) != 2 {
+		t.Fatalf("the operator's queue = %+v, %v, want the two cards", queue, err)
+	}
+	cards := map[string]store.OpenAsk{}
+	for _, o := range queue.Open {
+		cards[o.Identity.Sender] = o
+	}
+
+	y.mapPeer(t, "north", "talk", "T9", "mayor")
+
+	b, err := y.api.GetBead(y.ctx, cards["T9"].Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "T9 is mayor@north in talk" {
+		t.Fatalf("the card for T9 is %s with %v, want it closed with the speaker named", b.Status, b.CloseReason)
+	}
+	if b, err = y.api.GetBead(y.ctx, cards["T8"].Bead); err != nil || b.Status != "open" {
+		t.Fatalf("the card for T8 = %+v, %v, want it left open", b, err)
+	}
+	queue, err = y.api.UserAsks(y.ctx, "jo")
+	if err != nil || len(queue.Open) != 1 || queue.Open[0].Identity.Sender != "T8" {
+		t.Fatalf("the operator's queue after the mapping = %+v, %v, want T8's card alone", queue, err)
+	}
+	var ended []store.DecidedAsk
+	for _, d := range queue.Decided {
+		if d.Bead == cards["T9"].Bead {
+			ended = append(ended, d)
+		}
+	}
+	if len(ended) != 1 || ended[0].State != "taken back" || ended[0].Words != "T9 is mayor@north in talk" {
+		t.Fatalf("T9's card among the decided = %+v, want it taken back with the mapping as the reason", ended)
+	}
+}
+
 // What cannot be a mapping is refused with why, and keeps the link as it was.
 func TestPeerIdentityRefusals(t *testing.T) {
 	t.Parallel()

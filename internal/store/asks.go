@@ -766,25 +766,30 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if err != nil {
 			return err
 		}
-		// A mapping ask's pick writes the identity it names, in this
-		// write: a refusal (stale, or not the operator's to give)
-		// records no answer and leaves the card open.
-		for _, n := range notes {
-			if n.Seq != ans.Ask || n.Kind != NoteAsk {
-				continue
-			}
-			if ask, err := ParseAsk(n); err == nil && ask.Identity != nil {
-				if err := w.answerMapping(ctx, ask, ans, actor); err != nil {
-					return err
-				}
-			}
-		}
 		text, err := json.Marshal(ans)
 		if err != nil {
 			return err
 		}
 		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 			return err
+		}
+		// A mapping ask's pick writes the identity it names, in this
+		// write, and the pick that writes or the decline ends the card by
+		// closing its bead. It runs after the answer is recorded, for two
+		// reasons: the write that settles the sender closes the cards for
+		// it, and this card's ask must be answered by then, not taken back;
+		// and addNoted wrote row, which a close made before it would lose
+		// to. A refusal (stale, or not the operator's to give) rolls the
+		// answer back with the write and leaves the card open.
+		for _, n := range notes {
+			if n.Seq != ans.Ask || n.Kind != NoteAsk {
+				continue
+			}
+			if ask, err := ParseAsk(n); err == nil && ask.Identity != nil {
+				if err := w.answerMapping(ctx, row, ask, ans, actor); err != nil {
+					return err
+				}
+			}
 		}
 		// A pick or words that fire an outcome move the bead in the same
 		// write, through Done's path; the answer's words stay on the

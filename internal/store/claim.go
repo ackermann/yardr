@@ -286,8 +286,11 @@ func identityHolders(tx *bolt.Tx, source, sender string) ([]string, error) {
 // answering write, picking someone new adds the user the pick's words
 // name and writes theirs, and picking nobody ignores the sender
 // (answerMapping). The ask is the yard's (author "yard"), on a
-// question bead titled with the question, as a claim is. Nothing of
-// the message is kept beyond the first 80 characters the card shows.
+// question bead titled with the question, as a claim is. The yard
+// closes that bead when the card is settled: by an answer that writes
+// or declines it, or by any write that maps or ignores the sender
+// (retireMappingCards). Nothing of the message is kept beyond the
+// first 80 characters the card shows.
 func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, text string) (bool, error) {
 	if sender == "" || strings.TrimSpace(sender) != sender || strings.ContainsAny(sender, " \t\r\n") || claimPlain(sender) != sender {
 		return false, nil
@@ -426,18 +429,102 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 	return created, nil
 }
 
+// closeCard closes the question bead of a mapping card with reason, as
+// the card's own writer: the yard asked it, so the yard ends it
+// (TypeQuestion). No gate is read through a repository: a card blocks
+// nothing unless a person made it block (closeBead).
+func (w *wtx) closeCard(row *beadRow, reason, actor string) error {
+	_, err := w.closeBead(row, reason, actor, &untilLooks{memo: flowMemo{}})
+	return err
+}
+
+// retireMappingCards ends the mapping cards of the senders in source that
+// the write calling it has settled. is says which senders those are; who
+// is what the write made of them, which the reason names: a user, a crew
+// member of a linked yard as <crew>@<peer>, or "ignored". Each write that
+// settles a sender calls it after writing: a user's identity
+// (setUserIdentity), a linked yard's crew member's (SetPeerIdentity) and
+// an ignore entry (ignoreSender). So a card ends however its sender is
+// settled, by its own answer, from a terminal or by a run ask.
+//
+// A card stands while its question bead is open, whatever became of its
+// ask: a bead left open past its ask is the gap this closes, and a card
+// whose pick was You decide waits for the mapping that settles it. A card
+// whose ask still waits, open or put aside, has the ask taken back first,
+// as the yard takes back a stage ask when its bead moves on. The operator's
+// decisions list the open asks of closed beads as well (UserAsks), and a
+// waiting ask counts as pending (mappingPending), so closing the bead alone
+// would leave the card among their questions and block a fresh card for
+// the sender once the mapping is removed. An ask that ended already,
+// answered or declined, is left as it is.
+func (w *wtx) retireMappingCards(source string, is func(sender string) bool, who, actor string) error {
+	settled := func(a Ask) bool {
+		return a.Identity != nil && a.Identity.Source == source && is(a.Identity.Sender)
+	}
+	// The open index is a snapshot of keys: closing a bead below takes it
+	// out of the index without moving this loop.
+	for _, uuid := range keys(w.Tx, bBeadOpen, "") {
+		notes, err := beadNotes(w.Tx, uuid)
+		if err != nil {
+			return err
+		}
+		reason := ""
+		for _, r := range ResolveAsks(notes, now()) {
+			if r.AskErr == nil && settled(r.Ask) {
+				reason = fmt.Sprintf("%s is %s in %s", r.Ask.Identity.Sender, who, source)
+			}
+		}
+		if reason == "" {
+			continue
+		}
+		row, err := w.loadBead(uuid)
+		if err != nil {
+			return err
+		}
+		if err := w.takeBackStage(row, reason, settled); err != nil {
+			return err
+		}
+		// The take-back wrote a note: close the bead as it stands now.
+		if row, err = w.loadBead(uuid); err != nil {
+			return err
+		}
+		if err := w.closeCard(row, reason, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // answerMapping writes what a mapping ask's pick names, in the write
 // that records the answer: option n names Users[n-1], whose identity
 // in the ask's source becomes the ask's sender; someone new adds the
 // user the pick's words name and writes theirs; nobody ignores the
-// sender. Later, Decline and a YouDecide pick write nothing. It
-// refuses a pick by anyone but the operator the card asks, one from
-// an agent pane (mayIdentify, as a terminal mapping is), and a stale
-// pick: a sender mapped to anyone since the card was written, or a
-// user gone since, writes nothing and leaves the card open.
-func (w *wtx) answerMapping(ctx context.Context, ask Ask, ans Answer, actor string) error {
+// sender. Each of those settles the sender, and a write that settles
+// one closes the cards for it (retireMappingCards), this card's bead
+// among them with a reason that says what was written. A decline writes
+// nothing and ends the card too, closing its bead as declined by the one
+// who declined: the sender stays unmapped, and their next delivery offers
+// a new card, as one is offered after none. Later and a YouDecide pick
+// write nothing and leave the card open. It refuses a pick by anyone but
+// the operator the card asks, one from an agent pane (mayIdentify, as a
+// terminal mapping is), and a stale pick: a sender mapped to anyone since
+// the card was written, or a user gone since, writes nothing and leaves
+// the card open. row is the card's bead, as the answer was written on it;
+// the answer is recorded before this runs.
+func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answer, actor string) error {
 	id := ask.Identity
-	if id == nil || ans.Option == 0 || ans.Later || ans.Decline {
+	if id == nil || ans.Later {
+		return nil
+	}
+	if ans.Decline {
+		// A card whose bead was closed by hand, with the ask still open,
+		// has nothing left to close.
+		if !row.open() {
+			return nil
+		}
+		return w.closeCard(row, "declined by "+actor, actor)
+	}
+	if ans.Option == 0 {
 		return nil
 	}
 	if actor != ask.To {

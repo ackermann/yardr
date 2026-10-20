@@ -905,7 +905,9 @@ The source has to hear by identity. The store refuses any other, because no
 delivery from it would be heard as anyone.
 
 **What it does.** A delivery from that id is kept, whatever `--unknown` word
-the hook has, and the operator gets no mapping card for it. Its
+the hook has, and the operator gets no mapping card for it. A mapping card
+already open for the id closes with the mapping, as it does when the id is
+mapped to a user. Its
 `fields.speaker` is `mayor@plantime`, the address the mayor's mail has, and a
 crew member reads it with the mark that mail from another yard carries:
 

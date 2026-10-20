@@ -53,7 +53,8 @@ func comparePeerIdentity(a, b PeerIdentity) int {
 // peer_identity_set. Mapping an id clears it from the source's ignore list
 // in the same write, as mapping a user does (setUserIdentity): a mapped
 // sender is never also ignored, and the operator has answered for this one
-// anew.
+// anew. It ends the mapping cards that ask who the sender is, too
+// (retireMappingCards).
 //
 // Only the operator says who a sender is (operatorOnly): the mapping is the
 // consent to hear the sender, and it decides how their words are read. A
@@ -109,7 +110,8 @@ func (w *wtx) peerIdentityFor(name string, id PeerIdentity) (*Peer, error) {
 // setPeerIdentity is SetPeerIdentity inside the transaction, so that an
 // approved run ask makes the change in the write that records its approval
 // (ApproveAsk): by is then the ask it was approved on, which the event
-// carries.
+// carries. It also ends the mapping cards that ask who the sender is
+// (retireMappingCards), so no card stays open for a sender who is mapped.
 func (w *wtx) setPeerIdentity(ctx context.Context, name string, id PeerIdentity, actor string, by *approvedOn) (*Peer, error) {
 	// Askable: it decides whose word a sender's is, so the card says which
 	// speaker the sender becomes and what stood, and an approval through the
@@ -142,6 +144,9 @@ func (w *wtx) setPeerIdentity(ctx context.Context, name string, id PeerIdentity,
 		return nil, err
 	}
 	if _, err := w.clearIgnored(id.Source, id.ID, actor, by); err != nil {
+		return nil, err
+	}
+	if err := w.retireMappingCards(id.Source, func(sender string) bool { return id.IsIn(id.Source, sender) }, id.Speaker(name), actor); err != nil {
 		return nil, err
 	}
 	return p, outboxOf(w.Tx, p)

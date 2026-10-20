@@ -412,7 +412,9 @@ func ignoredIn(tx *bolt.Tx, name, sender string) bool {
 // operator's alone to say (maySource), refused from an agent pane, and
 // an id already on the list is kept once. by is the ask the change was
 // answered on, nil for none: adding happens only by picking "nobody" on
-// a mapping card, never by a command.
+// a mapping card, never by a command. It ends the mapping cards for the
+// sender (retireMappingCards), also where the id was on the list already:
+// the sender is settled either way.
 func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string, by *approvedOn) error {
 	if err := w.maySource(ctx, actor, "ignoring a sender in a source", Askable); err != nil {
 		return err
@@ -423,19 +425,21 @@ func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string, by *
 	} else if !ok {
 		return fmt.Errorf("source %s: %w", name, ErrNotFound)
 	}
-	if slices.Contains(src.Ignored, sender) {
-		return nil
+	if !slices.Contains(src.Ignored, sender) {
+		src.Ignored = append(src.Ignored, sender)
+		slices.Sort(src.Ignored)
+		if err := put(w.Tx, bSources, name, src); err != nil {
+			return err
+		}
+		data := map[string]any{"source": name, "sender": sender}
+		if by != nil {
+			data["approved"] = by
+		}
+		if err := w.event("", "sender_ignored", actor, data); err != nil {
+			return err
+		}
 	}
-	src.Ignored = append(src.Ignored, sender)
-	slices.Sort(src.Ignored)
-	if err := put(w.Tx, bSources, name, src); err != nil {
-		return err
-	}
-	data := map[string]any{"source": name, "sender": sender}
-	if by != nil {
-		data["approved"] = by
-	}
-	return w.event("", "sender_ignored", actor, data)
+	return w.retireMappingCards(name, func(card string) bool { return card == sender }, "ignored", actor)
 }
 
 // unignoreSender removes the sender id from the source's ignore list,

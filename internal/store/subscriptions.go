@@ -282,7 +282,9 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 // approved on, which the event carries, nil for a change typed in a
 // terminal. Mapping an id clears it from the source's ignore list in
 // the same write, so a mapped user is never also ignored; it answers
-// each entry it cleared. Removing an identity clears nothing: an id
+// each entry it cleared. It also ends the mapping cards that ask who
+// the sender is (retireMappingCards), so no card stays open for a
+// sender who is mapped. Removing an identity clears nothing: an id
 // mapped and then removed stays un-ignored, and is heard as unmapped.
 func (w *wtx) setUserIdentity(ctx context.Context, name, source string, id Identity, actor string, by *approvedOn) ([]string, error) {
 	u, err := getUser(w.Tx, name)
@@ -322,6 +324,11 @@ func (w *wtx) setUserIdentity(ctx context.Context, name, source string, id Ident
 		} else if ok {
 			cleared = append(cleared, held)
 		}
+	}
+	// A sender is named by the id or by the key, which matches in any case
+	// (Identity.is), as hearing reads it.
+	if err := w.retireMappingCards(source, id.is, name, actor); err != nil {
+		return nil, err
 	}
 	return cleared, nil
 }
