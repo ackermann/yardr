@@ -609,7 +609,9 @@ func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
 	requireNonInteractive(t)
 	home := filepath.Join(filepath.Dir(variable), "nothere")
 	errs := captureStderr(t)
-	out, code := executeOut(&app{stderr: errs, env: environMap(os.Environ())}, "status", "--home", home)
+	env := environMap(os.Environ())
+	env["YARDR_HOME"] = variable
+	out, code := executeOut(&app{stderr: errs, env: env}, "status", "--home", home)
 	if code != 2 || out != "" {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
