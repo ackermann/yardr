@@ -186,7 +186,7 @@ func TestTrainEndToEnd(t *testing.T) {
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, train) {
 		t.Fatalf("origin yard/r-e is %q, want the rebased %s", pushed, train)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "tests passed") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "tests passed") {
 		t.Fatalf("no integration note:\n%s", notes)
 	}
 
@@ -235,7 +235,7 @@ func TestTrainRedTestsGoBackToOpen(t *testing.T) {
 	if e.Stage != "open" || e.Status != "open" || e.Hold {
 		t.Fatalf("train %s/%s hold=%v, want back in open, not held", e.Stage, e.Status, e.Hold)
 	}
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "child1 clashes with main") {
 		t.Fatalf("no note with the end of the output:\n%s", notes)
 	}
@@ -272,7 +272,7 @@ func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
 	if e.Hold || e.Stage != "merge" || e.Status != "open" {
 		t.Fatalf("train %s/%s hold=%v, want in merge, not held", e.Stage, e.Status, e.Hold)
 	}
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	for _, want := range []string{"rebase of yard/r-e onto main conflicts in: child1.txt",
 		"yard/r-e is at " + train[:7], "main at " + main[:7], "do not push it"} {
 		if !strings.Contains(notes, want) {
@@ -311,7 +311,7 @@ func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, resolved) {
 		t.Fatalf("origin yard/r-e is %q after re-integration, want the resolved %s", pushed, resolved)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); strings.Contains(notes, "not forced") {
+	if notes := y.notesOf("r-e"); strings.Contains(notes, "not forced") {
 		t.Fatalf("the push was refused:\n%s", notes)
 	}
 }
@@ -351,7 +351,7 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, foreign) {
 		t.Fatalf("origin yard/r-e is %q, want the foreign %s untouched", pushed, foreign)
 	}
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	if !strings.Contains(notes, "did not have before the rebase") || !strings.Contains(notes, "not forced") {
 		t.Fatalf("no note on the refused push:\n%s", notes)
 	}

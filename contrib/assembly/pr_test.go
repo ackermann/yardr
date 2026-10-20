@@ -146,7 +146,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(body), "Train: r-e") {
 		t.Fatalf("PR body does not end in its trailer:\n%s", body)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "Opened pull request "+prURL) {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "Opened pull request "+prURL) {
 		t.Fatalf("no note with the PR:\n%s", notes)
 	}
 
@@ -244,7 +244,7 @@ func TestIntegrateTrainDoesNotAdoptAnUnboundPR(t *testing.T) {
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "open" || e.Metadata["pr_url"] != nil || e.Metadata["pr_number"] != nil {
 		t.Fatalf("train %s hold=%v metadata %v, want held in open, bound to nothing", e.Stage, e.Hold, e.Metadata)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is open that r-e is not bound to") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "is open that r-e is not bound to") {
 		t.Fatalf("no note on the unbound PR:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr edit"); n != 0 {
@@ -327,7 +327,7 @@ func TestIntegrateTrainPRFailureGoesBackToOpen(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold || e.Metadata["pr_url"] != nil {
 		t.Fatalf("train %s hold=%v metadata %v, want back in open, not held, no pr_url", e.Stage, e.Hold, e.Metadata)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "HTTP 502: Bad Gateway") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "HTTP 502: Bad Gateway") {
 		t.Fatalf("no note with gh's error:\n%s", notes)
 	}
 }
@@ -367,7 +367,7 @@ func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "base branch policy prohibits") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "base branch policy prohibits") {
 		t.Fatalf("no note with gh's message:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 1 {
@@ -388,7 +388,7 @@ func unmerged(t *testing.T, y *yard, main, want string) {
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" || e.Status == "closed" {
 		t.Fatalf("train %s/%s hold=%v, want held in land, not closed", e.Stage, e.Status, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, want) {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, want) {
 		t.Fatalf("no note with %q:\n%s", want, notes)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
@@ -461,7 +461,7 @@ func TestPRMergeNeedsTheReviewedSha(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no reviewed commit (pr_reviewed_sha") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "no reviewed commit (pr_reviewed_sha") {
 		t.Fatalf("no note on the missing reviewed sha:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
@@ -484,7 +484,7 @@ func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
 		t.Fatalf("train %s hold=%v, want held in land", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is #7 from mallory/r:yard/r-e, but r-e is bound to #7 from o/r:yard/r-e") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "is #7 from mallory/r:yard/r-e, but r-e is bound to #7 from o/r:yard/r-e") {
 		t.Fatalf("no note on the other head repository:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
@@ -570,7 +570,7 @@ func TestPRMergeNeedsTheBinding(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
 		t.Fatalf("no note on the missing binding:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
@@ -612,7 +612,7 @@ func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
 		t.Fatalf("no note on the missing PR:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr edit"); n != 0 {
@@ -638,7 +638,7 @@ func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "conflicts with main") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "conflicts with main") {
 		t.Fatalf("no note on the conflict:\n%s", notes)
 	}
 }
@@ -664,7 +664,7 @@ func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "approved" {
 		t.Fatalf("train %s hold=%v after pr-train without YARDR_PR, want held in approved", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
 		t.Fatalf("no note naming the switch:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr "); n != 0 {
@@ -710,7 +710,7 @@ func TestPRMergeWithoutSwitchHolds(t *testing.T) {
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
 		t.Fatalf("train %s hold=%v after pr-merge without YARDR_PR, want held in land", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
 		t.Fatalf("no note naming the switch:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {

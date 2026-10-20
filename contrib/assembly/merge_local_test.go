@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,11 +71,14 @@ func TestMain(m *testing.M) {
 		os.Setenv(k, v)
 	}
 	// Each test has a yard, a repository and a server of its own, and most
-	// of its time is waiting for the processes it starts. Six at once fits
-	// beside the full run's other packages: one race leg holds the
-	// machine-wide lock at a time, so this package's company is the leg's
-	// own other packages, not another whole suite.
-	flag.Set("test.parallel", "6")
+	// of its time is waiting for the processes it starts. One per core
+	// keeps every core's wait overlapped; six at least, so a small
+	// machine still overlaps the waits. The budget is judged on the run
+	// alone under the race lock, where this package has no company; in
+	// the full run its company is the leg's own other packages, not
+	// another whole suite, since one race leg holds the machine-wide
+	// lock at a time.
+	flag.Set("test.parallel", strconv.Itoa(max(6, runtime.NumCPU())))
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)
@@ -409,28 +415,50 @@ func (y *yard) claimFor(ctx context.Context, group, id string) store.Session {
 
 func (y *yard) bead() store.Bead { return y.beadOf("r-1") }
 
+// beadOf reads the bead over rpc, the same store.API the show command
+// uses: what the test asserts is the bead, and a process per read is what
+// keeps this package near its time budget.
 func (y *yard) beadOf(id string) store.Bead {
 	y.t.Helper()
-	var b store.Bead
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &b); err != nil {
+	b, err := rpc.NewClient((&config.Config{Home: y.home}).Socket()).GetBead(context.Background(), id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
-	return b
+	return *b
 }
 
 func (y *yard) family() store.Family { return y.familyOf("r-1") }
 
+// familyOf reads the family over rpc, as beadOf does.
 func (y *yard) familyOf(id string) store.Family {
 	y.t.Helper()
-	var f store.Family
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &f); err != nil {
+	f, err := rpc.NewClient((&config.Config{Home: y.home}).Socket()).Family(context.Background(), id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
-	return f
+	return *f
 }
 
 // notes is the bead as prime shows it, notes included.
-func (y *yard) notes() string { return y.yardr("prime", "--bead", "r-1") }
+func (y *yard) notes() string { return y.notesOf("r-1") }
+
+// notesOf is the bead's notes as prime's Notes section shows them, through
+// the store API: the same blocks prime prints, without the process. The
+// yard has no peer trusts, so no author is marked. Tests that assert on
+// prime itself (its flow map, its showing of the body) keep the command.
+func (y *yard) notesOf(id string) string {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	notes, err := st.Notes(context.Background(), id)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	var sb strings.Builder
+	for _, block := range store.NoteBlocksMarked(notes, time.Now(), map[string]string{}, y.home) {
+		fmt.Fprintf(&sb, "  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
+	}
+	return sb.String()
+}
 
 // refused is the move_refused events on r-1: moves the yard refused to the
 // assembly's session, each a fault to the crew. A script that tries only

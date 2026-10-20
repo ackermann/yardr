@@ -278,6 +278,11 @@ exec "$REAL" "$@"
 
 	y.assembly()
 
+	// The reads below go over rpc, so the server the upgrade stopped is
+	// started again first; before, the show and prime commands did that by
+	// connecting. Starting it moves nothing and notes nothing.
+	y.yardr("server", "start")
+
 	if b := y.bead(); b.Stage != "approved" || b.Status != "open" {
 		t.Fatalf("bead %s/%s, want still approved and open: nothing may advance a dead yard", b.Stage, b.Status)
 	}

@@ -53,7 +53,7 @@ func TestTrainRedTestsFixChildHasTheTail(t *testing.T) {
 	}
 	at := "yard/r-e at " + y.git(y.repo, "rev-parse", "--short", "yard/r-e") + " rebased onto main (the command "
 	const shown = "exit 1); the last 200 of 502 lines of output:\n"
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	if lead, tail := strings.Index(notes, "integrator: the tests failed on "+at), strings.Index(notes, shown); lead < 0 || tail < lead {
 		t.Fatalf("the train's note: want the commit and what ran, then the tail (at %d, %d):\n%s", lead, tail, notes)
 	}

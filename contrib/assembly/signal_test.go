@@ -262,7 +262,7 @@ func TestTrainTestsEndedBySignalAreRunAgain(t *testing.T) {
 	if n := runs(t, ran); n != 2 {
 		t.Fatalf("the tests ran %d times, want 2", n)
 	}
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	for _, want := range []string{"were ended by signal 15 (exit 143), not by a failing test", "output of run 1", "tests passed"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)
@@ -287,7 +287,7 @@ func TestTrainTestsEndedBySignalTwiceHold(t *testing.T) {
 	if f := y.familyOf("r-e"); len(f.Children) != 2 {
 		t.Fatalf("train children %v, want only r-1 and r-2", f.Children)
 	}
-	notes := y.yardr("prime", "--bead", "r-e")
+	notes := y.notesOf("r-e")
 	for _, want := range []string{"and again by signal 15 (exit 143) when run once more", "First run:\n", "output of run 1", "Second run:\n", "output of run 2"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)

@@ -59,7 +59,7 @@ func TestMergeLocalWagonOfATrainIsTestedWithoutLanding(t *testing.T) {
 	if y.git(y.repo, "rev-list", "--count", trainWas+"..yard/r-e") != "1" {
 		t.Fatal("the wagon did not land on the train's branch")
 	}
-	if notes := y.yardr("prime", "--bead", "r-1"); !strings.Contains(notes, "on yard/r-e, tested with the command") ||
+	if notes := y.notes(); !strings.Contains(notes, "on yard/r-e, tested with the command") ||
 		!regexp.MustCompile(`without YARDR_LANDING in \d+ s; the landing run and the review are train r-e's`).MatchString(notes) {
 		t.Fatalf("the note does not say how it was tested:\n%s", notes)
 	}
@@ -89,7 +89,7 @@ func TestMergeLocalWagonRedTests(t *testing.T) {
 	if got := y.git(y.repo, "rev-parse", "yard/r-e"); got != trainWas || ranAs(t, ran) != "wagon" {
 		t.Fatalf("train branch moved (%s, was %s) or the command ran as %q", got, trainWas, ranAs(t, ran))
 	}
-	notes := y.yardr("prime", "--bead", "r-1")
+	notes := y.notes()
 	for _, want := range []string{"the wagon's tests failed on yard/r-1", "wagon says no"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("note lacks %q:\n%s", want, notes)
