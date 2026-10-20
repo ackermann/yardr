@@ -67,6 +67,8 @@ func (c Class) String() string {
 // operator's and the daemon's.
 func (c Class) allows(kind store.CallerKind) bool {
 	switch kind {
+	case store.CallerUnknown:
+		return c == Read
 	case store.CallerOwner:
 		return true
 	case store.CallerDaemon:
@@ -98,6 +100,9 @@ func allowed(ctx context.Context, st *store.Store, name string) error {
 	}
 	if c.allows(kind) {
 		return nil
+	}
+	if kind == store.CallerUnknown {
+		return fmt.Errorf("%s is refused because the socket peer could not be identified", name)
 	}
 	// In the store's words where it has its own check of the kind.
 	switch c {

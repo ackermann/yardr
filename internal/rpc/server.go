@@ -44,13 +44,13 @@ const PIDHeader = "X-Yardr-Pid"
 // ConnContext is for the http.Server that serves Handler: it records on
 // every connection's context the pid of the process that opened it, so the
 // store can check a bead write as the session whose pane it came from (see
-// store.Expect). A connection whose peer the OS does not tell is served
-// with no caller.
+// store.Expect). If the OS cannot identify the peer, the call is marked
+// unknown and the access table allows it to read but not write.
 func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	if pid, err := peer.PID(c); err == nil {
 		return store.WithCaller(ctx, pid)
 	}
-	return ctx
+	return store.WithUnknownCaller(ctx)
 }
 
 // WriteReplacing refuses a call without running it because the server is

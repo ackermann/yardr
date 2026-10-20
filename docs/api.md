@@ -45,7 +45,8 @@ exec session's command is the operator's own program, run as its group,
 and is served as a person's terminal is. Every
 method the socket serves has a class that says which of them may make it,
 and a call its class does not let through is refused before the yard looks
-at its arguments, with code `error`:
+at its arguments, with code `error`. If the operating system cannot
+identify the peer, only read calls are allowed:
 
 | class | who may make it |
 |---|---|

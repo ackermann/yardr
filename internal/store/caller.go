@@ -41,6 +41,15 @@ func sessionOf(ctx context.Context) string {
 	return id
 }
 
+type unknownCallerKey struct{}
+
+// WithUnknownCaller marks a socket call whose peer the OS could not
+// identify. It is distinct from a call made in the owning process, which
+// has no caller at all.
+func WithUnknownCaller(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unknownCallerKey{}, true)
+}
+
 // startingRefused refuses a call from no known pane that names a session
 // the store has no pane on record for yet: an exec session's process calls
 // before the dispatcher records its handle (MarkRunning), and until then
@@ -228,10 +237,14 @@ func uintIn(v any) (uint64, bool) {
 type CallerKind int
 
 const (
-	// CallerOwner is a call with no caller: the owning process, or a
-	// connection whose peer the OS did not tell. The store serves it as
-	// it serves its own (daemonOnly passes it too).
+	// CallerOwner is a call with no caller: the owning process or a direct
+	// in-process call. The store serves it as its own (daemonOnly passes it
+	// too).
 	CallerOwner CallerKind = iota
+	// CallerUnknown is a socket peer the OS could not identify. The RPC
+	// layer lets it read but refuses its writes, since it cannot know
+	// whether the call came from a bead's pane.
+	CallerUnknown
 	// CallerPerson is a process in no pane of the yard's: a person's
 	// terminal, a script, a client that is not yardr.
 	CallerPerson
@@ -253,6 +266,8 @@ const (
 
 func (k CallerKind) String() string {
 	switch k {
+	case CallerUnknown:
+		return "an unidentified socket peer"
 	case CallerPerson:
 		return "a person"
 	case CallerBead:
@@ -272,6 +287,9 @@ func (k CallerKind) String() string {
 // bead's session, as paneAuthor asks, so a session's agent is never taken
 // for the crew member whose tab it may have been started from.
 func (s *Store) CallerOf(ctx context.Context) (CallerKind, error) {
+	if unknown, _ := ctx.Value(unknownCallerKey{}).(bool); unknown {
+		return CallerUnknown, nil
+	}
 	pid := callerOf(ctx)
 	if pid <= 0 {
 		return CallerOwner, nil
