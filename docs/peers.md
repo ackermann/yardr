@@ -498,9 +498,9 @@ The yard knows the way an approval came from the door it came through, never
 from the words of the call: the socket knows the process at its other end, the
 listener the token of the device, and a door that takes a call over a link marks
 the call with that link. The store reads the mark where it approves. No door
-takes an approval over a link today: `ApproveAsk` is refused for a
-`bead@peer`, and an answer from a link cannot approve a run ask, so the
-refusal is the last line, kept for the day one does.
+takes an approval over a link today. `ApproveAsk` is refused for a
+`bead@peer`, and an answer from a link cannot approve a run ask, so this
+refusal is the last line, kept for the day a door does.
 
 Still typed in a terminal and refused as a card: `peer add`, a pairing, `peer
 set --url`, `peer rm`, `--expose`, `--trust` and `--reach` (alone or beside a
@@ -929,16 +929,17 @@ sender as unmapped, as it does for an id two users hold, and the hook's
 in the source is this yard's own post coming back. The receiver drops it as
 that before it reads any mapping.
 
-**Who may.** Only the operator sets an id or takes it back. A crew member's
-session is refused, and takes back none: `--rm` is typed in a terminal. Setting
-one can be proposed with a run ask, `--run "peer identity <peer> <crew>
---source <source> --id <id>"` ([chat.md](chat.md#questions-for-you)), which
-the operator approves from this yard: the card says whose word the sender is
-then, `<crew>@<peer>` and no user, and what the crew member has in the source
-now, and an approval that arrives through that peer's own reach is refused, since
-a peer must not say who its own crew is here ([who may do
-what](#who-may-do-what)). Mapping an id on the source's ignore list removes it
-from the list in the same write, as mapping a user does.
+**Who may.** Only the operator sets an id or takes it back, and a crew
+member's session is refused both. Taking one back (`--rm`) is typed in a
+terminal. A crew member that knows the id proposes setting it with a run ask,
+`--run "peer identity <peer> <crew> --source <source> --id <id>"`
+([chat.md](chat.md#questions-for-you)), and the operator approves it from this
+yard. The card says whose word the sender is then, `<crew>@<peer>` and no user,
+and what the crew member has in the source now. An approval that arrives
+through that peer's own reach is refused, since a peer must not say who its own
+crew is here ([who may do what](#who-may-do-what)). Mapping an id on the
+source's ignore list removes it from the list in the same write, as mapping a
+user does.
 
 **Where it is listed.** `yardr peer identity <peer>`, and an `identity:` line
 for each in `yardr peer show <peer>` (`--json`: `peer.identities`).
