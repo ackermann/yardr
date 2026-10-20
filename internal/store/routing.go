@@ -1639,7 +1639,10 @@ func stageGroup(tx *bolt.Tx, b *beadRow) (*Group, error) {
 // command names. A stage of people is what stands between another
 // yard's text and this yard's agents (docs/peers.md, "The intake"), and a
 // crew member that reads such a bead and is talked into moving it on
-// cannot do it by naming someone who may. A call the store knows no pane
+// cannot do it by naming someone who may. The one exception is a session
+// of the exec runner: a script, not a model, so there is no one for
+// another yard's text to talk into anything, and it counts as its group
+// where the members list that group. A call the store knows no pane
 // of is told by its actor, as a manual group's session is: a person at
 // work.
 func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow, actor string) error {
@@ -1652,6 +1655,9 @@ func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow
 		return err
 	}
 	if sess != nil && !sess.Manual() {
+		if sess.RunnerName() == "exec" && slices.Contains(g.Members, sess.Group) {
+			return nil
+		}
 		return fmt.Errorf("%s (this is the session %s of a bead's agent, whatever actor the command names)", only, sess.ID)
 	}
 	r, err := paneCrew(w.Tx, callerOf(ctx))
