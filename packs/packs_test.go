@@ -19,7 +19,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the thirteen yardr carries. A file the
+// is the name it is found by, and they are the fourteen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -45,8 +45,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "pushover", "slack", packs.Starter, "telegram"}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, pushover, slack, starter and telegram", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram"}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter and telegram", names)
 	}
 }
 
@@ -1344,6 +1344,181 @@ func TestSlackPack(t *testing.T) {
 	}
 	if n := strings.Count(six, "message.mpim"); n != 1 {
 		t.Errorf("the setup's step 6 names message.mpim %d times, want once, in its refusal", n)
+	}
+}
+
+// The posthog pack is PostHog as an integration: of kind source, one
+// declared source with the read calls an agent makes of it and the hook
+// key that hears a new error issue. The source is named posthog. Nothing
+// of it writes: every call is a read, and it has no thread, notify or
+// link key.
+func TestPostHogPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, "posthog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "posthog" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	d := p.Declared[0].Declaration
+	var commands []string
+	for _, c := range d.Commands() {
+		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
+	}
+	if want := []string{"hook.normalize posthog/normalize"}; !slices.Equal(commands, want) {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+	if d.Base != "https://us.posthog.com" {
+		t.Fatalf("base = %q, want the US Cloud host", d.Base)
+	}
+	if c := d.Credential; c == nil || c.Env != "POSTHOG_API_KEY" || c.Header != "Authorization: Bearer {credential}" {
+		t.Fatalf("credential = %+v", c)
+	}
+	if d.Hear != nil || d.Thread != nil || d.Notify != nil || d.Link != nil {
+		t.Fatalf("the pack declares a hear, thread, notify or link key: it reads PostHog and hears a new error issue, nothing else")
+	}
+	params := func(c *source.Call) map[string]source.Param {
+		out := map[string]source.Param{}
+		for _, p := range c.Params {
+			out[p.Name] = p
+		}
+		return out
+	}
+	project := func(c *source.Call) {
+		t.Helper()
+		pr, ok := params(c)["project"]
+		if !ok || pr.Type != "string" || pr.Pattern != "^[0-9]+$" || pr.Optional || !pr.Log {
+			t.Fatalf("%s project = %+v, want a required logged string of digits", c.Name, pr)
+		}
+	}
+	q, ok := d.Call("query")
+	if !ok || q.Kind != source.Read || q.Request.Method != "POST" || q.Request.Path != "/api/projects/{project}/query/" {
+		t.Fatalf("query call = %+v", q)
+	}
+	project(q)
+	qp := params(q)
+	if h, ok := qp["hogql"]; !ok || h.Type != "string" || h.Max != 8192 || h.Optional || h.Log {
+		t.Fatalf("query hogql = %+v, want a required unlogged string of at most 8192", h)
+	}
+	qbody, _ := q.Request.Body.(map[string]any)
+	qquery, _ := qbody["query"].(map[string]any)
+	if qbody["name"] != "yardr" || qquery["kind"] != "HogQLQuery" || qquery["query"] != "{hogql}" {
+		t.Fatalf("query body = %v", q.Request.Body)
+	}
+	if !reflect.DeepEqual(q.Answer.Select, []string{"results", "columns"}) {
+		t.Fatalf("query select = %+v", q.Answer.Select)
+	}
+	iss, ok := d.Call("issues")
+	if !ok || iss.Kind != source.Read || iss.Request.Method != "GET" || iss.Request.Path != "/api/projects/{project}/error_tracking/issues/" {
+		t.Fatalf("issues call = %+v", iss)
+	}
+	project(iss)
+	isp := params(iss)
+	if l, ok := isp["limit"]; !ok || l.Type != "string" || l.Pattern != "^([1-9][0-9]?|100)$" || string(l.Default) != `"25"` {
+		t.Fatalf("issues limit = %+v, want 1 to 100 defaulting to 25", l)
+	}
+	if o, ok := isp["offset"]; !ok || o.Type != "string" || o.Pattern != "^[0-9]{1,9}$" || !o.Optional {
+		t.Fatalf("issues offset = %+v, want optional digits", o)
+	}
+	var query []string
+	for _, kv := range iss.Request.Query {
+		query = append(query, kv.Key+"="+kv.Value)
+	}
+	if !slices.Equal(query, []string{"limit={limit}", "offset={offset}"}) {
+		t.Fatalf("issues query = %q", query)
+	}
+	if !reflect.DeepEqual(iss.Answer.Select, []string{"count", "next", "results"}) {
+		t.Fatalf("issues select = %+v", iss.Answer.Select)
+	}
+	one, ok := d.Call("issue")
+	if !ok || one.Kind != source.Read || one.Request.Method != "GET" || one.Request.Path != "/api/projects/{project}/error_tracking/issues/{id}/" {
+		t.Fatalf("issue call = %+v", one)
+	}
+	project(one)
+	if id, ok := params(one)["id"]; !ok || id.Type != "string" || id.Max != 36 || id.Optional || !id.Log {
+		t.Fatalf("issue id = %+v, want a required logged string", id)
+	}
+	if len(one.Answer.Select) != 0 {
+		t.Fatalf("issue select = %+v, want the whole issue", one.Answer.Select)
+	}
+	// The check call reads who the key acts as, a read without
+	// parameters, as a check must be.
+	if d.Check != "whoami" {
+		t.Fatalf("check = %q, want whoami", d.Check)
+	}
+	wc, ok := d.Call("whoami")
+	if !ok || wc.Kind != source.Read || wc.Request.Method != "GET" || wc.Request.Path != "/api/users/@me/" {
+		t.Fatalf("whoami call = %+v", wc)
+	}
+	if len(wc.Params) != 0 {
+		t.Fatalf("whoami params = %+v, want none", wc.Params)
+	}
+	if !reflect.DeepEqual(wc.Answer.Select, []string{"email"}) {
+		t.Fatalf("whoami select = %+v", wc.Answer.Select)
+	}
+	// The hook is verified by the secret in its header, compared as it
+	// arrives, and a repeated delivery is told by the event's own id.
+	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
+		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Body != "event.uuid" ||
+		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project"}) ||
+		!reflect.DeepEqual(h.Normalize, []string{"posthog/normalize"}) || h.Register != nil {
+		t.Fatalf("hook = %+v", d.Hook)
+	}
+	// Its setup notes: the key and its scopes, the project id, the apply,
+	// the key given to the yard by a command or on a card, the grant and
+	// the test calls, the hook's secret made by the operator, the
+	// destination in PostHog with its body and header, and hearing new
+	// issues in an inbox or as beads. The secret is generated into its
+	// file, never typed as a command's word.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"Personal API keys",
+		"query:read",
+		"error_tracking:read",
+		"user:read",
+		"POSTHOG_API_KEY",
+		"Project ID",
+		"yardr pack apply posthog\n",
+		"~/.yardr/sources/posthog.env",
+		"yardr source key posthog ",
+		"--secret posthog --context",
+		"yardr source grant posthog read --group builders",
+		"yardr source check posthog\n",
+		"posthog: check call whoami (GET /api/users/@me/): 200 in …ms, … bytes",
+		"posthog: email: <the key owner's address>",
+		"yardr call posthog issues project=<id>",
+		"yardr call posthog issue project=<id> id=<an issue's id>",
+		"yardr call posthog query project=<id> hogql=",
+		"umask 077",
+		"openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/posthog.secret",
+		"chmod 600 ~/.yardr/posthog.secret",
+		"yardr hook add posthog --source posthog --secret-file ~/.yardr/posthog.secret\n",
+		"https://<public host>/hooks/posthog",
+		`{"event": "{event}", "person": "{person}", "project": "{project}"}`,
+		"X-Yardr-Secret",
+		"Leave the destination's own Signing secret empty",
+		"$error_tracking_issue_created",
+		"yardr subscribe <hearer> posthog --scope all --where type=error_issue",
+		`--makes "action=created event=error_issue -> task:new@<depot>"`,
+		"https://eu.posthog.com",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	for _, not := range []string{"printf '%s' '", "<secret>"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes type a secret as a command's word: %q", not)
+		}
 	}
 }
 

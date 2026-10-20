@@ -92,6 +92,7 @@ app from ([An integration pack](#an-integration-pack-kind-source)).
 | `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 | `slack` | mentions and direct messages in a Slack workspace, answered in their threads, in the yard | none: `kind: source` | of none: `yardr pack apply slack` |
+| `posthog` | PostHog itself, in the yard: HogQL queries and error tracking issues read, a new error issue heard | none: `kind: source` | of none: `yardr pack apply posthog` |
 
 ```
 packs/starter/
@@ -276,7 +277,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it

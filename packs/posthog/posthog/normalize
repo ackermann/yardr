@@ -1,0 +1,47 @@
+#!/bin/sh
+# A verified PostHog webhook destination body to the yard's envelope:
+# stdin {"headers":{…},"body":{…}}, stdout the envelope. Needs jq.
+# internal/hooks feeds it the bodies its tests recorded and compares the
+# envelopes with the shapes below.
+#
+# The body is the destination's JSON body as the setup has it: the
+# template's default {event, person} with the project added
+# ({"event": "{event}", "person": "{person}", "project": "{project}"}),
+# since the default names no project. An $error_tracking_issue_created
+# event becomes type error_issue in the thread of its issue; any other
+# body becomes type event, so a delivery the destination was not matched
+# for (a test from its page) is recorded and routed as today, and never
+# refused with a 400 the service retries. Nothing of the body is ever
+# printed to stderr.
+exec jq -c '
+def obj: if type == "object" then . else {} end;
+def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. The jq
+# POSIX space class includes the Unicode spaces split by Go strings.Fields.
+def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+
+(.body | if type == "object" then . else error("posthog webhook body is not an object") end) as $b
+| ($b.event | obj) as $e
+| (($b.project | obj).id | str(.)) as $project
+| ((($b.project | obj).url | str(.)) | sub("/+$"; "")) as $base
+| (if $project != "" then {project: [$project]} else null end) as $fields
+| if ($e.event // "") == "$error_tracking_issue_created" then
+    # The issue is the distinct_id; its properties carry the same id as
+    # $exception_issue_id, which stands in where no distinct_id came.
+    ((($e.distinct_id // "") | if type == "string" then . else "" end)
+     | if . != "" then . else ((($e.properties | obj)."$exception_issue_id" // "") | if type == "string" then . else "" end) end) as $id
+    | (($e.properties | obj).name | str(.)) as $name
+    | (($e.properties | obj).description | str(.) | trunc) as $text
+    | (if $base != "" and $id != "" then "\($base)/error-tracking/\($id)" else "" end) as $url
+    # No mentions: the description is an error message, and an @word in
+    # one names nobody. The entity is the issue, whose description
+    # persists across its deliveries.
+    | {source: "posthog", type: "error_issue", action: "created",
+       actor: {}, thread: {id: $id, title: $name, url: $url},
+       text: $text, url: $url, entity: $id, mentions: []}
+    | if $fields == null then . else . + {fields: $fields} end
+  else
+    {source: "posthog", type: "event", actor: {}, thread: {}, mentions: []}
+    | if $fields == null then . else . + {fields: $fields} end
+  end
+'

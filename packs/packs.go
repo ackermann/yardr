@@ -17,14 +17,15 @@ import (
 // repository from outside, an issue or a pull request, as a bead. design is
 // beside the depot's flow too: the lane a bead of type design takes, from a
 // drafted document to a decision. Of kind
-// source, for the yard itself: linear, github and Google, each service's
-// declaration (linear's and github's with the commands they name;
-// Google's as four packs, google-mail, google-drive, google-docs and
-// google-calendar, one per thing a person turns on), and one pack per
-// service that tells a user outside the yard, a declaration with the
-// notify key that sends and no commands.
+// source, for the yard itself: linear, github, PostHog and Google, each
+// service's declaration (linear's and github's with the commands they
+// name; PostHog's with its hook's normalize; Google's as four packs,
+// google-mail, google-drive, google-docs and google-calendar, one per
+// thing a person turns on), and one pack per service that tells a user
+// outside the yard, a declaration with the notify key that sends and no
+// commands.
 //
-//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack
+//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is

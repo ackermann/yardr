@@ -1,0 +1,122 @@
+# PostHog as a declared source: what an agent may ask of it through
+# `yardr call` (a HogQL query, the error tracking issues, one issue), and
+# what it sends in (a new error issue). Every call is a read; the pack has
+# no thread, notify or link key, so the yard writes nothing to PostHog.
+#
+# Checked against PostHog's docs and source on 20 October 2026: the query
+# endpoint (posthog.com/docs/api/queries, and the generated query_create),
+# the issues endpoints
+# (products/error_tracking/backend/presentation/views/issues.py, routes.py,
+# pagination.py), the users endpoint (posthog/api/user.py), the personal
+# API key scopes (posthog/scopes.py, frontend/src/lib/scopes.tsx), the
+# webhook destination template
+# (nodejs/src/cdp/templates/_destinations/webhook/webhook.template.ts), the
+# issue-created event (products/error_tracking/backend/temporal/lifecycle/
+# side_effects.py, products/cdp/backend/internal_events.py), the
+# destination globals (posthog.com/docs/cdp/destinations/
+# customizing-destinations) and the issue's route
+# (products/error_tracking/manifest.tsx).
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies into
+# the yard.
+name: posthog
+about: PostHog analytics and error tracking. Answers HogQL queries, lists error issues, hears a new error issue.
+
+# The name of the variable, never the value. A personal API key with the
+# scopes query:read, error_tracking:read and user:read, sent as a Bearer [REDACTED]
+# (posthog.com/docs/api/personal-api-keys). hook.normalize is handed no
+# credential at all.
+credential:
+  env: POSTHOG_API_KEY
+  header: "Authorization: Bearer {credential}"
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the secret is handed
+  # to no command, and an unverified body reaches none. The destination
+  # signs nothing yardr can check (its signing secret follows the Standard
+  # Webhooks spec, which is base64 over id.timestamp.body, and yardr's
+  # hmac-sha256 is hex over body or timestamp and body), so the secret
+  # goes in a header of the destination's secret headers instead, compared
+  # as it arrives. The delivery id is the event's uuid, one per transition,
+  # so a retry is told however it re-serializes the body.
+  verify:
+    scheme: secret
+    signature: { header: X-Yardr-Secret }
+    delivery:  { body: event.uuid }
+  bodies: unique
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself.
+  normalize: [posthog/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label. project
+  # is the id the destination's body carries under project (the setup adds
+  # it beside the default {event, person}, which names no project).
+  keys: [project]
+
+# ---- (today) what an agent may ask of it, through `yardr call` ------------
+# Declared HTTPS requests, granted one by one. A command is never something
+# an agent calls. Every call's project is the id the project's settings
+# show, the team id the /api/projects/ routes take.
+
+# US Cloud. The declaration's base is fixed: `yardr source set` sets no
+# base, so an EU yard copies this file with https://eu.posthog.com and
+# adds it after the pack (the setup says how). The hook needs no such
+# copy: the issue's URL is built from the project.url the delivery
+# carries, on whichever host sent it.
+base: https://us.posthog.com
+calls:
+  query:
+    kind: read
+    about: Run a HogQL query, answered with its columns and rows
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      hogql: { type: string, max: 8192 }   # free text: its value is in no event
+    request:
+      method: POST
+      path: /api/projects/{project}/query/
+      body: { query: { kind: "HogQLQuery", query: "{hogql}" }, name: "yardr" }
+    # Results and their columns; a name the query_log shows the query
+    # under, as the docs ask. A result table runs past the 64 KB a call
+    # otherwise returns, and a larger one is refused, not cut.
+    answer: { select: [results, columns], max: 262144 }
+  issues:
+    kind: read
+    about: List the error tracking issues, 25 by default
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      limit: { type: string, pattern: "^([1-9][0-9]?|100)$", default: "25" }   # 1 to 100, always sent, 25 unless given (PostHog's own default is 100)
+      offset: { type: string, pattern: "^[0-9]{1,9}$", optional: true }
+    request:
+      method: GET
+      path: /api/projects/{project}/error_tracking/issues/
+      query: { limit: "{limit}", offset: "{offset}" }
+    # The standard {count, next, previous, results} page; a page of issues
+    # runs past the 64 KB a call otherwise returns. The list takes no
+    # status filter, so every status comes back and the caller keeps what
+    # it wants.
+    answer: { select: [count, next, results], max: 262144 }
+  issue:
+    kind: read
+    about: Read one error tracking issue
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      id: { type: string, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", max: 36, log: true }   # the issue's UUID
+    request:
+      method: GET
+      path: /api/projects/{project}/error_tracking/issues/{id}/
+    # The whole issue, as the read serializer has it: id, status,
+    # severity, name, description, first_seen, assignee, external_issues
+    # and cohort. One issue never nears the 64 KB a call returns.
+  whoami:
+    kind: read
+    about: Whose personal API key the credential is
+    request:
+      method: GET
+      path: /api/users/@me/
+    answer: { select: [email] }
+check: whoami
