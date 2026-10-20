@@ -15,7 +15,8 @@
 #                       push it to after; off when empty
 #   YARDR_NOTIFY        crew member mailed when that push fails (default: the
 #                       yard's yardmaster setting, else yardmaster)
-#   YARDR_TEST_TIMEOUT  seconds the test command may run (default 1800)
+#   YARDR_TEST_TIMEOUT  seconds the test command may run, besides what it
+#                       waited for the race lock (default 1800)
 #
 # For each bead it brings the base up to YARDR_PUSH, fast-forward only (a
 # base that diverged from the remote's branch fails the landing, never
@@ -301,12 +302,14 @@ trap 'unwatched; exit 143' TERM
 trap 'unwatched; exit 130' INT
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds. It adds the
-# seconds the run took to $secs, which a second run after a signal adds to.
+# in $lines, and $late set when it ran past $LIMIT seconds besides what it
+# waited for the race lock. It adds the seconds the run took to $secs, which
+# a second run after a signal adds to.
 #
 # The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
 # the command runs in the background beside a watcher that sleeps $LIMIT
-# seconds and then kills it. Killing sh alone would leave go test and its
+# seconds, credits the race-lock seconds the run waited, and then kills it.
+# Killing sh alone would leave go test and its
 # test binaries running, and a shell without a terminal gives a background
 # job no process group of its own to signal, so the watcher finds the
 # command's processes by their parents (tree), stops them all first so that
@@ -354,10 +357,28 @@ runtest() {
       case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
       eval "exec $fd>&-"
     done
-    sleep "$LIMIT" &
-    nap=$!
-    echo "$nap" >"$napfile"
-    wait "$nap"
+    # The deadline counts only time not spent waiting for the race lock: a
+    # landing late in the queue would otherwise be killed with every test
+    # green. Sleep $LIMIT, then sleep again for the waited seconds not yet
+    # credited, repeating until no new wait is found; only then mark late
+    # and kill. The waited seconds are the `test: waited N s` lines the run
+    # printed, summed as the gate's waitcount does.
+    credited=0
+    wait_for=$LIMIT
+    while :; do
+      sleep "$wait_for" &
+      nap=$!
+      echo "$nap" >"$napfile"
+      wait "$nap"
+      waited=$(grep -E '^test: waited [0-9]+ s for the race lock$' "$log" 2>/dev/null | awk '{s+=$3} END {print s+0}')
+      case "$waited" in ''|*[!0-9]*) waited=0 ;; esac
+      extra=$((waited - credited))
+      if [ "$extra" -le 0 ]; then
+        break
+      fi
+      credited=$waited
+      wait_for=$extra
+    done
     echo late >"$latefile"
     seen=
     while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
