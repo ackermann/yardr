@@ -625,6 +625,7 @@ var apiOperatorCalls = []apiCall{
 			`{"bead":"yd-crm","ask":%d,"values":{"INPUT":"what-the-person-typed"},"actor":"jo"}`,
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}`,
 		},
 		fields: []field{
 			{"given", "array of string", "the names that were written"},
@@ -1047,7 +1048,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	}
 	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo")
 	must(err)
-	apiSecretAsks = [6]uint64{updates, token, address("Your id at the phone service", "phone"), 0, 0, 0}
+	apiSecretAsks = [7]uint64{updates, token, address("Your id at the phone service", "phone"), 0, 0, 0, 0}
 
 	// And what jo writes the yardmaster from there is in jo's conversation
 	// with the yardmaster. Last again, for the seqs above.
@@ -1265,6 +1266,20 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	held(store.NewBead{Title: "Mend the gate", ID: "yd-gate", Depot: "yard"}, "jo")
 	held(store.NewBead{Title: "Paint the fence", ID: "yd-fence", Depot: "yard", Metadata: map[string]any{"flow": "default"}}, "yardmaster")
 	held(store.NewBead{Title: "Clear the siding", ID: "yd-siding"}, "yard")
+
+	// A harness key stands in the queue, the bead and the GiveSecret
+	// request: one ask stays open for the request, and one is given here so
+	// the doc also shows its decided form. Keep them after the other fixture
+	// writes, whose sequence numbers the doc names.
+	harnessKey := func(question string) uint64 {
+		return ask(crm.ID, store.Ask{Question: question, To: "jo",
+			Context: []string{"Create an API key for Claude Code usage."},
+			Secret:  &store.AskSecret{Harness: "claude", Crew: "yardmaster"}})
+	}
+	apiSecretAsks[6] = harnessKey("The API key Claude Code will use")
+	_, err = st.GiveSecret(ctx, crm.ID, harnessKey("The API key Claude Code needs at first login"),
+		map[string]string{"ANTHROPIC_API_KEY": "typed-in-the-fixture"}, "jo")
+	must(err)
 	return st, d.Token
 }
 
@@ -1280,12 +1295,12 @@ var apiRunAsk uint64
 // as the fixture last made it.
 var apiSetupAsk uint64
 
-// apiSecretAsks are the six secret asks GiveSecret answers in the doc, by
+// apiSecretAsks are the seven secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them: two for a source's credential, one
 // for a user's own address in a source, one for a waiting login's input,
-// one for a crew member's credential, and one for a user's own credential
-// in a source.
-var apiSecretAsks [6]uint64
+// one for a crew member's credential, one for a user's own credential in a
+// source, and one for a harness key.
+var apiSecretAsks [7]uint64
 
 // apiNotifySource is the declaration of a source of the doc's yard that
 // tells people: <NAME>_USER is a user's own address in it.

@@ -264,7 +264,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 116,
+  "seq": 119,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -292,7 +292,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 118,
+  "seq": 121,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -388,7 +388,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 119,
+  "seq": 122,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -735,7 +735,7 @@ POST /call/Head
 {}
 
 {
-  "result": 113
+  "result": 116
 }
 ```
 
@@ -1173,7 +1173,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 114,
+      "seq": 117,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1181,7 +1181,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 115,
+      "seq": 118,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1207,7 +1207,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 114,
+      "seq": 117,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1215,7 +1215,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 115,
+      "seq": 118,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1242,7 +1242,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 116,
+      "seq": 119,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1629,9 +1629,43 @@ POST /call/UserAsks
             }
           ]
         }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 47,
+        "question": "The API key Claude Code will use",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "secret": {
+          "source": "",
+          "env": ["ANTHROPIC_API_KEY"],
+          "crew": "yardmaster",
+          "harness": "claude",
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 48,
+        "question": "The API key Claude Code needs at first login",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "secret": {
+          "source": "",
+          "env": ["ANTHROPIC_API_KEY"],
+          "crew": "yardmaster",
+          "harness": "claude",
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+        },
+        "given": ["ANTHROPIC_API_KEY"]
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -2685,6 +2719,41 @@ POST /call/Bead
             }
           ]
         }
+      },
+      {
+        "ask": 47,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The API key Claude Code will use",
+        "context": ["Create an API key for Claude Code usage."],
+        "options": [],
+        "state": "open",
+        "secret": {
+          "source": "",
+          "env": ["ANTHROPIC_API_KEY"],
+          "crew": "yardmaster",
+          "harness": "claude",
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+        }
+      },
+      {
+        "ask": 48,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The API key Claude Code needs at first login",
+        "context": ["Create an API key for Claude Code usage."],
+        "options": [],
+        "state": "answered",
+        "secret": {
+          "source": "",
+          "env": ["ANTHROPIC_API_KEY"],
+          "crew": "yardmaster",
+          "harness": "claude",
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+        },
+        "given": ["ANTHROPIC_API_KEY"]
       }
     ]
   }
@@ -2984,6 +3053,14 @@ POST /call/Flows
     ],
     "unassigned": [
       {
+        "bead": "yd-crm",
+        "title": "Read the CRM",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
         "bead": "yd-siding",
         "title": "Clear the siding",
         "expected": "—",
@@ -3001,14 +3078,6 @@ POST /call/Flows
         "working": true,
         "worker": "herdr links-new",
         "entered_stage_at": "2026-10-08T09:30:00Z"
-      },
-      {
-        "bead": "yd-crm",
-        "title": "Read the CRM",
-        "expected": "—",
-        "remark": "",
-        "tone": "none",
-        "working": false
       },
       {
         "bead": "yd-shed",
@@ -3333,6 +3402,21 @@ POST /call/GiveSecret
     "as": "jo",
     "next": "yardr source check crm --as jo",
     "credential": "CRM_TOKEN is set in /home/jo/.yardr/users/jo.env"
+  }
+}
+```
+
+```
+POST /call/GiveSecret
+{"bead":"yd-crm","ask":47,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "given": ["ANTHROPIC_API_KEY"],
+    "file": "/home/jo/.yardr/crew/yardmaster.env",
+    "crew": "yardmaster",
+    "next": "it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)",
+    "credential": "ANTHROPIC_API_KEY is set in /home/jo/.yardr/crew/yardmaster.env"
   }
 }
 ```
