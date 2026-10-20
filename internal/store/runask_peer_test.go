@@ -578,6 +578,23 @@ func TestRunAskPeerIdentity(t *testing.T) {
 	}
 }
 
+// Approving a peer identity run ask ends a mapping card for its sender in
+// the same write, as setting that identity from a terminal does.
+func TestRunAskPeerIdentityEndsMappingCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := peerRuleYard(t)
+	card := claimCard(t, y, "U1")
+	seq := y.ask(t, runAsk("peer identity north mayor --source talk --id U1"), "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantCardClosed(t, y, card.Bead, "U1 is mayor@north in talk")
+	if d := wantDecided(t, y, card.Bead, "taken back"); d.Words != "U1 is mayor@north in talk" {
+		t.Fatalf("the mapping card's ask ended as %+v, want it taken back with the mapping as the reason", d)
+	}
+	wantCardOpen(t, y, y.bead)
+}
+
 // An approval of an identity is held to the yard the card was written from:
 // the id the crew member has, the source and the link.
 func TestRunAskPeerIdentityStale(t *testing.T) {
