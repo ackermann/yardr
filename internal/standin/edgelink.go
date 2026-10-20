@@ -61,6 +61,7 @@ type EdgeLink struct {
 	answers []EdgeAnswer
 	silent  bool
 	pongs   int
+	pongCh  chan struct{}
 }
 
 // Links gives each link the stand-in welcomed, as it is welcomed.
@@ -137,7 +138,7 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusPolicyViolation, "the hello does not answer this challenge")
 		return
 	}
-	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{}}
+	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{}, pongCh: make(chan struct{}, 64)}
 	if err := writeFrame(ctx, c, map[string]string{"type": "welcome"}); err != nil {
 		return
 	}
@@ -164,6 +165,10 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 				l.mu.Lock()
 				l.pongs++
 				l.mu.Unlock()
+				select {
+				case l.pongCh <- struct{}{}:
+				default:
+				}
 			}
 		case "response":
 			l.mu.Lock()
@@ -268,6 +273,9 @@ func (l *EdgeLink) Pongs() int {
 	defer l.mu.Unlock()
 	return l.pongs
 }
+
+// PongEvents signals each ping answered by the stand-in edge.
+func (l *EdgeLink) PongEvents() <-chan struct{} { return l.pongCh }
 
 // Done is closed when the link has ended at the stand-in.
 func (l *EdgeLink) Done() <-chan struct{} { return l.done }

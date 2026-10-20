@@ -385,17 +385,21 @@ func TestLinkDialsAgainAfterASilentSocket(t *testing.T) {
 	}
 }
 
-// A link that hears the edge's pongs is alive: it stays up well past
-// DeadAfter, for as long as it hears something within each DeadAfter.
+// A link that hears the edge's pongs is alive: it stays up beyond DeadAfter
+// for as long as it hears something within each DeadAfter.
 func TestLinkThatHearsTheEdgeStaysUp(t *testing.T) {
 	t.Parallel()
-	y := linkTo(t, func(l *Link) { l.PingEvery, l.DeadAfter = 10*time.Millisecond, 60*time.Millisecond }, nil)
+	y := linkTo(t, func(l *Link) { l.PingEvery, l.DeadAfter = 50*time.Millisecond, 2*time.Second }, nil)
 	l := y.next(t)
-	// Twenty pongs are some 200 ms of pings, more than three times
-	// DeadAfter.
-	for deadline := time.Now().Add(10 * time.Second); l.Pongs() < 20; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("the edge answered %d pings", l.Pongs())
+	// Forty-five pongs take longer than DeadAfter, so a link that did not
+	// reset the heard timer would have closed before the last one.
+	for i := 0; i < 45; i++ {
+		select {
+		case <-l.PongEvents():
+		case <-l.Done():
+			t.Fatalf("the edge answered only %d pings before the link closed", l.Pongs())
+		case <-time.After(10 * time.Second):
+			t.Fatalf("the edge answered only %d pings", l.Pongs())
 		}
 	}
 	if s := y.link.State(); !s.Up || s.Ups != 1 {
