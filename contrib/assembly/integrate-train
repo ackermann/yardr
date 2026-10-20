@@ -187,6 +187,17 @@ runtest() {
   (
     cd "$WT" || exit 2
     export YARDR_LANDING=1
+    # The test command starts with no descriptor above 2 that the run did
+    # not give it: close every inherited one first, as merge-local's does
+    # for a landing (the daemon's leaked resolver sockets once reached the
+    # tests and starved them: yardr-b4ep). As the watcher's loop below:
+    # enumerate /dev/fd so this covers high descriptors too, with no
+    # redirection on the loop.
+    for path in /dev/fd/*; do
+      fd=${path##*/}
+      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+      eval "exec $fd>&-"
+    done
     if [ -n "$copy" ]; then exec sh "$copy"; else exec sh -c "$TEST"; fi
   ) >"$log" 2>&1 </dev/null &
   pid=$!

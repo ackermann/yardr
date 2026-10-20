@@ -17,7 +17,6 @@ package assembly
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,17 +324,16 @@ func TestMergeLocalWatcherLeavesNoSleepBehind(t *testing.T) {
 	}
 	finished("true", "1799", 0)
 	// The slow run carries the high sentinel when the limit has room for
-	// one, and proves the run inherited it before closing it away; too
-	// low a limit runs the same slow proof without it, and says so.
-	test := "sleep 2"
+	// one, so the watcher proves it closes high descriptors too; too low
+	// a limit runs the same slow proof without it, and says so. The test
+	// command's own descriptors are another test's proof.
 	hi := 0
 	if sentinel, ok := highSentinel(t); ok {
 		hi = sentinel
-		test = fmt.Sprintf("[ -e /dev/fd/%d ] || [ -L /dev/fd/%d ] || exit 42; exec %d<&-; sleep 2", hi, hi, hi)
 	} else {
 		t.Logf("open-files limit too low for a high-fd sentinel: the slow run proves no sleep left and clean fds without it")
 	}
-	w := finished(test, "1797", hi)
+	w := finished("sleep 2", "1797", hi)
 	assertWatcherSleepFds(t, w.record, "1797")
 }
 
@@ -386,6 +384,84 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	}
 	awaitNoWatcherSleepers(t, w.record, "1789")
 	assertWatcherSleepFds(t, w.record, "1789")
+}
+
+// A landing's test command starts with no descriptor above 2 that the
+// landing did not give it: whatever the parent held open without
+// close-on-exec (the daemon's leaked resolver sockets once reached the
+// tests: yardr-b4ep) is closed before the command runs. The run inherits
+// open files above 2 as a race run holds its lock, with the high sentinel
+// when the limit has room for one, and the command lists its own
+// descriptors and probes every inherited one: only 0, 1 and 2 may show,
+// beside ls's own directory fd, and none of the run's files may answer.
+func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
+	t.Parallel()
+	record := filepath.Join(t.TempDir(), "fds")
+	hi := 0
+	if sentinel, ok := highSentinel(t); ok {
+		hi = sentinel
+	} else {
+		t.Logf("open-files limit too low for a high-fd sentinel: the run proves clean fds without it")
+	}
+	w := newWatcherRun(t, probeCommand(record), "1799", hi)
+	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1799") })
+	// Into a file, not a pipe: an orphaned sleep would hold a pipe open
+	// past the run's own exit, and the wait below with it.
+	log, err := os.Create(filepath.Join(w.tmp, "out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := w.cmd()
+	cmd.Stdout, cmd.Stderr = log, log
+	err = cmd.Run()
+	log.Close()
+	out, _ := os.ReadFile(log.Name())
+	if err != nil {
+		t.Fatalf("merge-local (ls /dev/fd): %v\n%s", err, out)
+	}
+	if main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD"); main != tip {
+		t.Fatalf("merge-local (ls /dev/fd): main %s is not the landed branch %s:\n%s", main, tip, out)
+	}
+	awaitNoWatcherSleepers(t, w.record, "1799")
+	assertNoInheritedFds(t, record)
+}
+
+// probeCommand is a test command that records its descriptors in record:
+// the listing itself, then one "leaked N" line for every fd of the run's
+// inherited set 3 to 10 and the high sentinel that still answers. The
+// probes are stat-based, so a readdir entry that is no open file is not
+// reported; probing 512 when the run carries no sentinel reports nothing.
+func probeCommand(record string) string {
+	return "ls /dev/fd >" + shellQuote(record) +
+		`; for probe in 3 4 5 6 7 8 9 10 512; do` +
+		` [ -e /dev/fd/$probe ] || [ -L /dev/fd/$probe ] || continue;` +
+		` echo "leaked $probe" >>` + shellQuote(record) + `; done`
+}
+
+// assertNoInheritedFds fails unless the record a test command left holds
+// no "leaked N" line and its listing nothing at the lock stand-in or
+// above: 0, 1, 2 and ls's own directory fd, with room below 10 for what
+// the shell and the listing itself hold, as the watcher's sleep allows.
+// A missing record fails too: the command ran it, so it exists.
+func assertNoInheritedFds(t *testing.T, record string) {
+	t.Helper()
+	b, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the test command recorded no descriptor listing: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	for _, line := range lines {
+		if leaked, ok := strings.CutPrefix(strings.TrimSpace(line), "leaked "); ok {
+			t.Fatalf("the test command started with fd %s open", leaked)
+		}
+		fd, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			t.Fatalf("the test command saw %q in /dev/fd, not a number", line)
+		}
+		if fd >= 10 {
+			t.Fatalf("the test command started with fd %d open: %v", fd, lines)
+		}
+	}
 }
 
 // A malformed zero PID must not signal merge-local's whole process group.

@@ -373,6 +373,7 @@ func parseSemver(v string) (semver, bool) {
 // is not offered again until the file changes once more.
 func (b *Binary) Replace(env ...string) error {
 	id, _ := stat(b.Path)
+	closeOnExecAboveStdio()
 	err := b.Exec(b.Path, os.Args, mergeEnv(os.Environ(), env))
 	if err != nil {
 		b.mu.Lock()
@@ -380,6 +381,29 @@ func (b *Binary) Replace(env ...string) error {
 		b.mu.Unlock()
 	}
 	return err
+}
+
+// closeOnExecAboveStdio marks every open descriptor above 2 close-on-exec,
+// so the new image starts with none of this one's. Descriptors the C
+// library opened itself carry no such flag (macOS's resolver keeps a
+// netsrc socket from its first getaddrinfo on), and after an exec the new
+// image's library opens its own beside the inherited ones: without this,
+// every replace keeps one more, one per install (yardr-b4ep). Nothing the
+// new image needs is inherited: the server re-opens the store, the daemon
+// re-takes its lock. A descriptor opened by another goroutine while this
+// runs may miss the marking; the next replace marks it.
+func closeOnExecAboveStdio() {
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		fd, err := strconv.Atoi(e.Name())
+		if err != nil || fd <= 2 {
+			continue
+		}
+		syscall.CloseOnExec(fd)
+	}
 }
 
 // mergeEnv returns base with extra's keys replaced, since getenv takes the

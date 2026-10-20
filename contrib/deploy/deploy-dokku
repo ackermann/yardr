@@ -411,7 +411,20 @@ fi
 if [ "$rc" = 0 ] && [ "$MODE" = deploy ] && [ -n "$AFTER" ]; then
   echo "== running the post-deploy step: $AFTER"
   t1=$(date +%s)
-  (cd "$REPO" && sh -c "$AFTER") >"$log" 2>&1 </dev/null && arc=0 || arc=$?
+  (
+    cd "$REPO" || exit $?
+    # The step starts with no descriptor above 2 that the deploy did not
+    # give it: close every inherited one first, as a landing's test
+    # command does (the daemon's leaked resolver sockets once reached the
+    # tests and starved them: yardr-b4ep). Enumerate /dev/fd so this
+    # covers high descriptors too, with no redirection on the loop.
+    for path in /dev/fd/*; do
+      fd=${path##*/}
+      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+      eval "exec $fd>&-"
+    done
+    exec sh -c "$AFTER"
+  ) >"$log" 2>&1 </dev/null && arc=0 || arc=$?
   asecs=$(($(date +%s) - t1))
   if [ "$arc" = 0 ]; then
     cat "$log"

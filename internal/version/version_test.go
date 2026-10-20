@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -260,6 +261,48 @@ func TestDescribe(t *testing.T) {
 	} {
 		if got := describe(c.tag, c.rev); got != c.want {
 			t.Errorf("describe(%q, %q) = %q; want %q", c.tag, c.rev, got, c.want)
+		}
+	}
+}
+
+// Replace leaves every descriptor above 2 close-on-exec for the new image:
+// a file this process holds open without the flag, as the C library holds
+// its resolver socket, is flagged, and 0, 1 and 2 are untouched. Without
+// this each replace adds the next image's own resolver socket to the
+// inherited ones, one per install (yardr-b4ep).
+func TestReplaceClosesInheritedDescriptorsOnExec(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	// Clear close-on-exec, as libc leaves its own descriptors.
+	fd := int(f.Fd())
+	if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_SETFD, 0); errno != 0 {
+		t.Fatal(errno)
+	}
+	stdio := make([]uintptr, 3)
+	for i := range stdio {
+		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(i), syscall.F_GETFD, 0)
+		if errno != 0 {
+			t.Skipf("cannot read the flags of fd %d: %v", i, errno)
+		}
+		stdio[i] = flags
+	}
+	b, _ := fake(t, "aaaa")
+	if err := b.Replace(); err != nil {
+		t.Fatal(err)
+	}
+	if flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_GETFD, 0); errno != 0 {
+		t.Fatal(errno)
+	} else if flags&syscall.FD_CLOEXEC == 0 {
+		t.Fatalf("fd %d is inherited across exec after Replace", fd)
+	}
+	for i, before := range stdio {
+		if after, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(i), syscall.F_GETFD, 0); errno != 0 {
+			t.Fatal(errno)
+		} else if after != before {
+			t.Errorf("fd %d flags changed across Replace: %#x, was %#x", i, after, before)
 		}
 	}
 }

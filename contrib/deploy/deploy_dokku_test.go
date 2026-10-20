@@ -14,7 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -864,6 +866,88 @@ func TestDeployAfterStepPassesGoesLive(t *testing.T) {
 	}
 	if strings.Contains(y.log, "NOT-IN-THE-DEPOT") {
 		t.Errorf("the step did not run in the depot:\n%s", y.log)
+	}
+}
+
+// The post-deploy step starts with no descriptor above 2 that the deploy
+// did not give it, as a landing's test command does not (yardr-b4ep): this
+// test holds files open without close-on-exec, as the daemon's leaked
+// resolver sockets once were, and the step lists its own descriptors and
+// probes every held one: only 0, 1 and 2 may show, beside ls's own
+// directory fd, and none of the held files may answer.
+func TestDeployAfterStepStartsWithNoInheritedFile(t *testing.T) {
+	y := newYard(t)
+	y.commit(y.repo, "b.txt", "landed\n")
+	record := filepath.Join(t.TempDir(), "fds")
+	held := holdOpenWithoutCloexec(t, 3)
+	probes := make([]string, 0, len(held))
+	for _, fd := range held {
+		probes = append(probes, strconv.Itoa(fd))
+	}
+	y.opts["DOKKU_AFTER"] = "ls /dev/fd >" + shellQuote(record) +
+		`; for probe in ` + strings.Join(probes, " ") + `; do` +
+		` [ -e /dev/fd/$probe ] || [ -L /dev/fd/$probe ] || continue;` +
+		` echo "leaked $probe" >>` + shellQuote(record) + `; done`
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "live" {
+		t.Fatalf("bead in %s, want live", b.Stage)
+	}
+	assertStepSeesNoInheritedFd(t, record)
+}
+
+// holdOpenWithoutCloexec opens n files and clears close-on-exec on them,
+// as libc leaves its own descriptors: every child started while they are
+// open inherits them, until the cleanup closes them. It returns their
+// descriptor numbers, for the step to probe.
+func holdOpenWithoutCloexec(t *testing.T, n int) []int {
+	t.Helper()
+	var files []*os.File
+	var held []int
+	for i := 0; i < n; i++ {
+		f, err := os.Open(os.DevNull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_SETFD, 0); errno != 0 {
+			t.Fatal(errno)
+		}
+		files = append(files, f)
+		held = append(held, int(f.Fd()))
+	}
+	t.Cleanup(func() {
+		for _, f := range files {
+			f.Close()
+		}
+	})
+	return held
+}
+
+// assertStepSeesNoInheritedFd fails unless the record the post-deploy step
+// left holds no "leaked N" line and its listing nothing at 10 or above: 0,
+// 1, 2 and ls's own directory fd, with room below 10 for what the shell
+// and the listing itself hold. The probes are stat-based, so a readdir
+// entry that is no open file is not reported. A missing record fails too:
+// the step ran it, so it exists.
+func assertStepSeesNoInheritedFd(t *testing.T, record string) {
+	t.Helper()
+	b, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the step recorded no descriptor listing: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	for _, line := range lines {
+		if leaked, ok := strings.CutPrefix(strings.TrimSpace(line), "leaked "); ok {
+			t.Fatalf("the step started with fd %s open", leaked)
+		}
+		fd, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			t.Fatalf("the step saw %q in /dev/fd, not a number", line)
+		}
+		if fd >= 10 {
+			t.Fatalf("the step started with fd %d open: %v", fd, lines)
+		}
 	}
 }
 
