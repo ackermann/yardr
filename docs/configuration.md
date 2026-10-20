@@ -463,7 +463,8 @@ anyone may add one or re-add it with those values unchanged.
 to run it in the worktree before handing on. Its merge script, `merge-local`,
 runs it on the rebased commit before the base moves, with `YARDR_LANDING=1`
 in the environment (unset for a wagon landing on its train's branch) and
-for at most `YARDR_TEST_TIMEOUT` seconds (1800). Exit 0 lands the bead.
+for at most `YARDR_TEST_TIMEOUT` seconds (1800), besides what it waited for
+the race lock. Exit 0 lands the bead.
 Exit 2, the command saying it could not run, holds it. Any other exit sends
 it back to its builder with the end of the output in a note. A depot with no
 test command lands untested, and the note says so. Where the field is the
@@ -486,7 +487,10 @@ what the test command does when it is run plainly cheap, and leave the whole
 suite to `YARDR_LANDING`. Two yards on one machine are not bounded together.
 Depot yardr's own gate serialises its race leg per machine: one `go test
 -race` run at a time, under a lock file in the yard's home, and a gate that
-has to wait says so (`test: waited 312 s for the race lock`). Race suites
+has to wait says so (`test: waited 312 s for the race lock`). The landing's
+deadline does not count that wait: `merge-local` credits the waited seconds,
+so a landing late in the queue is killed only when its own run outlasts
+`YARDR_TEST_TIMEOUT`. Race suites
 run side by side slow each other past Go's per-package timeout while one
 alone takes a third of the time, so the queue costs less wall time than the
 contention. Waiters take the lock in arrival order, on tickets in

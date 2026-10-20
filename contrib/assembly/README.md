@@ -36,9 +36,10 @@ lands untested, and the note says so.
 The note of a red run starts with the branch, the commit, the base and what
 ran, and carries the last 200 lines of the output: what matters of a long
 run is the test command's to print at its end.
-The run is bounded (`YARDR_TEST_TIMEOUT`, in seconds; 1800 when unset): at
-the deadline the command and everything it started is killed, and the run is
-red. A run ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM)
+The run is bounded (`YARDR_TEST_TIMEOUT`, in seconds; 1800 when unset),
+besides what it waited for the race lock: at the deadline the command and
+everything it started is killed, and the run is red. A run ended by a signal
+from outside (exit 128+N, e.g. 143 for SIGTERM)
 is neither red nor "could not run": it is run once more on the same commit,
 with a note of the first run's output, and held with both outputs if a
 signal ends it again.

@@ -165,6 +165,51 @@ func TestMergeLocalTestsDeadlineIsRed(t *testing.T) {
 	}
 }
 
+// The deadline counts only time not spent waiting for the race lock: a run
+// that prints `test: waited N s` and then runs past LIMIT but within
+// LIMIT+N lands, not killed. Here LIMIT is 2, the wait 10, and the run 4.
+func TestMergeLocalTestsDeadlineExcludesRaceLockWait(t *testing.T) {
+	y := newYard(t)
+	tip := y.commit(y.wt, "b.txt", "bead\n")
+	y.tests(`echo "test: waited 10 s for the race lock"; sleep 4`)
+	y.opts = "YARDR_TEST_TIMEOUT=2"
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" || b.Hold {
+		t.Fatalf("bead %s/%s hold=%v, want merged and closed", b.Stage, b.Status, b.Hold)
+	}
+	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
+		t.Fatalf("main %s, want the tested commit %s", main, tip)
+	}
+	if notes := y.notes(); strings.Contains(notes, "ran past their deadline") {
+		t.Fatalf("a run within its deadline plus its wait was killed:\n%s", notes)
+	}
+}
+
+// Past LIMIT plus its waited seconds, the run is killed as before: here
+// LIMIT is 2, the wait 2, and the run 10, killed at 4.
+func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
+	y := newYard(t)
+	y.commit(y.wt, "b.txt", "bead\n")
+	ran := filepath.Join(y.home, "ran")
+	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 10`)
+	y.opts = "YARDR_TEST_TIMEOUT=2"
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "new" || b.Hold {
+		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
+	}
+	if n := runs(t, ran); n != 1 {
+		t.Fatalf("the tests ran %d times, want 1", n)
+	}
+	notes := y.notes()
+	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "ran past their deadline of 2s and were killed") {
+		t.Fatalf("the deadline past its wait is not reported as a red run:\n%s", notes)
+	}
+}
+
 // trainSignalYard is newTrainYard with both children landed, and tests that
 // from then on are ended by SIGTERM: the first times times, 0 for always.
 func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
