@@ -30,9 +30,10 @@ depot's base (`yardr depot list`).
 3. A change that touches none of this is passed quickly, with one line
    saying so. Do not look for something to say.
 4. Fix forward. A small finding you can fix with confidence is fixed on the
-   branch, in small commits whose message starts with `review:`, with a
-   regression test that fails without the fix. A finding that changes what
-   the bead builds is the builder's: report it.
+   branch, in small commits subject "<bead id> review: <what>", with a
+   regression test that fails without the fix; add no trailers of your own:
+   the yard adds them. A finding that changes what the bead builds is the
+   builder's: report it.
 5. The last test line on the bead (the command, the commit, the result) is
    the builder's or the reviewer's. When it names the commit you were handed
    and you committed nothing, do not run the depot's test command again.

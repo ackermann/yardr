@@ -45,8 +45,18 @@ import (
 //	YARDR_TRAIN      the train the bead is a child of, empty for none: with
 //	                YARDR_TYPE, how merge-local knows a wagon of a train,
 //	                which lands on its train's branch, not the base
+//	YARDR_KIND      exec: the session runs a script, not an agent (a herdr
+//	                session's is its harness kind); with YARDR_MODEL, what the
+//	                yard's commit-msg hook writes into Yardr-Agent
+//	YARDR_MODEL     the agent model: the bead's metadata.model, else the
+//	                group's config.model
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
+//
+// A commit the session makes goes through the yard's commit-msg hook
+// (config.GitHooks, pointed at with core.hooksPath in the session's
+// environment): harness trailers go, Yardr-Bead and Yardr-Agent go on (see
+// commitHook).
 //
 // And the entries of the group's config.env_file, as a herdr group's agents
 // get theirs (see envFile): what the script needs to act outside the yard,
@@ -199,8 +209,12 @@ func withUser(env []string) []string {
 // command gets from neither: the settings of the yard's server, which are
 // not the work's (config.WithoutServerSettings); a test command, so that one
 // the daemon was itself started with cannot read as the depot's, which may
-// have none; and for a dir depot's bead, which has no base, branch or
-// worktree, any of those too.
+// have none; for a dir depot's bead, which has no base, branch or worktree,
+// any of those too; and git's GIT_CONFIG_COUNT/KEY_n/VALUE_n, which would
+// otherwise win over (or add to) the core.hooksPath the session points at
+// its own commit-msg hook with (see commitHookEnv): a repeated variable is
+// answered with its first, so one inherited from the daemon would beat the
+// session's appended one.
 func withheld(job dispatch.Job, environ []string) []string {
 	env := config.WithoutServerSettings(environ)
 	names := []string{"TEST"}
@@ -212,6 +226,11 @@ func withheld(job dispatch.Job, environ []string) []string {
 		drop = append(drop, config.Env(name, "")...)
 	}
 	return slices.DeleteFunc(env, func(kv string) bool {
+		if strings.HasPrefix(kv, "GIT_CONFIG_COUNT=") ||
+			strings.HasPrefix(kv, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(kv, "GIT_CONFIG_VALUE_") {
+			return true
+		}
 		return slices.ContainsFunc(drop, func(p string) bool { return strings.HasPrefix(kv, p) })
 	})
 }
@@ -225,6 +244,13 @@ func (e *Exec) env(job dispatch.Job) []string {
 	if e.Bin != "" {
 		env = append(env, config.Env("BIN", e.Bin)...)
 	}
+	// What the yard's commit-msg hook writes into Yardr-Agent (see
+	// commitHook): exec for the kind, since the session runs a script, not
+	// an agent. Beside it, the core.hooksPath that points the session's git
+	// at the hook, through the environment, so the depot's shared
+	// .git/config is never written.
+	env = slices.Concat(env, config.Env("KIND", "exec"), config.Env("MODEL", sessionModel(job)))
+	env = append(env, commitHookEnv(e.Home, e.Log)...)
 	// Always set, empty for a bead with no train, so that one the daemon was
 	// itself started with cannot read as this bead's.
 	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train))

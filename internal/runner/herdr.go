@@ -682,8 +682,15 @@ func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
 // binary so its yardr commands reach this yard. A bead of a git depot gets
 // what it lands on (YARDR_BASE); one of a dir depot, which has no base or
 // branch, gets the directory it works in (YARDR_DEPOT, YARDR_DEPOT_PATH).
+// Every agent gets what the yard's commit-msg hook names its commits with
+// (YARDR_KIND, YARDR_MODEL) and the core.hooksPath that points its git at
+// the hook.
 func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	env := Env(job, name)
+	// The harness kind and the agent model, beside the bead and group Env
+	// already names: what the yard's commit-msg hook writes into
+	// Yardr-Agent (see commitHook).
+	env = slices.Concat(env, config.Env("KIND", agents.Kind(job.Group.Config)), config.Env("MODEL", sessionModel(job)))
 	if depot := job.Depot; depot != nil && depot.IsDir() {
 		env = slices.Concat(env, config.Env("DEPOT", depot.Name), config.Env("DEPOT_PATH", depot.Path))
 	} else if base := BaseOf(job); base != "" {
@@ -692,6 +699,9 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
+	// The yard's commit-msg hook, through the environment, so the depot's
+	// shared .git/config is never written (see commitHookEnv).
+	env = append(env, commitHookEnv(h.YardHome, h.Log)...)
 	if h.YardBin != "" {
 		env = append(env, config.Env("BIN", h.YardBin)...)
 	}
@@ -880,10 +890,7 @@ func agentArgs(cfg map[string]any, override, home, workdir string) []string {
 			args[i] = r.Replace(a)
 		}
 	}
-	model := str(cfg, "model", "")
-	if override != "" {
-		model = override
-	}
+	model := modelFor(cfg, override)
 	if model == "" {
 		return args
 	}

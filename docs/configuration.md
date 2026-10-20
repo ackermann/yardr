@@ -1491,8 +1491,8 @@ Environment variables yardr reads:
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
 
-Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`
-and `YARDR_GROUP` (see [groups.md](groups.md)). They get the session's
+Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`,
+`YARDR_GROUP`, `YARDR_KIND` and `YARDR_MODEL` (see [groups.md](groups.md)). They get the session's
 OpenTelemetry trace context too, `TRACEPARENT` and
 `OTEL_RESOURCE_ATTRIBUTES` ([otel.md](otel.md#trace-context-for-the-work)).
 

@@ -387,6 +387,12 @@ func (c *Config) Flows() string { return filepath.Join(c.Home, "flows") }
 // otherwise.
 func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") }
 
+// GitHooks is where the yard keeps the git hooks its sessions commit
+// through (see runner.EnsureCommitHook): a session's git points here with
+// core.hooksPath through its environment, so the depot's shared .git/config
+// is never written.
+func (c *Config) GitHooks() string { return filepath.Join(c.Home, "githooks") }
+
 // currentUser is user.Current as a variable, so a test can be a machine
 // whose user lookup blocks (yardr-tbm4).
 var currentUser = user.Current

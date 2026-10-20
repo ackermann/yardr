@@ -62,6 +62,8 @@ closing, or holding).
 6. Commit on your branch. Do not merge. Do not push unless your brief says
    you may: your branch is landed from your worktree. Commit as you go, each
    piece that builds, from the first; not once at the end.
+   Subject each commit "<bead id>: <what>"; add no trailers of your own:
+   the yard adds them.
 7. Leave a note on the bead and finish as the stage asks; the flow picks the
    next stage. Your brief lists the outcomes the stage offers, with their
    commands; where the flow has a stage file, its "Stage" section says what
