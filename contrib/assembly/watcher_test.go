@@ -264,23 +264,108 @@ func assertWatcherSleepFds(t *testing.T, record, limit string) {
 	}
 }
 
-// awaitWatcherSleep waits for the watcher's recorded sleep to show in ps and
-// returns its pid and ppid: the ppid is the watcher. Whatever starts the
-// sleep, a run whose sleep never shows has nothing to kill.
-func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, record, limit string) (int, int) {
+// awaitWatcherSleep waits for the watcher's sleep to appear in its files and
+// returns its pid and its watcher's: the pid from the files themselves, the
+// watcher from one ps lookup of that pid. The files are the fake sleep's
+// record for the limit and the nap file holding the same pid; both must
+// appear, so the recording is complete before the caller kills the run. The
+// deadline is a fuse against the watcher never starting, never a window the
+// fixture must fit in: process-table visibility under load decides nothing.
+func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, tmp, record, limit string) (int, int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
+	var pid int
 	for {
-		if strays := watcherSleepers(t, record, limit); len(strays) > 0 {
-			return strays[0][0], strays[0][1]
+		if p, ok := watcherSleepPidFromFiles(t, tmp, record, limit); ok {
+			pid = p
+			break
 		}
 		if time.Now().After(deadline) {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
-			t.Fatal("the watcher's sleep never showed in ps")
+			t.Fatal("the watcher's sleep never wrote its record and nap files")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	// One ps lookup of the known pid for the watcher, its parent: the sleep
+	// lives as long as the test command, 60 s or gated on a release file,
+	// so it is alive however long this one ps takes under load.
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
+	if err != nil && strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 3 || strings.Contains(fields[1], "Z") {
+		t.Fatalf("the watcher's sleep %d from its files is not running", pid)
+	}
+	ppid, err := strconv.Atoi(fields[0])
+	if err != nil {
+		t.Fatalf("ps pid %d has invalid parent %q", pid, fields[0])
+	}
+	command := strings.Join(fields[2:], " ")
+	argv := strings.Fields(command)
+	fakeSleep := filepath.Join(filepath.Dir(record), "bin", "sleep")
+	if len(argv) == 0 || argv[len(argv)-1] != limit ||
+		(filepath.Base(argv[0]) != "sleep" && !strings.Contains(command, fakeSleep)) {
+		t.Fatalf("the watcher's sleep %d from its files is not sleep %s in ps: %q", pid, limit, command)
+	}
+	return pid, ppid
+}
+
+// watcherSleepPidFromFiles returns the watcher's sleep pid once both its
+// files agree: the fake sleep's record for the limit, named with its pid,
+// and the nap file in tmp holding the same pid. Either alone is not enough:
+// the nap appears before the recording is complete, and the record without
+// the nap leaves the caller with no pid file to check.
+func watcherSleepPidFromFiles(t *testing.T, tmp, record, limit string) (int, bool) {
+	t.Helper()
+	files, err := filepath.Glob(record + ".*")
+	if err != nil {
+		t.Fatalf("glob sleep records: %v", err)
+	}
+	for _, file := range files {
+		pid, err := strconv.Atoi(strings.TrimPrefix(file, record+"."))
+		if err != nil {
+			continue
+		}
+		b, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		first, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+		if first != "argv: "+limit {
+			continue
+		}
+		if watcherNapHasPid(t, tmp, pid) {
+			return pid, true
+		}
+	}
+	return 0, false
+}
+
+// watcherNapHasPid reports whether tmp holds a file containing pid: the
+// watcher's nap file, holding its sleep's pid. The run's other files are
+// empty or hold anything but a bare pid, so content alone tells them apart.
+func watcherNapHasPid(t *testing.T, tmp string, pid int) bool {
+	t.Helper()
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("reading tmp for the nap file: %v", err)
+	}
+	want := strconv.Itoa(pid)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(tmp, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(b)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // killWatcherSleepers kills only this run's recorded timeout sleep: a
@@ -361,9 +446,10 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	// In ps, the sleep has exec'd past the recording stand-in, so the
-	// recording is complete before it is killed below.
-	nap, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	// The await waited for the sleep's record file, which the fake sleep
+	// writes before it execs, so the recording is complete before the sleep
+	// is killed below.
+	nap, watcher := awaitWatcherSleep(t, cmd, w.tmp, w.record, "1789")
 	assertWatcherNapFileMode(t, w.tmp, nap)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
@@ -468,6 +554,19 @@ func assertNoInheritedFds(t *testing.T, record string) {
 func TestMergeLocalIgnoresZeroWatcherPID(t *testing.T) {
 	t.Parallel()
 	w := newWatcherRun(t, "sleep 1", "1789", 0)
+	// The test command waits for a release file instead of sleeping a fixed
+	// second: however long this goroutine is unscheduled, merge-local cannot
+	// finish, kill its watcher and remove the nap file before the zero is
+	// written. The release path needs w.tmp, so the command is gated here.
+	release := filepath.Join(w.tmp, "release")
+	gated := "while [ ! -f " + shellQuote(release) + " ]; do sleep 1; done"
+	for i, kv := range w.env {
+		if strings.HasPrefix(kv, "YARDR_TEST=") {
+			w.env[i] = "YARDR_TEST=" + gated
+			break
+		}
+	}
+	w.test = gated
 	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1789") })
 	cmd := w.cmd()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -477,9 +576,15 @@ func TestMergeLocalIgnoresZeroWatcherPID(t *testing.T) {
 	group := cmd.Process.Pid
 	t.Cleanup(func() { _ = syscall.Kill(-group, syscall.SIGKILL) })
 
-	nap, _ := awaitWatcherSleep(t, cmd, w.record, "1789")
+	nap, _ := awaitWatcherSleep(t, cmd, w.tmp, w.record, "1789")
 	napfile := assertWatcherNapFileMode(t, w.tmp, nap)
 	if err := os.WriteFile(napfile, []byte("0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The release is created only after the zero is written: the gated
+	// command cannot exit before it, so the zero is always the pid
+	// unwatched reads.
+	if err := os.WriteFile(release, []byte{}, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := cmd.Wait(); err != nil {

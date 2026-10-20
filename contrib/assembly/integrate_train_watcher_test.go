@@ -94,9 +94,10 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	// In ps, the sleep has exec'd past the recording stand-in, so the
-	// recording is complete before it is killed below.
-	nap, watcher := awaitWatcherSleep(t, cmd, w.record, "1789")
+	// The await waited for the sleep's record file, which the fake sleep
+	// writes before it execs, so the recording is complete before the sleep
+	// is killed below.
+	nap, watcher := awaitWatcherSleep(t, cmd, w.tmp, w.record, "1789")
 	assertWatcherNapFileMode(t, w.tmp, nap)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
@@ -246,6 +247,19 @@ func TestIntegrateTrainIgnoresZeroWatcherPID(t *testing.T) {
 		t.Run(zero, func(t *testing.T) {
 			t.Parallel()
 			w := newIntegrateTrainWatcherRun(t, "sleep 1", "1789", 0)
+			// The test command waits for a release file, as merge-local's
+			// zero test does: the run cannot finish and remove the nap
+			// file before the zero is written, however long this goroutine
+			// is unscheduled.
+			release := filepath.Join(w.tmp, "release")
+			gated := "while [ ! -f " + shellQuote(release) + " ]; do sleep 1; done"
+			for i, kv := range w.env {
+				if strings.HasPrefix(kv, "YARDR_TEST=") {
+					w.env[i] = "YARDR_TEST=" + gated
+					break
+				}
+			}
+			w.test = gated
 			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1789") })
 			cmd := w.cmd()
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -255,9 +269,13 @@ func TestIntegrateTrainIgnoresZeroWatcherPID(t *testing.T) {
 			group := cmd.Process.Pid
 			t.Cleanup(func() { _ = syscall.Kill(-group, syscall.SIGKILL) })
 
-			nap, _ := awaitWatcherSleep(t, cmd, w.record, "1789")
+			nap, _ := awaitWatcherSleep(t, cmd, w.tmp, w.record, "1789")
 			napfile := assertWatcherNapFileMode(t, w.tmp, nap)
 			if err := os.WriteFile(napfile, []byte(zero+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// The release is created only after the zero is written.
+			if err := os.WriteFile(release, []byte{}, 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if err := cmd.Wait(); err != nil {
