@@ -83,10 +83,17 @@ advancing, a bead closing, a session ending, or a change to
 `quiet_landings` -- never by polling and never on a timer. A run for a
 depot starts only when all hold at once:
 no bead waits in `approved` for the assembly anywhere in the yard, no
-builder or reviewer bead session is live anywhere in the yard, and at
-least `quiet_landings` code landings (ten while unset: about two hours
-at the 60-140 landings a day of 14-16 Oct 2026) have landed on that
-depot's base since its last quiet run started. A
+bead session that runs something on this machine is live anywhere in
+the yard, and at least `quiet_landings` code landings (ten while unset:
+about two hours at the 60-140 landings a day of 14-16 Oct 2026) have
+landed on that depot's base since its last quiet run started. The
+sessions that count are the ones `max_sessions` counts
+([groups.md](groups.md#how-many-sessions-the-machine-carries)): those of
+a `herdr` or an `exec` group, a builder, a reviewer or an assembly
+script. A `manual` group's claim holds a bead for a person (the backlog
+alone holds dozens); a `peer` group's is a bead another yard works.
+Neither runs anything here, so neither counts: counted, they would keep
+the yard from ever being quiet (yardr-hqsn). A
 threshold reached while the yard is busy stays in the log and fires at
 the next quiet event. The run tests the depot's base in a worktree of
 its own with `YARDR_LANDING=1`, holding the machine-wide race lock for

@@ -3,6 +3,8 @@ package dispatch
 import (
 	"context"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // SetClock makes d read the time from clock, so a test can let a backoff
@@ -19,6 +21,12 @@ var PushReady = pushReady
 // QuietMaybe judges the yard for a quiet run now, as one relevant event
 // would (quiet.go).
 func QuietMaybe(d *Dispatcher, ctx context.Context) { d.maybeQuiet(ctx) }
+
+// QuietReady judges one depot for a quiet run at the threshold n, as
+// maybeQuiet does for each depot, and says how many landings it counted.
+func QuietReady(d *Dispatcher, ctx context.Context, depot store.Depot, n int) (bool, int, error) {
+	return d.quietReady(ctx, depot, n)
+}
 
 // QuietTrigger runs the quiet run's event trigger until ctx ends.
 func QuietTrigger(d *Dispatcher, ctx context.Context) { d.runQuietTrigger(ctx) }

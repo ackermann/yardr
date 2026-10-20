@@ -30,8 +30,11 @@ import (
 // lost: the count stays in the log, and the next quiet event fires it.
 //
 //   - no bead waits in approved for the assembly anywhere in the yard;
-//   - no live bead session is running anywhere in the yard (builder and
-//     reviewer sessions are bead sessions; crew sessions are not);
+//   - no live bead session is running anywhere in the yard: one that runs
+//     something on this machine, an agent or a script (builder, reviewer
+//     and assembly sessions do; crew sessions are not bead sessions). A
+//     manual group's claim holds a bead for a person and a peer group's
+//     for another yard, so neither counts;
 //   - at least quiet_landings code landings (store.QuietLandings, ten
 //     while unset) have landed on the depot's base since the last quiet
 //     run started there.
@@ -153,8 +156,8 @@ func (d *Dispatcher) maybeQuiet(ctx context.Context) {
 
 // quietReady judges whether one depot owes a run (at least n code landings
 // since its last one started) while the whole yard is quiet: nothing waits
-// in approved and no bead session is live. since is the landing count
-// either way, for the run's own telling.
+// in approved and no live bead session runs anything on this machine. since
+// is the landing count either way, for the run's own telling.
 func (d *Dispatcher) quietReady(ctx context.Context, depot store.Depot, n int) (ready bool, since int, err error) {
 	since, err = d.landingsSinceQuiet(ctx, depot.Name)
 	if err != nil || since < n {
@@ -171,8 +174,15 @@ func (d *Dispatcher) quietReady(ctx context.Context, depot store.Depot, n int) (
 	if err != nil {
 		return false, since, err
 	}
-	if len(sessions) > 0 {
-		return false, since, nil
+	// Only a session that runs something here loads the machine, which is
+	// what store.RunsHere says and what max_sessions counts by. A manual
+	// group's claim holds a bead for a person, and the backlog alone holds
+	// dozens at any time; a peer group's bead is worked by another yard.
+	// Counting either kept the yard from ever being quiet (yardr-hqsn).
+	for _, s := range sessions {
+		if store.RunsHere(s.RunnerName()) {
+			return false, since, nil
+		}
 	}
 	return true, since, nil
 }

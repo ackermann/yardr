@@ -17,6 +17,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // quietYard is a yard with one git depot, a threshold of two landings and
@@ -86,6 +87,60 @@ func (y *quietYard) land(t *testing.T, title string) {
 	must(t, err)
 	_, err = y.s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
 	must(t, err)
+}
+
+// putGroups gives the yard a group of each runner it has: the backlog,
+// whose beads wait for a person (manual), builders (herdr), an assembly
+// (exec) and a stage the yard at airy works (peer).
+func (y *quietYard) putGroups(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
+	must(t, err)
+	_, err = y.s.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me")
+	must(t, err)
+	_, err = y.s.AllowPeer(ctx, "airy", store.PeerAllow{Send: []string{store.PeerBead}}, "me")
+	must(t, err)
+	for _, g := range []store.Group{
+		{Name: "backlog", Runner: "manual", Limit: 50},
+		{Name: "at-airy", Runner: store.PeerRunner, Limit: 5, Config: map[string]any{store.GroupPeer: "airy"}},
+		{Name: "builders", Runner: "herdr", Limit: 5},
+		{Name: "assembly", Runner: "exec", Limit: 5, Config: map[string]any{"cmd": "true"}},
+	} {
+		must(t, y.s.PutGroup(ctx, g, "me"))
+	}
+}
+
+// claim opens a live session in group on a bead of its own, as the
+// dispatcher's claim does. Nothing starts: the judging reads only the
+// sessions the store holds.
+func (y *quietYard) claim(t *testing.T, group string) store.Session {
+	t.Helper()
+	ctx := context.Background()
+	b, err := y.s.CreateBead(ctx, store.NewBead{Title: "held in " + group}, "me")
+	must(t, err)
+	sess, err := y.s.Claim(ctx, b.ID, group, b.Stage, "me")
+	must(t, err)
+	return *sess
+}
+
+// ready is quietReady's answer for the yard's depot at the yard's own
+// threshold. The landings must already be owed, so that an answer of no is
+// about the yard's sessions and not about the count.
+func (y *quietYard) ready(t *testing.T) bool {
+	t.Helper()
+	ctx := context.Background()
+	depot, err := y.s.GetDepot(ctx, "yard")
+	must(t, err)
+	settings, err := y.s.Settings(ctx)
+	must(t, err)
+	n := store.QuietLandings(settings)
+	ready, since, err := dispatch.QuietReady(y.d, ctx, *depot, n)
+	must(t, err)
+	if since < n {
+		t.Fatalf("%d landings counted, want the %d the threshold owes", since, n)
+	}
+	return ready
 }
 
 // waitQuiet waits for the depot's quiet runs to be told of as kind says.
@@ -227,6 +282,55 @@ func TestQuietThresholdWaitsForQuietAndIsNotLost(t *testing.T) {
 	waitQuiet(t, y.s, store.QuietPassed, 1)
 	if n := y.runCalls(); n != 1 {
 		t.Fatalf("calls = %d, want the held run fired once the yard went quiet", n)
+	}
+}
+
+// A yard's backlog holds dozens of beads, each claimed by a manual group
+// that runs nothing: a person's turn is no load on the machine. Nor is a
+// bead the yard at airy works, claimed by a peer group. With only those
+// live the yard is quiet and the owed run starts; it never did while every
+// live session counted (yardr-hqsn).
+func TestQuietIgnoresClaimsThatRunNothingHere(t *testing.T) {
+	t.Parallel()
+	y := newQuietYard(t)
+	y.putGroups(t)
+	for range 3 {
+		y.claim(t, "backlog")
+	}
+	y.claim(t, "at-airy")
+	y.land(t, "one")
+	y.land(t, "two")
+
+	if !y.ready(t) {
+		t.Fatal("the yard is busy with only a manual group's and a peer group's claims live")
+	}
+	dispatch.QuietMaybe(y.d, context.Background())
+	waitQuiet(t, y.s, store.QuietPassed, 1)
+	if n := y.runCalls(); n != 1 {
+		t.Fatalf("calls = %d, want the owed run started", n)
+	}
+}
+
+// A live session that runs something here, an agent or a script, keeps the
+// yard busy, whatever manual claims sit beside it; once it ends, those
+// claims alone leave the yard quiet.
+func TestQuietWaitsForASessionThatRunsHere(t *testing.T) {
+	t.Parallel()
+	y := newQuietYard(t)
+	y.putGroups(t)
+	y.claim(t, "backlog")
+	y.land(t, "one")
+	y.land(t, "two")
+
+	for _, group := range []string{"builders", "assembly"} {
+		sess := y.claim(t, group)
+		if y.ready(t) {
+			t.Errorf("the yard is quiet with a %s session live", sess.Runner)
+		}
+		must(t, y.s.EndSession(context.Background(), sess.ID, "failed", "done for the test"))
+		if !y.ready(t) {
+			t.Errorf("the yard is busy after the %s session ended, with only a manual claim live", sess.Runner)
+		}
 	}
 }
 
