@@ -2141,7 +2141,7 @@ func TestYardTestRaceLegLockDiesWithOrphan(t *testing.T) {
 }
 
 // The deadline case holds the fake test at a marker, then exercises the same
-// timeout branch as the orphan test without waiting for the full ten seconds.
+// timeout branch as the orphan test without waiting for the full three minutes.
 func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
 	t.Parallel()
 	testYardTestRaceLegLockDiesWithOrphan(t, true)
@@ -2261,7 +2261,10 @@ fi
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	deadline := 10 * time.Second
+	// The bound is a fuse against a hang, not a performance assertion: the
+	// loop already polls the effect, so the deadline must hold still while a
+	// loaded machine runs the fixture script (docs/testing.md R2).
+	deadline := 3 * time.Minute
 	if forceDeadline {
 		deadline = 2 * time.Second
 	}
