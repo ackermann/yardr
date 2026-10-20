@@ -108,7 +108,7 @@ func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"  takes            yardr-builders (the yard's, for the pack's builders", "\napplied pack starter to depot web: 32 created, 0 changed, 0 unchanged\n"} {
+	for _, want := range []string{"  takes            yardr-builders (the yard's, for the pack's builders", "\napplied pack starter to depot web: 37 created, 0 changed, 0 unchanged\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -122,8 +122,13 @@ func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if want := []string{"decisions", "triage", "web-assembly", "yardr-builders", "yardr-reviewers"}; !reflect.DeepEqual(names, want) {
+	// The second review's group is the depot's own, and runs the agent of
+	// the yard's group that takes the pack's reviewers.
+	if want := []string{"decisions", "triage", "web-assembly", "web-security-reviewers", "yardr-builders", "yardr-reviewers"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("groups = %v, want %v", names, want)
+	}
+	if g, err := a.st.GetGroup(ctx, "web-security-reviewers"); err != nil || g.Config["kind"] != "codex" {
+		t.Fatalf("web-security-reviewers = %+v, %v, want the agent of yardr-reviewers", g, err)
 	}
 	routes, _ := a.st.Routes(ctx)
 	to := map[string]string{}
@@ -142,7 +147,7 @@ func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	out, err = run(t, a.packCmd(), "list")
-	if err != nil || !strings.Contains(out, "builders -> yardr-builders") || !strings.Contains(out, "2 groups,") {
+	if err != nil || !strings.Contains(out, "builders -> yardr-builders") || !strings.Contains(out, "3 groups,") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 
@@ -157,6 +162,9 @@ func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
 	}
 	if g, err := a.st.GetGroup(ctx, "api-builders"); err != nil || g.Config["kind"] != "claude" {
 		t.Fatalf("api-builders = %+v, %v", g, err)
+	}
+	if g, err := a.st.GetGroup(ctx, "api-security-reviewers"); err != nil || g.Config["kind"] != "codex" {
+		t.Fatalf("api-security-reviewers = %+v, %v, want the agent of api-reviewers, asked nothing", g, err)
 	}
 }
 

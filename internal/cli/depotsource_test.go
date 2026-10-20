@@ -224,8 +224,8 @@ func TestDepotSourceFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sourceLines(t, out)
-	if len(got) != 7 || !strings.HasPrefix(got[0], "flow default pack starter (store starter.default) shadows .yardr/flows/default.flow") ||
-		got[2] != "stage new pack starter ("+filepath.Join(home, "flows", "starter.default", "new.md")+") shadows .yardr/flows/default/new.md" || !strings.HasPrefix(got[6], "the flow switched whole") {
+	if len(got) != 8 || !strings.HasPrefix(got[0], "flow default pack starter (store starter.default) shadows .yardr/flows/default.flow") ||
+		got[2] != "stage new pack starter ("+filepath.Join(home, "flows", "starter.default", "new.md")+") shadows .yardr/flows/default/new.md" || !strings.HasPrefix(got[7], "the flow switched whole") {
 		t.Errorf("to the pack's:\n%s", out)
 	}
 	if got := sourcesLine(t, a, "flow default"); !strings.HasPrefix(got, "flow default pack starter ") {

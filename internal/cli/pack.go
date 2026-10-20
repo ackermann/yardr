@@ -92,7 +92,7 @@ type importFlags struct {
 
 // registerAnswers registers the flags that answer what an import asks.
 func (f *importFlags) registerAnswers(c *cobra.Command) {
-	c.Flags().StringArrayVar(&f.binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; crew:<name>=… for a crew member (repeatable)")
+	c.Flags().StringArrayVar(&f.binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks (one the pack says binds_as another takes that one's unless named here); crew:<name>=… for a crew member (repeatable)")
 	c.Flags().StringArrayVar(&f.members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
 	c.Flags().StringArrayVar(&f.opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
 	c.Flags().StringArrayVar(&f.calls, "calls", nil, "<group>=<source>:read,<call>: let the group's sessions make these of the calls the pack asks for of a declared source, and no other; crew:<pack's crew member>=… for a crew member; <source>:none for no (repeatable)")
@@ -435,6 +435,11 @@ The one exception is --group: nothing but the flag, or the last
 import, has a group of the yard take the pack's, and without either the
 group is the depot's own, <depot>-<group>.
 
+A group the pack says binds as another (binds_as: the starter's
+security-reviewers bind as reviewers) is asked nothing: it gets the agent,
+model and arguments of that group, as the yard has them or as this import
+binds them. --bind names the group to give it an agent of its own.
+
 A group taken with --group stays the yard's: its agent, model, arguments,
 limit, members and role are not changed, the plan names in a line what of the
 pack's it does not get, and no --prune removes it. In a terminal the import
@@ -682,6 +687,8 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 		}
 	}
 	asking := interactive() && !a.json
+	// A group that binds as another is asked about only where a flag binds it.
+	f.opts.Bound = boundGroups(f.binds)
 	plan, err := pack.Build(ctx, st, p, f.opts)
 	if err != nil {
 		return nil, err
@@ -977,6 +984,18 @@ func bound(p *pack.Plan, q pack.Question, binds, members []string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return name == packName(p.Groups, yard)
 	})
+}
+
+// boundGroups are the pack's groups the --bind flags name, crew members
+// left out: pack.Options.Bound.
+func boundGroups(binds []string) []string {
+	var out []string
+	for _, kv := range binds {
+		if name, _, _ := strings.Cut(kv, "="); name != "" && !strings.HasPrefix(name, "crew:") {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // packName is the pack's name for the yard's object: its key in names
@@ -1710,6 +1729,9 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 			}
 			for _, d := range o.Changes {
 				fmt.Fprintf(w, "  %-15s    %s: %s -> %s\n", "", d.Field, planValue(d.Old), planValue(d.New))
+			}
+			if o.Binds != "" {
+				fmt.Fprintf(w, "  %-15s    agent, model and arguments as group %s\n", "", o.Binds)
 			}
 			for _, id := range o.Asks {
 				if v, ok := answers[id]; ok {

@@ -548,10 +548,12 @@ func (p *Plan) read(op *FileOp) ([]byte, error) {
 
 // write does one object of the plan.
 func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptions, files map[string][]byte) error {
-	answer := func(field string) (string, bool) {
-		v, ok := o.Answers[obj.Kind+"."+obj.Name+"."+field]
-		return strings.TrimSpace(v), ok && slices.Contains(obj.Asks, obj.Kind+"."+obj.Name+"."+field)
+	answerOf := func(of *Object, field string) (string, bool) {
+		id := of.Kind + "." + of.Name + "." + field
+		v, ok := o.Answers[id]
+		return strings.TrimSpace(v), ok && slices.Contains(of.Asks, id)
 	}
+	answer := func(field string) (string, bool) { return answerOf(obj, field) }
 	switch obj.Kind {
 	case "file":
 		return install(obj.File, files[obj.File.To])
@@ -561,13 +563,16 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		for k, v := range obj.Group.Config {
 			g.Config[k] = v
 		}
-		if v, ok := answer("kind"); ok {
+		// A group that binds as another gets that one's answers; one the
+		// yard has was copied into its configuration when the plan was made.
+		agent := p.bindsFrom(obj)
+		if v, ok := answerOf(agent, "kind"); ok {
 			g.Config["kind"] = v
 		}
-		if v, ok := answer("model"); ok && v != "" {
+		if v, ok := answerOf(agent, "model"); ok && v != "" {
 			g.Config["model"] = v
 		}
-		if v, ok := answer("args"); ok && v != "" {
+		if v, ok := answerOf(agent, "args"); ok && v != "" {
 			g.Config["args"] = argList(v)
 		}
 		if v, ok := answer("members"); ok {
@@ -682,6 +687,23 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		return nil
 	}
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
+}
+
+// bindsFrom is the object of the plan whose questions an import answers for
+// obj's agent: obj itself, or, for a group that binds as another (Binds),
+// the group it takes the agent from, and that one's own source in turn.
+func (p *Plan) bindsFrom(obj *Object) *Object {
+	for range p.Objects {
+		if obj.Binds == "" {
+			break
+		}
+		i := slices.IndexFunc(p.Objects, func(o Object) bool { return o.Kind == "group" && o.Name == obj.Binds })
+		if i < 0 {
+			break
+		}
+		obj = &p.Objects[i]
+	}
+	return obj
 }
 
 // argList is an args answer as a group or crew member stores its arguments.

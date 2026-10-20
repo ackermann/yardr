@@ -77,7 +77,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	}
 	beforeApply := head(t, st)
 	res := apply(t, st, plan, answers)
-	if res.Created != 35 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
+	if res.Created != 40 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
 	}
 	groupEvents := 0
@@ -126,7 +126,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
 	// Everything but the crew member, which stays the yard's.
-	if len(rec.Objects) != 34 {
+	if len(rec.Objects) != 39 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
@@ -134,11 +134,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	before := head(t, st)
 	o.Crew = nil
 	plan = build(t, st, load(t, starter), o)
-	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 35 {
+	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 40 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}
 	res = apply(t, st, plan, nil)
-	if res.Wrote() || res.Recorded || res.Unchanged != 35 {
+	if res.Wrote() || res.Recorded || res.Unchanged != 40 {
 		t.Fatalf("second import = %+v", res)
 	}
 	if got := kinds(t, st, before); !slices.Equal(got, []string{"pack_unchanged"}) {
@@ -149,8 +149,8 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("the record changed:\n%+v\n%+v", recs, again)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 13 {
-		t.Fatalf("%d routes, want 13", len(routes))
+	if len(routes) != 15 {
+		t.Fatalf("%d routes, want 15", len(routes))
 	}
 }
 
@@ -218,7 +218,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 			t.Errorf("route %s lost its priority: %+v", r.Stage, r)
 		}
 	}
-	if want := map[string]int{"backlog": 2, "new": 1, "review": 2, "approved": 2, "decide": 2, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
+	if want := map[string]int{"backlog": 2, "new": 1, "review": 2, "review-security": 2, "approved": 2, "decide": 2, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("routes per stage = %v, want %v", stages, want)
 	}
 	boss, err := st.GetCrew(ctx, "boss")
@@ -351,9 +351,9 @@ func TestApplyPruneDegradesRemovingAnotherCrewsSubscription(t *testing.T) {
 	}
 }
 
-// A pack that dropped a group: the group, its route and its role file,
-// which the last import brought, are reported and left; --prune removes
-// them, and nothing else, not a group of the depot the pack never had.
+// A pack that dropped a group: the group, its routes, its role file and its
+// stage's file, which the last import brought, are reported and left; --prune
+// removes them, and nothing else, not a group of the depot the pack never had.
 func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
@@ -361,20 +361,22 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "web-extra", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// The pack drops the second review, and the group that works it.
 	edit(t, dir,
-		"outcomes: { done: review, question: decide }", "outcomes: { done: approved, question: decide }",
-		"      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }\n", "",
-		"  reviewers: { agent: roles/reviewer.md, limit: 3 }\n", "",
-		"      review:  { group: reviewers, outcomes: { done: approved, changes: open, question: decide } }", "      review:  { group: decisions, outcomes: { done: approved, changes: open, question: decide } }",
+		"outcomes: { done: review-security, done-safe: approved, changes: new, question: decide }", "outcomes: { done: approved, changes: new, question: decide }",
+		"      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }\n", "",
+		"outcomes: { done: review-security, changes: open, question: decide }", "outcomes: { done: approved, changes: open, question: decide }",
+		"      review-security: { group: security-reviewers, outcomes: { done: approved, changes: open, question: decide } }\n", "",
+		"  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }\n", "",
 		// The stage map names the stage too, and a pack is refused for that.
-		"new: started, review: review, merged: done", "new: started, merged: done",
-		`      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }`+"\n", "",
-		`      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }`+"\n", "")
+		"review: review, review-security: review, merged: done", "review: review, merged: done",
+		"stage=review stage=review-security\"", "stage=review\"")
 
 	plan := build(t, st, load(t, dir), o)
 	// The stage's file goes with it: named by where it is in the home, since
 	// the pack has no path for it any more.
-	gone := []string{"file flows/starter.default/review.md", "file roles/reviewer.md", "group web-reviewers", "route depot web stage review -> web-reviewers"}
+	gone := []string{"file flows/starter.default/review-security.md", "file roles/review-security.md", "group web-security-reviewers",
+		"route depot web stage review-security -> web-security-reviewers", "route depot web stage review-security type train -> web-security-reviewers"}
 	if got := actions(plan, pack.Dropped); !slices.Equal(slices.Sorted(slices.Values(got)), gone) {
 		t.Fatalf("dropped = %v, want %v", got, gone)
 	}
@@ -386,19 +388,19 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if len(res.Pruned) != 0 || !slices.Equal(slices.Sorted(slices.Values(res.Left)), gone) {
 		t.Fatalf("without --prune: %+v", res)
 	}
-	reviewer := filepath.Join(config.At(o.Home).PackRoles("starter"), "reviewer.md")
-	if _, err := st.GetGroup(ctx, "web-reviewers"); err != nil {
-		t.Fatalf("web-reviewers was removed without --prune: %v", err)
+	role := filepath.Join(config.At(o.Home).PackRoles("starter"), "review-security.md")
+	if _, err := st.GetGroup(ctx, "web-security-reviewers"); err != nil {
+		t.Fatalf("web-security-reviewers was removed without --prune: %v", err)
 	}
-	stage := filepath.Join(o.Home, "flows", "starter.default", "review.md")
-	for _, f := range []string{reviewer, stage} {
+	stage := filepath.Join(o.Home, "flows", "starter.default", "review-security.md")
+	for _, f := range []string{role, stage} {
 		if _, err := os.Stat(f); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Still reported the next time: the record keeps what was not pruned.
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Dropped); len(got) != 4 {
+	if got := actions(plan, pack.Dropped); len(got) != len(gone) {
 		t.Fatalf("dropped after an import without --prune = %v", got)
 	}
 
@@ -410,23 +412,23 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if !slices.Equal(slices.Sorted(slices.Values(res.Pruned)), gone) || len(res.Left) != 0 || !res.Recorded {
 		t.Fatalf("with --prune: %+v", res)
 	}
-	if _, err := st.GetGroup(ctx, "web-reviewers"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("web-reviewers after --prune: %v", err)
+	if _, err := st.GetGroup(ctx, "web-security-reviewers"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("web-security-reviewers after --prune: %v", err)
 	}
-	for _, f := range []string{reviewer, stage} {
+	for _, f := range []string{role, stage} {
 		if _, err := os.Stat(f); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("%s after --prune: %v", f, err)
 		}
 	}
 	// The stages the pack still has keep their files.
-	if _, err := os.Stat(filepath.Join(filepath.Dir(stage), "new.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(stage), "review.md")); err != nil {
 		t.Fatalf("--prune removed the stage file of a stage the pack has: %v", err)
 	}
 	if _, err := st.GetGroup(ctx, "web-extra"); err != nil {
 		t.Fatalf("--prune removed a group the pack never had: %v", err)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 12 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review" && r.Type == nil }) {
+	if len(routes) != 13 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review-security" }) {
 		t.Fatalf("routes = %+v", routes)
 	}
 	plan = build(t, st, load(t, dir), o)
@@ -434,7 +436,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("dropped after --prune = %v", got)
 	}
 	recs, _ := st.Packs(ctx)
-	if len(recs) != 1 || slices.ContainsFunc(recs[0].Objects, func(o store.PackObject) bool { return o.Name == "web-reviewers" }) {
+	if len(recs) != 1 || slices.ContainsFunc(recs[0].Objects, func(o store.PackObject) bool { return o.Name == "web-security-reviewers" }) {
 		t.Fatalf("record = %+v", recs)
 	}
 }
@@ -581,13 +583,13 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	routes, _ := st.Routes(ctx)
 	groups, _ := st.Groups(ctx)
 	recs, _ := st.Packs(ctx)
-	if len(routes) != 2 || len(groups) != 5 || len(recs) != 0 {
-		t.Fatalf("halfway: %d routes, %d groups, %d records; want 2, 5, 0", len(routes), len(groups), len(recs))
+	if len(routes) != 2 || len(groups) != 6 || len(recs) != 0 {
+		t.Fatalf("halfway: %d routes, %d groups, %d records; want 2, 6, 0", len(routes), len(groups), len(recs))
 	}
 
 	plan = build(t, st, load(t, starter), o)
-	// Left to do: three routes, the crew member and its three subscriptions.
-	if got := actions(plan, pack.Create); len(got) != 15 {
+	// Left to do: thirteen routes, the crew member and its three subscriptions.
+	if got := actions(plan, pack.Create); len(got) != 17 {
 		t.Fatalf("to create after the failure: %v", got)
 	}
 	res := apply(t, st, plan, nil)
@@ -596,11 +598,11 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 	routes, _ = st.Routes(ctx)
 	groups, _ = st.Groups(ctx)
-	if len(routes) != 13 || len(groups) != 5 {
+	if len(routes) != 15 || len(groups) != 6 {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 35 {
-		t.Fatalf("%d unchanged, want 35", len(got))
+	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 40 {
+		t.Fatalf("%d unchanged, want 40", len(got))
 	}
 }
 
@@ -941,7 +943,7 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	}
 	// Add a type flow whose stage does not exist in the default flow. The
 	// stage map is for tasks, which would follow that flow: it goes.
-	text = []byte(strings.Replace(string(text), "      task: { new: started, review: review, merged: done }", "      bug: { new: started }", 1))
+	text = []byte(strings.Replace(string(text), "      task: { new: started, review: review, review-security: review, merged: done }", "      bug: { new: started }", 1))
 	withType := strings.Replace(string(text), "groups:\n", "  task-flow:\n    type: task\n    stages:\n      triage: { group: builders, outcomes: { done: merged } }\n      merged: { end: true }\ngroups:\n", 1)
 	if withType == string(text) {
 		t.Fatal("pack.yaml has no groups section")

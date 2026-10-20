@@ -53,6 +53,10 @@ type Options struct {
 	// group itself (GroupName) says none does, where the yard has no group
 	// of that name of its own.
 	Groups map[string]string
+	// Bound names the pack's groups the caller binds itself (--bind): a group
+	// that binds as another (Group.BindsAs) is asked about, as any new agent
+	// group is, instead of taking the other's agent, model and arguments.
+	Bound []string
 	// DepotRoles leaves a group or crew member its depot's own role where the depot
 	// has one of that name; PackRoles sets the pack's role everywhere, which
 	// is the default. With neither, the choice is the last import's.
@@ -156,6 +160,12 @@ type Object struct {
 	Action  string   `json:"action"`
 	Changes []Diff   `json:"changes,omitempty"`
 	Asks    []string `json:"asks,omitempty"` // question ids
+	// Binds is the yard's group whose agent kind, model and arguments a new
+	// group of the pack that binds as it (Group.BindsAs) gets: the import
+	// asks nothing of it. A group of the yard has them in its configuration,
+	// copied into Group; one the same import makes has them from its
+	// answers, when it is applied.
+	Binds string `json:"binds,omitempty"`
 	// Keeps says what the import leaves as the yard has it though the pack
 	// carries it, and why: a prompt, where the depot has its own role and the
 	// import was told to keep those; the role and the limit of a group of

@@ -104,8 +104,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 13 || stages != 22 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 13 and 22", roles, stages)
+	if roles != 13 || stages != 23 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 13 and 23", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {
@@ -195,11 +195,12 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			"the depot's test command passes\n  on the last commit",
 			"ends with the test line",
 		},
-		"starter/flows/default/review.md":   {"`test: <command> @ <commit>: pass`"},
-		"starter/flows/default/approved.md": {"run in the worktree with `YARDR_LANDING=1`", "A depot with no test command lands untested"},
-		"dir/roles/builder.md":              {"your brief prints it as `test:` under the bead's depot", "no later stage runs it for you", "`test: <command>: pass` (or `test: none`"},
-		"dir/roles/reviewer.md":             {"Run it whatever the\n   builder's test line says"},
-		"dir/flows/default/new.md":          {"the depot's test\n  command passes if it has one (your brief prints it as `test:`)"},
+		"starter/flows/default/review.md":          {"`test: <command> @ <commit>: pass`"},
+		"starter/flows/default/review-security.md": {"`test: <command> @ <commit>: pass`"},
+		"starter/flows/default/approved.md":        {"run in the worktree with `YARDR_LANDING=1`", "A depot with no test command lands untested"},
+		"dir/roles/builder.md":                     {"your brief prints it as `test:` under the bead's depot", "no later stage runs it for you", "`test: <command>: pass` (or `test: none`"},
+		"dir/roles/reviewer.md":                    {"Run it whatever the\n   builder's test line says"},
+		"dir/flows/default/new.md":                 {"the depot's test\n  command passes if it has one (your brief prints it as `test:`)"},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(files[name], want) {

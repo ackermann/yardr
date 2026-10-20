@@ -138,6 +138,12 @@ type Group struct {
 	Run    string `json:"run,omitempty"`
 	People bool   `json:"people,omitempty"`
 	Limit  int    `json:"limit,omitempty"` // 0: the pack names none
+	// BindsAs names the pack's group (declared before this one) whose agent,
+	// model and permission arguments this one gets, as the yard has them or
+	// as the import binds them, so the import asks nothing of this one: a
+	// second review is run by the same agent as the first unless the import
+	// is told otherwise (--bind). Only an agent group says it.
+	BindsAs string `json:"binds_as,omitempty"`
 	// Calls are the calls of declared sources the pack asks that the group's
 	// sessions may make, in file order. As a crew member's OpenThreads it is
 	// a request and no more: the import asks the operator, and only their
@@ -401,6 +407,10 @@ type reader struct {
 	// stands: what a source of the pack declares is known only once the
 	// sources are read, which is last.
 	asked []askedCall
+	// binds are the groups that say binds_as, each where it stands: which
+	// group a name is, and whether it comes first, is known once all the
+	// groups are read.
+	binds []boundAs
 }
 
 // hasDeclaration reports whether v, a source's value, names a declaration
@@ -422,6 +432,13 @@ type askedCall struct {
 	n            *yaml.Node
 	key          string
 	source, call string
+}
+
+// boundAs is one binds_as: the group that says it, and the group it names.
+type boundAs struct {
+	n         *yaml.Node
+	key       string
+	group, as string
 }
 
 func (r *reader) errf(n *yaml.Node, key, format string, args ...any) {
@@ -602,6 +619,7 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 		for _, e := range r.entries(groups.v, groups.path) {
 			p.Groups = append(p.Groups, r.group(e))
 		}
+		r.checkBindsAs(p.Groups)
 	}
 	if flows != nil {
 		types := map[string]string{}
@@ -1337,8 +1355,13 @@ func (r *reader) group(e entry) Group {
 	g := Group{Name: e.key}
 	var kinds []string
 	var calls *entry
-	for _, f := range r.entries(e.v, e.path, "agent", "run", "people", "limit", "calls") {
+	for _, f := range r.entries(e.v, e.path, "agent", "run", "people", "limit", "binds_as", "calls") {
 		switch f.key {
+		case "binds_as":
+			if as, ok := r.str(f.v, f.path); ok {
+				g.BindsAs = as
+				r.binds = append(r.binds, boundAs{n: f.v, key: f.path, group: g.Name, as: as})
+			}
 		case "calls":
 			calls = &f
 			g.Calls = r.calls(f)
@@ -1379,6 +1402,31 @@ func (r *reader) group(e entry) Group {
 		g.Calls = nil
 	}
 	return g
+}
+
+// checkBindsAs holds each binds_as to the groups read: it names an agent
+// group of the pack that comes before the one that says it, so the import has
+// settled the named group's agent, model and arguments when it comes to this
+// one, and no group binds as itself or in a circle.
+func (r *reader) checkBindsAs(groups []Group) {
+	for _, b := range r.binds {
+		i := slices.IndexFunc(groups, func(g Group) bool { return g.Name == b.group })
+		j := slices.IndexFunc(groups, func(g Group) bool { return g.Name == b.as })
+		switch {
+		case i >= 0 && groups[i].Agent == "":
+			r.errf(b.n, b.key, "a group binds as another only with agent: it is the agent, model and arguments that are taken")
+		case j < 0:
+			names := make([]string, len(groups))
+			for k, g := range groups {
+				names[k] = g.Name
+			}
+			r.errf(b.n, b.key, "the pack has no group %s (it has: %s)", b.as, strings.Join(names, ", "))
+		case j >= i:
+			r.errf(b.n, b.key, "group %s is not declared before %s: declare it first, so it is bound when the import comes to this group", b.as, b.group)
+		case groups[j].Agent == "":
+			r.errf(b.n, b.key, "group %s is not an agent group: nothing of it is taken", b.as)
+		}
+	}
 }
 
 // rel reads a role or script path and checks the file: always relative

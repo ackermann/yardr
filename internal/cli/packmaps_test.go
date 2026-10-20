@@ -13,7 +13,7 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-const starterMapLines = "task:merged=done task:new=started task:review=review"
+const starterMapLines = "task:merged=done task:new=started task:review-security=review task:review=review"
 
 // mapApp is openApp with boss known in linear, which a hook that acts as
 // it needs.
@@ -84,11 +84,11 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 			t.Errorf("pack apply lacks %q:\n%s", want, out)
 		}
 	}
-	if h := linearHook(t, a); h.As != "boss" || !maps.Equal(h.Map, map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done"}) {
+	if h := linearHook(t, a); h.As != "boss" || !maps.Equal(h.Map, map[string]string{"task:new": "started", "task:review": "review", "task:review-security": "review", "task:merged": "done"}) {
 		t.Fatalf("hook = %+v", h)
 	}
 	show, err := run(t, a.hookCmd(), "show", "linear")
-	if err != nil || !strings.Contains(show, "  acts as boss\n  map task:merged=done\n  map task:new=started\n  map task:review=review\n") {
+	if err != nil || !strings.Contains(show, "  acts as boss\n  map task:merged=done\n  map task:new=started\n  map task:review-security=review\n  map task:review=review\n") {
 		t.Fatalf("hook show: %v\n%s", err, show)
 	}
 	if r, _ := a.st.GetCrew(ctx, "boss"); len(r.MaySetState()) != 0 {
@@ -150,7 +150,7 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 	if !strings.Contains(out, "\nhook linear now moves tracked linear issues as boss: "+starterMapLines+"\n") {
 		t.Fatalf("the apply after hook add:\n%s", out)
 	}
-	if h := linearHook(t, a); h.As != "boss" || len(h.Map) != 3 || h.SecretFile != secret {
+	if h := linearHook(t, a); h.As != "boss" || len(h.Map) != 4 || h.SecretFile != secret {
 		t.Fatalf("hook = %+v", h)
 	}
 }
@@ -237,7 +237,7 @@ func TestPackApplyShowsTheMapItReplaces(t *testing.T) {
 			t.Errorf("pack apply lacks %q:\n%s", want, out)
 		}
 	}
-	if h := linearHook(t, a); len(h.Map) != 3 || h.SecretFile != "/yard/secret" {
+	if h := linearHook(t, a); len(h.Map) != 4 || h.SecretFile != "/yard/secret" {
 		t.Fatalf("hook = %+v", h)
 	}
 }

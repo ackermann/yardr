@@ -187,16 +187,18 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 
 	install := config.At(o.Home).Pack("starter")
 	want := []string{
-		"file roles/builder.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
-		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
-		"group web-builders", "group web-reviewers", "group web-assembly", "group backlog", "group decisions",
+		"file roles/builder.md", "file roles/review-security.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
+		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/review-security.md", "file flows/default/approved.md", "file flows/default/decide.md",
+		"group web-builders", "group web-reviewers", "group web-security-reviewers", "group web-assembly", "group backlog", "group decisions",
 		"flow starter.default", "flow starter.train",
 		"pointer depot web -> starter.default",
 		"pointer depot web type train -> starter.train",
 		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
+		"route depot web stage review-security -> web-security-reviewers",
 		"route depot web stage approved -> web-assembly", "route depot web stage decide -> decisions",
 		"route depot web stage backlog type train -> backlog", "route depot web stage open type train -> web-builders",
-		"route depot web stage review type train -> web-reviewers", "route depot web stage approved type train -> web-assembly",
+		"route depot web stage review type train -> web-reviewers", "route depot web stage review-security type train -> web-security-reviewers",
+		"route depot web stage approved type train -> web-assembly",
 		"route depot web stage in-pr type train -> decisions", "route depot web stage land type train -> web-assembly",
 		"route depot web stage merge type train -> decisions", "route depot web stage decide type train -> decisions",
 		"crew yardmaster",
@@ -215,6 +217,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	for _, q := range plan.Questions {
 		ids = append(ids, q.ID)
 	}
+	// Nothing is asked of the second review's group: it runs the first's agent.
 	wantQ := []string{
 		"group.web-builders.kind", "group.web-builders.model", "group.web-builders.args",
 		"group.web-reviewers.kind", "group.web-reviewers.model", "group.web-reviewers.args",
@@ -223,6 +226,9 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	}
 	if !reflect.DeepEqual(ids, wantQ) {
 		t.Fatalf("questions = %v\nwant %v", ids, wantQ)
+	}
+	if sec := find(t, plan, "group", "web-security-reviewers"); sec.Binds != "web-reviewers" || len(sec.Asks) != 0 {
+		t.Fatalf("web-security-reviewers = %+v, want it bound as web-reviewers and asked nothing", sec)
 	}
 	if got := find(t, plan, "group", "web-builders").Asks; !reflect.DeepEqual(got, wantQ[:3]) {
 		t.Fatalf("web-builders asks %v", got)
@@ -245,7 +251,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if f.To != filepath.Join(install, "scripts", "merge-local") || f.Mode != "0755" || !filepath.IsAbs(f.From) {
 		t.Fatalf("merge-local = %+v", f)
 	}
-	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[5] != "merged" {
+	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[6] != "merged" {
 		t.Fatalf("flow stages = %v", got)
 	}
 	m := find(t, plan, "crew", "yardmaster").CrewMember
@@ -345,7 +351,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if c, ch, n := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack); len(c)+len(ch)+len(n) != 0 {
 		t.Fatalf("a second import would create %v, change %v, and finds %v not in the pack", c, ch, n)
 	}
-	if len(plan.Objects) != 35 || len(plan.Questions) != 0 {
+	if len(plan.Objects) != 40 || len(plan.Questions) != 0 {
 		t.Fatalf("%d objects, questions %v", len(plan.Objects), plan.Questions)
 	}
 	if g := plan.Governs; len(g) != 2 || g[0].Now != "starter.default (store)" || g[1].Now != "starter.train (store, type train)" {
@@ -360,8 +366,8 @@ func TestSecondImportChangesNothing(t *testing.T) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 13 {
-		t.Fatalf("%d routes, want 13", len(routes))
+	if len(routes) != 15 {
+		t.Fatalf("%d routes, want 15", len(routes))
 	}
 
 	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
@@ -394,7 +400,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	// And applying those two brings the yard level again.
 	apply(t, st, plan, nil)
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Unchanged); len(got) != 35 {
+	if got := actions(plan, pack.Unchanged); len(got) != 40 {
 		t.Fatalf("after applying the change: %d unchanged of %d", len(got), len(plan.Objects))
 	}
 }
@@ -414,18 +420,19 @@ func TestYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 5,
 		Config: map[string]any{"kind": "claude", "model": "opus", "idle": "5m", "args": []any{"--permission-mode", "auto"}, "prompt": "roles/builder.md"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "web-security-reviewers", Runner: "herdr", Limit: 2, Config: map[string]any{"kind": "claude", "prompt": "roles/review-security.md"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1,
 		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/landing.log"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}, "me"))
 	depot := "web"
-	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
+	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3}, "me")
 		must(err)
 	}
 	train := store.TypeTrain
-	for stage, group := range map[string]string{"backlog": "backlog", "open": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "in-pr": "decisions", "land": "web-assembly", "merge": "decisions", "decide": "decisions"} {
+	for stage, group := range map[string]string{"backlog": "backlog", "open": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "approved": "web-assembly", "in-pr": "decisions", "land": "web-assembly", "merge": "decisions", "decide": "decisions"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Type: &train, Depot: &depot, Group: group, Priority: 3}, "me")
 		must(err)
 	}
@@ -445,7 +452,7 @@ func TestYardSetUpByHand(t *testing.T) {
 			t.Errorf("%s %s is planned as new", o.Kind, o.Name)
 		}
 	}
-	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-assembly", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-security-reviewers", "group web-assembly", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
 	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route depot web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
@@ -630,8 +637,8 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 || len(routes) != 13 {
-		t.Fatalf("%d routes for new, %d in all; want 1 and 13", n, len(routes))
+	if n != 1 || len(routes) != 15 {
+		t.Fatalf("%d routes for new, %d in all; want 1 and 15", n, len(routes))
 	}
 }
 
@@ -862,12 +869,17 @@ func TestGroupOfTheYardTakesThePacks(t *testing.T) {
 	if got, want := actions(plan, pack.Takes), []string{"group yardr-builders", "group yardr-reviewers", "group yardr-refinery", "group triage"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("takes = %v, want %v", got, want)
 	}
+	// The second review's group is the depot's own, and runs the agent of
+	// the group that takes the pack's reviewers.
 	for _, name := range actions(plan, pack.Create) {
-		if strings.HasPrefix(name, "group ") && name != "group decisions" {
+		if strings.HasPrefix(name, "group ") && name != "group decisions" && name != "group web-security-reviewers" {
 			t.Errorf("the plan creates %s though a group of the yard takes it", name)
 		}
 	}
-	if !reflect.DeepEqual(plan.Groups, map[string]string{"builders": "yardr-builders", "reviewers": "yardr-reviewers", "assembly": "yardr-refinery", "backlog": "triage", "decisions": "decisions"}) {
+	if sec := find(t, plan, "group", "web-security-reviewers"); sec.Binds != "yardr-reviewers" || len(sec.Asks) != 0 || sec.Group.Config["kind"] != "codex" {
+		t.Fatalf("web-security-reviewers = %+v %+v, want it bound as yardr-reviewers, which runs codex", sec, sec.Group)
+	}
+	if !reflect.DeepEqual(plan.Groups, map[string]string{"builders": "yardr-builders", "reviewers": "yardr-reviewers", "security-reviewers": "web-security-reviewers", "assembly": "yardr-refinery", "backlog": "triage", "decisions": "decisions"}) {
 		t.Fatalf("groups = %v", plan.Groups)
 	}
 	for _, name := range []string{"route depot web stage new -> yardr-builders", "route depot web stage review -> yardr-reviewers",
@@ -903,15 +915,18 @@ func TestGroupOfTheYardTakesThePacks(t *testing.T) {
 			t.Errorf("group %s changed: %+v, was %+v", g.Name, after, g)
 		}
 	}
-	if len(after) != len(before)+1 {
-		t.Fatalf("groups after the import: %d, want the yard's %d and decisions", len(after), len(before))
+	if len(after) != len(before)+2 {
+		t.Fatalf("groups after the import: %d, want the yard's %d, decisions and web-security-reviewers", len(after), len(before))
+	}
+	if got := groupOf(t, st, "web-security-reviewers"); got.Config["kind"] != "codex" {
+		t.Fatalf("web-security-reviewers = %+v, want the agent of yardr-reviewers", got)
 	}
 	recs, _ := st.Packs(ctx)
 	if len(recs) != 1 || recs[0].Groups["builders"] != "yardr-builders" {
 		t.Fatalf("records = %+v", recs)
 	}
 	for _, po := range recs[0].Objects {
-		if po.Kind == "group" && po.Name != "decisions" {
+		if po.Kind == "group" && po.Name != "decisions" && po.Name != "web-security-reviewers" {
 			t.Errorf("the record has group %s as the pack's", po.Name)
 		}
 	}

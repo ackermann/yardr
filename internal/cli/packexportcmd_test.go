@@ -42,7 +42,7 @@ func TestPackExport(t *testing.T) {
 	}
 	for _, want := range []string{
 		"pack team, kind git, written to " + dir + " from depot web\n",
-		"flows\n  default          6 stages, from starter.default\n  train            type train, 9 stages, from starter.train\n",
+		"flows\n  default          7 stages, from starter.default\n  train            type train, 10 stages, from starter.train\n",
 		"  builders         agent   roles/builders.md  (the yard's web-builders)\n",
 		"  assembly         script  scripts/assembly  (the yard's web-assembly)\n",
 		"  backlog          people  (the yard's backlog)\n",
@@ -63,7 +63,7 @@ func TestPackExport(t *testing.T) {
 		t.Log(out)
 	}
 	p, err := pack.LoadDir(dir)
-	if err != nil || p.Name != "team" || len(p.Groups) != 5 || len(p.Crew) != 0 {
+	if err != nil || p.Name != "team" || len(p.Groups) != 6 || len(p.Crew) != 0 {
 		t.Fatalf("the exported pack = %+v, %v", p, err)
 	}
 	// What was written is a pack the yard can check as any other.

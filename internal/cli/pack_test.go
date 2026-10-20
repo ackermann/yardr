@@ -68,7 +68,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		"source linear, for crew member boss\n  missing  hook ",
 		"its stage files would be copied to " + filepath.Join(a.cfg.Home, "flows", "starter.<flow>") + "\n",
 		"  create           flows/default/new.md -> " + filepath.Join(a.cfg.Home, "flows", "starter.default", "new.md") + "\n",
-		"35 to create, 0 to change, 0 unchanged, 0 not in the pack\n",
+		"40 to create, 0 to change, 0 unchanged, 0 not in the pack\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the plan lacks %q", want)
@@ -88,7 +88,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	var plan pack.Plan
-	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 35 || len(plan.Questions) != 13 {
+	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 40 || len(plan.Questions) != 13 {
 		t.Fatalf("json plan: %v\n%s", err, out)
 	}
 }
@@ -198,7 +198,7 @@ func TestPackCheckRefusedPlanFails(t *testing.T) {
 		t.Fatalf("err = %v, want the check failed", err)
 	}
 	if !strings.Contains(out, "an import would be refused\n  flow starter.default lacks the stage of open beads that would follow it: "+b.ID+" (triage)") ||
-		!strings.Contains(out, "35 to create") {
+		!strings.Contains(out, "40 to create") {
 		t.Fatalf("out:\n%s", out)
 	}
 }
@@ -313,7 +313,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	}
 	// The plan says what each new agent gets, arguments included: nobody
 	// is given them silently.
-	for _, want := range []string{"pack starter (", "35 to create", "\napplied pack starter to depot web: 35 created, 0 changed, 0 unchanged\n",
+	for _, want := range []string{"pack starter (", "40 to create", "\napplied pack starter to depot web: 40 created, 0 changed, 0 unchanged\n",
 		"  create           web-builders\n                     agent: claude\n                     model: opus\n                     arguments: --permission-mode auto\n",
 		"  create           web-reviewers\n                     agent: codex\n                     model: the agent's own default\n                     arguments: --dangerously-bypass-approvals-and-sandbox\n",
 		"  create           backlog\n                     members: anyone\n",
@@ -370,7 +370,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"starter in depot web  ", " by me\n", "  source     ", "  flow       default (stored as starter.default)\n",
-		"builders -> web-builders", "  crew       yardmaster -> boss\n", "  objects    9 files, 5 groups, 2 flows, 2 flow pointers, 13 routes, 3 subscriptions\n"} {
+		"builders -> web-builders", "  crew       yardmaster -> boss\n", "  objects    11 files, 6 groups, 2 flows, 2 flow pointers, 15 routes, 3 subscriptions\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack list lacks %q:\n%s", want, out)
 		}
@@ -382,7 +382,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		Plan   pack.Plan   `json:"plan"`
 		Result pack.Result `json:"result"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 || got.Result.Recorded || got.Plan.Depot != "web" {
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 40 || got.Result.Recorded || got.Plan.Depot != "web" {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 	out, err = run(t, a.packCmd(), "list")
@@ -425,7 +425,7 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	}
 
 	decline = false
-	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to depot web: 35 created") {
+	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to depot web: 40 created") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	// The select's default is a new crew member under the pack's name, and

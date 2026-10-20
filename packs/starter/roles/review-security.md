@@ -41,7 +41,7 @@ depot's base (`yardr depot list`).
    their form: `test: <command> @ <commit>: pass, <n> ok, 0 failed`. The
    bead is tested once more where it lands, on exactly what lands, after
    you, so the whole suite is not yours to run. Try what you doubt in an
-   isolated environment, never the operator's own session:
+   isolated environment, never {{operator}}'s own session:
    - Run it under `env -i` with only what it needs: its own home, config and
      state directories in a short temp dir, and a PATH of that dir and the
      system's. Your session's variables (every `YARDR_*`, the socket of the

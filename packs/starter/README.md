@@ -17,9 +17,8 @@ carries this pack in its binary, so the name is enough; `packs/starter`, with
 the separator, is this directory in a checkout.
 
 - `pack.yaml`: the flows (stages), the groups that work them, and the crew.
-- `roles/`: the prompts. `merger.md` and `review-security.md` belong to no
-  group of the pack: they are for a flow with a `merge` stage, or a second
-  review for security alone, and a group is given one with
+- `roles/`: the prompts. `merger.md` belongs to no group of the pack: it is
+  for a flow with a `merge` stage, and a group is given it with
   `yardr group set <group> prompt=roles/<name>.md` once the file is in the
   yard's `roles/`.
 - `scripts/`: what a script group runs.
@@ -54,8 +53,48 @@ yardmaster as it is.
 
 One thing it sets only where the yard is ready for it: the stage map for
 Linear (`sources.linear`), which moves the issue a task tracks to started,
-in review and done as the task enters `new`, `review` and `merged`. The
+in review and done as the task enters `new`, `review` (or `review-security`)
+and `merged`. The
 import puts it on the yard's Linear hook, acting as the crew member that takes
 `yardmaster`. It makes no hook and does not let that crew member set a status
 (`set_state`): the plan names the command for each, and the next import
 sets the map once the hook is there.
+
+## The second review, for security alone
+
+`review` asks whether a bead does what it says. `review-security`, worked by
+the group `security-reviewers` with `roles/review-security.md`, asks one other
+question of the same diff: what does it open, and to whom? The reviewer sends a
+bead on with `done`, or past the second review with `done-safe`, by the list in
+`flows/default/review.md`. A train goes through both reviews, on the whole of
+its diff.
+
+The import asks nothing for `security-reviewers`. It runs the agent, model and
+permission arguments `reviewers` has, as the yard has them or as the import
+binds them (`binds_as: reviewers` in `pack.yaml`). `--bind
+security-reviewers=<kind>[:<model>]` gives it an agent of its own, so that the
+second review is not made by the agent that made the first.
+
+A depot can take `done-safe` out of the reviewer's hands for the paths it
+names. `.yardr/security_paths`, a file in its repository, lists them one
+pattern a line, as globs from the repository's root (`**` crosses directories,
+`*` stays in one). The yard reads it at the tip of the base branch, never from
+a bead's branch, and refuses a `done-safe` for a bead whose diff against its
+base (a child of a train: against the train's branch) touches a file that
+matches. The refusal names the files, and the reviewer reports `done`. The
+pack ships no list: the paths belong to the depot, and a pack writes nothing
+into a repository. Without the file, `done-safe` is taken as the flow says.
+To start:
+
+```
+# Paths whose change always has the security review: the yard refuses
+# done-safe for a diff that touches one. One pattern a line, from the root of
+# the repository; ** crosses directories, * stays in one.
+#
+# internal/auth/**
+# go.mod
+```
+
+Listing `.yardr/**` too puts a change to the list itself through both reviews.
+[docs/flows.md](../../docs/flows.md#done-safe-and-the-security-paths) has the
+rules.

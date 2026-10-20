@@ -13,7 +13,7 @@ import (
 )
 
 // starterMap is the stage map the starter pack carries for linear.
-var starterMap = map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done"}
+var starterMap = map[string]string{"task:new": "started", "task:review": "review", "task:review-security": "review", "task:merged": "done"}
 
 // smallSources is small with a stage map for linear, which the refusal
 // cases each break in one place.
@@ -420,7 +420,7 @@ func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	obj := find(t, plan, "map", "hook linear as boss")
 	want := []pack.Diff{
 		{Field: "as", Old: "clerk", New: "boss"},
-		{Field: "map", Old: "task:review=done train:open=started", New: "task:merged=done task:new=started task:review=review"},
+		{Field: "map", Old: "task:review=done train:open=started", New: "task:merged=done task:new=started task:review-security=review task:review=review"},
 	}
 	if obj.Action != pack.Change || !slices.Equal(obj.Changes, want) {
 		t.Fatalf("object = %+v", obj)
@@ -530,7 +530,7 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	if h := getHook(t, st, "linear"); h.As != "boss" {
 		t.Fatalf("hook = %+v", h)
 	}
-	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "",
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, review-security: review, merged: done }\n", "",
 		githubSays, "")
 
 	plan := build(t, st, load(t, dir), o)
@@ -564,7 +564,7 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	dir = copyStarter(t)
 	apply(t, st2, build(t, st2, load(t, dir), o2), nil)
 	hook(t, st2, store.Hook{Name: "linear", Source: "linear", As: "boss", Map: map[string]string{"task:new": "done"}})
-	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "",
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, review-security: review, merged: done }\n", "",
 		githubSays, "")
 	if got := actions(build(t, st2, load(t, dir), o2), pack.Dropped); len(got) != 0 {
 		t.Fatalf("a map set by hand is dropped: %v", got)
@@ -617,7 +617,7 @@ const githubSays = `  github:
       - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
       - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
-      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security", outcome: changes, note: "CI failed on the head of the PR" }
       - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
       - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }
 `
@@ -631,7 +631,7 @@ func starterSays(t *testing.T) []store.Say {
 		"event=pull_request action=closed merged=true -> merged: PR merged",
 		"event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?",
 		"event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR",
-		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR",
+		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security -> changes: CI failed on the head of the PR",
 		"event=ci conclusion=success stage=in-pr -> done",
 		"event=ci conclusion=failure stage=in-pr -> changes",
 	} {

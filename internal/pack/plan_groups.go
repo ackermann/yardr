@@ -100,6 +100,39 @@ func (b *planner) taken(g Group, old store.Group) Object {
 	return o
 }
 
+// bindsAs settles a new agent group that binds as another group of the
+// pack (Group.BindsAs) and names the yard's group it takes the agent from,
+// or "" when it is asked about as any new agent group is: it binds as no
+// other, the caller binds it itself (Options.Bound), or the group it binds
+// as is no agent group of the yard. A group the yard has gives its agent
+// kind, model and arguments as they are, copied into want; one this import
+// makes is asked about, and Apply copies what the caller answers.
+func (b *planner) bindsAs(g Group, have []store.Group, want *store.Group) string {
+	if g.BindsAs == "" || slices.Contains(b.o.Bound, g.Name) {
+		return ""
+	}
+	// Groups are planned in the pack's order, and the reader holds a group
+	// to binding as one before it.
+	name := b.plan.Groups[g.BindsAs]
+	if i := slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name }); i >= 0 {
+		if have[i].Runner != "herdr" {
+			return ""
+		}
+		for _, k := range []string{"kind", "model", "args"} {
+			if v, ok := have[i].Config[k]; ok {
+				want.Config[k] = v
+			}
+		}
+		return name
+	}
+	if !slices.ContainsFunc(b.plan.Objects, func(o Object) bool {
+		return o.Kind == "group" && o.Name == name && o.Group != nil && o.Group.Runner == "herdr"
+	}) {
+		return ""
+	}
+	return name
+}
+
 func (b *planner) groups() error {
 	have, err := b.st.Groups(b.ctx)
 	if err != nil {
@@ -139,7 +172,11 @@ func (b *planner) groups() error {
 		o := Object{Kind: "group", Name: name}
 		// A new group may be one the yard has instead. Not a script group:
 		// its command is the pack's script, and nothing is asked for one.
-		if _, told := b.o.Groups[g.Name]; !exists && !told && g.Run == "" {
+		// Nor a group that binds as another, which carries no question
+		// unless the caller binds it itself: --group names the one that
+		// takes it.
+		binds := g.BindsAs != "" && !slices.Contains(b.o.Bound, g.Name)
+		if _, told := b.o.Groups[g.Name]; !exists && !told && g.Run == "" && !binds {
 			if fit := fitting(g, have); len(fit) > 0 {
 				b.ask(&o, "group", fmt.Sprintf("which group of the yard takes the pack's %s (--group %s=<name>)? The yard has: %s.", g.Name, g.Name, strings.Join(fit, ", ")), "a new group "+name)
 			}
@@ -169,9 +206,11 @@ func (b *planner) groups() error {
 				o.Shadows = append(o.Shadows, own)
 			}
 			if !exists {
-				b.ask(&o, "kind", "which agent runs group "+name+" (claude, codex, ...)?", settings["default_kind"])
-				b.ask(&o, "model", "which model does group "+name+" run (empty: the agent's own default)?", "")
-				b.ask(&o, "args", "which permission arguments does group "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
+				if o.Binds = b.bindsAs(g, have, &want); o.Binds == "" {
+					b.ask(&o, "kind", "which agent runs group "+name+" (claude, codex, ...)?", settings["default_kind"])
+					b.ask(&o, "model", "which model does group "+name+" run (empty: the agent's own default)?", "")
+					b.ask(&o, "args", "which permission arguments does group "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
+				}
 			}
 		case g.Run != "":
 			want.Runner, field = "exec", "cmd"

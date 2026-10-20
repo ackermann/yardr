@@ -134,13 +134,13 @@ func TestExportRoundTrip(t *testing.T) {
 		}
 	}
 	review := p.Flows[0].Stages[slices.IndexFunc(p.Flows[0].Stages, func(s pack.Stage) bool { return s.Name == "review" })]
-	if review.Group != "testers" || review.File != "flows/default/review.md" || len(review.Outcomes) != 3 {
+	if review.Group != "testers" || review.File != "flows/default/review.md" || len(review.Outcomes) != 4 {
 		t.Errorf("stage review = %+v, want the route that wins it today (testers)", review)
 	}
 	// The added route has the higher priority, so it beats the reviewers'
 	// routes in both flows: they and their group are said, not dropped.
-	if _, has := groups["reviewers"]; has || len(groups) != 5 {
-		t.Errorf("groups = %v, want the five a followed route leads to", groups)
+	if _, has := groups["reviewers"]; has || len(groups) != 6 {
+		t.Errorf("groups = %v, want the six a followed route leads to", groups)
 	}
 	if !leftHas(ex, "route depot web stage review -> web-reviewers", "another route of the stage") ||
 		!leftHas(ex, "route depot web stage review type train -> web-reviewers") || !leftHas(ex, "group web-reviewers: not in the pack") {

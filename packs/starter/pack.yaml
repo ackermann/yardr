@@ -19,25 +19,36 @@ kind: git
 #   outcomes: outcome reported -> next stage
 #   manual:  stages a person or a crew member may move the bead to by hand
 #   end:     the bead closes here
+#
+# The reviewer sends a bead past the second review, for security alone, with
+# the outcome done-safe. A depot may list in .yardr/security_paths, a file of its
+# repository, the paths whose change must always have it: the yard then refuses
+# done-safe for a diff that touches one. The pack ships no list, since the
+# paths are the depot's, and without one done-safe is taken as it stands. See
+# the README.
 flows:
   default:
     stages:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: new, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }
       approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
   # Trains have their own path through review and landing. A GitHub hook's
   # says table reports merged, changes, question, and CI outcomes for the
-  # train; these edges keep that table in data alongside the flow.
+  # train; these edges keep that table in data alongside the flow. A train is
+  # reviewed once, then once more for security alone, both on the whole of its
+  # diff: there is no done-safe past the second review.
   train:
     type: train
     stages:
       backlog: { group: backlog, manual: [open] }
       open:    { group: builders, outcomes: { done: review, failed: open, conflict: merge, question: decide }, manual: [backlog] }
-      review:  { group: reviewers, outcomes: { done: approved, changes: open, question: decide } }
+      review:  { group: reviewers, outcomes: { done: review-security, changes: open, question: decide } }
+      review-security: { group: security-reviewers, outcomes: { done: approved, changes: open, question: decide } }
       approved: { group: assembly, outcomes: { done: in-pr, failed: open, conflict: merge, changes: open, question: decide, merged: merged } }
       in-pr:   { group: decisions, outcomes: { done: land, changes: open, question: decide, merged: merged } }
       land:    { group: assembly, outcomes: { done: merged, failed: open, question: decide, merged: merged } }
@@ -47,9 +58,15 @@ flows:
 
 # A group is exactly one of: an agent with a role, a script, or people.
 # limit is how many beads it works at once.
+#   binds_as: an agent group declared before this one, whose agent, model and
+#             permission arguments this group gets, as the yard has them or
+#             as the import binds them, so the import asks nothing for this
+#             one: the second review is run by the agent the first is, unless
+#             the import is given --bind security-reviewers=<kind>[:<model>]
 groups:
   builders:  { agent: roles/builder.md,  limit: 5 }
   reviewers: { agent: roles/reviewer.md, limit: 3 }
+  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }
   assembly:  { run: scripts/merge-local, limit: 1 }
   backlog:   { people: true }
   decisions: { people: true }
@@ -121,13 +138,13 @@ sources:
   linear:
     as: yardmaster
     hears:
-      task: { new: started, review: review, merged: done }
+      task: { new: started, review: review, review-security: review, merged: done }
   github:
     as: yardmaster
     says:
       - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
       - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
-      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security", outcome: changes, note: "CI failed on the head of the PR" }
       - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
       - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }

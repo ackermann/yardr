@@ -73,7 +73,7 @@ func TestStarterPackLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "starter" || len(p.Flows) != 2 || len(p.Groups) != 5 || len(p.Crew) != 1 {
+	if p.Name != "starter" || len(p.Flows) != 2 || len(p.Groups) != 6 || len(p.Crew) != 1 {
 		t.Fatalf("starter = %+v", p)
 	}
 	f := p.Flows[0]
@@ -81,14 +81,23 @@ func TestStarterPackLoads(t *testing.T) {
 	for _, s := range f.Stages {
 		stages = append(stages, s.Name)
 	}
-	if want := []string{"backlog", "new", "review", "approved", "decide", "merged"}; !reflect.DeepEqual(stages, want) {
+	if want := []string{"backlog", "new", "review", "review-security", "approved", "decide", "merged"}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("stages = %v, want the file's order %v", stages, want)
 	}
 	review := f.Stages[2]
-	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
+	if want := []store.Outcome{{Name: "done", To: "review-security"}, {Name: "done-safe", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
 		t.Fatalf("review outcomes = %v, want the file's order %v", review.Outcomes, want)
 	}
-	if want := []string{"roles/builder.md", "roles/reviewer.md", "roles/yardmaster.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
+	// The second review is another group's, which runs the first's agent
+	// unless the import binds it.
+	second := f.Stages[3]
+	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; second.Group != "security-reviewers" || !reflect.DeepEqual(second.Outcomes, want) {
+		t.Fatalf("review-security = %+v, want the group security-reviewers and the outcomes %v", second, want)
+	}
+	if g := p.Groups[2]; g.Name != "security-reviewers" || g.Agent != "roles/review-security.md" || g.BindsAs != "reviewers" {
+		t.Fatalf("group %+v, want security-reviewers with the review-security role, bound as reviewers", g)
+	}
+	if want := []string{"roles/builder.md", "roles/review-security.md", "roles/reviewer.md", "roles/yardmaster.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
 		t.Fatalf("files = %v, want %v", p.Files(), want)
 	}
 	// Every stage a bead is worked in has its stage file.
@@ -129,7 +138,8 @@ func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
 	got := p.Flows[0].StoreFlow("x")
 	want := `backlog -> new | decide
 new -> review on done | decide on question | backlog
-review -> approved on done | new on changes | decide on question
+review -> review-security on done | approved on done-safe | new on changes | decide on question
+review-security -> approved on done | new on changes | decide on question
 approved -> merged on done | new on failed | decide on question
 decide -> backlog | new
 merged terminal

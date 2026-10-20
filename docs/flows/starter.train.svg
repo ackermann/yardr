@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="flowdraw" viewBox="0 0 1428 294" width="1428" height="294" role="img" aria-label="Signalling diagram of flow train">
+<svg xmlns="http://www.w3.org/2000/svg" class="flowdraw" viewBox="0 0 1598 294" width="1598" height="294" role="img" aria-label="Signalling diagram of flow train">
 <title>Flow train</title>
 <style>
 .flowdraw{--board:#f5f1e6;--fg:#1d2420;--muted:#5d665f;--line:#2a2f2b;--platform:#cfc7b2;--accent:#b5412a;--mail:#c9962b}
@@ -23,9 +23,9 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 .lamp.unlit{fill:none;stroke:var(--muted)}
 .mail{fill:var(--mail)}
 </style>
-<rect class="board" width="1428" height="294"/>
+<rect class="board" width="1598" height="294"/>
 <text x="24" y="36" class="title">FLOW TRAIN</text>
-<text x="24" y="54" class="muted">backlog → merged · 9 stages</text>
+<text x="24" y="54" class="muted">backlog → merged · 10 stages</text>
 <line class="ln track" x1="24" y1="144" x2="129" y2="144"/>
 <line class="ln track" x1="129" y1="144" x2="299" y2="144"/>
 <line class="ln track" x1="299" y1="144" x2="469" y2="144"/>
@@ -34,8 +34,9 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <line class="ln track" x1="809" y1="144" x2="979" y2="144"/>
 <line class="ln track" x1="979" y1="144" x2="1149" y2="144"/>
 <line class="ln track" x1="1149" y1="144" x2="1319" y2="144"/>
-<line class="ln track" x1="1319" y1="144" x2="1383" y2="144"/>
-<path class="ln track" d="M1383 135 V153 M1383 135 h8 M1383 153 h8"/>
+<line class="ln track" x1="1319" y1="144" x2="1489" y2="144"/>
+<line class="ln track" x1="1489" y1="144" x2="1553" y2="144"/>
+<path class="ln track" d="M1553 135 V153 M1553 135 h8 M1553 153 h8"/>
 <g class="platform" data-stage="backlog">
 <rect x="85" y="110" width="88" height="12"/>
 <text x="129" y="160" class="mid">backlog</text>
@@ -79,38 +80,49 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <text x="0" y="43" class="mid muted">decisions</text>
 </g>
 </g>
-<g class="platform" data-stage="approved">
+<g class="platform" data-stage="review-security">
 <rect x="765" y="110" width="88" height="12"/>
-<text x="809" y="160" class="mid">approved</text>
+<text x="809" y="160" class="mid">review-security</text>
 <g class="signal"><line class="ln" stroke-width="2" x1="861" y1="144" x2="861" y2="118"/><circle class="lamp" cx="861" cy="116" r="5"/><circle class="ln" cx="861" cy="127" r="4"/></g>
-<g class="group script" data-group="assembly" transform="translate(809 170)">
+<g class="group sessions" data-group="security-reviewers" transform="translate(809 170)">
+<rect class="ln hand" x="-22" y="0" width="44" height="30"/>
+<line class="ln" x1="-8" y1="30" x2="-8" y2="6"/>
+<line class="ln" x1="8" y1="30" x2="8" y2="6"/>
+<text x="0" y="43" class="mid muted">security-reviewers</text>
+</g>
+</g>
+<g class="platform" data-stage="approved">
+<rect x="935" y="110" width="88" height="12"/>
+<text x="979" y="160" class="mid">approved</text>
+<g class="signal"><line class="ln" stroke-width="2" x1="1031" y1="144" x2="1031" y2="118"/><circle class="lamp" cx="1031" cy="116" r="5"/><circle class="ln" cx="1031" cy="127" r="4"/></g>
+<g class="group script" data-group="assembly" transform="translate(979 170)">
 <path class="fill" d="M-26 30 V10 L-14 2 V10 L-2 2 V10 L10 2 V10 H26 V30 Z"/>
 <rect class="solid" x="16" y="-4" width="6" height="14"/>
 <text x="0" y="43" class="mid muted">assembly</text>
 </g>
 </g>
 <g class="platform" data-stage="in-pr">
-<rect x="935" y="110" width="88" height="12"/>
-<text x="979" y="160" class="mid">in-pr</text>
-<g class="signal"><line class="ln" stroke-width="2" x1="1031" y1="144" x2="1031" y2="118"/><circle class="lamp" cx="1031" cy="116" r="5"/><circle class="ln" cx="1031" cy="127" r="4"/></g>
-<g class="group people" data-group="decisions" transform="translate(979 170)">
+<rect x="1105" y="110" width="88" height="12"/>
+<text x="1149" y="160" class="mid">in-pr</text>
+<g class="signal"><line class="ln" stroke-width="2" x1="1201" y1="144" x2="1201" y2="118"/><circle class="lamp" cx="1201" cy="116" r="5"/><circle class="ln" cx="1201" cy="127" r="4"/></g>
+<g class="group people" data-group="decisions" transform="translate(1149 170)">
 <path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
 <rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
 <text x="0" y="43" class="mid muted">decisions</text>
 </g>
 </g>
 <g class="platform" data-stage="land">
-<rect x="1105" y="110" width="88" height="12"/>
-<text x="1149" y="160" class="mid">land</text>
-<g class="group script" data-group="assembly" transform="translate(1149 170)">
+<rect x="1275" y="110" width="88" height="12"/>
+<text x="1319" y="160" class="mid">land</text>
+<g class="group script" data-group="assembly" transform="translate(1319 170)">
 <path class="fill" d="M-26 30 V10 L-14 2 V10 L-2 2 V10 L10 2 V10 H26 V30 Z"/>
 <rect class="solid" x="16" y="-4" width="6" height="14"/>
 <text x="0" y="43" class="mid muted">assembly</text>
 </g>
 </g>
 <g class="platform terminal" data-stage="merged">
-<rect x="1275" y="110" width="88" height="12"/>
-<text x="1319" y="160" class="mid">merged</text>
+<rect x="1445" y="110" width="88" height="12"/>
+<text x="1489" y="160" class="mid">merged</text>
 </g>
 <g class="siding" data-stage="decide">
 <path class="ln branch" d="M366 144 L378 82"/>
@@ -125,15 +137,17 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <text x="1042" y="105" class="small end">question</text>
 <path class="ln branch" d="M1216 144 L1228 82"/>
 <text x="1212" y="105" class="small end">question</text>
+<path class="ln branch" d="M1386 144 L1398 82"/>
+<text x="1382" y="105" class="small end">question</text>
 <path class="ln branch hand" d="M220 82 L232 144"/>
 <path class="ln branch hand" d="M50 82 L62 144"/>
-<line class="ln branch" stroke-width="2" x1="50" y1="82" x2="1228" y2="82"/>
-<text x="1236" y="86">decide</text>
-<g class="group people" data-group="decisions" transform="translate(1305 69) scale(.6)">
+<line class="ln branch" stroke-width="2" x1="50" y1="82" x2="1398" y2="82"/>
+<text x="1406" y="86">decide</text>
+<g class="group people" data-group="decisions" transform="translate(1475 69) scale(.6)">
 <path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
 <rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
 </g>
-<text x="1327" y="86" class="muted">decisions</text>
+<text x="1497" y="86" class="muted">decisions</text>
 </g>
 <g class="loops" data-to="open">
 <path class="ln branch" data-from="open" d="M370 144 V266 L364 272"/>
@@ -142,22 +156,24 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <text x="531" y="268" class="small end">changes</text>
 <path class="ln branch" data-from="merge" d="M718 144 V266 L712 272"/>
 <text x="709" y="268" class="small end">done, rework</text>
-<path class="ln branch" data-from="approved" d="M880 144 V266 L874 272"/>
-<text x="871" y="268" class="small end">failed, changes</text>
-<path class="ln branch" data-from="in-pr" d="M1050 144 V266 L1044 272"/>
-<text x="1041" y="268" class="small end">changes</text>
-<path class="ln branch" data-from="land" d="M1228 144 V266 L1222 272"/>
-<text x="1219" y="268" class="small end">failed</text>
-<line class="ln branch" x1="230" y1="272" x2="1222" y2="272"/>
+<path class="ln branch" data-from="review-security" d="M888 144 V266 L882 272"/>
+<text x="879" y="268" class="small end">changes</text>
+<path class="ln branch" data-from="approved" d="M1050 144 V266 L1044 272"/>
+<text x="1041" y="268" class="small end">failed, changes</text>
+<path class="ln branch" data-from="in-pr" d="M1220 144 V266 L1214 272"/>
+<text x="1211" y="268" class="small end">changes</text>
+<path class="ln branch" data-from="land" d="M1398 144 V266 L1392 272"/>
+<text x="1389" y="268" class="small end">failed</text>
+<line class="ln branch" x1="230" y1="272" x2="1392" y2="272"/>
 <path class="ln branch" d="M230 272 L224 266 V153"/>
 <path class="solid" d="M224 146 l-4 8 h8 Z"/>
 </g>
 <g class="loops" data-to="merge">
 <path class="ln branch" data-from="open" d="M378 144 V248 L384 254"/>
 <text x="369" y="250" class="small end">conflict</text>
-<path class="ln branch" data-from="approved" d="M872 144 V248 L866 254"/>
-<text x="863" y="250" class="small end">conflict</text>
-<line class="ln branch" x1="384" y1="254" x2="866" y2="254"/>
+<path class="ln branch" data-from="approved" d="M1042 144 V248 L1036 254"/>
+<text x="1033" y="250" class="small end">conflict</text>
+<line class="ln branch" x1="384" y1="254" x2="1036" y2="254"/>
 <path class="ln branch" d="M558 254 L564 248 M570 254 L564 248 V153"/>
 <path class="solid" d="M564 146 l-4 8 h8 Z"/>
 </g>
@@ -167,7 +183,7 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <path class="ln branch" d="M60 236 L54 230 V153"/>
 <path class="solid" d="M54 146 l-4 8 h8 Z"/>
 </g>
-<g class="loops" data-to="approved">
+<g class="loops" data-to="review-security">
 <path class="ln branch" data-from="review" d="M548 144 V230 L554 236"/>
 <text x="539" y="232" class="small end">done</text>
 <line class="ln branch" x1="554" y1="236" x2="728" y2="236"/>
@@ -175,12 +191,12 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 <path class="solid" d="M734 146 l-4 8 h8 Z"/>
 </g>
 <g class="loops" data-to="merged">
-<path class="ln branch" data-from="approved" d="M888 144 V230 L894 236"/>
-<text x="879" y="232" class="small end">merged</text>
-<path class="ln branch" data-from="in-pr" d="M1058 144 V230 L1064 236"/>
+<path class="ln branch" data-from="approved" d="M1058 144 V230 L1064 236"/>
 <text x="1049" y="232" class="small end">merged</text>
-<line class="ln branch" x1="894" y1="236" x2="1238" y2="236"/>
-<path class="ln branch" d="M1238 236 L1244 230 V153"/>
-<path class="solid" d="M1244 146 l-4 8 h8 Z"/>
+<path class="ln branch" data-from="in-pr" d="M1228 144 V230 L1234 236"/>
+<text x="1219" y="232" class="small end">merged</text>
+<line class="ln branch" x1="1064" y1="236" x2="1408" y2="236"/>
+<path class="ln branch" d="M1408 236 L1414 230 V153"/>
+<path class="solid" d="M1414 146 l-4 8 h8 Z"/>
 </g>
 </svg>
