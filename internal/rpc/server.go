@@ -98,7 +98,7 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 		}
 		a.call(w, r, r.PathValue("method"), body)
 	})
-	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) { a.events(w, r, nil, 0) })
+	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) { a.events(w, r, nil, 0, nil) })
 	mux.HandleFunc("GET /blobs/{hash}", a.blob)
 	mux.HandleFunc("GET /wake", func(w http.ResponseWriter, r *http.Request) {
 		ch, _ := st.Wake(r.Context())
@@ -173,8 +173,10 @@ func noSuchMethod(name string) reply {
 // events streams the events after ?after=. still, when given, is asked
 // every `every` and on an event that takes a way in away (endsAccess),
 // before that event is sent: the stream ends when it says no. The socket
-// gives none: whoever opened it can open it again.
-func (a *api) events(w http.ResponseWriter, r *http.Request, still func() bool, every time.Duration) {
+// gives none: whoever opened it can open it again. shape, when given, is
+// what each event is sent as: the listener holds back what a device is not
+// told, and the socket sends every event as it is.
+func (a *api) events(w http.ResponseWriter, r *http.Request, still func() bool, every time.Duration, shape func(store.Event) store.Event) {
 	after, err := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
 	if err != nil && r.URL.Query().Get("after") != "" {
 		http.Error(w, "bad after", http.StatusBadRequest)
@@ -197,6 +199,9 @@ func (a *api) events(w http.ResponseWriter, r *http.Request, still func() bool, 
 			case e, ok := <-ch:
 				if ok && still != nil && endsAccess(e) && !still() {
 					return nil, false
+				}
+				if ok && shape != nil {
+					e = shape(e)
 				}
 				return e, ok
 			case <-tick:

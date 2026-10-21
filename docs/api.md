@@ -596,10 +596,13 @@ nothing else. What is not the same:
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
   answers the device's user and no other; `Users` lists them all.
-- **`Settings` leaves out the operator's own words to the agents**,
-  `operator_style` and `operator_note`, for a device of any user but the
-  operator, and for every device in a yard with no operator. Every other
-  setting is told as on the socket.
+- **`Settings` answers the promised keys alone**: `operator`,
+  `blob_max_bytes` and `files_max`, and the operator's own words to the
+  agents, `operator_style` and `operator_note`, for a device of the
+  operator alone, and for none in a yard with no operator. No other
+  setting is answered on the listener, and a `setting_changed` in the
+  stream carries its value for these keys alone: any other setting's
+  event comes with the key and without one.
 - **`GET /user/me`** answers who the token is, in place of [the name a
   client on the machine takes](#who-you-are):
 
@@ -783,7 +786,7 @@ POST /call/Settings
 | `blob_max_bytes` | string, may be absent | the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB) |
 | `files_max` | string | how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number |
 
-The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls. Over the network they are told to a device of the operator and to no other, and to none in a yard with no operator; every other setting is told as on the socket.
+The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of the operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream carries its `value` for these keys alone; for any other setting the key comes without one.
 
 ### `Users`
 

@@ -563,9 +563,12 @@ bead with its notes, the crew, the users, and through the stream the mail
 of everyone in the yard. That is true of a device of any user, so `device
 add` for a user who is not the operator says it. It is also what a lost
 token gives away until its device is removed. One thing at the terminal a
-device of another user does not read: the operator's own words to their
-agents, `operator_style` and `operator_note` of `Settings`, which are told
-to a device of the operator alone.
+device does not read whole is `Settings`, which answers a device the
+promised keys alone: `operator`, `blob_max_bytes` and `files_max`, and to
+a device of the operator alone the operator's own words to their agents,
+`operator_style` and `operator_note`. No other setting is told to a
+device, and the values in other settings' `setting_changed` events are
+held back the same way: the key comes without one.
 
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token

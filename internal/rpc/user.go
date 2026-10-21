@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -160,22 +162,58 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	return u
 }
 
-// settings is Settings as a device is told it: the map the socket answers,
-// but for the operator's own words to the agents (store.StyleSetting and
-// store.NoteSetting), which only a device of the operator is told. The
-// socket tells whoever calls, since an agent's session reads them there
-// (yardr prime); over the network a device is a person's, and the words
-// are the operator's to share. A yard without an operator tells no device.
+// deviceSettings are the settings a device is told: the operator, the caps
+// on a file, and the operator's own words to the agents, the last to a
+// device of the operator alone (deviceTold). What docs/api.md promises, and
+// nothing else: no edge, no hook URL, no JWT audience, no backup directory.
+// Settings answers these alone, and a setting_changed carries its value for
+// these alone, so a lost device token gives away no address or secret of
+// the yard.
+var deviceSettings = []string{
+	store.OperatorSetting,
+	store.BlobMaxSetting,
+	store.FilesMaxSetting,
+	store.StyleSetting,
+	store.NoteSetting,
+}
+
+// deviceTold reports whether a device of user is told the setting key: one
+// of deviceSettings, but the operator's own words to the agents
+// (operator_style, operator_note) only when user is the yard's operator.
+// operator is the yard's operator setting, "" when it names none: a yard
+// without an operator tells the words to no device, since there is nobody
+// they are the words of.
+func deviceTold(key, user, operator string) bool {
+	if !slices.Contains(deviceSettings, key) {
+		return false
+	}
+	if key == store.StyleSetting || key == store.NoteSetting {
+		return operator != "" && operator == user
+	}
+	return true
+}
+
+// settings is Settings as a device is told it: the allow-listed settings
+// alone (deviceTold), the operator's own words to the agents only to a
+// device of the operator. The socket tells whoever calls, since an agent's
+// session reads them there (yardr prime); over the network a device is a
+// person's, and anything else stays on the yard's own machine.
 func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 	all, err := u.st.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if c, _ := ctx.Value(callerKey{}).(*Caller); c == nil || all[store.OperatorSetting] == "" || all[store.OperatorSetting] != c.User {
-		delete(all, store.StyleSetting)
-		delete(all, store.NoteSetting)
+	var user string
+	if c, _ := ctx.Value(callerKey{}).(*Caller); c != nil {
+		user = c.User
 	}
-	return all, nil
+	out := map[string]string{}
+	for key, value := range all {
+		if deviceTold(key, user, all[store.OperatorSetting]) {
+			out[key] = value
+		}
+	}
+	return out, nil
 }
 
 // device resolves a device token: the one kind of credential there is.
@@ -797,5 +835,33 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 		now, _ := u.resolveIn(r.Context(), credential, remote(r))
 		return now != nil && *now == *c
 	}
-	u.api.events(w, r, still, u.recheck)
+	u.api.events(w, r, still, u.recheck, func(e store.Event) store.Event {
+		return u.deviceEvent(r.Context(), c, e)
+	})
+}
+
+// deviceEvent is the event e as the device c is sent it: as it is, but for
+// a setting_changed, which carries its value only for a setting the device
+// is told (deviceTold). The key is always told: a device matches on it alone
+// for what it reads again, and the values it is not told stay on the yard's
+// own machine with the settings themselves.
+func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) store.Event {
+	if e.Kind != "setting_changed" {
+		return e
+	}
+	key, _ := e.Data["key"].(string)
+	operator := ""
+	if key == store.StyleSetting || key == store.NoteSetting {
+		// The operator alone is told the words: read who that is now, so
+		// a change of operator moves the next such event with it.
+		if all, err := u.st.Settings(ctx); err == nil {
+			operator = all[store.OperatorSetting]
+		}
+	}
+	if deviceTold(key, c.User, operator) {
+		return e
+	}
+	e.Data = maps.Clone(e.Data)
+	delete(e.Data, "value")
+	return e
 }

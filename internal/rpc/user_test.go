@@ -13,12 +13,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // userYard is a yard with the operator jo, a second user sam, the crew
@@ -319,30 +321,21 @@ func TestUserMe(t *testing.T) {
 	}
 }
 
-// The operator's own words to the agents, operator_style and operator_note,
-// are told to a device of the operator and to no other: to sam's they are
-// left out of Settings, which answers everything else as before, and so
-// they are on a yard that names no operator. Set to nothing they are not
-// there for the operator either. The socket tells whoever calls, since an
-// agent's session reads them there (yardr prime): the listener holds them
-// back, and nothing else does.
-func TestUserSettingsTellsTheOperatorsWordsToTheOperator(t *testing.T) {
+// Settings tells a device only the settings docs/api.md promises: the
+// operator, the caps on a file, and the operator's own words to the agents
+// to a device of the operator alone. hook_public_url and edge, set beside
+// them, are answered to no device, and the words are answered to sam's
+// neither, nor to any device on a yard that names no operator. Set to
+// nothing a promised key is not there either. The socket answers every key
+// to whoever calls, as before, since an agent's session reads them there
+// (yardr prime).
+func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 	ctx := context.Background()
 	st, u, jo := userYard(t)
 	h := u.Handler()
 	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
 	if err != nil {
 		t.Fatal(err)
-	}
-	// words are the two of Settings' map that are the operator's.
-	words := func(all map[string]string) map[string]string {
-		out := map[string]string{}
-		for _, key := range []string{store.StyleSetting, store.NoteSetting} {
-			if v, ok := all[key]; ok {
-				out[key] = v
-			}
-		}
-		return out
 	}
 	settings := func(token string) map[string]string {
 		t.Helper()
@@ -358,45 +351,131 @@ func TestUserSettingsTellsTheOperatorsWordsToTheOperator(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	none := map[string]string{}
-	both := map[string]string{store.StyleSetting: "work", store.NoteSetting: "I read diffs, not prose"}
+	files := strconv.Itoa(store.MaxMailFiles)
 	check := func(when, who string, got, want map[string]string) {
 		t.Helper()
 		if !maps.Equal(got, want) {
-			t.Errorf("%s, %s is told %v of the operator's words, want %v", when, who, got, want)
+			t.Errorf("%s, %s is told %v, want %v", when, who, got, want)
 		}
 	}
 
-	check("unset", "the operator's device", words(settings(jo)), none)
-	check("unset", "sam's device", words(settings(tablet.Token)), none)
+	bare := map[string]string{store.OperatorSetting: "jo", store.FilesMaxSetting: files}
+	check("with only the operator set", "the operator's device", settings(jo), bare)
+	check("with only the operator set", "sam's device", settings(tablet.Token), bare)
 
 	set(store.StyleSetting, "work")
 	set(store.NoteSetting, "I read diffs, not prose")
-	check("set", "the operator's device", words(settings(jo)), both)
-	check("set", "sam's device", words(settings(tablet.Token)), none)
-	// Everything else is told to sam as it is to jo.
-	if got := settings(tablet.Token); got[store.OperatorSetting] != "jo" || got[store.FilesMaxSetting] == "" {
-		t.Errorf("sam's device is told %v, want the operator and the files cap besides", got)
+	set(store.BlobMaxSetting, "16777216")
+	set(store.HookPublicURLSetting, "https://hooks.example.com/south")
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "edge.key"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	set(store.EdgeSetting, store.Edge{URL: "https://edge.example.com", Key: yardkey.Public(key), Handle: "south"}.String())
 
-	// One of the two set is the one that is there.
+	told := map[string]string{store.OperatorSetting: "jo", store.FilesMaxSetting: files, store.BlobMaxSetting: "16777216"}
+	check("set", "sam's device", settings(tablet.Token), told)
+	words := maps.Clone(told)
+	words[store.StyleSetting] = "work"
+	words[store.NoteSetting] = "I read diffs, not prose"
+	check("set", "the operator's device", settings(jo), words)
+
+	// One of the two words set to nothing is the one that is gone.
 	set(store.NoteSetting, "")
-	check("only the style set", "the operator's device", words(settings(jo)), map[string]string{store.StyleSetting: "work"})
+	delete(words, store.NoteSetting)
+	check("with the note cleared", "the operator's device", settings(jo), words)
 	set(store.NoteSetting, "I read diffs, not prose")
 
-	// The socket answers both to whoever calls, as it did.
+	// The socket answers every key to whoever calls, as it did.
 	sock := socket(t)
 	serve(t, sock, Handler(st, nil).ServeHTTP)
 	var viaSocket struct{ Result map[string]string }
 	if err := json.Unmarshal(post(t, overSocket(sock), "Settings", `{}`), &viaSocket); err != nil {
 		t.Fatal(err)
 	}
-	check("set", "the socket", words(viaSocket.Result), both)
+	for _, key := range []string{store.OperatorSetting, store.StyleSetting, store.NoteSetting,
+		store.BlobMaxSetting, store.FilesMaxSetting, store.HookPublicURLSetting, store.EdgeSetting} {
+		if _, ok := viaSocket.Result[key]; !ok {
+			t.Errorf("the socket answers %v, want %s among it", viaSocket.Result, key)
+		}
+	}
 
-	// A yard with no operator tells no device: there is nobody they are
-	// the words of.
+	// A yard with no operator tells the words to no device: there is
+	// nobody they are the words of. The operator's own key goes with it.
 	set(store.OperatorSetting, "")
-	check("with no operator", "the old operator's device", words(settings(jo)), none)
+	noname := map[string]string{store.FilesMaxSetting: files, store.BlobMaxSetting: "16777216"}
+	check("with no operator", "the old operator's device", settings(jo), noname)
+	check("with no operator", "sam's device", settings(tablet.Token), noname)
+}
+
+// A device's stream carries a setting_changed for every key, but its value
+// only for a setting the device is told, as in Settings: sam's stream has
+// the operator's value and none for hook_public_url, max_sessions or the
+// operator's words, while the operator's own device has the words' values
+// too. A device matches on the key alone for what it reads again, so it
+// keeps working without the values.
+func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
+	ctx := context.Background()
+	st, u, jo := userYard(t)
+	sam, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := listen(t, u, time.Minute)
+	head, _ := st.Head(ctx)
+	jos, _ := follow(t, base, jo, head)
+	sams, _ := follow(t, base, sam.Token, head)
+	set := func(key, value string) {
+		t.Helper()
+		if err := st.SetSetting(ctx, key, value, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// changed is the stream's next setting_changed: its key, and its value
+	// with whether one came.
+	changed := func(lines <-chan string) (key string, value string, has bool) {
+		t.Helper()
+		line := next(t, lines)
+		var e struct {
+			Kind string         `json:"kind"`
+			Data map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatal(err)
+		}
+		if e.Kind != "setting_changed" {
+			t.Fatalf("the stream sent %s, want a setting_changed", line)
+		}
+		key, _ = e.Data["key"].(string)
+		var v any
+		if v, has = e.Data["value"]; has {
+			value, _ = v.(string)
+		}
+		return key, value, has
+	}
+	check := func(who string, lines <-chan string, key, value string, has bool) {
+		t.Helper()
+		if got, gotValue, gotHas := changed(lines); got != key || gotValue != value || gotHas != has {
+			t.Errorf("%s is sent %s with value %q (there: %v), want %s with %q (there: %v)",
+				who, got, gotValue, gotHas, key, value, has)
+		}
+	}
+
+	set(store.HookPublicURLSetting, "https://hooks.example.com/south")
+	check("sam's stream", sams, store.HookPublicURLSetting, "", false)
+	check("the operator's stream", jos, store.HookPublicURLSetting, "", false)
+
+	set(store.OperatorSetting, "jo")
+	check("sam's stream", sams, store.OperatorSetting, "jo", true)
+	check("the operator's stream", jos, store.OperatorSetting, "jo", true)
+
+	set(store.MaxSessionsSetting, "4")
+	check("sam's stream", sams, store.MaxSessionsSetting, "", false)
+	check("the operator's stream", jos, store.MaxSessionsSetting, "", false)
+
+	set(store.StyleSetting, "work")
+	check("sam's stream", sams, store.StyleSetting, "", false)
+	check("the operator's stream", jos, store.StyleSetting, "work", true)
 }
 
 // userPaths are requests of every kind the handler serves, and of none.

@@ -218,7 +218,7 @@ var apiCalls = []apiCall{
 			{"blob_max_bytes", "string?", "the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB)"},
 			{"files_max", "string", "how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number"},
 		},
-		after: "The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls. Over the network they are told to a device of the operator and to no other, and to none in a yard with no operator; every other setting is told as on the socket.",
+		after: "The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of the operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream carries its `value` for these keys alone; for any other setting the key comes without one.",
 	},
 	{
 		method:   "Users",
