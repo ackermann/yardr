@@ -2,13 +2,17 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -236,6 +240,93 @@ func TestDiffStat(t *testing.T) {
 	got := diffStat(ctx, st, *b)
 	if !strings.Contains(got, "hello.txt") || strings.Contains(got, "other.txt") || !strings.Contains(got, "1 file changed") {
 		t.Fatalf("stat = %q", got)
+	}
+}
+
+// A depot base stored before PutDepot held bases to a branch's shape may
+// start with '-': review fails it as git does, instead of running it as a
+// git option. A legit base's diff renders as today.
+func TestDiffStatHostileStoredBase(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "-q", "--allow-empty", "-m", "base")
+	// The depot row as the old socket path stored it, around PutDepot,
+	// which refuses such a base now: written straight into a fresh file,
+	// as a store from before the refusal holds one. The --output value
+	// has its parent made, so without the token git writes the file and
+	// this test fails on that, not on git's refusal to write it.
+	tmp := t.TempDir()
+	hostile := "--output=" + filepath.Join(tmp, "pwned")
+	if err := os.Mkdir(filepath.Join(tmp, "pwned...yard"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(store.Depot{Name: "yard", Path: repo, Base: hostile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "yard.db")
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		depots, err := tx.CreateBucket([]byte("depots"))
+		if err != nil {
+			return err
+		}
+		return depots.Put([]byte("yard"), raw)
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := storetest.Open(t, path)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "plain", Path: repo, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := st.GetDepot(ctx, "yard"); err != nil || d.Base != hostile {
+		t.Fatalf("stored depot = %+v, %v; want the hostile base", d, err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "approved"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	git("checkout", "-q", "-b", "yard/"+b.ID)
+	if err := os.WriteFile(repo+"/hello.txt", []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "hello.txt")
+	git("commit", "-q", "-m", "hello")
+	got := diffStat(ctx, st, *b)
+	if !strings.Contains(got, "fatal:") || strings.Contains(got, "hello.txt") {
+		t.Fatalf("hostile base: %q, want git's fatal and no diff", got)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "pwned...yard", b.ID)); !os.IsNotExist(err) {
+		t.Fatalf("the hostile base wrote its --output: err = %v", err)
+	}
+	// A legit base's diff renders as today.
+	git("checkout", "-q", "main")
+	l, err := st.CreateBead(ctx, store.NewBead{Title: "y", Depot: "plain", Stage: "approved"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	git("checkout", "-q", "-b", "yard/"+l.ID)
+	if err := os.WriteFile(repo+"/plain.txt", []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "plain.txt")
+	git("commit", "-q", "-m", "plain")
+	if got := diffStat(ctx, st, *l); !strings.Contains(got, "plain.txt") || !strings.Contains(got, "1 file changed") {
+		t.Fatalf("legit base: %q", got)
 	}
 }
 

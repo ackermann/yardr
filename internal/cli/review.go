@@ -204,7 +204,10 @@ func diffStat(ctx context.Context, st store.API, b store.Bead) string {
 	if err != nil {
 		return err.Error()
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--stat", rng).CombinedOutput()
+	// --end-of-options before the range, which starts with the depot's
+	// stored base: one stored before bases were held to a branch's shape
+	// may start with '-', and would otherwise parse as an option.
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--stat", "--end-of-options", rng).CombinedOutput()
 	if err != nil {
 		return fmt.Sprintf("git diff --stat %s: %v: %s", rng, err, strings.TrimSpace(string(out)))
 	}
@@ -220,7 +223,9 @@ func pageDiff(ctx context.Context, st store.API, b store.Bead) error {
 	if err != nil {
 		return err
 	}
-	git := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--color=always", rng)
+	// --end-of-options before the range, as in diffStat: the range starts
+	// with the depot's stored base.
+	git := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--color=always", "--end-of-options", rng)
 	pager := exec.CommandContext(ctx, "sh", "-c", or(os.Getenv("PAGER"), "less -R"))
 	if pager.Stdin, err = git.StdoutPipe(); err != nil {
 		return err
