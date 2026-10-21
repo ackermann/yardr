@@ -815,10 +815,11 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 // A Chrome that never finishes must fail at its deadline on every run, not
 // just usually: the watchdog once lost its TERM to a timer that had forked
 // but not exec'd, waited out its 5 s grace sleep, and returned SHOT_TIMEOUT
-// + 5 s about one run in ten (yardr-pt36). Each run of the loop is timed on
-// its own: a slow run fails the test however fast the rest were. The bound
-// is the timeout plus four seconds: normal runs take about two, slow ones
-// over six.
+// + 5 s about one run in ten (yardr-pt36). Each run is timed from the
+// stand-in's ready marker, so process startup under load does not consume
+// the watchdog's allowance; a slow run fails however fast the rest were.
+// The bound is the timeout plus four seconds: normal runs take about two,
+// slow ones over six.
 func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -832,14 +833,27 @@ func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 		env = append(env, readySleep(t, pids)...)
 		env = append(env, "SHOT_TIMEOUT=1")
 		out := filepath.Join(t.TempDir(), "shot.png")
-		start := time.Now()
-		rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
-		dt := time.Since(start)
-		if rc == 0 || !strings.Contains(text, "chrome did not finish within 1s") {
-			t.Errorf("run %d of %d: exit %d, %q, want a refusal naming the deadline", i+1, runs, rc, text)
+		type outcome struct {
+			rc   int
+			text string
+			err  error
 		}
-		if dt > 5*time.Second {
-			t.Errorf("run %d of %d: the refusal took %s, want within SHOT_TIMEOUT + 4 s", i+1, runs, dt.Round(time.Millisecond))
+		done := make(chan outcome, 1)
+		ctx := shotCtx(t)
+		go func() {
+			rc, text, err := runShotCmd(ctx, []string{s.URL + "/page", out}, env...)
+			done <- outcome{rc, text, err}
+		}()
+		readyAt := ready(t, pids, 30*time.Second)
+		res := <-done
+		if res.err != nil {
+			t.Fatalf("run %d of %d: shot: %v", i+1, runs, res.err)
+		}
+		if res.rc == 0 || !strings.Contains(res.text, "chrome did not finish within 1s") {
+			t.Errorf("run %d of %d: exit %d, %q, want a refusal naming the deadline", i+1, runs, res.rc, res.text)
+		}
+		if dt := time.Since(readyAt); dt > 5*time.Second {
+			t.Errorf("run %d of %d: the refusal took %s after Chrome was ready, want within SHOT_TIMEOUT + 4 s", i+1, runs, dt.Round(time.Millisecond))
 		}
 		dead(t, pids)
 	}
