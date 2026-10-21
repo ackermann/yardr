@@ -410,6 +410,9 @@ runner already builds for panes. Concretely:
     while `Effective` keeps reading the process. `TestMain` keeps the
     two in agreement for parallel tests by blanking them in the
     process, and a test that sets one to a value stays serial.
+  - the login name (`USER`, `LOGNAME`) that `defaultOperator`
+    (`init.go:829`) reads from the process; the tests that set one
+    stay serial.
   In a test binary these values are constant while parallel tests
   run. Go refuses `t.Setenv` and `t.Chdir` in a test that calls
   `t.Parallel`, and it starts parallel tests only after the sequential
@@ -459,9 +462,10 @@ runner already builds for panes. Concretely:
     set them: `newAppYard` (`githubapp_test.go:97`-`100`, 3 callers),
     `openYard` (`threadopen_test.go:173`-`176`, 4) and `stateYard`
     (`threadstate_test.go:159`-`162`, 6).
-  - The setting variables set to a value, 6:
+  - The setting variables set to a value, 7:
     `TestAddrSettingsAreCheckedAsTheFlag`,
     `TestSettingsGetPrintsTheValueInEffect`,
+    `TestStartAndInstallTakeTheAddrSetting`,
     `TestStartAndInstallTakeThePagesFlags`, `TestUpgradeRestoreOn`,
     `TestWebServeAsTakesFlagEnvAndSetting` and
     `TestWebServeJWTRefusals`.
@@ -470,7 +474,7 @@ runner already builds for panes. Concretely:
     as the service seams. Its 42 callers are already serial as service
     seam tests (section 3.3), and this is a second reason. So are the
     seven `userHomeDir` stubs.
-  That is about 69 test functions beyond the 42 `stubServices` callers,
+  That is about 70 test functions beyond the 42 `stubServices` callers,
   some of them also in note 6084's serial-essential class. The counts
   are by test function and helper caller at the base of this revision;
   B6 recounts them at its own base, and S7's hygiene data lists them by
