@@ -173,8 +173,9 @@ func (w *wtx) renamePeer(ctx context.Context, name, to, actor string, by *approv
 	if len(crew) > 0 {
 		data["crew"] = crew
 	}
-	// A subscription to the source peer that filters on the yard names
-	// it, and is given the new name too.
+	// A subscription that filters on the yard, to the source peer by peer=
+	// or to any source by one of its crew in speaker=, is given the new
+	// name too.
 	if subs, err := renamePeerFilters(w.Tx, name, to); err != nil {
 		return nil, err
 	} else if len(subs) > 0 {

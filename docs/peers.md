@@ -952,8 +952,9 @@ for each in `yardr peer show <peer>` (`--json`: `peer.identities`).
 **When it goes.** `--rm` takes one back. Removing the link takes all of them,
 and `peer_removed` lists what went. A yard added again under the name starts
 with none. Renaming the link keeps them and changes the speaker's name to match
-(`mayor@new-name`), so a subscription that filters on the old address matches
-nothing until someone edits it. When `yardr pack apply` folds a source's
+(`mayor@new-name`); a subscription that filters on the old address, a crew
+member's, a user's or a group's, is given the new one in the same write, so
+it keeps matching the sender. When `yardr pack apply` folds a source's
 `<name>-declared` records into `<name>`, the identities move with them.
 
 ## Kinds
@@ -3109,7 +3110,7 @@ with is 401, as any request that is no peer's.
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `identities` (each `source`, `id`, `crew`) that went with it, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
-| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription whose `peer=` or `speaker=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all); `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way |
 | `peer_identity_set` | `peer identity --id` | `peer`, `crew`, `source`, `id`; `was`, the id the crew member had in the source, when it replaced another; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way. A `sender_unignored` follows when the id was on the source's ignore list |

@@ -98,24 +98,40 @@ func PeerDeliveryLine(data map[string]any) string {
 }
 
 // renamePeerFilters puts the peer's new name in place of the old in every
-// subscription to SourcePeer that filters on it, a crew member's, a user's
-// or a group's, and returns whose had it: the filter named the yard, and
-// the yard is the same one.
+// subscription that filters on it, a crew member's, a user's or a group's,
+// and returns whose had it: the filter named the yard, and the yard is the
+// same one. That is a subscription to SourcePeer with the yard in its peer=
+// filter, and any subscription with one of the yard's crew in its speaker=
+// filter, <crew>@<old>: the speaker names the peer too
+// (PeerIdentity.Speaker), whatever source the subscription hears.
 func renamePeerFilters(tx *bolt.Tx, name, to string) ([]string, error) {
 	renamed := func(subs []Subscription) bool {
 		changed := false
 		for i, sub := range subs {
-			vals := WhereValues(sub.Where["peer"])
-			if sub.Source != SourcePeer || !slices.Contains(vals, name) {
+			peer, speaker := "", ""
+			if sub.Source == SourcePeer {
+				if vals := WhereValues(sub.Where["peer"]); slices.Contains(vals, name) {
+					vals[slices.Index(vals, name)] = to
+					peer = JoinWhere(vals)
+				}
+			}
+			if vals, ok := renamedSpeakers(WhereValues(sub.Where[SpeakerKey]), name, to); ok {
+				speaker = JoinWhere(vals)
+			}
+			if peer == "" && speaker == "" {
 				continue
 			}
-			vals[slices.Index(vals, name)] = to
 			// Not the stored map itself, which another subscription may share.
 			where := map[string]string{}
 			for k, v := range sub.Where {
 				where[k] = v
 			}
-			where["peer"] = JoinWhere(vals)
+			if peer != "" {
+				where["peer"] = peer
+			}
+			if speaker != "" {
+				where[SpeakerKey] = speaker
+			}
 			subs[i].Where, changed = where, true
 		}
 		return changed
@@ -169,6 +185,26 @@ func renamePeerFilters(tx *bolt.Tx, name, to string) ([]string, error) {
 		err = put(tx, bGroups, g.Name, g)
 	}
 	return names, err
+}
+
+// renamedSpeakers is vals with the peer's new name in place of the old in
+// every speaker of its crew, <crew>@<old>. A speaker with no "@" is a user
+// of this yard or outside, and one at another yard names another peer, so
+// both stand as they are. Neither a crew member's name nor a peer's holds
+// an "@", so the part past the first is the yard it names, whole.
+func renamedSpeakers(vals []string, name, to string) ([]string, bool) {
+	out, changed := vals, false
+	for i, v := range vals {
+		crew, peer, ok := strings.Cut(v, "@")
+		if !ok || peer != name {
+			continue
+		}
+		if !changed {
+			out = slices.Clone(vals)
+		}
+		out[i], changed = crew+"@"+to, true
+	}
+	return out, changed
 }
 
 // peerThread is the thread a crew member follows in source as its

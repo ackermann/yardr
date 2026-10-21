@@ -1,9 +1,11 @@
 package store_test
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -319,6 +321,98 @@ func TestPeerIdentityGoesWithTheLink(t *testing.T) {
 	}
 	if p, err := y.api.GetPeer(y.ctx, "up"); err != nil || p.Identities != nil {
 		t.Fatalf("a yard added again under the name maps %+v, %v", p, err)
+	}
+}
+
+// Renaming a link carries the subscriptions that filter on one of its
+// crew's speakers, a crew member's, a user's and a group's: the filter
+// follows the new name, so a delivery from the mapped sender still reaches
+// the subscriber. Before the rename the delivery arrives under the old
+// speaker; after, under the new one, and nothing is left under the old. A
+// speaker of another yard stands as it is.
+func TestPeerRenameCarriesSpeakerFilters(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	y.mapPeer(t, "north", "chat", "U7", "mayor")
+	sub := store.Subscription{Source: "chat", Scope: store.ScopeAll, Where: map[string]string{"speaker": "mayor@north"}}
+	if err := y.api.AddSubscription(y.ctx, "clerk", sub, "clerk"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.AddSubscription(y.ctx, "clerk", store.Subscription{Source: "chat", Scope: store.ScopeAll,
+		Where: map[string]string{"speaker": "clerk@elsewhere"}}, "clerk"); err != nil {
+		t.Fatal(err)
+	}
+	// The user's filter holds another speaker beside the mayor's, which
+	// the rename keeps.
+	if err := y.api.AddSubscription(y.ctx, "ada", store.Subscription{Source: "chat", Scope: store.ScopeAll,
+		Where: map[string]string{"speaker": "mayor@north\x00ada"}}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "watch", Runner: "manual", Members: []string{"yardmaster"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.AddSubscription(y.ctx, "watch", sub, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	deliver := func(t *testing.T, speaker, body string) {
+		t.Helper()
+		if _, dup, err := y.own.RecordHook(y.ctx, "chatline", map[string]any{
+			"source": "chat", "type": "message", "action": "create", "hook": "chatline",
+			"fields": map[string]any{"speaker": []any{speaker}, "sender": []any{"U7"}},
+		}, []byte(body), nil); err != nil || dup {
+			t.Fatalf("RecordHook = %v, %v", dup, err)
+		}
+	}
+	inbox := func(t *testing.T) int {
+		t.Helper()
+		page, err := y.api.Inbox(y.ctx, "clerk", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Total
+	}
+	deliver(t, "mayor@north", "before")
+	if got := inbox(t); got != 1 {
+		t.Fatalf("clerk's inbox before the rename holds %d, want the mayor's delivery", got)
+	}
+
+	if _, err := y.api.RenamePeer(y.ctx, "north", "south", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := y.api.GetCrew(y.ctx, "clerk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Subscriptions) != 2 || r.Subscriptions[0].Where["speaker"] != "mayor@south" ||
+		r.Subscriptions[1].Where["speaker"] != "clerk@elsewhere" {
+		t.Fatalf("clerk after the rename subscribes to %v", r.Subscriptions)
+	}
+	u, err := y.api.GetUser(y.ctx, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Subscriptions) != 1 || !slices.Equal(store.WhereValues(u.Subscriptions[0].Where["speaker"]), []string{"ada", "mayor@south"}) {
+		t.Fatalf("ada after the rename subscribes to %v", u.Subscriptions)
+	}
+	g, err := y.api.GetGroup(y.ctx, "watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Subscriptions) != 1 || g.Subscriptions[0].Where["speaker"] != "mayor@south" {
+		t.Fatalf("watch after the rename subscribes to %v", g.Subscriptions)
+	}
+	renamed := peerEvents(t, y.api, "peer_renamed")
+	if raw, _ := json.Marshal(renamed[0].Data["subscriptions"]); len(renamed) != 1 || string(raw) != `["clerk","ada","watch"]` {
+		t.Fatalf("peer_renamed = %+v", renamed)
+	}
+
+	deliver(t, "mayor@south", "after")
+	if got := inbox(t); got != 2 {
+		t.Fatalf("clerk's inbox after the rename holds %d, want the mayor's delivery under the new speaker too", got)
+	}
+	deliver(t, "mayor@north", "old")
+	if got := inbox(t); got != 2 {
+		t.Fatalf("clerk's inbox after a delivery under the old speaker holds %d, want still 2", got)
 	}
 }
 
