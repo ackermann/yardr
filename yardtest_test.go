@@ -1277,7 +1277,7 @@ fi
 	if len(waits) != 1 {
 		t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), out)
 	}
-	if !regexp.MustCompile(`(?m)^test: race lock wait started at \d+$`).Match(out) {
+	if !raceWaitStarted.Match(out) {
 		t.Errorf("the output has no start marker for the active race-lock wait:\n%s", out)
 	}
 	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
@@ -1364,13 +1364,17 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 
 // The race lock dies with the run, whatever the run leaves behind: a run
 // under racelocked that backgrounds a long sleep and exits releases the
-// lock at once, so a second run gets it within a second (an orphaned sleep
-// once held it past the run: yardr-tsms). The holder also ends as a shell
-// would: the run's exit status, 128+n for a run ended by signal n, and a
-// TERM to the holder stops the run with it. The holder speaks the worker
-// protocol, status file first and the run re-execed with YARDR_TEST_RACE_LEG;
-// the probe answers as a worker that runs no leg, so it pins the holder
-// alone. Its own home stands in for the yard's, so no real gate waits on it.
+// lock at once, so a second run gets it at its first attempt (an orphaned
+// sleep once held it past the run: yardr-tsms). A run that has to queue says
+// so before its first sleep. How long one takes is the machine's and is not
+// asserted: it starts a ps for every look at a pid, and those starts took a
+// second run 2.5 s beside a race suite (yardr-q9vn) and 1.0 to 3.4 s at load
+// 60 to 80, none of them queued. The holder also ends as a shell would: the
+// run's exit status, 128+n for a run ended by signal n, and a TERM to the
+// holder stops the run with it. The holder speaks the worker protocol, status
+// file first and the run re-execed with YARDR_TEST_RACE_LEG; the probe answers
+// as a worker that runs no leg, so it pins the holder alone. Its own home
+// stands in for the yard's, so no real gate waits on it.
 func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
@@ -1398,7 +1402,7 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
-	run := func(ctx context.Context, args ...string) (time.Duration, int, []byte) {
+	run := func(ctx context.Context, args ...string) (int, []byte) {
 		t.Helper()
 		// Into a file, not a pipe: a run that orphans a sleep would hold
 		// a pipe open past its own exit, and the wait below with it.
@@ -1410,20 +1414,18 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 		cmd := exec.CommandContext(ctx, driver, append([]string{statusFile}, args...)...)
 		cmd.Env = append(scriptEnv(), "HOME="+home)
 		cmd.Stdout, cmd.Stderr = outFile, outFile
-		start := time.Now()
 		err = cmd.Run()
-		el := time.Since(start)
 		outFile.Close()
 		out, _ := os.ReadFile(outFile.Name())
 		if err == nil {
-			return el, 0, out
+			return 0, out
 		}
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			return el, exit.ExitCode(), out
+			return exit.ExitCode(), out
 		}
 		t.Fatalf("racelocked %v: %v\n%s", args, err, out)
-		return 0, 0, nil
+		return 0, nil
 	}
 	pidOf := func(path string) int {
 		t.Helper()
@@ -1447,7 +1449,7 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 			}
 		}
 	})
-	if _, code, out := run(context.Background(), "sh", "-c", "sleep 300 & echo $! >"+quote(pidFile)); code != 0 {
+	if code, out := run(context.Background(), "sh", "-c", "sleep 300 & echo $! >"+quote(pidFile)); code != 0 {
 		t.Fatalf("the run that orphans a sleep exits %d, want 0:\n%s", code, out)
 	}
 	if pid := pidOf(pidFile); syscall.Kill(pid, 0) != nil {
@@ -1455,21 +1457,21 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	el, code, out := run(ctx, "true")
+	code, out := run(ctx, "true")
 	if ctx.Err() != nil {
 		t.Fatalf("a second run waits past 30 s for a lock the first left behind:\n%s", out)
 	}
 	if code != 0 {
 		t.Fatalf("a second run exits %d, want 0:\n%s", code, out)
 	}
-	if el >= time.Second {
-		t.Errorf("a second run gets the lock after %s, want within a second", el)
+	if raceWaitStarted.Match(out) {
+		t.Errorf("a second run had to queue for a lock the first left behind:\n%s", out)
 	}
 	// The holder reports the run's end as a shell would.
-	if _, code, out := run(context.Background(), "sh", "-c", "exit 3"); code != 3 {
+	if code, out := run(context.Background(), "sh", "-c", "exit 3"); code != 3 {
 		t.Errorf("a run that exits 3 is reported as %d:\n%s", code, out)
 	}
-	if _, code, out := run(context.Background(), "sh", "-c", "kill -TERM $$"); code != 143 {
+	if code, out := run(context.Background(), "sh", "-c", "kill -TERM $$"); code != 143 {
 		t.Errorf("a run ended by TERM is reported as %d, want 143:\n%s", code, out)
 	}
 	// A TERM to the holder stops the run with it: the run TERMs its
@@ -1486,7 +1488,7 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 			}
 		}
 	})
-	_, code, out = run(context.Background(), "sh", "-c", "echo $$ >"+quote(victim)+"; sleep 30 & echo $! >"+quote(victimChild)+"; kill -TERM $PPID; wait")
+	code, out = run(context.Background(), "sh", "-c", "echo $$ >"+quote(victim)+"; sleep 30 & echo $! >"+quote(victimChild)+"; kill -TERM $PPID; wait")
 	if code != 143 {
 		t.Fatalf("a run that TERMs its holder is reported as %d, want 143:\n%s", code, out)
 	}
@@ -1629,6 +1631,13 @@ exec "$@"
 
 // raceTicketName matches a queue ticket: <seconds><nanoseconds>-<pid>.
 var raceTicketName = regexp.MustCompile(`^\d+-\d+$`)
+
+// raceWaitStarted matches the line a run prints when its first attempt at the
+// race lock failed, before its first sleep: the one sign that it queued. The
+// "waited N s" line is not, for it counts whole seconds on the clock and a
+// run that never queued says it beside a loaded machine when its starts cross
+// a second.
+var raceWaitStarted = regexp.MustCompile(`(?m)^test: race lock wait started at \d+$`)
 
 // raceLockDriver cuts racelocked out of .yardr/test into a driver script,
 // failing when the script no longer holds that shape, and returns the
