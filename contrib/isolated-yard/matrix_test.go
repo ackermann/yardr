@@ -620,11 +620,13 @@ func stepStatus(t *testing.T, y *yard) {
 		t.Fatalf("status: %+v", st)
 	}
 	// Only a server yard keeps its daemon and web view as services.
-	if got, want := st.Daemon.Service.Installed && st.Daemon.Service.Loaded, y.shape.server; got != want {
-		t.Errorf("the daemon's service is installed and loaded: %v, want %v", got, want)
+	if want := y.shape.server; st.Daemon.Service.Installed != want || st.Daemon.Service.Loaded != want {
+		t.Errorf("the daemon's service is installed=%v, loaded=%v; want both %v",
+			st.Daemon.Service.Installed, st.Daemon.Service.Loaded, want)
 	}
-	if got, want := st.Web.Service.Installed && st.Web.Service.Loaded, y.shape.server; got != want {
-		t.Errorf("the web view's service is installed and loaded: %v, want %v", got, want)
+	if want := y.shape.server; st.Web.Service.Installed != want || st.Web.Service.Loaded != want {
+		t.Errorf("the web view's service is installed=%v, loaded=%v; want both %v",
+			st.Web.Service.Installed, st.Web.Service.Loaded, want)
 	}
 	// Status says what is there, doctor what is missing: nothing is, and
 	// the setup has no step left.
