@@ -1518,9 +1518,8 @@ yard.
 **Proposing an embedded pack.** A crew member may propose applying a
 pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
 --run "pack apply <name>"`, [chat.md](chat.md#questions-for-you)), for
-the operator to approve on a card: a pack of kind `source` (linear,
-github, google-mail, google-drive, google-docs, google-calendar,
-pushover, telegram and slack), or a pack of a depot kind
+the operator to approve on a card: an embedded pack of kind `source`
+(the packs table above names them), or a pack of a depot kind
 re-applied to the one depot that holds it where its plan asks nothing.
 A card is read whole, so a pack whose card would run past 40 lines is
 refused, and the operator applies it in a terminal. Google is split into
