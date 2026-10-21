@@ -432,34 +432,50 @@ func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	}
 }
 
-// A failing package's output past the yard's blob cap is kept truncated to
-// it, with a marker naming the cap: PutBlob refuses over-cap with nothing
-// stored, and a marker is read sooner than a missing file.
+// A failing package's output past the yard's blob cap is kept within it,
+// with a marker when the cap can hold one; a smaller cap keeps its prefix
+// so PutBlob still stores some output.
 func TestQuietRedRunTruncatesOutputsPastTheBlobCap(t *testing.T) {
-	y := newQuietYard(t)
-	ctx := context.Background()
-	must(t, y.s.SetSetting(ctx, store.BlobMaxSetting, "120", "me"))
 	out := "--- FAIL: TestMigrate (1.20s)\n" + strings.Repeat("failing output\n", 40) + "FAIL\tyardr.dev/yardr/internal/store\t1.3s\n"
-	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
-		Packages: []string{"yardr.dev/yardr/internal/store"},
-		Tests:    []string{"TestMigrate"},
-		Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
-	y.err = errors.New("the whole suite failed")
-	y.land(t, "one")
-	y.land(t, "two")
-	dispatch.QuietMaybe(y.d, ctx)
-	evs := waitQuiet(t, y.s, store.QuietFailed, 1)
-	files := store.EventFiles(evs[0])
-	if len(files) != 1 {
-		t.Fatalf("quiet_failed files = %+v, want the truncated output named", files)
-	}
-	got, err := os.ReadFile(y.own.BlobPath(files[0].Hash))
-	must(t, err)
-	if len(got) > 120 {
-		t.Fatalf("the kept output is %d bytes, past the cap of 120", len(got))
-	}
-	if !strings.HasPrefix(string(got), "--- FAIL: TestMigrate") || !strings.HasSuffix(string(got), "\n[truncated at 120 bytes]\n") {
-		t.Fatalf("the kept output = %q, want the head with the marker", got)
+	for _, tc := range []struct {
+		name       string
+		limit      int
+		wantMarker bool
+	}{
+		{name: "marker fits", limit: 120, wantMarker: true},
+		{name: "marker does not fit", limit: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y := newQuietYard(t)
+			ctx := context.Background()
+			must(t, y.s.SetSetting(ctx, store.BlobMaxSetting, fmt.Sprint(tc.limit), "me"))
+			y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
+				Packages: []string{"yardr.dev/yardr/internal/store"},
+				Tests:    []string{"TestMigrate"},
+				Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
+			y.err = errors.New("the whole suite failed")
+			y.land(t, "one")
+			y.land(t, "two")
+			dispatch.QuietMaybe(y.d, ctx)
+			evs := waitQuiet(t, y.s, store.QuietFailed, 1)
+			files := store.EventFiles(evs[0])
+			if len(files) != 1 {
+				t.Fatalf("quiet_failed files = %+v, want the truncated output named", files)
+			}
+			got, err := os.ReadFile(y.own.BlobPath(files[0].Hash))
+			must(t, err)
+			if len(got) > tc.limit {
+				t.Fatalf("the kept output is %d bytes, past the cap of %d", len(got), tc.limit)
+			}
+			if tc.wantMarker {
+				marker := fmt.Sprintf("\n[truncated at %d bytes]\n", tc.limit)
+				if !strings.HasPrefix(string(got), "--- FAIL: TestMigrate") || !strings.HasSuffix(string(got), marker) {
+					t.Fatalf("the kept output = %q, want the head with the marker", got)
+				}
+			} else if string(got) != out[:tc.limit] {
+				t.Fatalf("the kept output = %q, want the %d-byte prefix", got, tc.limit)
+			}
+		})
 	}
 }
 

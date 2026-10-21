@@ -328,13 +328,17 @@ func quietFileName(pkg string) string {
 }
 
 // quietTruncate holds one failing package's output to the yard's blob cap:
-// the headful that fits, then a marker naming the cap, so the stored blob
-// is never refused with nothing kept.
+// the headful that fits, then a marker naming the cap when it fits too.
+// Under that size, the marker itself would make PutBlob refuse the output,
+// so the available prefix is kept instead.
 func quietTruncate(out []byte, limit int64) []byte {
 	if int64(len(out)) <= limit {
 		return out
 	}
 	marker := fmt.Sprintf("\n[truncated at %d bytes]\n", limit)
+	if limit < int64(len(marker)) {
+		return slices.Clone(out[:limit])
+	}
 	keep := limit - int64(len(marker))
 	if keep < 0 {
 		keep = 0
