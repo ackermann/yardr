@@ -97,8 +97,8 @@ has_outcome() {
 # live: the flow's done outcome, else the live stage by name.
 live() {
   echo "== $BEAD: $1"
-  if has_outcome done; then
-    printf '%s\n' "$1" | "$Y" bead done "$BEAD" --note - && exit 0
+  if has_outcome "done"; then
+    printf '%s\n' "$1" | "$Y" bead "done" "$BEAD" --note - && exit 0
   fi
   printf '%s\n' "$1" | "$Y" bead advance "$BEAD" --to live --note -
   exit 0
@@ -121,7 +121,7 @@ $2}"
   mail="deploy: $BEAD has landed on $BASE but is not deployed: $1"
   "$Y" mail "$NOTIFY" "$mail" || echo "== could not mail $NOTIFY"
   if has_outcome failed; then
-    printf '%s\n' "deploy: $note" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    printf '%s\n' "deploy: $note" | "$Y" bead "done" "$BEAD" --outcome failed --note - && exit 0
   fi
   hold "$note"
 }
@@ -165,7 +165,10 @@ fi
 # The tree to deploy is a detached worktree in a directory of its own, so
 # the depot's checkout is never touched; the trap removes both on every way
 # out past here, failure and signal included.
-tmp= tree=
+tmp=
+tree=
+# Invoked by the EXIT trap below, not by name.
+# shellcheck disable=SC2329
 cleanup() {
   if [ -n "$tree" ]; then
     git -C "$REPO" worktree remove --force "$tree" >/dev/null 2>&1 ||
