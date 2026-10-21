@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -84,5 +85,45 @@ func TestCrewHelpNamesOnlyStoredKeys(t *testing.T) {
 	// it"), so the two lists name the same keys.
 	if !slices.Equal(keys[0], keys[1]) {
 		t.Errorf("crew add lists %v, crew set lists %v", keys[0], keys[1])
+	}
+}
+
+// crew journal - takes the entry from the command's stdin, trailing
+// newlines trimmed as before.
+func TestCrewJournalStdin(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	ctx := context.Background()
+	a := appOn(st)
+	a.actor = "yardmaster"
+	c := a.crewCmd()
+	c.SetIn(strings.NewReader("deploys are frozen until Friday\n\n"))
+	if out, err := run(t, c, "journal", "yardmaster", "-"); err != nil {
+		t.Fatalf("journal -: %v\n%s", err, out)
+	}
+	hits, err := st.RecallJournal(ctx, "", "frozen")
+	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteJournal ||
+		hits[0].Note.Text != "deploys are frozen until Friday" {
+		t.Fatalf("journal = %+v, %v", hits, err)
+	}
+}
+
+// crew handoff - takes the entry from the command's stdin, trailing
+// newlines trimmed as before.
+func TestCrewHandoffStdin(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	ctx := context.Background()
+	a := appOn(st)
+	a.actor = "yardmaster"
+	c := a.crewCmd()
+	c.SetIn(strings.NewReader("the next session deploys at noon\n\n"))
+	if out, err := run(t, c, "handoff", "yardmaster", "-"); err != nil {
+		t.Fatalf("handoff -: %v\n%s", err, out)
+	}
+	hits, err := st.RecallJournal(ctx, "", "deploys")
+	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteHandoff ||
+		hits[0].Note.Text != "the next session deploys at noon" {
+		t.Fatalf("handoff = %+v, %v", hits, err)
 	}
 }

@@ -607,9 +607,11 @@ what the person asked does, and this is the asker's own.`,
 				nb := askBead
 				nb.Priority = defaultPriority
 				if nb.Body == "-" {
-					if nb.Body, err = readAllStdin(); err != nil {
+					b, err := io.ReadAll(c.InOrStdin())
+					if err != nil {
 						return err
 					}
+					nb.Body = strings.TrimRight(string(b), "\n")
 				}
 				// One call, so one write: a server from before it knows
 				// no such call and makes nothing.

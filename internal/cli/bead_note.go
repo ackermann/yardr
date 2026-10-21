@@ -80,9 +80,11 @@ and takes no text and no --file.`,
 			}
 			text := args[1]
 			if text == "-" {
-				if text, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				text = strings.TrimRight(string(b), "\n")
 			}
 			if foreign && len(noteFiles) > 0 {
 				// A note on another yard's question is always refused;

@@ -115,3 +115,26 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 		t.Fatalf("recall --json = %+v", got)
 	}
 }
+
+// remember -b - takes the memory from the command's stdin, trailing
+// newlines trimmed as before.
+func TestRememberStdinBody(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	ctx := context.Background()
+	a := appOn(st)
+	a.actor = "jo"
+	c := a.rememberCmd()
+	c.SetIn(strings.NewReader("no webapp deploys until Friday\n\n"))
+	out, err := run(t, c, "Deploy freeze", "-b", "-")
+	if err != nil {
+		t.Fatalf("remember -b -: %v\n%s", err, out)
+	}
+	got, err := st.GetBead(ctx, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Body != "no webapp deploys until Friday" {
+		t.Fatalf("remember -b - wrote body %q", got.Body)
+	}
+}

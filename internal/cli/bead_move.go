@@ -26,9 +26,11 @@ func (a *app) newBeadAdvanceCmd(rev *string) *cobra.Command {
 				return err
 			}
 			if advNote == "-" {
-				if advNote, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				advNote = strings.TrimRight(string(b), "\n")
 			}
 			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.expect(*rev), a.who())
 			if err != nil {
@@ -63,9 +65,11 @@ review that reads them.`,
 				return err
 			}
 			if doneNote == "-" {
-				if doneNote, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				doneNote = strings.TrimRight(string(b), "\n")
 			}
 			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.expect(*rev), a.who())
 			if err != nil {

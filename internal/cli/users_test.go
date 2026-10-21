@@ -279,6 +279,24 @@ func TestLoginNameNobodyHas(t *testing.T) {
 	}
 }
 
+// mail - takes the words from the command's stdin, trailing newlines
+// trimmed as before.
+func TestMailStdin(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	mustAs(t, st, "jo", "user", "add", "ada")
+	a := appOn(st)
+	a.actor = "jo"
+	c := a.mailCmd()
+	c.SetIn(strings.NewReader("deploys are frozen\n\n"))
+	if out, err := run(t, c, "ada", "-"); err != nil {
+		t.Fatalf("mail -: %v\n%s", err, out)
+	}
+	if out := mustAs(t, st, "ada", "inbox"); !strings.Contains(out, "mail from jo: deploys are frozen") {
+		t.Fatalf("ada's inbox:\n%s", out)
+	}
+}
+
 // yardr mail --with prints a conversation from either side, oldest first,
 // with the read state; --json and --after are what a view reads it with.
 func TestMailWith(t *testing.T) {

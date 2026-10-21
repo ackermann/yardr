@@ -63,10 +63,11 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 			}
 			var text string
 			if file == "-" {
-				var err error
-				if text, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				text = strings.TrimRight(string(b), "\n")
 			} else {
 				raw, err := os.ReadFile(file)
 				if err != nil {

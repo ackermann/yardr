@@ -456,9 +456,11 @@ for its links (yardr peer list).`,
 				}
 				text := args[1]
 				if text == "-" {
-					if text, err = readAllStdin(); err != nil {
+					b, err := io.ReadAll(c.InOrStdin())
+					if err != nil {
 						return err
 					}
+					text = strings.TrimRight(string(b), "\n")
 				}
 				if err := st.Journal(c.Context(), args[0], kind, text, a.who()); err != nil {
 					return err
@@ -1349,9 +1351,11 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				text = args[1]
 			}
 			if text == "-" {
-				if text, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				text = strings.TrimRight(string(b), "\n")
 			}
 			to, peer, outside := strings.Cut(args[0], "@")
 			if outside && len(files) > 0 {
@@ -1480,9 +1484,11 @@ func (a *app) rememberCmd() *cobra.Command {
 			}
 			m.Title = args[0]
 			if m.Body == "-" {
-				if m.Body, err = readAllStdin(); err != nil {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
 					return err
 				}
+				m.Body = strings.TrimRight(string(b), "\n")
 			}
 			if m.Scope == "" {
 				m.Scope = "all"

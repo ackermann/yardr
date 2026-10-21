@@ -112,3 +112,23 @@ func TestFlowViews(t *testing.T) {
 		t.Errorf("flow list = %v, want %v", got, wantRows)
 	}
 }
+
+// flow set -f - reads the flow from the command's stdin.
+func TestFlowSetStdin(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	c := a.flowCmd()
+	c.SetIn(strings.NewReader("a -> b\nb terminal\n"))
+	if out, err := run(t, c, "set", "pipe", "-f", "-"); err != nil {
+		t.Fatalf("flow set -f -: %v\n%s", err, out)
+	}
+	f, err := st.GetFlow(ctx, "pipe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.Stages, []string{"a", "b"}) {
+		t.Fatalf("flow stages = %+v", f.Stages)
+	}
+}

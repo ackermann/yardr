@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // An agent's yardr commands carry its session (YARDR_SESSION, set on its
@@ -128,6 +130,71 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	// matched on the resolved bead, not on the handle typed.
 	if _, err := run(t, app.beadCmd(), "advance", a.UUID, "--to", "review"); err != nil {
 		t.Fatalf("the pane's own advance by UUID: %v", err)
+	}
+}
+
+// bead advance --note - takes the note from the command's stdin,
+// trailing newlines trimmed as before.
+func TestBeadAdvanceStdinNote(t *testing.T) {
+	t.Parallel()
+	st, ctx := reviewYard(t, "/tmp/yard")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	c := a.beadCmd()
+	c.SetIn(strings.NewReader("looks good\n\n"))
+	if out, err := run(t, c, "advance", b.ID, "--to", "review", "--note", "-"); err != nil {
+		t.Fatalf("advance --note -: %v\n%s", err, out)
+	}
+	got, err := st.GetBead(ctx, b.ID)
+	if err != nil || got.Stage != "review" {
+		t.Fatalf("advanced bead = %+v, %v", got, err)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || notes[0].Text != "looks good" {
+		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+}
+
+// bead done --note - takes the note from the command's stdin,
+// trailing newlines trimmed as before.
+func TestBeadDoneStdinNote(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("new -> review on done\nreview -> merged\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "pipe"
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "yard", "", "pipe", "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	c := a.beadCmd()
+	c.SetIn(strings.NewReader("ready for review\n\n"))
+	if out, err := run(t, c, "done", b.ID, "--note", "-"); err != nil {
+		t.Fatalf("done --note -: %v\n%s", err, out)
+	}
+	got, err := st.GetBead(ctx, b.ID)
+	if err != nil || got.Stage != "review" {
+		t.Fatalf("done bead = %+v, %v", got, err)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || notes[0].Text != "ready for review" {
+		t.Fatalf("notes = %+v, %v", notes, err)
 	}
 }
 

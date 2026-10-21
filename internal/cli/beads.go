@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1047,9 +1045,4 @@ func (a *app) primeCmd() *cobra.Command {
 // doneCommand is the command that reports outcome for bead id.
 func doneCommand(id, outcome string) string {
 	return store.DoneCommand(id, outcome)
-}
-
-func readAllStdin() (string, error) {
-	b, err := os.ReadFile(filepath.Clean("/dev/stdin"))
-	return strings.TrimRight(string(b), "\n"), err
 }

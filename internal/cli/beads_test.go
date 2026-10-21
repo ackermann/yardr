@@ -193,6 +193,28 @@ func TestBeadUpdateStdinBody(t *testing.T) {
 	}
 }
 
+// bead create -b - takes the body from the command's stdin, trailing
+// newlines trimmed as before: piped input stores identical bytes.
+func TestBeadCreateStdinBody(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	c := a.beadCmd()
+	c.SetIn(strings.NewReader("the body\nwith two lines\n\n"))
+	out, err := run(t, c, "create", "x", "-b", "-")
+	if err != nil {
+		t.Fatalf("create -b -: %v\n%s", err, out)
+	}
+	got, err := st.GetBead(ctx, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Body != "the body\nwith two lines" {
+		t.Fatalf("create -b - wrote body %q", got.Body)
+	}
+}
+
 // show, prime and review still work for a bead whose flow does not
 // resolve, and say why next to it.
 func TestBrokenFlowStillShown(t *testing.T) {

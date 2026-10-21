@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +109,23 @@ func TestBeadAskNewIsNotUnrouted(t *testing.T) {
 				t.Fatalf("closed bead = %+v, %v", b, err)
 			}
 		})
+	}
+}
+
+// bead ask --new -b - takes the new bead's body from the command's
+// stdin, trailing newlines trimmed as before.
+func TestBeadAskNewStdinBody(t *testing.T) {
+	t.Parallel()
+	st, ctx, _ := askYard(t)
+	a := &app{st: st, actor: "yardmaster"}
+	c := a.beadCmd()
+	c.SetIn(strings.NewReader("what the words are for\n\n"))
+	if out, err := run(t, c, "ask", "--new", "Rename 'depot'?", "--label", "topic:words",
+		"--context", "The glossary keeps it.", "--option", "Keep depot: nothing changes", "-b", "-"); err != nil {
+		t.Fatalf("ask --new -b -: %v\n%s", err, out)
+	}
+	made, err := st.ListBeads(ctx, store.BeadFilter{Label: "topic:words"})
+	if err != nil || len(made) != 1 || made[0].Body != "what the words are for" {
+		t.Fatalf("the bead of ask --new -b - = %+v, %v", made, err)
 	}
 }

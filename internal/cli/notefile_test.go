@@ -298,6 +298,28 @@ func TestBeadBodyCannotForgeNotes(t *testing.T) {
 	}
 }
 
+// bead note - takes the words from the command's stdin, trailing
+// newlines trimmed as before.
+func TestBeadNoteStdin(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "jo"}
+	c := a.beadCmd()
+	c.SetIn(strings.NewReader("the shed, painted\n\n"))
+	if out, err := run(t, c, "note", b.ID, "-"); err != nil {
+		t.Fatalf("note -: %v\n%s", err, out)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || notes[0].Text != "the shed, painted" {
+		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+}
+
 // hashOfFile is the SHA-256 of the file's bytes, in hex: the name its blob
 // goes by.
 func hashOfFile(t *testing.T, path string) string {

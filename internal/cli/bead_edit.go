@@ -29,11 +29,11 @@ func (a *app) newBeadCreateCmd() *cobra.Command {
 				}
 			}
 			if nb.Body == "-" {
-				b, err := readAllStdin()
+				b, err := io.ReadAll(c.InOrStdin())
 				if err != nil {
 					return err
 				}
-				nb.Body = b
+				nb.Body = strings.TrimRight(string(b), "\n")
 			}
 			// The links are made in the write that creates the bead, so a
 			// link that is refused leaves no bead behind.
