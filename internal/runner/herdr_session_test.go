@@ -105,6 +105,7 @@ func yardNaming(t *testing.T, session string) store.API {
 // event stream. So does one started with no herdr variable at all, as a
 // login service is.
 func TestHerdrSessionSettingIsReachedFromAnotherSessionsShell(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	for _, service := range []bool{false, true} {
 		herdrSessions(t)
 		if service {
@@ -149,6 +150,7 @@ func TestHerdrSessionSettingIsReachedFromAnotherSessionsShell(t *testing.T) {
 // Unset, the yard does as before: the session of the environment, by its
 // socket, else herdr's default.
 func TestHerdrSessionUnsetIsTheEnvironments(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	herdrSessions(t)
 	ctx := context.Background()
 	other := sessionListens(t, "other")
@@ -198,6 +200,7 @@ func TestHerdrSessionUnsetIsTheEnvironments(t *testing.T) {
 // it connected to, and reads the setting when it first calls herdr, from
 // whatever session its shell is in.
 func TestCommandFollowsTheYardsHerdrSession(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	herdrSessions(t)
 	ctx := context.Background()
 	sessionListens(t, "gc")
@@ -226,6 +229,7 @@ func TestCommandFollowsTheYardsHerdrSession(t *testing.T) {
 // created for it, and the shell's own session, which runs, is not used in
 // its place.
 func TestHerdrSessionThatIsNotRunning(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	herdrSessions(t)
 	ctx := context.Background()
 	other := sessionListens(t, "other")
@@ -261,6 +265,7 @@ func TestHerdrSessionThatIsNotRunning(t *testing.T) {
 // A setting that cannot be read fails the call: the environment's session
 // may be another, in which every pane of the yard would look gone.
 func TestHerdrIsNotAskedWhenTheSettingCannotBeRead(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	herdrSessions(t)
 	other := sessionListens(t, "other")
 	h := &Herdr{Bin: sessionBin(t), Store: noSettings{storetest.New(t)}}
@@ -286,6 +291,7 @@ func TestHerdrIsNotAskedWhenTheSettingCannotBeRead(t *testing.T) {
 // session herdr names, and a pane whose shell herdr does not tell, leave
 // the handle without one.
 func TestHandleNamesThePanesHerdrSession(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
 	herdrSessions(t)
 	bin := filepath.Join(t.TempDir(), "herdr")
 	scripttest.Write(t, bin, `#!/bin/sh
@@ -346,6 +352,7 @@ func (noSettings) Settings(context.Context) (map[string]string, error) {
 // session, and the event stream it holds open to the old one is left for
 // one to the new.
 func TestDaemonFollowsAChangeOfTheHerdrSession(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals, and the test shortens sessionCheck.
 	herdrSessions(t)
 	was := sessionCheck
 	sessionCheck = 20 * time.Millisecond

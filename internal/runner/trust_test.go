@@ -243,13 +243,6 @@ esac`)}
 	}
 }
 
-func shortTrustWait(t *testing.T) {
-	t.Helper()
-	old := trustWait
-	trustWait = 400 * time.Millisecond
-	t.Cleanup(func() { trustWait = old })
-}
-
 // Found live (yardr-1znz): the first builder of a depot Claude Code had not
 // seen stopped at the folder-trust dialog until someone answered it in its
 // pane; (yardr-bgnn) every Kimi builder stopped at its own in its new
@@ -257,7 +250,7 @@ func shortTrustWait(t *testing.T) {
 // yardr answers the dialog the kind's file names, moving the cursor onto
 // the accepting answer first, and the agent gets its first prompt at once.
 func TestStartAgentAcceptsFolderTrust(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
 	codex, _ := agents.Lookup("codex")
@@ -280,6 +273,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 		{"muse, cursor on the answer", *muse.Trust, museTrustDialog, "2  Quit", muse.Trust.Answers[0], muse.Trust.Answers[0], false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.yes), c.dialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry, nil)
@@ -304,7 +298,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 // Yes, moving the cursor onto it first, and the agent gets its first
 // prompt at once; the folder-trust dialog beside it is untouched.
 func TestStartAgentAcceptsAPIKey(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	for _, c := range []struct {
 		name  string
@@ -315,6 +309,7 @@ func TestStartAgentAcceptsAPIKey(t *testing.T) {
 		{"cursor on Yes", "Yes", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
 			h, calls := trustHerdr(t, no, yes, apiKeyDialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
@@ -341,7 +336,7 @@ func TestStartAgentAcceptsAPIKey(t *testing.T) {
 // something else. `trust=false` leaves it answered: that flag is folder
 // trust's.
 func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
 	cases := []struct {
@@ -383,6 +378,7 @@ func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
 // sent before it did wrapped the cursor back to "No, exit", so the dialog
 // was never answered. One `down` per redraw.
 func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
+	// Serial: lengthens the trust waits past what TestMain shortens.
 	// The dialog does redraw, so no limit is waited for: on a busy machine
 	// the fake's 0.3s can be several, which the 2s of a real yard would
 	// take for a dialog that never redrew.
@@ -405,7 +401,7 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 // An agent that is not idle soon after the dialog (slow, or at a next
 // question) keeps its prompt pending for the dispatcher.
 func TestStartAgentTrustThenNotReady(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "blocked")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
@@ -426,7 +422,7 @@ func TestStartAgentTrustThenNotReady(t *testing.T) {
 // on the accepting answer, and either half of the dialog without the other
 // are left for a human, no key sent that could answer something else.
 func TestStartAgentLeavesOtherQuestions(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
 	codex, _ := agents.Lookup("codex")
@@ -476,7 +472,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 // with none of its known answers is the daemon's to tell of
 // (session_harness_dialog), not the runner's to answer.
 func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	kimi, _ := agents.Lookup("kimi")
 	for _, start := range []string{"Trust this folder and remember it", "Exit without trusting"} {
 		h, calls := trustHerdr(t, kimiTrustDialog("Don't trust"), kimiTrustDialog(kimi.Trust.Answers[0]),
@@ -499,7 +495,7 @@ func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
 // the start looked (yardr-v3mp): AcceptTrust answers the dialog of the
 // config's kind by the same rule as the start, and nothing else.
 func TestAcceptTrustAnswersLateDialog(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	codex, _ := agents.Lookup("codex")
 	muse, _ := agents.Lookup("muse")
@@ -555,7 +551,7 @@ func TestAcceptTrustAnswersLateDialog(t *testing.T) {
 // only after the start looked, by the same rule as the start, and nothing
 // else. `trust=false` leaves it answered.
 func TestAcceptKeyAnswersLateDialog(t *testing.T) {
-	shortTrustWait(t)
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
 	cases := []struct {
@@ -591,6 +587,7 @@ func TestAcceptKeyAnswersLateDialog(t *testing.T) {
 }
 
 func TestTrustEntry(t *testing.T) {
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	kimi, _ := agents.Lookup("kimi")
 	codex, _ := agents.Lookup("codex")
@@ -620,6 +617,7 @@ func TestTrustEntry(t *testing.T) {
 }
 
 func TestKeyEntry(t *testing.T) {
+	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	cases := []struct {
 		cfg  map[string]any

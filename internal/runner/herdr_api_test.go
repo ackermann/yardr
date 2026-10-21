@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
@@ -21,8 +22,14 @@ import (
 // never opens a tab in whatever herdr the developer has running.
 func TestMain(m *testing.M) {
 	os.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.TempDir(), "yardr-no-herdr.sock"))
+	// The trust tests wait on fakes that answer at once, so the suite
+	// shortens the wait for a real agent once, here, instead of per test
+	// (per-test shortening races under t.Parallel). The one test that
+	// needs the wait long lengthens it itself and stays serial.
+	trustWait = 400 * time.Millisecond
 	code := m.Run()
 	scripttest.Remove()
+	seedRemove()
 	os.Exit(code)
 }
 
@@ -126,6 +133,7 @@ func cliCalls(calls string) string {
 // an outage code, a connection that answers nothing) the runtime's. Lines
 // that are not the answer (an event) are skipped.
 func TestHerdrCallClassifiesErrors(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir, err := os.MkdirTemp("", "yh")
 	if err != nil {

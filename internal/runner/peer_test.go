@@ -14,6 +14,7 @@ import (
 // be told of and no failure of the bead: the start is refused as blocked.
 // The runner is one of the built-in ones, and its session one that waits.
 func TestPeerRunner(t *testing.T) {
+	t.Parallel()
 	r, ok := All(t.TempDir(), nil, nil, nil)[store.PeerRunner].(*Peer)
 	if !ok {
 		t.Fatal("the peer runner is not one of the built-in runners")

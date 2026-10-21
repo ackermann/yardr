@@ -48,6 +48,7 @@ const museStopped = "◆ model failed: server_error: The model failed to generat
 // stood still for stopStill, is idle. One whose pane still moves, and one
 // with no error at its pane's end, are working as herdr says.
 func TestStatusOfAHarnessThatStoppedWhileHerdrSaysWorking(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	show := func(screen, agent string) {

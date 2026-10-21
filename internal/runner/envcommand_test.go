@@ -38,6 +38,7 @@ func writeProvider(t *testing.T, cmd, runs, body string) {
 // the socket request that opens it, under the same rule for yardr's own
 // keys, with only the names logged. It is asked at every start.
 func TestStartCrewLoadsEnvCommand(t *testing.T) {
+	t.Parallel()
 	cmd, runs := providerT(t, `echo "# from the vault"; echo "LINEAR_API_KEY=`+envSecret+`"; echo "YARDR_ACTOR=someone-else"`)
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_command": cmd + " --env"}}
@@ -59,6 +60,7 @@ func TestStartCrewLoadsEnvCommand(t *testing.T) {
 // An env_file and a provider: the pane has both, and the provider's value
 // for a key in both.
 func TestStartCrewEnvCommandWinsOverEnvFile(t *testing.T) {
+	t.Parallel()
 	file := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -86,6 +88,7 @@ func TestStartCrewEnvCommandWinsOverEnvFile(t *testing.T) {
 // of its stderr, and what it printed on stdout is in no event, log or herdr
 // call. Fixed, the next start asks it again and goes through.
 func TestEnvCommandRefusedBlocksStart(t *testing.T) {
+	// Serial: shortens config.EnvCommandTimeout.
 	// No case is decided by how fast the machine starts a script
 	// (yardr-gdes: under load a provider that answered was once taken for a
 	// hang, and a second reason was said). A provider that answers has an

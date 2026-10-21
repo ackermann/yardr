@@ -70,12 +70,11 @@ func sessionJob(bead, group, kind, model string) dispatch.Job {
 	}
 }
 
+// sessionRepo is a fresh repository on branch main with one empty root
+// commit, copied from the seed (see seedRepo) rather than made by git.
 func sessionRepo(t *testing.T) string {
 	t.Helper()
-	repo := t.TempDir()
-	gitT(t, repo, "init", "-q", "-b", "main")
-	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "root")
-	return repo
+	return seedRepo(t)
 }
 
 func sessionLog(t *testing.T, dir string, env []string) string {

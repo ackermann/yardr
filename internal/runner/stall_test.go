@@ -37,6 +37,7 @@ const stalledPane = `
 // Tail reads the agent's pane as text and keeps the lines that say
 // something, so a stalled session's event shows the agent's error.
 func TestHerdrTailKeepsWhatThePaneSays(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pane := filepath.Join(t.TempDir(), "pane")
 	if err := os.WriteFile(pane, []byte(stalledPane), 0o600); err != nil {
@@ -71,6 +72,7 @@ esac`)}
 // Worked tells a session that changed its worktree (a commit, an edit) from
 // one that only sat in it; the commits its branch started on do not count.
 func TestHerdrWorkedSeesCommitsAndEdits(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")

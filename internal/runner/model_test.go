@@ -11,6 +11,7 @@ import (
 // session id herdr reports. The lines are trimmed from real files of
 // Claude Code 2.1, Codex and Muse Code 1.4.9.
 func TestHerdrModelReadsTheAgentsSessionFile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	claude, codex, muse := t.TempDir(), t.TempDir(), t.TempDir()
 	write := func(path, text string) {

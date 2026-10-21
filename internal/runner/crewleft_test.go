@@ -46,6 +46,7 @@ esac
 // id yardr recorded, and only while it is still that workspace with no
 // agent in it.
 func TestCloseLeft(t *testing.T) {
+	t.Parallel()
 	const shell = `{"pane_id":"w3:p1","workspace_id":"w3"}`
 	handle := map[string]any{"agent": "y1-yardmaster", "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1"}
 	for name, tc := range map[string]struct {

@@ -69,6 +69,7 @@ esac`)
 // as the operator's (yardr-6k0b). A store that does not take the pane
 // starts no agent.
 func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h, st := shellHerdr(t, "")
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
@@ -110,9 +111,9 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 // from an operator calling from outside it. Do not start that agent with
 // the actor-name checks as its only guard.
 func TestStartDoesNotRunAgentWithoutARecordedPane(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	wt := t.TempDir()
-	gitT(t, wt, "init", "-q", "-b", "main")
+	wt := seedEmptyRepo(t)
 	for name, depot := range map[string]*store.Depot{
 		"git": {Name: "yard", Path: t.TempDir(), Base: "main"},
 		"dir": {Name: "notes", Path: t.TempDir(), Kind: store.DepotDir},
@@ -157,9 +158,9 @@ esac`)
 // The same of a bead's session, in a worktree and in a dir depot: its
 // handle is the store's before its agent starts.
 func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	wt := t.TempDir()
-	gitT(t, wt, "init", "-q", "-b", "main")
+	wt := seedEmptyRepo(t)
 	for name, depot := range map[string]*store.Depot{
 		"git": {Name: "yard", Path: t.TempDir(), Base: "main"},
 		"dir": {Name: "notes", Path: t.TempDir(), Kind: store.DepotDir},
@@ -202,6 +203,7 @@ func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 // off the record: when it opens none, the old pane's agent would be nobody
 // the store knows, and pass for whoever it names.
 func TestStartCrewKeepsThePaneAFailedStartLeft(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h, st := shellHerdr(t, "")
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {

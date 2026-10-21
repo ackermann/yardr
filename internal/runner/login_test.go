@@ -71,6 +71,7 @@ const (
 )
 
 func TestLoginLine(t *testing.T) {
+	t.Parallel()
 	below := strings.Repeat("⏺ talked about the brief\n", 25)
 	for _, c := range []struct {
 		name, kind, pane, want string
@@ -112,6 +113,7 @@ func TestLoginLine(t *testing.T) {
 }
 
 func TestInputLogin(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "pane read") printf '%s\n' 'Select login method:' '❯ 1. Claude account' ;;
   *) echo '{"result":{"type":"ok"}}' ;;

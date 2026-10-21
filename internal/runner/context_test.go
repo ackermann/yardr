@@ -11,6 +11,7 @@ import (
 // session id herdr reports. The lines are trimmed from a real transcript
 // of Claude Code 2.1.
 func TestHerdrContextReadsTheLastUse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	claude := t.TempDir()
 	write := func(path, text string) {

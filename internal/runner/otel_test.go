@@ -29,9 +29,9 @@ func otelJob(cfg map[string]any) (job dispatch.Job, traceparent, attrs string) {
 // exports OpenTelemetry sends it under the bead. A group's env file may add
 // resource attributes; it cannot replace the bead's or the TRACEPARENT.
 func TestHerdrSessionGetsTraceContext(t *testing.T) {
+	// Serial: sets the trace environment.
 	t.Setenv(otel.ResourceVar, "")
-	wt := t.TempDir()
-	gitT(t, wt, "init", "-q", "-b", "main")
+	wt := seedEmptyRepo(t)
 	h, calls, _ := envHerdr(t, wt)
 	h.YardHome = t.TempDir()
 	file := filepath.Join(t.TempDir(), "env")
@@ -57,6 +57,7 @@ func TestHerdrSessionGetsTraceContext(t *testing.T) {
 // An exec command gets the same, after the resource attributes the daemon
 // itself was started with.
 func TestExecCommandGetsTraceContext(t *testing.T) {
+	// Serial: sets the trace environment.
 	t.Setenv(otel.ResourceVar, "deployment.environment=test")
 	t.Setenv("TRACEPARENT", "00-the-daemons-own")
 	dir := t.TempDir()
@@ -88,6 +89,7 @@ func TestExecCommandGetsTraceContext(t *testing.T) {
 
 // A bead with no depot has no yardr.depot attribute.
 func TestTraceContextWithoutADepot(t *testing.T) {
+	// Serial: sets the trace environment.
 	t.Setenv(otel.ResourceVar, "")
 	job, _, _ := otelJob(nil)
 	job.Depot = nil

@@ -16,6 +16,7 @@ import (
 // Blocked. Its agent and workspace carry the user, its pane the session,
 // and its first prompt never greets.
 func TestStartCrewConversation(t *testing.T) {
+	t.Parallel()
 	line := envFileT(t, 0o600)
 	halPath := filepath.Join(t.TempDir(), "hal.env")
 	if err := os.WriteFile(halPath, []byte("HAL_API_KEY=hal-secret\n"), 0o600); err != nil {
@@ -83,6 +84,7 @@ func TestStartCrewConversation(t *testing.T) {
 // session's: an agent under the line's name does not block it, and one
 // under its own does not block the line.
 func TestLiveCrewConversation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	h, _, agents := listHerdr(t)
 	wantAgent := CrewConversationAgentName("y1", "yardmaster", "hal")
@@ -106,6 +108,7 @@ func TestLiveCrewConversation(t *testing.T) {
 // handle: one still carrying it is closed, one carrying the line's is
 // forgotten, never closed.
 func TestCloseLeftConversation(t *testing.T) {
+	t.Parallel()
 	const shell = `{"pane_id":"w3:p1","workspace_id":"w3"}`
 	handle := map[string]any{"agent": CrewConversationAgentName("y1", "yardmaster", "hal"), "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1", "for": "hal"}
 	h, calls := leftHerdr(t, "y1 yardmaster for hal", shell, "")

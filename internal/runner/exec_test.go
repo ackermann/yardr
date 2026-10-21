@@ -26,6 +26,7 @@ import (
 // it exits into a zombie. Alive must reap it and call it gone, and the next
 // pass must end the session, or the group's slot stays taken forever.
 func TestExecZombieEndsTheSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "assembly", Runner: "exec", Limit: 1,
@@ -84,6 +85,7 @@ func TestExecZombieEndsTheSession(t *testing.T) {
 // A handle whose pid now belongs to a later process is dead, and Stop
 // leaves that process alone.
 func TestExecStalePidIsNotOurs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cmd := exec.Command("sleep", "30")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -117,6 +119,7 @@ func TestExecStalePidIsNotOurs(t *testing.T) {
 // only that the group has no cmd. group add refuses such a group; this is
 // for one that came another way.
 func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	start := func(cfg map[string]any) error {
 		_, err := (&Exec{noReap: true}).Start(ctx, dispatch.Job{
@@ -151,6 +154,7 @@ func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
 // one file per session in /tmp that removing the yard did not take
 // (yardr-q2g8). config.log still wins.
 func TestExecLogsUnderTheHome(t *testing.T) {
+	// Serial: sets TMPDIR.
 	ctx := context.Background()
 	home, tmp := filepath.Join(t.TempDir(), "home"), t.TempDir()
 	t.Setenv("TMPDIR", tmp)
@@ -192,6 +196,7 @@ func TestExecLogsUnderTheHome(t *testing.T) {
 // go test — and a group id of another user's answered EPERM, which the
 // teardown retried forever.)
 func TestExecStopSignalsOnlyAVerifiedLeader(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const pid = 424242
 	type sent struct {
@@ -267,6 +272,7 @@ func TestExecStopSignalsOnlyAVerifiedLeader(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var got []sent
 			e := &Exec{describe: tc.describe, kill: func(pid int, s syscall.Signal) error {
 				got = append(got, sent{pid, s})
@@ -286,6 +292,7 @@ func TestExecStopSignalsOnlyAVerifiedLeader(t *testing.T) {
 }
 
 func TestExecStopRetriesWhenProcessIdentityIsUnknown(t *testing.T) {
+	t.Parallel()
 	wantErr := errors.New("process table unavailable")
 	var signals []int
 	e := &Exec{
@@ -307,6 +314,7 @@ func TestExecStopRetriesWhenProcessIdentityIsUnknown(t *testing.T) {
 // A live session whose process is gone ends, and its stop signals nothing
 // and is not retried: the next pass has nothing left to stop.
 func TestExecStaleSessionEndsAndStopsOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "assembly", Runner: "exec", Limit: 1,
@@ -376,6 +384,7 @@ func TestExecStaleSessionEndsAndStopsOnce(t *testing.T) {
 // runs and end it once it exits. (noReap stands in for the replace: a
 // start without the reaper goroutine the exec dropped.)
 func TestExecAdoptedSessionRunsUntilItsProcessExits(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "assembly", Runner: "exec", Limit: 1,
@@ -450,6 +459,7 @@ func TestExecAdoptedSessionRunsUntilItsProcessExits(t *testing.T) {
 // standing in for the next landing's go test. (yardr-4wfs: two landings
 // died this way.)
 func TestReplacedDaemonLeavesAnUnrelatedGroupAlone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	// A group that outlives its leader: sh exits at once, its sleep stays
 	// in the group. The sleep's output goes nowhere: it would otherwise
@@ -525,6 +535,7 @@ func TestReplacedDaemonLeavesAnUnrelatedGroupAlone(t *testing.T) {
 // own name for the process's uid instead, so a script that looks the user
 // up by name answers with one. One the daemon has is kept, once.
 func TestExecEnvCarriesUser(t *testing.T) {
+	// Serial: sets USER and LOGNAME.
 	me, err := config.LookupUsername(user.Current)
 	if err != nil || me == "" {
 		t.Skipf("the system names no user for this process: %v", err)

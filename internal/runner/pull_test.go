@@ -48,12 +48,11 @@ esac`)
 // start with git's error and starts no agent. A bead that tracks none is on
 // its branch as ever.
 func TestHerdrPullRequestHeadInTheWorktree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	// The origin, bare, with main and a pull request's head that no clone
 	// fetches by default.
-	src := t.TempDir()
-	gitT(t, src, "init", "-q", "-b", "main")
-	gitT(t, src, "commit", "-q", "--allow-empty", "-m", "A")
+	src := seedRepo(t)
 	gitT(t, src, "checkout", "-q", "-b", "theirs")
 	gitT(t, src, "commit", "-q", "--allow-empty", "-m", "P1")
 	origin := filepath.Join(t.TempDir(), "origin.git")

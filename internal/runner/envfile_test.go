@@ -83,6 +83,7 @@ func checkEnvStart(t *testing.T, calls, paneCall, actor string, handle map[strin
 }
 
 func TestStartCrewLoadsEnvFile(t *testing.T) {
+	t.Parallel()
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFileT(t, 0o600)}}
 	handle, err := h.StartCrew(context.Background(), r, "")
@@ -93,8 +94,8 @@ func TestStartCrewLoadsEnvFile(t *testing.T) {
 }
 
 func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
-	wt := t.TempDir()
-	gitT(t, wt, "init", "-q", "-b", "main")
+	t.Parallel()
+	wt := seedEmptyRepo(t)
 	h, calls, logs := envHerdr(t, wt)
 	h.YardHome = t.TempDir()
 	job := dispatch.Job{
@@ -114,14 +115,14 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 // the runner sets it only when automatic trust is allowed. Its env_file
 // cannot override the harness setting or turn the bypass on when trust=false.
 func TestHerdrStartSetsTrustEnv(t *testing.T) {
+	t.Parallel()
 	cleared := func(env map[string]string) bool {
 		v, ok := env["KIMI_CODE_TRUST_WORKSPACE"]
 		return ok && v == ""
 	}
 	start := func(t *testing.T, cfg map[string]any) map[string]string {
 		t.Helper()
-		wt := t.TempDir()
-		gitT(t, wt, "init", "-q", "-b", "main")
+		wt := seedEmptyRepo(t)
 		h, calls, _ := envHerdr(t, wt)
 		h.YardHome = t.TempDir()
 		job := dispatch.Job{
@@ -161,6 +162,7 @@ func TestHerdrStartSetsTrustEnv(t *testing.T) {
 }
 
 func TestStartCrewSetsTrustEnv(t *testing.T) {
+	t.Parallel()
 	h, calls, _ := envHerdr(t, "")
 	r := store.CrewMember{Name: "kimi-security", Dir: t.TempDir(), Config: map[string]any{"kind": "kimi"}}
 	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
@@ -188,6 +190,7 @@ func TestStartCrewSetsTrustEnv(t *testing.T) {
 // A file others can read, or none at all, refuses the start before herdr is
 // asked for anything, as Blocked, and the error shows no value.
 func TestEnvFileRefusedBlocksStart(t *testing.T) {
+	t.Parallel()
 	missing := filepath.Join(t.TempDir(), "nope.env")
 	for name, path := range map[string]string{"0644": envFileT(t, 0o644), "0640": envFileT(t, 0o640),
 		"missing": missing, "directory": t.TempDir()} {
@@ -218,6 +221,7 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 // second "yardmaster") are told apart: the `name` setting, else the home's
 // directory name; a yard with neither names them after the crew member alone.
 func TestStartCrewNamesTheYard(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		home, setting, agent, label string
 	}{
@@ -291,6 +295,7 @@ func setAgents(t *testing.T, path string, lines ...string) {
 // store recorded for it, not an agent of another name or of the bare name
 // somewhere else, and not an agent herdr detected but nobody named.
 func TestLiveCrew(t *testing.T) {
+	t.Parallel()
 	real := t.TempDir()
 	dir := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(real, dir); err != nil {
@@ -356,6 +361,7 @@ func TestLiveCrew(t *testing.T) {
 // however often it is tried, and the crew member starts once the agent is
 // gone.
 func TestCrewNotStartedBesideALiveHerdrAgent(t *testing.T) {
+	t.Parallel()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -411,6 +417,7 @@ var serverSettingNames = []string{"YARDR_HOOK_ADDR", "YARDR_WEB_ADDR", "YARDR_BD
 // agent's trial server, or a test it runs, does not listen on this yard's
 // webhook address (yardr-t9n1).
 func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
+	// Serial: sets the daemon's environment.
 	for _, n := range serverSettingNames {
 		t.Setenv(n, "the-daemons")
 	}
@@ -431,8 +438,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 		}
 	}
 
-	wt := t.TempDir()
-	gitT(t, wt, "init", "-q", "-b", "main")
+	wt := seedEmptyRepo(t)
 	h, calls, _ := envHerdr(t, wt)
 	h.YardHome = t.TempDir()
 	job := dispatch.Job{
@@ -460,6 +466,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 // (yardr-t9n1). A dir depot's bead, whose inherited environment is cut
 // further, is no exception.
 func TestExecSessionsGetNoServerSettings(t *testing.T) {
+	// Serial: sets the daemon's environment.
 	for _, n := range serverSettingNames {
 		t.Setenv(n, "the-daemons")
 	}
@@ -515,6 +522,7 @@ func execEnvJob(t *testing.T, depot *store.Depot, envFile string) (dispatch.Job,
 // agent does: over what the daemon was itself started with, but not over a
 // key yardr sets, and only the key names reach the log.
 func TestExecStartLoadsGroupEnvFile(t *testing.T) {
+	// Serial: sets the daemon's environment.
 	t.Setenv("LINEAR_API_KEY", "the-daemons")
 	var logs bytes.Buffer
 	e := &Exec{Home: t.TempDir(), Bin: "/bin/yardr",
@@ -546,6 +554,7 @@ func TestExecStartLoadsGroupEnvFile(t *testing.T) {
 // may not: no setting of the yard's server, no test command for a depot with
 // none, and for a dir depot's bead no base, branch or worktree.
 func TestExecEnvFileGivesNoWithheldVariable(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "deploy.env")
 	body := "DOKKU_KEY_FILE=/k\nYARDR_TEST=rm -rf\nYARDR_BASE=theirs\nYARDR_BRANCH=theirs\nYARDR_WORKTREE=/theirs\n"
 	for _, n := range serverSettingNames {
@@ -571,6 +580,7 @@ func TestExecEnvFileGivesNoWithheldVariable(t *testing.T) {
 // Blocked, as a herdr group's is, before the command runs or its log is
 // made, and the error shows no value.
 func TestExecEnvFileRefusedBlocksStart(t *testing.T) {
+	t.Parallel()
 	for name, path := range map[string]string{"0644": envFileT(t, 0o644), "0640": envFileT(t, 0o640),
 		"missing": filepath.Join(t.TempDir(), "nope.env"), "directory": t.TempDir()} {
 		var logs bytes.Buffer
@@ -616,6 +626,7 @@ func waitFile(t *testing.T, path string) string {
 // whatever actor the command names (store's release of a peer's bead).
 // A herdr that does not tell leaves the handle without it.
 func TestStartCrewRecordsItsShell(t *testing.T) {
+	t.Parallel()
 	h, calls, _ := envHerdr(t, "")
 	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
 case "$1 $2" in

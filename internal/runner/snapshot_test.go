@@ -18,7 +18,9 @@ import (
 // member with nothing due, and one over an idle bead session, each take at
 // most one snapshot of the pane, whatever checks read from it (yardr-2zst).
 func TestIdlePassReadsEachPaneOnce(t *testing.T) {
+	t.Parallel()
 	t.Run("crew", func(t *testing.T) {
+		t.Parallel()
 		h, calls := droppingHerdr(t, 0)
 		ctx := context.Background()
 		s := storetest.New(t)
@@ -46,10 +48,9 @@ func TestIdlePassReadsEachPaneOnce(t *testing.T) {
 	})
 
 	t.Run("bead", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
-		repo := t.TempDir()
-		gitT(t, repo, "init", "-q", "-b", "main")
-		gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+		repo := seedRepo(t)
 		s := storetest.New(t)
 		mustT(t, s.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
 		mustT(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"))
@@ -87,6 +88,7 @@ func TestIdlePassReadsEachPaneOnce(t *testing.T) {
 // which is what serves the plain readers of a pass from the one snapshot.
 // Only SGR goes; every other byte stays as herdr printed it.
 func TestStripSGR(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ styled, plain string }{
 		{"────\n❯ \n────", "────\n❯ \n────"},
 		{"a\r\nb\r\n", "a\r\nb\r\n"},
@@ -107,6 +109,7 @@ func TestStripSGR(t *testing.T) {
 // A shorter read from a snapshot is its end; a snapshot with fewer lines
 // is read whole.
 func TestSnapLines(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		snap string
 		n    int

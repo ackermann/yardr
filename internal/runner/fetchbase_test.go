@@ -2,8 +2,12 @@ package runner
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
@@ -20,14 +24,71 @@ type fetchYard struct {
 	store  store.API
 }
 
+var (
+	fetchSeedMu     sync.Mutex
+	fetchSeedDir    string
+	fetchSeedSrc    string
+	fetchSeedOrigin string
+	fetchSeedErr    error
+)
+
+// seedFetchYard returns a fresh content source and bare origin with main at
+// one empty commit, copied from a template built once per run: the tests
+// move the remote from the source, so each gets copies of its own, and
+// clones the depot from its own origin.
+func seedFetchYard(t *testing.T) (src, origin string) {
+	t.Helper()
+	fetchSeedMu.Lock()
+	defer fetchSeedMu.Unlock()
+	if fetchSeedSrc == "" && fetchSeedErr == nil {
+		fetchSeedDir, fetchSeedSrc, fetchSeedOrigin, fetchSeedErr = func() (string, string, string, error) {
+			dir, err := os.MkdirTemp("", "yardr-fetch-seed")
+			if err != nil {
+				return "", "", "", err
+			}
+			tpl := filepath.Join(dir, "tpl")
+			if err := os.MkdirAll(tpl, 0o700); err != nil {
+				return "", "", "", err
+			}
+			run := func(d string, args ...string) error {
+				cmd := exec.Command("git", append([]string{"-C", d}, args...)...)
+				cmd.Env = testGitEnv()
+				if out, err := cmd.CombinedOutput(); err != nil {
+					return fmt.Errorf("git %v: %v\n%s", args, err, out)
+				}
+				return nil
+			}
+			o := filepath.Join(dir, "origin.git")
+			if err := run(tpl, "init", "-q", "-b", "main"); err != nil {
+				return "", "", "", err
+			}
+			if err := run(tpl, "commit", "-q", "--allow-empty", "-m", "A"); err != nil {
+				return "", "", "", err
+			}
+			if err := run(tpl, "init", "-q", "--bare", "-b", "main", o); err != nil {
+				return "", "", "", err
+			}
+			if err := run(tpl, "push", "-q", o, "main"); err != nil {
+				return "", "", "", err
+			}
+			return dir, filepath.Join(tpl, ".git"), o, nil
+		}()
+	}
+	if fetchSeedErr != nil {
+		t.Fatal(fetchSeedErr)
+	}
+	src = t.TempDir()
+	copyDir(t, fetchSeedSrc, filepath.Join(src, ".git"))
+	origin = filepath.Join(t.TempDir(), "origin.git")
+	copyDir(t, fetchSeedOrigin, origin)
+	return src, origin
+}
+
 func newFetchYard(t *testing.T) *fetchYard {
 	t.Helper()
 	ctx := context.Background()
-	y := &fetchYard{src: t.TempDir(), origin: filepath.Join(t.TempDir(), "origin.git"), repo: filepath.Join(t.TempDir(), "repo")}
-	gitT(t, y.src, "init", "-q", "-b", "main")
-	gitT(t, y.src, "commit", "-q", "--allow-empty", "-m", "A")
-	gitT(t, y.src, "init", "-q", "--bare", "-b", "main", y.origin)
-	gitT(t, y.src, "push", "-q", y.origin, "main")
+	src, origin := seedFetchYard(t)
+	y := &fetchYard{src: src, origin: origin, repo: filepath.Join(t.TempDir(), "repo")}
 	gitT(t, y.src, "clone", "-q", y.origin, y.repo)
 	y.store = storetest.New(t)
 	mustT(t, y.store.PutDepot(ctx, store.Depot{Name: "r", Path: y.repo, Base: "main"}, "me"))
@@ -59,6 +120,7 @@ func (y *fetchYard) diverged(t *testing.T) []store.Event {
 // A local base behind its upstream is fast-forwarded before the bead
 // branches, without a checkout.
 func TestFetchBaseFastForwardsLocalBase(t *testing.T) {
+	t.Parallel()
 	y := newFetchYard(t)
 	remote := y.moveOrigin(t)
 	// main checked out nowhere: the clone's checkout is detached.
@@ -78,6 +140,7 @@ func TestFetchBaseFastForwardsLocalBase(t *testing.T) {
 // base_diverged event on the bead, of the class attention; the bead still
 // starts from it.
 func TestFetchBaseDivergedLogsEvent(t *testing.T) {
+	t.Parallel()
 	y := newFetchYard(t)
 	gitT(t, y.repo, "commit", "-q", "--allow-empty", "-m", "local")
 	local := gitOutT(t, y.repo, "rev-parse", "main")
@@ -107,6 +170,7 @@ func TestFetchBaseDivergedLogsEvent(t *testing.T) {
 // upstream: pulling into a working copy a person may use is the operator's.
 // No event either: nothing went wrong.
 func TestFetchBaseCheckedOutLeavesBase(t *testing.T) {
+	t.Parallel()
 	y := newFetchYard(t)
 	before := gitOutT(t, y.repo, "rev-parse", "main")
 	y.moveOrigin(t) // main stays checked out in the clone
@@ -124,6 +188,7 @@ func TestFetchBaseCheckedOutLeavesBase(t *testing.T) {
 // A local base ahead of its upstream holds commits that are simply not
 // pushed yet: it is left, with no event.
 func TestFetchBaseAheadOfUpstreamLeavesBase(t *testing.T) {
+	t.Parallel()
 	y := newFetchYard(t)
 	gitT(t, y.repo, "commit", "-q", "--allow-empty", "-m", "local")
 	local := gitOutT(t, y.repo, "rev-parse", "main")
@@ -142,6 +207,7 @@ func TestFetchBaseAheadOfUpstreamLeavesBase(t *testing.T) {
 // A deleted upstream branch must not be mistaken for a still-published
 // branch just because its old remote-tracking ref remains in the clone.
 func TestFetchBaseDeletedUpstreamLeavesBase(t *testing.T) {
+	t.Parallel()
 	y := newFetchYard(t)
 	before := gitOutT(t, y.repo, "rev-parse", "main")
 	y.moveOrigin(t)
@@ -162,10 +228,10 @@ func TestFetchBaseDeletedUpstreamLeavesBase(t *testing.T) {
 // A base with no upstream, and a fetch that fails, leave the base as it is,
 // with no event: best effort, as for a base that names a remote.
 func TestFetchBaseBestEffort(t *testing.T) {
+	t.Parallel()
 	t.Run("no upstream", func(t *testing.T) {
-		repo := t.TempDir()
-		gitT(t, repo, "init", "-q", "-b", "main")
-		gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "A")
+		t.Parallel()
+		repo := seedRepo(t)
 		st := storetest.New(t)
 		job := dispatch.Job{Bead: store.Bead{ID: "r-1"},
 			Depot: &store.Depot{Name: "r", Path: repo, Base: "main"}}
@@ -177,6 +243,7 @@ func TestFetchBaseBestEffort(t *testing.T) {
 		}
 	})
 	t.Run("failed fetch", func(t *testing.T) {
+		t.Parallel()
 		y := newFetchYard(t)
 		before := gitOutT(t, y.repo, "rev-parse", "main")
 		y.moveOrigin(t)

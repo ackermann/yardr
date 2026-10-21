@@ -19,6 +19,7 @@ import (
 // another session's environment can still tell whose it is. A later stage
 // replaces the earlier one's, and a subdirectory is the worktree's too.
 func TestHerdrStartRecordsTheWorktreesSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")
@@ -79,6 +80,7 @@ esac`)}
 // yardr-bcx5: and with its check for a release of itself off, whatever the
 // operator's own config says, so that no session upgrades Codex at start.
 func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
+	t.Parallel()
 	const noUpdate = "--config=check_for_update_on_startup=false"
 	cases := []struct {
 		name string
@@ -111,6 +113,7 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 // every Kiro agent runs with the chat subcommand first, before the group's
 // flags and the model.
 func TestAgentArgsKiroChatsFirst(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		cfg  map[string]any
@@ -144,6 +147,7 @@ func TestAgentArgsKiroChatsFirst(t *testing.T) {
 // workdir went through. So the preset names it as {workdir}, which the
 // runner fills the same way.
 func TestAgentArgsNameTheYardsSocket(t *testing.T) {
+	t.Parallel()
 	home := filepath.Join(t.TempDir(), "yard")
 	real := filepath.Join(t.TempDir(), "real")
 	if err := os.Mkdir(real, 0o755); err != nil {

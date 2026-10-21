@@ -20,6 +20,7 @@ import (
 // (its "Alternate-screen history reads"). Only the form a person's command
 // asks for is such a read (yardr-dsmt).
 func TestPaneReadArgs(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		form paneForm
 		want string
@@ -58,8 +59,10 @@ func scrollingReads(calls string) []string {
 // pane on its way (the prompt's place, the harness's screen, the input, a
 // dialog, the tail). Nor does the history read, should a pass reach it.
 func TestNoPassReadsAPanesHistory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	t.Run("crew", func(t *testing.T) {
+		t.Parallel()
 		h, calls := droppingHerdr(t, 1)
 		s := storetest.New(t)
 		d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
@@ -87,9 +90,8 @@ func TestNoPassReadsAPanesHistory(t *testing.T) {
 		}
 	})
 	t.Run("bead", func(t *testing.T) {
-		repo := t.TempDir()
-		gitT(t, repo, "init", "-q", "-b", "main")
-		gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+		t.Parallel()
+		repo := seedRepo(t)
 		s := storetest.New(t)
 		mustT(t, s.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
 		mustT(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"))
@@ -119,6 +121,7 @@ func TestNoPassReadsAPanesHistory(t *testing.T) {
 // Outside a pass the history read is herdr's own, and only that one: what
 // a person's command asks for. Tail, which the chat polls, stays passive.
 func TestOnlyHistoryReadsHistory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+dir+`/calls
@@ -187,6 +190,7 @@ esac`)}
 // of a lost prompt is. herdr saw the agent start on it, so it is not sent a
 // second time and no session_prompt_lost is said: it arrived, unseen.
 func TestPromptThatLeftTheScreenIsNotLost(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		start string // what `agent start` answers
@@ -198,7 +202,7 @@ func TestPromptThatLeftTheScreenIsNotLost(t *testing.T) {
 		{"delivered by the dispatcher", `echo '{"error":{"code":"agent_not_ready","message":"agent is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			shortTrustWait(t)
+			t.Parallel()
 			h, calls, dir := scrolledHerdr(t, c.start, "working")
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -254,6 +258,7 @@ func TestPromptThatLeftTheScreenIsNotLost(t *testing.T) {
 // The same screen with a prompt herdr saw nothing start on: that one is
 // lost, and is delivered again as before.
 func TestPromptNothingStartedOnIsStillLost(t *testing.T) {
+	t.Parallel()
 	h, calls, _ := scrolledHerdr(t, `echo '{"result":{"type":"ok"}}'`, "idle")
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -277,6 +282,7 @@ func TestPromptNothingStartedOnIsStillLost(t *testing.T) {
 // error, as of a pane that could not be read. In a shorter read, all herdr
 // holds, a prompt that is not there is not shown.
 func TestPromptBeyondTheReadIsUnknown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, c := range []struct {
 		lines int
@@ -313,6 +319,7 @@ esac`)}
 // agent in a short pane has fewer. The tail is then what the screen has:
 // no error, and nothing made up for the lines that scrolled off.
 func TestTailOfAPaneShorterThanTheTail(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h := &Herdr{Bin: fakeHerdrBin(t, `case "$1 $2" in
   "pane read") printf '%s\n' '' '  Run /model to pick a different model.' '' '────' '❯ ' '────' '' ;;

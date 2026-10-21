@@ -29,7 +29,6 @@ func droppingHerdr(t *testing.T, drop int) (h *Herdr, calls func() string) {
 // has answered: the first prompt is left for the dispatcher to deliver.
 func notReadyHerdr(t *testing.T, drop int) (h *Herdr, calls func() string) {
 	t.Helper()
-	shortTrustWait(t)
 	return promptHerdr(t, drop, `echo '{"error":{"code":"agent_not_ready","message":"agent is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1`)
 }
 
@@ -59,6 +58,7 @@ esac`)}
 // A prompt that does not show is kept pending, and the dispatcher delivers
 // it on a later pass, once.
 func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
+	t.Parallel()
 	h, calls := droppingHerdr(t, 1)
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -96,6 +96,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 // The usual start: the prompt shows in the pane, nothing is pending and no
 // later pass sends it again.
 func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
+	t.Parallel()
 	h, calls := droppingHerdr(t, 0)
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -124,6 +125,7 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 // dispatcher to look at again (yardr-myyv). The handle says what herdr said
 // and what the pane showed either way.
 func TestStartAgentChecksThePromptArrived(t *testing.T) {
+	t.Parallel()
 	for status, unconfirmed := range map[string]bool{"working": true, "idle": false} {
 		h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer `+status+` ;;
@@ -150,6 +152,7 @@ esac`)}
 // (yardr-myyv), and of a herdr that can read no pane the dispatcher's own
 // look fails too, which ends the wait without a second send.
 func TestStartAgentUnreadablePaneIsUnconfirmed(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer idle ;;
   "pane read") echo '{"error":{"code":"unknown_command","message":"no pane read"}}' >&2; exit 1 ;;
@@ -166,6 +169,7 @@ esac`)}
 // A handle without a pane has nothing to look at, now or on a later pass:
 // its prompt is not kept.
 func TestStartAgentWithoutPaneIsNotPending(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer idle ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -178,6 +182,7 @@ esac`)}
 }
 
 func TestShowsPrompt(t *testing.T) {
+	t.Parallel()
 	prompt := "Read /Users/x/repo/.git/worktrees/b1/yardr/brief-1x7.md and follow it."
 	for text, want := range map[string]bool{
 		"❯ " + prompt + "\n\n⏺ Reading the brief": true,
@@ -202,6 +207,7 @@ func TestShowsPrompt(t *testing.T) {
 // The prompt still begins and ends as every crew member's does, which is what
 // the pane is searched for, and a later session is asked for no greeting.
 func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
+	t.Parallel()
 	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
 	got := crewPrompt("yardr --home /y", r, "")
 	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
@@ -240,6 +246,7 @@ func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 // and primes with --for: its prime shows that slice alone. It never
 // greets, even where the line session would.
 func TestFirstPromptNamesConversationPersonAndSlice(t *testing.T) {
+	t.Parallel()
 	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
 	got := crewPrompt("yardr", r, "hal")
 	want := "You are the yardr crew member \"yardmaster\", talking with \"hal\". " +
@@ -264,6 +271,7 @@ func TestFirstPromptNamesConversationPersonAndSlice(t *testing.T) {
 // is dropped once is sent again and arrives, and one that is dropped every
 // time is sent PromptTries times, reported and left alone.
 func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name                               string
 		drop, sent, lost, gaveUp, prompted int
@@ -273,6 +281,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 		{"dropped every time", 1000, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, calls := notReadyHerdr(t, c.drop)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -341,7 +350,6 @@ func typingHerdr(t *testing.T, deaf, ready bool) (h *Herdr, calls func() string)
 	log := filepath.Join(dir, "calls")
 	start := `echo '{"result":{"type":"ok"}}'`
 	if !ready {
-		shortTrustWait(t)
 		start = `echo '{"error":{"code":"agent_not_ready","message":"agent is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1`
 	}
 	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
@@ -369,6 +377,7 @@ esac`)}
 // One whose Enter never takes is submitted PromptTries times, reported and
 // left alone.
 func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name                            string
 		deaf, ready                     bool
@@ -379,6 +388,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 		{"Enter never takes", true, true, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, calls := typingHerdr(t, c.deaf, c.ready)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -478,8 +488,10 @@ esac`)}
 // prompt that is on it. Neither sign ends the look any more: the prompt
 // stays pending, and the dispatcher's pass finds it typed and sends Enter.
 func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for flicker, saw := range map[string]string{"working": "typed, herdr working", "unreadable": "unreadable, herdr stalled"} {
 		t.Run(flicker+" at the first look", func(t *testing.T) {
+			t.Parallel()
 			h, calls := flickeringHerdr(t, flicker)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -566,6 +578,7 @@ esac`)}
 // dispatcher types the prompt once the input is drawn, and sends the Enter
 // the same.
 func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		bare int
@@ -575,6 +588,7 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 		{"nothing is drawn when the runner looks, and nothing typed", 3, "no screen, not typed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, calls := risingHerdr(t, c.bare)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -641,6 +655,7 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 // as before. Since yardr-bcx5 a pane of a known kind without its input is
 // typed nothing at all: the look is "no screen", and herdr is not asked.
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
+	t.Parallel()
 	prompt := "Read /wt/brief-1.md and follow it."
 	typed, echoed := "────\n❯ "+prompt+"\n────", "❯ "+prompt+"\n────\n❯ \n────"
 	for _, c := range []struct {
@@ -667,6 +682,7 @@ func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, false, "shown, herdr stalled"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			answer := "answer " + c.answer
 			if c.answer == "odd" {
 				answer = `echo '{"error":{"code":"internal_error","message":"something else"}}' >&2; exit 1`
@@ -723,6 +739,7 @@ esac`)
 // An error that does not say whether the prompt was taken is a stall too:
 // the pane, not the error, decides whether it needs another delivery.
 func TestStartAgentLooksAfterHerdrOutageError(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -735,6 +752,7 @@ esac`)}
 }
 
 func TestStartAgentKeepsBlockedPromptPendingWithoutPane(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer blocked ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -753,6 +771,7 @@ esac`)}
 // text was typed and not started on for a stall, a timeout or another error
 // of herdr's.
 func TestNudgeSaysWhatHerdrSawOfIt(t *testing.T) {
+	t.Parallel()
 	for answer, want := range map[string]error{
 		"working": nil, "refused": dispatch.ErrAgentBlocked,
 		"idle": dispatch.ErrPromptStalled, "timeout": dispatch.ErrPromptStalled,
@@ -777,6 +796,7 @@ answer `+answer)
 // prompt: it may have started work and reached a permission question. Only
 // a readable pane with no prompt echo lets the dispatcher answer trust.
 func TestNudgeBlockedNeedsPaneEvidenceThatPromptWasNotTaken(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, pane string
 		want       error
@@ -788,6 +808,7 @@ func TestNudgeBlockedNeedsPaneEvidenceThatPromptWasNotTaken(t *testing.T) {
 		{"unreadable", `exit 1`, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			bin := deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer blocked ;;
   "pane read") `+c.pane+` ;;
@@ -806,6 +827,7 @@ esac`)
 // text with no input drawn (a question may have replaced it), is no proof
 // that nothing was taken: the send stays guarded, as for an echo.
 func TestStartAgentBlockedWithTextAndNoInputIsUnconfirmed(t *testing.T) {
+	t.Parallel()
 	prompt := "Read /wt/brief-1.md and follow it."
 	bin := deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") answer blocked ;;
@@ -831,6 +853,7 @@ esac`)
 // nothing, as with a nudge; herdr down is the runtime's failure, not a
 // stall, so the telling waits.
 func TestNudgeDirectSubmitsWithoutWait(t *testing.T) {
+	t.Parallel()
 	bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
 answer working`)
 	h := &Herdr{Bin: bin}
@@ -855,6 +878,7 @@ answer working`)
 }
 
 func TestPromptPlace(t *testing.T) {
+	t.Parallel()
 	prompt := "Read /Users/x/repo/.git/worktrees/b1/yardr/brief-1x7.md and follow it."
 	rule := strings.Repeat("─", 40)
 	// What the pane's terminal echoes of keys that come before the harness
@@ -981,6 +1005,7 @@ func kimiBox(lines ...string) string {
 // the offer is named, so that it is told of and not waited on like
 // someone's text.
 func TestClaudeAutoModeSetupOffer(t *testing.T) {
+	t.Parallel()
 	const offer = " ⏺ Committed. The tests run in the background.\n" +
 		"\n" +
 		"────────────────────────────────────────────────────────────\n" +
@@ -1017,6 +1042,7 @@ func TestClaudeAutoModeSetupOffer(t *testing.T) {
 // reads as text in the input, so no nudge is typed there whose Enter would
 // choose it: with no box drawn the pane is read by the other kinds' marks.
 func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
+	t.Parallel()
 	const prompt = "yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped."
 	const menu = " Error: [provider.auth_error] 403 You've reached your\n" +
 		" 5-hour usage limit. Please wait for the quota to refresh.\n" +
@@ -1103,6 +1129,7 @@ esac`)}
 // one session_harness_starting says so with what the pane shows instead,
 // no delivery is counted, and the prompt goes in once the input is there.
 func TestFirstPromptWaitsForTheHarnessScreen(t *testing.T) {
+	t.Parallel()
 	h, calls := upgradingHerdr(t, 40)
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -1177,6 +1204,7 @@ func TestFirstPromptWaitsForTheHarnessScreen(t *testing.T) {
 // mark yardr knows; of any other kind, and of a pane that cannot be read,
 // nothing is known and yardr types as it did.
 func TestHarnessScreen(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, kind, pane string
 		up, known        bool

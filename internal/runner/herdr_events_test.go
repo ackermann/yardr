@@ -61,6 +61,7 @@ func waitWake(t *testing.T, w <-chan struct{}, want bool) {
 }
 
 func TestHerdrWakeOnEventsAndReconnect(t *testing.T) {
+	t.Parallel()
 	sock, conns := fakeHerdr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

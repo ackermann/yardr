@@ -20,11 +20,10 @@ import (
 // With herdr missing, every Start fails as a runtime outage: no bead is
 // held or charged a failure, and each group gets one runtime_down event.
 func TestHerdrMissingHoldsNoBead(t *testing.T) {
+	// Serial: sets PATH for the whole process.
 	ctx := context.Background()
 	st := storetest.New(t)
-	repo := t.TempDir()
-	gitT(t, repo, "init", "-q", "-b", "main")
-	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	repo := seedRepo(t)
 	// A PATH with git and nothing else: no herdr anywhere.
 	gitBin, err := exec.LookPath("git")
 	mustT(t, err)
@@ -108,15 +107,17 @@ func noPrompt(t *testing.T, envOut string) {
 // A fetch of the base that hangs (a dead remote, a credential prompt) is cut
 // off at the deadline, and git is told never to prompt.
 func TestFetchBaseHasADeadline(t *testing.T) {
+	// Serial: sets PATH for the fake git.
 	envOut := hangingGit(t)
 	job := dispatch.Job{Bead: store.Bead{ID: "r-1"}, Depot: &store.Depot{Path: t.TempDir(), Base: "origin/main"}}
 	(&Herdr{}).fetchBase(context.Background(), job)
 	noPrompt(t, envOut)
 
 	// Well short of the 30s sleep. Whether the fake has started by then
-	// does not matter: the fetch is cut off either way.
+	// does not matter: the fetch is cut off either way. The deadline is
+	// short because the test only asserts the upper bound below.
 	t.Setenv("FAKE_GIT_HANG", "1")
-	h := &Herdr{FetchTimeout: 2 * time.Second}
+	h := &Herdr{FetchTimeout: 500 * time.Millisecond}
 	start := time.Now()
 	h.fetchBase(context.Background(), job)
 	if took := time.Since(start); took > 10*time.Second {
@@ -130,6 +131,7 @@ func TestFetchBaseHasADeadline(t *testing.T) {
 // Errors herdr itself reports (an error object) stay the bead's; only a
 // herdr that cannot be run or reached is a runtime outage.
 func TestHerdrErrorsClassified(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h := &Herdr{Bin: fakeHerdrBin(t, `case "$3" in
   known) echo '{"error":{"code":"agent_exists","message":"taken"}}' >&2; exit 1 ;;
@@ -152,6 +154,7 @@ esac`)}
 // unreachable herdr, not the bead's failure, and Start gives up on it at
 // once instead of falling back to re-adding the worktree by hand.
 func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, code := range []string{"server_not_running", "server_unavailable"} {
 		h := &Herdr{Bin: fakeHerdrBin(t, `echo '{"id":"cli:x","error":{"code":"`+code+`","message":"no herdr server is running"}}' >&2; exit 1`)}
@@ -184,9 +187,7 @@ func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
 
 	// Through Start: no fallback to `git worktree add`, which would make a
 	// checkout herdr knows nothing about.
-	repo := t.TempDir()
-	gitT(t, repo, "init", "-q", "-b", "main")
-	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	repo := seedRepo(t)
 	root := t.TempDir()
 	h := &Herdr{WorktreeRoot: root, Bin: fakeHerdrBin(t,
 		`echo '{"id":"cli:x","error":{"code":"server_not_running","message":"no herdr server is running"}}' >&2; exit 1`)}
@@ -208,6 +209,7 @@ func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
 // Every git call Start and Finish make is cut off at a deadline, like the
 // fetch, and never waits on a credential prompt.
 func TestGitCallsHaveADeadline(t *testing.T) {
+	// Serial: sets PATH and shortens checkoutTimeout.
 	envOut := hangingGit(t)
 	if err := git(context.Background(), t.TempDir(), "worktree", "add", "x", "y"); err != nil {
 		t.Fatalf("fake git: %v", err)
@@ -216,7 +218,7 @@ func TestGitCallsHaveADeadline(t *testing.T) {
 
 	t.Setenv("FAKE_GIT_HANG", "1")
 	was := checkoutTimeout
-	checkoutTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
+	checkoutTimeout = 500 * time.Millisecond // see TestFetchBaseHasADeadline on the margin
 	t.Cleanup(func() { checkoutTimeout = was })
 
 	start := time.Now()

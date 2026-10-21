@@ -104,6 +104,7 @@ func inputScreen(kind string, lines ...string) string {
 }
 
 func TestInputText(t *testing.T) {
+	t.Parallel()
 	taken := "\x1b[0m\x1b[38;5;7m❯ \x1b[0mearlier message, sent\r\n\r\n⏺ An answer.\r\n\r\n"
 	for name, c := range map[string]struct {
 		kind, pane, text string
@@ -226,6 +227,7 @@ func kimiPane(joins string, lines ...string) string {
 // are read one by one however the read joined them, and nothing after the
 // box's bottom is the input's.
 func TestInputTextOfABoxReadUnwrapped(t *testing.T) {
+	t.Parallel()
 	if text, ok := inputText(kimiCaptured, "kimi"); text != "" || !ok {
 		t.Errorf("the captured pane: inputText = %q, %v; want an empty input", text, ok)
 	}
@@ -303,6 +305,7 @@ esac`)}
 // crew member is of the kind whose pane it shows: its first prompt is told
 // as taken by that kind's mark (see promptPlace).
 func TestInputDialogDismissesClaudeAutoModeSetup(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
 	pane := filepath.Join(dir, "pane")
@@ -347,6 +350,7 @@ esac`)
 }
 
 func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		kind, mark, empty, screen string
 		held                      bool
@@ -361,6 +365,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 		"no mark":            {"acme", ">", noMark, noMark, false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			h, calls, screen := inputHerdr(t, c.mark, c.empty)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -419,6 +424,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 // The brakeman's Kimi Code was such a kind until yardr-8twv; its input is
 // read in its box now, and its first prompt left there is submitted.
 func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		kind, mark, empty string
 		after             string // typed after the prompt, by a person
@@ -432,6 +438,7 @@ func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 		"kimi, a person's words after": {"kimi", "✨", kimiEmpty, " and one more thing", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			h, calls, screen := inputHerdr(t, c.mark, c.empty)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -533,6 +540,7 @@ esac`)}
 // it. One for an agent at a dialog is not typed: no key is sent, one
 // nudge_held says so, and it is typed once the dialog is gone.
 func TestNudgeGoesOutWithHerdrsWait(t *testing.T) {
+	t.Parallel()
 	h, calls, mode := nudgedHerdr(t)
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -663,6 +671,7 @@ esac`)}
 // second nudge into the open menu raises nothing; and with the menu
 // answered the nudge is typed. A pane without the menu is nudged as ever.
 func TestNudgeAtKimisCacheMenuIsToldOfOnce(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, mode string
 		typed      int // nudges given to herdr while the menu is open
@@ -671,6 +680,7 @@ func TestNudgeAtKimisCacheMenuIsToldOfOnce(t *testing.T) {
 		{"the nudge is what Kimi answers with the menu", "asks", 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, calls, mode := idleKimi(t)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -747,6 +757,7 @@ func TestNudgeAtKimisCacheMenuIsToldOfOnce(t *testing.T) {
 
 // A handle from before the kind was written is of no kind yardr knows.
 func TestInputMarked(t *testing.T) {
+	t.Parallel()
 	h := &Herdr{}
 	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": true, "kiro": true, "acme": false, "": false} {
 		handle := map[string]any{}
@@ -764,6 +775,7 @@ func TestInputMarked(t *testing.T) {
 // The daemon reads it on every pass, so reading it must not take longer by
 // the square of its width (it took minutes at this one).
 func TestRowsOfALineAsLongAsAnAgentLikes(t *testing.T) {
+	t.Parallel()
 	const width = 100000
 	bottom := "╰" + strings.Repeat("─", width-2) + "╯"
 	for name, row := range map[string]string{
@@ -771,6 +783,7 @@ func TestRowsOfALineAsLongAsAnAgentLikes(t *testing.T) {
 		"many rows":   strings.Repeat("│"+strings.Repeat("x", 98)+"│", 20000),
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			w, b := width, bottom
 			if name == "many rows" {
 				w, b = 100, "╰"+strings.Repeat("─", 98)+"╯"

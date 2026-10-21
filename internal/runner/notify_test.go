@@ -41,6 +41,7 @@ func mustT(t *testing.T, err error) {
 }
 
 func TestManualNotifiesOncePerBeadAndStage(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Config: map[string]any{"notify": true}}, "me"))
@@ -83,6 +84,7 @@ func TestManualNotifiesOncePerBeadAndStage(t *testing.T) {
 }
 
 func TestManualNotifyIsOptIn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual"}, "me"))
@@ -100,6 +102,7 @@ func TestManualNotifyIsOptIn(t *testing.T) {
 // A failing notifier never fails the claim, and is retried on the next
 // claim since nothing was recorded as shown.
 func TestManualNotifyFailureKeepsClaim(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Config: map[string]any{"notify": "true"}}, "me"))
@@ -125,6 +128,7 @@ func TestManualNotifyFailureKeepsClaim(t *testing.T) {
 // Nobody attached to herdr: the notification is retried on the dispatcher's
 // liveness passes until it is shown, then never again.
 func TestManualRetriesUnshownNotification(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Config: map[string]any{"notify": true}}, "me"))
@@ -171,6 +175,7 @@ func TestManualRetriesUnshownNotification(t *testing.T) {
 
 // Notifications disabled in herdr will not change by retrying.
 func TestManualGivesUpWhenNotificationsOff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Config: map[string]any{"notify": true}}, "me"))
@@ -194,6 +199,7 @@ func TestManualGivesUpWhenNotificationsOff(t *testing.T) {
 // herdr exits 0 with shown=false when it showed nothing; that must not
 // count as notified.
 func TestHerdrNotifierChecksShown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	log := filepath.Join(t.TempDir(), "calls")
 	bin := fakeHerdrBin(t, `printf '%s\n' "$@" >> `+log+`
