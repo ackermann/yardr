@@ -254,6 +254,60 @@ func TestRunAskPeerCardsRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
 	y.approved(t, evs[0], intake)
 }
 
+// Renaming a link and letting a crew member mail a link's crew are refused
+// to an approval that arrived through that peer's own reach, as widening
+// the link is: a peer does not rename its own link, or let a crew member
+// mail its own crew, on its own word. The same cards approved from this
+// yard run, as does a card about another link approved through this peer's
+// reach.
+func TestRunAskRenameAndCrewSetRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := intakeYard(t)
+	y.crew(t, map[string]any{"kind": "claude"})
+	own := WithReach(y.ctx, "airy")
+	const how = "Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open"
+
+	rename := y.ask(t, runAsk("peer rename airy south"), "yardmaster")
+	y.refusedOpen(t, own, rename, "ask 1: this approval arrived through the reach of airy (a name of airy taken as mckean), and a peer must not rename its own link. "+how)
+	grant := y.ask(t, runAsk("crew set yardmaster peers=north"), "yardmaster")
+	y.refusedOpen(t, WithReach(y.ctx, "north"), grant, "ask 2: this approval arrived through the reach of north (a name of north taken as mckean), and a peer must not let a crew member mail its own crew. "+how)
+
+	if p := y.peerOf(t, "airy"); p.Name != "airy" {
+		t.Fatalf("the refused rename left the link as %+v", p)
+	}
+	if r, err := y.GetCrew(y.ctx, "yardmaster"); err != nil || len(r.MayMail()) != 0 {
+		t.Fatalf("the refused grant left the member mailing %v, %v", r.MayMail(), err)
+	}
+	if evs, err := y.EventsOfKind(y.ctx, "peer_renamed", 10); err != nil || len(evs) != 0 {
+		t.Fatalf("the refused approvals logged %d peer_renamed events, %v", len(evs), err)
+	}
+
+	// A card about another link is no card about this peer's own: the
+	// peer is the one the command names, and the path is the context's,
+	// whatever the arguments say.
+	if _, err := y.ApproveAsk(own, y.bead, grant, "mckean"); err != nil {
+		t.Fatalf("an approval through airy's reach of a grant of north = %v", err)
+	}
+	north := y.ask(t, runAsk("peer rename north east"), "yardmaster")
+	if _, err := y.ApproveAsk(own, y.bead, north, "mckean"); err != nil {
+		t.Fatalf("an approval through airy's reach of a rename of north = %v", err)
+	}
+	if r, err := y.GetCrew(y.ctx, "yardmaster"); err != nil || !slices.Equal(r.MayMail(), []string{"east"}) {
+		t.Fatalf("the member mails %v, %v after the grant and the rename of north", r.MayMail(), err)
+	}
+
+	// From this yard the refused card runs.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, rename, "mckean"); err != nil {
+		t.Fatalf("the approval of the rename in a terminal = %v", err)
+	}
+	y.peerOf(t, "south")
+	evs, err := y.EventsOfKind(y.ctx, "peer_renamed", 10)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("peer_renamed events = %+v, %v, want the two approved renames", evs, err)
+	}
+	y.approved(t, evs[1], rename)
+}
+
 // The two cards of an intake and the refusals of what is no card: the card
 // names the depot, the flow and who works the first stage, then what the link
 // has now; the approval sets it under the command's own check; taking none is

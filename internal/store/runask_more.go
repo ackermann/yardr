@@ -198,6 +198,29 @@ func crewGrantOf(argv []string) crewGrantChange {
 	return c
 }
 
+// crewGrantLink is the peers a crew set must not grant on a peer's own
+// word: the peers its peers= setting names. The setting is written whole,
+// so a peer the member mailed already is named too, and an approval through
+// its reach is refused with the rest: the card's argv does not say which the
+// member had, and the refusal sends the approval to the yard, where it runs.
+// A set with no peers=, or an unset, names none: taking standing away
+// needs no guard.
+func crewGrantLink(argv []string) ([]string, string) {
+	var peers []string
+	for _, set := range crewGrantOf(argv).sets {
+		k, v, ok := strings.Cut(set, "=")
+		if !ok || k != MailPeers {
+			continue
+		}
+		for _, p := range strings.Split(v, ",") {
+			if p != "" {
+				peers = append(peers, p)
+			}
+		}
+	}
+	return peers, "let a crew member mail its own crew"
+}
+
 // parseCrewGrant reads the words of crew set <name> with grants. What is
 // no grant refuses the command with where it is run: set directly, as
 // saving it checks nothing.

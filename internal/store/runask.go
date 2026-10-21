@@ -361,13 +361,13 @@ type runCommand struct {
 	// a user is that user's alone). It takes the place of whose and of
 	// the operator's leg wherever it answers a name.
 	sole func(argv []string) string
-	// link is the peer whose link the command changes, and what a peer must
+	// link is the peers whose link the command changes, and what a peer must
 	// not do to its own link, in the words that follow "a peer must not":
-	// "" and "" where the command is about no peer's link. An approval that
-	// reaches the yard through that same peer's reach is refused (approveAsk,
-	// WithReach), whoever is taken to approve, since the peer would then
-	// change the link it speaks through on its own word.
-	link func(argv []string) (peer, rule string)
+	// none where the command is about no peer's link. An approval that
+	// reaches the yard through one of those peers' reach is refused
+	// (approveAsk, WithReach), whoever is taken to approve, since the peer
+	// would then change the link it speaks through on its own word.
+	link func(argv []string) (peers []string, rule string)
 	// ready reads before the write what the card needs of git, which must
 	// not run inside one: the repository flows, by depot, of the depot the
 	// command names (wtx.repos). nil for a command whose card reads none.
@@ -394,7 +394,7 @@ var runList = []runCommand{{
 	card:        (*wtx).peerAllowCard,
 	stale:       (*wtx).peerAllowStale,
 	run:         runPeerAllow,
-	link:        func(argv []string) (string, string) { return argv[2], "widen its own link" },
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "widen its own link" },
 	commas:      true,
 }, {
 	words:       []string{"peer", "intake"},
@@ -405,7 +405,7 @@ var runList = []runCommand{{
 	card:        (*wtx).peerIntakeCard,
 	stale:       (*wtx).peerIntakeStale,
 	run:         runPeerIntake,
-	link:        func(argv []string) (string, string) { return argv[2], "say where its own beads go" },
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "say where its own beads go" },
 	ready:       readyPeerIntake,
 }, {
 	words:       []string{"peer", "identity"},
@@ -416,7 +416,7 @@ var runList = []runCommand{{
 	card:        (*wtx).peerIdentityCard,
 	stale:       (*wtx).peerIdentityStale,
 	run:         runPeerIdentity,
-	link:        func(argv []string) (string, string) { return argv[2], "say who its own crew is here" },
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "say who its own crew is here" },
 }, {
 	words:       []string{"source", "set"},
 	use:         "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",
@@ -548,6 +548,7 @@ var runList = []runCommand{{
 	card:        (*wtx).crewGrantCard,
 	stale:       (*wtx).crewGrantStale,
 	run:         runCrewGrant,
+	link:        crewGrantLink,
 	commas:      true,
 }, {
 	words:       []string{"crew", "identity"},
@@ -586,6 +587,7 @@ var runList = []runCommand{{
 	card:        (*wtx).peerRenameCard,
 	stale:       (*wtx).peerRenameStale,
 	run:         runPeerRename,
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "rename its own link" },
 }, {
 	words:       []string{"bead", "update"},
 	use:         "yardr bead update <bead> --originator <user>",
@@ -1184,9 +1186,10 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // events of an approval that came so say how it came, as a device's other
 // writes do (writeVia). No answer that comes over a link approves
 // (answerable), and an approval that a door took through the reach of a
-// peer is refused where it changes that peer's own link, or its own
-// intake, or says who its own crew is (runCommand.link, WithReach): the
-// path is the context's, set by the door.
+// peer is refused where it touches that peer's own link (runCommand.link,
+// WithReach): what it carries, where its beads go, who its crew is here,
+// what it is called here, or who may mail its crew. The path is the
+// context's, set by the door.
 func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
@@ -1307,13 +1310,14 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	// A peer does not change its own link on its own word. The path the
 	// approval came by is on the context, set by the door (WithReach): one
-	// that came through the reach of the peer the command is about is
+	// that came through the reach of a peer the command is about is
 	// refused, whoever it takes the approver to be, before the card is read.
 	// This yard's own approval of the same card, in a terminal here or from
 	// a device paired with this yard directly, carries no such mark.
 	if c.link != nil {
-		if peer, rule := c.link(argv); peer != "" && reachOf(ctx) == peer {
-			return nil, fmt.Errorf("ask %d: this approval arrived through the reach of %s (a name of %s taken as %s), and a peer must not %s. Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open", seq, peer, peer, actor, rule)
+		peers, rule := c.link(argv)
+		if reach := reachOf(ctx); reach != "" && slices.Contains(peers, reach) {
+			return nil, fmt.Errorf("ask %d: this approval arrived through the reach of %s (a name of %s taken as %s), and a peer must not %s. Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open", seq, reach, reach, actor, rule)
 		}
 	}
 	var card AskRun
