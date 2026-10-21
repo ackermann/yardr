@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -28,12 +29,24 @@ func TestSnoozeSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkRunning(ctx, sess.ID, map[string]any{"agent": "yard-x-new"}); err != nil {
+	if err := s.MarkRunning(ctx, sess.ID, paneShell(t, "yard-x-new")); err != nil {
 		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, os.Getpid())
+	// An RPC caller outside a session's pane may name the session in both
+	// YARDR_SESSION and the call arguments, but that does not make it the
+	// session's agent.
+	outsider := store.WithSession(store.WithCaller(ctx, os.Getppid()), sess.ID)
+	if _, err := s.SnoozeSession(outsider, sess.ID, time.Minute, "test gate", "yard-x-new"); err == nil ||
+		!strings.Contains(err.Error(), "inside a bead session") {
+		t.Fatalf("SnoozeSession from outside the pane err = %v, want refused", err)
+	}
+	if _, err := s.SnoozeSession(pane, "another-session", time.Minute, "test gate", "yard-x-new"); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("SnoozeSession for another session err = %v, want conflict", err)
 	}
 
 	before := time.Now()
-	until, err := s.SnoozeSession(ctx, sess.ID, 10*time.Minute, "test gate", "yard-x-new")
+	until, err := s.SnoozeSession(pane, sess.ID, 10*time.Minute, "test gate", "yard-x-new")
 	if err != nil {
 		t.Fatalf("SnoozeSession: %v", err)
 	}
@@ -71,11 +84,11 @@ func TestSnoozeSession(t *testing.T) {
 	// Two more go through; the fourth in a row is refused, and the idle
 	// limits apply to it as they always did: nothing on the handle moves.
 	for i := 0; i < 2; i++ {
-		if _, err := s.SnoozeSession(ctx, sess.ID, time.Minute, "still waiting", "yard-x-new"); err != nil {
+		if _, err := s.SnoozeSession(pane, sess.ID, time.Minute, "still waiting", "yard-x-new"); err != nil {
 			t.Fatalf("snooze %d: %v", i+2, err)
 		}
 	}
-	if _, err := s.SnoozeSession(ctx, sess.ID, time.Minute, "still waiting", "yard-x-new"); err == nil ||
+	if _, err := s.SnoozeSession(pane, sess.ID, time.Minute, "still waiting", "yard-x-new"); err == nil ||
 		!strings.Contains(err.Error(), "3 times in a row") {
 		t.Fatalf("fourth snooze err = %v, want the run refused", err)
 	}
@@ -101,7 +114,7 @@ func TestSnoozeSession(t *testing.T) {
 		{"negative", -time.Minute, "test gate", "at most"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.SnoozeSession(ctx, sess.ID, tc.dur, tc.why, "yard-x-new"); err == nil ||
+			if _, err := s.SnoozeSession(pane, sess.ID, tc.dur, tc.why, "yard-x-new"); err == nil ||
 				!strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("SnoozeSession(%s, %q) err = %v, want %q", tc.dur, tc.why, err, tc.want)
 			}

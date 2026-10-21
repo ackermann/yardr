@@ -2252,9 +2252,16 @@ func (s *Store) SnoozeSession(ctx context.Context, sessionID string, dur time.Du
 	}
 	var end time.Time
 	err := s.write(func(w *wtx) error {
-		pane, err := paneSession(w.Tx, callerOf(ctx))
-		if err != nil {
-			return err
+		var pane *Session
+		if callerOf(ctx) > 0 {
+			var err error
+			pane, err = beadAgent(w.Tx, ctx)
+			if err != nil {
+				return err
+			}
+			if pane == nil {
+				return fmt.Errorf("snooze runs inside a bead session; outside one there is nothing to snooze")
+			}
 		}
 		switch {
 		case pane != nil && sessionID != "" && sessionID != pane.ID:
