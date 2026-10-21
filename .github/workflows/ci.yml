@@ -1,5 +1,7 @@
 name: ci
 
+# Every uses: below is pinned by full commit SHA, with the release it is
+# as a comment; a tag that moves would run code no review saw.
 on:
   push:
     branches: [main]
@@ -17,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       # go-version-file pins the toolchain go.mod names; cache keeps the
       # module and build caches keyed on go.sum.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -54,20 +56,20 @@ jobs:
       # Moving it is a deliberate change, made together with the README.
       BDP_REF: 182f1fcf8a01d896976bff3c9e3fb87c596c6ca6
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: gastownhall/bdp
           ref: ${{ env.BDP_REF }}
           path: bdp
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: bdp/package.json
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: bdp/.nvmrc
           cache: pnpm
@@ -77,3 +79,47 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
       - name: BDP read conformance
         run: BDP_REPO=$GITHUB_WORKSPACE/bdp conformance/bdp/run.sh
+
+  # The scans, apart from the test job so release.yml's copy of that job
+  # stays in step with it: known vulnerabilities in what the module builds
+  # with, and the depot's shell.
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Pinned, like the actions above: @latest would run code no review saw.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      # The test gate and every contrib script with a shell shebang, found
+      # by that line: a new script is covered without touching this step.
+      # shellcheck ships on the runner's image; the install is for images
+      # without it.
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
+          grep -rlE '^#!(/bin/|/usr/bin/env )(sh|bash)' .yardr/test contrib | xargs shellcheck
+
+  # The darwin leg. The linux job above runs the whole suite, and running
+  # all of it on macOS too would buy little for its minutes, so this job
+  # runs what is platform-specific: go vet compiles every package for
+  # darwin, which catches a build break on mac anywhere, and the race
+  # tests cover internal/peer, the only package with darwin files
+  # (peer_darwin.go).
+  test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet (every package, for darwin)
+        run: go vet ./...
+      - name: race tests (packages with darwin files)
+        run: go test -race ./internal/peer/...

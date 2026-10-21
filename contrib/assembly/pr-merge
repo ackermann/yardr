@@ -58,7 +58,7 @@ echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-merge $TRAIN ($BR)"
 hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "pr: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
   echo "== $TRAIN $1"
-  printf '%s\n' "pr: $2" | "$Y" bead done "$TRAIN" --outcome "$1" --note - && exit 0
+  printf '%s\n' "pr: $2" | "$Y" bead "done" "$TRAIN" --outcome "$1" --note - && exit 0
   hold "could not report $1 (does the train's flow name it for its stage?): $2"
 }
 errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
@@ -137,4 +137,4 @@ out=$(git -C "$REPO" merge --ff-only "$PUSH/$prbase" 2>&1) ||
 Bring $prbase up to $PUSH/$prbase, then advance the train to merged."
 sha=$(git -C "$REPO" rev-parse --short HEAD)
 
-report done "merged $url at the reviewed $reviewed with a rebase; $prbase at $sha"
+report "done" "merged $url at the reviewed $reviewed with a rebase; $prbase at $sha"

@@ -199,6 +199,7 @@ down() {
   done
   left=$(yard_pids "$d") || exit 1
   if [ -n "$left" ]; then
+    # shellcheck disable=SC2086
     echo "isolated-yard: still running, $d kept:" $left >&2
     exit 1
   fi
@@ -323,7 +324,11 @@ CONF
     sed -n 's/.*"root_pane":{[^}]*"pane_id":"\([^"]*\)".*/\1/p')
   found=
   if [ -n "$pane" ]; then
+    # Both single-quoted strings run in the pane: their $ must reach herdr
+    # literally, not expand here.
+    # shellcheck disable=SC2016
     "$d/e" herdr pane run "$pane" 'echo "agent=$(command -v claude)="' >/dev/null
+    # shellcheck disable=SC2016
     "$d/e" herdr pane wait-output "$pane" --regex 'agent=[^$]*=' --timeout 10000 >/dev/null 2>&1 || true
     found=$("$d/e" herdr pane read "$pane" --source recent-unwrapped --lines 20 |
       sed -n 's/.*agent=\([^$=]*\)=.*/\1/p' | tail -1)

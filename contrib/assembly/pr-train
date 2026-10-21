@@ -53,7 +53,7 @@ echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr $TRAIN ($BR)"
 hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "pr: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
   echo "== $TRAIN $1"
-  printf '%s\n' "pr: $2" | "$Y" bead done "$TRAIN" --outcome "$1" --note - && exit 0
+  printf '%s\n' "pr: $2" | "$Y" bead "done" "$TRAIN" --outcome "$1" --note - && exit 0
   hold "could not report $1 (does the train's flow name it for its stage?): $2"
 }
 errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
@@ -141,4 +141,4 @@ out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1
 "$Y" bead update "$TRAIN" --meta "pr_reviewed_sha=\"$reviewed\"" >/dev/null ||
   report failed "pushed $BR at $sha to $PUSH, but storing it as the reviewed commit (pr_reviewed_sha) failed."
 
-report done "pushed $BR at $sha to $PUSH; pull request $url is up to date with the review. Reviewed commit (pr_reviewed_sha): $reviewed."
+report "done" "pushed $BR at $sha to $PUSH; pull request $url is up to date with the review. Reviewed commit (pr_reviewed_sha): $reviewed."

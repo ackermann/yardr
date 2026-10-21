@@ -151,8 +151,8 @@ has_outcome() {
 # note.
 live() {
   echo "== $BEAD: $1"
-  if has_outcome done; then
-    printf '%s\n' "$1" | "$Y" bead done "$BEAD" --note - && exit 0
+  if has_outcome "done"; then
+    printf '%s\n' "$1" | "$Y" bead "done" "$BEAD" --note - && exit 0
   fi
   [ "$MODE" = deploy ] || hold "the flow offers no done from this stage. $1"
   printf '%s\n' "$1" | "$Y" bead advance "$BEAD" --to live --note -
@@ -190,7 +190,7 @@ $2}"
   fi
   "$Y" mail "$NOTIFY" "$mail" || echo "== could not mail $NOTIFY"
   if has_outcome failed; then
-    printf '%s\n' "$MODE: $note" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    printf '%s\n' "$MODE: $note" | "$Y" bead "done" "$BEAD" --outcome failed --note - && exit 0
   fi
   hold "$note"
 }

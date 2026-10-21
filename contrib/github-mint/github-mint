@@ -54,6 +54,9 @@ scope=$(first "$input" scope)
 base=${YARDR_SOURCE_BASE:-https://api.github.com}
 
 # A key path from the home it is under.
+# The quotes match a literal ~/ prefix: unquoted, the tilde would expand
+# to this home and match nothing the caller wrote.
+# shellcheck disable=SC2088
 case $key in "~/"*) key=$HOME/${key#"~/"} ;; "~") key=$HOME ;; esac
 [ -f "$key" ] || fail "the key file $key is not there"
 # BSD and GNU stat spell a file's mode differently (-f '%Lp' and -c '%a'),

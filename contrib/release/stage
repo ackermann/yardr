@@ -97,8 +97,8 @@ has_outcome() {
 # done_with <stage> <note>: the flow's done outcome, else the stage by name.
 done_with() {
   echo "== $BEAD: $2"
-  if has_outcome done; then
-    printf '%s\n' "$2" | "$Y" bead done "$BEAD" --note - && exit 0
+  if has_outcome "done"; then
+    printf '%s\n' "$2" | "$Y" bead "done" "$BEAD" --note - && exit 0
   fi
   printf '%s\n' "$2" | "$Y" bead advance "$BEAD" --to "$1" --note -
   exit 0
@@ -120,7 +120,7 @@ $3"
   fi
   echo "== $BEAD $outcome: $2"
   if has_outcome "$outcome"; then
-    printf '%s\n' "$MODE: $text" | "$Y" bead done "$BEAD" --outcome "$outcome" --note - && exit 0
+    printf '%s\n' "$MODE: $text" | "$Y" bead "done" "$BEAD" --outcome "$outcome" --note - && exit 0
   fi
   hold "$text"
 }
@@ -168,8 +168,9 @@ version() {
   # is refused here first: only the version, whole, reaches a tag, gh or
   # the signing commands.
   case $v in *[!v0-9.]*) v_ok="" ;; *) v_ok=1 ;; esac
-  [ -n "$v_ok" ] && printf '%s\n' "$v" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+  if [ -z "$v_ok" ] || ! printf '%s\n' "$v" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
     fail question "the bead's title names no version (its last word is \"$v\"): title it \"$PRODUCT v<major>.<minor>.<patch>\" and advance the bead back to $MODE"
+  fi
 }
 
 # actions_off: whether GitHub Actions is switched off on the release repo,
@@ -323,6 +324,9 @@ build() {
     [ -z "$run_url" ] || run_line=" CI's run is at $run_url."
   fi
   url="https://github.com/$GHREPO/releases/tag/$v"
+  # A literal ~ for the note below: mckean pastes those commands into a
+  # shell of their own, where the tilde expands to their home, not this one's.
+  # shellcheck disable=SC2088
   dir="~/releases/$v"
   done_with sign "build: $PRODUCT $v is drafted ($url, $built_by): the four archives and checksums.txt, the checksums not yet signed.$run_line Sign them with the five commands, in order (minisign asks for the key's password; each names $v):
 

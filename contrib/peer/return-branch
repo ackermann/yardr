@@ -50,7 +50,7 @@ hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "return-branch: $1"; "
 # names none keeps the bead here, held.
 failed() {
   echo "== $BEAD failed"
-  printf '%s\n' "return-branch: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  printf '%s\n' "return-branch: $1" | "$Y" bead "done" "$BEAD" --outcome failed --note - && exit 0
   hold "$1"
 }
 
@@ -89,6 +89,6 @@ esac
 "$Y" bead update "$BEAD" --meta "result.branch=$BR" --meta "result.commit=$sha" --meta "result.remote=$url" >/dev/null ||
   hold "pushed $BR at $sha to $PUSH, but could not write that on the bead; unhold to run this stage again"
 short=$(git -C "$REPO" rev-parse --short "$sha")
-printf '%s\n' "return-branch: pushed $BR at $short to $PUSH ($url)" | "$Y" bead done "$BEAD" --note - ||
+printf '%s\n' "return-branch: pushed $BR at $short to $PUSH ($url)" | "$Y" bead "done" "$BEAD" --note - ||
   hold "pushed $BR at $short to $PUSH, but the stage names no outcome done to report it with"
 echo "== $BEAD done"

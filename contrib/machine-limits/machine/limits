@@ -93,7 +93,8 @@ disk=$(df . 2>/dev/null | awk 'END { for (i = 1; i <= NF; i++) if ($i ~ /%$/) { 
 
 isnum "$loadavg" || { say "no 1-minute load average"; exit 1; }
 case "$cores" in '' | *[!0-9]* | 0) say "no core count"; exit 1 ;; esac
-isnum "$swap_total" && isnum "$swap_used" || { say "no swap numbers"; exit 1; }
+isnum "$swap_total" || { say "no swap numbers"; exit 1; }
+isnum "$swap_used" || { say "no swap numbers"; exit 1; }
 isnum "$disk" || { say "no used share for this directory's volume"; exit 1; }
 
 # `load` would be the name, but gawk reserves it for its extension loader

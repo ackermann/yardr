@@ -175,8 +175,11 @@ racelocked() {
     mode=
     status=$1
     shift
-    mkdir -p -m 700 "$HOME/.yardr"
+    mkdir -p "$HOME/.yardr"
+    chmod 700 "$HOME/.yardr"
   fi
+  # The perl holds $vars the shell must not expand: single quotes intended.
+  # shellcheck disable=SC2016
   race_perl='use POSIX qw(:sys_wait_h setpgid);
 use Fcntl qw(:DEFAULT :flock);
 use Errno qw(EINTR EWOULDBLOCK EAGAIN);
@@ -561,7 +564,7 @@ again() {
   # The race leg, and only it, runs under the machine-wide lock: go vet,
   # go build and the socket leg beside the first run wait for nothing.
   # Its output is also kept whole across runs, for the package budget.
-  under=env
+  under='env'
   race=0
   case " $* " in
     *" go test -race "*)
@@ -663,8 +666,8 @@ again() {
               fi
             done
             echo "test: running the failed packages again: $pkgs_line" >&2
-            # shellcheck disable=SC2086
             rc=0
+            # shellcheck disable=SC2086
             runlogged "$log" "$under" $prefix $flags $pkgs || rc=$?
             if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
             waited_total=$((waited_total + $(waitcount "$log")))
@@ -865,8 +868,8 @@ packagebudget() {
     run=$(mktemp)
     # The re-run reads no stdin: the loop's is the over-budget list. Its
     # output is printed and kept for its seconds.
-    # shellcheck disable=SC2086
     rrc=0
+    # shellcheck disable=SC2086
     runlogged "$run" $prefix $flags -count=1 "$pkg" </dev/null || rrc=$?
     alone=$(awk '
       function seconds(s, total, n) {
@@ -1138,7 +1141,8 @@ whole() {
   pkgs_ok=$((pkgs_ok + side_ok))
   pkgs_failed=$((pkgs_failed + side_failed))
   rm -f "$beside" "$beside_counts"
-  beside= beside_counts=
+  beside=
+  beside_counts=
   [ "$first" = 0 ] || exit "$first"
   exit "$second"
 }

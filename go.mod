@@ -1,6 +1,6 @@
 module yardr.dev/yardr
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0

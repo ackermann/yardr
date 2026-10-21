@@ -65,7 +65,7 @@ echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $DEPOT $TRAIN ($BR onto $BASE)
 hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "integrator: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
   echo "== $TRAIN $1"
-  printf '%s\n' "integrator: $2" | "$Y" bead done "$TRAIN" --outcome "$1" --note - && exit 0
+  printf '%s\n' "integrator: $2" | "$Y" bead "done" "$TRAIN" --outcome "$1" --note - && exit 0
   hold "could not report $1 (does the train's flow name it for its stage?): $2"
 }
 
@@ -330,6 +330,9 @@ $out"
     # to shape.
     msg="the tests failed on $BR at $at rebased onto $BASE ($WHAT, $why); $(shown):
 $out"
+    # The hold below runs when either the create or the dep-add fails, which
+    # is the intent: both must succeed for the train to have its fix child.
+    # shellcheck disable=SC2015
     fix=$(printf '%s\n' "The tests failed on train $TRAIN's branch $BR at $at rebased onto $BASE ($WHAT, $why). Make them pass on $BR. Of the run, $(shown):
 
 $out" | "$Y" bead create "Fix the tests on train $TRAIN" -d "$DEPOT" -t bug -s backlog -b -) &&
@@ -456,4 +459,4 @@ If it is the train's, bind it (yardr bead update $TRAIN --meta pr_url=<its url>)
     report failed "$msg But binding $TRAIN to pull request $url failed."
 fi
 
-report done "$msg"
+report "done" "$msg"

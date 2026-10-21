@@ -90,7 +90,10 @@ stop_shot() {
   sleep 5
   kill -KILL "${pid:-}" 2>/dev/null
   rm -rf "${prof:?}"
+  # Set by the TERM/INT/HUP traps below, the only callers of this handler.
+  # shellcheck disable=SC2154
   echo "shot: stopped by SIG${stop_sig}; Chrome stopped" >&2
+  # shellcheck disable=SC2154
   exit "$stop_code"
 }
 trap 'stop_sig=TERM; stop_code=143; stop_shot' TERM
@@ -109,6 +112,8 @@ trap 'stop_sig=HUP; stop_code=129; stop_shot' HUP
   --screenshot="$out" --window-size=1280,800 "$url" </dev/null &
 pid=$!
 ( timer=
+  # Invoked by the subshell's TERM/INT/HUP trap below, not by name.
+  # shellcheck disable=SC2329
   stop_timer() {
     trap - TERM INT HUP
     if [ -n "$timer" ]; then
