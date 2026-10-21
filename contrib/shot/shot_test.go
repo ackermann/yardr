@@ -3,22 +3,25 @@ package shot
 // These tests run the reference screenshot script against pages of their
 // own: an httptest server on loopback, never the network and never Dokku.
 // The shot itself needs headless Chrome, which the machine running the
-// tests may not have; then that test skips, and a stand-in Chrome proves
-// the script passes the page through with the right flags. The refusals
-// need no Chrome: the script checks the file and the page first. Nothing
-// waits on Chrome without a deadline: the script stops it after SHOT_TIMEOUT,
-// and the tests stop the script at their context's.
+// tests may not have, may give no display to draw on (macOS Chrome then
+// hangs), or may be too loaded for it to finish; then that test skips, and a
+// stand-in Chrome proves the script passes the page through with the right
+// flags. The refusals need no Chrome: the script checks the file and the
+// page first. Nothing waits on Chrome without a deadline: the script stops
+// it after SHOT_TIMEOUT, and the tests stop the script at their context's.
 
 import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -129,9 +132,53 @@ func timeoutSecs(ctx context.Context, start time.Time) string {
 
 // underLoad reports whether a slow Chrome is the machine's fault, not the
 // shot's: the landing suite, and any run with the race detector, load the
-// machine enough that headless Chrome can miss its minute.
+// machine enough that headless Chrome can miss its minute, and so does
+// whatever else the machine is doing, which its load average shows
+// (machineLoaded): a plain full run beside other work is as slow.
 func underLoad() bool {
-	return os.Getenv("YARDR_LANDING") != "" || race()
+	return os.Getenv("YARDR_LANDING") != "" || race() || machineLoaded()
+}
+
+// machineLoaded reports whether the machine is too loaded for a timing
+// verdict by the gate's own measure (loadedmachine in .yardr/test, rule R1
+// in docs/testing.md): its one-minute load average is past its core count.
+// Where the load cannot be read it is not loaded: an unknown load excuses no
+// hang, as it passes no package there.
+func machineLoaded() bool {
+	avg, cores, ok := loadReading()
+	return ok && avg > cores
+}
+
+// loadReading is the one-minute load average and the core count as the gate
+// takes them: /proc/loadavg where the system keeps it, sysctl's vm.loadavg
+// elsewhere, and the cores Go counts (its nproc and hw.ncpu). Like there,
+// YARDR_TEST_LOADAVG and YARDR_TEST_CORES stand in for both, so a test can
+// pin the machine's load; with one set and not the other the reading is
+// unknown, as there. ok is false when either cannot be read.
+func loadReading() (avg, cores float64, ok bool) {
+	text, n := "", strconv.Itoa(runtime.NumCPU())
+	if a, c := os.Getenv("YARDR_TEST_LOADAVG"), os.Getenv("YARDR_TEST_CORES"); a != "" || c != "" {
+		text, n = a, c
+	} else if b, err := os.ReadFile("/proc/loadavg"); err == nil {
+		text = string(b)
+	} else if out, err := exec.Command("sysctl", "-n", "vm.loadavg").Output(); err == nil {
+		text = string(out)
+	}
+	avg, ok = loadAverage(text)
+	cores, err := strconv.ParseFloat(n, 64)
+	return avg, cores, ok && err == nil && cores > 0
+}
+
+// loadAverage is the first number of what the system prints for the load:
+// /proc/loadavg ("0.52 0.58 0.59 1/467 12345"), sysctl -n vm.loadavg on
+// darwin ("{ 3.52 3.61 3.40 }"), or a bare number.
+func loadAverage(text string) (float64, bool) {
+	f := strings.Fields(strings.Trim(text, "{} \n"))
+	if len(f) == 0 {
+		return 0, false
+	}
+	avg, err := strconv.ParseFloat(f[0], 64)
+	return avg, err == nil
 }
 
 // race reports whether the test binary was built with the race detector,
@@ -378,11 +425,64 @@ func pngSize(t *testing.T, path string) (uint32, uint32) {
 	return binary.BigEndian.Uint32(raw[16:20]), binary.BigEndian.Uint32(raw[20:24])
 }
 
+// displayLinkFailure is the line headless Chrome on macOS prints, over and
+// over, when it cannot make a display link for the host's display
+// ("CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670"), and then
+// does not finish, so the script's deadline ends the shot (yardr-zkfj). That
+// is the host's to give, not the script's: a shot that times out beside it
+// is skipped however quiet the machine.
+const displayLinkFailure = "CVDisplayLinkCreateWithCGDisplay failed"
+
+// verdict is what TestShotWritesAWindowSizedPNG makes of one run of the script.
+type verdict int
+
+const (
+	shotMade    verdict = iota // the script exited 0: the PNG is there to check
+	shotSkipped                // the host or the load, not the shot, is why it is not
+	shotFailed                 // the script is at fault
+)
+
+// windowVerdict judges a run of the script that exited rc and printed text,
+// on a machine that is loaded or not, and says why unless the shot was made.
+// A Chrome that missed its deadline is skipped when it printed the display
+// link failure, or when the machine is loaded; one that misses it silently
+// on a quiet machine is a real hang, and fails. A Chrome that failed any
+// other way fails the shot, loaded or not.
+func windowVerdict(rc int, text string, loaded bool) (verdict, string) {
+	switch {
+	case rc != 0 && strings.Contains(text, "no headless Chrome"):
+		return shotSkipped, "no headless Chrome: " + strings.TrimSpace(text)
+	case strings.Contains(text, "chrome did not finish within"):
+		if line := lineWith(text, displayLinkFailure); line != "" {
+			return shotSkipped, "chrome cannot make a display link on this host, and did not finish: " +
+				line + "; " + lineWith(text, "chrome did not finish within")
+		}
+		if loaded {
+			return shotSkipped, "chrome missed its deadline under load: " + strings.TrimSpace(text)
+		}
+	case rc == 0:
+		return shotMade, ""
+	}
+	return shotFailed, fmt.Sprintf("shot: exit %d: %s", rc, text)
+}
+
+// lineWith is the first line of text that holds sub, trimmed, or "".
+func lineWith(text, sub string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, sub) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
 // The shot itself, with real Chrome against the local page: a window-sized
 // PNG. A machine with no Chrome skips it; the stand-in test above proves
-// the flags there. Under load the deadline is short and a Chrome that
-// misses it skips too, with the reason: a slow machine is not a failure
-// of the shot code, and the skip must not cost the full minute.
+// the flags there. So does a Chrome that cannot make a display link, and
+// under load the deadline is short and a Chrome that misses it skips too,
+// with the reason (windowVerdict): a slow machine or a host with no display
+// is not a failure of the shot code, and the skip must not cost the full
+// minute.
 func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -394,20 +494,84 @@ func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	t.Cleanup(cancel)
 	rc, text := runShot(ctx, t, []string{s.URL + "/page", out},
 		"SHOT_TIMEOUT="+strconv.Itoa(int(timeout/time.Second)))
-	if rc != 0 && strings.Contains(text, "no headless Chrome") {
-		t.Skip("no headless Chrome: " + strings.TrimSpace(text))
-	}
-	if strings.Contains(text, "chrome did not finish within") {
-		if underLoad() {
-			t.Skip("chrome missed its deadline under load: " + strings.TrimSpace(text))
-		}
-		t.Fatalf("shot: exit %d: %s", rc, text)
-	}
-	if rc != 0 {
-		t.Fatalf("shot: exit %d: %s", rc, text)
+	// The load is read after the shot: a minute's wait is long enough for
+	// the machine to have been quiet at its start and busy by its end.
+	switch v, why := windowVerdict(rc, text, underLoad()); v {
+	case shotSkipped:
+		t.Skip(why)
+	case shotFailed:
+		t.Fatal(why)
 	}
 	if w, h := pngSize(t, out); w != 1280 || h != 800 {
 		t.Errorf("the shot is %dx%d, want 1280x800", w, h)
+	}
+}
+
+// The verdict on a run that timed out (yardr-zkfj): a Chrome that printed
+// the display link failure is skipped, quiet or loaded; one that printed
+// nothing of the kind is skipped only on a loaded machine, and fails on a
+// quiet one, since a real hang must; and what did not time out is judged as
+// before, a Chrome that failed or a shot that was made whatever the load.
+func TestWindowVerdict(t *testing.T) {
+	const timedOut = "shot: chrome did not finish within 60s\n"
+	display := "[1234:5678:1021/090000.000000:ERROR:display_link_mac.cc(1)] " + displayLinkFailure + ". CVReturn: -6670\n"
+	for _, c := range []struct {
+		name   string
+		rc     int
+		text   string
+		loaded bool
+		want   verdict
+		why    string // a word the reason must carry
+	}{
+		{"shot made", 0, "", false, shotMade, ""},
+		{"shot made under load", 0, "", true, shotMade, ""},
+		{"no Chrome", 1, "shot: no headless Chrome found (looked for chromium)\n", false, shotSkipped, "no headless Chrome"},
+		{"display link failure, quiet", 1, display + display + timedOut, false, shotSkipped, "display link"},
+		{"display link failure, loaded", 1, display + timedOut, true, shotSkipped, "display link"},
+		{"silent hang, quiet", 1, timedOut, false, shotFailed, "did not finish"},
+		{"hang with other output, quiet", 1, "chrome is warming up\n" + timedOut, false, shotFailed, "warming up"},
+		{"silent hang, loaded", 1, timedOut, true, shotSkipped, "under load"},
+		{"Chrome failed, loaded", 7, "shot: http://127.0.0.1/page: Chrome failed with exit 7\n", true, shotFailed, "exit 7"},
+		{"display link failure without a timeout", 7, display + "shot: http://127.0.0.1/page: Chrome failed with exit 7\n", false, shotFailed, "exit 7"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v, why := windowVerdict(c.rc, c.text, c.loaded)
+			if v != c.want || !strings.Contains(why, c.why) {
+				t.Errorf("windowVerdict(%d, %q, loaded=%v) = %d, %q, want %d with %q in the reason", c.rc, c.text, c.loaded, v, why, c.want, c.why)
+			}
+		})
+	}
+}
+
+// The verdict on the script's own output, from a stand-in Chrome that hangs
+// (yardr-zkfj): one that prints the display link failure first is skipped on
+// a quiet machine, and one that prints nothing of the kind still fails
+// there. The script's deadline is a second, started once the stand-in is
+// ready as in TestShotKillsAChromeThatDoesNotFinish, so the failure line is
+// printed before it is.
+func TestWindowVerdictOfAHungChrome(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	for _, c := range []struct {
+		name, line string
+		want       verdict
+	}{
+		{"prints the display link failure", displayLinkFailure + ". CVReturn: -6670", shotSkipped},
+		{"prints nothing", "", shotFailed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, pids := sleeper(t, c.line, false)
+			env = append(env, readySleep(t, pids)...)
+			env = append(env, "SHOT_TIMEOUT=1")
+			rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", filepath.Join(t.TempDir(), "shot.png")}, env...)
+			// Quiet is given, not read: the machine this runs on may be busy.
+			if v, why := windowVerdict(rc, text, false); v != c.want {
+				t.Errorf("a Chrome that hangs and %s: verdict %d (%s), want %d; exit %d, output %q", c.name, v, why, c.want, rc, text)
+			}
+			dead(t, pids)
+		})
 	}
 }
 
@@ -648,9 +812,13 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	})
 }
 
-// A slow Chrome is the machine's fault on the landing suite and under the
-// race detector, and the shot's own anywhere else.
+// A slow Chrome is the machine's fault on the landing suite, under the race
+// detector and on a machine whose load is past its cores, and the shot's own
+// anywhere else. The machine's own load is pinned, as the gate's tests pin
+// theirs, so what the test finds does not depend on what else is running.
 func TestUnderLoad(t *testing.T) {
+	t.Setenv("YARDR_TEST_LOADAVG", "1.5")
+	t.Setenv("YARDR_TEST_CORES", "10")
 	t.Setenv("YARDR_LANDING", "1")
 	if !underLoad() {
 		t.Error("underLoad with YARDR_LANDING=1 is false")
@@ -658,6 +826,77 @@ func TestUnderLoad(t *testing.T) {
 	t.Setenv("YARDR_LANDING", "")
 	if underLoad() != race() {
 		t.Errorf("underLoad without YARDR_LANDING is %v with race %v", underLoad(), race())
+	}
+	t.Setenv("YARDR_TEST_LOADAVG", "72.4")
+	if !underLoad() {
+		t.Error("underLoad on a machine at load 72.4 on 10 cores is false")
+	}
+}
+
+// The machine is loaded when its one-minute load average is past its core
+// count, as the gate's loadedmachine says; at the count is not past it, and
+// a load or a count that cannot be read is no load (yardr-zkfj).
+func TestMachineLoaded(t *testing.T) {
+	for _, c := range []struct {
+		avg, cores string
+		want       bool
+	}{
+		{"72.4", "10", true},
+		{"10.5", "10", true},
+		{"10", "10", false},
+		{"1.5", "10", false},
+		{"", "10", false},
+		{"unknown", "10", false},
+		{"72.4", "", false},
+		{"72.4", "0", false},
+	} {
+		t.Run(c.avg+" on "+c.cores, func(t *testing.T) {
+			t.Setenv("YARDR_TEST_LOADAVG", c.avg)
+			t.Setenv("YARDR_TEST_CORES", c.cores)
+			if got := machineLoaded(); got != c.want {
+				t.Errorf("machineLoaded at load %q on %q cores is %v, want %v", c.avg, c.cores, got, c.want)
+			}
+		})
+	}
+}
+
+// loadAverage reads the first number out of what each system prints for the
+// load: Linux's /proc/loadavg and darwin's sysctl vm.loadavg.
+func TestLoadAverage(t *testing.T) {
+	for text, want := range map[string]float64{
+		"0.52 0.58 0.59 1/467 12345\n": 0.52,
+		"{ 3.52 3.61 3.40 }\n":         3.52,
+		"72.4":                         72.4,
+	} {
+		if got, ok := loadAverage(text); !ok || got != want {
+			t.Errorf("loadAverage(%q) = %v, %v, want %v", text, got, ok, want)
+		}
+	}
+	for _, text := range []string{"", "\n", "{ }", "unknown"} {
+		if got, ok := loadAverage(text); ok {
+			t.Errorf("loadAverage(%q) = %v, want no reading", text, got)
+		}
+	}
+}
+
+// Where the yard runs, the system's own reading comes through: a reader that
+// never found one would leave every machine quiet, and the skip on load
+// would never fire.
+func TestSystemLoadIsRead(t *testing.T) {
+	switch runtime.GOOS {
+	case "darwin":
+	case "linux":
+		if _, err := os.Stat("/proc/loadavg"); err != nil {
+			t.Skip("this linux keeps no /proc/loadavg")
+		}
+	default:
+		t.Skip("the yard runs on linux and darwin")
+	}
+	t.Setenv("YARDR_TEST_LOADAVG", "")
+	t.Setenv("YARDR_TEST_CORES", "")
+	avg, cores, ok := loadReading()
+	if !ok || avg < 0 || cores < 1 {
+		t.Errorf("the system's load reading is %v on %v cores, ok=%v", avg, cores, ok)
 	}
 }
 
