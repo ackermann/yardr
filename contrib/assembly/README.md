@@ -132,8 +132,9 @@ daemon lands a train on the base branch's required checks only).
 **pr-train** is routed for the train flow's `approved` stage (type `train`)
 when trains land through pull requests. It pushes `yard/<train>` with a lease
 (it may carry the reviewer's commits; a remote branch with commits of its
-own is not overwritten), replaces the PR's body with the latest review note
-under "Review", stores the commit it pushed in the train's metadata as
+own is not overwritten), replaces the PR's body with the first review's note
+under "Review" and the security review's under "Security review" where it
+has one, stores the commit it pushed in the train's metadata as
 `pr_reviewed_sha`, and reports `done`, to `in-pr`. No bound PR, a refused push
 or a PR GitHub reports as conflicting reports `failed`, to `open`.
 

@@ -1149,7 +1149,8 @@ commit, pushed after the review, is not merged, and the train is held in
   `YARDR_PR=1`; held without it): pushes
   `yard/<train>`, which may carry the reviewer's commits (with a lease: a
   remote branch with commits of its own is never overwritten), replaces the
-  PR's body with the latest review note under "Review", stores the pushed
+  PR's body with the first review's note under "Review" and the security
+  review's under "Security review" where it has one, stores the pushed
   commit as `pr_reviewed_sha`, and reports `done`,
   to `in-pr`. No bound PR, a refused push, or a PR GitHub reports as
   conflicting with the base reports `failed`, to `open`, for the integrator.

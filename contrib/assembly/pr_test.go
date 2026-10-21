@@ -167,7 +167,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
 	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
-	y.yardr("bead", "done", "r-e") // review-security -> approved
+	y.yardr("bead", "done", "r-e", "--note", "Security: touches nothing the network reaches.") // review-security -> approved
 	// A note a script left since is not the review.
 	y.yardr("bead", "note", "r-e", "assembly: the tests failed once; running them once more")
 
@@ -184,8 +184,10 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	}
 	body = readFile(t, filepath.Join(gh, "body"))
 	review := strings.Index(body, "## Review\n\nApproved: the children fit together")
-	if review < 0 || !strings.Contains(body, "- r-2 child") || review > strings.Index(body, "Train: r-e") {
-		t.Fatalf("PR body lacks the review before its trailer:\n%s", body)
+	security := strings.Index(body, "## Security review\n\nSecurity: touches nothing the network reaches")
+	trailer := strings.Index(body, "Train: r-e")
+	if review < 0 || security < 0 || !strings.Contains(body, "- r-2 child") || !(review < security && security < trailer) {
+		t.Fatalf("PR body lacks both reviews before its trailer:\n%s", body)
 	}
 
 	// A human says "merge it"; pr-merge merges and brings main up.

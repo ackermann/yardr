@@ -17,10 +17,11 @@
 #   YARDR_PUSH     the remote the pull request's branch is on (default origin)
 #
 # It pushes yard/<train>, which may have gained the reviewer's commits, and
-# replaces the PR's body with the train's, its children, the latest review
-# note under "Review" and the trailer "Train: <id>", stores the commit it
-# pushed as the train's pr_reviewed_sha (the only head pr-merge will merge),
-# then reports done (-> in-pr). A push the remote refuses, a remote branch with commits the
+# replaces the PR's body with the train's, its children, the first review's
+# note under "Review", the security review's under "Security review" where it
+# has one, and the trailer "Train: <id>", stores the commit it pushed as the
+# train's pr_reviewed_sha (the only head pr-merge will merge), then reports
+# done (-> in-pr). A push the remote refuses, a remote branch with commits the
 # train lacks, a PR GitHub finds conflicting with the base, or no PR bound
 # to the train reports failed (-> open): the integrator rebases and opens it
 # again. A branch it cannot work on (missing, dirty) is held, as is a train
@@ -113,10 +114,13 @@ mergeable=$(cd "$REPO" && gh pr view "$url" --json mergeable --jq .mergeable 2>"
 [ "$mergeable" != CONFLICTING ] ||
   report failed "pull request $url conflicts with $prbase; the integrator rebases $BR again"
 
-# The body as integrate-train writes it, with the review before the trailer.
-# The latest review note is the latest one no script wrote.
-review=$(printf '%s' "$train" |
-  jq -r '[.notes[]? | select(.text | test("^(integrator|assembly|pr): ") | not)] | last | .text // empty')
+# The body as integrate-train writes it, with the reviews before the
+# trailer. The reviews' notes are the last two no script wrote: the first
+# review's, then the security review's where it has one.
+noted=$(printf '%s' "$train" |
+  jq -r '[.notes[]? | select(.text | test("^(integrator|assembly|pr): ") | not) | .text]')
+review=$(printf '%s' "$noted" | jq -r 'if length == 1 then .[0] elif length > 1 then .[-2] else empty end')
+security=$(printf '%s' "$noted" | jq -r 'if length > 1 then .[-1] else empty end')
 body=$(
   printf '%s' "$train" | jq -r '.bead.body // ""'
   printf '\n## Children\n\n'
@@ -124,6 +128,7 @@ body=$(
     printf -- '- %s %s\n' "$c" "$("$Y" bead show "$c" --json | jq -r .title)"
   done
   [ -z "$review" ] || printf '\n## Review\n\n%s\n' "$review"
+  [ -z "$security" ] || printf '\n## Security review\n\n%s\n' "$security"
   printf '\nTrain: %s\n' "$TRAIN"
 )
 out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||
