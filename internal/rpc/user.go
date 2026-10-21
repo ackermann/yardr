@@ -862,15 +862,16 @@ func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 
 // unclaimedPut reports whether hash is a blob user's device put within
 // BlobGrace that no mail or note names yet: one whose mail or note is on
-// its way, as pruneBlobs keeps it. The stat comes before the lookups:
-// most such checks are for old blobs, which never reach them.
+// its way, as pruneBlobs keeps it. BlobPutBy checks the hash before it is
+// used as a path; the stat comes before the mail scan because most owned
+// uploads are old.
 func (u *UserServer) unclaimedPut(ctx context.Context, user, hash string) bool {
-	st, err := os.Stat(u.st.BlobPath(hash))
-	if err != nil || st.ModTime().Before(u.now().Add(-store.BlobGrace)) {
-		return false
-	}
 	by, err := u.st.BlobPutBy(ctx, hash)
 	if err != nil || by == "" || by != user {
+		return false
+	}
+	st, err := os.Stat(u.st.BlobPath(hash))
+	if err != nil || st.ModTime().Before(u.now().Add(-store.BlobGrace)) {
 		return false
 	}
 	mailed, err := u.st.BlobMailed(ctx, hash)
