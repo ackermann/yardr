@@ -392,9 +392,14 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 		// A redelivery whose first delivery is gone from the log is new
 		// again: drop the dedupe keys that point at removed events, once
 		// they are older than a replay could still pass for (hookSeenKeep).
-		// A key from before its time was kept has none, and goes with its
-		// event as it did.
+		// Older builds stored only the event seq, so use the event's time
+		// for those keys. A key whose event is already gone and has no time
+		// cannot be aged safely, so keep it.
 		oldest := dead[n-1].Seq + 1
+		deadAt := make(map[uint64]time.Time, len(dead))
+		for _, e := range dead {
+			deadAt[e.Seq] = e.At
+		}
 		keepSeen, err := hookSeenKeep(w.Tx)
 		if err != nil {
 			return err
@@ -406,7 +411,14 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 			if len(v) < 8 {
 				return nil
 			}
-			if seq, at := seenRecord(v); seq < oldest && at.Before(recorded) {
+			seq, at := seenRecord(v)
+			if at.IsZero() {
+				at = deadAt[seq]
+				if at.IsZero() {
+					return nil
+				}
+			}
+			if seq < oldest && at.Before(recorded) {
 				stale = append(stale, append([]byte(nil), k...))
 			}
 			return nil

@@ -714,8 +714,8 @@ hook:
   bodies: unique
   normalize: [normalize]
 `
-	// A key written before keys had a time still dedupes, and goes with its
-	// event whatever its age, as it did.
+	// A key written before keys had a time uses its event's time: it stays
+	// for the replay margin and goes when that margin has passed.
 	for name, tc := range map[string]struct {
 		source string
 		legacy bool                     // the keys are as an older build wrote them
@@ -724,7 +724,7 @@ hook:
 	}{
 		"no window":    {"", false, map[string]time.Duration{"six days": 144 * time.Hour, "ten days": 240 * time.Hour}, []string{"six days"}},
 		"a 48h window": {slow, false, map[string]time.Duration{"250 hours": 250 * time.Hour, "280 hours": 280 * time.Hour}, []string{"250 hours"}},
-		"no time kept": {"", true, map[string]time.Duration{"an hour": time.Hour}, nil},
+		"legacy keys":  {"", true, map[string]time.Duration{"an hour": time.Hour, "ten days": 240 * time.Hour}, []string{"an hour"}},
 	} {
 		api, yard := storetest.NewOwned(t)
 		for key, age := range tc.ages {
