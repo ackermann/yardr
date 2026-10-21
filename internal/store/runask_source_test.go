@@ -313,8 +313,16 @@ func TestSourceAddTerminalCardTreatsTextAsData(t *testing.T) {
 	if strings.ContainsAny(lines, "\x1b\r\u202e") {
 		t.Fatalf("untrusted source text reached the terminal as a control:\n%q", lines)
 	}
-	if strings.Contains(lines, "◆") {
-		t.Fatalf("untrusted source text can forge a file mark:\n%s", lines)
+	// The mark in untrusted text cannot start a line of its own: every
+	// carried line passes the files-mark guard. Mid-line it is data and
+	// stays.
+	for _, line := range strings.Split(lines, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "◆") {
+			t.Fatalf("untrusted source text forged a files line:\n%s", lines)
+		}
+	}
+	if !strings.Contains(lines, "# file text: ◆ forged") {
+		t.Fatalf("the card lost the untrusted text's diamond:\n%s", lines)
 	}
 	if !strings.Contains(lines, `format="\x1b[2J"`) {
 		t.Fatalf("the source's query is absent from the card:\n%s", lines)
@@ -330,8 +338,16 @@ func TestSourceAddTerminalCardTreatsTextAsData(t *testing.T) {
 	wired.Run.Argv = []string{"source add wired.yaml"}
 	wseq := y.ask(t, wired, "yardmaster")
 	wiredLines := strings.Join(y.asked(t, wseq).Lines(), "\n")
-	if strings.ContainsAny(wiredLines, "\x1b\r\u202e") || strings.Contains(wiredLines, "◆") {
-		t.Fatalf("untrusted command text reached the terminal:\n%q", wiredLines)
+	if strings.ContainsAny(wiredLines, "\x1b\r\u202e") {
+		t.Fatalf("untrusted command text reached the terminal as a control:\n%q", wiredLines)
+	}
+	for _, line := range strings.Split(wiredLines, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "◆") {
+			t.Fatalf("untrusted command text forged a files line:\n%s", wiredLines)
+		}
+	}
+	if !strings.Contains(wiredLines, "# forged ◆") {
+		t.Fatalf("the card lost the command text's diamond:\n%s", wiredLines)
 	}
 }
 

@@ -1039,14 +1039,16 @@ func TestMailAndNoteRefuseBadNames(t *testing.T) {
 		"1 file: "+store.BlobPath(home, pdf.Hash); got != want {
 		t.Errorf("the paste line = %q, want %q", got, want)
 	}
-	// A name that is all letters but the mark reads without it: the
-	// marked line stays the yard's.
+	// A name carrying the mark shows it: it stands mid-line, in the
+	// parentheses after its path, where no files line is recognised (a
+	// name holds no break, so it cannot start a line of its own). The
+	// marked line stays the yard's: it starts with the one mark the yard
+	// adds.
 	marked := store.BlobRef{Hash: pdf.Hash, Type: "application/pdf", Name: "a" + store.NoteFilesMark + "b.pdf"}
-	if got := store.FilesLine(home, []store.BlobRef{marked}); !strings.Contains(got, "(ab.pdf)") || strings.Count(got, store.NoteFilesMark) != 0 {
-		// FilesLine itself carries no mark; NoteFilesLine adds the one.
-		t.Errorf("the marked name line = %q", got)
+	if got := store.FilesLine(home, []store.BlobRef{marked}); !strings.Contains(got, "(a"+store.NoteFilesMark+"b.pdf)") {
+		t.Errorf("the marked name line lost the name's diamond: %q", got)
 	}
-	if got := store.NoteFilesLine(home, []store.BlobRef{marked}); strings.Count(got, store.NoteFilesMark) != 1 {
-		t.Errorf("the noted marked name line = %q", got)
+	if got := store.NoteFilesLine(home, []store.BlobRef{marked}); !strings.HasPrefix(got, store.NoteFilesMark+" ") {
+		t.Errorf("the noted marked name line is not the yard's: %q", got)
 	}
 }
