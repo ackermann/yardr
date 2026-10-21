@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -263,9 +265,17 @@ const CrewForEnv = "CREW_FOR"
 // conversation never inherits the line's env: its file carries its user's
 // login, and the line's command output winning over it could burn the
 // wrong login. Either source refused is Blocked, as a group's env_file is.
+// Under either goes the key file of the session's harness kind for the
+// login it burns (harnessKey): the operator's for the line session, the
+// user's for a conversation.
 func (h *Herdr) crewSessionEnv(ctx context.Context, r store.CrewMember, dir, user string) ([]string, error) {
+	kind := agents.Kind(r.Config)
 	if user == "" {
-		return h.crewEnv(ctx, r, dir)
+		env, err := h.crewEnv(ctx, r, dir)
+		if err != nil {
+			return nil, err
+		}
+		return h.withHarnessKey(env, kind, h.operator(ctx), "crew member "+r.Name)
 	}
 	who := "crew member " + r.Name + " for " + user
 	f, err := config.ReadEnvFile(r.EnvFor(user))
@@ -275,7 +285,91 @@ func (h *Herdr) crewSessionEnv(ctx context.Context, r store.CrewMember, dir, use
 	if h.Log != nil {
 		h.Log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
 	}
-	return f.Env, nil
+	return h.withHarnessKey(f.Env, kind, user, who)
+}
+
+// groupEnv is what a bead session's group adds to its pane environment:
+// the group's env_file over the key file of its harness kind for the
+// login the session burns (Session.Login: login_for, else the operator's).
+func (h *Herdr) groupEnv(job dispatch.Job) ([]string, error) {
+	who := "group " + job.Group.Name
+	env, err := h.envFile(job.Group.Config, who)
+	if err != nil {
+		return nil, err
+	}
+	return h.withHarnessKey(env, agents.Kind(job.Group.Config), job.Session.Login, who)
+}
+
+// operator is the yard's operator, whose login a crew member's line
+// session burns; "" when the runner has no store or the yard none.
+func (h *Herdr) operator(ctx context.Context) string {
+	if h.Store == nil {
+		return ""
+	}
+	all, err := h.Store.Settings(ctx)
+	if err != nil {
+		return ""
+	}
+	return all[store.OperatorSetting]
+}
+
+// withHarnessKey is env, a session's own entries, over the entries of the
+// key file of kind for user's login (harnessKey): an entry env names
+// itself wins, since a file set for one group or crew member says more
+// than the key every session on the login shares.
+func (h *Herdr) withHarnessKey(env []string, kind, user, who string) ([]string, error) {
+	key, err := harnessKey(h.Log, h.YardHome, kind, user, who)
+	if err != nil || len(key) == 0 {
+		return env, err
+	}
+	own := make(map[string]bool, len(env))
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		own[k] = true
+	}
+	out := slices.DeleteFunc(key, func(e string) bool {
+		k, _, _ := strings.Cut(e, "=")
+		return own[k]
+	})
+	return append(out, env...), nil
+}
+
+// harnessKey reads the API key of the harness kind that the yard keeps for
+// the sessions on user's login (store.HarnessKeyFile), for a session of
+// who: the entries of the kind's login_env alone, so the file carries the
+// key and nothing else to every session that reads it. The led login
+// writes the file for the operator: so the crew, the groups and the
+// conversations on the operator's login start logged in, as they do when
+// the machine's login of the kind is made by its own program. An absent
+// file, a kind with no login_env, no home and no user are no key: the
+// session starts as it would without one, and sits at its login screen
+// where it has no other login. A file open to others is refused as
+// Blocked, as an env_file is. Only key names are logged.
+func harnessKey(log *slog.Logger, home, kind, user, who string) ([]string, error) {
+	h, ok := agents.Lookup(kind)
+	if !ok || len(h.LoginEnv) == 0 || home == "" || user == "" {
+		return nil, nil
+	}
+	path, err := store.HarnessKeyFile(home, h.Kind, user)
+	if err != nil {
+		// A name the yard keeps no file for: no key, as for an absent one.
+		return nil, nil
+	}
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	f, err := config.ReadEnvFile(path)
+	if err != nil {
+		return nil, dispatch.Blocked(fmt.Errorf("%s: the %s key of %s's login: %w", who, h.Kind, user, err))
+	}
+	env := slices.DeleteFunc(slices.Clone(f.Env), func(e string) bool {
+		k, _, _ := strings.Cut(e, "=")
+		return !slices.Contains(h.LoginEnv, k)
+	})
+	if log != nil {
+		log.Debug("harness key loaded", "for", who, "login", user, "path", f.Path, "keys", f.Keys())
+	}
+	return env, nil
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of

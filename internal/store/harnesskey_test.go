@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,13 +15,21 @@ func harnessKeyAsk(harness, crew, to string, env ...string) Ask {
 		Secret:  &AskSecret{Harness: harness, Crew: crew, Env: env}}
 }
 
-const harnessKeyLine = "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+const harnessKeyLine = "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
 
-// An ask for a crew member's harness API key is stored with the variables
-// the kind's harness file names, whatever the asker sent, and its card
-// says whose harness runs with it, that the env_file line is the one
-// written, and when it takes effect. It is asked of the operator, and no
-// source declares it.
+// harnessKeyYard is crewSecretYard with the file a harness key of claude
+// is given to: the operator's (HarnessKeyFile), not the crew member's.
+func harnessKeyYard(t *testing.T) (y *askYard, keyFile, crewFile string) {
+	t.Helper()
+	y, crewFile = crewSecretYard(t)
+	return y, filepath.Join(y.home, HarnessDir, "claude", "mckean.env"), crewFile
+}
+
+// An ask for a harness API key is stored with the variables the kind's
+// harness file names, whatever the asker sent, and its card says the reach
+// the person consents to: every session of the kind that burns the
+// operator's login reads it. It is asked of the operator, and no source
+// declares it.
 func TestHarnessKeyAskIsStoredWithTheFilesNames(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := crewSecretYard(t)
@@ -83,7 +92,7 @@ func TestHarnessKeyAskRefusals(t *testing.T) {
 		{"a name", with(func(a *Ask) { a.Secret.Env = []string{"OTHER_KEY"} }), "OTHER_KEY is no variable of its API key (its file names ANTHROPIC_API_KEY)"},
 		{"no crew", with(func(a *Ask) { a.Secret.Crew = "" }), "asked for the crew member whose harness runs with it"},
 		{"no such crew", with(func(a *Ask) { a.Secret.Crew = "eve" }), "crew member eve: not found"},
-		{"not operator", with(func(a *Ask) { a.To = "ada" }), "giving a crew member's harness key is theirs alone, so ada cannot be asked for one"},
+		{"not operator", with(func(a *Ask) { a.To = "ada" }), "giving a harness API key is theirs alone, so ada cannot be asked for one"},
 		{"a crew member", with(func(a *Ask) { a.To = "yardmaster" }), "so yardmaster cannot be asked for one"},
 		{"another yard", with(func(a *Ask) { a.To = "mckean@north" }), "nothing of a secret crosses a link"},
 		{"options", with(func(a *Ask) { a.Options = []AskOption{{Label: "Yes", Consequence: "it is given"}} }), "takes no --option"},
@@ -102,23 +111,26 @@ func TestHarnessKeyAskRefusals(t *testing.T) {
 	}
 }
 
-// GiveSecret writes a crew member's harness API key into the crew
-// member's file, sets it as their env_file where they had none, and
-// answers the ask with a note that holds the names. It restarts nothing:
-// the answer says when the value takes effect. The value is in the file
-// and in nothing the store has.
+// GiveSecret writes a harness API key into the operator's key file of the
+// kind, <home>/harness/<kind>/<user>.env with mode 0600, and answers the
+// ask with a note that holds the names. It sets no crew member's env_file
+// and writes no crew file: every session on the operator's login reads
+// the key file as it starts, and the answer says so. It restarts nothing.
+// The value is in the file and in nothing the store has, and no words
+// said back hold it.
 func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
-	y, file := crewSecretYard(t)
+	y, file, crewFile := harnessKeyYard(t)
 	seq := y.ask(t, harnessKeyAsk("claude", "yardmaster", "mckean"), "yardmaster")
 	const value = "sk-ant-s3cret"
+	const next = "every Claude Code session that burns mckean's login reads it from its next start"
 	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if keyed.Source != nil || keyed.File != file || keyed.Crew != "yardmaster" || keyed.User != "" ||
+	if keyed.Source != nil || keyed.File != file || keyed.Harness != "claude" || keyed.User != "mckean" || keyed.Crew != "" ||
 		keyed.State != "ANTHROPIC_API_KEY is set in "+file || strings.Join(keyed.Given, ",") != "ANTHROPIC_API_KEY" ||
-		keyed.Next != "it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)" {
+		keyed.Next != next {
 		t.Fatalf("keyed = %+v", keyed)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "ANTHROPIC_API_KEY="+value+"\n" {
@@ -127,12 +139,15 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	if st, err := os.Stat(file); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("the file's mode = %v, %v", st.Mode(), err)
 	}
-	r, err := y.GetCrew(y.ctx, "yardmaster")
-	if err != nil || r.Config["env_file"] != file {
-		t.Fatalf("yardmaster = %+v, %v: want the env_file set", r, err)
+	if _, err := os.Lstat(crewFile); !os.IsNotExist(err) {
+		t.Fatalf("the crew member's file was written: %v", err)
 	}
-	if n := crewDefinedEvents(t, y); n != 2 {
-		t.Fatalf("%d crew_defined events, want 2: the definition, and the env_file set as crew set sets it", n)
+	r, err := y.GetCrew(y.ctx, "yardmaster")
+	if err != nil || len(r.Config) != 0 {
+		t.Fatalf("yardmaster = %+v, %v: want no env_file set", r, err)
+	}
+	if n := crewDefinedEvents(t, y); n != 1 {
+		t.Fatalf("%d crew_defined events, want 1: the definition alone", n)
 	}
 	// The running session is restarted by nothing: no restart asked.
 	if r.RestartRequested != "" {
@@ -147,7 +162,7 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 		t.Fatalf("the card:\n%s", lines)
 	}
 	e := lastAnswer(t, y)
-	if line, _ := e.Data["answer"].(string); line != "mckean gave ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster (ask "+itoa(seq)+" on "+y.bead+")" {
+	if line, _ := e.Data["answer"].(string); line != "mckean gave ANTHROPIC_API_KEY, the API key Claude Code runs with on the operator's login, asked for crew member yardmaster (ask "+itoa(seq)+" on "+y.bead+")" {
 		t.Fatalf("the sentence = %q", line)
 	}
 
@@ -156,14 +171,15 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if keyed.Next != "it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)" {
+	if keyed.Next != next {
 		t.Fatalf("next = %q", keyed.Next)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "ANTHROPIC_API_KEY=typed-again\n" {
 		t.Fatalf("the file holds %q after the second giving", b)
 	}
 
-	// Neither value is in a note, an event or the store's file.
+	// Neither value is in a note, an event, the store's file or the words
+	// said back.
 	notes, _ := json.Marshal(mustNotes(t, y))
 	evs, err := y.EventsSince(y.ctx, 0, 1000)
 	if err != nil {
@@ -174,7 +190,8 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for where, kept := range map[string][]byte{"the notes": notes, "the events": events, "the store's file": db} {
+	words, _ := json.Marshal(keyed)
+	for where, kept := range map[string][]byte{"the notes": notes, "the events": events, "the store's file": db, "the words": words} {
 		for _, v := range []string{value, "typed-again"} {
 			if bytes.Contains(kept, []byte(v)) {
 				t.Errorf("%s hold a value", where)
@@ -183,18 +200,33 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	}
 }
 
-// A crew member's harness API key is given by the operator, and by
-// nobody else: another user and a crew member are refused, and so is a
-// name the ask did not ask for. No refusal says back what was sent, and
-// none writes the file, sets the env_file, or notes an answer.
+// The key file is one per kind and user, under the yard's home, and the
+// yard chooses none for a kind or a user that could name a file elsewhere.
+func TestHarnessKeyFile(t *testing.T) {
+	t.Parallel()
+	got, err := HarnessKeyFile("/h", "claude", "ada")
+	if err != nil || got != filepath.Join("/h", "harness", "claude", "ada.env") {
+		t.Fatalf("HarnessKeyFile = %q, %v", got, err)
+	}
+	for _, c := range [][2]string{{"claude", ""}, {"", "ada"}, {"claude", "../ada"}, {"cl/aude", "ada"}, {"claude", ".."}, {".", "ada"}, {"claude", `a\\b`}} {
+		if got, err := HarnessKeyFile("/h", c[0], c[1]); err == nil {
+			t.Errorf("HarnessKeyFile(%q, %q) = %q, want a refusal", c[0], c[1], got)
+		}
+	}
+}
+
+// A harness API key is given by the operator, and by nobody else: another
+// user and a crew member are refused, and so is a name the ask did not ask
+// for. No refusal says back what was sent, and none writes the file or
+// notes an answer.
 func TestGiveSecretRefusesAHarnessKey(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
-	y, file := crewSecretYard(t)
+	y, file, _ := harnessKeyYard(t)
 	seq := y.ask(t, harnessKeyAsk("claude", "yardmaster", "mckean"), "yardmaster")
 	const value = "sk-ant-s3cret"
 	for actor, want := range map[string]string{
-		"ada":        "only the operator (mckean) may give a crew member's harness key; this is ada",
-		"yardmaster": "only the operator (mckean) may give a crew member's harness key; this is yardmaster",
+		"ada":        "only the operator (mckean) may give a harness API key; this is ada",
+		"yardmaster": "only the operator (mckean) may give a harness API key; this is yardmaster",
 		"":           "this is nobody",
 	} {
 		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, actor)

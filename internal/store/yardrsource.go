@@ -391,7 +391,7 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		if h, ok := agents.Lookup(ask.Secret.Harness); ok && h.Label != "" {
 			label = h.Label
 		}
-		return oneLine(fmt.Sprintf("%s gave %s, the API key %s runs with, for crew member %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), label, ask.Secret.Crew, askSeq, bead))
+		return oneLine(fmt.Sprintf("%s gave %s, the API key %s runs with on the operator's login, asked for crew member %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), label, ask.Secret.Crew, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.Crew != "":
 		return oneLine(fmt.Sprintf("%s gave %s for crew member %s in the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Crew, ask.Secret.Source, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.As != "":

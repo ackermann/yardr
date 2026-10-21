@@ -39,13 +39,21 @@ import (
 //     the leader registered (store.LoginWait), which GiveSecret answers in
 //     the server's memory: the daemon never holds the value, and no note,
 //     event, file or mail does. An API key pick instead asks for the key
-//     as a secret ask, which GiveSecret writes into the crew member's env
-//     file: no leader runs, and no login screen is read.
+//     as a secret ask, which GiveSecret writes into the operator's key
+//     file of the kind (store.HarnessKeyFile): no leader runs, and no
+//     login screen is read. Every session of the kind on the operator's
+//     login reads that file as it starts (the runner), so the key reaches
+//     what the machine's login does: the crew, the groups without
+//     login_for and the operator's conversations. A session on another
+//     user's login reads that user's file, which no ask writes yet.
 //  3. Its confirm, the one call that proves the login, is an ask of its
 //     own: it costs a model call on the person's account.
 //  4. Done: every session of the kind sitting at its login screen is
-//     restarted, as yardr crew restart does, and its first prompt goes.
-//     A key's done is the same restart, on the secret ask's answer.
+//     restarted: a crew session as yardr crew restart does, and a bead
+//     session ended as aborted, so its bead is routed again and a new
+//     session starts on the login. A key's done is the same restart, on
+//     the secret ask's answer, of the sessions on the operator's login
+//     alone: the others read no key and would sit at the screen again.
 //
 // One login is led per kind at a time: the machine's login of a kind is
 // every crew member's of that kind. A login that ends without one (the
@@ -452,8 +460,8 @@ func (d *Dispatcher) carryLead(ctx context.Context, l *harnessLead) {
 			// Given: the value went to the leader in the server's memory.
 			l.ask = 0
 		case state == store.AskAnswered && l.step == leadKey:
-			// Given: the key is in the crew member's env file, and no
-			// leader runs, so the login is made with the restart.
+			// Given: the key is in the operator's key file of the kind,
+			// and no leader runs, so the login is made with the restart.
 			l.ask = 0
 			d.loggedIn(ctx, l)
 		case state == store.AskDeclined || state == store.AskTakenBack:
@@ -774,8 +782,10 @@ func (d *Dispatcher) askConfirm(ctx context.Context, l *harnessLead, line leadLi
 }
 
 // askKey asks the operator for the API key of l's kind, as a secret ask:
-// GiveSecret writes it into the crew member's env file, and the lead ends
-// on its answer with the sessions started again. No leader runs.
+// GiveSecret writes it into the operator's key file of the kind, and the
+// lead ends on its answer with the sessions started again. No leader runs.
+// Its context says the reach the person consents to: every session of the
+// kind on the operator's login reads the key.
 func (d *Dispatcher) askKey(ctx context.Context, l *harnessLead) error {
 	h, _ := agents.Lookup(l.kind)
 	settings, err := d.Store.Settings(ctx)
@@ -786,8 +796,9 @@ func (d *Dispatcher) askKey(ctx context.Context, l *harnessLead) error {
 		Question: fmt.Sprintf("Paste the API key %s runs with", h.Label),
 		To:       settings[store.OperatorSetting],
 		Context: []string{
-			fmt.Sprintf("It is written into %s's environment, and kept nowhere else.", l.seat.member),
-			fmt.Sprintf("The yard starts %s again on it at once.", l.seat.member),
+			fmt.Sprintf("It is written into one file the yard keeps, and nowhere else: every %s session that burns your login reads it, the crew's, the groups' without login_for and your conversations.", h.Label),
+			"A session on another person's login (login_for) never reads it.",
+			fmt.Sprintf("The yard starts %s, and every other session at the login screen on your login, again on it at once.", l.seat.member),
 		},
 		Secret: &store.AskSecret{Harness: l.kind, Crew: l.seat.member, Env: h.LoginEnv},
 	}, actor)
@@ -800,8 +811,10 @@ func (d *Dispatcher) askKey(ctx context.Context, l *harnessLead) error {
 }
 
 // loggedIn ends l with its login made: every live session of its kind at
-// the login screen, and the crew member its pick switched, starts again.
-// A key's lead runs no leader, so there is nothing to stop.
+// the login screen, crew and bead sessions both, and the crew member its
+// pick switched, starts again. A key's lead runs no leader, so there is
+// nothing to stop; its key is read by the sessions on the operator's login
+// alone (onLedLogin), so only those start again.
 func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	delete(d.leads, l.kind)
 	if l.stop != nil {
@@ -810,12 +823,18 @@ func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	d.markLeadAsk(ctx, l.seat, nil)
 	var restarted []string
 	var seats []loginSeat
+	settings, _ := d.Store.Settings(ctx)
+	operator := settings[store.OperatorSetting]
 	if rs, err := d.Store.Crew(ctx); err == nil {
-		settings, _ := d.Store.Settings(ctx)
 		seats = seatsAtLogin(rs, settings[store.DefaultKindSetting])
 		sort.SliceStable(seats, func(i, j int) bool { return seats[i].key() < seats[j].key() })
 		for _, seat := range seats {
 			if seat.kind != l.kind && !slices.Contains(l.switched, seat.member) {
+				continue
+			}
+			// A conversation burns its user's login: the line session
+			// burns the operator's.
+			if seat.user != "" && !l.onLedLogin(seat.user, operator) {
 				continue
 			}
 			if err := d.Store.RequestRestartFor(ctx, seat.member, seat.user, l.kind+" was logged in through the yard's asks", "", actor); err != nil {
@@ -825,6 +844,7 @@ func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 			restarted = append(restarted, seat.key())
 		}
 	}
+	restarted = append(restarted, d.restartBeadsAtLogin(ctx, l, operator)...)
 	// A session that comes back at the screen all the same (its harness
 	// reads its login from elsewhere) is offered one on its next mail.
 	head, _ := d.Store.Head(ctx)
@@ -838,8 +858,60 @@ func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
 	}
 	_ = d.Store.LogDispatch(ctx, l.seat.journal, "login_led", actor, map[string]any{
 		"crew": l.seat.member, "kind": l.kind, "step": "logged_in", "proved": l.proved, "restarted": restarted,
-		"reason": fmt.Sprintf("%s is logged in: the crew at its login screen starts again", l.kind)})
+		"reason": fmt.Sprintf("%s is logged in: the sessions at its login screen start again", l.kind)})
 	d.Log.Info("a harness was logged in through the yard's asks", "kind", l.kind, "restarted", restarted)
+}
+
+// onLedLogin reports whether a session on login's login has l's login: any
+// session for a login its own program made, which is the machine's, and
+// for a key only one on the operator's login, whose key file the key went
+// to (store.HarnessKeyFile).
+func (l *harnessLead) onLedLogin(login, operator string) bool {
+	return l.step != leadKey || (login != "" && login == operator)
+}
+
+// restartBeadsAtLogin starts again every live bead session of l's kind at
+// its login screen on l's login: it is ended as aborted, which is no
+// failure of the bead, the teardown stops its pane, and the bead is routed
+// again on a later pass, so a new session starts on the login. It answers
+// what it ended, as session:<id>.
+func (d *Dispatcher) restartBeadsAtLogin(ctx context.Context, l *harnessLead, operator string) []string {
+	ss, err := d.Store.Sessions(ctx, false)
+	if err != nil {
+		d.Log.Warn("read the sessions to start again after a login", "kind", l.kind, "err", err)
+		return nil
+	}
+	var groups map[string]store.Group
+	var out []string
+	for _, s := range ss {
+		if s.Handle[HarnessLoginKey] == nil || !l.onLedLogin(s.Login, operator) {
+			continue
+		}
+		kind := s.Kind
+		if kind == "" {
+			// A session from before the claim recorded its kind: its
+			// group's, as the runner started it.
+			if groups == nil {
+				groups = map[string]store.Group{}
+				if gs, err := d.Store.Groups(ctx); err == nil {
+					for _, g := range gs {
+						groups[g.Name] = g
+					}
+				}
+			}
+			kind = agents.Kind(groups[s.Group].Config)
+		}
+		if kind != l.kind {
+			continue
+		}
+		if err := d.Store.EndSession(ctx, s.ID, "aborted", l.kind+" was logged in through the yard's asks: the session starts again on it"); err != nil {
+			d.Log.Warn("end a bead session after its login", "session", s.ID, "err", err)
+			continue
+		}
+		d.forget(s.ID)
+		out = append(out, "session:"+s.ID)
+	}
+	return out
 }
 
 // endLead ends l without a login: its open ask is taken back with why, and

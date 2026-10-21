@@ -1726,9 +1726,9 @@ type Session struct {
 	// reads as the operator's, resolved where it is read.
 	Originator string `json:"originator,omitempty"`
 	// Login is whose login the session burns: its group's login_for, else
-	// the operator's; set on listed sessions like Originator, never
-	// stored. A subsidy route shows another user's work on the
-	// operator's login.
+	// the operator's; set on listed sessions like Originator, and on the
+	// session Claim answers, never stored. A subsidy route shows another
+	// user's work on the operator's login.
 	Login string `json:"login,omitempty"`
 }
 
@@ -2114,6 +2114,9 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 		}
 		sess = &stored
 		sess.Bead = row.ID
+		// Whose login the session burns, for the runner that starts it:
+		// it reads that login's harness key (HarnessKeyFile).
+		sess.Login = loginOf(w.Tx, group)
 		data := map[string]any{"group": group, "stage": stage, "session": stored.ID}
 		if kind != "" {
 			data["kind"] = kind

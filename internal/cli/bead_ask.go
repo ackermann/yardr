@@ -698,7 +698,7 @@ what the person asked does, and this is the asker's own.`,
 						if h, ok := agents.Lookup(secret.Harness); ok && h.Label != "" {
 							label = h.Label
 						}
-						fmt.Fprintf(w, "%s for %s: a secret, %s, the API key %s runs with, for crew member %s\n", on, who, secret.Names(), label, secret.Crew)
+						fmt.Fprintf(w, "%s for %s: a secret, %s, the API key %s runs with on the operator's login, asked for crew member %s\n", on, who, secret.Names(), label, secret.Crew)
 						return
 					}
 					if secret.Crew != "" {

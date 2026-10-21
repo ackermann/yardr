@@ -417,16 +417,21 @@ decisions in footplate, the web view and `yardr asks`:
    which costs a model call on the person's account; or skip it.
 
 Picking **API key** leads no login program and reads no login screen:
-one secret ask brings the key, which is written into the crew member's
-environment file (mode 0600) and kept nowhere else, and the crew member
-is started again on it. On its first start with the key and no login,
-the harness asks in its pane whether to use it; the yard answers yes,
-as it answers folder trust, since the key is only there by the
-operator's hand.
+one secret ask brings the key, which is written into the operator's key
+file of the harness (`<home>/harness/<kind>/<operator>.env`, mode 0600)
+and kept nowhere else. Every session of that harness on the operator's
+login reads it as it starts: the crew, the groups without `login_for`,
+and the operator's conversation sessions, so the key reaches what the
+machine's login of the harness does; the ask says so. On its first start
+with the key and no login, the harness asks in its pane whether to use
+it; the yard answers yes, as it answers folder trust, since the key is
+only there by the operator's hand.
 
 When the login is made, every session of that harness sitting at its
-login screen is started again, as `yardr crew restart` does, and its
-first prompt goes. A `login_led` event on the journal tells each step
+login screen is started again: a crew session as `yardr crew restart`
+does, and its first prompt goes; a bead session is ended as `aborted`,
+no failure, and its bead is routed again onto the login. After an API
+key only the sessions on the operator's login start again. A `login_led` event on the journal tells each step
 (`asked`, `started`, `logged_in`, `failed`), never a value.
 
 One login is led per harness at a time: the machine's login of a harness
@@ -442,11 +447,16 @@ and waits for the operator at its asks; `Crew` says it as `login_led`.
 A crew member whose env points its harness at a login folder of its own
 (`CLAUDE_CONFIG_DIR` in an env file) is not logged in by the yard's
 login, which runs with the daemon's env; it comes back at its screen and
-is asked for again on its next mail. An API key reaches only the crew
-member it was given for: a group's agents and conversation sessions read
-their own env files, so they sit at the login screen until they carry
-the key too. A group's login is `yardr harness
-login --group` ([doctor.md](doctor.md)).
+is asked for again on its next mail. An API key reaches no session on
+another person's login: a `login_for` group and another user's
+conversation read that user's key file (`<home>/harness/<kind>/<user>.env`),
+which no ask writes yet, so they sit at the login screen until they
+carry a login of their own; a file put there by hand is read the same
+way. A group's or crew member's own env file wins over the key file
+where both name a variable. A key an earlier yard wrote into a crew
+member's env file stays there, and that crew member's line session keeps
+reading it. A group's login is `yardr harness login --group`
+([doctor.md](doctor.md)).
 
 ## Findings from builders and reviewers
 

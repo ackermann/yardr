@@ -46,9 +46,12 @@ import (
 // is the one name it is asked for.
 //
 // With Harness instead of a source it is a harness-key ask: the value is
-// the API key of that harness kind, and goes to the crew member Crew's
-// env file (giveHarnessKey); Env holds variables of the kind's login_env.
-// The yard's led login asks for it; no source declares it.
+// the API key of that harness kind, and goes to the operator's key file
+// of the kind (HarnessKeyFile, through giveHarnessKey), which every
+// session of the kind on the operator's login reads; Env holds variables
+// of the kind's login_env. Crew is the crew member whose session the
+// yard's led login found at the login screen, and whose journal it is
+// asked on. No source declares it.
 type AskSecret struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
@@ -61,7 +64,8 @@ type AskSecret struct {
 	// leader printed in its input need. Set instead of a source.
 	Login string `json:"login,omitempty"`
 	// Harness is the kind whose API key is asked for, as its harness
-	// file names it. Set instead of a source, with Crew.
+	// file names it. Set instead of a source, with Crew: the crew member
+	// whose login screen the key is asked for, not the only reader of it.
 	Harness string `json:"harness,omitempty"`
 	// Host is where the source's calls go, the scheme and host of its base:
 	// what the card says beside the source's name. It is kept on the ask
@@ -105,8 +109,9 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 // the env_file line is the one written and when it takes effect. A user's
 // own credential is read by a call made as them, so its line says as
 // much. A login input goes to the login that waits, and names it. A
-// harness key goes to the crew member's env file, as its credential in a
-// source does, and names whose harness runs with it.
+// harness key goes to the operator's key file of the kind, and its line
+// says the reach the person consents to: every session of the kind that
+// burns the operator's login reads it.
 func (s AskSecret) Line() string {
 	if s.Hook != "" {
 		return fmt.Sprintf("a secret: the signing secret for the hook %s (POST /hooks/%s), for the source %s (%s)", s.Hook, s.Hook, s.Source, s.Host)
@@ -119,8 +124,8 @@ func (s AskSecret) Line() string {
 		if h, ok := agents.Lookup(s.Harness); ok && h.Label != "" {
 			label = h.Label
 		}
-		return fmt.Sprintf("a secret: %s, the API key %s runs with, for crew member %s; the env_file line is the one written, and it takes effect when %s next starts (rotation or yardr crew restart %s)",
-			s.Names(), label, s.Crew, s.Crew, s.Crew)
+		return fmt.Sprintf("a secret: %s, the API key %s runs with, asked for crew member %s; it is read by every %s session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start",
+			s.Names(), label, s.Crew, label)
 	}
 	if s.User != "" {
 		return fmt.Sprintf("a secret: %s, %s's own address in the source %s (%s); %s is told through %s once it is given and yardr user set %s %s=%s is run",
@@ -388,10 +393,10 @@ func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 }
 
 // askedHarnessKey checks an ask for the API key of the harness kind sec
-// names, for the crew member whose harness runs with it, asked of to, and
-// answers it as the ask stores it: the kind by its own name, the member,
-// and the names in the file's order (every one of login_env when the
-// asker narrowed to none). It refuses a kind the yard has no harness file
+// names, for the crew member whose session sits at its login screen, asked
+// of to, and answers it as the ask stores it: the kind by its own name, the
+// member, and the names in the file's order (every one of login_env when
+// the asker narrowed to none). It refuses a kind the yard has no harness file
 // for, one whose file names no login_env, a name the file does not name,
 // no crew member at all, one the yard does not have, and anyone but the
 // operator as the one asked: giving is setting what a session of the yard
@@ -440,7 +445,7 @@ func (w *wtx) askedHarnessKey(sec AskSecret, to string) (*AskSecret, error) {
 	case operator == "":
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
 	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a crew member's harness key is theirs alone, so %s cannot be asked for one", operator, to)
+		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a harness API key is theirs alone, so %s cannot be asked for one", operator, to)
 	}
 	return &AskSecret{Harness: h.Kind, Crew: crew, Env: names}, nil
 }
@@ -590,11 +595,11 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 // starts. It restarts nothing: that is a second thing, and the card and
 // the answer say when the value takes effect.
 //
-// An ask for a crew member's harness API key (AskSecret.Harness) is given
-// the same way into that crew member's env file (giveHarnessKey), by the
+// An ask for a harness API key (AskSecret.Harness) is given the same way
+// into the operator's key file of the kind (giveHarnessKey), by the
 // operator alone: no source declares it, so the kind's harness file holds
-// the names instead, and it takes effect when the member next starts, as
-// a credential in a source does.
+// the names instead, and it takes effect as each session of the kind on
+// the operator's login next starts.
 //
 // An ask for a hook's signing secret (AskSecret.Hook) is given the same
 // way into the hook's secret file the yard owns (giveHookSecret), by the
@@ -664,7 +669,7 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	// Before the note is put: an agent's giving writes nothing, not even
 	// what the transaction would take back.
 	if sec.Harness != "" {
-		err = w.operatorOnly(ctx, actor, "give a crew member's harness key", Alone)
+		err = w.operatorOnly(ctx, actor, "give a harness API key", Alone)
 	} else if sec.User != "" {
 		err = w.mayTell(ctx, sec.User, actor)
 	} else if sec.As != "" {
@@ -859,20 +864,42 @@ func (w *wtx) crewSecretFile(ctx context.Context, home string, r *CrewMember, ac
 	return saved, file, nil
 }
 
-// giveHarnessKey is giveSecret for a crew member's harness API key: the
-// values go to the crew member's env file, in the order keySource keeps:
-// the answer note is put first and the file's rename last, so the store
-// never says "gave" of a value the file does not hold, and a commit that
-// fails after the rename leaves the value in the file with the ask open
-// (KeyNotRecorded, through k). No source declares the names: the kind's
-// harness file holds them as it stands now. The running session is
-// restarted by nothing here: it reads its environment when its next
-// session starts.
+// HarnessDir is the directory of a yard's home where the yard keeps the
+// API key of each harness kind it was given, one file per login user
+// (HarnessKeyFile).
+const HarnessDir = "harness"
+
+// HarnessKeyFile is where the yard keeps the API key of the harness kind
+// for the sessions that burn user's login: <home>/harness/<kind>/<user>.env,
+// beside the store and not in it. The kind comes first, so a user's name
+// is one file's name and never a directory's. Every session of the kind on
+// that login reads it as it starts (the runner), so a key given once
+// reaches the crew, the groups and the conversations that burn the login,
+// as the machine's login of the kind does. A kind or a name that could
+// name a file elsewhere (a path separator, a dot name) has no file.
+func HarnessKeyFile(home, kind, user string) (string, error) {
+	for _, part := range []string{kind, user} {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, `/\`) {
+			return "", fmt.Errorf("the yard keeps no harness key file for kind %q and user %q: neither may be empty, a dot name or hold a path separator", kind, user)
+		}
+	}
+	return filepath.Join(home, HarnessDir, kind, user+".env"), nil
+}
+
+// giveHarnessKey is giveSecret for a harness API key: the values go to the
+// operator's key file of the kind (HarnessKeyFile), in the order keySource
+// keeps: the answer note is put first and the file's rename last, so the
+// store never says "gave" of a value the file does not hold, and a commit
+// that fails after the rename leaves the value in the file with the ask
+// open (KeyNotRecorded, through k). No source declares the names: the
+// kind's harness file holds them as it stands now. The file is the
+// operator's because the led login asks the operator, and an unset
+// login_for is the operator's (Group.EffectiveLogin): a group that burns
+// another user's login reads that user's file, which this never writes.
+// No crew member's env_file is set. The running sessions are restarted by
+// nothing here: each reads the file when its next session starts.
 func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask uint64, sec *AskSecret, values map[string]string, actor string, k *sourceKey) error {
-	var r CrewMember
-	if ok, err := get(w.Tx, bCrew, sec.Crew, &r); err != nil {
-		return err
-	} else if !ok {
+	if w.Bucket(bCrew).Get([]byte(sec.Crew)) == nil {
 		return fmt.Errorf("crew member %s: %w", sec.Crew, ErrNotFound)
 	}
 	h, ok := agents.Lookup(sec.Harness)
@@ -889,6 +916,17 @@ func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return err
+	}
+	if operator == "" {
+		return fmt.Errorf("a harness API key is kept for the operator's login, and this yard has none: yardr settings set operator <name>")
+	}
+	file, err := HarnessKeyFile(home, h.Kind, operator)
+	if err != nil {
+		return err
+	}
 	text, err := json.Marshal(Answer{Ask: ask, Given: sec.Env})
 	if err != nil {
 		return err
@@ -896,16 +934,12 @@ func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask
 	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 		return err
 	}
-	saved, file, err := w.crewSecretFile(ctx, home, &r, actor)
-	if err != nil {
-		return err
-	}
-	k.crew, k.names = saved, names
+	k.harness, k.login, k.names = &h, operator, names
 	resolved, renamed, err := config.WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed
 	if err != nil {
-		return fmt.Errorf("crew member %s: %w", sec.Crew, err)
+		return fmt.Errorf("harness %s: %w", h.Kind, err)
 	}
 	if afterKeyRename != nil {
 		return afterKeyRename()

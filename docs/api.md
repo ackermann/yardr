@@ -1881,7 +1881,7 @@ POST /call/UserAsks
           "env": ["ANTHROPIC_API_KEY"],
           "crew": "yardmaster",
           "harness": "claude",
-          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         }
       }
     ],
@@ -1900,7 +1900,7 @@ POST /call/UserAsks
           "env": ["ANTHROPIC_API_KEY"],
           "crew": "yardmaster",
           "harness": "claude",
-          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         },
         "given": ["ANTHROPIC_API_KEY"]
       },
@@ -2277,7 +2277,7 @@ POST /call/UserAsks
 | `open[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask |
 | `open[].secret.env` | array of string | the names to ask the person a value for; with a harness-key ask, variables in that harness kind's `login_env` |
 | `open[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
-| `open[].secret.crew` | string, may be absent | the crew member whose own credential in the source or harness API key is asked for; absent on any other secret ask |
+| `open[].secret.crew` | string, may be absent | the crew member whose own credential in the source is asked for, or on a harness-key ask the crew member at whose login screen it is asked (the key goes to the operator's key file of the kind, which every session on the operator's login reads); absent on any other secret ask |
 | `open[].secret.as` | string, may be absent | the user whose own credential in the source is asked for; absent on any other secret ask |
 | `open[].secret.login` | string, may be absent | the waiting login the value goes to; absent on any other secret ask |
 | `open[].secret.harness` | string, may be absent | the harness kind whose API key is asked for; absent on any other secret ask |
@@ -2322,7 +2322,7 @@ POST /call/UserAsks
 | `decided[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask |
 | `decided[].secret.env` | array of string | the names to ask the person a value for; with a harness-key ask, variables in that harness kind's `login_env` |
 | `decided[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
-| `decided[].secret.crew` | string, may be absent | the crew member whose own credential in the source or harness API key is asked for; absent on any other secret ask |
+| `decided[].secret.crew` | string, may be absent | the crew member whose own credential in the source is asked for, or on a harness-key ask the crew member at whose login screen it is asked (the key goes to the operator's key file of the kind, which every session on the operator's login reads); absent on any other secret ask |
 | `decided[].secret.as` | string, may be absent | the user whose own credential in the source is asked for; absent on any other secret ask |
 | `decided[].secret.login` | string, may be absent | the waiting login the value goes to; absent on any other secret ask |
 | `decided[].secret.harness` | string, may be absent | the harness kind whose API key is asked for; absent on any other secret ask |
@@ -3423,7 +3423,7 @@ POST /call/Bead
           "env": ["ANTHROPIC_API_KEY"],
           "crew": "yardmaster",
           "harness": "claude",
-          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         }
       },
       {
@@ -3440,7 +3440,7 @@ POST /call/Bead
           "env": ["ANTHROPIC_API_KEY"],
           "crew": "yardmaster",
           "harness": "claude",
-          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster; the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         },
         "given": ["ANTHROPIC_API_KEY"]
       }

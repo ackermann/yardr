@@ -12,6 +12,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
@@ -512,11 +513,16 @@ type SourceKeyed struct {
 	// a line: the one that tells the user through the source, or once
 	// that is said the one that tries it.
 	User string `json:"user,omitempty"`
-	// Crew is whose own credential in a source or harness key was given, and
+	// Crew is whose own credential in a source was given, and
 	// whose file File is; "" for a source's credential and for a user's
 	// address. Next is then when the value takes effect, in a line: the
 	// running session does not see it, so when its next one starts.
 	Crew string `json:"crew,omitempty"`
+	// Harness is the kind whose API key was given, and User then whose
+	// login's key file of the kind File is (HarnessKeyFile). Next is when
+	// it takes effect, in a line: as each session on that login next
+	// starts.
+	Harness string `json:"harness,omitempty"`
 	// As is whose own credential in the source was given, and whose file
 	// File is; "" for a source's credential and for a user's address.
 	// Next is then the command that tries it, in a line: the source's
@@ -579,6 +585,16 @@ func (k *sourceKey) keyed(home string) *SourceKeyed {
 		}
 		return out
 	}
+	if h := k.harness; h != nil {
+		out.Harness, out.User = h.Kind, k.login
+		label := h.Kind
+		if h.Label != "" {
+			label = h.Label
+		}
+		out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
+		out.Next = fmt.Sprintf("every %s session that burns %s's login reads it from its next start", label, k.login)
+		return out
+	}
 	if c := k.crew; c != nil {
 		out.Crew = c.Name
 		out.State = fmt.Sprintf("%s is set in %s", strings.Join(k.names, " and "), k.file)
@@ -597,10 +613,10 @@ func (k *sourceKey) keyed(home string) *SourceKeyed {
 // sourceKey is one giving of a source's credential, as keySource left it,
 // of a user's own address in the source, as keyUser did (user is then
 // set), of a user's own credential in it, as keyUser did for one (user
-// and as are then set), or of a crew member's own credential in a source
-// or harness key (crew is then set). It outlives the transaction: a batch
-// may run any of them twice, and renamed stays true once any run renamed
-// the file.
+// and as are then set), of a crew member's own credential in a source
+// (crew is then set), or of a harness API key (harness is then set). It
+// outlives the transaction: a batch may run any of them twice, and renamed
+// stays true once any run renamed the file.
 type sourceKey struct {
 	src  *Source
 	user *User
@@ -609,6 +625,10 @@ type sourceKey struct {
 	// that tries it.
 	as   bool
 	crew *CrewMember
+	// harness is the kind whose API key was given, and login the user
+	// whose key file of the kind File is; nil for any other giving.
+	harness *agents.Harness
+	login   string
 	// hook is the hook whose signing secret was given, "" for a
 	// credential: File is then the hook's secret file.
 	hook    string

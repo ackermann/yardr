@@ -481,6 +481,29 @@ login screen it leads this login itself and relays each need to the yard's
 operator as an ask, the input as a secret ask naming its `login`
 ([crew.md](crew.md#the-yard-leads-a-harnesss-login)).
 
+A harness whose file names a `login_env` can be led by an API key instead,
+with no login program: one secret ask of the operator brings the key, and
+the yard writes it to `<home>/harness/<kind>/<operator>.env` (mode 0600,
+a path the yard chooses), and nowhere else. That file is the reach the ask
+names: every session of the kind that burns the operator's login reads it
+as it starts, the way the machine's own login reaches them all. That is
+the crew members' line sessions, the agents of every group without
+`login_for` (builders, reviewers), and the operator's conversation
+sessions. When the key is given, the sessions on that login sitting at
+the login screen start again on it.
+
+Some sessions are left as they were. A group with `login_for` and another
+user's conversation burn that user's login: they read
+`<home>/harness/<kind>/<user>.env`, which no ask writes yet, so they sit at
+their login screen until they have a login of their own. A file put there
+by hand is read the same way. A group's `env_file`, a crew member's
+`env_file` or `env_command`, and a conversation's `env_for_<user>` win
+over the key file where both name a variable, and only the kind's
+`login_env` names are read from it. A key an earlier yard wrote into a
+crew member's env file stays there, and that crew member's line session
+keeps reading it; remove it by hand once the key file holds it. A login
+led by its own program is unchanged: it is the machine's.
+
 With `--group` the login command and the proving call run with that group's
 env: its `env_file` is read as the runner reads it for the group's
 sessions, and the login lands in the folder the env names

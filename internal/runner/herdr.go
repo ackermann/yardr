@@ -183,9 +183,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": depot.Path}
 	label := WorkspaceLabel(depot.Name, job.Group, job.Train, job.Bead.ID)
-	// Before anything is made: a group whose env_file is refused starts
-	// nothing until it is fixed.
-	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
+	// Before anything is made: a group whose env_file or harness key file
+	// is refused starts nothing until it is fixed.
+	secrets, err := h.groupEnv(job)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job, hookEnv []string
 	if st, err := os.Stat(depot.Path); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("depot %s: directory %q does not exist", depot.Name, depot.Path)
 	}
-	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
+	secrets, err := h.groupEnv(job)
 	if err != nil {
 		return nil, err
 	}

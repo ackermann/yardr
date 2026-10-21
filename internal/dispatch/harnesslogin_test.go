@@ -319,7 +319,8 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 		t.Fatalf("a leader ran for an API key pick")
 	}
 	const value = "sk-ant-k3y"
-	if _, err := s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": value}, "op"); err != nil {
+	keyed, err := s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": value}, "op")
+	if err != nil {
 		t.Fatal(err)
 	}
 	passUntil(t, d, "the login told as made", func() bool {
@@ -344,9 +345,16 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 	} else if r.Handle[dispatch.HarnessLoginAskKey] != nil {
 		t.Errorf("the login's mark is left on the handle: %v", r.Handle[dispatch.HarnessLoginAskKey])
 	}
-	// The key is in the crew member's env file, mode 0600, and the
-	// answer holds the name, never the value.
-	file, _ := r.Config["env_file"].(string)
+	// The key is in the operator's key file of the kind, mode 0600, the
+	// crew member's env_file is left as it was, and the answer holds the
+	// name, never the value.
+	file := keyed.File
+	if !strings.HasSuffix(file, "/"+store.HarnessDir+"/claude/op.env") {
+		t.Fatalf("the key went to %s, want the operator's key file of claude", file)
+	}
+	if r.Config["env_file"] != nil {
+		t.Fatalf("the yardmaster's env_file was set: %v", r.Config["env_file"])
+	}
 	if b, err := os.ReadFile(file); err != nil || string(b) != "ANTHROPIC_API_KEY="+value+"\n" {
 		t.Fatalf("the env file holds %q, %v", b, err)
 	}
@@ -367,6 +375,71 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 		if strings.Contains(string(b), value) {
 			t.Errorf("event %s holds the key: %s", e.Kind, b)
 		}
+	}
+}
+
+// A key's done starts again the bead sessions at the login screen on the
+// operator's login, as it does the crew: a builder of a group without
+// login_for sat there, and its session is ended as aborted, no failure, so
+// its bead is routed again onto the key. A login_for group of another user
+// reads no key of the operator's, so its session at the screen is left as
+// it is: starting it again would only bring the screen back.
+func TestLedKeyStartsBeadSessionsOnTheOperatorsLoginAgain(t *testing.T) {
+	t.Parallel()
+	s, f, d, _ := loginSetup(t)
+	ctx := context.Background()
+	d.Runners["herdr"] = f
+	_, err := s.AddUser(ctx, "ada", "op")
+	must(t, err)
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "op"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "ada-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "login_for": "ada"}}, "op"))
+	atScreen := func(group, agent string) store.Session {
+		t.Helper()
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "work of " + group}, "op")
+		must(t, err)
+		sess, err := s.Claim(ctx, b.ID, group, b.Stage, "op")
+		must(t, err)
+		f.set(agent, "idle")
+		must(t, s.MarkRunning(ctx, sess.ID, map[string]any{"agent": agent, dispatch.HarnessLoginKey: "Select login method:"}))
+		return *sess
+	}
+	ours, theirs := atScreen("builders", "builder-1"), atScreen("ada-builders", "ada-builder-1")
+	if ours.Login != "op" || theirs.Login != "ada" {
+		t.Fatalf("the claims burn %q and %q, want op's and ada's", ours.Login, theirs.Login)
+	}
+
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	passUntil(t, d, "a secret ask for the key", func() bool {
+		a := openAsks(t, s)
+		return len(a) == 1 && a[0].Ask.Secret != nil
+	})
+	key := openAsks(t, s)[0]
+	for _, want := range []string{"every Claude Code session that burns your login reads it", "A session on another person's login (login_for) never reads it."} {
+		if !strings.Contains(strings.Join(key.Ask.Context, "\n"), want) {
+			t.Errorf("the key's ask says %q, want %q", key.Ask.Context, want)
+		}
+	}
+	_, err = s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op")
+	must(t, err)
+	passUntil(t, d, "the login told as made", func() bool {
+		_, ev := kindCount(t, s, r.Journal, "login_led")
+		return ev.Data["step"] == "logged_in"
+	})
+	_, ev := kindCount(t, s, r.Journal, "login_led")
+	if got := fmt.Sprint(ev.Data["restarted"]); got != "[crew:yardmaster session:"+ours.ID+"]" {
+		t.Errorf("restarted %s, want the yardmaster and op's builder", got)
+	}
+	if got, err := s.GetSession(ctx, ours.ID); err != nil || got.State != "aborted" {
+		t.Errorf("op's builder = %+v, %v: want it aborted, to start again", got, err)
+	}
+	if n, err := s.FailureCount(ctx, ours.Bead, "new"); err != nil || n != 0 {
+		t.Errorf("op's bead counts %d failures, %v: the restart is none", n, err)
+	}
+	if got, err := s.GetSession(ctx, theirs.ID); err != nil || got.State != "running" {
+		t.Errorf("ada's builder = %+v, %v: want it left at its screen", got, err)
 	}
 }
 

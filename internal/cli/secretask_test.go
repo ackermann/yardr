@@ -446,7 +446,7 @@ func TestBeadAskAndAnswerALoginInput(t *testing.T) {
 // pipe, and prints who gave which names and the file, never a value.
 func TestBeadAnswerAHarnessKey(t *testing.T) {
 	t.Parallel()
-	st, id, _ := secretYard(t)
+	st, id, srcFile := secretYard(t)
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -463,7 +463,7 @@ func TestBeadAnswerAHarnessKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, for crew member yardmaster",
+		"a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login",
 		"it goes to a file only the yard's server reads; no agent is shown it",
 		"answer with: yardr bead answer " + id + " 1 --secret",
 	} {
@@ -480,12 +480,10 @@ func TestBeadAnswerAHarnessKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := st.GetCrew(ctx, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
-	}
-	file, _ := r.Config["env_file"].(string)
-	want := "mckean gave ANTHROPIC_API_KEY · it is set in " + file + "\nnext: it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)\n"
+	// The operator's key file of the kind, which every session on their
+	// login reads, and no crew member's.
+	file := filepath.Join(filepath.Dir(filepath.Dir(srcFile)), store.HarnessDir, "claude", "mckean.env")
+	want := "mckean gave ANTHROPIC_API_KEY · it is set in " + file + "\nnext: every Claude Code session that burns mckean's login reads it from its next start\n"
 	if out != want {
 		t.Fatalf("answer printed %q\nwant            %q", out, want)
 	}
