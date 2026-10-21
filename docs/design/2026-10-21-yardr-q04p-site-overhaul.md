@@ -173,9 +173,14 @@ mckean's to change at the decide stage.
   The lockup is the page's `<h1>`'s neighbour, not its text: an `img` with
   `alt="yardr"`.
 - The ram behind stays as mckean asked: the same mask technique as today,
-  over the text colour at about 6% opacity, at the right of the hero, but
-  drawn from the design system's `assets/yardr-mark.svg` instead of
-  `brand/logomark.png`, so the site carries one mark and not two.
+  over the text colour, at the right of the hero, but drawn from the design
+  system's `assets/yardr-mark.svg` instead of `brand/logomark.png`, so the
+  site carries one mark and not two. It is 520 px wide, no taller than the
+  hero, so the whole head shows rather than a horn cut by the hero's edge,
+  at 9% opacity on the light theme and 10% on the dark. Today's 7% (and the
+  first draft's 6%) left it invisible in a full-page picture; at these
+  values it reads as a ram in both mockups and the lede over it keeps its
+  contrast.
 - Headline (`<h1>`): "Each issue goes to whoever works its next step."
 - Lede: "yardr takes the issues of your repos and passes each one along its
   steps: an AI agent builds it, another reviews it, a script tests and
@@ -421,9 +426,9 @@ on exactly what will land and lands it (the `/how` glossary):
 
 **7. The large mark.** The lockup files and `yardr-mark.svg` carry the
 auto-traced mark, which the design system says to clean by hand before
-large-format use; the ram behind the hero is 700 px wide.
+large-format use; the ram behind the hero is 520 px wide.
 - (a) Launch with the auto-trace (the mockups show it at both sizes and it
-  holds at 6% opacity and at 240 px) and clean the mark later in
+  holds at 9 to 10% opacity and at 240 px) and clean the mark later in
   yardr-design, which the site then copies again.
 - (b) Clean the mark first, as a yardr-design bead the hero bead waits on.
   Costs a person's drawing time before the overhaul ships.

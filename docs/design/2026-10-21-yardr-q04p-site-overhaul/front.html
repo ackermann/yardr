@@ -22,6 +22,7 @@
   --button-primary:#B54E22; --button-primary-hover:#C0552A; --button-primary-pressed:#8F3C19;
   --focus-ring:#E2794A; --text-on-accent:#FFFFFF;
   --lockup:url(yardr-lockup-mark-right-light.svg);
+  --ram-opacity:.10;
 }
 [data-theme="light"] {
   --surface-app:#F7F7F6; --surface-sunken:#EDEDEB; --surface-raised:#FFFFFF;
@@ -29,6 +30,7 @@
   --text-primary:#161718; --text-secondary:#5B5E64; --text-accent:#B54E22;
   --focus-ring:#B54E22;
   --lockup:url(yardr-lockup-mark-right-accent.svg);
+  --ram-opacity:.09;
 }
 :root {
   --font-sans:"IBM Plex Sans","Noto Sans","Cantarell","Segoe UI",system-ui,sans-serif;
@@ -55,9 +57,11 @@ code { font:var(--type-code); padding:2px 6px; border-radius:4px; background:var
 .hero { position:relative; overflow:hidden; padding:72px 0; border-bottom:1px solid var(--border-subtle); }
 .hero .wrap { position:relative; }
 /* The big ram stays as decoration (mckean, 21 Oct): yardr-mark.svg as a mask
-   over the text colour, so one file serves both themes. */
-.ram { position:absolute; top:50%; right:max(-16px, calc(50% - 736px)); width:min(62vw, 704px); aspect-ratio:1;
-  translate:0 -50%; background:var(--text-primary); opacity:.06; pointer-events:none;
+   over the text colour, so one file serves both themes. At 6% it vanished
+   from the shots, so it is a little stronger, and no taller than the hero, so
+   the whole head shows rather than a cut horn. */
+.ram { position:absolute; top:50%; right:max(0px, calc(50% - 640px)); width:min(44vw, 520px); aspect-ratio:1;
+  translate:0 -50%; background:var(--text-primary); opacity:var(--ram-opacity); pointer-events:none;
   -webkit-mask:url(yardr-mark.svg) center / contain no-repeat; mask:url(yardr-mark.svg) center / contain no-repeat; }
 .lockup { display:block; width:240px; aspect-ratio:210.6 / 76; background:var(--lockup) left center / contain no-repeat; margin-bottom:48px; }
 h1 { font:var(--type-title); margin:0 0 20px; max-width:620px; }
