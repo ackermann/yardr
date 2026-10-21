@@ -655,14 +655,17 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 }
 
 // up does not start the BDP server on an address yardr bdp serve would
-// refuse (the bdp_addr setting takes any host:port): it says why and starts
-// nothing, as it does for the web view, instead of waiting out a server that
-// ends at once.
+// refuse: it says why and starts nothing, as it does for the web view,
+// instead of waiting out a server that ends at once. The setting names
+// the part's address, and YARDR_BDP_ADDR takes it off loopback, as a
+// stored value is where the yard was set up before settings set held
+// bdp_addr to loopback.
 func TestUpRefusesTheBDPServerOffLoopback(t *testing.T) {
-	_, st, a, _, _ := upYard(t, true)
-	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "0.0.0.0:8765", "Jo"); err != nil {
+	home, st, a, _, _ := upYard(t, true)
+	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "127.0.0.1:8765", "Jo"); err != nil {
 		t.Fatal(err)
 	}
+	testYard(t, st, home, "YARDR_BDP_ADDR=0.0.0.0:8765")
 	var started []string
 	stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, k.Name+" "+strings.Join(args, " "))

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/bdp"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -119,8 +120,8 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 	}
 }
 
-// settings set refuses for web_addr what --addr refuses, in the sentence
-// the flag gives (web.CheckAddr), and what is no address for bdp_addr.
+// settings set refuses for web_addr and bdp_addr what --addr refuses, in
+// the sentence the flag gives (web.CheckAddr, bdp.CheckAddr).
 func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
@@ -157,13 +158,19 @@ func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 	}
 	t.Setenv("YARDR_WEB_ADDR", "")
 	env["YARDR_WEB_ADDR"] = ""
-	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", "nowhere"); err == nil || !strings.Contains(err.Error(), `BDP address "nowhere": want host:port`) {
-		t.Errorf("settings set bdp_addr nowhere = %v", err)
+	for _, addr := range []string{"0.0.0.0:8765", ":8765", "192.168.1.5:8765", "example.net:8765", "8765"} {
+		flag := bdp.CheckAddr("--addr", addr, false)
+		if flag == nil {
+			t.Fatalf("--addr %s is taken", addr)
+		}
+		if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", addr); err == nil || !strings.Contains(err.Error(), flag.Error()) {
+			t.Errorf("settings set bdp_addr %s = %v, want the flag's: %v", addr, err, flag)
+		}
 	}
-	// The BDP server's setting takes any host:port: it is yardr bdp serve
-	// that holds the address to loopback (TestBDPServeRefusesNonLoopback...).
-	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", ":8080"); err != nil {
-		t.Error(err)
+	for _, addr := range []string{"127.0.0.1:9100", "[::1]:9100", "localhost:9100"} {
+		if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", addr); err != nil {
+			t.Errorf("settings set bdp_addr %s: %v", addr, err)
+		}
 	}
 }
 

@@ -81,9 +81,11 @@ read the yard through a visitor's browser.`,
 			if err != nil {
 				return err
 			}
-			// The yard's bdp_addr, where no --addr was given: the setting
-			// takes any host:port, so the address it gives is checked here
-			// as the flag's was, and by Listen below.
+			// The yard's bdp_addr, where no --addr was given: YARDR_BDP_ADDR
+			// is unchecked, and a value stays that a yard was set up with
+			// before settings set held the setting to loopback, so the
+			// address it gives is checked here as the flag's was, and by
+			// Listen below.
 			if err := a.addrFromSetting(ctx, a.cfg, kindOf(svcBDP), c.Flags()); err != nil {
 				return err
 			}

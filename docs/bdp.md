@@ -30,8 +30,8 @@ the server listens on the loopback interface and nowhere else unless
   address, and one with no host (`:8765` listens on every interface), is
   refused with a message that says why: before the yard is touched when the
   flag gives it, once the yard is read when `YARDR_BDP_ADDR` or the `bdp_addr`
-  setting does (the setting takes any `host:port`; `serve` is where it is
-  held).
+  setting does (the setting takes a loopback address too; one a yard
+  already holds is refused once the yard is read).
 - A request whose `Host` header is not a loopback name (`localhost`,
   `127.0.0.1`, `[::1]`), the Scope URL's host or a name given with `--host`
   is answered 421 with no body. A page on another site can otherwise point a

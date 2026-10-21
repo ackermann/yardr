@@ -1316,10 +1316,9 @@ listen on when yardr web or yardr bdp serve, start or install is given no
 --addr and the command's YARDR_WEB_ADDR or YARDR_BDP_ADDR is unset:
 127.0.0.1:8791 and 127.0.0.1:8765 unless set, so a second yard on one
 machine sets its own. The flag wins over the environment, which wins over
-the setting. web_addr takes a loopback address, as --addr does without
---unsafe. bdp_addr takes any host:port, but the BDP server listens on
-loopback only: yardr bdp serve refuses another address unless it is given
---unsafe, and start and install refuse it always. One that runs keeps its
+the setting. web_addr and bdp_addr take a loopback address, as --addr
+does without --unsafe: an address off loopback is given to yardr web
+serve or yardr bdp serve --unsafe with --addr. One that runs keeps its
 address until it is stopped and started again, and a login service the one
 in its file until it is installed again; settings set says so.
 

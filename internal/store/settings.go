@@ -304,10 +304,15 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
-	{Key: BDPAddrSetting, Help: "the address the BDP server listens on when YARDR_BDP_ADDR is not set and yardr bdp serve, start or install is given no --addr; " +
-		"the server listens on loopback only, so one off it is refused by yardr bdp serve unless it is given --unsafe, and by start and install always; " +
+	{Key: BDPAddrSetting, Help: "the address the BDP server listens on, on loopback, when YARDR_BDP_ADDR is not set and yardr bdp serve, start or install is given no --addr; " +
+		"an address off loopback is given to yardr bdp serve --unsafe with --addr instead; " +
 		"a server that runs keeps its address, and a login service the one in its file until it is installed again",
-		Default: DefaultBDPAddr, Env: "BDP_ADDR", Check: func(v string) error { return checkHostPort("BDP address", v, DefaultBDPAddr) }},
+		Default: DefaultBDPAddr, Env: "BDP_ADDR", Check: func(v string) error {
+			if err := CheckLoopbackAddr("yardr bdp", "--addr", v, false); err != nil {
+				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr bdp serve --unsafe with --addr", BDPAddrSetting, err)
+			}
+			return nil
+		}},
 	{Key: TimerLimitSetting, Help: "how many live timers one crew member or user may have set (yardr timer)",
 		Default: strconv.Itoa(DefaultTimerLimit), Check: func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n < 1 {

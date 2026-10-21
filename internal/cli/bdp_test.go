@@ -39,19 +39,30 @@ func TestBDPServeRefusesNonLoopback(t *testing.T) {
 	}
 }
 
-// The address may come from the environment or from the yard's bdp_addr,
-// which takes any host:port: it is refused all the same once the yard is
-// read. The addresses are TEST-NET ones, which no machine has, and the run is
-// bounded: were the refusal missing, serve would fail to listen at once, not
-// serve the yard to the network until the test ended.
+// The address may come from the environment, or from the yard's bdp_addr
+// where the yard was set up before settings set held it to loopback: it
+// is refused all the same once the yard is read. The addresses are
+// TEST-NET ones, which no machine has, and the run is bounded: were the
+// refusal missing, serve would fail to listen at once, not serve the
+// yard to the network until the test ended.
 func TestBDPServeRefusesNonLoopbackFromEnvironmentAndSetting(t *testing.T) {
 	t.Parallel()
 	home := newHomeDir(t)
 	env := testEnv(t, home)
-	st := storetest.New(t)
-	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "203.0.113.7:8765", "Jo"); err != nil {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	old, err := store.Open(path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := old.SetSetting(ctx, store.BDPAddrSetting, "127.0.0.1:8765", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldConfig(t, path, "settings", "", store.BDPAddrSetting, "203.0.113.7:8765")
+	st := storetest.Open(t, path)
 	for _, c := range []struct{ from, env, addr string }{
 		{"the setting", "", "203.0.113.7:8765"},
 		{"the environment", "198.51.100.9:8766", "198.51.100.9:8766"},
@@ -160,7 +171,7 @@ func TestBDPFlags(t *testing.T) {
 func TestBDPStartAndInstallStayOnLoopback(t *testing.T) {
 	home := newHomeDir(t)
 	st := storetest.New(t)
-	testYard(t, st, home)
+	env := testYard(t, st, home)
 	a := func() *app {
 		a := appOn(st)
 		a.actor = "me"
@@ -195,14 +206,12 @@ func TestBDPStartAndInstallStayOnLoopback(t *testing.T) {
 	refuse("wildcard", "--host", "*.ts.net")
 	refuse("--host 10.0.0.1 refused: "+never, "--host", "10.0.0.1")
 	refuse(never, "--host", "proxy.lan", "--addr", "192.168.1.5:9000")
-	// The setting takes any host:port, and neither does what it names.
-	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "0.0.0.0:8765", "Jo"); err != nil {
-		t.Fatal(err)
-	}
+	// An address off loopback from YARDR_BDP_ADDR, which settings set
+	// never sees, as a stored value is where the yard was set up before
+	// settings set held bdp_addr to loopback: neither does what it names.
+	env["YARDR_BDP_ADDR"] = "0.0.0.0:8765"
 	refuse(never)
-	if err := st.SetSetting(context.Background(), store.BDPAddrSetting, "", "Jo"); err != nil {
-		t.Fatal(err)
-	}
+	env["YARDR_BDP_ADDR"] = ""
 	if left, _ := os.ReadDir(dir); len(started) != 0 || len(left) != 0 || len(m.calls) != 0 {
 		t.Fatalf("a refusal started %q, wrote %v and asked the manager %q", started, left, m.calls)
 	}
