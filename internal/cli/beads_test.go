@@ -148,6 +148,51 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 	}
 }
 
+// bead update -b - with an empty stdin is refused and the body is left
+// alone: an empty read is a broken pipe, not an intent to clear.
+// Clearing on purpose stays -b "".
+func TestBeadUpdateStdinBody(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Body: "the body"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	update := func(stdin, body string) error {
+		c := a.beadCmd()
+		c.SetIn(strings.NewReader(stdin))
+		_, err := run(t, c, "update", b.ID, "-b", body)
+		return err
+	}
+	unchanged := func() {
+		t.Helper()
+		if got, _ := st.GetBead(ctx, b.ID); got.Body != "the body" || got.Revision != b.Revision {
+			t.Fatalf("refused update changed the bead: %+v", got)
+		}
+	}
+	for _, stdin := range []string{"", " \n\n"} {
+		if err := update(stdin, "-"); err == nil || !strings.Contains(err.Error(), "nothing to write") ||
+			!strings.Contains(err.Error(), b.ID) || !strings.Contains(err.Error(), `-b ""`) {
+			t.Fatalf("update -b - with %q stdin: %v", stdin, err)
+		}
+		unchanged()
+	}
+	if err := update("", ""); err != nil {
+		t.Fatalf("update -b \"\": %v", err)
+	}
+	if got, _ := st.GetBead(ctx, b.ID); got.Body != "" {
+		t.Fatalf("update -b \"\" left body %q", got.Body)
+	}
+	if err := update("a new body\n", "-"); err != nil {
+		t.Fatalf("update -b - with a body: %v", err)
+	}
+	if got, _ := st.GetBead(ctx, b.ID); got.Body != "a new body" {
+		t.Fatalf("update -b - wrote body %q", got.Body)
+	}
+}
+
 // show, prime and review still work for a bead whose flow does not
 // resolve, and say why next to it.
 func TestBrokenFlowStillShown(t *testing.T) {

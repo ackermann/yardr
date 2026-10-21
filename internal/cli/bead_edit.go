@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
+	"strings"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -131,8 +132,18 @@ priority, metadata, type, depot, originator) tells nothing.`,
 			}
 			if fl.Changed("body") {
 				if up.body == "-" {
-					if up.body, err = readAllStdin(); err != nil {
+					// From the command's stdin, as reply reads its own,
+					// so a test feeds it with SetIn. An empty read is
+					// refused: it is a broken pipe, not an intent, and
+					// writing it would clear the body. Clearing on
+					// purpose stays -b "".
+					b, err := io.ReadAll(c.InOrStdin())
+					if err != nil {
 						return err
+					}
+					up.body = strings.TrimRight(string(b), "\n")
+					if strings.TrimSpace(up.body) == "" {
+						return fmt.Errorf("nothing to write: stdin gave no body, so bead %s's body is unchanged (clear it on purpose with -b \"\")", args[0])
 					}
 				}
 				p.Body = &up.body
