@@ -28,7 +28,7 @@ var allowSerial = map[string]string{
 // package-level helpers it calls, the process and package state it
 // touches, and whether it claims parallelism itself.
 type parFacts struct {
-	calls   map[string]bool // package-level idents called
+	calls   map[string]bool // package-level functions and local helpers called
 	sels    map[string]bool // selector names called (Setenv, Unsetenv, Chdir, ...)
 	assigns map[string]bool // package vars assigned with =, dotted past a package name
 	hasPar  bool            // the function calls t.Parallel()
@@ -92,9 +92,9 @@ func parMarked(f parFacts) bool {
 	return f.sels["Setenv"] || f.sels["Unsetenv"] || f.sels["Clearenv"] || f.sels["Chdir"] || len(f.assigns) > 0
 }
 
-// parCollect reads fn's own facts. A method sharing a helper's name merges
-// with it at the caller's, so the reachability stays conservative, as does
-// a name the dir's two test packages share.
+// parCollect reads fn's own facts. Imported package functions enter the
+// call graph by name; a method sharing a helper's name merges with it at
+// the caller's, so reachability stays conservative across the test packages.
 func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) parFacts {
 	f := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -105,6 +105,9 @@ func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bo
 				f.calls[fun.Name] = true
 			case *ast.SelectorExpr:
 				f.sels[fun.Sel.Name] = true
+				if pkg, ok := fun.X.(*ast.Ident); ok && imports[pkg.Name] {
+					f.calls[fun.Sel.Name] = true
+				}
 				if fun.Sel.Name == "Parallel" {
 					f.hasPar = true
 				}
@@ -404,6 +407,12 @@ func TestParCheckFindsViolations(t *testing.T) {
 	t.Parallel()
 	own, err := parLoad(map[string][]byte{
 		"z.go": []byte("package x\n\nvar seam = 1\nvar state = struct{ n int }{}\n"),
+		"web_export_test.go": []byte(`package web
+
+var describeServer = 0
+
+func SetDescribeServer() { describeServer = 1 }
+`),
 		"a_test.go": []byte(`package x
 
 import (
@@ -411,9 +420,11 @@ import (
 	"testing"
 
 	"example.com/mod/limits"
+	"example.com/mod/web"
 )
 
 func stubIt(t *testing.T) { t.Setenv("K", "v") }
+func stubServer() { web.SetDescribeServer() }
 func parallelIt(t *testing.T) { t.Parallel() }
 func first() { second() }
 func second() { first(); state.n++ }
@@ -436,6 +447,11 @@ func TestParallelBadViaHelper(t *testing.T) {
 func TestParallelForeignAssignBad(t *testing.T) {
 	t.Parallel()
 	limits.Timeout = 1
+}
+
+func TestParallelServerStubBad(t *testing.T) {
+	t.Parallel()
+	stubServer()
 }
 
 func TestNestedParallelBad(t *testing.T) {
@@ -469,6 +485,7 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestParallelBad calls t.Parallel but reaches the process environment (t.Setenv or os.Setenv) via stubIt",
 		"TestParallelBadViaHelper calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelForeignAssignBad calls t.Parallel but reaches package state (assign:limits.Timeout) in its own body",
+		"TestParallelServerStubBad calls t.Parallel but reaches package state (assign:describeServer) via stubServer -> SetDescribeServer",
 		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
 		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",
