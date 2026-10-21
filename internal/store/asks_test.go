@@ -452,6 +452,7 @@ func TestAskLines(t *testing.T) {
 	if text := strings.Join(broken.Lines(), "\n"); !strings.Contains(text, "ask 9") || strings.Contains(text, "{oops") {
 		t.Fatalf("a corrupt ask reads:\n%s", text)
 	}
+	t.Run("weight mark", testAskWeightMarkNotForgeable)
 }
 
 // A line starting with the yard's mark is the yard's: a question holding
@@ -460,8 +461,8 @@ func TestAskLines(t *testing.T) {
 // context line; a mark mid-line, on a later question line (which stands
 // further in than any line the yard prints) or after "says:" stays, as do
 // the yard's own lines.
-func TestAskWeightMarkNotForgeable(t *testing.T) {
-	t.Parallel()
+func testAskWeightMarkNotForgeable(t *testing.T) {
+	t.Helper()
 	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	card := func(ask Ask) []string {
 		r := ResolvedAsk{Note: Note{Seq: 1, Kind: NoteAsk, Author: "yardmaster", At: now}, Ask: ask, State: AskOpen, now: now}
