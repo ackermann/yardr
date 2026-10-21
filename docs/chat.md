@@ -226,6 +226,37 @@ for them. It shows the questions where the asker is, and the terminal
 answers; the one it answers itself is [a secret](#typing-a-secret). A newer pick replaces the older one; nothing is deleted. The asker
 gets an inbox line for each answer, including the question and what happened.
 
+A card is **weighty** when approving it widens what reaches outside the
+yard, whose word or credential counts as a person's, or what runs inside
+the yard. It says so before the question, in one line for each way it widens
+the yard, right under the card's head:
+
+```
+ask 2990 · open · to mckean · asked by yardmaster · 3m ago
+  WEIGHTY · outside: lets the yard change something outside it: crew member yardmaster may call send of google-mail (an update)
+  WEIGHTY · as-user: lets calls or words count as a person's: crew member yardmaster calls google-mail as mckean, with mckean's credential
+  May the yardmaster send mail as you?
+  [... the command and what it does, as any run card shows them ...]
+  approve with: yardr bead answer yardr-k3vd 2990 --approve
+```
+
+A line reads `WEIGHTY · <class>: <the yard's words for the class>: <what this
+card does>`. The yard writes these lines. It weighs each card from its own
+records when it stores the card, and again when the card is approved. The
+asker's words never weigh it. The classes are `credential`, `as-user`,
+`outside`, `code`, `trust` and `reads`, and [api.md](api.md#weighty-cards)
+says which cards carry each. Every secret ask carries `credential`. A card
+that narrows what the yard does, a revoke or a lower limit for instance, is
+routine and has no such line.
+
+The view draws the `WEIGHTY` lines in the style it gives a crew member that
+is `blocked`, `failed to start` or `not logged in`, the one for what a
+person has to act on. It draws the rest of the card as it draws any card.
+The colour says nothing the word does not. In a terminal without colour,
+and with `NO_COLOR`, the lines read the same and `WEIGHTY` is the mark. A
+question that begins with `WEIGHTY` is the asker's word, not the yard's
+weighing, and the view draws it like any question.
+
 Whoever asked takes an open question back when it is asked no more:
 `yardr bead ask --take-back <id> <ask> "<reason>"`. The operator may too,
 and nobody else. The ask leaves the open decisions and reads `taken back by
@@ -244,6 +275,7 @@ no words:
 
 ```
 ask 2650 · open · to mckean · asked by yardmaster · 1m ago
+  WEIGHTY · credential: gives a credential or an address to the yard: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
   The API key for Artificial Analysis
   Create one at https://artificialanalysis.ai/account/api (free plan, read only).
   a secret: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
@@ -374,6 +406,7 @@ put to one of the two and the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago
+  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now
   Take more mail from airy?
   yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.
   yardmaster says: You write from airy all day, so most of its mail is yours.
@@ -461,6 +494,9 @@ terminal.
 
 ```
 ask 3101 · open · to mckean · asked by yardmaster · 1m ago
+  WEIGHTY · credential: gives a credential or an address to the yard: the account GOOGLE_ACCOUNT of pack google-mail
+  WEIGHTY · outside: lets the yard change something outside it: the preset drafts lets crew yardmaster call draft of google-mail (an update)
+  WEIGHTY · code: brings a program the yard will run: the command file google-mint of google-mail (new)
   Set up Gmail for the yardmaster?
   yardmaster says: The yardmaster reads mail to work beads; drafts only, the person sends.
   when you approve, the yard applies the pack, takes the account, and grants the preset you pick, and nothing else:

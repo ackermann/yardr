@@ -16,7 +16,7 @@ import (
 // neither colour nor bold: lipgloss leaves the text as it is there.
 //
 // No colour says anything alone: a state keeps its word, the selection its
-// mark, a mail's standing its sentence.
+// mark, a mail's standing its sentence, a weighty card its WEIGHTY word.
 type styles struct {
 	title lipgloss.Style // the view's name
 	faint lipgloss.Style // what is beside the point: the time, the user's name in the title
@@ -28,7 +28,7 @@ type styles struct {
 	working lipgloss.Style
 	idle    lipgloss.Style
 	absent  lipgloss.Style // not running
-	alarm   lipgloss.Style // blocked, failed to start, not logged in: someone has to act
+	alarm   lipgloss.Style // blocked, failed to start, not logged in: someone has to act; a weighty card's WEIGHTY lines: read before approving
 
 	member lipgloss.Style // a crew member's name on its mail
 	own    lipgloss.Style // the user's name on theirs

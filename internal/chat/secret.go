@@ -118,7 +118,9 @@ func (m *Model) givable() *store.ResolvedAsk {
 // secretCard is the card of a secret ask as the view shows it: the yard's
 // lines, the last of which names the terminal's command, with the key that
 // types the value here before it. A view that cannot give (Options.Secrets)
-// leaves the lines as they are.
+// leaves the lines as they are. It changes that last line alone, so the
+// WEIGHTY lines after the head (every secret ask is weighty) stay where
+// questions looks for them.
 func (m *Model) secretCard(r store.ResolvedAsk, lines []string) []string {
 	if m.opt.Secrets == nil || r.AskErr != nil || r.Ask.Secret == nil || len(lines) == 0 {
 		return lines

@@ -297,7 +297,9 @@ func (m *Model) lines(w int) []string {
 // questions are the selected party's asks addressed to the user, under its
 // mail: each a question with its options and its state, answered with
 // yardr bead answer, and a secret ask also here (secretCard). Nothing on
-// the yard's row, and nothing from anyone else.
+// the yard's row, and nothing from anyone else. The WEIGHTY lines of a
+// weighty card are drawn in the alarm's style, as the yard's own word that
+// approving it is more than routine; the rest of every card is plain.
 func (m *Model) questions(w int) []string {
 	if m.yard || m.sel == "" {
 		return nil
@@ -314,9 +316,17 @@ func (m *Model) questions(w int) []string {
 	out := []string{"", fmt.Sprintf("questions from %s for you:", m.sel)}
 	for _, r := range mine {
 		out = append(out, "")
+		// The yard's WEIGHTY lines, one a class, stand right after the
+		// card's head (ResolvedAsk.lines): found by their place and not by
+		// their words, since a question may begin with the same word, and
+		// that is the asker's and is drawn as any of its words.
+		weighty := 0
+		if r.AskErr == nil {
+			weighty = len(r.Ask.Weight)
+		}
 		// An answer from another yard says whose word it is, as mail
 		// does; m.as is whom the links trust as a user of this yard.
-		for _, line := range m.secretCard(r, r.LinesMarked(m.as)) {
+		for i, line := range m.secretCard(r, r.LinesMarked(m.as)) {
 			// A card line that wraps continues deeper than any line the
 			// yard prints (at 2, a command at 6), never at the pane's
 			// left edge nor under its own start: a writer who fills a
@@ -324,7 +334,15 @@ func (m *Model) questions(w int) []string {
 			// column on the next.
 			for _, part := range strings.Split(line, "\n") {
 				lead := part[:len(part)-len(strings.TrimLeft(part, " "))]
-				out = append(out, cardWrap(strings.TrimLeft(part, " "), w, lead)...)
+				rows := cardWrap(strings.TrimLeft(part, " "), w, lead)
+				if i >= 1 && i <= weighty {
+					// Each row of the line, so a long one stays in the
+					// style where it wraps.
+					for j := range rows {
+						rows[j] = look.alarm.Render(rows[j])
+					}
+				}
+				out = append(out, rows...)
 			}
 		}
 	}

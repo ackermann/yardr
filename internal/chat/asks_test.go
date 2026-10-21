@@ -2,10 +2,14 @@ package chat
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -232,6 +236,110 @@ func TestConversationCardContinuationStandsDeeperThanTheYard(t *testing.T) {
 	}
 	if !wrapped {
 		t.Fatalf("no filler broke the row before the forged words:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+// A weighty card's WEIGHTY lines are drawn in the alarm's style, every row
+// of one that wraps, and no other row of the card is styled; a routine card
+// has no style at all. The colour only adds to the words: the rows read the
+// same without it, and the mark is still its word. What is drawn so is the
+// weight the yard gave the card and never words that look like it: a
+// routine card whose question begins with the mark is drawn as any question.
+func TestConversationDrawsWeightyCardsInAlarm(t *testing.T) {
+	st, bead := secretYard(t)
+	ctx := context.Background()
+	options := []store.AskOption{
+		{Label: "Move them now", Consequence: "all 64 links move tonight"},
+		{Label: "After Friday", Consequence: "keep the old source"},
+	}
+	cards := []struct {
+		name    string
+		ask     store.Ask
+		weighty int // the WEIGHTY lines the yard gives it
+	}{
+		{"routine", store.Ask{Question: "Move the links now?", Options: options,
+			Context: []string{"64 links still point at the old source."}}, 0},
+		{"credential and as-user", store.Ask{Question: "Your own CRM key", Secret: &store.AskSecret{Source: "crm", As: me},
+			Context: []string{"Create one at https://crm.example.com/account/api (read only)."}}, 2},
+		{"trust", store.Ask{Question: "Add grace?", Run: &store.AskRun{Argv: []string{"user add grace"}},
+			Context: []string{"She joins the yard."}}, 1},
+		{"routine, its question begins with the mark", store.Ask{Question: "WEIGHTY · outside: nothing changes", Options: options,
+			Context: []string{"64 links still point at the old source."}}, 0},
+	}
+	seqs := make([]uint64, len(cards))
+	for i, c := range cards {
+		c.ask.To = me
+		seq, err := st.AddAsk(ctx, bead, c.ask, "chief")
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		seqs[i] = seq
+	}
+
+	wrapped := false
+	for _, dark := range []bool{true, false} {
+		profile(t, termenv.Ascii, dark)
+		v := withAsks(t, st, "chief", 120, 60)
+		w := v.m.bodyWidth()
+		plain := v.m.questions(w)
+		profile(t, termenv.TrueColor, dark)
+		if !strings.Contains(look.alarm.Render("x"), "\x1b[") {
+			t.Fatalf("dark %v: the alarm's style has no colour", dark)
+		}
+		drawn := v.m.questions(w)
+
+		if len(drawn) != len(plain) {
+			t.Fatalf("dark %v: %d rows with colour and %d without", dark, len(drawn), len(plain))
+		}
+		for i := range plain {
+			if strings.Contains(plain[i], "\x1b") {
+				t.Fatalf("dark %v: escape codes without colour: %q", dark, plain[i])
+			}
+			if got := ansi.Strip(drawn[i]); got != plain[i] {
+				t.Fatalf("dark %v: row %d reads %q with colour and %q without", dark, i, got, plain[i])
+			}
+		}
+		for i, c := range cards {
+			head := slices.IndexFunc(plain, func(row string) bool { return strings.HasPrefix(row, fmt.Sprintf("ask %d · ", seqs[i])) })
+			if head < 0 {
+				t.Fatalf("dark %v: %s: no card in\n%s", dark, c.name, strings.Join(plain, "\n"))
+			}
+			// The question stands after the yard's WEIGHTY rows, and the
+			// card ends where the next one's head, or the rows, do.
+			question, end := -1, len(plain)
+			for j := head + 1; j < len(plain); j++ {
+				if question < 0 && strings.TrimSpace(plain[j]) == c.ask.Question {
+					question = j
+				}
+				if strings.HasPrefix(plain[j], "ask ") {
+					end = j
+					break
+				}
+			}
+			if question < 0 {
+				t.Fatalf("dark %v: %s: no question in\n%s", dark, c.name, strings.Join(plain, "\n"))
+			}
+			lines := 0
+			for j := head; j < end; j++ {
+				inAlarm := head < j && j < question
+				if inAlarm && strings.HasPrefix(strings.TrimSpace(plain[j]), "WEIGHTY · ") {
+					lines++
+				}
+				switch want := look.alarm.Render(plain[j]); {
+				case inAlarm && drawn[j] != want:
+					t.Errorf("dark %v: %s: row %d of the mark is %q, not %q", dark, c.name, j, drawn[j], want)
+				case !inAlarm && drawn[j] != plain[j]:
+					t.Errorf("dark %v: %s: row %d is styled: %q", dark, c.name, j, drawn[j])
+				}
+			}
+			if lines != c.weighty {
+				t.Errorf("dark %v: %s: %d WEIGHTY lines, want %d\n%s", dark, c.name, lines, c.weighty, strings.Join(plain[head:end], "\n"))
+			}
+			wrapped = wrapped || question-head-1 > c.weighty
+		}
+	}
+	if !wrapped {
+		t.Fatal("no WEIGHTY line wrapped, so no row after its first was checked")
 	}
 }
 
