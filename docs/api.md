@@ -268,7 +268,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 127,
+  "seq": 136,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -296,7 +296,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 129,
+  "seq": 138,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -372,7 +372,7 @@ A crew member's session sat down at its harness's login screen or left it, or th
 
 ```json
 {
-  "seq": 123,
+  "seq": 132,
   "kind": "crew_login",
   "data": {
     "crew": "signalman",
@@ -416,7 +416,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 130,
+  "seq": 139,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -779,7 +779,7 @@ POST /call/Head
 {}
 
 {
-  "result": 124
+  "result": 133
 }
 ```
 
@@ -1265,7 +1265,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 125,
+      "seq": 134,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1273,7 +1273,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 126,
+      "seq": 135,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1299,7 +1299,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 125,
+      "seq": 134,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1307,7 +1307,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 126,
+      "seq": 135,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1334,7 +1334,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 127,
+      "seq": 136,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1726,7 +1726,153 @@ POST /call/UserAsks
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
         "topic": "",
+        "ask": 45,
+        "question": "Set up the courier source for the night crew?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_ACCOUNT"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 46,
+        "question": "Update the ledger source?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "setup": {
+          "pack": "ledger",
+          "label": "embedded in yardr doctest",
+          "account": ["LEDGER_TOKEN", "LEDGER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/ledger.env",
+          "given": true,
+          "does": ["pack ledger (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source ledger: its calls go to https://ledger.example.com/v2. Its credential is the variable LEDGER_TOKEN (the name, never the value), with LEDGER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source ledger the yard has under that name.", "source ledger base: \"https://ledger.example.com/api\" -\u003e \"https://ledger.example.com/v2\".", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/ledger.env. Type another unseen to change it, or approve keeping it with a bare preset pick (written to /home/jo/.yardr/sources/ledger.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm ledger; yardr source revoke ledger \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
         "ask": 47,
+        "question": "Update the parcel source?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "setup": {
+          "pack": "parcel",
+          "label": "embedded in yardr doctest",
+          "account": ["PARCEL_TOKEN", "PARCEL_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/parcel.env",
+          "missing": ["PARCEL_UPDATE_TOKEN"],
+          "does": ["pack parcel (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source parcel: its calls go to https://parcel.example.com/api. Its credential is the variable PARCEL_TOKEN (the name, never the value), with PARCEL_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source parcel the yard has under that name.", "source parcel credential: {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\"} -\u003e {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\",\"update_env\":\"PARCEL_UPDATE_TOKEN\"}.", "source parcel calls: [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}}] -\u003e [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}},{\"name\":\"put\",\"kind\":\"update\",\"request\":{\"method\":\"POST\",\"path\":\"/it\"},\"answer\":{\"max\":65536}}].", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/parcel.env, but missing PARCEL_UPDATE_TOKEN: type PARCEL_UPDATE_TOKEN unseen (written to /home/jo/.yardr/sources/parcel.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm parcel; yardr source revoke parcel \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 54,
         "question": "The API key Claude Code will use",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -1744,7 +1890,7 @@ POST /call/UserAsks
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
         "topic": "",
-        "ask": 48,
+        "ask": 55,
         "question": "The API key Claude Code needs at first login",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -1762,7 +1908,105 @@ POST /call/UserAsks
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
         "topic": "",
-        "ask": 45,
+        "ask": 52,
+        "question": "Update the parcel source for the elders too?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "parcel",
+          "label": "embedded in yardr doctest",
+          "account": ["PARCEL_TOKEN", "PARCEL_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/parcel.env",
+          "missing": ["PARCEL_UPDATE_TOKEN"],
+          "does": ["pack parcel (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source parcel: its calls go to https://parcel.example.com/api. Its credential is the variable PARCEL_TOKEN (the name, never the value), with PARCEL_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source parcel the yard has under that name.", "source parcel credential: {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\"} -\u003e {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\",\"update_env\":\"PARCEL_UPDATE_TOKEN\"}.", "source parcel calls: [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}}] -\u003e [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}},{\"name\":\"put\",\"kind\":\"update\",\"request\":{\"method\":\"POST\",\"path\":\"/it\"},\"answer\":{\"max\":65536}}].", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/parcel.env, but missing PARCEL_UPDATE_TOKEN: type PARCEL_UPDATE_TOKEN unseen (written to /home/jo/.yardr/sources/parcel.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm parcel; yardr source revoke parcel \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 50,
+        "question": "Update the ledger source for the elders too?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "ledger",
+          "label": "embedded in yardr doctest",
+          "account": ["LEDGER_TOKEN", "LEDGER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/ledger.env",
+          "given": true,
+          "does": ["pack ledger (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source ledger: its calls go to https://ledger.example.com/v2. Its credential is the variable LEDGER_TOKEN (the name, never the value), with LEDGER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source ledger the yard has under that name.", "source ledger base: \"https://ledger.example.com/api\" -\u003e \"https://ledger.example.com/v2\".", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/ledger.env. Type another unseen to change it, or approve keeping it with a bare preset pick (written to /home/jo/.yardr/sources/ledger.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm ledger; yardr source revoke ledger \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 48,
         "question": "Set up the courier source for the elders too?",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -2050,6 +2294,8 @@ POST /call/UserAsks
 | `open[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
 | `open[].setup.account` | array of string | the names to type unseen beside the preset pick |
 | `open[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `open[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
+| `open[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
 | `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
 | `open[].setup.candidates[].source` | string | the source whose account the card offers |
 | `open[].setup.candidates[].file` | string | the file holding the shared account inputs |
@@ -2093,6 +2339,8 @@ POST /call/UserAsks
 | `decided[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
 | `decided[].setup.account` | array of string | the names to type unseen beside the preset pick |
 | `decided[].setup.account_file` | string | the file the value goes to, on the yard's machine |
+| `decided[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
+| `decided[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
 | `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
 | `decided[].setup.candidates[].source` | string | the source whose account the card offers |
 | `decided[].setup.candidates[].file` | string | the file holding the shared account inputs |
@@ -2734,6 +2982,219 @@ POST /call/Bead
         "to": "jo",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
+        "question": "Set up the courier source for the night crew?",
+        "context": ["The night run pages through it."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source courier (https://courier.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source. may make the call put (POST /it) of the source courier (https://courier.example.com), which changes something there."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "open",
+        "setup": {
+          "pack": "courier",
+          "label": "embedded in yardr doctest",
+          "account": ["COURIER_ACCOUNT"],
+          "account_file": "/home/jo/.yardr/sources/courier.env",
+          "candidates": [
+            {
+              "source": "courier-existing",
+              "file": "/home/jo/.yardr/sources/courier-existing.env",
+              "values": {
+                "COURIER_ACCOUNT": "jo@example.test"
+              }
+            }
+          ],
+          "does": ["pack courier (embedded in yardr doctest), of kind source, into the yard: it adds 1 source and copies 1 command file (1 command), and changes nothing else. It makes no hook and sets no credential's file.", "source courier: its calls go to https://courier.example.com/api. Its credential is the variable COURIER_TOKEN (the name, never the value), minted from COURIER_ACCOUNT by the declaration's own mint command [courier-mint] (command file courier-mint, copied to \u003chome\u003e/sources/courier/courier-mint: sha256 275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc, mode 0700), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no second credential for updates.", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command but its mint command, said with its credential above.", "the account COURIER_ACCOUNT: already given for courier-existing (COURIER_ACCOUNT=jo@example.test, in /home/jo/.yardr/sources/courier-existing.env). Take it with --account courier-existing, or type another unseen (written to /home/jo/.yardr/sources/courier.env, named in the answer, never the value).", "grants to crew yardmaster — pick one:"],
+          "back": "yardr source rm courier; yardr source revoke courier \u003cwhat\u003e --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "courier",
+              "text": "name: courier\nbase: https://courier.example.com/api\ncredential:\n  env: COURIER_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n  mint: [COURIER_ACCOUNT]\n  mint_command: [courier-mint]\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n",
+              "files": [
+                {
+                  "program": "courier-mint",
+                  "text": "#!/bin/sh\nexit 1\n",
+                  "sha256": "275239824e00e61b0a220e61a41791c7e9b4bd726f8b0c27077a338f8131c9dc"
+                }
+              ]
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "courier",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 46,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Update the ledger source?",
+        "context": ["The build brings the ledger's new base."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source ledger (https://ledger.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new)."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source ledger (https://ledger.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new). may make the call put (POST /it) of the source ledger (https://ledger.example.com), which changes something there (new)."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "open",
+        "setup": {
+          "pack": "ledger",
+          "label": "embedded in yardr doctest",
+          "account": ["LEDGER_TOKEN", "LEDGER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/ledger.env",
+          "given": true,
+          "does": ["pack ledger (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source ledger: its calls go to https://ledger.example.com/v2. Its credential is the variable LEDGER_TOKEN (the name, never the value), with LEDGER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source ledger the yard has under that name.", "source ledger base: \"https://ledger.example.com/api\" -\u003e \"https://ledger.example.com/v2\".", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/ledger.env. Type another unseen to change it, or approve keeping it with a bare preset pick (written to /home/jo/.yardr/sources/ledger.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm ledger; yardr source revoke ledger \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "ledger",
+              "text": "name: ledger\nbase: https://ledger.example.com/v2\ncredential: { env: LEDGER_TOKEN, update_env: LEDGER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 47,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Update the parcel source?",
+        "context": ["The build gives the parcel's put call a token of its own."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source parcel (https://parcel.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new)."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source parcel (https://parcel.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new). may make the call put (POST /it) of the source parcel (https://parcel.example.com), which changes something there (new), waiting on the preset all."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "open",
+        "setup": {
+          "pack": "parcel",
+          "label": "embedded in yardr doctest",
+          "account": ["PARCEL_TOKEN", "PARCEL_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/parcel.env",
+          "missing": ["PARCEL_UPDATE_TOKEN"],
+          "does": ["pack parcel (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source parcel: its calls go to https://parcel.example.com/api. Its credential is the variable PARCEL_TOKEN (the name, never the value), with PARCEL_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source parcel the yard has under that name.", "source parcel credential: {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\"} -\u003e {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\",\"update_env\":\"PARCEL_UPDATE_TOKEN\"}.", "source parcel calls: [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}}] -\u003e [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}},{\"name\":\"put\",\"kind\":\"update\",\"request\":{\"method\":\"POST\",\"path\":\"/it\"},\"answer\":{\"max\":65536}}].", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/parcel.env, but missing PARCEL_UPDATE_TOKEN: type PARCEL_UPDATE_TOKEN unseen (written to /home/jo/.yardr/sources/parcel.env, named in the answer, never the value).", "grants to group builders and crew yardmaster — pick one:"],
+          "back": "yardr source rm parcel; yardr source revoke parcel \u003cwhat\u003e --group builders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "parcel",
+              "text": "name: parcel\nbase: https://parcel.example.com/api\ncredential: { env: PARCEL_TOKEN, update_env: PARCEL_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "builders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 48,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
         "question": "Set up the courier source for the elders too?",
         "context": ["They read the same pages."],
         "options": [
@@ -2813,7 +3274,143 @@ POST /call/Bead
         }
       },
       {
-        "ask": 47,
+        "ask": 50,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Update the ledger source for the elders too?",
+        "context": ["They read the same pages."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source ledger (https://ledger.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new)."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source ledger (https://ledger.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new). may make the call put (POST /it) of the source ledger (https://ledger.example.com), which changes something there (new)."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "ledger",
+          "label": "embedded in yardr doctest",
+          "account": ["LEDGER_TOKEN", "LEDGER_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/ledger.env",
+          "given": true,
+          "does": ["pack ledger (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source ledger: its calls go to https://ledger.example.com/v2. Its credential is the variable LEDGER_TOKEN (the name, never the value), with LEDGER_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source ledger the yard has under that name.", "source ledger base: \"https://ledger.example.com/api\" -\u003e \"https://ledger.example.com/v2\".", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/ledger.env. Type another unseen to change it, or approve keeping it with a bare preset pick (written to /home/jo/.yardr/sources/ledger.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm ledger; yardr source revoke ledger \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "ledger",
+              "text": "name: ledger\nbase: https://ledger.example.com/v2\ncredential: { env: LEDGER_TOKEN, update_env: LEDGER_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "ledger",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 52,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Update the parcel source for the elders too?",
+        "context": ["They read the same pages."],
+        "options": [
+          {
+            "label": "read",
+            "consequence": "may make every read call of the source parcel (https://parcel.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new)."
+          },
+          {
+            "label": "all",
+            "consequence": "may make every read call of the source parcel (https://parcel.example.com): today that is ping (GET /me), and it covers any read call the operator later gives the source (new). may make the call put (POST /it) of the source parcel (https://parcel.example.com), which changes something there (new), waiting on the preset all."
+          },
+          {
+            "label": "You decide",
+            "consequence": "no preset is recommended, so pick one of the presets above"
+          }
+        ],
+        "state": "declined",
+        "words": "the builders' card covers it",
+        "setup": {
+          "pack": "parcel",
+          "label": "embedded in yardr doctest",
+          "account": ["PARCEL_TOKEN", "PARCEL_UPDATE_TOKEN"],
+          "account_file": "/home/jo/.yardr/sources/parcel.env",
+          "missing": ["PARCEL_UPDATE_TOKEN"],
+          "does": ["pack parcel (embedded in yardr doctest), of kind source, into the yard: it replaces 1 source and copies no command files, and changes nothing else. It makes no hook and sets no credential's file.", "source parcel: its calls go to https://parcel.example.com/api. Its credential is the variable PARCEL_TOKEN (the name, never the value), with PARCEL_UPDATE_TOKEN for updates, sent in the header \"Authorization: Bearer {credential}\" on every call. It has no mint.", "it would replace the source parcel the yard has under that name.", "source parcel credential: {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\"} -\u003e {\"env\":\"PARCEL_TOKEN\",\"header\":\"Authorization: Bearer {credential}\",\"update_env\":\"PARCEL_UPDATE_TOKEN\"}.", "source parcel calls: [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}}] -\u003e [{\"name\":\"ping\",\"kind\":\"read\",\"request\":{\"method\":\"GET\",\"path\":\"/me\"},\"answer\":{\"max\":65536}},{\"name\":\"put\",\"kind\":\"update\",\"request\":{\"method\":\"POST\",\"path\":\"/it\"},\"answer\":{\"max\":65536}}].", "call ping (read): GET /me. It takes no parameter, and sends no query.", "call ping sends no body. Its answer is returned as it comes, at most 65536 bytes.", "call put (update): POST /it. It takes no parameter, and sends no query.", "call put sends no body. Its answer is returned as it comes, at most 65536 bytes.", "The source names no check call and no idempotency header.", "it can tell no user.", "it hears no deliveries.", "it names no limits command.", "it speaks in no threads.", "its issues are no bead's link.", "its identity keys keep their case.", "it sends no hook deliveries into the yard.", "it sends no pull-request or CI events.", "it names no command.", "the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN: given, in /home/jo/.yardr/sources/parcel.env, but missing PARCEL_UPDATE_TOKEN: type PARCEL_UPDATE_TOKEN unseen (written to /home/jo/.yardr/sources/parcel.env, named in the answer, never the value).", "grants to group elders and crew yardmaster — pick one:"],
+          "back": "yardr source rm parcel; yardr source revoke parcel \u003cwhat\u003e --group elders --crew yardmaster",
+          "back_by": "the operator",
+          "carried": [
+            {
+              "name": "parcel",
+              "text": "name: parcel\nbase: https://parcel.example.com/api\ncredential: { env: PARCEL_TOKEN, update_env: PARCEL_UPDATE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n  put: { kind: update, request: { method: POST, path: /it } }\n"
+            }
+          ],
+          "presets": [
+            {
+              "name": "read",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read"]
+                }
+              ]
+            },
+            {
+              "name": "all",
+              "grants": [
+                {
+                  "source": "parcel",
+                  "calls": ["read", "put"]
+                }
+              ]
+            }
+          ],
+          "to": [
+            {
+              "group": "elders"
+            },
+            {
+              "crew": "yardmaster"
+            }
+          ]
+        }
+      },
+      {
+        "ask": 54,
         "to": "jo",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -2830,7 +3427,7 @@ POST /call/Bead
         }
       },
       {
-        "ask": 48,
+        "ask": 55,
         "to": "jo",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z",
@@ -2912,11 +3509,13 @@ POST /call/Bead
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
 | `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed |
-| `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead, and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, or `--account <source>` where the card lists one), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
 | `asks[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
-| `asks[].setup.account` | array of string | the names to type unseen beside the preset pick: the mint's inputs where the pack's credential is minted, else every credential name. Where the card lists candidates, the answer names one of them or types another |
-| `asks[].setup.account_file` | string | the file a typed value goes to, on the yard's machine |
+| `asks[].setup.account` | array of string | the names the account is made of: the mint's inputs where the pack's credential is minted, else every credential name. A first setup types every one beside the preset pick; an update says by `given` and `missing` which of them the account file that stands holds. Where the card lists candidates, the answer names one of them instead |
+| `asks[].setup.account_file` | string | the file a typed value goes to, on the yard's machine; on an update, the account file that stands |
+| `asks[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it, typing every name changes it, and a candidate may be taken instead; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
+| `asks[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, and the names that stand stay, or takes a candidate; absent on a first setup and where the file holds every name |
 | `asks[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse; absent where none match |
 | `asks[].setup.candidates[].source` | string | the source whose account the card offers |
 | `asks[].setup.candidates[].file` | string | the file holding the shared account inputs |
@@ -3339,8 +3938,8 @@ operator's alone to make. In yardr's code the list is `OperatorCalls`, and
 it has three calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, and `ApproveSetup`, which approves a setup ask with
-the preset pick and the account together. Where they are served, and to
-whom:
+the preset pick and the account together: typed, taken from a candidate, or
+kept as it stands. Where they are served, and to whom:
 
 - **On the socket**, to the operator: `actor` is the operator's name, and
   the call does not come from the pane of an agent.
@@ -3500,7 +4099,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":47,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":54,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}
 
 {
   "result": {
@@ -3566,15 +4165,15 @@ The change and the answer are one write: the command ran and the ask is approved
 
 ### `ApproveSetup`
 
-Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`) does. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given or the candidate taken, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Where the card lists candidates, exactly one of the typed values and the picked candidate settles the account, and where it lists none the typed values do. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values that are not exactly the account asked for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.
+Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
 | `ask` | number | the ask note's seq |
 | `option` | number | the preset pick, counting `asks[].options` as shown, `you decide` last |
-| `values` | object | each name of `setup.account` to the value the person typed; left out where a candidate is taken |
-| `account` | string | the candidate taken instead of typing, one the card lists; left out where the values are typed |
+| `values` | object | each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept |
+| `account` | string | the candidate taken instead of typing, one the card lists (`setup.candidates[].source`); left out where the values are typed or the account is kept |
 | `actor` | string | who approves: the operator's name |
 
 ```
@@ -3594,6 +4193,57 @@ POST /call/ApproveSetup
 }
 ```
 
+```
+POST /call/ApproveSetup
+{"bead":"yd-crm","ask":45,"option":1,"account":"courier-existing","actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-crm",
+    "ask": 45,
+    "asker": "yardmaster",
+    "pack": "courier",
+    "preset": "read",
+    "account": "courier-existing",
+    "result": "approved, to be carried out"
+  }
+}
+```
+
+```
+POST /call/ApproveSetup
+{"bead":"yd-crm","ask":46,"option":1,"actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-crm",
+    "ask": 46,
+    "asker": "yardmaster",
+    "pack": "ledger",
+    "preset": "read",
+    "keep": true,
+    "result": "approved, to be carried out"
+  }
+}
+```
+
+```
+POST /call/ApproveSetup
+{"bead":"yd-crm","ask":47,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-crm",
+    "ask": 47,
+    "asker": "yardmaster",
+    "pack": "parcel",
+    "preset": "read",
+    "given": ["PARCEL_UPDATE_TOKEN"],
+    "result": "approved, to be carried out"
+  }
+}
+```
+
 | field of the result | type | |
 |---|---|---|
 | `bead` | string | the bead |
@@ -3601,8 +4251,12 @@ POST /call/ApproveSetup
 | `asker` | string | who proposed the setup |
 | `pack` | string | the pack set up |
 | `preset` | string | the preset picked |
-| `given` | array of string | the account names that were given |
+| `given` | array of string, may be absent | the account names that were typed; absent when a candidate was taken or the account was kept |
+| `account` | string, may be absent | the candidate taken: its `source` in `setup.candidates`; absent when the account was typed or kept |
+| `keep` | bool, may be absent | `true` when the account that stands was kept with a bare preset pick; absent when it was typed or a candidate was taken |
 | `result` | string | `approved, to be carried out`: the server carries the setup out after the call |
+
+What the card holds decides the account. On a first setup, neither `setup.given` nor `setup.missing`, nothing stands yet: the request types every name of `setup.account` in `values`, or names a candidate in `account`. On an update the account file that stands is `setup.account_file`. When it holds every name (`setup.given`), the request sends neither `values` nor `account` to keep it, which the reply says as `keep`, or types every name of `setup.account` to change it, or names a candidate. When it lacks some (`setup.missing`), the request types exactly those names and the others stay where they are, or names a candidate. The reply has one of `given` (the names typed), `account` (the candidate taken) and `keep`.
 
 The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say "the yard did not answer; read the card again", never "approved", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.
 

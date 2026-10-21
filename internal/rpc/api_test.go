@@ -153,6 +153,8 @@ func setupAsked(prefix string) []field {
 		{prefix + "setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
 		{prefix + "setup.account", "array of string", "the names to type unseen beside the preset pick"},
 		{prefix + "setup.account_file", "string", "the file the value goes to, on the yard's machine"},
+		{prefix + "setup.given", "bool?", "on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`)"},
+		{prefix + "setup.missing", "array of string?", "on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name"},
 		{prefix + "setup.candidates", "array?", "yard sources whose account the card offers to reuse"},
 		{prefix + "setup.candidates[].source", "string", "the source whose account the card offers"},
 		{prefix + "setup.candidates[].file", "string", "the file holding the shared account inputs"},
@@ -483,11 +485,13 @@ var apiCalls = []apiCall{
 			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
 			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name"},
 			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed"},
-			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead, and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, or `--account <source>` where the card lists one), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].setup.pack", "string", "the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered"},
 			{"asks[].setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
-			{"asks[].setup.account", "array of string", "the names to type unseen beside the preset pick: the mint's inputs where the pack's credential is minted, else every credential name. Where the card lists candidates, the answer names one of them or types another"},
-			{"asks[].setup.account_file", "string", "the file a typed value goes to, on the yard's machine"},
+			{"asks[].setup.account", "array of string", "the names the account is made of: the mint's inputs where the pack's credential is minted, else every credential name. A first setup types every one beside the preset pick; an update says by `given` and `missing` which of them the account file that stands holds. Where the card lists candidates, the answer names one of them instead"},
+			{"asks[].setup.account_file", "string", "the file a typed value goes to, on the yard's machine; on an update, the account file that stands"},
+			{"asks[].setup.given", "bool?", "on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it, typing every name changes it, and a candidate may be taken instead; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`)"},
+			{"asks[].setup.missing", "array of string?", "on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, and the names that stand stay, or takes a candidate; absent on a first setup and where the file holds every name"},
 			{"asks[].setup.candidates", "array?", "yard sources whose account the card offers to reuse; absent where none match"},
 			{"asks[].setup.candidates[].source", "string", "the source whose account the card offers"},
 			{"asks[].setup.candidates[].file", "string", "the file holding the shared account inputs"},
@@ -669,26 +673,42 @@ var apiOperatorCalls = []apiCall{
 	},
 	{
 		method: "ApproveSetup",
-		says:   "Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`) does. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given or the candidate taken, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Where the card lists candidates, exactly one of the typed values and the picked candidate settles the account, and where it lists none the typed values do. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values that are not exactly the account asked for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.",
+		says: "Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. " +
+			"It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. " +
+			"The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. " +
+			"In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. " +
+			"It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. " +
+			"Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"option", "number", "the preset pick, counting `asks[].options` as shown, `you decide` last"},
-			{"values", "object", "each name of `setup.account` to the value the person typed; left out where a candidate is taken"},
-			{"account", "string", "the candidate taken instead of typing, one the card lists; left out where the values are typed"},
+			{"values", "object", "each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept"},
+			{"account", "string", "the candidate taken instead of typing, one the card lists (`setup.candidates[].source`); left out where the values are typed or the account is kept"},
 			{"actor", "string", "who approves: the operator's name"},
 		},
-		requests: []string{`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}`},
+		requests: []string{
+			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+		},
 		fields: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask that was approved"},
 			{"asker", "string", "who proposed the setup"},
 			{"pack", "string", "the pack set up"},
 			{"preset", "string", "the preset picked"},
-			{"given", "array of string", "the account names that were given"},
+			{"given", "array of string?", "the account names that were typed; absent when a candidate was taken or the account was kept"},
+			{"account", "string?", "the candidate taken: its `source` in `setup.candidates`; absent when the account was typed or kept"},
+			{"keep", "bool?", "`true` when the account that stands was kept with a bare preset pick; absent when it was typed or a candidate was taken"},
 			{"result", "string", "`approved, to be carried out`: the server carries the setup out after the call"},
 		},
-		after: "The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.",
+		after: "What the card holds decides the account. On a first setup, neither `setup.given` nor `setup.missing`, nothing stands yet: the request types every name of `setup.account` in `values`, or names a candidate in `account`. " +
+			"On an update the account file that stands is `setup.account_file`. When it holds every name (`setup.given`), the request sends neither `values` nor `account` to keep it, which the reply says as `keep`, or types every name of `setup.account` to change it, or names a candidate. " +
+			"When it lacks some (`setup.missing`), the request types exactly those names and the others stay where they are, or names a candidate. " +
+			"The reply has one of `given` (the names typed), `account` (the candidate taken) and `keep`.\n\n" +
+			"The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.",
 	},
 }
 
@@ -1235,30 +1255,71 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	if err := os.WriteFile(existingAccount, []byte("COURIER_ACCOUNT=jo@example.test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
-		if name != "courier" {
-			return nil, fmt.Errorf("pack %s: yardr embeds no pack of that name", name)
+	presets := func(source string) []store.AskPreset {
+		return []store.AskPreset{
+			{Name: "read", Grants: []store.AskPresetGrant{{Source: source, Calls: []string{"read"}}}},
+			{Name: "all", Grants: []store.AskPresetGrant{{Source: source, Calls: []string{"read", "put"}}}},
 		}
-		return &store.PackReading{Name: "courier", Kind: "source", Label: "embedded in yardr doctest",
-			Sources: []store.AskSource{{Name: "courier", Text: apiSetupSource("courier"), Files: []store.AskFile{{
-				Program: "courier-mint", Text: string(courierMint), SHA256: hex.EncodeToString(courierMintHash[:]),
-			}}}},
-			Presets: []store.AskPreset{
-				{Name: "read", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read"}}}},
-				{Name: "all", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read", "put"}}}},
-			}}, nil
+	}
+	packs := map[string]*store.PackReading{"courier": {Name: "courier", Kind: "source", Label: "embedded in yardr doctest",
+		Sources: []store.AskSource{{Name: "courier", Text: apiSetupSource("courier"), Files: []store.AskFile{{
+			Program: "courier-mint", Text: string(courierMint), SHA256: hex.EncodeToString(courierMintHash[:]),
+		}}}},
+		Presets: presets("courier")}}
+	// Two packs the yard applied before and the build has updated since,
+	// so that their cards are the update's: each source stands in the yard
+	// as it was, with the account file the yard keeps for it. ledger's file
+	// holds every name the updated source needs, so its card reads given
+	// and a bare pick keeps the account; parcel's lacks the name its update
+	// call newly needs, so its card reads missing and the answer types it.
+	ledger := apiSource("ledger", "LEDGER_TOKEN", "LEDGER_UPDATE_TOKEN")
+	for _, u := range []struct{ name, was, now, account string }{
+		{"ledger", ledger, strings.Replace(ledger, "/api", "/v2", 1), "LEDGER_TOKEN=held-by-the-fixture\nLEDGER_UPDATE_TOKEN=held-by-the-fixture\n"},
+		{"parcel", apiSource("parcel", "PARCEL_TOKEN", ""), apiSource("parcel", "PARCEL_TOKEN", "PARCEL_UPDATE_TOKEN"), "PARCEL_TOKEN=held-by-the-fixture\n"},
+	} {
+		if _, err = st.PutSource(ctx, u.name+".yaml", u.was, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "sources", u.name+".env"), []byte(u.account), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		packs[u.name] = &store.PackReading{Name: u.name, Kind: "source", Label: "embedded in yardr doctest",
+			Sources: []store.AskSource{{Name: u.name, Text: u.now}}, Presets: presets(u.name)}
+	}
+	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		if reading, ok := packs[name]; ok {
+			return reading, nil
+		}
+		return nil, fmt.Errorf("pack %s: yardr embeds no pack of that name", name)
 	})
+	// The setup asks ApproveSetup approves in the doc, in the order of its
+	// requests: a first setup with the account typed, one with a candidate
+	// taken, an update that keeps the account that stands, and one that
+	// types the name it is missing.
+	setup := func(question, why, pack string, to ...store.Grantee) uint64 {
+		seq, err := st.AddAsk(ctx, crm.ID, store.Ask{Question: question, To: "jo", Context: []string{why},
+			Setup: &store.AskSetup{Pack: pack, To: to}}, "yardmaster")
+		must(err)
+		return seq
+	}
 	setupTo := []store.Grantee{{Group: "builders"}, {Crew: "yardmaster"}}
-	apiSetupAsk, err = st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source?", To: "jo",
+	apiSetupAsks[0], err = st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source?", To: "jo",
 		Context: []string{"The nightly run pages through it."}, Recommend: 1, Why: "reading is the job",
 		Setup: &store.AskSetup{Pack: "courier", To: setupTo}}, "yardmaster")
 	must(err)
-	// A second setup, declined: the queue's decided rows hold a setup too.
-	declinedSetup, err := st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source for the elders too?", To: "jo",
-		Context: []string{"They read the same pages."},
-		Setup:   &store.AskSetup{Pack: "courier", To: []store.Grantee{{Group: "elders"}, {Crew: "yardmaster"}}}}, "yardmaster")
-	must(err)
-	must(st.AddAnswer(ctx, crm.ID, store.Answer{Ask: declinedSetup, Decline: true, Words: "the builders' card covers it"}, "jo"))
+	apiSetupAsks[1] = setup("Set up the courier source for the night crew?", "The night run pages through it.", "courier", store.Grantee{Crew: "yardmaster"})
+	apiSetupAsks[2] = setup("Update the ledger source?", "The build brings the ledger's new base.", "ledger", setupTo...)
+	apiSetupAsks[3] = setup("Update the parcel source?", "The build gives the parcel's put call a token of its own.", "parcel", setupTo...)
+	// Setups declined, a first setup and the two updates: the queue's
+	// decided rows hold a setup too, of each kind of card.
+	for _, d := range []struct{ question, why, pack string }{
+		{"Set up the courier source for the elders too?", "They read the same pages.", "courier"},
+		{"Update the ledger source for the elders too?", "They read the same pages.", "ledger"},
+		{"Update the parcel source for the elders too?", "They read the same pages.", "parcel"},
+	} {
+		declined := setup(d.question, d.why, d.pack, store.Grantee{Group: "elders"}, store.Grantee{Crew: "yardmaster"})
+		must(st.AddAnswer(ctx, crm.ID, store.Answer{Ask: declined, Decline: true, Words: "the builders' card covers it"}, "jo"))
+	}
 
 	// The flows view's worked beads: one on a stage, one off the line and
 	// one with no line, each claimed with its agent, so every bead row's
@@ -1334,9 +1395,11 @@ var apiTakeBack uint64
 // fixture last made it.
 var apiRunAsk uint64
 
-// apiSetupAsk is the setup ask ApproveSetup approves in the doc, by seq,
-// as the fixture last made it.
-var apiSetupAsk uint64
+// apiSetupAsks are the four setup asks ApproveSetup approves in the doc, by
+// seq, as the fixture last made them: a first setup whose account is typed,
+// a first setup whose account is a candidate's, an update that keeps the
+// account that stands, and an update that types the name it is missing.
+var apiSetupAsks [4]uint64
 
 // apiSecretAsks are the seven secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them: two for a source's credential, one
@@ -1468,7 +1531,7 @@ func runAPI(t *testing.T, network bool) *apiRun {
 			} else if c.method == "ApproveAsk" {
 				body = fmt.Sprintf(body, apiRunAsk)
 			} else if c.method == "ApproveSetup" {
-				body = fmt.Sprintf(body, apiSetupAsk)
+				body = fmt.Sprintf(body, apiSetupAsks[i])
 			} else if c.method == "TakeBackAsk" {
 				body = fmt.Sprintf(body, apiTakeBack)
 			} else if c.method == "React" {
