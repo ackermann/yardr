@@ -529,14 +529,18 @@ func TestAskFromAPaneIsThatPanesActor(t *testing.T) {
 // from no pane names none.
 func TestMailFromAPaneNamesItsBead(t *testing.T) {
 	t.Parallel()
-	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
+	setup := func(t *testing.T, runner string, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
 		t.Helper()
 		s := storetest.New(t)
 		ctx := context.Background()
 		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
+		group := store.Group{Name: "builders", Runner: runner}
+		if runner == "exec" {
+			group.Config = map[string]any{"cmd": "true"}
+		}
+		if err := s.PutGroup(ctx, group, "op"); err != nil {
 			t.Fatal(err)
 		}
 		for _, name := range []string{"yardmaster", "clerk"} {
@@ -553,8 +557,15 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 			t.Fatal(err)
 		}
 		actor := b.ID + "-new"
+		if runner == "exec" {
+			actor = "builders"
+		}
 		if withPane {
-			if err := s.MarkRunning(ctx, sess.ID, paneShell(t, actor)); err != nil {
+			handle := paneShell(t, actor)
+			if runner == "exec" {
+				handle = map[string]any{"pid": 1 << 30}
+			}
+			if err := s.MarkRunning(ctx, sess.ID, handle); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -570,7 +581,7 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 	}
 
 	t.Run("session", func(t *testing.T) {
-		s, ctx, b, _, actor := setup(t, true)
+		s, ctx, b, _, actor := setup(t, "herdr", true)
 		pane := store.WithCaller(ctx, os.Getpid())
 		if err := s.Mail(pane, "yardmaster", "may I narrow it?", "op"); err != nil {
 			t.Fatal(err)
@@ -593,11 +604,23 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 		}
 	})
 
+	t.Run("exec session", func(t *testing.T) {
+		s, ctx, b, _, actor := setup(t, "exec", true)
+		pane := store.WithCaller(ctx, 1<<30)
+		if err := s.Mail(pane, "yardmaster", "the script needs a narrower limit", "op"); err != nil {
+			t.Fatal(err)
+		}
+		e := lastMail(t, s, ctx)
+		if e.Actor != actor || e.Data["from_bead"] != b.ID {
+			t.Fatalf("mail from an exec session's pane = %+v, want actor %q, from_bead %q", e, actor, b.ID)
+		}
+	})
+
 	t.Run("ended session", func(t *testing.T) {
 		if !peer.HaveStat() {
 			t.Skip("this OS reports no process start time")
 		}
-		s, ctx, b, sess, actor := setup(t, true)
+		s, ctx, b, sess, actor := setup(t, "herdr", true)
 		if err := s.EndSession(ctx, sess.ID, "died", "x"); err != nil {
 			t.Fatal(err)
 		}
@@ -611,7 +634,7 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 	})
 
 	t.Run("crew pane", func(t *testing.T) {
-		s, ctx, _, _, _ := setup(t, false)
+		s, ctx, _, _, _ := setup(t, "herdr", false)
 		if err := s.CrewStarted(ctx, "yardmaster", paneShell(t, "yardmaster")); err != nil {
 			t.Fatal(err)
 		}
@@ -626,7 +649,7 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 	})
 
 	t.Run("no pane", func(t *testing.T) {
-		s, ctx, _, _, _ := setup(t, false)
+		s, ctx, _, _, _ := setup(t, "herdr", false)
 		if err := s.Mail(ctx, "yardmaster", "from a terminal", "op"); err != nil {
 			t.Fatal(err)
 		}
