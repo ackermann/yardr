@@ -122,10 +122,24 @@ and nothing else moves the bead. No new stage, setting, group or command.
 The bead counts **rounds per stage it returns to**: `Rounds["new"]` is how
 many times an outcome took it back into `new`. A move counts when it is
 made by an outcome (`Done`, or an answer to a stage ask) and its stage is
-one the bead has been in before (`Visited` holds it), a same-stage outcome
-included (the train's `open -> open on failed`). A move by hand
-(`yardr bead advance --to`) never counts: a person who moves a bead has
-already looked at it.
+one the bead has been in before, a same-stage outcome included (the
+train's `open -> open on failed`). A move by hand (`yardr bead advance
+--to`) never counts: a person who moves a bead has already looked at it.
+
+`Rounds` is its own record of where the bead has been, not a reading of
+`Visited`. `Visited` is the ETA's list and keeps only the first 64 stages a
+bead reaches (`ETAVisitedCap` in `internal/store/eta.go`; `AppendVisited`
+drops later ones without a word), while a flow has no limit on its stages
+(`internal/store/flows.go` normalizes any number), so a return to a stage
+first reached past the cap would never count. Instead every arrival, the
+bead's creation and a move by hand included, gives the stage a key in
+`Rounds` at zero if it has none; a move by an outcome into a stage that
+already has a key adds one; a reset at the limit sets the value to zero
+and keeps the key. A key's presence is what makes a move a return. A bead
+created before the build has no keys yet, so a move into a stage without a
+key also reads `Visited`, and a stage there counts as visited; that
+fallback matters only for beads already open, and for them the cap is the
+one they already had.
 
 Counting by the stage returned to, not by the edge, means that review's
 `changes`, review-security's `changes` and the assembly's `failed` all add
@@ -173,11 +187,20 @@ In the line format, the edge takes two more words after `on <outcome>`:
 
 The JSON form of a stored flow carries `max` and `then` on the outcome.
 `normalizeOutcomes` refuses `max` below 1, `max` without `then`, `then`
-without `max`, and `then` equal to `to`, and makes `then` a transition of
+without `max`, `then` equal to `to`, and `max` on the `done` outcome,
+and makes `then` a transition of
 the stage as it does an outcome's `to`, so the flow allows the redirected
 move and the drawing knows the edge. (Open question 3 is whether `then` may
 be left out and mean `decide`.) A flow without limits reads, stores and
 writes exactly as today.
+
+The limit is refused on `done` because the ETA walks the `done` way on
+(`doneNext` in `internal/eta/eta.go`, which follows a looping done way once
+round and one step past) and holds no counts, so a limited done loop would
+make it predict a stage the store will not take. Every loop the bead asks
+about is a send-back outcome (`changes`, `failed`), never `done`, and a
+stage with a single way out has an implicit `done` with no fields to carry
+a limit, so the refusal costs no flow in the packs or on this yard.
 
 The limit is not on the stage, because one stage has several ways back
 with different costs (a failed landing against a reviewer's changes), and
@@ -187,13 +210,13 @@ flow's: the same flow under another depot's groups loops the same way.
 ### 3.3 What happens at the limit
 
 `donePick` resolves the outcome as now. When the outcome has `Max`, its
-`To` is a stage the bead has visited, and `Rounds[To]` is already `Max`,
+`To` is a stage the bead has been in (section 3.1), and `Rounds[To]` is already `Max`,
 the pick returns `Then` instead, and in the same write:
 
 - the `advanced` event carries, beside `from`, `to` (now `Then`) and
   `outcome`: `rounds` (the count, 3), `max` (3) and `instead_of` (`new`), so
   the log keeps every round and why the bead went where it did;
-- `Rounds[To]` is set back to zero;
+- `Rounds[To]` is set back to zero, its key kept;
 - a `rounds_reached` event is logged on the bead with `stage` (where the
   outcome was reported), `outcome`, `rounds`, `to` (`new`) and `then`
   (`decide`). It is added to `AttentionKinds`, so whoever hears
@@ -316,8 +339,11 @@ bead.
   bundling small beads, templates or run-time fan-out, which the bead puts
   out of scope.
 - **Changing the ETA.** `internal/eta` follows only the `done` way on and
-  never a send-back, so a redirect that happens only on a round changes no
-  estimate. `eta.Outcome` stays `{Name, To}`.
+  never a send-back, and section 3.2 refuses a limit on `done`, so a
+  redirect never lies on the way the ETA walks. `eta.Outcome` stays
+  `{Name, To}`. Allowing a limited done loop instead would pass the bead's
+  `Rounds` into `eta.Bead` and branch the walk on it, which is more than a
+  loop no flow has written is worth.
 - **Backfilling counts for beads already open.** A bead open when the build
   lands starts at zero; the log keeps its earlier rounds for a reader, and
   the limit applies from then on.
@@ -349,8 +375,8 @@ bead.
    I would take the table in section 3.5.
 5. **This yard's own flows.** Whether the build changes
    `.yardr/flows/default.flow` and the stored `design.design` to match the
-   packs (bead 4 below), or leaves them to the operator. I would change
-   them in bead 4: the yard is the first user of the limit.
+   packs (bead 5 below), or leaves them to the operator. I would change
+   them in bead 5: the yard is the first user of the limit.
 
 ## 6. The beads it would become
 
@@ -366,28 +392,41 @@ its line-format examples).
 Done when: `new on changes max 3 then decide` parses and `String` writes it
 back unchanged; JSON round-trips `max` and `then`; `normalizeOutcomes`
 refuses `max` < 1, `max` without `then`, `then` without `max`, `then` equal
-to `to`, and an invalid `then`; `then` becomes a transition of the stage;
+to `to`, `max` on `done`, and an invalid `then`; `then` becomes a transition of the stage;
 a flow with no limits renders exactly as before (the existing table rows
-pass unchanged); `docs/flows.md` documents the words. Behaviours: 7.
+pass unchanged); `docs/flows.md` documents the words. Behaviours: 8.
 
-**2. Store: count rounds and redirect at the limit.** Depends on 1.
-Goal: the bead counts rounds per stage and a limited outcome goes to `then`
-once its rounds are used.
-Where: `internal/store/beads.go` (`Bead.Rounds`, `move`, `donePick`),
+**2. Store: count rounds per stage.** Depends on 1.
+Goal: the bead keeps its own record of the stages it has reached and how
+many times an outcome brought it back to each.
+Where: `internal/store/beads.go` (`Bead.Rounds`, `beadRow`, `CreateBead`,
+`move`), `docs/api.md` (the bead's `rounds`), the store test that drives
+`Done` (`TestDone` in `internal/store/outcomes_test.go`).
+Done when: a created bead has its first stage's key at zero; every move, by
+hand or by outcome, gives a stage it reaches for the first time a key at
+zero; an outcome into a stage with a key adds one, a same-stage outcome
+too; `yardr bead advance --to` into a stage with a key adds nothing; a bead
+sent back to the 65th distinct stage it reached counts the round (that
+stage is past `ETAVisitedCap`, so `Visited` alone would miss it); a bead
+with no keys, open before the build, counts a return to a stage in its
+`Visited`; the count is served on `GetBead` and in listings. Behaviours: 7.
+
+**3. Store: redirect at the limit.** Depends on 2.
+Goal: a limited outcome goes to `then` once its stage's rounds are used,
+and the log says why.
+Where: `internal/store/beads.go` (`donePick`, `move`),
 `internal/store/crew.go` (`AttentionKinds`), `internal/store/events.go`
-(the kinds list), `docs/api.md` (the bead's `rounds`, the event kind),
-the store test that drives `Done` (`internal/store/flows_test.go`).
-Done when: an outcome into a visited stage increments `Rounds[stage]`, a
-same-stage outcome too; a first arrival and an `advance --to` do not; the
-limited outcome with `Rounds[to] == Max` moves to `then`, its `advanced`
-event carries `rounds`, `max` and `instead_of`, `Rounds[to]` is zero after
-it, and a `rounds_reached` attention event is logged in the same write; a
-question to `decide` mid-loop leaves the count; an answered stage ask
-counts as an outcome; a refused redirect (members, wagon) leaves count and
-stage unchanged; the count is served on `GetBead` and in listings.
-Behaviours: 9.
+(the kinds list), `docs/api.md` (the `rounds_reached` kind and the
+`advanced` event's new fields), `TestDone` in
+`internal/store/outcomes_test.go`.
+Done when: the limited outcome with `Rounds[to] == Max` moves to `then`;
+its `advanced` event carries `rounds`, `max` and `instead_of`; `Rounds[to]`
+is zero after it with its key kept; a `rounds_reached` attention event is
+logged in the same write; a question to `decide` mid-loop leaves the count;
+an answered stage ask counts and redirects as `Done` does; a refused
+redirect (members, wagon) leaves count and stage unchanged. Behaviours: 7.
 
-**3. Packs: read, check and export the limit.** Depends on 1.
+**4. Packs: read, check and export the limit.** Depends on 1.
 Goal: a pack's outcome may be `{ to, max, then }`.
 Where: `internal/pack/pack.go` (`reader.stage`), `internal/pack/export.go`,
 their tests, `docs/packs.md`.
@@ -398,8 +437,8 @@ for a limited outcome and the plain form otherwise, and a pack round-trips
 through import and export unchanged; `yardr pack check` prints a changed limit
 as a change to the flow in its plan. Behaviours: 5.
 
-**4. Default limits in the starter and design packs, and this yard's flows.**
-Depends on 2 and 3.
+**5. Default limits in the starter and design packs, and this yard's flows.**
+Depends on 3 and 4.
 Goal: the limits in section 3.5's table, as open questions 4 and 5 decide.
 Where: `packs/starter/pack.yaml`, `packs/design/pack.yaml`, their READMEs
 and the comment block above `flows:` in each, `.yardr/flows/default.flow`;
@@ -411,7 +450,7 @@ carries them and `yardr flow show yardr` prints them; the stage files of review,
 and approved say in one sentence that a further round past the limit goes
 to `decide`. Behaviours: 4.
 
-**5. Show the count: bead show, prime, the brief and the web.** Depends on 2.
+**6. Show the count: bead show, prime, the brief and the web.** Depends on 3.
 Goal: a person and an agent see the count and where the next round goes.
 Where: `internal/cli/beads.go` (bead show, prime's OUTCOMES),
 `internal/store/flows.go` `NextStages`, `internal/dispatch` (`NextOutcome`,
@@ -425,7 +464,7 @@ rounds line; a bead in `decide` after a redirect gets the wait reason
 "sent to decide after 3 rounds back to new (changes from review)"; JSON
 output carries `rounds` unchanged. Behaviours: 6.
 
-**6. Draw the limit.** Depends on 1, and on 4 for the generated drawings.
+**7. Draw the limit.** Depends on 1, and on 5 for the generated drawings.
 Goal: the flow drawing shows a limited loop and its redirect.
 Where: `internal/flowdraw/plan.go` and `flowdraw.go`, `internal/flowdraw/gen`,
 `docs/flows/*.svg` (regenerated, never edited).
@@ -434,7 +473,7 @@ rounds"); the redirect to `then` is drawn as the edge to that stage with
 its own label ("after 3"); a flow without limits draws byte for byte as
 before; the SVGs under `docs/flows/` are regenerated. Behaviours: 4.
 
-**7. Route report: AT LIMIT.** Depends on 2.
+**8. Route report: AT LIMIT.** Depends on 3.
 Goal: the report says which groups' beads reach a person through a limit.
 Where: `internal/cli/routereport.go`, its test, the command's help text,
 `docs/reports.md`.
