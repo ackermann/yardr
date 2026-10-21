@@ -37,10 +37,11 @@
 # allow-list below, naming why each entry is over and which bead brings it
 # under; the fix beads delete the rows. A race leg runs a package it ran
 # over budget and not allow-listed again by itself: over budget alone on a
-# quiet machine fails the run; on a loaded machine it passes with an R1 line
-# naming both times and the load, unless YARDR_R1_STRICT is set by the quiet
-# run. Then over budget alone fails however loaded the machine, and on a
-# loaded machine the failure line names the load beside both times;
+# quiet machine fails the run; on a loaded machine (loaded as the re-run
+# started or as it ended) it passes with an R1 line naming both times and
+# the load, unless YARDR_R1_STRICT is set by the quiet run. Then over budget
+# alone fails however loaded the machine, and on a loaded machine the
+# failure line names the load beside both times;
 # the run fails when a test file sleeps over budget at a site that is not.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
@@ -852,7 +853,8 @@ summary() {
 # A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s is run again alone, and fails the run when
 # over 60 s again on a quiet machine; over again on a loaded one passes
-# with the load named, unless YARDR_R1_STRICT is set by the quiet run.
+# with the load named (loaded as the re-run started or as it ended), unless
+# YARDR_R1_STRICT is set by the quiet run.
 # Then the loaded pass is off: over 60 s alone fails however loaded the
 # machine. The fix beads delete the rows;
 # a row whose package is gone fails nothing, since no result line maps to
@@ -888,6 +890,26 @@ loadedmachine() {
   awk -v a="$avg" -v c="$cores" 'BEGIN { exit !(a > c && c > 0) }' || return 1
   echo "load $avg on $cores cores"
 }
+# loadedeither judges whether a re-run sat in a load, from the two
+# loadedmachine samples around it: $1 as the re-run started, $2 as it ended,
+# each the line loadedmachine printed, or empty where the machine was quiet
+# or its load unknown. Loaded at either passes: it prints the start's line
+# where that is loaded, else the end's, and fails when both are quiet. The
+# one-minute average lags, so the start sample holds the loaded minutes the
+# re-run was about to sit in, and the end sample alone read a load that
+# dipped before the check as quiet: yardr-p3pv's landing failed R1 for
+# hooks at 125.8 s alone, where the plain gate on the same commit ran it in
+# 35.6 s, and went back to new for a package it never touched. It reads
+# nothing from the machine, so the gate's own tests feed it canned pairs.
+loadedeither() {
+  if [ -n "$1" ]; then
+    echo "$1"
+  elif [ -n "$2" ]; then
+    echo "$2"
+  else
+    return 1
+  fi
+}
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
 # -race leg's output ($1): only the ok lines carry judged durations, a
 # package whose tests failed being already red without it. Cached packages
@@ -899,13 +921,15 @@ loadedmachine() {
 # loaded one (loadedmachine), unless YARDR_R1_STRICT is set by the quiet
 # run. Then the loaded pass is off: over 60 s alone fails however loaded
 # the machine, and on a loaded machine the failure line names the load
-# beside both times. The re-run is the leg's
-# own command ($2 on: the same flags), with -count=1 so it is timed and
-# not cached, and the one package; several are re-run one after another,
-# sorted, not in parallel. It shares the leg's hold on the race lock
-# (YARDR_RACE_HELD, which the leg set): it waits on nothing again. A
-# re-run that fails, or prints no seconds, fails the run: the leg saw an
-# over-budget package the re-run did not clear.
+# beside both times. The machine is sampled twice, as the re-run starts and
+# as it ends, and is loaded when either sample is (loadedeither); the load
+# a line names is the start's where that is loaded, else the end's. The
+# re-run is the leg's own command ($2 on: the same flags), with -count=1 so
+# it is timed and not cached, and the one package; several are re-run one
+# after another, sorted, not in parallel. It shares the leg's hold on the
+# race lock (YARDR_RACE_HELD, which the leg set): it waits on nothing
+# again. A re-run that fails, or prints no seconds, fails the run: the leg
+# saw an over-budget package the re-run did not clear.
 packagebudget() {
   legout=$1
   shift
@@ -971,11 +995,16 @@ packagebudget() {
   while read -r pkg secs; do
     [ -n "$pkg" ] || continue
     run=$(mktemp)
+    # The load the re-run starts in, sampled before it: the one-minute
+    # average lags, so by the time the re-run ends it may have forgotten the
+    # load the re-run sat in (loadedeither).
+    load_start=$(loadedmachine) || load_start=
     # The re-run reads no stdin: the loop's is the over-budget list. Its
     # output is printed and kept for its seconds.
     rrc=0
     # shellcheck disable=SC2086
     runlogged "$run" $prefix $flags -count=1 "$pkg" </dev/null || rrc=$?
+    load_end=$(loadedmachine) || load_end=
     alone=$(awk '
       function seconds(s, total, n) {
         if (s == "") return -1
@@ -998,7 +1027,7 @@ packagebudget() {
     ' "$run")
     if [ "$rrc" = 0 ] && [ -n "$alone" ]; then
       if awk -v s="$alone" 'BEGIN { exit !(s + 0 > 60) }'; then
-        if load=$(loadedmachine); then
+        if load=$(loadedeither "$load_start" "$load_end"); then
           if [ -n "$YARDR_R1_STRICT" ]; then
             echo "test: $pkg took $secs s with -race, $alone s alone, over the 60 s budget (docs/testing.md R1), loaded machine ($load)"
             st=1

@@ -2387,11 +2387,12 @@ func TestYardTestRaceQueueView(t *testing.T) {
 }
 
 // yardTestProbe pulls the budget checks out of .yardr/test: the two
-// allow-lists, the two functions that judge them, and took, which one calls.
-// The probe runs them as the script has them, so a case over it fails when
-// the gate would. It also returns the allow-listed directories and how many
-// distinct sleep sites the table holds. A script the cuts no longer follow
-// fails the test, telling its editor to move the probe with it.
+// allow-lists, the two functions that judge them, and what they call (took,
+// runlogged, the load samples). The probe runs them as the script has them,
+// so a case over it fails when the gate would. It also returns the
+// allow-listed directories and how many distinct sleep sites the table
+// holds. A script the cuts no longer follow fails the test, telling its
+// editor to move the probe with it.
 func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites int) {
 	t.Helper()
 	b, err := os.ReadFile(yardTest)
@@ -2415,10 +2416,11 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	runlogfn := cut("\nrunlogged() {", "}\n")
 	over := cut("\nover60='\n", "\n'\n")
 	loadfn := cut("\nloadedmachine() {\n", "\n}\n")
+	eitherfn := cut("\nloadedeither() {\n", "\n}\n")
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(eitherfn, `echo "$1"`) {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -2452,7 +2454,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + loadfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + loadfn + eitherfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -3044,6 +3046,84 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		if strings.Contains(out, "not failed") {
 			t.Errorf("with the setting: output %q, want no loaded pass", out)
+		}
+	})
+
+	t.Run("the load is sampled as the re-run starts and as it ends", func(t *testing.T) {
+		// The one-minute average lags, so a re-run that sat in a load was
+		// judged quiet once the load dipped before the check (yardr-f5f7).
+		// The machine is loaded when either end of the re-run was, and the
+		// line names the start's load where the start was loaded. The probe
+		// here carries a loadedmachine that answers with the load the case
+		// sets for the side of the re-run it is asked on: the start's while
+		// the fake go has written no call, the end's after. A sample taken
+		// on the wrong side reads the wrong load, and the verdict shows it.
+		sampling, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
+		if !ok {
+			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
+		}
+		sampling += `
+loadedmachine() {
+  if [ -s "$FAKE/calls" ]; then sample=$FAKE_LOAD_END; else sample=$FAKE_LOAD_START; fi
+  [ -n "$sample" ] || return 1
+  echo "$sample"
+}
+"$@"
+`
+		samplingPath := filepath.Join(t.TempDir(), "sampling.sh")
+		if err := os.WriteFile(samplingPath, []byte(sampling), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		const (
+			quiet = ""
+			early = "load 26.4 on 10 cores"
+			late  = "load 72.4 on 10 cores"
+		)
+		const overQuiet = "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+		overLoaded := func(load string) string { return overQuiet + ", loaded machine (" + load + ")" }
+		loadedPass := func(load string) string {
+			return "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (" + load + "), not failed"
+		}
+		for _, c := range []struct {
+			name       string
+			start, end string // the sample as the re-run starts and as it ends
+			strict     bool   // YARDR_R1_STRICT, which the quiet run sets
+			code       int
+			want       string // the verdict line
+		}{
+			{"loaded at the start, quiet at the end", early, quiet, false, 0, loadedPass(early)},
+			{"quiet at the start, loaded at the end", quiet, late, false, 0, loadedPass(late)},
+			{"loaded at both names the start's", early, late, false, 0, loadedPass(early)},
+			{"quiet at both fails naming both times", quiet, quiet, false, 1, overQuiet},
+			{"strict, loaded at the start only", early, quiet, true, 1, overLoaded(early)},
+			{"strict, loaded at the end only", quiet, late, true, 1, overLoaded(late)},
+			{"strict, loaded at both names the start's", early, late, true, 1, overLoaded(early)},
+			{"strict, quiet at both", quiet, quiet, true, 1, overQuiet},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				dir := t.TempDir()
+				write(dir, "sampled.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+				fake, env := r1go(t)
+				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/dispatch",
+					"FAKE_LOAD_START="+c.start, "FAKE_LOAD_END="+c.end)
+				if c.strict {
+					env = append(env, "YARDR_R1_STRICT=1")
+				}
+				out, code := runProbe(t, samplingPath, dir, os.Environ(), env,
+					"packagebudget", "sampled.txt", "go", "test", "-race", "./...")
+				if code != c.code {
+					t.Errorf("exit %d, output %q, want exit %d", code, out, c.code)
+				}
+				if !strings.Contains(out, c.want+"\n") {
+					t.Errorf("output %q, want it to hold %q", out, c.want)
+				}
+				// One alone pass, however the machine was: the re-run is not
+				// run again to wait out a load.
+				calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+				if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
+					t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+				}
+			})
 		}
 	})
 

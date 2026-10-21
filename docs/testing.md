@@ -25,9 +25,15 @@ gate legs, not every test on the machine. Over 60 s alone on a loaded
 machine -- the one-minute load average past the core count -- passes with
 a `test: R1:` line naming both times and the load instead of failing
 (yardr-wq5h), unless `YARDR_R1_STRICT` is set by the quiet run (R6): then
-over 60 s alone fails however loaded the machine. On a loaded machine,
-the failure line names both times and the load beside them; on a quiet
-machine it names both times. Unknown load fails as before.
+over 60 s alone fails however loaded the machine. The load is sampled when
+the re-run starts and again when it ends, and the machine is loaded when
+either sample is (yardr-f5f7): the average lags, so the end sample alone
+read a load that dipped before the check as quiet, while the start sample
+holds the loaded minutes the re-run was about to sit in. The line names the
+start sample's load where that is loaded, else the end's. On a loaded
+machine, the failure line names both times and the load beside them; on a
+machine quiet at both samples it names both times. Unknown load counts as
+quiet and fails as before.
 
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. Exactly 500 ms complies; over fails unless
