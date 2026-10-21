@@ -650,9 +650,14 @@ func TestBeadSecretLoginGivePost(t *testing.T) {
 	}()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		probe, leave := context.WithCancel(context.Background())
-		leave()
+		// A live context, not a canceled one: over the socket the HTTP
+		// client fails on a canceled context before anything is sent,
+		// while a direct call refuses the duplicate without consulting
+		// it. A probe that registers first times out in 100 ms and its
+		// wait is forgotten, and the loop tries again.
+		probe, leave := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		_, err := f.st.LoginWait(probe, "claude-a1b2c3d4")
+		leave()
 		if err != nil && strings.Contains(err.Error(), "already waits") {
 			break
 		}

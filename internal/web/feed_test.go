@@ -908,10 +908,14 @@ func TestSteadyClient(t *testing.T) {
 		t.Fatal("the diagnostic listener did not observe a stream write deadline renewal")
 	}
 
-	// One frame, larger than any buffering: the buffers take megabytes
-	// at once, so only tens of megabytes keep a steady reader on one
-	// write past one deadline.
-	big := strings.Repeat("x", 56<<20)
+	// One frame, larger than any buffering yet under the wire's 16 MiB
+	// event-line cap (rpc/client.go streamOf scans each line with it: a
+	// longer line ends the stream without the event, and the resubscribe
+	// after the last seen ends on the same line again, so a frame over
+	// the cap never arrives over the socket). 14 MiB of reason at 64 KB
+	// every 50 ms is 224 pieces, 11.2 s of sleeps alone, past one 10 s
+	// deadline on any machine.
+	big := strings.Repeat("x", 14<<20)
 	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"reason": big}))
 	var got []byte
 	// Whole when the frame's bytes are all here: the retry line comes
@@ -919,14 +923,14 @@ func TestSteadyClient(t *testing.T) {
 	whole := func() bool {
 		return len(got) >= len(big) && strings.HasSuffix(string(got[max(0, len(got)-2):]), "\n\n")
 	}
-	// A steady 256 KB every 50 ms: past eleven seconds for the
+	// A steady 64 KB every 50 ms: past eleven seconds for the
 	// frame, which one 10 s deadline could never cover, so only a
 	// stream that renews its deadline as the bytes flow serves it
 	// whole.
 	lastRead := time.Now()
-	pace := make([]byte, 256<<10)
+	pace := make([]byte, 64<<10)
 	for !whole() {
-		// One paced piece: 256 KB, however many reads it takes, then
+		// One paced piece: 64 KB, however many reads it takes, then
 		// 50 ms. Pacing reads instead of bytes would let short reads
 		// set the pace.
 		got0 := len(got)

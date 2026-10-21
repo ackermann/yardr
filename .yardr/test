@@ -15,8 +15,8 @@
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
 # landing that changes code runs the plain selection plus always the six
 # black-box suites (docs/testing.md R5), vet for linux too, and, when the
-# plain selection holds store, dispatch or bdp, those suites again over
-# the socket, beside the first run of the tests. The whole suite still
+# plain selection holds store, dispatch, bdp or web, those suites again
+# over the socket, beside the first run of the tests. The whole suite still
 # runs when there is no comparable base, when nothing changed, and when
 # what changed cannot be selected: go.mod or go.sum, a deletion, or a
 # file no row knows, each of which the selection itself would test as
@@ -1001,15 +1001,15 @@ addblackbox() {
 # whole is a landing's run, after a line that says why it is that ($1),
 # and the end of the run. Without $2 it is the whole suite; with $2
 # "selection" it is the plain selection plus the six black-box suites.
-# The store, dispatch and bdp suites run again over the socket beside
-# the first run only when the plain selection holds one of them
+# The store, dispatch, bdp and web suites run again over the socket
+# beside the first run only when the plain selection holds one of them
 # (yardr-022s): over-the-socket behaviour cannot differ from what the
-# base passed except through a package none of the three imports, which
+# base passed except through a package none of the four imports, which
 # is the same reach the plain run already accepts everywhere else.
 # Without a comparable base there is no selection, so they run whole,
 # as they always have; otherwise one line says whether the leg runs
 # and why. The gate is judged on the plain selection, before the six
-# are added: none of the six is one of the three, so adding them first
+# are added: none of the six is one of the four, so adding them first
 # would not change it, and judging it first keeps the line honest.
 whole() {
   if [ "$2" = selection ]; then
@@ -1026,9 +1026,9 @@ whole() {
     [ -n "$tmp" ] || pick
     holds=""
     if [ -s "$tmp/stray" ]; then
-      holds="store dispatch bdp"
+      holds="store dispatch bdp web"
     else
-      for s in store dispatch bdp; do
+      for s in store dispatch bdp web; do
         if grep -q "/internal/$s\$" "$tmp/run"; then
           holds="$holds${holds:+ }$s"
         fi
@@ -1037,7 +1037,7 @@ whole() {
     if [ -n "$holds" ]; then
       echo "test: the plain selection holds $holds: running the socket suites beside the first run"
     else
-      echo "test: the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
+      echo "test: the plain selection holds neither store, dispatch, bdp nor web: skipping the socket suites"
       leg=skip
     fi
   else
@@ -1083,7 +1083,7 @@ whole() {
     beside_counts=$(mktemp)
     {
       second=0
-      again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ || second=$?
+      again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/ || second=$?
       printf '%s %s\n' "$pkgs_ok" "$pkgs_failed" >"$beside_counts"
       exit "$second"
     } >"$beside" 2>&1 &

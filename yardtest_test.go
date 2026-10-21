@@ -209,11 +209,14 @@ func TestYardTestSelects(t *testing.T) {
 			write(pkg+"/p_test.go", "package p\n")
 		}
 	}
-	// One socket suite imports internal/rpc, as the three do in the
+	// One socket suite imports internal/rpc, as the four do in the
 	// repository: touching rpc selects store as an importer, while nothing
 	// imports internal/cli.
 	write("internal/store/p.go", "package p\n\nimport _ \"m.test/m/internal/rpc\"\n")
 	write("internal/rpc/p.go", "package p\n")
+	// internal/web stands alone: touching it selects web itself, and the
+	// gate runs the socket leg for a selection that holds it.
+	write("internal/web/p.go", "package p\n")
 	// A package that embeds a file, one that imports it, and one alone.
 	write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
 	write("emb/a.txt", "a\n")
@@ -347,16 +350,17 @@ func TestYardTestSelects(t *testing.T) {
 	// When nothing compiled changed, the rest is a plain run's. A code
 	// landing runs the selection plus the six black-box suites and says
 	// so, with the socket gate's line (the leg runs only when the plain
-	// selection holds store, dispatch or bdp), the rows that fired, and
+	// selection holds store, dispatch, bdp or web), the rows that fired, and
 	// the testing line naming every package. What cannot be selected
 	// (go.mod, go.sum, a deletion, a file no row knows, nothing at all)
 	// is the whole suite, and its rest is the gate's line alone.
 	const landing = pre + "YARDR_LANDING is set, and "
 	const wholeSuffix = ": the whole suite"
 	const selectionSuffix = ": the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)"
-	const skipSocket = pre + "the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
+	const skipSocket = pre + "the plain selection holds neither store, dispatch, bdp nor web: skipping the socket suites"
 	const runSocketStore = pre + "the plain selection holds store: running the socket suites beside the first run"
-	const runSocketAll = pre + "the plain selection holds store dispatch bdp: running the socket suites beside the first run"
+	const runSocketWeb = pre + "the plain selection holds web: running the socket suites beside the first run"
+	const runSocketAll = pre + "the plain selection holds store dispatch bdp web: running the socket suites beside the first run"
 	for _, c := range []struct {
 		name    string
 		changed []string
@@ -414,6 +418,10 @@ func TestYardTestSelects(t *testing.T) {
 			landing + "internal/rpc/p.go changed" + since + selectionSuffix, []string{
 				runSocketStore,
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"}},
+		{"a landing touching internal/web runs the socket suites", []string{"internal/web/p.go"},
+			landing + "internal/web/p.go changed" + since + selectionSuffix, []string{
+				runSocketWeb,
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/web"}},
 		{"a landing of an unknown file runs the socket suites", []string{"contrib/x.txt"},
 			landing + "contrib/x.txt, which is read by no known package, changed" + since + wholeSuffix, []string{runSocketAll}},
 	} {
@@ -465,12 +473,13 @@ func TestYardTestSelects(t *testing.T) {
 	// plus all six black-box suites (the first line and the go test call
 	// both name them), beside the socket leg when the plain selection
 	// holds one of its packages: a change the socket suites cannot
-	// reach starts no leg, and one over internal/rpc starts it. A
-	// landing over an unknown file is still the whole suite. The go it
-	// runs is the real one for the list of packages and writes down
-	// every other call.
+	// reach starts no leg, and one over internal/rpc or internal/web
+	// starts it. A landing over an unknown file is still the whole
+	// suite. The go it runs is the real one for the list of packages
+	// and writes down every other call.
 	const selCLI = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"
 	const selRPC = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"
+	const selWEB = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/web"
 	for _, c := range []struct {
 		name    string
 		changed string
@@ -484,13 +493,17 @@ func TestYardTestSelects(t *testing.T) {
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selCLI}},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
-			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selRPC,
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
+		{"a landing over internal/web starts the socket leg", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
+			[]string{"vet ./...", "linux vet ./...", "test -race " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selWEB,
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
 		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
-			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			realGo, err := exec.LookPath("go")
@@ -623,7 +636,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	t.Parallel()
 	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
-	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
+	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test -race ./..."}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
@@ -654,11 +667,11 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"landing: a failing test", "test", "1", failing, false,
 			landing, 2, false, noBase, "test: FAILED: go test -race ./...\n" + failing},
 		{"landing: a failing socket test", "rpc", "1", failing, false,
-			landing, 2, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/\n" + failing},
+			landing, 2, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/\n" + failing},
 		{"landing: the socket step once", "rpc", "1", cacheLost, true,
 			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 1, true, noBase, ""},
 		{"landing: the socket step twice", "rpc", "2", cacheLost, false,
-			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
@@ -787,7 +800,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	flakyFail := "--- FAIL: " + test + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
 	flaky := "test: flaky: " + test + " (" + pkg + ") passed on rerun"
 	running := "test: running the failed packages again: " + pkg
-	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
+	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test -race ./...", "test -race " + pkg}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
@@ -807,10 +820,10 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		// itself rather than the gate.
 		{"landing: passes on rerun", "1", true, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
 		{"landing: fails twice", "2", false, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
