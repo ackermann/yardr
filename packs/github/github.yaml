@@ -40,6 +40,9 @@ hook:
   # Per hook, not per source: GitHub sends an event's body to every webhook
   # on the repository, and each hook records its own.
   bodies: unique-per-hook
+  # GitHub's deliveries follow commits, not a rhythm: an idle hour after
+  # the last push is no break, so the quiet check does not time them.
+  untimed: true
 
   # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
   # envelope. The core sets source and delivery itself, and derives the

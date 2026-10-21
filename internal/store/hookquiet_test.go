@@ -160,6 +160,59 @@ func TestQuietGapsSkipsChatHook(t *testing.T) {
 	}
 }
 
+// QuietGaps leaves out a hook whose source's deliveries follow events, not
+// a rhythm (the hook's untimed key, as github's): a day of silence after
+// one delivery is no break there. A hook of the same source whose last
+// delivery was refused is left out as before, through LastRefused; a chat
+// source is still left out without the key; and a source without the key
+// is timed as before.
+func TestQuietGapsSkipsUntimedHook(t *testing.T) {
+	t.Parallel()
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	for _, name := range []string{"github", "telegram", "linear"} {
+		raw, err := packs.FS.ReadFile(name + "/" + name + ".yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PutSource(ctx, name+".yaml", string(raw), "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, h := range []store.Hook{
+		{Name: "gh", Source: "github", SecretFile: "/x"},
+		{Name: "ghref", Source: "github", SecretFile: "/x"},
+		{Name: "telegram", Source: "telegram", SecretFile: "/x"},
+		{Name: "linear", Source: "linear", SecretFile: "/x"},
+	} {
+		if _, err := s.PutHook(ctx, h, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := own.RecordHook(ctx, h.Name, map[string]any{"source": h.Source}, []byte("{}"), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := own.RejectHook(ctx, "ghref", "unauthorized", 401, 1, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	hs, err := s.Hooks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet, err := store.QuietGaps(ctx, s, hs, time.Now().Add(25*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quiet) != 1 || quiet["linear"] != time.Hour {
+		t.Fatalf("a day later: quiet = %v, want linear with the floor", quiet)
+	}
+	for _, h := range hs {
+		if h.Name == "ghref" && !h.LastRefused() {
+			t.Fatalf("the refused hook is not refused: %+v", h)
+		}
+	}
+}
+
 // EventsOfHook reads one hook's own events of one kind, oldest first: a
 // busy hook's many never crowd another's out. The tells of a hundred quiet
 // hooks leave the first's in hand.

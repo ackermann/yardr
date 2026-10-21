@@ -175,21 +175,22 @@ func (s *Store) EventsOfHook(ctx context.Context, kind, hook string, limit int) 
 // blocked nor last refused: whether it delivered nothing for longer than
 // its usual gap (Quiet), from its own accepted deliveries in the log. It
 // returns the usual gap by hook name for the quiet ones. A hook whose
-// source hears a person's chat back (chatSources) is left out: silence
-// alone is no break there, and the daemon judges its webhook's health
-// instead. The log is read per hook (EventsOfHook), so a busy hook's
-// deliveries never crowd another's rhythm out; a hook whose own the walk
-// did not reach is not judged. The rhythm is read from the hook's last
-// QuietLookback deliveries: a hook that delivers rarely has its whole
-// recent rhythm in hand, and one that delivers that often is not quiet.
+// source's deliveries follow events, not a rhythm (untimedSources), is
+// left out: silence alone is no break there, and the daemon judges a
+// chat source's webhook's health instead. The log is read per hook
+// (EventsOfHook), so a busy hook's deliveries never crowd another's
+// rhythm out; a hook whose own the walk did not reach is not judged. The
+// rhythm is read from the hook's last QuietLookback deliveries: a hook
+// that delivers rarely has its whole recent rhythm in hand, and one that
+// delivers that often is not quiet.
 func QuietGaps(ctx context.Context, st API, hs []Hook, now time.Time) (map[string]time.Duration, error) {
 	quiet := map[string]time.Duration{}
-	chat, err := chatSources(ctx, st)
+	untimed, err := untimedSources(ctx, st)
 	if err != nil {
 		return nil, err
 	}
 	for _, h := range hs {
-		if h.Accepted == nil || h.Blocked != "" || h.LastRefused() || chat[h.Source] {
+		if h.Accepted == nil || h.Blocked != "" || h.LastRefused() || untimed[h.Source] {
 			continue
 		}
 		read, err := st.EventsOfHook(ctx, "hook", h.Name, QuietLookback)
@@ -210,20 +211,21 @@ func QuietGaps(ctx context.Context, st API, hs []Hook, now time.Time) (map[strin
 	return quiet, nil
 }
 
-// chatSources are the sources whose hooks hear a person's chat back (a hear
-// key matched by address, Declaration.HearsChat): their silence is never
-// timed. A source the yard declares none of, or one this yardr does not
-// read, is not among them: its hooks are judged by their gap, as before.
-func chatSources(ctx context.Context, st API) (map[string]bool, error) {
+// untimedSources are the sources whose deliveries follow events, not a
+// rhythm (Declaration.Untimed: the hook's untimed key, or a hear key
+// matched by address): their hooks' silence is never timed. A source the
+// yard declares none of, or one this yardr does not read, is not among
+// them: its hooks are judged by their gap, as before.
+func untimedSources(ctx context.Context, st API) (map[string]bool, error) {
 	srcs, err := st.Sources(ctx)
 	if err != nil {
 		return nil, err
 	}
-	chat := map[string]bool{}
+	untimed := map[string]bool{}
 	for i := range srcs {
-		if d, err := srcs[i].Declaration(); err == nil && d.HearsChat() {
-			chat[srcs[i].Name] = true
+		if d, err := srcs[i].Declaration(); err == nil && d.Untimed() {
+			untimed[srcs[i].Name] = true
 		}
 	}
-	return chat, nil
+	return untimed, nil
 }

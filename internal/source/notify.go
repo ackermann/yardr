@@ -125,6 +125,14 @@ func (d *Declaration) HearsChat() bool {
 	return d != nil && d.Hear != nil && !d.Hear.ByIdentity()
 }
 
+// Untimed reports whether the source's deliveries follow events, not a
+// rhythm: the hook key says so (Hook.Untimed), or the source hears a
+// person's chat back (HearsChat), whose silence has no rhythm either.
+// Such a hook is never quiet by silence alone.
+func (d *Declaration) Untimed() bool {
+	return d.HearsChat() || (d != nil && d.Hook != nil && d.Hook.Untimed)
+}
+
 // ClaimAddress is the address a delivery from no known user may claim:
 // the envelope field that holds it and the variable it is written under
 // in a user's env file. It is the hear key's field with the notify

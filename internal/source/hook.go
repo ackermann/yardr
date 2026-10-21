@@ -74,6 +74,10 @@ type Hook struct {
 	// It is used only with scheme secret for now: the yard makes the
 	// secret, and a signature the service makes is a later bead.
 	Register *HookRegister `json:"register,omitempty"`
+	// Untimed says the source's deliveries follow events, not a rhythm:
+	// a commit, not a heartbeat. Such a hook is never quiet by silence
+	// alone, since an idle stretch after the last event is no break.
+	Untimed bool `json:"untimed,omitempty"`
 }
 
 // RegistersSecret reports whether the yard registers this hook itself
@@ -203,7 +207,7 @@ func (r *reader) hook(e entry) *Hook {
 	h := &Hook{}
 	var verify, bodies, normalize, register *entry
 	var deliveryNamed bool
-	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "challenge", "normalize", "keys", "register") {
+	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "challenge", "normalize", "keys", "register", "untimed") {
 		switch f.key {
 		case "verify":
 			verify = &f
@@ -235,6 +239,10 @@ func (r *reader) hook(e entry) *Hook {
 		case "register":
 			register = &f
 			h.Register = r.hookRegister(f)
+		case "untimed":
+			if v, ok := r.boolean(f.v, f.path); ok {
+				h.Untimed = v
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

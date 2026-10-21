@@ -963,6 +963,11 @@ hook:
   deliveries to one hook share a body, but one event's body goes to every
   hook that asked for it) or `repeat` (a body may come again as a new
   delivery, as a `token` sender's may).
+- **Untimed** (`untimed: true`) says the source's deliveries follow events,
+  not a rhythm: a commit, not a heartbeat. Such a hook is never quiet by
+  silence alone ([subscriptions.md](subscriptions.md#a-quiet-hook)), since
+  an idle stretch after the last event is no break. A source that hears a
+  person's chat back says nothing: it is untimed already.
 - **Challenge** (`hook.challenge`) is a service's verification
   handshake, answered by the receiver and not by normalize: `challenge:
   { body: type, value: url_verification, answer: challenge }` says a
@@ -1014,9 +1019,9 @@ hook:
   that repeat with no delivery, a timestamp in the body and in a header,
   or in neither, a unit that is not `ms` or `s`, a window that is no
   positive duration, bodies that are none of `unique`, `unique-per-hook`
-  and `repeat`, a command that is no list of strings or has no program, a
-  key that is not lowercase letters, digits and `_`. Such a file needs no
-  `base` and no `calls`. A pack for a depot brings no `hook` key; a pack
+  and `repeat`, an `untimed` that is neither `true` nor `false`, a command
+  that is no list of strings or has no program, a key that is not lowercase
+  letters, digits and `_`. Such a file needs no `base` and no `calls`. A pack for a depot brings no `hook` key; a pack
   of kind `source` may bring it with the normalize file
   ([packs.md](packs.md#an-integration-pack-kind-source)).
 

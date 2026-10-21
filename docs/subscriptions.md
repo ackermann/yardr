@@ -845,20 +845,24 @@ no default.
 
 ### A quiet hook
 
-Which hooks are judged how: a machine source's hook by its silence, a
-person's chat by its webhook's health. A hook that used to deliver and has
-delivered nothing for longer than its usual gap is quiet: the webhook is
-off at the source, or cannot reach this yard. The gap is the hook's own
-history: the median interval between its accepted deliveries over the last
-week, times three, with a floor of an hour. That timing suits a machine
-source (linear, github), whose deliveries come steadily. A hook that hears
-a person's chat back (its source's declaration hears by address, as
-telegram's) is never quiet by silence: a chat has no steady rhythm, so
-hours of nothing from it are no break. The daemon asks the source what it
-holds of the webhook instead, once an hour: its check call, as `yardr
-source check` makes it. No webhook set there is broken, as is a delivery
-that failed since the hook last accepted one; either is quiet, whatever
-the silence, and anything else, or no usable answer, is not.
+Which hooks are judged how: a timed source's hook by its silence, a
+person's chat by its webhook's health, and an untimed source's hook not at
+all. A hook that used to deliver and has delivered nothing for longer than
+its usual gap is quiet: the webhook is off at the source, or cannot reach
+this yard. The gap is the hook's own history: the median interval between
+its accepted deliveries over the last week, times three, with a floor of an
+hour. That timing suits a source whose deliveries come steadily, as
+linear's. A hook whose source's deliveries follow events, not a rhythm
+(its declaration says `hook.untimed`, as github's) is never quiet by
+silence: after a push, an idle hour says nothing, since nothing was sent.
+A hook that hears a person's chat back (its source's declaration hears by
+address, as telegram's) is never quiet by silence either: a chat has no
+steady rhythm, so hours of nothing from it are no break. The daemon asks
+the source what it holds of the webhook instead, once an hour: its check
+call, as `yardr source check` makes it. No webhook set there is broken, as
+is a delivery that failed since the hook last accepted one; either is
+quiet, whatever the silence, and anything else, or no usable answer, is
+not.
 
 `yardr hook list` reads `quiet` in STATE for a quiet hook instead of
 `ok`, with how long nothing came and the gap, and `yardr doctor` notes it

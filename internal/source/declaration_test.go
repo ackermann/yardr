@@ -1163,6 +1163,43 @@ func TestParseBodiesPerHook(t *testing.T) {
 	}
 }
 
+// A hook whose deliveries follow events, not a rhythm, says untimed: the
+// quiet check never times its silence. A source that hears a person's
+// chat back is untimed without the key, and one that says neither is
+// timed.
+func TestParseHookUntimed(t *testing.T) {
+	base := pushover + "hook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
+		"  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\n"
+	for name, tc := range map[string]struct {
+		text    string
+		key     bool // the untimed key, as read
+		untimed bool // the declaration, by the key or the chat
+	}{
+		"untimed":         {base + "  untimed: true\n", true, true},
+		"timed, said so":  {base + "  untimed: false\n", false, false},
+		"timed, unsaid":   {base, false, false},
+		"a chat, unsaid":  {base + "hear:\n  field: chat\n  address: { env: PUSHOVER_USER }\n", false, true},
+		"a chat, untimed": {base + "  untimed: true\nhear:\n  field: chat\n  address: { env: PUSHOVER_USER }\n", true, true},
+	} {
+		d, err := Parse("p.yaml", []byte(tc.text))
+		if err != nil {
+			t.Errorf("%s: err = %v", name, err)
+			continue
+		}
+		if d.Hook == nil || d.Hook.Untimed != tc.key {
+			t.Errorf("%s: hook = %+v, want the key %v", name, d.Hook, tc.key)
+		}
+		if d.Untimed() != tc.untimed {
+			t.Errorf("%s: Untimed = %v, want %v", name, d.Untimed(), tc.untimed)
+		}
+	}
+	var none *Declaration
+	if none.Untimed() {
+		t.Error("no declaration is untimed")
+	}
+}
+
 // A hook alone is a source: one that sends in and is never called has no
 // base and no calls, as one that is its limits command has neither. What
 // is for the calls is refused with it.
@@ -1205,7 +1242,7 @@ func TestParseHookRefusals(t *testing.T) {
 		"no verify":                           {hooked("  bodies: unique\n  normalize: [normalize]\n"), "hook.verify: missing: how the core verifies a delivery"},
 		"no bodies":                           {hooked(verify + "  normalize: [normalize]\n"), "hook.bodies: missing: unique, unique-per-hook, repeat"},
 		"no normalize":                        {hooked(verify + "  bodies: unique\n"), "hook.normalize: missing: the command that turns a verified body into the envelope"},
-		"a key it does not have":              {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, challenge, normalize, keys, register)"},
+		"a key it does not have":              {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, challenge, normalize, keys, register, untimed)"},
 		"bodies that are neither":             {hooked(verify + "  bodies: sometimes\n  normalize: [normalize]\n"), `hook.bodies: "sometimes": want unique, unique-per-hook, repeat`},
 		"a normalize that is a string":        {hooked(verify + "  bodies: unique\n  normalize: normalize\n"), "hook.normalize: want a list of strings"},
 		"a normalize with no program":         {hooked(verify + "  bodies: unique\n  normalize: []\n"), "hook.normalize: an empty list"},
@@ -1213,6 +1250,7 @@ func TestParseHookRefusals(t *testing.T) {
 		"a key that is none":                  {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  keys: [team, Team]\n"), `hook.keys: "Team": a key is lowercase letters, digits and _`},
 		"a key listed twice":                  {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  keys: [team, team]\n"), "hook.keys: team is listed twice"},
 		"the derived speaker key":             {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  keys: [speaker]\n"), "hook.keys: speaker is derived by the yard for hearing by identity, so it is not a hook key"},
+		"an untimed that is neither":          {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  untimed: sometimes\n"), `hook.untimed: want true or false, got "sometimes"`},
 		"no scheme":                           {hooked("  verify:\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.scheme: missing: how a delivery is verified (hmac-sha256, secret)"},
 		"a scheme that is none":               {hooked("  verify:\n    scheme: sha1\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"sha1": want hmac-sha256, secret`},
 		"no signed":                           {hooked("  verify:\n    scheme: hmac-sha256\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signed: missing: what the signature covers (body)"},
