@@ -563,7 +563,11 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 		if withPane {
 			handle := paneShell(t, actor)
 			if runner == "exec" {
-				handle = map[string]any{"pid": 1 << 30}
+				// An exec handle names the script's pid,
+				// without an agent: the calling process
+				// itself, which over the socket is the peer
+				// the server sees, not a made-up pid.
+				handle = map[string]any{"pid": os.Getpid()}
 			}
 			if err := s.MarkRunning(ctx, sess.ID, handle); err != nil {
 				t.Fatal(err)
@@ -606,7 +610,7 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 
 	t.Run("exec session", func(t *testing.T) {
 		s, ctx, b, _, actor := setup(t, "exec", true)
-		pane := store.WithCaller(ctx, 1<<30)
+		pane := store.WithCaller(ctx, os.Getpid())
 		if err := s.Mail(pane, "yardmaster", "the script needs a narrower limit", "op"); err != nil {
 			t.Fatal(err)
 		}
