@@ -395,8 +395,12 @@ func quietCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 // YARDR_LANDING=1), under the race lock throughout, except that R1 is
 // judged strictly (YARDR_R1_STRICT, which the quiet run alone sets): a
 // package over 60 s alone fails however loaded the machine, so a slowdown
-// cannot loud-pass here as it may at a landing. The depot's own checkout
-// is never touched, and the worktree goes with the run.
+// cannot loud-pass here as it may at a landing. YARDR_QUIET_RUN is the
+// quiet run's other mark, for the tests themselves: a test that costs
+// minutes (the yard-shape matrix, contrib/isolated-yard/matrix_test.go)
+// runs only where it is set, so neither a builder's gate nor a landing
+// pays for it. The depot's own checkout is never touched, and the
+// worktree goes with the run.
 func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (QuietResult, error) {
 	base := depot.Base
 	if base == "" {
@@ -451,7 +455,7 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	// as the runner withholds for a session or a script): the daemon's own
 	// server settings are not the suite's, and a server a test starts from
 	// them would listen on this yard's webhook, web or BDP address.
-	cmd.Env = append(config.WithoutServerSettings(os.Environ()), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1", "YARDR_R1_STRICT=1")
+	cmd.Env = append(config.WithoutServerSettings(os.Environ()), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1", "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	start := time.Now()
