@@ -101,7 +101,9 @@ func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalB
 			if est.ETA != nil {
 				in.Low, in.High = est.ETA.Low, est.ETA.High
 			}
-			in.Late = est.Late != nil
+			if est.Late != nil {
+				in.Late, in.LateBy = true, est.Late.Overrun()
+			}
 		}
 		// A session at work now is the news, not how the one before
 		// it ended: the fault is the latest ended session's alone.

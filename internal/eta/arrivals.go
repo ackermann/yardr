@@ -11,8 +11,9 @@
 // expected arrival in minutes, then by stage age and id, capped; the
 // remark held, stalled, blocked by an open bead, waiting for a person,
 // late, in that order. No via and no badge: the row carries neither. The
-// one departure is the hold, which names its holder where the yard knows
-// it ("held by nell"), as the board's own beads do not.
+// departures are two: a hold names its holder where the yard knows it
+// ("held by nell"), and a late bead says by how much where the yard can
+// tell ("late by 40m"), as the board's own beads do not.
 package eta
 
 import (
@@ -65,6 +66,9 @@ type ArrivalBead struct {
 	High string
 	// Late says it runs past its usual time.
 	Late bool
+	// LateBy is by how much (Late.Overrun): 0 where the yard cannot tell,
+	// and the remark is then the bare "late".
+	LateBy time.Duration
 }
 
 // An ArrivalRow is one row of the board: everything it shows of one
@@ -166,7 +170,9 @@ func arrivalTime(b ArrivalBead) string {
 // bead, waiting for a person, late, in that order, else blank. A hold
 // and a session that came to no good end are the board's red block;
 // blocked, waiting and late are its yellow. A hold says who holds the
-// bead where the yard knows: "held by nell", else "held".
+// bead where the yard knows: "held by nell", else "held". A late bead
+// says by how much where the yard can tell, in its usual span format:
+// "late by 1h 5m", else "late".
 func arrivalRemark(b ArrivalBead) (remark, tone string) {
 	if b.Hold {
 		if b.HeldBy != "" {
@@ -184,6 +190,9 @@ func arrivalRemark(b ArrivalBead) (remark, tone string) {
 		return "waits for " + b.WaitsFor, "amber"
 	}
 	if b.Late {
+		if b.LateBy > 0 {
+			return "late by " + span(b.LateBy), "amber"
+		}
 		return "late", "amber"
 	}
 	return "", "none"
@@ -210,4 +219,19 @@ func arrivalMinutes(span string) (float64, bool) {
 		out += n * long[strings.ToLower(p[2])]
 	}
 	return out, true
+}
+
+// Overrun is how far past its usual time the bead runs: the time it has
+// stood in its stage less the clock's p90, both read from the spans the
+// mark prints, since the mark carries no more exact figure. 0 where either
+// does not read as a span ("under a minute" among them), and where the
+// first is no more than the second, as when both round to one span: the
+// bead is late by nothing the yard can name.
+func (l Late) Overrun() time.Duration {
+	in, ok := arrivalMinutes(l.InStage)
+	usual, usualOK := arrivalMinutes(l.P90)
+	if !ok || !usualOK || in <= usual {
+		return 0
+	}
+	return time.Duration((in - usual) * float64(time.Minute))
 }

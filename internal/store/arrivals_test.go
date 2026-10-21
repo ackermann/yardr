@@ -497,8 +497,9 @@ func TestArrivalsLate(t *testing.T) {
 			}{rows[i].Remark, rows[i].Tone}
 		}
 	}
-	// Board: "past its usual time it is late, in yellow".
-	if row == nil || row.Remark != "late" || row.Tone != "amber" {
+	// Board: "past its usual time it is late, in yellow". The yard says by
+	// how much: six hours in the stage against a usual half hour.
+	if row == nil || row.Remark != "late by 5h 30m" || row.Tone != "amber" {
 		t.Fatalf("late: %+v in %+v", row, rows)
 	}
 }

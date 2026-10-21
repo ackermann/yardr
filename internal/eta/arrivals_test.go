@@ -215,13 +215,35 @@ func TestArrivalsRemarkWaits(t *testing.T) {
 	}
 }
 
-// Mirrors "past its usual time it is late, in yellow".
+// Mirrors "past its usual time it is late, in yellow", but for the overrun
+// the board does not say: the yard says by how much where it can tell, from
+// the spans its late mark prints. "late by 40m" for a bead 2h in its stage
+// against a usual 1h 20m, in the yard's span format. Where it cannot, or
+// the spans leave no overrun, the remark is the board's bare "late".
 func TestArrivalsRemarkLate(t *testing.T) {
+	for _, c := range []struct{ inStage, p90, want string }{
+		{"2h", "1h 20m", "late by 40m"},
+		{"2h 5m", "1h", "late by 1h 5m"},
+		{"3d 9h", "2d", "late by 1d 9h"},
+		{"soon", "1h", "late"},
+		{"2h", "under a minute", "late"},
+		{"1h", "1h", "late"},
+		{"30m", "1h", "late"},
+	} {
+		late := Late{InStage: c.inStage, P90: c.p90}
+		rows := Arrivals([]ArrivalBead{
+			arrivalBead("wharf-a", func(b *ArrivalBead) { b.Late, b.LateBy = true, late.Overrun() }),
+		})
+		if rows[0].Remark != c.want || rows[0].Tone != "amber" {
+			t.Errorf("%s past %s: %+v, want %q in amber", c.inStage, c.p90, rows[0], c.want)
+		}
+	}
+	// A bead that is not late says nothing of an overrun it carries.
 	rows := Arrivals([]ArrivalBead{
-		arrivalBead("wharf-a", func(b *ArrivalBead) { b.Late = true }),
+		arrivalBead("wharf-b", func(b *ArrivalBead) { b.LateBy = time.Hour }),
 	})
-	if rows[0].Remark != "late" || rows[0].Tone != "amber" {
-		t.Fatalf("late: %+v", rows[0])
+	if rows[0].Remark != "" || rows[0].Tone != "none" {
+		t.Errorf("not late: %+v", rows[0])
 	}
 }
 
@@ -321,6 +343,28 @@ func TestArrivalMinutes(t *testing.T) {
 	for _, span := range []string{"soon", "", "under a minute"} {
 		if got, ok := arrivalMinutes(span); ok {
 			t.Fatalf("minutes(%q) = %v, want no span", span, got)
+		}
+	}
+}
+
+// An overrun is read from the printed spans, in the span's own units, and
+// is none where they do not leave one.
+func TestLateOverrun(t *testing.T) {
+	for _, c := range []struct {
+		inStage, p90 string
+		want         time.Duration
+	}{
+		{"2h", "1h 20m", 40 * time.Minute},
+		{"2h 5m", "1h", 65 * time.Minute},
+		{"3d 9h", "2d", 33 * time.Hour},
+		{"1h", "1h", 0},
+		{"30m", "1h", 0},
+		{"soon", "1h", 0},
+		{"2h", "", 0},
+		{"2h", "under a minute", 0},
+	} {
+		if got := (Late{InStage: c.inStage, P90: c.p90}).Overrun(); got != c.want {
+			t.Errorf("overrun of %q past %q = %v, want %v", c.inStage, c.p90, got, c.want)
 		}
 	}
 }

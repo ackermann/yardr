@@ -2952,12 +2952,12 @@ POST /call/Arrivals
 | `rows[].platform` | string | the stage the bead stands at |
 | `rows[].line` | string | the depot the bead is worked in, `""` when it has none |
 | `rows[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
-| `rows[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `rows[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late (`late by 40m`: how far past its usual time, in the yard's span format; plain `late` where the yard cannot tell by how much), in that order; `""` when there is none |
 | `rows[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `rows[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `platforms` | array of string | the stages the rows stand on, in the order the beads travel: group the rows by this list |
 
-The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too, but for a hold's holder: held (`held by <name>`, or `held` where the yard does not know who held the bead), stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order.
+The order is the board's: beads with a running session first, then by the low end of the expected arrival in minutes, then by how long the bead has stood at its stage, oldest first, then by id. A low that reads as no span — `under a minute` among it — sorts with the beads the yard serves no ETA for. The remark is the board's too, but for a hold's holder: held (`held by <name>`, or `held` where the yard does not know who held the bead), stalled (the latest ended session came to no good end), blocked by an open bead, waits for a person, late, in that order. A late bead says by how much where the yard can tell: its time in its stage past the usual, in the yard's span format (`late by 1h 5m`), else `late`.
 
 Platforms lists the stages the rows stand on, in the order the beads travel: each depot's flow stage order, as the yard draws it on its flows page. Where depots' flows order the same stages differently, the depot with the most travelling beads sets the order and the others' extra stages stand where their own flows put them after the last stage they share with it, and a stage no flow has stands last, in row order.
 
@@ -3120,7 +3120,7 @@ POST /call/Flows
 | `depots[].flows[].stages[].beads[].bead` | string | the bead's handle |
 | `depots[].flows[].stages[].beads[].title` | string | the bead's title |
 | `depots[].flows[].stages[].beads[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
-| `depots[].flows[].stages[].beads[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `depots[].flows[].stages[].beads[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late (`late by 40m`: how far past its usual time, in the yard's span format; plain `late` where the yard cannot tell by how much), in that order; `""` when there is none |
 | `depots[].flows[].stages[].beads[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].flows[].stages[].beads[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
@@ -3129,7 +3129,7 @@ POST /call/Flows
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
 | `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
-| `depots[].elsewhere[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `depots[].elsewhere[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late (`late by 40m`: how far past its usual time, in the yard's span format; plain `late` where the yard cannot tell by how much), in that order; `""` when there is none |
 | `depots[].elsewhere[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `depots[].elsewhere[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
@@ -3139,7 +3139,7 @@ POST /call/Flows
 | `unassigned[].bead` | string | the bead's handle |
 | `unassigned[].title` | string | the bead's title |
 | `unassigned[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |
-| `unassigned[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late, in that order; `""` when there is none |
+| `unassigned[].remark` | string | held (`held by <name>` where the yard knows who holds the bead), stalled, blocked by an open bead, waits for a person, late (`late by 40m`: how far past its usual time, in the yard's span format; plain `late` where the yard cannot tell by how much), in that order; `""` when there is none |
 | `unassigned[].tone` | string | `red` for a hold and a stall, `amber` for a block, a wait and a late mark, `none` with no remark |
 | `unassigned[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
