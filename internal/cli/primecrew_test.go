@@ -492,4 +492,14 @@ func TestPrimeCrewSaysFilesAreData(t *testing.T) {
 	if !strings.Contains(out, want) {
 		t.Errorf("the prime lacks %q:\n%s", want, out)
 	}
+	// Wordless mail is answered with a reaction, not a reply: the line
+	// right after the mail item.
+	react := "- yardr react <seq> <emoji>: answer mail that needs no words"
+	i, j, k := strings.Index(out, want), strings.Index(out, react), strings.Index(out, "- yardr timer add")
+	if j < 0 {
+		t.Fatalf("the prime lacks the react line:\n%s", out)
+	}
+	if !(i >= 0 && i < j && j < k) {
+		t.Errorf("the react line is not after the mail item:\n%s", out)
+	}
 }
