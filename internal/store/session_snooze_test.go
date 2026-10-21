@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // A session whose agent waits, not stuck, snoozes: the wait and the count
@@ -16,7 +18,11 @@ import (
 // session that is no live bead session, and a fourth in a row are refused.
 func TestSnoozeSession(t *testing.T) {
 	t.Parallel()
-	s, ctx := flowDepot(t)
+	s, raw := storetest.NewOwned(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
@@ -37,11 +43,11 @@ func TestSnoozeSession(t *testing.T) {
 	// YARDR_SESSION and the call arguments, but that does not make it the
 	// session's agent.
 	outsider := store.WithSession(store.WithCaller(ctx, os.Getppid()), sess.ID)
-	if _, err := s.SnoozeSession(outsider, sess.ID, time.Minute, "test gate", "yard-x-new"); err == nil ||
+	if _, err := raw.SnoozeSession(outsider, sess.ID, time.Minute, "test gate", "yard-x-new"); err == nil ||
 		!strings.Contains(err.Error(), "inside a bead session") {
 		t.Fatalf("SnoozeSession from outside the pane err = %v, want refused", err)
 	}
-	if _, err := s.SnoozeSession(pane, "another-session", time.Minute, "test gate", "yard-x-new"); !errors.Is(err, store.ErrConflict) {
+	if _, err := raw.SnoozeSession(pane, "another-session", time.Minute, "test gate", "yard-x-new"); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("SnoozeSession for another session err = %v, want conflict", err)
 	}
 
@@ -122,17 +128,17 @@ func TestSnoozeSession(t *testing.T) {
 	}
 
 	// Outside a session, and for sessions that are none.
-	if _, err := s.SnoozeSession(ctx, "", time.Minute, "test gate", "me"); err == nil ||
+	if _, err := raw.SnoozeSession(ctx, "", time.Minute, "test gate", "me"); err == nil ||
 		!strings.Contains(err.Error(), "inside a bead session") {
 		t.Fatalf("SnoozeSession without a session err = %v, want refused", err)
 	}
-	if _, err := s.SnoozeSession(ctx, "no-such-session", time.Minute, "test gate", "me"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := raw.SnoozeSession(ctx, "no-such-session", time.Minute, "test gate", "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("SnoozeSession for an unknown session err = %v, want not found", err)
 	}
-	if err := s.EndSession(ctx, sess.ID, "failed", "over"); err != nil {
+	if err := raw.EndSession(ctx, sess.ID, "failed", "over"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SnoozeSession(ctx, sess.ID, time.Minute, "test gate", "me"); err == nil ||
+	if _, err := raw.SnoozeSession(ctx, sess.ID, time.Minute, "test gate", "me"); err == nil ||
 		!strings.Contains(err.Error(), "only a live session snoozes") {
 		t.Fatalf("SnoozeSession for an ended session err = %v, want refused", err)
 	}
