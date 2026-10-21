@@ -752,6 +752,51 @@ func (s *Store) GetHook(ctx context.Context, name string) (*Hook, error) {
 	return h, nil
 }
 
+// renamePeerHooks puts the peer's new name in place of the old in every
+// hook's says and makes lines that filter on one of its crew's speakers,
+// <crew>@<old> in speaker=, and returns which hooks had one: the speaker
+// names the peer too (PeerIdentity.Speaker), whatever source the hook
+// hears. A line filtering another yard's speaker stands as it is.
+func renamePeerHooks(tx *bolt.Tx, name, to string) ([]string, error) {
+	renamed := func(where map[string]string) (map[string]string, bool) {
+		vals, ok := renamedSpeakers(WhereValues(where[SpeakerKey]), name, to)
+		if !ok {
+			return nil, false
+		}
+		// Not the stored map itself, which another line may share.
+		out := maps.Clone(where)
+		out[SpeakerKey] = JoinWhere(vals)
+		return out, true
+	}
+	var hs []Hook
+	err := each(tx, bHooks, "", func(_ []byte, h *Hook) error {
+		changed := false
+		for i, s := range h.Says {
+			if where, ok := renamed(s.Where); ok {
+				h.Says[i].Where, changed = where, true
+			}
+		}
+		for i, m := range h.Makes {
+			if where, ok := renamed(m.Where); ok {
+				h.Makes[i].Where, changed = where, true
+			}
+		}
+		if changed {
+			hs = append(hs, *h)
+		}
+		return nil
+	})
+	var names []string
+	for _, h := range hs {
+		if err != nil {
+			break
+		}
+		names = append(names, h.Name)
+		err = put(tx, bHooks, h.Name, h)
+	}
+	return names, err
+}
+
 // DeleteHook removes the hook; deliveries it already accepted stay. The
 // issue moves it had still to make (IssueMoves) are dropped with it, and
 // the hook_removed event says how many. Removing a hook is the operator's

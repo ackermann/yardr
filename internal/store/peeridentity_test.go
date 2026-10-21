@@ -416,6 +416,102 @@ func TestPeerRenameCarriesSpeakerFilters(t *testing.T) {
 	}
 }
 
+// Renaming a link carries the hooks whose says and makes lines filter on one
+// of its crew's speakers: the filter follows the new name, so a delivery
+// from the mapped sender still matches the line. Before the rename the
+// delivery matches under the old speaker; after, under the new one, and
+// nothing matches under the old. A line filtering another yard's speaker
+// stands as it is, and the event names the hooks that followed.
+func TestPeerRenameCarriesHookSpeakerFilters(t *testing.T) {
+	t.Parallel()
+	y := peerIdentityYard(t)
+	y.mapPeer(t, "north", "chat", "U7", "mayor")
+	says, err := store.ParseSay("speaker=mayor@north -> done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	makes, err := store.ParseMake("speaker=mayor@north -> task:new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.PutHook(y.ctx, store.Hook{Name: "chatline", Source: "chat", SecretFile: "/nonexistent/s",
+		Says: []store.Say{says}, Makes: []store.Make{makes}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.ParseSay("speaker=clerk@elsewhere -> done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.PutHook(y.ctx, store.Hook{Name: "other", Source: "chat", SecretFile: "/nonexistent/s",
+		Says: []store.Say{other}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// A delivery from the mapped sender, as the receiver stamps it: the
+	// sender's id beside the speaker the mapping gives it now.
+	delivered := func(t *testing.T, speaker string) map[string]any {
+		t.Helper()
+		seq, dup, err := y.own.RecordHook(y.ctx, "chatline", map[string]any{
+			"source": "chat", "type": "message", "action": "create", "hook": "chatline",
+			"fields": map[string]any{"speaker": []any{speaker}, "sender": []any{"U7"}},
+		}, []byte(speaker), nil)
+		if err != nil || dup {
+			t.Fatalf("RecordHook = %v, %v", dup, err)
+		}
+		for _, e := range peerEvents(t, y.api, "hook") {
+			if e.Seq == seq {
+				return e.Data
+			}
+		}
+		t.Fatalf("no hook event %d", seq)
+		return nil
+	}
+	hook := func(t *testing.T, name string) store.Hook {
+		t.Helper()
+		h, err := y.api.GetHook(y.ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *h
+	}
+	matched := func(t *testing.T, data map[string]any) (say, made string) {
+		t.Helper()
+		h := hook(t, "chatline")
+		if line := h.Said(data, "new", "task"); line != nil {
+			say = line.Outcome
+		}
+		if line := h.Made(data); line != nil {
+			made = line.Type + ":" + line.Stage
+		}
+		return say, made
+	}
+	if say, made := matched(t, delivered(t, "mayor@north")); say != "done" || made != "task:new" {
+		t.Fatalf("before the rename the delivery says %q and makes %q, want done and task:new", say, made)
+	}
+
+	if _, err := y.api.RenamePeer(y.ctx, "north", "south", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	h := hook(t, "chatline")
+	if len(h.Says) != 1 || h.Says[0].Where["speaker"] != "mayor@south" ||
+		len(h.Makes) != 1 || h.Makes[0].Where["speaker"] != "mayor@south" {
+		t.Fatalf("chatline after the rename says %v and makes %v", h.Says, h.Makes)
+	}
+	if o := hook(t, "other"); len(o.Says) != 1 || o.Says[0].Where["speaker"] != "clerk@elsewhere" {
+		t.Fatalf("the other yard's line after the rename says %v", o.Says)
+	}
+	renamed := peerEvents(t, y.api, "peer_renamed")
+	if raw, _ := json.Marshal(renamed[0].Data["hooks"]); len(renamed) != 1 || string(raw) != `["chatline"]` {
+		t.Fatalf("peer_renamed = %+v", renamed)
+	}
+
+	if say, made := matched(t, delivered(t, "mayor@south")); say != "done" || made != "task:new" {
+		t.Fatalf("after the rename the delivery says %q and makes %q, want done and task:new", say, made)
+	}
+	if say, made := matched(t, delivered(t, "mayor@north")); say != "" || made != "" {
+		t.Fatalf("after the rename a delivery under the old speaker says %q and makes %q, want nothing", say, made)
+	}
+}
+
 // Folding a source's records into another's (pack apply folds
 // <name>-declared into <name>) takes the link's identities along, as it does
 // the users' and the crew's. Left behind, they would map a sender in a source

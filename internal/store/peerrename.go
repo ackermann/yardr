@@ -181,6 +181,14 @@ func (w *wtx) renamePeer(ctx context.Context, name, to, actor string, by *approv
 	} else if len(subs) > 0 {
 		data["subscriptions"] = subs
 	}
+	// A hook's says and makes lines filter on the envelope's fields as a
+	// subscription does, speaker= among them: those that name one of the
+	// yard's crew follow the new name too.
+	if hooks, err := renamePeerHooks(w.Tx, name, to); err != nil {
+		return nil, err
+	} else if len(hooks) > 0 {
+		data["hooks"] = hooks
+	}
 	// The beads it sent say where they came from by its key, so their
 	// line follows unasked; their label is a name, and is changed.
 	if err := w.relabelPeerBeads(p, name, to, actor); err != nil {
