@@ -68,6 +68,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 		t.Run(system, func(t *testing.T) {
 			home, st, a, herdrStarts, _ := upYard(t, false)
 			rig := stubLogin(t, system, herdrStarts)
+			rig.at(home)
 			stubLookPath(t, "claude", "git", "herdr", "systemctl")
 			ctx := context.Background()
 			depot := gitDepot(t, st)
@@ -113,7 +114,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 				"herdr's server  removed: "+herdrFile+": herdr's server is left running, and no longer starts at login\n",
 				"\nNot touched, and where each is:\n",
 				"  the yard's home    "+home+": the yard "+name+": its store with 0 beads, its roles, flows and logs\n",
-				"                       to remove: "+here("yardr uninstall --purge")+"\n",
+				"                       to remove: "+hereAt(home, "yardr uninstall --purge")+"\n",
 				"  depot web          "+depot.Path+": your repository: yardr deletes nothing in it\n",
 				"    .yardr           "+filepath.Join(depot.Path, ".yardr")+": the depot's roles, flows and test command",
 				"    worktree         "+dirty+": branch yard/web-1, uncommitted changes\n",
@@ -124,7 +125,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 				"  herdr              /bin/herdr: its server is left running",
 				"  harness claude     /bin/claude: ",
 				"\nThe yard "+name+" in "+home+" is uninstalled: nothing of it runs or starts at login, and all of your work is where it was.\n",
-				"To use it again: "+here("yardr up")+". To delete its home too: "+here("yardr uninstall --purge")+"\n")
+				"To use it again: "+hereAt(home, "yardr up")+". To delete its home too: "+hereAt(home, "yardr uninstall --purge")+"\n")
 			for _, f := range []string{daemon, web.Path, herdrFile} {
 				if _, err := os.Stat(f); err == nil {
 					t.Errorf("%s is still there", f)
@@ -196,6 +197,7 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 func TestUninstallLeavesAnotherYardsServices(t *testing.T) {
 	homeA, _, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(homeA)
 	herdrFile := filepath.Join(rig.dir, "dev.yardr.herdr.plist")
 	if rep := upJSON(t, a(true), "--login"); !rep.Up {
 		t.Fatalf("the first yard: %+v", rep)
@@ -209,6 +211,7 @@ func TestUninstallLeavesAnotherYardsServices(t *testing.T) {
 	homeB, _, b, startsB, _ := upYard(t, true)
 	rig.herdrStarts = startsB
 	rig.use(t)
+	rig.at(homeB)
 	if rep := upJSON(t, b(true), "--login"); !rep.Up {
 		t.Fatalf("the second yard: %+v", rep)
 	}
@@ -240,12 +243,12 @@ func TestUninstallLeavesAnotherYardsServices(t *testing.T) {
 		}
 	}
 
-	// A service for herdr's server that is the person's own. The runs
-	// name their yard's home in their maps (upYard), but the login rig
-	// keys its daemon locks by the process's home, so the first yard's
-	// is restored for its uninstall: without it the rig never releases
-	// the first yard's lock and down reports the yard was not stopped.
-	t.Setenv("YARDR_HOME", homeA)
+	// A service for herdr's server that is the person's own. The login
+	// rig keys its daemon locks by the yard it is told, so the first
+	// yard's is named for its uninstall: without it the rig never
+	// releases the first yard's lock and down reports the yard was not
+	// stopped.
+	rig.at(homeA)
 	if err := os.WriteFile(herdrFile, []byte("<plist><string>/opt/herdr</string>\n<string>server</string></plist>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +282,7 @@ func TestUninstallRemovesNothingBeforeItStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := run(t, a(false).rootCmd(), "uninstall")
-	if !errors.As(err, new(errDownRefused)) || !strings.Contains(err.Error(), here("yardr uninstall --yes")) {
+	if !errors.As(err, new(errDownRefused)) || !strings.Contains(err.Error(), hereAt(home, "yardr uninstall --yes")) {
 		t.Fatalf("uninstall with an agent at work: %v\n%s", err, out)
 	}
 	rep, err := uninstallJSON(t, a(true))
@@ -304,6 +307,7 @@ func TestUninstallRemovesNothingBeforeItStops(t *testing.T) {
 func TestUninstallListsAServiceItCouldNotRemove(t *testing.T) {
 	home, _, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(home)
 	if rep := upJSON(t, a(true), "--login"); !rep.Up {
 		t.Fatalf("up --login: %+v", rep)
 	}
@@ -389,7 +393,7 @@ func TestPurgeNeedsTheYardsName(t *testing.T) {
 		flags []string
 		want  string
 	}{
-		{[]string{"--purge", "--yes"}, "With nobody to ask (no terminal) it takes the yard's name as its value, and --yes: " + here("yardr uninstall --purge="+name+" --yes")},
+		{[]string{"--purge", "--yes"}, "With nobody to ask (no terminal) it takes the yard's name as its value, and --yes: " + hereAt(home, "yardr uninstall --purge="+name+" --yes")},
 		{[]string{"--purge"}, "With nobody to ask"},
 		{[]string{"--purge=someone-elses", "--yes"}, "--purge=someone-elses does not name this yard"},
 		{[]string{"--purge=", "--yes"}, "--purge= does not name this yard"},

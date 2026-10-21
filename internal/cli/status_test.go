@@ -28,7 +28,7 @@ import (
 // and an app on it per call.
 func statusYard(t *testing.T, rev string) (string, store.API, func() *app) {
 	t.Helper()
-	home := newHome(t)
+	home := newHomeDir(t)
 	// Status runs doctor's examination for its fault count, versions and
 	// all; the versions answer at once, as ever.
 	answeredTools(t, "git", "herdr", "claude")
@@ -86,12 +86,12 @@ func TestStatusServerOnly(t *testing.T) {
 		// The test binary carries no revision: another build than the server's.
 		"           this yardr is build unknown\n",
 		"daemon     not running\n",
-		"           login service: "+here("not installed (yardr daemon install)")+"\n",
+		"           login service: "+hereAt(home, "not installed (yardr daemon install)")+"\n",
 		"crew       yardmaster  not running\n",
-		"web view   "+here("not running: yardr web serve")+"\n",
-		"backups    "+here("none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"\n",
+		"web view   "+hereAt(home, "not running: yardr web serve")+"\n",
+		"backups    "+hereAt(home, "none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"\n",
 		"work       0 sessions running; 0 held\n",
-		"\n"+here("yardr doctor reports 2 faults, and says what they are.")+"\n")
+		"\n"+hereAt(home, "yardr doctor reports 2 faults, and says what they are.")+"\n")
 	for _, not := range []string{"hooks", "peers", "FAULT", "no bead is dispatched"} {
 		if strings.Contains(out, not) {
 			t.Errorf("status says %q:\n%s", not, out)
@@ -122,7 +122,7 @@ func TestStatusSameBuild(t *testing.T) {
 // views, the login services, and backup settings read-only from the store),
 // and has one line for what only the server knows. The yard is there: exit 0.
 func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
@@ -151,9 +151,9 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	me := strconv.Itoa(os.Getpid())
 	wantText(t, out,
 		"yard       "+home+"\n",
-		"server     not running: any yardr command that needs the yard starts it ("+here("yardr ready")+"), or "+here("yardr server start")+"\n",
+		"server     not running: any yardr command that needs the yard starts it ("+hereAt(home, "yardr ready")+"), or "+hereAt(home, "yardr server start")+"\n",
 		"daemon     running (pid "+me+")\n",
-		"           login service: "+here("not installed (yardr daemon install)")+"\n",
+		"           login service: "+hereAt(home, "not installed (yardr daemon install)")+"\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
 		"\ncrew, hooks, peers and work: not known while the server is not running\n")
@@ -200,7 +200,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 // A stopped server does not hide the backup plan: status reads it from the
 // store without starting a server, then reads the last copy by its name.
 func TestStatusBackupsWhenServerIsStopped(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestStatusWebViewBuild(t *testing.T) {
 	wantText(t, out,
 		"           http://127.0.0.1:9001/  pid "+strconv.Itoa(os.Getpid())+"  build 0123456789ab  this machine only\n",
 		"           this yardr is build unknown: a view runs the build it was started on until it is started again\n",
-		"           service that starts at login: "+here("not installed (yardr web install)")+"\n")
+		"           service that starts at login: "+hereAt(home, "not installed (yardr web install)")+"\n")
 	v := statusJSON(t, a()).Web.Views
 	if len(v) != 2 || v[0].Differs || v[0].Build != "unknown" || !v[1].Differs || v[1].Revision != "0123456789ab" || v[1].Build != "0123456789ab" {
 		t.Fatalf("views: %+v", v)
@@ -341,7 +341,7 @@ func TestStatusRunningYard(t *testing.T) {
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
 		"           http://[::1]:9002/        pid "+me+"  build unknown  this machine only\n",
-		"           service that starts at login: "+here("not installed (yardr web install)")+"\n",
+		"           service that starts at login: "+hereAt(home, "not installed (yardr web install)")+"\n",
 		"hooks      the server takes webhooks on 127.0.0.1:9100\n",
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
 		"peers      laptop  it calls this yard\n",
@@ -544,7 +544,7 @@ func TestStatusStaleWebView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "web view   "+here("not running: yardr web serve")+"\n")
+	wantText(t, out, "web view   "+hereAt(home, "not running: yardr web serve")+"\n")
 	// The address, not its port: the output names the home, and a temp
 	// directory's random digits can hold "9000".
 	if strings.Contains(out, "127.0.0.1:9000") {
@@ -569,7 +569,7 @@ func TestStatusStaleWebView(t *testing.T) {
 // terminal, in one too: exit 2, naming init, no onboarding, no store, and,
 // being read-only, not even the home directory. --json takes the same path.
 func TestStatusNoYard(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	for _, terminal := range []bool{false, true} {
 		setInteractive(t, terminal)
 		stubAsk(t, func(...huh.Field) error {
@@ -581,7 +581,7 @@ func TestStatusNoYard(t *testing.T) {
 		if code != 2 || out != "" {
 			t.Fatalf("terminal %v: exit %d:\n%s", terminal, code, out)
 		}
-		wantText(t, errs.String(), "no yard in "+home+" yet", here("yardr init --harness <kind>"))
+		wantText(t, errs.String(), "no yard in "+home+" yet", hereAt(home, "yardr init --harness <kind>"))
 	}
 	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
 		t.Fatal("status created a store")
@@ -624,7 +624,7 @@ func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
 // A yard whose server cannot be reached is still a yard: status says so,
 // with what it knows without the store, and exits 0.
 func TestStatusUnreachableServer(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	answeredTools(t, "git", "herdr", "claude")
 	announce(t, home, "127.0.0.1:9000", false, "")
 	// It answers on its socket, and nothing it is asked comes back.
@@ -634,7 +634,7 @@ func TestStatusUnreachableServer(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "yard       "+home+"\n", "server     cannot be reached: server gone\n", "daemon     not running\n",
-		"web view   http://127.0.0.1:9000/  pid ", here("yardr doctor reports 1 fault, and says what it is."))
+		"web view   http://127.0.0.1:9000/  pid ", hereAt(home, "yardr doctor reports 1 fault, and says what it is."))
 	if strings.Contains(out, "crew") || strings.Contains(out, "work ") {
 		t.Errorf("nothing of the store is known:\n%s", out)
 	}
@@ -671,8 +671,8 @@ func TestDoctorWebView(t *testing.T) {
 
 	// No view, no service.
 	out, part := web()
-	wantText(t, out, "not configured  web view: not running, and nothing keeps it running; "+here("yardr web serve shows the yard in a browser while it runs"),
-		here("yardr web install keeps it running from login on (docs/web.md)"))
+	wantText(t, out, "not configured  web view: not running, and nothing keeps it running; "+hereAt(home, "yardr web serve shows the yard in a browser while it runs"),
+		hereAt(home, "yardr web install keeps it running from login on (docs/web.md)"))
 	if part.Configured || len(part.Views) != 0 || len(part.Notes) != 0 {
 		t.Fatalf("part: %+v", part)
 	}
@@ -685,7 +685,7 @@ func TestDoctorWebView(t *testing.T) {
 	}
 	out, part = web()
 	wantText(t, out, "not configured  web view: running at http://127.0.0.1:9000/ (pid "+me+", this machine only); nothing keeps it running: "+
-		here("yardr web install keeps it running from login on (docs/web.md)"))
+		hereAt(home, "yardr web install keeps it running from login on (docs/web.md)"))
 	if part.Configured || len(part.Views) != 1 || len(part.Notes) != 0 {
 		t.Fatalf("part: %+v", part)
 	}
@@ -868,5 +868,5 @@ func TestStatusBackups(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ = run(t, a().rootCmd(), "status")
-	wantText(t, out, "backups    "+here("none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"; last 10-13 14:22  "+last+"\n")
+	wantText(t, out, "backups    "+hereAt(home, "none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"; last 10-13 14:22  "+last+"\n")
 }

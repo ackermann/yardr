@@ -18,18 +18,17 @@ import (
 // loginRig is stubServices for up --login and down --login: the manager
 // starts what it loads, as the real one does. A herdr service it starts
 // counts in herdrStarts, by which upYard's herdr answers; a daemon's holds
-// the lock of the yard the test is in (YARDR_HOME) until it is unloaded or
-// told to stop; a web view's makes its address answer. Nothing else may
-// start a herdr server or a daemon: up --login leaves that to the services.
+// the lock of the yard the test named (at) until it is unloaded or told
+// to stop; a web view's makes its address answer. Nothing else may start
+// a herdr server or a daemon: up --login leaves that to the services.
 type loginRig struct {
 	dir         string
 	m           *manager
 	herdrStarts *int
 	unlocks     map[string]func()
 	web         bool
-	// home is the yard the rig stops the daemon of, when the test runs
-	// down --login with an environment of its own; "" reads the
-	// process's.
+	// home is the yard the rig stops the daemon of, named with at; ""
+	// reads the process's.
 	home string
 }
 
@@ -46,9 +45,8 @@ func stubLogin(t *testing.T, system string, herdrStarts *int) *loginRig {
 	return r
 }
 
-// at names the yard the rig stops the daemon of: the home of a down
-// --login the test runs with an environment of its own, in place of the
-// process's.
+// at names the yard the rig stops the daemon of: the test's own, in
+// place of the process's, which names TestMain's home with no yard.
 func (r *loginRig) at(home string) { r.home = home }
 
 // yard is the home the rig stops the daemon of.
@@ -214,6 +212,7 @@ func TestHerdrLoginRejectsUnsafeSessionName(t *testing.T) {
 func TestUpLoginInstallsAndStarts(t *testing.T) {
 	home, _, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(home)
 	dir, m := rig.dir, rig.m
 	herdrFile := filepath.Join(dir, "dev.yardr.herdr.plist")
 	daemonFile := filepath.Join(dir, "dev.yardr.daemon."+homeID(home)+".plist")
@@ -222,7 +221,7 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "login service for its server: not installed ("+here("yardr up --login")+")")
+	wantText(t, out, "login service for its server: not installed ("+hereAt(home, "yardr up --login")+")")
 
 	out, err = run(t, a(false).rootCmd(), "up", "--login")
 	if err != nil || *herdrStarts != 1 {
@@ -231,7 +230,7 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 	wantText(t, out,
 		"herdr's server  started\nserver          running already (pid 4711)\ndaemon          started (pid ",
 		"\nAt login:\nherdr's server  installed: "+herdrFile+"\ndaemon          installed: "+daemonFile+"\n",
-		"It starts at every login from now on. To end that: "+here("yardr down --login")+"\n")
+		"It starts at every login from now on. To end that: "+hereAt(home, "yardr down --login")+"\n")
 	b, err := os.ReadFile(herdrFile)
 	if err != nil {
 		t.Fatal(err)
@@ -272,8 +271,9 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 func TestUpLoginLeavesARunningServer(t *testing.T) {
 	for _, system := range []string{"darwin", "linux"} {
 		t.Run(system, func(t *testing.T) {
-			_, _, a, herdrStarts, _ := upYard(t, true)
+			home, _, a, herdrStarts, _ := upYard(t, true)
 			rig := stubLogin(t, system, herdrStarts)
+			rig.at(home)
 			dir, m := rig.dir, rig.m
 			stubLookPath(t, "claude", "git", "herdr", "systemctl")
 			rep := upJSON(t, a(true), "--login")
@@ -310,8 +310,9 @@ func TestUpLoginLeavesARunningServer(t *testing.T) {
 // found by what it runs and left as it is: yardr writes none beside it and
 // says which file it found. The daemon's is installed all the same.
 func TestUpLoginLeavesAServiceThatIsNotYardrs(t *testing.T) {
-	_, _, a, herdrStarts, _ := upYard(t, true)
+	home, _, a, herdrStarts, _ := upYard(t, true)
 	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(home)
 	dir, m := rig.dir, rig.m
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -381,6 +382,7 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 		t.Run(system, func(t *testing.T) {
 			homeA, _, a, herdrStarts, _ := upYard(t, false)
 			rig := stubLogin(t, system, herdrStarts)
+			rig.at(homeA)
 			dir, m := rig.dir, rig.m
 			stubLookPath(t, "claude", "git", "herdr", "systemctl")
 			herdrFile := filepath.Join(dir, "dev.yardr.herdr.plist")
@@ -399,6 +401,7 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 			homeB, _, b, startsB, _ := upYard(t, true)
 			rig.herdrStarts = startsB
 			rig.use(t)
+			rig.at(homeB)
 			stubLookPath(t, "claude", "git", "herdr", "systemctl")
 			calls := len(m.calls)
 			rep := upJSON(t, b(true), "--login")
@@ -428,8 +431,7 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 
 			// The first yard is the last. Its downs name its home in an
 			// environment of their own, and the rig stops the daemon
-			// of that yard: the process's still names the second
-			// yard's.
+			// of that yard.
 			rig.at(homeA)
 			downA := func() *app {
 				x := a(true)
@@ -479,7 +481,9 @@ func TestTwoYardsShareHerdrsLoginService(t *testing.T) {
 // service stays yardr web install's, and down --login leaves one it finds.
 func TestUpLoginInstallsTheWebViewTheYardNames(t *testing.T) {
 	home, st, a, herdrStarts, _ := upYard(t, true)
-	dir := stubLogin(t, "darwin", herdrStarts).dir
+	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(home)
+	dir := rig.dir
 	webFile := filepath.Join(dir, "dev.yardr.web."+homeID(home)+".plist")
 	rep := upJSON(t, a(true), "--login")
 	if len(rep.Login) != 2 {
@@ -512,7 +516,7 @@ func TestUpLoginInstallsTheWebViewTheYardNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("down --login: %v\n%s", err, out)
 	}
-	wantText(t, out, "web view        left as it is: "+webFile+": the yard's web_addr setting is unset", here("yardr web uninstall")+" removes it\n")
+	wantText(t, out, "web view        left as it is: "+webFile+": the yard's web_addr setting is unset", hereAt(home, "yardr web uninstall")+" removes it\n")
 	if _, err := os.Stat(webFile); err != nil {
 		t.Fatal(err)
 	}
@@ -564,6 +568,7 @@ func TestLoginNotSupported(t *testing.T) {
 func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
 	home, _, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
+	rig.at(home)
 	// The test is about what up writes, not about asking the shell, so it
 	// stubs the answer instead of starting one: no spawn to stretch under
 	// load.
@@ -572,6 +577,8 @@ func TestUpLoginWritesTheLoginShellsPATH(t *testing.T) {
 	// before up --login merges PATH.
 	x := a(false)
 	x.env = environMap(os.Environ())
+	// On the yard's home: the process's names TestMain's, with no yard.
+	x.env["YARDR_HOME"] = home
 	out, err := run(t, x.rootCmd(), "up", "--login")
 	if err != nil {
 		t.Fatalf("up --login: %v\n%s", err, out)

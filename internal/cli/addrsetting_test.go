@@ -22,14 +22,15 @@ import (
 // (yardr-d4xx): a start and an install with no --addr take web_addr and
 // bdp_addr, --addr still wins, and with neither the default stands.
 func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
-	home := newHome(t)
-	t.Setenv("YARDR_WEB_ADDR", "")
-	t.Setenv("YARDR_BDP_ADDR", "")
+	// The setting variables are blank in the process already (TestMain).
+	home := newHomeDir(t)
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
 	// The runs' own environment, shared so a value set below reaches
 	// every run; the setting variables are set on the process too,
-	// where the setting reader finds them.
+	// where the setting reader finds them. settings get reads them
+	// through store.Setting.Effective from the process, a process fact
+	// on design 3.2's list, so this test stays serial.
 	runEnv := testEnv(t, home)
 	a := func() *app { return &app{st: st, actor: "me", env: runEnv} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
@@ -85,8 +86,8 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 		wantText(t, out, c.key+" = "+c.set+"\n",
 			"YARDR_"+strings.ToUpper(c.key)+", if set, takes it instead; otherwise",
 			"yardr "+c.kind+" serve, yardr "+c.kind+" start and yardr "+c.kind+" install take it when no --addr is given.",
-			"A "+what(c.kind)+" that runs keeps its address until it is stopped and started again: "+here("yardr "+c.kind+" stop")+", then "+here("yardr "+c.kind+" start")+".",
-			"The login service keeps the address in its file ("+c.def+", "+file+") until it is installed again: "+here("yardr "+c.kind+" install"))
+			"A "+what(c.kind)+" that runs keeps its address until it is stopped and started again: "+hereAt(home, "yardr "+c.kind+" stop")+", then "+hereAt(home, "yardr "+c.kind+" start")+".",
+			"The login service keeps the address in its file ("+c.def+", "+file+") until it is installed again: "+hereAt(home, "yardr "+c.kind+" install"))
 		if got := serviceAddr(&config.Config{Home: home}, c.kind); got != c.def {
 			t.Fatalf("the installed service moved to %q when the setting was set", got)
 		}
@@ -123,11 +124,12 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 // settings set refuses for web_addr and bdp_addr what --addr refuses, in
 // the sentence the flag gives (web.CheckAddr, bdp.CheckAddr).
 func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	// The runs' own environment, shared so a value set below reaches
 	// every run; the setting variables are set on the process too,
-	// where the setting reader finds them.
+	// where the setting reader finds them (design 3.2's list: a test
+	// that sets one to a value stays serial).
 	env := testEnv(t, home)
 	a := func() *app { return &app{st: st, actor: "me", env: env} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {

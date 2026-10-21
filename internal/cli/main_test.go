@@ -84,7 +84,7 @@ func TestMain(m *testing.M) {
 	// command that asked for a store no test gave it got the operator's
 	// (yardr-j4vm). So the home is one with no yard in it, under every name
 	// config reads, and the user's home, where the default one lies, is
-	// empty too; a test that wants a yard names its own (newHome, noHome).
+	// empty too; a test that wants a yard names its own (testApp, noHome).
 	nowhere, err := os.MkdirTemp("", "ynone")
 	if err != nil {
 		panic(err)

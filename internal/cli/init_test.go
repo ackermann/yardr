@@ -39,36 +39,17 @@ func shortDir(t *testing.T, prefix string) string {
 	return dir
 }
 
-// here is a command as yardr prints it for the test's home: with --home in
-// it, since that home is not the default one. The home is the process's
-// YARDR_HOME (newHome); hereAt takes it from a test that gave its run its
-// own (testApp).
-func here(cmd string) string {
-	return hereAt(config.Getenv("HOME"), cmd)
-}
-
-// hereAt is here for the yard in home.
+// hereAt is a command as yardr prints it for the yard in home: with
+// --home in it, since that home is not the default one.
 func hereAt(home, cmd string) string {
 	return strings.Replace(cmd, "yardr", yardrAt(home), 1)
 }
 
 // newHomeDir is a fresh directory for a yard's home, with no yard in it. It
-// sets nothing on the process: testApp names the home to a run, newHome to
-// the process.
+// sets nothing on the process: a test names the home to its runs (testApp).
 func newHomeDir(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(shortDir(t, "yh"), "y")
-}
-
-// newHome points the process's YARDR_HOME at a fresh directory with no yard
-// in it, for a test whose commands read their environment from the process
-// (an app with no env of its own). The setting variables are blank in the
-// process already (TestMain).
-func newHome(t *testing.T) string {
-	t.Helper()
-	home := newHomeDir(t)
-	t.Setenv("YARDR_HOME", home)
-	return home
 }
 
 // packRole is the role file rel of the pack yardr embeds as name, as an

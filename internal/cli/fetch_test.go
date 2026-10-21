@@ -39,7 +39,6 @@ func TestHerdrFetch(t *testing.T) {
 // user's home, and under the line that no harness is installed each harness
 // that can be fetched. git has none: it is Apple's own dialog.
 func TestDoctorFetchOnMac(t *testing.T) {
-	newHome(t)
 	fakeTools(t, nil)
 	stub(t, &loginShell, func() string { return "" })
 	stub(t, &goos, "darwin")
@@ -82,7 +81,6 @@ func TestDoctorFetchOnMac(t *testing.T) {
 // Off a Mac nothing is fetched: every missing program keeps its hint to
 // install it by hand, and no item carries a fetch.
 func TestDoctorNoFetchOnLinux(t *testing.T) {
-	newHome(t)
 	fakeTools(t, nil)
 	stub(t, &loginShell, func() string { return "" })
 	stub(t, &goos, "linux")
@@ -99,7 +97,6 @@ func TestDoctorNoFetchOnLinux(t *testing.T) {
 
 // What is installed needs no fetch, on a Mac as anywhere.
 func TestDoctorNoFetchOfWhatIsFound(t *testing.T) {
-	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	stub(t, &herdrServer, func(context.Context, string) serverCheck { return serverCheck{State: herdrUp} })
 	stub(t, &goos, "darwin")

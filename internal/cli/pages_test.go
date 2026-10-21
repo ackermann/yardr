@@ -103,15 +103,14 @@ func TestWebServeClosesViewIfPagesAddrIsInUse(t *testing.T) {
 // resolve them to: a start with neither hands on only the view's
 // address, and the serve it starts resolves the sandbox itself.
 func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
-	home := newHome(t)
-	t.Setenv("YARDR_WEB_ADDR", "")
-	t.Setenv("YARDR_WEB_PAGES_ADDR", "")
-	t.Setenv("YARDR_WEB_PAGES_HOST", "")
+	// The setting variables are blank in the process already (TestMain).
+	home := newHomeDir(t)
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
 	// The runs' own environment, shared so a value set below reaches
 	// every run; the setting variables are set on the process too,
-	// where the setting reader finds them.
+	// where the setting reader finds them (design 3.2's list: a test
+	// that sets one to a value stays serial).
 	runEnv := testEnv(t, home)
 	a := func() *app { return &app{st: st, actor: "me", env: runEnv} }
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {

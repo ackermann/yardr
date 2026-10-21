@@ -16,10 +16,10 @@ import (
 // bead's id.
 func styledYard(t *testing.T, args ...string) (*app, store.API, string) {
 	t.Helper()
-	newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
+	a := testApp(t, st, newHomeDir(t))
+	a.actor = "me"
 	if out, err := run(t, a.rootCmd(), append([]string{"init", "--harness", "claude", "--operator", "Jo"}, args...)...); err != nil {
 		t.Fatalf("init %v: %v\n%s", args, err, out)
 	}
@@ -82,7 +82,7 @@ func TestOnboardingAsksTheStyle(t *testing.T) {
 			map[string]string{styleSetting: "report", noteSetting: "I review every merge"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := newHome(t)
+			home := newHomeDir(t)
 			stubServices(t, "darwin")
 			stubWeb(t)
 			st := storetest.New(t)

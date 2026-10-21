@@ -186,7 +186,7 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 	out, err := run(t, a(false).rootCmd(), "down")
 	var refused errDownRefused
 	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "1 agent is in the middle of something") ||
-		!strings.Contains(err.Error(), here("yardr down --yes")) {
+		!strings.Contains(err.Error(), hereAt(home, "yardr down --yes")) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out,
@@ -231,7 +231,7 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 		"agents          stopped 3: 2 bead sessions, back in the queue with worktree, branch and attempts as they were; 1 crew session (1 wrote a handoff)\n",
 		"server          stopped (pid 4711)\n",
 		"herdr's server  left running: other yards and your own panes are in it\n",
-		"The yard in "+home+" is down. Start it again: "+here("yardr up")+"\n")
+		"The yard in "+home+" is down. Start it again: "+hereAt(home, "yardr up")+"\n")
 	slices.Sort(panes.stopped)
 	if !slices.Equal(panes.stopped, []string{"busy", "quiet", "yardmaster"}) || !slices.Equal(panes.nudged, []string{"yardmaster"}) || *serverStops != 1 {
 		t.Fatalf("stopped %v, nudged %v, server stops %d", panes.stopped, panes.nudged, *serverStops)
@@ -400,7 +400,7 @@ func TestDownFailsWhenOptionalServiceCannotStop(t *testing.T) {
 // An agent that cannot be stopped keeps its session, is said to be NOT
 // stopped with what to do, and the exit status is 1; the rest is stopped.
 func TestDownSaysWhatItCouldNotStop(t *testing.T) {
-	_, st, panes, ids, a, _ := downYard(t, map[string]string{"stuck": "idle", "fine": "idle"}, "stuck", "fine")
+	home, st, panes, ids, a, _ := downYard(t, map[string]string{"stuck": "idle", "fine": "idle"}, "stuck", "fine")
 	panes.fail["stuck"] = true
 	out, err := run(t, a(false).rootCmd(), "down", "--yes", "--handoff-wait", "0")
 	if !errors.Is(err, errCheckFailed) {
@@ -408,7 +408,7 @@ func TestDownSaysWhatItCouldNotStop(t *testing.T) {
 	}
 	wantText(t, out,
 		"agents          NOT stopped: bead "+ids["stuck"]+" (stage new, group builders) could not be stopped: herdr tab close: the tab is busy\n",
-		"                  "+here("yardr down")+", once more\n",
+		"                  "+hereAt(home, "yardr down")+", once more\n",
 		"is not down: see NOT above.\n")
 	if b, _ := st.GetBead(context.Background(), ids["stuck"]); b.Session == nil {
 		t.Fatal("a session whose agent still runs was ended")
@@ -529,7 +529,7 @@ func TestUpStartsWhatDoesNotRun(t *testing.T) {
 	wantText(t, out,
 		"herdr's server  started\nserver          started (pid 4711)\ndaemon          started (pid ",
 		"The yard in "+home+" is up.",
-		"Stop it all: "+here("yardr down")+"\n")
+		"Stop it all: "+hereAt(home, "yardr down")+"\n")
 	if strings.Contains(out, "web view") || strings.Contains(out, "BDP") {
 		t.Errorf("up speaks of a part the yard has no address for:\n%s", out)
 	}
@@ -561,7 +561,7 @@ func TestUpStartsWhatDoesNotRun(t *testing.T) {
 // Without herdr up says where it looked and what to do, and starts no
 // daemon: every agent it started would fail and count as a failed start.
 func TestUpWithoutHerdr(t *testing.T) {
-	_, _, a, herdrStarts, daemonStarts := upYard(t, false)
+	home, _, a, herdrStarts, daemonStarts := upYard(t, false)
 	stubLookPath(t, "claude", "git")
 	t.Setenv("PATH", "/usr/bin:/bin")
 	out, err := run(t, a(false).rootCmd(), "up")
@@ -570,7 +570,7 @@ func TestUpWithoutHerdr(t *testing.T) {
 	}
 	wantText(t, out,
 		"herdr's server  NOT herdr is not installed, or not where yardr looks: PATH (/usr/bin:/bin); SHELL names no login shell to ask\n",
-		"                  install herdr (https://herdr.dev), then: "+here("yardr up")+"\n",
+		"                  install herdr (https://herdr.dev), then: "+hereAt(home, "yardr up")+"\n",
 		"server          running already (pid 4711)\n",
 		"daemon          NOT herdr's server does not run",
 		"is not up: see NOT above.\n")
@@ -612,6 +612,8 @@ func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
 	// before up merges PATH.
 	x := a(false)
 	x.env = environMap(os.Environ())
+	// On the yard's home: the process's names TestMain's, with no yard.
+	x.env["YARDR_HOME"] = home
 	out, err := run(t, x.rootCmd(), "up")
 	if err != nil || *herdrStarts != 1 || *daemonStarts != 1 {
 		t.Fatalf("up: %v, herdr started %d times, the daemon %d\n%s", err, *herdrStarts, *daemonStarts, out)

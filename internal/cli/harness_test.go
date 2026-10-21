@@ -146,7 +146,6 @@ func TestHarnessListAndShow(t *testing.T) {
 // person choosing a model (footplate's setup reads doctor). A kind whose
 // file names none carries none.
 func TestDoctorOffers(t *testing.T) {
-	newHome(t)
 	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
@@ -183,7 +182,6 @@ func TestDoctorOffers(t *testing.T) {
 // doctor). A kind whose file names no provider carries none, and git and
 // herdr carry neither.
 func TestDoctorHarnessLabels(t *testing.T) {
-	newHome(t)
 	requireNonInteractive(t)
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })

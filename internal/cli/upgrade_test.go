@@ -27,7 +27,7 @@ import (
 // reads daemon events without a socket.
 func upgradeYard(t *testing.T) (string, store.API, func() *app) {
 	t.Helper()
-	home := newHome(t)
+	home := newHomeDir(t)
 	st := storetest.New(t)
 	testYard(t, st, home)
 	return home, st, func() *app {
@@ -186,7 +186,7 @@ func TestUpgradeCheckServerDown(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v, want check failed\n%s", err, out)
 	}
-	wantText(t, out, "server     fail: the server is not running (start it: "+here("yardr server start")+")\n")
+	wantText(t, out, "server     fail: the server is not running (start it: "+hereAt(home, "yardr server start")+")\n")
 	if _, serr := os.Stat((&config.Config{Home: home}).Socket()); serr == nil {
 		t.Fatal("the check started a server")
 	}
@@ -258,7 +258,7 @@ func TestUpgradeCheckDaemonNoBuild(t *testing.T) {
 		t.Fatalf("err = %v, want check failed\n%s", err, out)
 	}
 	wantText(t, out, "daemon     fail: holds the lock, but no start names the build it runs; restart it ("+
-		here("yardr daemon stop")+", then "+here("yardr daemon start")+")\n")
+		hereAt(home, "yardr daemon stop")+", then "+hereAt(home, "yardr daemon start")+")\n")
 }
 
 // A daemon that holds its lock with no stamp on this build since --since
@@ -371,7 +371,7 @@ func TestUpgradeCheckOldView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "views      ok: 1 old: restart it ("+here("yardr web stop")+", then "+here("yardr web start")+") ("+url+")\n")
+	wantText(t, out, "views      ok: 1 old: restart it ("+hereAt(home, "yardr web stop")+", then "+hereAt(home, "yardr web start")+") ("+url+")\n")
 	if rep, _ := upgradeJSON(t, a()); !rep.OK || rep.Views.Verdict != checkOK ||
 		len(rep.Views.Views) != 1 || rep.Views.Views[0].State != viewOld {
 		t.Fatalf("json: %+v", rep)
@@ -461,7 +461,7 @@ func TestUpgradeCheckViewOtherBuildByHand(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "views      ok: view on bbbbbbbbbbbb, started by hand: "+
-		here("yardr web stop")+" && "+here("yardr web start")+"\n")
+		hereAt(home, "yardr web stop")+" && "+hereAt(home, "yardr web start")+"\n")
 	if rep, _ := upgradeJSON(t, a()); !rep.OK || rep.Views.Verdict != checkOK ||
 		len(rep.Views.Views) != 1 || rep.Views.Views[0].Build != "bbbbbbbbbbbb" {
 		t.Fatalf("json: %+v", rep)
@@ -503,13 +503,14 @@ func TestDialAddr(t *testing.T) {
 // Without --check the command installs: on a home with no yard it says so,
 // and on a yard without the setting it refuses and installs nothing.
 func TestUpgradeWithoutCheck(t *testing.T) {
-	newHome(t)
-	out, err := run(t, (&app{actor: "me"}).rootCmd(), "upgrade")
+	a := testApp(t, nil, newHomeDir(t))
+	a.actor = "me"
+	out, err := run(t, a.rootCmd(), "upgrade")
 	if err == nil || !strings.Contains(err.Error(), "no yard in") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	_, _, a := upgradeYard(t)
-	out, err = run(t, a().rootCmd(), "upgrade")
+	_, _, mk := upgradeYard(t)
+	out, err = run(t, mk().rootCmd(), "upgrade")
 	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}

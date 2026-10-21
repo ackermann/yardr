@@ -100,7 +100,7 @@ func TestDoctorNamesTheHerdrSession(t *testing.T) {
 // the yard's once it is set.
 func TestStatusNamesTheHerdrSession(t *testing.T) {
 	dir := otherShell(t)
-	_, st, a := statusYard(t, "abcdef123456")
+	home, st, a := statusYard(t, "abcdef123456")
 	sock := func(name string) string { return filepath.Join(dir, "herdr", "sessions", name, "herdr.sock") }
 
 	out, err := run(t, a().rootCmd(), "status")
@@ -108,7 +108,7 @@ func TestStatusNamesTheHerdrSession(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "herdr      session other, socket "+sock("other")+" (this shell's, since the yard's herdr_session setting is unset)\n",
-		"           that is this shell's: a daemon started from another uses its own. Name the yard's: "+here("yardr settings set herdr_session <name>")+"\n")
+		"           that is this shell's: a daemon started from another uses its own. Name the yard's: "+hereAt(home, "yardr settings set herdr_session <name>")+"\n")
 
 	if err := st.SetSetting(context.Background(), store.HerdrSessionSetting, "gc", "Jo"); err != nil {
 		t.Fatal(err)

@@ -15,16 +15,22 @@ import (
 // herdr's Kimi integration maps Stop and Interrupt to idle but hears no
 // StopFailure, so a turn that ends on a provider error stays working).
 func TestDoctorKimiHooks(t *testing.T) {
-	newHome(t)
+	home := newHomeDir(t)
 	answeredTools(t, "git", "herdr", "claude", "kimi")
 	st := storetest.New(t)
-	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "kimi"); err != nil {
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "kimi"); err != nil {
 		t.Fatal(err)
 	}
 
-	home := t.TempDir()
-	stub(t, &userHomeDir, func() (string, error) { return home, nil })
-	file := filepath.Join(home, ".kimi-code", "config.toml")
+	user := t.TempDir()
+	stub(t, &userHomeDir, func() (string, error) { return user, nil })
+	file := filepath.Join(user, ".kimi-code", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -78,9 +84,9 @@ func TestDoctorKimiHooks(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("without the hook: notes = %q", got)
 	}
-	block := "```toml\n[[hooks]]\nevent = \"StopFailure\"\ncommand = \"bash '" + home + "/.kimi-code/hooks/herdr-agent-state.sh' idle\"\ntimeout = 10\n```"
+	block := "```toml\n[[hooks]]\nevent = \"StopFailure\"\ncommand = \"bash '" + user + "/.kimi-code/hooks/herdr-agent-state.sh' idle\"\ntimeout = 10\n```"
 	wantText(t, got[0], file, "has no StopFailure hook", "stays working to herdr", "Append to "+file+":\n"+block)
-	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	out, _ := run(t, a().rootCmd(), "doctor")
 	wantText(t, out, "note   kimi", file, block)
 
 	// The herdr hooks twice, the StopFailure one once: one note, about the
@@ -113,7 +119,10 @@ func TestDoctorKimiHooks(t *testing.T) {
 
 	// A yard that runs on no kimi: Kimi's config is not looked at.
 	claude := storetest.New(t)
-	if _, err := run(t, (&app{st: claude, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+	testYard(t, claude, home)
+	c := appOn(claude)
+	c.actor = "me"
+	if _, err := run(t, c.rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	write(withoutStopFailure)
